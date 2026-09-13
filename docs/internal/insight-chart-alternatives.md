@@ -1,42 +1,43 @@
 # Insight chart alternatives
 
-The `product-analytics-chart-alternatives` feature flag replaces the chart type dropdown in the Trends editor with a visual catalog.
+The `product-analytics-chart-alternatives` feature flag replaces the chart type dropdown in the Trends editor with a popover that previews chart types on the chart itself when hovered.
 Keep the flag off until the interface passes product review.
 
 ## Behavior
 
-The chart type control in the options bar shows the current chart.
-Selecting it opens a modal with every chart type, each with an illustration and a one-line description.
-The illustrations are static, not additional query results.
+The chart type button opens a popover listing the chart types.
+The list starts with up to three types suggested for the current data, then the remaining types grouped as in the dropdown.
 Unavailable choices explain their requirements.
+Table is never suggested and only appears in the list.
 
-A **Recommended for this data** group at the top lists up to three compatible types the query's shape makes useful:
-a box plot for a numeric property, a world map for a country breakdown, and a metric or number for a single series.
-The current chart is never recommended.
+Hovering or focusing a type swaps the main chart to that type, rendered with the insight's own data.
+The real chart returns when the hover ends or the popover closes.
+A short hover delay stops a skim down the list from requesting every type.
 
 Selecting a type updates the unsaved query through the existing chart-update path.
 A selection that removes a breakdown or formula, or changes the map's country breakdown, requires confirmation.
 
 ## Previews
 
-A **Preview as** carousel under the main chart renders the same data in other chart types.
-Tiles are ordered by fit: the catalog's recommended types come first, then the rest.
-Types in the current chart's category render from the main result, so they cost no extra request:
-line, area, bar, stacked bar, and metric share the time-series payload, and number, table, horizontal bar, pie, and donut share the total-value payload.
-Types from the other category share one extra request, sent once the main result is in.
-That request repeats whenever the query changes, including a switch between the two categories.
-Cumulative, slope, box plot, world map, and calendar heatmap change the query itself, so they appear only in the catalog.
-Selecting a tile goes through the same selection and confirmation flow as the catalog.
+Opening the gallery never computes a query.
+Every tile is built from the insight's loaded result, so the gallery renders as soon as the main chart has.
+Types in the current chart's category render the loaded result as is.
+Cumulative and slope tiles are derived from the loaded time series and are exact.
+Total value tiles sum the loaded buckets, which is exact for count and sum maths and an estimate for unique, average, and percentile maths.
+Number and metric tiles fold a breakdown into one series, which is an estimate when the breakdown is capped.
+World map, calendar heatmap, and box plot tiles show fixed sample data, because their results cannot be built from a time series.
+A tile that is an estimate is labeled "Approximate values", and a sample tile is labeled "Sample data"; selecting either runs the real query through the normal path.
 
-The feature applies only to editable Trends insights in the standard editor.
-Dashboard tiles, embedded insights, shared insights, and other insight families keep the dropdown.
-The dropdown and the catalog share chart metadata and eligibility rules.
+When the loaded result is a total value, such as a number or pie, the time series tiles need the raw buckets for the same query.
+The logic remembers the last time series it saw for that query in the browser, so switching from a line chart to a pie and opening the gallery costs nothing.
+With nothing remembered it asks the server once with `force_cache`, which returns the cached time series when there is one and never starts a computation.
+On a cache miss those tiles show their icon instead of a chart.
 
 ## Local preview
 
 Run Storybook with `pnpm --filter=@posthog/storybook start`.
 Open **Scenes-App → Insights → Chart alternatives**.
-The stories cover the flag-off baseline, the enabled editor, the open catalog, the open catalog with a country breakdown, and the preview carousel with the extra previews loaded.
+The stories cover the flag-off baseline, the enabled editor, the open popover, a hovered type with its preview loaded, and the open popover with a country breakdown.
 Story parameters enable the flag without changing its production rollout.
 
 ## Measurement

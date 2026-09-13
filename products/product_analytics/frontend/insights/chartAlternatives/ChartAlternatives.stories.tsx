@@ -36,8 +36,9 @@ async function openGallery(canvasElement: HTMLElement): Promise<void> {
     })
     button.click()
     await waitFor(() => {
-        if (!document.querySelector('[data-attr="chart-alternatives-gallery"]')) {
-            throw new Error('Chart types did not open.')
+        const gallery = document.querySelector('[data-attr="chart-alternatives-gallery"]')
+        if (!gallery || gallery.querySelector('.Spinner')) {
+            throw new Error('Chart previews did not load.')
         }
     })
 }
@@ -54,6 +55,19 @@ EnabledDefault.parameters = enabledParameters
 export const EnabledGalleryOpen: Story = createInsightStory(insight as unknown as QueryBasedInsightModel, 'edit')
 EnabledGalleryOpen.parameters = enabledParameters
 EnabledGalleryOpen.play = async ({ canvasElement }): Promise<void> => openGallery(canvasElement)
+
+export const EnabledPreviewOnHover: Story = createInsightStory(insight as unknown as QueryBasedInsightModel, 'edit')
+EnabledPreviewOnHover.parameters = enabledParameters
+EnabledPreviewOnHover.play = async ({ canvasElement }): Promise<void> => {
+    await openGallery(canvasElement)
+    const option = document.querySelector<HTMLElement>('[data-attr="chart-alternative-BoldNumber"]')
+    option?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+    await waitFor(() => {
+        if (!canvasElement.querySelector('.TrendsInsight--BoldNumber')) {
+            throw new Error('Hover preview did not replace the chart.')
+        }
+    })
+}
 
 const insightWithCountryBreakdown = {
     ...insight,
@@ -73,14 +87,3 @@ export const EnabledGalleryOpenCountryBreakdown: Story = createInsightStory(
 )
 EnabledGalleryOpenCountryBreakdown.parameters = enabledParameters
 EnabledGalleryOpenCountryBreakdown.play = async ({ canvasElement }): Promise<void> => openGallery(canvasElement)
-
-export const EnabledPreviewsLoaded: Story = createInsightStory(insight as unknown as QueryBasedInsightModel, 'edit')
-EnabledPreviewsLoaded.parameters = enabledParameters
-EnabledPreviewsLoaded.play = async ({ canvasElement }): Promise<void> => {
-    await waitFor(() => {
-        const panel = canvasElement.querySelector('[data-attr="chart-previews"]')
-        if (!panel || panel.querySelector('.Spinner')) {
-            throw new Error('Previews did not load.')
-        }
-    })
-}

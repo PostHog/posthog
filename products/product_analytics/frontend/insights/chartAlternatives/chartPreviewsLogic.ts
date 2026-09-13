@@ -1,8 +1,7 @@
-import { MakeLogicType, actions, connect, kea, key, path, props, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import { DISPLAY_TYPES_TO_CATEGORIES } from 'lib/constants'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -10,7 +9,7 @@ import { performQuery } from '~/queries/query'
 import type { AnyResponseType, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayCategory, ChartDisplayType } from '~/types'
+import { ChartDisplayType } from '~/types'
 
 import type {
     FunnelsQuery,
@@ -22,38 +21,64 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../../../../frontend/src/queries/schema/schema-general'
-import type { TrendsQueryResponse } from '../../../../../frontend/src/queries/schema/schema-general'
+import type {
+    HogQLQueryResponse,
+    LogsQueryResponse,
+    TraceSpansQueryResponse,
+} from '../../../../../frontend/src/queries/schema/schema-general'
 import type { ChartAlternativesLogicProps } from './chartAlternativesLogic'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
-import type { ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
+import { getChartDisplayChangeWarning } from './chartDisplayOptions'
+import type { ChartDisplayChangeWarning, ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
+import { RAW_TIME_SERIES_DISPLAYS, deriveChartPreview } from './chartPreviewData'
+import type { ChartPreviewFidelity } from './chartPreviewData'
 
-// Displays whose renderer only needs the result payload of its own category. Cumulative, slope, box plot,
-// world map and calendar heatmap change the query itself, so they stay catalog-only.
-const PREVIEWABLE_DISPLAYS = new Set<ChartDisplayType>([
-    ChartDisplayType.ActionsLineGraph,
-    ChartDisplayType.ActionsAreaGraph,
-    ChartDisplayType.ActionsUnstackedBar,
-    ChartDisplayType.ActionsBar,
-    ChartDisplayType.Metric,
+const BREAKDOWN_FREE_DISPLAYS = new Set<ChartDisplayType>([
     ChartDisplayType.BoldNumber,
-    ChartDisplayType.ActionsTable,
-    ChartDisplayType.ActionsBarValue,
-    ChartDisplayType.ActionsPie,
-    ChartDisplayType.ActionsDonut,
+    ChartDisplayType.Metric,
+    ChartDisplayType.CalendarHeatmap,
+    ChartDisplayType.BoxPlot,
 ])
 
 export interface ChartPreview {
     option: ChartDisplayOption
-    needsMore: boolean
+    suggested: boolean
+    current: boolean
+    warning: ChartDisplayChangeWarning | null
+    loading: boolean
+    query: InsightVizNode
+    response: AnyResponseType | null
+    fidelity: ChartPreviewFidelity | null
+    uniqueKey: string
 }
 
-export interface ChartPreviewResponse {
-    category: ChartDisplayCategory
+export interface ChartPreviewGroup {
+    title: string
+    previews: ChartPreview[]
+}
+
+export interface TimeSeriesEntry {
+    key: string
     response: AnyResponseType
 }
 
+// Mirrors the query rewrite that selecting the display applies, so the preview shows what the user would get.
 export function previewTrendsSource(querySource: TrendsQuery, display: ChartDisplayType): TrendsQuery {
-    return { ...querySource, trendsFilter: { ...querySource.trendsFilter, display } }
+    const source: TrendsQuery = { ...querySource, trendsFilter: { ...querySource.trendsFilter, display } }
+    if (BREAKDOWN_FREE_DISPLAYS.has(display)) {
+        source.breakdownFilter = undefined
+    }
+    if (display === ChartDisplayType.BoxPlot) {
+        source.trendsFilter = { ...source.trendsFilter, formula: undefined, formulas: undefined, formulaNodes: [] }
+    }
+    if (display === ChartDisplayType.WorldMap) {
+        const math = querySource.series?.[0]?.math ?? ''
+        source.breakdownFilter = {
+            breakdown: '$geoip_country_code',
+            breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math) ? 'person' : 'event',
+        }
+    }
+    return source
 }
 
 export function previewVizNode(querySource: TrendsQuery, display: ChartDisplayType): InsightVizNode {
@@ -69,23 +94,16 @@ export function previewVizNode(querySource: TrendsQuery, display: ChartDisplayTy
     }
 }
 
-type ChartPreviewQuerySource =
-    | FunnelsQuery
-    | LifecycleQuery
-    | PathsQuery
-    | PathsV2Query
-    | RetentionQuery
-    | StickinessQuery
-    | TrendsQuery
-    | WebOverviewQuery
-    | WebStatsTableQuery
-    | null
+function hasResults(response: AnyResponseType | null | undefined): boolean {
+    const raw = (response as { result?: unknown; results?: unknown } | null)?.results ?? (response as any)?.result
+    return Array.isArray(raw) && raw.length > 0
+}
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface chartPreviewsLogicValues {
     alternatives: ChartDisplayOption[] // chartAlternativesLogic
-    canShowAlternatives: boolean // chartAlternativesLogic
     currentDisplay: ChartDisplayType // chartAlternativesLogic
+    galleryOpen: boolean // chartAlternativesLogic
     options: ChartDisplayOptionGroup[] // chartAlternativesLogic
     insightData: Record<string, any> // insightVizDataLogic
     insightDataLoading: boolean // insightVizDataLogic
@@ -100,50 +118,58 @@ export interface chartPreviewsLogicValues {
         | WebOverviewQuery
         | WebStatsTableQuery
         | null // insightVizDataLogic
-    canShowPreviews: boolean
-    currentCategory: ChartDisplayCategory
-    freePreviews: ChartDisplayOption[]
+    cachedTimeSeries: TimeSeriesEntry | null
+    cachedTimeSeriesLoading: boolean
     freeResponse: AnyResponseType | null
-    moreCategory: ChartDisplayCategory | null
-    morePreviews: ChartDisplayOption[]
-    moreResponse: AnyResponseType | null
-    orderedPreviews: ChartPreview[]
-    otherRequestKey: string | null
-    otherRequestSource: TrendsQuery | null
-    otherResponse: ChartPreviewResponse | null
-    otherResponseLoading: boolean
-    previewableOptions: ChartDisplayOption[]
+    loadedTimeSeriesEntry: TimeSeriesEntry | null
+    pendingTimeSeriesKey: string | null
+    previewGroups: ChartPreviewGroup[]
+    rememberedTimeSeries: Record<string, AnyResponseType>
+    timeSeriesKey: string | null
+    timeSeriesMisses: Record<string, true>
+    timeSeriesResponse: AnyResponseType | null
+    timeSeriesSource: TrendsQuery | null
     trendsSource: TrendsQuery | null
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface chartPreviewsLogicActions {
-    loadOtherResponse: () => {
+    loadCachedTimeSeries: () => {
         value: true
     }
-    loadOtherResponseFailure: (
+    loadCachedTimeSeriesFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadOtherResponseSuccess: (
-        otherResponse: {
-            category: ChartDisplayCategory
-            response: TrendsQueryResponse
+    loadCachedTimeSeriesSuccess: (
+        cachedTimeSeries: {
+            key: string
+            response: HogQLQueryResponse<any[]> | LogsQueryResponse | Record<string, any> | TraceSpansQueryResponse
         } | null,
         payload?: {
             value: true
         }
     ) => {
-        otherResponse: {
-            category: ChartDisplayCategory
-            response: TrendsQueryResponse
+        cachedTimeSeries: {
+            key: string
+            response: HogQLQueryResponse<any[]> | LogsQueryResponse | Record<string, any> | TraceSpansQueryResponse
         } | null
         payload?: {
             value: true
         }
+    }
+    markTimeSeriesMiss: (key: string) => {
+        key: string
+    }
+    rememberTimeSeries: (
+        key: string,
+        response: AnyResponseType
+    ) => {
+        key: string
+        response: AnyResponseType
     }
 }
 
@@ -151,29 +177,6 @@ export interface chartPreviewsLogicActions {
 export interface chartPreviewsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        currentCategory: (currentDisplay: ChartDisplayType) => ChartDisplayCategory
-        previewableOptions: (
-            options: ChartDisplayOptionGroup[],
-            currentDisplay: ChartDisplayType
-        ) => ChartDisplayOption[]
-        freePreviews: (
-            previewableOptions: ChartDisplayOption[],
-            currentCategory: ChartDisplayCategory
-        ) => ChartDisplayOption[]
-        morePreviews: (
-            previewableOptions: ChartDisplayOption[],
-            currentCategory: ChartDisplayCategory
-        ) => ChartDisplayOption[]
-        orderedPreviews: (
-            alternatives: ChartDisplayOption[],
-            previewableOptions: ChartDisplayOption[],
-            currentCategory: ChartDisplayCategory
-        ) => ChartPreview[]
-        moreCategory: (morePreviews: ChartDisplayOption[]) => ChartDisplayCategory | null
-        moreResponse: (
-            otherResponse: ChartPreviewResponse | null,
-            moreCategory: ChartDisplayCategory | null
-        ) => AnyResponseType | null
         trendsSource: (
             querySource:
                 | FunnelsQuery
@@ -187,15 +190,39 @@ export interface chartPreviewsLogicMeta {
                 | WebStatsTableQuery
                 | null
         ) => TrendsQuery | null
-        otherRequestSource: (trendsSource: TrendsQuery | null, morePreviews: ChartDisplayOption[]) => TrendsQuery | null
         freeResponse: (insightData: Record<string, any>) => AnyResponseType | null
-        otherRequestKey: (freeResponse: AnyResponseType | null, otherRequestSource: TrendsQuery | null) => string | null
-        canShowPreviews: (
-            canShowAlternatives: boolean,
+        timeSeriesSource: (trendsSource: TrendsQuery | null) => TrendsQuery | null
+        timeSeriesKey: (timeSeriesSource: TrendsQuery | null) => string | null
+        loadedTimeSeriesEntry: (
+            timeSeriesKey: string | null,
+            currentDisplay: ChartDisplayType,
+            freeResponse: AnyResponseType | null,
+            insightDataLoading: boolean
+        ) => TimeSeriesEntry | null
+        timeSeriesResponse: (
+            timeSeriesKey: string | null,
+            rememberedTimeSeries: Record<string, AnyResponseType>,
+            loadedTimeSeriesEntry: TimeSeriesEntry | null
+        ) => AnyResponseType | null
+        pendingTimeSeriesKey: (
+            galleryOpen: boolean,
+            timeSeriesKey: string | null,
+            timeSeriesResponse: AnyResponseType | null,
+            timeSeriesMisses: Record<string, true>,
+            freeResponse: AnyResponseType | null,
+            insightDataLoading: boolean
+        ) => string | null
+        previewGroups: (
             trendsSource: TrendsQuery | null,
-            freePreviews: ChartDisplayOption[],
-            morePreviews: ChartDisplayOption[]
-        ) => boolean
+            options: ChartDisplayOptionGroup[],
+            alternatives: ChartDisplayOption[],
+            currentDisplay: ChartDisplayType,
+            freeResponse: AnyResponseType | null,
+            timeSeriesResponse: AnyResponseType | null,
+            insightDataLoading: boolean,
+            cachedTimeSeriesLoading: boolean,
+            arg: string
+        ) => ChartPreviewGroup[]
     }
 }
 
@@ -206,6 +233,8 @@ export type chartPreviewsLogicType = MakeLogicType<
     chartPreviewsLogicMeta
 >
 
+// Every tile derives from the insight's loaded result. When that result is a total value, the raw time series
+// for the same query is taken from memory or from the server cache only; nothing is ever computed.
 export const chartPreviewsLogic = kea<chartPreviewsLogicType>([
     props({} as ChartAlternativesLogicProps),
     key(keyForInsightLogicProps('new')),
@@ -213,124 +242,222 @@ export const chartPreviewsLogic = kea<chartPreviewsLogicType>([
     connect((props: ChartAlternativesLogicProps) => ({
         values: [
             chartAlternativesLogic(props),
-            ['alternatives', 'canShowAlternatives', 'currentDisplay', 'options'],
+            ['alternatives', 'currentDisplay', 'galleryOpen', 'options'],
             insightVizDataLogic(props),
             ['insightData', 'insightDataLoading', 'querySource'],
         ],
     })),
     actions({
-        loadOtherResponse: true,
+        loadCachedTimeSeries: true,
+        rememberTimeSeries: (key: string, response: AnyResponseType) => ({ key, response }),
+        markTimeSeriesMiss: (key: string) => ({ key }),
     }),
-    loaders(({ values }) => ({
-        otherResponse: [
-            null as ChartPreviewResponse | null,
+    loaders(({ values, actions }) => ({
+        cachedTimeSeries: [
+            null as TimeSeriesEntry | null,
             {
-                loadOtherResponse: async (_, breakpoint) => {
-                    const source = values.otherRequestSource
-                    const category = values.moreCategory
-                    if (!source || !category) {
+                loadCachedTimeSeries: async (_, breakpoint) => {
+                    const key = values.timeSeriesKey
+                    const source = values.timeSeriesSource
+                    if (!key || !source) {
                         return null
                     }
-                    const response = await performQuery(source)
+                    let response: AnyResponseType | null = null
+                    try {
+                        response = await performQuery(source, undefined, 'force_cache')
+                    } catch {
+                        response = null
+                    }
                     breakpoint()
-                    return { category, response }
+                    if (response && hasResults(response)) {
+                        actions.rememberTimeSeries(key, response)
+                        return { key, response }
+                    }
+                    actions.markTimeSeriesMiss(key)
+                    return null
                 },
             },
         ],
     })),
-    selectors({
-        currentCategory: [
-            (s) => [s.currentDisplay],
-            (currentDisplay: ChartDisplayType): ChartDisplayCategory => DISPLAY_TYPES_TO_CATEGORIES[currentDisplay],
-        ],
-        previewableOptions: [
-            (s) => [s.options, s.currentDisplay],
-            (options: ChartDisplayOptionGroup[], currentDisplay: ChartDisplayType): ChartDisplayOption[] =>
-                options
-                    .flatMap((group) => group.options)
-                    .filter(
-                        (option) =>
-                            PREVIEWABLE_DISPLAYS.has(option.display) &&
-                            option.display !== currentDisplay &&
-                            !option.disabledReason
-                    ),
-        ],
-        freePreviews: [
-            (s) => [s.previewableOptions, s.currentCategory],
-            (previewableOptions: ChartDisplayOption[], currentCategory: ChartDisplayCategory): ChartDisplayOption[] =>
-                previewableOptions.filter((option) => DISPLAY_TYPES_TO_CATEGORIES[option.display] === currentCategory),
-        ],
-        morePreviews: [
-            (s) => [s.previewableOptions, s.currentCategory],
-            (previewableOptions: ChartDisplayOption[], currentCategory: ChartDisplayCategory): ChartDisplayOption[] =>
-                previewableOptions.filter((option) => DISPLAY_TYPES_TO_CATEGORIES[option.display] !== currentCategory),
-        ],
-        orderedPreviews: [
-            (s) => [s.alternatives, s.previewableOptions, s.currentCategory],
-            (
-                alternatives: ChartDisplayOption[],
-                previewableOptions: ChartDisplayOption[],
-                currentCategory: ChartDisplayCategory
-            ): ChartPreview[] => {
-                const previewable = new Map(previewableOptions.map((option) => [option.display, option]))
-                const recommended = alternatives.filter((option) => previewable.has(option.display))
-                const rest = previewableOptions.filter(
-                    (option) => !recommended.some((candidate) => candidate.display === option.display)
-                )
-                return [...recommended, ...rest].map((option) => ({
-                    option,
-                    needsMore: DISPLAY_TYPES_TO_CATEGORIES[option.display] !== currentCategory,
-                }))
+    reducers({
+        rememberedTimeSeries: [
+            {} as Record<string, AnyResponseType>,
+            {
+                rememberTimeSeries: (state: Record<string, AnyResponseType>, { key, response }) =>
+                    state[key] === response ? state : { ...state, [key]: response },
             },
         ],
-        moreCategory: [
-            (s) => [s.morePreviews],
-            (morePreviews: ChartDisplayOption[]): ChartDisplayCategory | null =>
-                morePreviews.length ? DISPLAY_TYPES_TO_CATEGORIES[morePreviews[0].display] : null,
+        timeSeriesMisses: [
+            {} as Record<string, true>,
+            {
+                markTimeSeriesMiss: (state: Record<string, true>, { key }) => ({ ...state, [key]: true }),
+                rememberTimeSeries: (state: Record<string, true>, { key }) => {
+                    if (!state[key]) {
+                        return state
+                    }
+                    const { [key]: _, ...rest } = state
+                    return rest
+                },
+            },
         ],
-        moreResponse: [
-            (s) => [s.otherResponse, s.moreCategory],
-            (
-                otherResponse: ChartPreviewResponse | null,
-                moreCategory: ChartDisplayCategory | null
-            ): AnyResponseType | null =>
-                otherResponse && otherResponse.category === moreCategory ? otherResponse.response : null,
-        ],
+    }),
+    selectors({
         trendsSource: [
             (s) => [s.querySource],
-            (querySource: ChartPreviewQuerySource): TrendsQuery | null =>
-                querySource && isTrendsQuery(querySource) ? querySource : null,
-        ],
-        otherRequestSource: [
-            (s) => [s.trendsSource, s.morePreviews],
-            (trendsSource: TrendsQuery | null, morePreviews: ChartDisplayOption[]): TrendsQuery | null =>
-                trendsSource && morePreviews.length ? previewTrendsSource(trendsSource, morePreviews[0].display) : null,
+            (
+                querySource:
+                    | FunnelsQuery
+                    | LifecycleQuery
+                    | PathsQuery
+                    | PathsV2Query
+                    | RetentionQuery
+                    | StickinessQuery
+                    | TrendsQuery
+                    | WebOverviewQuery
+                    | WebStatsTableQuery
+                    | null
+            ): TrendsQuery | null => (querySource && isTrendsQuery(querySource) ? querySource : null),
         ],
         freeResponse: [
             (s) => [s.insightData],
             (insightData: Record<string, any> | null): AnyResponseType | null =>
                 insightData?.result != null || insightData?.results != null ? (insightData as AnyResponseType) : null,
         ],
-        // The other category loads once the main result is in, and again whenever the query it depends on changes.
-        otherRequestKey: [
-            (s) => [s.freeResponse, s.otherRequestSource],
-            (freeResponse: AnyResponseType | null, otherRequestSource: TrendsQuery | null): string | null =>
-                freeResponse && otherRequestSource ? JSON.stringify(otherRequestSource) : null,
+        // The plain line chart query: the raw buckets every time series and total value tile derives from.
+        timeSeriesSource: [
+            (s) => [s.trendsSource],
+            (trendsSource: TrendsQuery | null): TrendsQuery | null =>
+                trendsSource ? previewTrendsSource(trendsSource, ChartDisplayType.ActionsLineGraph) : null,
         ],
-        canShowPreviews: [
-            (s) => [s.canShowAlternatives, s.trendsSource, s.freePreviews, s.morePreviews],
+        timeSeriesKey: [
+            (s) => [s.timeSeriesSource],
+            (timeSeriesSource: TrendsQuery | null): string | null =>
+                timeSeriesSource ? JSON.stringify(timeSeriesSource) : null,
+        ],
+        loadedTimeSeriesEntry: [
+            (s) => [s.timeSeriesKey, s.currentDisplay, s.freeResponse, s.insightDataLoading],
             (
-                canShowAlternatives: boolean,
+                timeSeriesKey: string | null,
+                currentDisplay: ChartDisplayType,
+                freeResponse: AnyResponseType | null,
+                insightDataLoading: boolean
+            ): TimeSeriesEntry | null =>
+                timeSeriesKey && freeResponse && !insightDataLoading && RAW_TIME_SERIES_DISPLAYS.has(currentDisplay)
+                    ? { key: timeSeriesKey, response: freeResponse }
+                    : null,
+        ],
+        timeSeriesResponse: [
+            (s) => [s.timeSeriesKey, s.rememberedTimeSeries, s.loadedTimeSeriesEntry],
+            (
+                timeSeriesKey: string | null,
+                rememberedTimeSeries: Record<string, AnyResponseType>,
+                loadedTimeSeriesEntry: TimeSeriesEntry | null
+            ): AnyResponseType | null =>
+                (timeSeriesKey ? rememberedTimeSeries[timeSeriesKey] : null) ?? loadedTimeSeriesEntry?.response ?? null,
+        ],
+        // A cache-only lookup runs once per query while the gallery is open and no time series is known.
+        pendingTimeSeriesKey: [
+            (s) => [
+                s.galleryOpen,
+                s.timeSeriesKey,
+                s.timeSeriesResponse,
+                s.timeSeriesMisses,
+                s.freeResponse,
+                s.insightDataLoading,
+            ],
+            (
+                galleryOpen: boolean,
+                timeSeriesKey: string | null,
+                timeSeriesResponse: AnyResponseType | null,
+                timeSeriesMisses: Record<string, true>,
+                freeResponse: AnyResponseType | null,
+                insightDataLoading: boolean
+            ): string | null =>
+                galleryOpen &&
+                timeSeriesKey &&
+                !timeSeriesResponse &&
+                !timeSeriesMisses[timeSeriesKey] &&
+                freeResponse &&
+                !insightDataLoading
+                    ? timeSeriesKey
+                    : null,
+        ],
+        previewGroups: [
+            (s) => [
+                s.trendsSource,
+                s.options,
+                s.alternatives,
+                s.currentDisplay,
+                s.freeResponse,
+                s.timeSeriesResponse,
+                s.insightDataLoading,
+                s.cachedTimeSeriesLoading,
+                (_, props) => keyForInsightLogicProps('new')(props),
+            ],
+            (
                 trendsSource: TrendsQuery | null,
-                freePreviews: ChartDisplayOption[],
-                morePreviews: ChartDisplayOption[]
-            ): boolean => canShowAlternatives && !!trendsSource && freePreviews.length + morePreviews.length > 0,
+                options: ChartDisplayOptionGroup[],
+                alternatives: ChartDisplayOption[],
+                currentDisplay: ChartDisplayType,
+                freeResponse: AnyResponseType | null,
+                timeSeriesResponse: AnyResponseType | null,
+                insightDataLoading: boolean,
+                cachedTimeSeriesLoading: boolean,
+                logicKey: string
+            ): ChartPreviewGroup[] => {
+                if (!trendsSource) {
+                    return []
+                }
+                const suggestedDisplays = new Set(alternatives.map((option) => option.display))
+                const toPreview = (option: ChartDisplayOption): ChartPreview => {
+                    const derived =
+                        option.disabledReason || !freeResponse || insightDataLoading
+                            ? null
+                            : deriveChartPreview(option.display, trendsSource, freeResponse, timeSeriesResponse)
+                    return {
+                        option,
+                        suggested: suggestedDisplays.has(option.display),
+                        current: option.display === currentDisplay,
+                        warning: getChartDisplayChangeWarning(option.display, trendsSource),
+                        loading: !option.disabledReason && !derived && (insightDataLoading || cachedTimeSeriesLoading),
+                        query: previewVizNode(trendsSource, option.display),
+                        response: derived?.response ?? null,
+                        fidelity: derived?.fidelity ?? null,
+                        uniqueKey: `chart-preview-${logicKey}-${option.display}`,
+                    }
+                }
+                const groups: ChartPreviewGroup[] = []
+                if (alternatives.length) {
+                    groups.push({ title: 'Suggested', previews: alternatives.map(toPreview) })
+                }
+                for (const group of options) {
+                    const previews = group.options
+                        .filter((option) => !suggestedDisplays.has(option.display))
+                        .map(toPreview)
+                    if (!previews.length) {
+                        continue
+                    }
+                    const title = group.title === 'Cumulative time series' ? 'Time series' : group.title
+                    const existing = groups.find((g) => g.title === title)
+                    if (existing) {
+                        existing.previews.push(...previews)
+                    } else {
+                        groups.push({ title, previews })
+                    }
+                }
+                return groups
+            },
         ],
     }),
     subscriptions(({ actions }) => ({
-        otherRequestKey: (key: string | null) => {
+        loadedTimeSeriesEntry: (entry: TimeSeriesEntry | null) => {
+            if (entry) {
+                actions.rememberTimeSeries(entry.key, entry.response)
+            }
+        },
+        pendingTimeSeriesKey: (key: string | null) => {
             if (key) {
-                actions.loadOtherResponse()
+                actions.loadCachedTimeSeries()
             }
         },
     })),

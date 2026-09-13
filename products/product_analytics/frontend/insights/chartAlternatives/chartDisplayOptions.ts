@@ -204,10 +204,13 @@ const RECOMMENDED_DISPLAYS = [
     ChartDisplayType.WorldMap,
     ChartDisplayType.Metric,
     ChartDisplayType.BoldNumber,
-    ChartDisplayType.ActionsTable,
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.ActionsUnstackedBar,
     ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsLineGraphCumulative,
 ]
 
 export function getChartAlternatives(
@@ -232,7 +235,7 @@ export function getChartAlternatives(
             (option): option is ChartDisplayOption =>
                 !!option && option.display !== currentDisplay && !option.disabledReason
         )
-        .slice(0, 3)
+        .slice(0, 4)
 }
 
 export function getChartDisplayChangeWarning(

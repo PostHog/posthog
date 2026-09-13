@@ -1,31 +1,43 @@
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 
-import { Query } from '~/queries/Query/Query'
-import type { AnyResponseType, InsightVizNode } from '~/queries/schema/schema-general'
+import { IconInfo } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
 
-import type { ChartDisplayOption } from './chartDisplayOptions'
-import { ChartDisplaySketch } from './ChartDisplaySketch'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
+import { ChartDisplayType } from '~/types'
+
+import { ChartDisplayIcon } from './ChartDisplayIcon'
+import { ChartPreviewCanvas } from './ChartPreviewCanvas'
+import type { ChartPreviewFidelity } from './chartPreviewData'
+import type { ChartPreview } from './chartPreviewsLogic'
+
+const FIDELITY_LABELS: Record<Exclude<ChartPreviewFidelity, 'exact'>, string> = {
+    approximate: 'Approximate values',
+    sample: 'Sample data',
+}
+
+const FIDELITY_TOOLTIPS: Record<Exclude<ChartPreviewFidelity, 'exact'>, string> = {
+    approximate: 'Estimated from the loaded chart. Select this type to see the real values.',
+    sample: 'Shows how this chart type looks. Select it to run the query on your data.',
+}
 
 export function ChartPreviewTile({
     disabledReason,
-    loading,
     onSelect,
-    option,
-    query,
-    response,
-    uniqueKey,
+    preview,
 }: {
     disabledReason?: string
-    loading: boolean
     onSelect: () => void
-    option: ChartDisplayOption
-    query: InsightVizNode
-    response: AnyResponseType | null
-    uniqueKey: string
+    preview: ChartPreview
 }): JSX.Element {
+    const { fidelity, loading, option, query, response, uniqueKey, warning } = preview
+    const reason = disabledReason ?? option.disabledReason
+    const disabled = !!reason
+
     let body: JSX.Element
     if (response) {
-        body = <Query uniqueKey={uniqueKey} query={query} cachedResults={response} readOnly embedded />
+        body = <ChartPreviewCanvas uniqueKey={uniqueKey} query={query} response={response} />
     } else if (loading) {
         body = (
             <div className="flex flex-1 items-center justify-center">
@@ -34,28 +46,60 @@ export function ChartPreviewTile({
         )
     } else {
         body = (
-            <div className="flex flex-1 items-center justify-center">
-                <span className="w-24 opacity-60">
-                    <ChartDisplaySketch display={option.display} />
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-secondary">
+                <span className="text-4xl opacity-40">
+                    <ChartDisplayIcon icon={option.icon} />
                 </span>
+                {reason ? <span className="text-xs">{reason}</span> : null}
             </div>
         )
     }
 
-    return (
-        <LemonButton
-            type="secondary"
-            noPadding
-            className="relative h-40 w-60 shrink-0 snap-start whitespace-normal text-left"
+    const tile = (
+        <button
+            type="button"
+            className={clsx(
+                'flex w-full flex-col overflow-hidden rounded border bg-surface-primary text-left transition-colors',
+                disabled ? 'cursor-default' : 'cursor-pointer hover:border-accent hover:bg-surface-secondary',
+                reason && 'opacity-60'
+            )}
             data-attr={`chart-preview-${option.display}`}
-            tooltip={option.label}
-            aria-label={option.label}
-            disabledReason={disabledReason}
+            disabled={disabled}
             onClick={onSelect}
         >
-            <span className="pointer-events-none absolute inset-0 flex flex-col overflow-hidden" aria-hidden>
-                {body}
+            <span className="flex items-center gap-1 border-b px-2 py-1 text-xs">
+                <ChartDisplayIcon icon={option.icon} />
+                <span className="truncate font-medium">{option.label}</span>
+                <Tooltip title={option.description}>
+                    <IconInfo className="ml-auto shrink-0 text-base text-secondary" />
+                </Tooltip>
             </span>
-        </LemonButton>
+            <span className="pointer-events-none relative flex h-32 flex-col overflow-hidden" aria-hidden>
+                <span
+                    className={clsx(
+                        'flex h-full flex-col [&_.text-7xl]:text-lg [&_.text-7xl]:leading-tight',
+                        option.display === ChartDisplayType.CalendarHeatmap &&
+                            '[zoom:0.3] [&_.CalendarHeatMapContainer+div]:hidden',
+                        option.display === ChartDisplayType.ActionsTable &&
+                            '[zoom:0.6] [&_.ScrollableShadows::before]:shadow-none! [&_.ScrollableShadows::after]:shadow-none! [&_.LemonTable__cell--sticky::before]:shadow-none! [&_.LemonTable__header--sticky::before]:shadow-none!'
+                    )}
+                >
+                    {body}
+                </span>
+            </span>
+            {warning && !reason ? (
+                <span className="flex items-center border-t px-2 py-1 text-xs text-warning">{warning.title}</span>
+            ) : null}
+            {fidelity && fidelity !== 'exact' && !reason ? (
+                <Tooltip title={FIDELITY_TOOLTIPS[fidelity]}>
+                    <span className="flex items-center gap-1 border-t px-2 py-1 text-xs text-secondary">
+                        {FIDELITY_LABELS[fidelity]}
+                        <IconInfo className="ml-auto shrink-0 text-base" />
+                    </span>
+                </Tooltip>
+            ) : null}
+        </button>
     )
+
+    return reason ? <Tooltip title={reason}>{tile}</Tooltip> : tile
 }

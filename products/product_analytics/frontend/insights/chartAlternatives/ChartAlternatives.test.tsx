@@ -14,12 +14,11 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import type { TrendsQuery } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
-import { BaseMathType, ChartDisplayCategory, ChartDisplayType, InsightShortId } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
 
 import { ChartAlternatives } from './ChartAlternatives'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
 import { getChartAlternatives, getChartDisplayChangeWarning, getChartDisplayOptions } from './chartDisplayOptions'
-import { chartPreviewsLogic } from './chartPreviewsLogic'
 
 const insightProps = { dashboardItemId: 'chart-alternatives' as InsightShortId }
 
@@ -182,47 +181,6 @@ describe('ChartAlternatives', () => {
         resolveQueryResponse?.()
     })
 
-    it('fetches the other chart category once the main result is in and again after a category flip', async () => {
-        let queryRequests = 0
-        const countQuery = (): { results: never[] } => {
-            queryRequests += 1
-            return { results: [] }
-        }
-        useMocks({
-            post: {
-                '/api/environments/:team_id/query/:kind/': countQuery,
-                '/api/projects/:team_id/query/:kind/': countQuery,
-            },
-        })
-        setQuery(makeTrendsQuery())
-        alternativesLogic()
-        const previews = chartPreviewsLogic({ editMode: true, embedded: false, ...insightProps })
-        previews.mount()
-
-        expect(
-            previews.values.orderedPreviews.slice(0, 3).map(({ option, needsMore }) => [option.display, needsMore])
-        ).toEqual([
-            [ChartDisplayType.BoldNumber, true],
-            [ChartDisplayType.ActionsTable, true],
-            [ChartDisplayType.ActionsAreaGraph, false],
-        ])
-        expect(previews.values.otherRequestSource?.trendsFilter?.display).toBe(ChartDisplayType.BoldNumber)
-        expect(queryRequests).toBe(0)
-
-        builtInsightDataLogic.actions.setInsightData({ results: [] })
-        await waitFor(() => expect(previews.values.moreResponse).not.toBeNull())
-        expect(queryRequests).toBe(1)
-
-        builtInsightVizDataLogic.actions.updateQuerySource({
-            trendsFilter: { display: ChartDisplayType.ActionsTable },
-        })
-        expect(previews.values.moreCategory).toBe(ChartDisplayCategory.TimeSeries)
-        expect(previews.values.moreResponse).toBeNull()
-        await waitFor(() => expect(previews.values.moreResponse).not.toBeNull())
-        expect(queryRequests).toBe(2)
-        previews.unmount()
-    })
-
     it('uses the same eligibility metadata as the chart dropdown', () => {
         const options = getChartDisplayOptions({
             isTrends: true,
@@ -284,6 +242,6 @@ describe('ChartAlternatives', () => {
         ).toEqual([ChartDisplayType.BoxPlot, ChartDisplayType.WorldMap, ChartDisplayType.Metric])
         expect(
             getChartAlternatives(compatibleOptions, ChartDisplayType.ActionsLineGraph).map((option) => option.display)
-        ).toEqual([ChartDisplayType.BoxPlot, ChartDisplayType.Metric, ChartDisplayType.ActionsTable])
+        ).toEqual([ChartDisplayType.BoxPlot, ChartDisplayType.Metric, ChartDisplayType.ActionsBarValue])
     })
 })

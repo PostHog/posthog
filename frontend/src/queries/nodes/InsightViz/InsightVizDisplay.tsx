@@ -54,7 +54,8 @@ import {
 } from '~/types'
 
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
-import { ChartPreviews } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartPreviews'
+import { chartAlternativesLogic } from 'products/product_analytics/frontend/insights/chartAlternatives/chartAlternativesLogic'
+import { ChartGallery } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartGallery'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
@@ -352,8 +353,8 @@ export function InsightVizDisplay({
 
     function renderActiveView(): JSX.Element | null {
         switch (activeView) {
-            case InsightType.TRENDS:
-                return (
+            case InsightType.TRENDS: {
+                const trends = (
                     <TrendInsight
                         view={InsightType.TRENDS}
                         editMode={editMode}
@@ -362,6 +363,19 @@ export function InsightVizDisplay({
                         inSharedMode={inSharedMode}
                     />
                 )
+                return showChartAlternatives ? (
+                    <ChartGallery
+                        insightProps={insightProps}
+                        editMode={editMode}
+                        embedded={embedded}
+                        inSharedMode={inSharedMode}
+                    >
+                        {trends}
+                    </ChartGallery>
+                ) : (
+                    trends
+                )
+            }
             case InsightType.STICKINESS:
                 return (
                     <TrendInsight
@@ -511,7 +525,8 @@ export function InsightVizDisplay({
         return <InsightAIAnalysis />
     }
 
-    const showComputationMetadata = !disableLastComputation || !!samplingFactor
+    const { galleryOpen } = useValues(chartAlternativesLogic({ ...insightProps, editMode, embedded, inSharedMode }))
+    const showComputationMetadata = (!disableLastComputation || !!samplingFactor) && !galleryOpen
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
@@ -536,7 +551,17 @@ export function InsightVizDisplay({
                 )}
                 data-attr={INSIGHT_GRAPH_DATA_ATTR}
             >
-                {disableHeader ? null : (
+                {disableHeader ? null : galleryOpen ? (
+                    <div className="flex items-center justify-between gap-2 p-2 border-b">
+                        <span className="text-sm font-semibold">Choose a chart type</span>
+                        <ChartAlternatives
+                            insightProps={insightProps}
+                            editMode={editMode}
+                            embedded={embedded}
+                            inSharedMode={inSharedMode}
+                        />
+                    </div>
+                ) : (
                     <InsightDisplayConfig
                         chartTypeControl={
                             showChartAlternatives ? (
@@ -595,14 +620,6 @@ export function InsightVizDisplay({
                     </>
                 )}
             </div>
-            {showChartAlternatives && (
-                <ChartPreviews
-                    insightProps={insightProps}
-                    editMode={editMode}
-                    embedded={embedded}
-                    inSharedMode={inSharedMode}
-                />
-            )}
             <ResultCustomizationsModal />
             {renderAIAnalysisSection()}
             {renderTable()}
