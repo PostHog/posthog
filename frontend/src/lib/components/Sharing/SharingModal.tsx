@@ -515,14 +515,14 @@ export function SharingModalContent({
                                 collapsible
                                 defaultExpanded={false}
                                 templateLink={renderQuerySnippet}
-                                heading="Static iframe embed with pre-computed data"
-                                piiWarning="Add this iframe to any site to embed a static PostHog chart. It will look identical to the chart you see here, but nothing will be editable. If any data is sensitive, consider that before sharing."
+                                heading="Static iframe embed (does not refresh)"
+                                piiWarning={`Add this iframe to any site to embed a static PostHog chart. It looks like the chart you see here, but nothing is editable. The snippet holds a copy of the results from right now. The embed does not refresh, so it keeps these numbers until you replace them. For a chart that updates on its own, turn on sharing above and use the "Embed ${resource}" snippet. If any data is sensitive, consider that before sharing.`}
                             />
                             {apiQuerySnippet && (
                                 <TemplateLinkSection
                                     templateLink={apiQuerySnippet}
                                     heading="Fetch latest results for this insight"
-                                    piiWarning='Use this snippet to retrieve the freshest results for the insight. Replace the "cachedResults" section in the iframe&apos;s payload with the results of this call to update it.'
+                                    piiWarning='Use this snippet to calculate fresh results for the insight. Replace the "cachedResults" value in the iframe&apos;s payload with the results of this call to update the static embed.'
                                     collapsible
                                     defaultExpanded={false}
                                 />
@@ -599,6 +599,7 @@ function createApiQuerySnippet({
     },
     body: JSON.stringify({
         query: ${escapedQuery},
+        refresh: 'force_blocking',
     }),
 })
     .then((response) => response.json())
