@@ -243,11 +243,15 @@ export const lemonToast = {
         return id
     },
     warning(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
-        posthog.capture('toast warning', {
-            message: String(message),
-            button: button?.label,
-            toastId: toastOptions.toastId,
-        })
+        // when used inside the posthog toolbar, `posthog.capture` isn't loaded
+        // check if the function is available before calling it.
+        if (posthog.capture) {
+            posthog.capture('toast warning', {
+                message: String(message),
+                button: button?.label,
+                toastId: toastOptions.toastId,
+            })
+        }
         const options = ensureToastId(toastOptions, 'warning', message)
         const id = options.toastId!
         queueMicrotask(() => {
