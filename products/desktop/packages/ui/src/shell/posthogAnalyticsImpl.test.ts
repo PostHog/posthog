@@ -252,6 +252,55 @@ describe("recordNavigationSettled", () => {
   });
 });
 
+describe("recordApiRequest", () => {
+  it("records duration by route with a templated API operation", async () => {
+    const { initializePostHog, recordApiRequest } = await loadAnalytics();
+    initializePostHog();
+
+    recordApiRequest(
+      125,
+      "/tasks/$taskId",
+      "GET",
+      "/api/projects/{projectId}/tasks/{taskId}/",
+      200,
+      "success",
+    );
+
+    expect(mockPosthog.metrics.histogram).toHaveBeenCalledWith(
+      "desktop.api.request.duration",
+      125,
+      {
+        unit: "ms",
+        attributes: {
+          method: "GET",
+          operation: "/api/projects/{projectId}/tasks/{taskId}/",
+          outcome: "success",
+          route: "/tasks/$taskId",
+          status_class: "2xx",
+        },
+      },
+    );
+  });
+
+  it.each([
+    "/api/skills/foo/files/billing/config.ts",
+    "/api/skills/short-name/files/src/components/Thing.tsx",
+  ])("uses a bounded operation for raw dynamic path %s", async (path) => {
+    const { initializePostHog, recordApiRequest } = await loadAnalytics();
+    initializePostHog();
+
+    recordApiRequest(125, "/tasks/$taskId", "GET", path, 200, "success");
+
+    expect(mockPosthog.metrics.histogram).toHaveBeenCalledWith(
+      "desktop.api.request.duration",
+      125,
+      expect.objectContaining({
+        attributes: expect.objectContaining({ operation: "custom" }),
+      }),
+    );
+  });
+});
+
 describe("initializePostHog", () => {
   it("is idempotent across repeat calls", async () => {
     const { initializePostHog } = await loadAnalytics();

@@ -3,6 +3,7 @@ import type { ApiClient } from "@posthog/api-client/generated";
 import { getPosthogApiClientAppVersion } from "@posthog/api-client/posthog-client";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import { getCloudUrlFromRegion } from "@posthog/shared";
+import { recordApiRequestStart } from "@posthog/ui/shell/apiRequestMetrics";
 import { useMemo } from "react";
 import { useAuthStateValue } from "../../auth/store";
 
@@ -43,6 +44,7 @@ export function useLoopsClient(): LoopsApiClient | null {
             .mutate()
             .then((r) => r.accessToken),
         appVersion: getPosthogApiClientAppVersion(),
+        onRequestStart: recordApiRequestStart,
       }),
       baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl,
     );
