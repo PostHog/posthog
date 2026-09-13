@@ -254,6 +254,23 @@ class TestReportCheckExecution(APIBaseTest):
         assert check.consecutive_errors == 1
         assert check.next_run_at >= timezone.now() + CHECK_ERROR_RETRY_AFTER - timedelta(minutes=1)
 
+    def test_a_check_whose_stored_config_stopped_parsing_records_an_errored_run(self) -> None:
+        check = self._check()
+        # A config that parsed when it was written and no longer does, as a tightened query rule leaves it.
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+            config={"comparison": {"operator": "lte", "value": 10}}
+        )
+
+        summary = run_due_report_checks()
+
+        assert summary.errored == 1
+        check.refresh_from_db()
+        assert check.consecutive_errors == 1
+        assert check.next_run_at > timezone.now()
+        results = self._results()
+        assert len(results) == 1
+        assert '"outcome":"errored"' in results[0].content
+
     def test_a_suppressed_report_pauses_its_checks(self) -> None:
         self._check()
         self.report.status = SignalReport.Status.SUPPRESSED

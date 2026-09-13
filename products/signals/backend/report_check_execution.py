@@ -36,6 +36,7 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact, 
 from products.signals.backend.report_checks import (
     MAX_CONSECUTIVE_CHECK_ERRORS,
     CheckComparison,
+    CheckConfigValidationError,
     CheckOutcome,
     MetricThresholdConfig,
     parse_check_config,
@@ -185,8 +186,15 @@ def record_check_verdict(check: SignalReportCheck, verdict: CheckVerdict, *, now
     records nothing.
     """
     now = now or timezone.now()
-    config = parse_check_config(check.kind, check.config)
-    assert isinstance(config, MetricThresholdConfig)
+    # The result's context is best-effort. A stored config can stop parsing part-way through a soak,
+    # because a tightened query rule invalidates a class of stored queries at once. Such a run still
+    # has to reach the errored path: raising here would record nothing, and the row would keep its
+    # past `next_run_at` and head the due queue on every tick until its horizon.
+    try:
+        parsed = parse_check_config(check.kind, check.config)
+    except CheckConfigValidationError:
+        parsed = None
+    config = parsed if isinstance(parsed, MetricThresholdConfig) else None
 
     with transaction.atomic():
         current = (
@@ -226,8 +234,8 @@ def record_check_verdict(check: SignalReportCheck, verdict: CheckVerdict, *, now
                 outcome=verdict.outcome,
                 explanation=verdict.explanation,
                 observed_value=verdict.observed_value,
-                baseline_value=config.baseline_value,
-                threshold=_describe_comparison(config.comparison),
+                baseline_value=config.baseline_value if config is not None else None,
+                threshold=_describe_comparison(config.comparison) if config is not None else None,
             ),
             attribution=ArtefactAttribution.system(),
         )
