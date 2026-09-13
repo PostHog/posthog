@@ -1,4 +1,5 @@
-import { useEffect } from 'react'
+import { useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -7,6 +8,7 @@ import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { urls } from 'scenes/urls'
 
 import { captureInboxSetupIncompleteViewed, captureInboxSetupRecoveryAction } from '../../inboxAnalytics'
+import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { SELF_DRIVING_WIZARD_COMMAND } from '../onboarding/InboxWelcome'
 
 /**
@@ -19,9 +21,26 @@ import { SELF_DRIVING_WIZARD_COMMAND } from '../onboarding/InboxWelcome'
  * setup command can be suppressed for the rest of the session by one "Set up manually" click.
  */
 export function InboxSetupIncomplete(): JSX.Element {
+    // The list stays mounted (hidden) while a report, scout, or panel covers it, so gate the view
+    // event on the list being the visible surface. Without this a deep link to one of those URLs
+    // records a view of a surface the user never saw, and the recovery rate reads lower than it is.
+    const { selectedReportId, selectedScoutSkillName, isScratchpadOpen, isFindingsOpen, isRunsOpen, isTriageOpen } =
+        useValues(inboxSceneLogic)
+    const listVisible =
+        !selectedReportId &&
+        !selectedScoutSkillName &&
+        !isScratchpadOpen &&
+        !isFindingsOpen &&
+        !isRunsOpen &&
+        !isTriageOpen
+
+    const viewedFiredRef = useRef(false)
     useEffect(() => {
-        captureInboxSetupIncompleteViewed()
-    }, [])
+        if (listVisible && !viewedFiredRef.current) {
+            viewedFiredRef.current = true
+            captureInboxSetupIncompleteViewed()
+        }
+    }, [listVisible])
 
     return (
         <div className="mx-auto flex max-w-md flex-col items-center gap-2 py-12 text-center">
