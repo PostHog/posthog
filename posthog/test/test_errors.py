@@ -49,6 +49,28 @@ class TestWrapClickhouseQueryError:
                 "CANNOT_CONVERT_TYPE",
                 "Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
             ),
+            # Type-coercion parse family: exposed as a 400, but the fixed string keeps the failing
+            # data value the raw CH text embeds out of the response.
+            (
+                6,
+                "CANNOT_PARSE_TEXT",
+                "Cannot parse a text value as the required type. Check the types in your comparisons and IN clauses.",
+            ),
+            (
+                26,
+                "CANNOT_PARSE_QUOTED_STRING",
+                "Cannot parse a value in the query as a quoted string. Check the types in your comparisons and IN clauses.",
+            ),
+            (
+                72,
+                "CANNOT_PARSE_NUMBER",
+                "Cannot parse a value in the query as a number. Check the types in your comparisons and IN clauses.",
+            ),
+            (
+                130,
+                "CANNOT_READ_ARRAY_FROM_TEXT",
+                "Cannot parse a value in the query as an array. Check the types in your comparisons and IN clauses.",
+            ),
             (407, "DECIMAL_OVERFLOW", "Decimal overflow while executing query."),
         ]
     )
@@ -60,6 +82,14 @@ class TestWrapClickhouseQueryError:
         assert isinstance(wrapped, ExposedCHQueryError)
         assert str(wrapped) == message
 
+    @parameterized.expand([(6,), (26,), (72,), (130,)])
+    def test_type_coercion_parse_codes_classify_as_user_error(self, code: int) -> None:
+        # The family carries an explicit USER_ERROR category so it stays off the SLO failure count
+        # and out of error tracking. Dropping the category would silently revert 26 and 130 to ERROR.
+        err = ServerException("DB::Exception: parse failure", code=code)
+
+        assert look_up_clickhouse_error_code_meta(err).get_category() == QueryErrorCategory.USER_ERROR
+
     @parameterized.expand(
         [
             # NETWORK_ERROR (210) is a genuine server-side fault and must not be exposed.
@@ -67,10 +97,8 @@ class TestWrapClickhouseQueryError:
             # SYNTAX_ERROR (62) stays internal: HogQL validates syntax first, so a raw CH syntax error
             # signals a PostHog SQL-generation bug that belongs in error tracking.
             (62, "SYNTAX_ERROR"),
-            # These parse/convert codes embed the failing data value in the CH message, so they stay
+            # These parse codes embed the failing data value in the CH message, so they stay
             # internal to avoid leaking source values on public shared insights.
-            (6, "CANNOT_PARSE_TEXT"),
-            (72, "CANNOT_PARSE_NUMBER"),
             (675, "CANNOT_PARSE_IPV4"),
             (676, "CANNOT_PARSE_IPV6"),
             (691, "UNKNOWN_ELEMENT_OF_ENUM"),
