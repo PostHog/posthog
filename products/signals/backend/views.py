@@ -4272,32 +4272,43 @@ class SignalReportCheckViewSet(
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        active_checks = SignalReportCheck.objects.for_team(self.team.id).filter(
-            report_id=report.id, status=SignalReportCheck.Status.ACTIVE
-        )
-        if active_checks.count() >= MAX_ACTIVE_CHECKS_PER_REPORT:
-            return Response(
-                {"error": f"A report may carry at most {MAX_ACTIVE_CHECKS_PER_REPORT} active checks."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+        # Resolved before the locked transaction — a bad X-PostHog-Task-Id header must 400 before
+        # anything mutates, and its task lookup has no business inside the lock.
         attribution = resolve_request_attribution(request, self.team.id)
-        check = SignalReportCheck.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            report_id=report.id,
-            title=spec["title"],
-            rationale=spec.get("rationale", ""),
-            kind=spec["kind"],
-            config=spec["config"],
-            next_run_at=spec["next_run_at"],
-            run_interval_minutes=spec.get("run_interval_minutes"),
-            runs_remaining=spec["runs_remaining"],
-            expires_at=spec["expires_at"],
-            actor_kind=attribution.kind,
-            actor_agent=attribution.agent_name,
-            created_by_id=attribution.user_id,
-            task_id=attribution.task_id,
-        )
+
+        with transaction.atomic():
+            # The cap is a count and then an insert, so it only holds if concurrent creates
+            # serialize. Row-lock the report first, the lock `enforce_report_task_cap` takes to cap
+            # a report's tasks the same way.
+            locked_report = SignalReport.objects.select_for_update().filter(id=report.id, team_id=self.team.id).first()
+            if locked_report is None:
+                raise NotFound()
+
+            active_checks = SignalReportCheck.objects.for_team(self.team.id).filter(
+                report_id=locked_report.id, status=SignalReportCheck.Status.ACTIVE
+            )
+            if active_checks.count() >= MAX_ACTIVE_CHECKS_PER_REPORT:
+                return Response(
+                    {"error": f"A report may carry at most {MAX_ACTIVE_CHECKS_PER_REPORT} active checks."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            check = SignalReportCheck.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                report_id=locked_report.id,
+                title=spec["title"],
+                rationale=spec.get("rationale", ""),
+                kind=spec["kind"],
+                config=spec["config"],
+                next_run_at=spec["next_run_at"],
+                run_interval_minutes=spec.get("run_interval_minutes"),
+                runs_remaining=spec["runs_remaining"],
+                expires_at=spec["expires_at"],
+                actor_kind=attribution.kind,
+                actor_agent=attribution.agent_name,
+                created_by_id=attribution.user_id,
+                task_id=attribution.task_id,
+            )
         return Response(SignalReportCheckSerializer(check).data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
