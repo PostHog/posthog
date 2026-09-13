@@ -37,8 +37,8 @@ class ErrorTrackingAlertSlackConfigSerializer(serializers.Serializer):
     )
     reply_broadcast = serializers.BooleanField(
         required=False,
-        default=False,
-        help_text="Also post each thread reply to the channel, so people who do not follow the thread see every update.",
+        default=True,
+        help_text="Also post each thread reply to the channel, so people who do not follow the thread see every update. On unless turned off.",
     )
 
 

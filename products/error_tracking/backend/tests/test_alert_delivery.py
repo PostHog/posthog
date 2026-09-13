@@ -315,12 +315,13 @@ class TestSlackThreadDelivery(AlertTestMixin):
         assert thread.root_headline == "🔴 New issue"
         assert thread.delivered_notification_ids == ["notif-1"]
 
-    @parameterized.expand([(False,), (True,)])
-    def test_reply_posts_into_thread_and_edits_root_on_status_change(self, reply_broadcast):
+    # A destination saved before the option existed has no key and keeps broadcasting.
+    @parameterized.expand([({"reply_broadcast": False}, False), ({"reply_broadcast": True}, True), ({}, True)])
+    def test_reply_posts_into_thread_and_edits_root_on_status_change(self, broadcast_config, reply_broadcast):
         client = self._mock_slack()
         alert = self._create_alert(triggers=["issue_created"])
         with team_scope(self.team.id):
-            alert.destinations.update(config={"channel": "C0123", "reply_broadcast": reply_broadcast})
+            alert.destinations.update(config={"channel": "C0123", **broadcast_config})
         self._thread(alert)
 
         delivered = deliver_alert_notifications(

@@ -85,6 +85,12 @@ describe('nativeAlertEditorLogic', () => {
         })
     })
 
+    it('treats a destination saved without the broadcast option as broadcasting', () => {
+        const { reply_broadcast: _omitted, ...config } = existingAlert.destinations[0].config
+        const draft = draftFromAlert({ ...existingAlert, destinations: [{ ...existingAlert.destinations[0], config }] })
+        expect(draft.destinations[0].replyBroadcast).toBe(true)
+    })
+
     it('previews the first selected trigger and blocks saving until a channel is picked', async () => {
         await expectLogic(logic, () => logic.actions.openEditor())
             .toDispatchActions(['loadPreview', 'loadPreviewSuccess'])
@@ -145,7 +151,7 @@ describe('nativeAlertEditorLogic', () => {
                     {
                         channel_type: 'slack',
                         integration_id: 7,
-                        config: { channel: 'C0456', channel_name: '#spikes', reply_broadcast: false },
+                        config: { channel: 'C0456', channel_name: '#spikes', reply_broadcast: true },
                     },
                 ],
             })
