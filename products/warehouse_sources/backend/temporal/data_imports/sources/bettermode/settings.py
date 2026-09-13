@@ -202,7 +202,7 @@ updatedAt
 """
 
 
-@dataclass
+@dataclass(frozen=True)
 class BettermodeEndpointConfig:
     # Root query field on the GraphQL schema (e.g. `posts`, `moderationItems`).
     query_field: str

@@ -75,7 +75,7 @@ class BettermodeGraphQLError(Exception):
     prefix that `get_non_retryable_errors` matches on."""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class BettermodeResumeConfig:
     # Relay cursor of the last fully-yielded page within the current connection.
     after: str | None = None
