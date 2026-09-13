@@ -118,6 +118,11 @@ class Ticket(UUIDTModel):
     # Snooze — when set, ticket is "on hold" until this time, then auto-reopened by wake task
     snoozed_until = models.DateTimeField(null=True, blank=True)
 
+    # Withdrawal — when set, the requester resolved this ticket themselves from the widget.
+    # It separates a customer withdrawal from a team resolution, so only a withdrawn ticket
+    # reopens when the customer writes again.
+    withdrawn_at = models.DateTimeField(null=True, blank=True)
+
     # Customer's PostHog org group key, resolved once at creation or on a later message
     # (local org pk, cross-region analytics key, or the person's organization_id property).
     organization_id = models.CharField(max_length=400, null=True, blank=True)
