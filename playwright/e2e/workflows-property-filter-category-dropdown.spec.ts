@@ -115,11 +115,11 @@ test.describe('Workflows conditional branch property filter category dropdown', 
         await test.step('open the inner taxonomic filter dropdown', async () => {
             await page.getByTestId('property-select-toggle-0').click()
             await expect(page.getByTestId('taxonomic-filter-searchfield')).toBeVisible()
-            await expect(page.getByTestId('taxonomic-category-dropdown-trigger')).toBeVisible()
+            await expect(page.getByTestId('taxonomic-category-dropdown-trigger-pill')).toBeVisible()
         })
 
         await test.step('clicking the category dropdown opens the menu and keeps the popover open', async () => {
-            await page.getByTestId('taxonomic-category-dropdown-trigger').click()
+            await page.getByTestId('taxonomic-category-dropdown-trigger-pill').click()
             await expect(page.getByTestId('property-filter-0')).toBeVisible()
             await expect(page.getByTestId('property-select-toggle-0')).toBeVisible()
             await expect(page.getByTestId('taxonomic-filter-searchfield')).toBeVisible()

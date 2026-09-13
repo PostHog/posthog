@@ -166,7 +166,7 @@ export function InfiniteSelectResults({
     const infiniteListLogicProps = { ...taxonomicFilterLogicProps, listGroupType: openTab }
     const logic = infiniteListLogic(infiniteListLogicProps)
 
-    const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
+    const { markUserInteraction, setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
     const { setCategoryRailPinned } = useActions(taxonomicFilterCategoryLayoutLogic)
     const { categoryRailPinned } = useValues(taxonomicFilterCategoryLayoutLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
@@ -223,7 +223,10 @@ export function InfiniteSelectResults({
                             icon={<IconSidebarClose />}
                             tooltip="Undock categories"
                             data-attr="taxonomic-category-rail-unpin"
-                            onClick={() => setCategoryRailPinned(false)}
+                            onClick={() => {
+                                markUserInteraction()
+                                setCategoryRailPinned(false)
+                            }}
                         />
                     </div>
                     <div className="taxonomic-pills flex flex-col gap-1">

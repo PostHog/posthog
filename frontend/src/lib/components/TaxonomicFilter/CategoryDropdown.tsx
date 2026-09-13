@@ -23,7 +23,7 @@ export function CategoryDropdown({
     joinedToInput?: boolean
 }): JSX.Element | null {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
-    const { setActiveTab } = useActions(taxonomicFilterLogic)
+    const { markUserInteraction, setActiveTab } = useActions(taxonomicFilterLogic)
     const { categoryRailPinned } = useValues(taxonomicFilterCategoryLayoutLogic)
     const { setCategoryRailPinned } = useActions(taxonomicFilterCategoryLayoutLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
@@ -69,6 +69,7 @@ export function CategoryDropdown({
                     icon: categoryRailPinned ? <IconSidebarClose /> : <IconSidebarOpen />,
                     'data-attr': 'taxonomic-category-rail-toggle',
                     onClick: () => {
+                        markUserInteraction()
                         setCategoryRailPinned(!categoryRailPinned)
                         onAfterChange?.()
                     },

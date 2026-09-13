@@ -789,6 +789,15 @@ describe('TaxonomicFilter', () => {
                 },
                 expected: { hadSelection: false, categoryRailDocked: false },
             },
+            {
+                name: 'fires after the user docks the category rail',
+                interact: async () => {
+                    taxonomicFilterCategoryLayoutLogic.actions.setCategoryRailPinned(false)
+                    await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
+                    await userEvent.click(screen.getByText('Dock categories'))
+                },
+                expected: { hadSelection: false, categoryRailDocked: true },
+            },
         ])('$name', async ({ interact, expected }) => {
             const captureSpy = jest.spyOn(posthog, 'capture')
             const { unmount } = renderFilter()
