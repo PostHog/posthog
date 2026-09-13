@@ -174,17 +174,22 @@ export const heatmapCaptureLogic = kea<heatmapCaptureLogicType>([
                 action: () =>
                     window.open(joinWithUiHost(values.uiHost, urls.heatmap(captureResult.short_id)), '_blank'),
             }
+            // Without an explicit id, the toast id is a hash of the message, so two saves that produce
+            // the same message share one id and react-toastify drops the second toast while the first
+            // one is still on screen.
+            const toastOptions = { button, toastId: `heatmap-saved-${captureResult.short_id}` }
             const summary = values.captureSummary
             if (!summary || summary.savedWidths === summary.totalWidths) {
-                lemonToast.success('Heatmap saved', { button })
+                lemonToast.success('Heatmap saved', toastOptions)
             } else if (summary.savedWidths === 0) {
-                lemonToast.warning('Heatmap saved at your current window width only. Try saving again for the rest.', {
-                    button,
-                })
+                lemonToast.warning(
+                    'Heatmap saved at your current window width only. Try saving again for the rest.',
+                    toastOptions
+                )
             } else {
                 lemonToast.warning(
                     `Heatmap saved with ${summary.savedWidths} of ${summary.totalWidths} page widths. Try saving again for the rest.`,
-                    { button }
+                    toastOptions
                 )
             }
         },

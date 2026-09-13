@@ -136,6 +136,9 @@ describe('heatmapCaptureLogic', () => {
 
         const quiet = expectedToast === 'success' ? lemonToast.warning : lemonToast.success
         expect(quiet).not.toHaveBeenCalled()
-        expect(lemonToast[expectedToast]).toHaveBeenCalledWith(expectedMessage, expect.anything())
+        expect(lemonToast[expectedToast]).toHaveBeenCalledWith(
+            expectedMessage,
+            expect.objectContaining({ toastId: 'heatmap-saved-hm123' })
+        )
     })
 })
