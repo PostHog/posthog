@@ -83,6 +83,13 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             "Tunnel connection failed: 502",
             "Tunnel connection failed: 503",
             "Tunnel connection failed: 504",
+            # urllib3 couldn't even open the TCP connection to our own egress proxy — it never got
+            # far enough to attempt a CONNECT tunnel — and wraps that as `ProxyError('Cannot connect
+            # to proxy.', NewConnectionError(...))`. This is our proxy being briefly unreachable, not
+            # a customer config problem (`salesforce_refresh_access_token` never dials the customer's
+            # Salesforce host directly), so a fresh attempt recovers once `_MAX_TOKEN_REFRESH_ATTEMPTS`
+            # is exhausted and Temporal retries the activity.
+            "Cannot connect to proxy.', NewConnectionError(",
         }
 
     def get_schemas(

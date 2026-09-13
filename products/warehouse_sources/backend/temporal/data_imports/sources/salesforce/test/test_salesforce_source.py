@@ -32,6 +32,10 @@ class TestSalesforceSourceNonRetryableErrors:
             "HTTPSConnectionPool(host='example.my.salesforce.com', port=443): Max retries exceeded "
             "with url: /services/oauth2/token (Caused by ProxyError('Cannot connect to proxy.', "
             "OSError('Tunnel connection failed: 502 Bad gateway')))",
+            "HTTPSConnectionPool(host='example.my.salesforce.com', port=443): Max retries exceeded "
+            "with url: /services/oauth2/token (Caused by ProxyError('Cannot connect to proxy.', "
+            "NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7f0000000000>: "
+            "Failed to establish a new connection: [Errno 111] Connection refused')))",
         ],
     )
     def test_token_refresh_proxy_tunnel_failure_is_retryable(self, error_message):
