@@ -69,8 +69,10 @@ describe('dataNodeLogic - query cancellation', () => {
                 'cancelQuery',
                 'abortAnyRunningQuery',
                 logic.actionCreators.abortQuery({ queryId: 'uuid-first' }),
-                'loadDataFailure',
+                // A user-requested cancellation resolves as a success back to idle,
+                // it must not surface a red error state.
+                'loadDataSuccess',
             ])
-            .toMatchValues({ queryCancelled: true, response: null })
+            .toMatchValues({ queryCancelled: true, responseError: null })
     })
 })

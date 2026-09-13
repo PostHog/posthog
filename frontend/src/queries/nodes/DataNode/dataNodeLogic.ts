@@ -23,7 +23,7 @@ import api, { ApiMethodOptions } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
-import { shouldCancelQuery } from 'lib/utils/requests'
+import { isAbortedRequest, shouldCancelQuery } from 'lib/utils/requests'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -1064,6 +1064,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         error.queryId = queryId
                         if (shouldCancelQuery(error)) {
                             actions.abortQuery({ queryId })
+                        }
+                        // A user-requested cancellation is not a failure: keep the previously
+                        // loaded results on screen and drop back to idle instead of surfacing an error.
+                        if (values.queryCancelled && isAbortedRequest(error)) {
+                            return values.response
                         }
                         breakpoint()
                         throw error
