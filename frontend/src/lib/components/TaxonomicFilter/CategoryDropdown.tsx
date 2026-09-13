@@ -17,12 +17,10 @@ export function CategoryDropdown({
     eventName,
     onAfterChange,
     joinedToInput = false,
-    showWhenPinned,
 }: {
     eventName?: string
     onAfterChange?: () => void
     joinedToInput?: boolean
-    showWhenPinned?: boolean
 }): JSX.Element | null {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
     const { setActiveTab } = useActions(taxonomicFilterLogic)
@@ -89,17 +87,12 @@ export function CategoryDropdown({
             placement="bottom-start"
             className={CLICK_OUTSIDE_BLOCK_CLASS}
         >
-            {renderTrigger(activeLabel, joinedToInput, categoryRailPinned, showWhenPinned)}
+            {renderTrigger(activeLabel, joinedToInput, categoryRailPinned)}
         </LemonMenu>
     )
 }
 
-function renderTrigger(
-    activeLabel: string,
-    joinedToInput: boolean,
-    categoryRailPinned: boolean,
-    showWhenPinned: boolean | undefined
-): JSX.Element {
+function renderTrigger(activeLabel: string, joinedToInput: boolean, categoryRailPinned: boolean): JSX.Element {
     return (
         <LemonButton
             type={joinedToInput ? 'tertiary' : 'secondary'}
@@ -112,8 +105,7 @@ function renderTrigger(
             className={clsx(
                 CLICK_OUTSIDE_BLOCK_CLASS,
                 joinedToInput && 'TaxonomicFilter__category-dropdown',
-                categoryRailPinned &&
-                    (showWhenPinned === undefined ? 'hidden @max-[32rem]:inline-flex' : showWhenPinned ? '' : 'hidden')
+                categoryRailPinned && 'hidden @max-[32rem]:inline-flex'
             )}
         >
             {activeLabel}
