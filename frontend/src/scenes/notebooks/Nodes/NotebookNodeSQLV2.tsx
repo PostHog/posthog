@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCornerDownRight } from '@posthog/icons'
 
@@ -14,6 +14,8 @@ import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
+import { notebookDataframeHintLogic } from './components/notebookDataframeHintLogic'
+import { NotebookDataframeHintPopover } from './components/NotebookDataframeHintPopover'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { getCellLabel } from './components/NotebookNodeTitle'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
@@ -174,7 +176,24 @@ const Component = ({
         title.trim() || getCellLabel(nodeIndex) || 'SQL'
 
     const result = attributes.result ?? null
-    const returnVariableError = returnVariableValidationError(attributes.returnVariable ?? '')
+    const returnVariable = attributes.returnVariable ?? ''
+    const returnVariableError = returnVariableValidationError(returnVariable)
+    // A callback ref, not useRef: the hint anchors to this input, and a ref assignment alone
+    // wouldn't re-render the Popover with the element it needs to position against.
+    const [returnVariableInput, setReturnVariableInput] = useState<HTMLInputElement | null>(null)
+    const { reportRunFinished } = useActions(notebookDataframeHintLogic({ shortId: notebookShortId }))
+    const runStatus = attributes.runStatus ?? null
+    const previousRunStatusRef = useRef(runStatus)
+
+    useEffect(() => {
+        const previousRunStatus = previousRunStatusRef.current
+        previousRunStatusRef.current = runStatus
+        // Only a run that finishes while the cell is open. Reopening a notebook restores a
+        // finished result too, and the hint would then point at a cell nobody just ran.
+        if (runStatus === 'done' && previousRunStatus !== 'done') {
+            reportRunFinished(nodeId, !!returnVariable)
+        }
+    }, [runStatus, returnVariable, nodeId, reportRunFinished])
     // Page 1 at the default size comes straight from the envelope; other pages re-query CH.
     const dataframeResult = useMemo(() => {
         if (pageResult) {
@@ -358,10 +377,16 @@ const Component = ({
                     // carries weight through size and a faintly warm near-black rather than a hue —
                     // a saturated color here competes with the accent the app spends on links.
                     className="w-56 rounded border border-primary px-1.5 py-0.5 text-sm font-medium font-mono bg-surface-primary text-[oklch(0.27_0.022_345deg)] dark:text-[oklch(0.93_0.014_345deg)] focus:outline-none focus:ring-1 focus:ring-primary"
-                    value={attributes.returnVariable ?? ''}
+                    value={returnVariable}
                     onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
                     placeholder="Output dataframe name"
                     spellCheck={false}
+                    ref={setReturnVariableInput}
+                />
+                <NotebookDataframeHintPopover
+                    nodeId={nodeId}
+                    notebookShortId={notebookShortId}
+                    referenceElement={returnVariableInput}
                 />
                 {returnVariableError ? <span className="text-danger">{returnVariableError}</span> : null}
                 {sqlV2ReturnVariableUsage.length > 0 ? (
