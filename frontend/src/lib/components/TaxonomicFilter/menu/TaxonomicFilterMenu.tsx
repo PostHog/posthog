@@ -433,6 +433,8 @@ export function TaxonomicFilterMenu({
                 position: selection?.position,
                 query: searchQuery || undefined,
                 wasStale: eventSelectionWasStale(entry.group.type, entry.item),
+                // The rebuild has no example browser. Sent so both surfaces share one payload shape.
+                wasFromExample: false,
                 // True when the row is the synthetic "URL contains <query>" shortcut
                 // rather than a real picked item — lets us measure its adoption.
                 wasUrlContainsShortcut: (entry.item as { isContainsShortcut?: boolean }).isContainsShortcut === true,
