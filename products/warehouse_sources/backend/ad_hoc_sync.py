@@ -17,6 +17,7 @@ from django.conf import settings
 from asgiref.sync import async_to_sync
 from temporalio.client import Client
 from temporalio.common import WorkflowIDReusePolicy
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.dataclasses import frozen
 from posthog.temporal.utils import ExternalDataWorkflowInputs
@@ -33,7 +34,7 @@ class AdHocSyncTrigger:
 
 
 class SchedulePauseError(Exception):
-    """Pausing the schedule failed, so no run was started and nothing was staged."""
+    """The schedule is not known to be paused, so no run was started and nothing was staged."""
 
 
 class WorkflowStartError(Exception):
@@ -53,16 +54,21 @@ async def start_external_data_workflow(client: Client, workflow_id: str, inputs:
 
 @async_to_sync
 async def is_schedule_paused(client: Client, schedule_id: str) -> bool:
-    """Best-effort check whether the per-schema Temporal schedule is currently paused.
+    """Report whether the per-schema Temporal schedule is currently paused.
 
-    Returns False if the schedule does not exist or describe fails — the caller
-    treats that as 'no schedule to pause' and proceeds without pausing.
+    A schema with no schedule returns False: there is nothing to pause, and nothing can race the
+    ad-hoc run. Every other describe failure raises SchedulePauseError, because an unknown state
+    is not proof that the schedule is paused, and the caller must stop instead of racing it.
     """
     handle = client.get_schedule_handle(schedule_id)
     try:
         desc = await handle.describe()
-    except Exception:
-        return False
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return False
+        raise SchedulePauseError(str(e)) from e
+    except Exception as e:
+        raise SchedulePauseError(str(e)) from e
     return bool(desc.schedule.state.paused)
 
 
