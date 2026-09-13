@@ -504,9 +504,9 @@ def _post_claimed(
             channel=external_ref["channel"],
             thread_ts=external_ref["ts"],
             text=reply,
-            # Broadcast is on unless the destination turned it off: rows saved before
-            # the option existed carry no key, and only an exact False turns it off.
-            reply_broadcast=delivery.destination.config.get("reply_broadcast") is not False,
+            # Broadcast is on for rows saved before the option existed (no key) and for an
+            # exact True; anything else, including a stored non-boolean, stays in the thread.
+            reply_broadcast=delivery.destination.config.get("reply_broadcast", True) is True,
         )
         external_ref = _reconcile_root_status(client, thread, inputs, _slack_actions(delivery.destination, inputs))
 

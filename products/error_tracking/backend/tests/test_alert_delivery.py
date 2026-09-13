@@ -341,8 +341,16 @@ class TestSlackThreadDelivery(AlertTestMixin):
         assert thread.root_headline == "🔴 New issue"
         assert thread.delivered_notification_ids == ["notif-1"]
 
-    # A destination saved before the option existed has no key and keeps broadcasting.
-    @parameterized.expand([({"reply_broadcast": False}, False), ({"reply_broadcast": True}, True), ({}, True)])
+    # A destination saved before the option existed has no key and keeps broadcasting;
+    # a stored non-boolean is not a valid opt-in and stays in the thread.
+    @parameterized.expand(
+        [
+            ({"reply_broadcast": False}, False),
+            ({"reply_broadcast": True}, True),
+            ({}, True),
+            ({"reply_broadcast": "false"}, False),
+        ]
+    )
     def test_reply_posts_into_thread_and_edits_root_on_status_change(self, broadcast_config, reply_broadcast):
         client = self._mock_slack()
         alert = self._create_alert(triggers=["issue_created"])
