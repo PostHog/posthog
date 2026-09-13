@@ -6,7 +6,6 @@ import { router } from 'kea-router'
 import { IconClock, IconHome, IconNotification } from '@posthog/icons'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
@@ -27,7 +26,6 @@ export function FlatNavBrowse(): JSX.Element {
         useValues(uiCustomizationLogic)
     const { showConfigureHomeModal } = useActions(navigationLogic)
     const { reportNavItemClicked } = useActions(eventUsageLogic)
-    const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
 
     return (
         <div className="FlatNavBrowse flex flex-col flex-1 overflow-hidden" data-nav-density={sidebarDensity}>
@@ -57,7 +55,7 @@ export function FlatNavBrowse(): JSX.Element {
                         />
                     )}
 
-                    {isProductAutonomyEnabled && isSidebarItemShown('inbox') && (
+                    {isSidebarItemShown('inbox') && (
                         <NavLink
                             to={urls.inbox()}
                             label="Self-driving"
