@@ -49,7 +49,7 @@ export interface twilioIntegrationLogicActions {
         allTwilioPhoneNumbers: {
             lastRefreshedAt: string
             phone_numbers: TwilioPhoneNumberType[]
-        },
+        } | null,
         payload?: {
             forceRefresh: boolean
         }
@@ -57,7 +57,7 @@ export interface twilioIntegrationLogicActions {
         allTwilioPhoneNumbers: {
             lastRefreshedAt: string
             phone_numbers: TwilioPhoneNumberType[]
-        }
+        } | null
         payload?: {
             forceRefresh: boolean
         }
