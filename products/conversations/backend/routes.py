@@ -2,6 +2,7 @@ from posthog.api.routing import RouterRegistry
 
 from products.conversations.backend.api import (
     TicketPatternViewSet,
+    TicketTopicOverrideViewSet,
     TicketViewSet,
     TicketViewViewSet,
     ZendeskImportViewSet,
@@ -32,5 +33,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"conversations/patterns",
         TicketPatternViewSet,
         "project_conversations_patterns",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"conversations/pattern_overrides",
+        TicketTopicOverrideViewSet,
+        "project_conversations_pattern_overrides",
         ["team_id"],
     )
