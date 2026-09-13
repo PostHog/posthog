@@ -185,6 +185,30 @@ describe('materializationJobsLogic', () => {
         expect(logic.values.incrementalDraft.enabled).toBe(false)
     })
 
+    // The SQL editor's model modal mounts this logic before a view is open, keyed on an empty
+    // string, so it can ask whether there are unsaved settings. That instance has to stay inert:
+    // without the viewId guards it would fetch an empty id on every editor render.
+    it('fetches nothing and reports no changes without a view id', async () => {
+        let fetches = 0
+        useMocks({
+            get: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': () => {
+                    fetches += 1
+                    return [200, { id: 'view-1' }]
+                },
+                '/api/environments/:team_id/data_modeling_jobs': () => {
+                    fetches += 1
+                    return [200, { results: [], count: 0 }]
+                },
+            },
+        })
+        logic = materializationJobsLogic({ viewId: '' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(fetches).toBe(0)
+        expect(logic.values.hasMaterializationChanges).toBe(false)
+    })
+
     it('drops a cadence draft equal to the saved cadence, so a later pause stays paused', async () => {
         savedSyncFrequency = '6hour'
         useMocks(apiMocks({ isMaterialized: true }))

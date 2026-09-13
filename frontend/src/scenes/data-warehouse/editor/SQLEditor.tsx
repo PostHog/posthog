@@ -375,6 +375,13 @@ function OpenModelButton({ viewId, onClose }: { viewId: string; onClose: () => v
 function MaterializationModal({ tabId }: { tabId: string }): JSX.Element {
     const { materializationModalOpen, materializationModalView, viewLoading } = useValues(sqlEditorLogic)
     const { closeMaterializationModal } = useActions(sqlEditorLogic)
+    // Cadence and refresh mode are drafts that only Save writes, and this modal is the only place
+    // they are mounted, so closing the modal throws them away. Keyed on an empty string while no
+    // view is open, which builds an inert instance because every request in that logic is reached
+    // through a viewId guard.
+    const { hasMaterializationChanges } = useValues(
+        materializationJobsLogic({ viewId: materializationModalView?.id ?? '' })
+    )
 
     return (
         <LemonModal
@@ -391,6 +398,7 @@ function MaterializationModal({ tabId }: { tabId: string }): JSX.Element {
             }
             isOpen={materializationModalOpen}
             onClose={closeMaterializationModal}
+            hasUnsavedInput={hasMaterializationChanges}
             width={960}
         >
             <div className="min-h-[min(60vh,560px)]">
