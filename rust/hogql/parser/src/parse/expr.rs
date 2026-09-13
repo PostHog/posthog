@@ -62,20 +62,34 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     ) -> Result<E::Value, ParseError> {
         loop {
             let kind = self.peek();
-            // A bare alias was just built: only an outer-tier operator (AND, OR,
-            // ternary `?`, or a chained AS) may wrap it. Any value-tier operator
+            // A bare alias was just built: an outer-tier operator (AND, OR,
+            // ternary `?`, a chained AS) may wrap it, and a comparison may take
+            // it as its left operand — `1 AS x > 0` is `(1 AS x) > 0`, cpp's
+            // `ColumnExprAliasCompare` (ClickHouse accepts the shape in nested
+            // contexts, e.g. `if(1 AS x > 0, …)`). Any other value-tier operator
             // terminates the expression here, matching cpp's two-tier grammar
             // (`1 AS x AND y` is `(1 AS x) AND y`; `1 AS x + 2` rejects).
-            if std::mem::take(&mut self.after_bare_alias)
-                && !matches!(
+            if std::mem::take(&mut self.after_bare_alias) {
+                let continues = matches!(
                     kind,
                     TokenKind::Keyword(Kw::And)
                         | TokenKind::Keyword(Kw::Or)
                         | TokenKind::Keyword(Kw::As)
                         | TokenKind::QMark
-                )
-            {
-                break;
+                        | TokenKind::Keyword(Kw::In)
+                        | TokenKind::Keyword(Kw::Like)
+                        | TokenKind::Keyword(Kw::Ilike)
+                ) || (kind == TokenKind::Keyword(Kw::Not)
+                    && matches!(
+                        self.peek_next(),
+                        TokenKind::Keyword(Kw::In)
+                            | TokenKind::Keyword(Kw::Like)
+                            | TokenKind::Keyword(Kw::Ilike)
+                    ))
+                    || infix_bp(kind).is_some_and(|(lbp, _, _)| lbp == BP_COMPARE);
+                if !continues {
+                    break;
+                }
             }
             if let Some((lbp, rbp, op)) = infix_bp(kind) {
                 if lbp < min_bp {

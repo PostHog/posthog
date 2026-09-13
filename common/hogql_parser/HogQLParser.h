@@ -1925,6 +1925,37 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
+  class  ColumnExprAliasCompareContext : public ColumnExprContext {
+  public:
+    ColumnExprAliasCompareContext(ColumnExprContext *ctx);
+
+    HogQLParser::ColumnExprContext *left = nullptr;
+    antlr4::Token *operator_ = nullptr;
+    HogQLParser::ColumnExprValueContext *right = nullptr;
+    ColumnExprContext *columnExpr();
+    ColumnExprValueContext *columnExprValue();
+    antlr4::tree::TerminalNode *IN();
+    antlr4::tree::TerminalNode *EQ_DOUBLE();
+    antlr4::tree::TerminalNode *EQ_SINGLE();
+    antlr4::tree::TerminalNode *NOT_EQ();
+    antlr4::tree::TerminalNode *LT_EQ();
+    antlr4::tree::TerminalNode *LT();
+    antlr4::tree::TerminalNode *GT_EQ();
+    antlr4::tree::TerminalNode *GT();
+    antlr4::tree::TerminalNode *LIKE();
+    antlr4::tree::TerminalNode *ILIKE();
+    antlr4::tree::TerminalNode *REGEX_SINGLE();
+    antlr4::tree::TerminalNode *REGEX_DOUBLE();
+    antlr4::tree::TerminalNode *NOT_REGEX();
+    antlr4::tree::TerminalNode *IREGEX_SINGLE();
+    antlr4::tree::TerminalNode *IREGEX_DOUBLE();
+    antlr4::tree::TerminalNode *NOT_IREGEX();
+    antlr4::tree::TerminalNode *COHORT();
+    antlr4::tree::TerminalNode *NOT();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  ColumnExprValuePassthroughContext : public ColumnExprContext {
   public:
     ColumnExprValuePassthroughContext(ColumnExprContext *ctx);
