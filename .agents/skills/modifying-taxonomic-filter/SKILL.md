@@ -1,6 +1,6 @@
 ---
 name: modifying-taxonomic-filter
-description: Guides safe changes to the TaxonomicFilter, PostHog's picker for events, actions, properties, cohorts, and more. Use when adding features, fixing bugs, improving search or loading performance, or refactoring the legacy filter, rebuild menu, or headless filter panel. Covers real selection behavior, three live variants, shared telemetry, the conditional Postgres search plan, and result reveal rules.
+description: Guides safe changes to the TaxonomicFilter, PostHog's picker for events, actions, properties, cohorts, and more. Use when adding features, fixing bugs, improving search or loading performance, or refactoring the classic picker, rebuild menu, or headless filter panel. Covers real selection behavior, two live surfaces, shared telemetry, the conditional Postgres search plan, and result reveal rules.
 ---
 
 # Modifying the TaxonomicFilter
@@ -16,11 +16,11 @@ in `frontend/src/lib/components/TaxonomicFilter/`.
    with all tests passing. Read "Product reality" before deciding any
    change is safe. Ordering, promotion, or position-0 changes need
    explicit human sign-off — don't let an agent decide alone.
-2. There are **three live variants** behind two feature flags, and the
+2. There are **two live surfaces**, and the
    rebuild is a parallel reimplementation of the legacy data + group
    layer — not a skin over it. A behaviour change usually has to land in
    **both** the legacy code and the rebuild, or the two arms of the
-   experiment diverge. Read "Three variants" and "Mirroring changes"
+   experiment diverge. Read "Two surfaces" and "Mirroring changes"
    before assuming one edit is enough.
 3. Search is the main selection path. The definition endpoints select a
    Postgres plan from the project size. The picker also shows results before
@@ -89,9 +89,8 @@ aggregation, and shortcut routing are how they get to the right answer.
 ## Telemetry is a contract
 
 Treat property shapes as a public API. Every `taxonomic filter *` event now
-carries a `surface` property (`legacy-control` / `legacy-pill` /
-`rebuild-menu`) so the experiment arms are distinguishable by an explicit
-property, not a feature-flag join. The legacy stamp comes from
+carries a `surface` property (`legacy-pill` / `rebuild-menu`) so the
+surfaces are distinguishable by an explicit property. The classic-picker stamp comes from
 `legacyTaxonomicSurface()` in `taxonomicFilterSurface.ts`; the rebuild stamps
 `rebuild-menu` from `menu/TaxonomicFilterMenu.tsx`.
 
@@ -118,22 +117,20 @@ or the arms stop being comparable. Adding properties: fine. Removing dead
 ones: fine. **Renaming or repurposing silently is the worst case** —
 dashboards keep working and start lying.
 
-## Three variants
+## Two surfaces
 
-Two feature flags, three surfaces. A bug report that doesn't reproduce
+One feature flag selects between two surfaces. A bug report that doesn't reproduce
 locally is almost always a variant mismatch — confirm which surface the
 reporter is on first.
 
-| Surface          | Flag                                 | Value       | What renders                                      |
-| ---------------- | ------------------------------------ | ----------- | ------------------------------------------------- |
-| `legacy-control` | `TAXONOMIC_FILTER_CATEGORY_DROPDOWN` | `'control'` | original tab-pill UI                              |
-| `legacy-pill`    | `TAXONOMIC_FILTER_CATEGORY_DROPDOWN` | `'pill'`    | suffix category dropdown (`CategoryDropdown.tsx`) |
-| `rebuild-menu`   | `TAXONOMIC_FILTER_MENU_REBUILD`      | on          | ground-up rewrite in `menu/` over `headless/`     |
+| Surface        | Flag                            | Value | What renders                                  |
+| -------------- | ------------------------------- | ----- | --------------------------------------------- |
+| `legacy-pill`  | `TAXONOMIC_FILTER_MENU_REBUILD` | off   | classic picker with a category dropdown       |
+| `rebuild-menu` | `TAXONOMIC_FILTER_MENU_REBUILD` | on    | ground-up rewrite in `menu/` over `headless/` |
 
-- **legacy-control vs legacy-pill** is the same A/B we've always had —
-  one codebase (`taxonomicFilterLogic.tsx` + `InfiniteList`), two render
-  paths. Owner `@pauldambra`, multivariate `control,pill`. The direction
-  of travel is to move everyone from control onto pill.
+- **legacy-pill** is the classic picker (`taxonomicFilterLogic.tsx` +
+  `InfiniteList`) with a suffix category dropdown. A person can pin the
+  category rail from that dropdown.
 - **rebuild-menu** is a separate, opt-in experiment (`@adamleith`) being
   tested internally. It is a **fresh implementation**: the `menu/` dropdown
   and combobox UI on top of `headless/` (a hooks-based filter panel). It
@@ -184,9 +181,9 @@ through these via a bridge, it doesn't fork them).
 `taxonomicFilterLogic.tsx` and the rebuild never calls it.
 
 One intentional divergence is already documented in
-`useTaxonomicFilter.ts`: the rebuild **always** leads with SuggestedFilters,
-whereas legacy gates that on the pill variant. Preserve documented
-divergences; don't "fix" them into parity.
+`useTaxonomicFilter.ts`: both surfaces lead with SuggestedFilters when the
+picker has more than one substantive group. Preserve documented divergences;
+don't "fix" them into parity.
 
 ## Pre-change checklist
 
@@ -197,14 +194,13 @@ divergences; don't "fix" them into parity.
       [performance](references/performance.md) (search plan, reveal barrier)
 - [ ] Decide whether the change must mirror across legacy and rebuild
       (see "Mirroring changes") — if you can only do one, say so explicitly
-- [ ] Test all three surfaces if you touched tabs/groups: `legacy-control`,
-      `legacy-pill`, `rebuild-menu`
+- [ ] Test both surfaces if you touched tabs/groups: `legacy-pill`,
+      `rebuild-menu`
 - [ ] Confirm shared telemetry payloads still match across both emitters
 - [ ] Ordering / promotion / position-0 -> human sign-off, not agent judgement
 - [ ] If you changed search or loading, verify the plan boundary and confirm
       that optional requests do not delay results
-- [ ] Flag the ongoing experiments to the human reviewer: the
-      control->pill rollout and the internal `rebuild-menu` opt-in
+- [ ] Flag the internal `rebuild-menu` opt-in to the human reviewer
 
 ```bash
 hogli test frontend/src/lib/components/TaxonomicFilter/

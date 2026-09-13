@@ -1,44 +1,41 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+import { taxonomicFilterCategoryLayoutLogic } from './taxonomicFilterCategoryLayoutLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
-import { CategoryDropdownVariant, TaxonomicFilterGroupType } from './types'
+import { TaxonomicFilterGroupType } from './types'
 
 export function CategoryDropdown({
-    variant,
     eventName,
     onAfterChange,
     joinedToInput = false,
 }: {
-    variant: Exclude<CategoryDropdownVariant, 'control'>
     eventName?: string
     onAfterChange?: () => void
     joinedToInput?: boolean
 }): JSX.Element | null {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
-    const { setActiveTab } = useActions(taxonomicFilterLogic)
+    const { markUserInteraction, setActiveTab } = useActions(taxonomicFilterLogic)
+    const { categoryRailPinned } = useValues(taxonomicFilterCategoryLayoutLogic)
+    const { setCategoryRailPinned } = useActions(taxonomicFilterCategoryLayoutLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
-    const onVisibilityChange = useCallback(
-        (visible: boolean) => {
-            if (visible) {
-                posthog.capture('taxonomic filter category dropdown opened', {
-                    variant,
-                    [`$feature/${FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN}`]: variant,
-                })
-            }
-        },
-        [variant]
-    )
+    const onVisibilityChange = (visible: boolean): void => {
+        if (visible) {
+            markUserInteraction()
+            posthog.capture('taxonomic filter category dropdown opened', {
+                variant: 'pill',
+            })
+        }
+    }
 
     if (taxonomicGroupTypes.length <= 1) {
         return null
@@ -48,7 +45,7 @@ export function CategoryDropdown({
     const activeGroup = taxonomicGroups.find((g) => g.type === openTab)
     const activeLabel = activeGroup?.name ?? openTab
 
-    const items: LemonMenuItem[] = taxonomicGroupTypes.map((groupType) => {
+    const categoryItems: LemonMenuItem[] = taxonomicGroupTypes.map((groupType) => {
         const group = taxonomicGroups.find((g) => g.type === groupType)
         return {
             key: groupType,
@@ -63,6 +60,25 @@ export function CategoryDropdown({
         }
     })
 
+    const items: LemonMenuItems = [
+        { items: categoryItems },
+        {
+            items: [
+                {
+                    key: 'toggle-category-rail',
+                    label: categoryRailPinned ? 'Undock categories' : 'Dock categories',
+                    icon: categoryRailPinned ? <IconSidebarClose /> : <IconSidebarOpen />,
+                    'data-attr': 'taxonomic-category-rail-toggle',
+                    onClick: () => {
+                        markUserInteraction()
+                        setCategoryRailPinned(!categoryRailPinned)
+                        onAfterChange?.()
+                    },
+                },
+            ],
+        },
+    ]
+
     const activeItemIndex = taxonomicGroupTypes.findIndex((g) => g === openTab)
 
     return (
@@ -73,29 +89,26 @@ export function CategoryDropdown({
             placement="bottom-start"
             className={CLICK_OUTSIDE_BLOCK_CLASS}
         >
-            {renderTrigger(variant, activeLabel, joinedToInput)}
+            {renderTrigger(activeLabel, joinedToInput, categoryRailPinned)}
         </LemonMenu>
     )
 }
 
-function renderTrigger(
-    variant: Exclude<CategoryDropdownVariant, 'control'>,
-    activeLabel: string,
-    joinedToInput: boolean
-): JSX.Element {
+function renderTrigger(activeLabel: string, joinedToInput: boolean, categoryRailPinned: boolean): JSX.Element {
     return (
         <LemonButton
             type={joinedToInput ? 'tertiary' : 'secondary'}
             size="xsmall"
             truncate={joinedToInput}
             sideIcon={<IconChevronDown />}
-            data-attr={`taxonomic-category-dropdown-trigger-${variant}`}
+            // This shipped selector is used by external tests and autocapture.
+            data-attr="taxonomic-category-dropdown-trigger-pill"
             aria-label={`Current category: ${activeLabel}. Click to change.`}
-            className={
-                joinedToInput
-                    ? `${CLICK_OUTSIDE_BLOCK_CLASS} TaxonomicFilter__category-dropdown`
-                    : CLICK_OUTSIDE_BLOCK_CLASS
-            }
+            className={clsx(
+                CLICK_OUTSIDE_BLOCK_CLASS,
+                joinedToInput && 'TaxonomicFilter__category-dropdown',
+                categoryRailPinned && 'hidden @max-[32rem]:inline-flex'
+            )}
         >
             {activeLabel}
         </LemonButton>
