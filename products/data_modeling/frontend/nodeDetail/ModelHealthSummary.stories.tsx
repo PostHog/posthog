@@ -32,6 +32,14 @@ export const Suspended: Story = {
         error: 'The source table orders is unavailable.',
     },
 }
+// A failing model is what brings someone to this page, and a database exception is rarely one
+// line. This is the case the card has to hold without pushing the tabs off screen.
+const LONG_ERROR = [
+    'ClickHouse error: Code 241. DB::Exception: Memory limit (total) exceeded.',
+    ...Array.from({ length: 40 }, (_, index) => `  at step ${index + 1} of the query plan`),
+].join('\n')
+
+export const LongError: Story = { args: { status: 'Failed', error: LONG_ERROR } }
 export const Running: Story = { args: { status: 'Running' } }
 export const FirstRun: Story = { args: { status: null, lastSuccessfulSyncAt: null } }
 export const Loading: Story = {

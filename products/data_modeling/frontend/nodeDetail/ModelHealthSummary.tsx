@@ -53,8 +53,13 @@ export function ModelHealthSummary({
                         <LemonSkeleton className="h-5 w-20" />
                     )}
                 </div>
+                {/* A database exception runs to as many lines as it likes, and this card sits above
+                    the metadata and the tabs, so an unbounded one pushes the rest of the page out of
+                    view. Bounded the way the run history bounds the same strings. */}
                 {(suspended || failed) && error && (
-                    <p className="mb-0 text-sm font-mono text-danger break-words whitespace-pre-wrap">{error}</p>
+                    <p className="mb-0 max-h-64 overflow-auto text-sm font-mono text-danger break-words whitespace-pre-wrap">
+                        {error}
+                    </p>
                 )}
                 {suspended && (
                     <p className="mb-0 text-sm text-secondary">
