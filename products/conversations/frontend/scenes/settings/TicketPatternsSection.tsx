@@ -12,6 +12,8 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 import { urls } from 'scenes/urls'
@@ -108,6 +110,12 @@ export function TicketPatternsSection(): JSX.Element {
     const { updateSettings, loadOverrides } = useActions(ticketPatternSettingsLogic)
     const { roles } = useValues(rolesLogic)
     const { loadRoles } = useActions(rolesLogic)
+    // These controls all write conversations_settings, which the team endpoint accepts from project
+    // admins only. Without this a member gets live controls and a 403 after the click.
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     useEffect(() => {
         loadRoles()
@@ -133,6 +141,7 @@ export function TicketPatternsSection(): JSX.Element {
                             checked={settings.enabled}
                             onChange={(enabled) => updateSettings({ enabled })}
                             loading={saving}
+                            disabledReason={restrictedReason}
                             data-attr="ticket-pattern-detection-toggle"
                         />
                     </div>
@@ -156,7 +165,7 @@ export function TicketPatternsSection(): JSX.Element {
                                         value={settings.minRequesters}
                                         options={COUNT_OPTIONS}
                                         onChange={(minRequesters) => updateSettings({ minRequesters })}
-                                        disabledReason={saving ? 'Saving' : undefined}
+                                        disabledReason={restrictedReason ?? (saving ? 'Saving' : undefined)}
                                     />
                                 </div>
                                 <div className="flex flex-col gap-1">
@@ -166,7 +175,7 @@ export function TicketPatternsSection(): JSX.Element {
                                         value={settings.minTickets}
                                         options={COUNT_OPTIONS}
                                         onChange={(minTickets) => updateSettings({ minTickets })}
-                                        disabledReason={saving ? 'Saving' : undefined}
+                                        disabledReason={restrictedReason ?? (saving ? 'Saving' : undefined)}
                                     />
                                 </div>
                                 <div className="flex flex-col gap-1">
@@ -176,7 +185,7 @@ export function TicketPatternsSection(): JSX.Element {
                                         value={settings.windowMinutes}
                                         options={WINDOW_OPTIONS}
                                         onChange={(windowMinutes) => updateSettings({ windowMinutes })}
-                                        disabledReason={saving ? 'Saving' : undefined}
+                                        disabledReason={restrictedReason ?? (saving ? 'Saving' : undefined)}
                                     />
                                 </div>
                             </div>
@@ -200,7 +209,7 @@ export function TicketPatternsSection(): JSX.Element {
                                         ...roles.map((role) => ({ value: role.id, label: role.name })),
                                     ]}
                                     onChange={(notifyRoleId) => updateSettings({ notifyRoleId })}
-                                    disabledReason={saving ? 'Saving' : undefined}
+                                    disabledReason={restrictedReason ?? (saving ? 'Saving' : undefined)}
                                     data-attr="ticket-pattern-notify-role"
                                 />
                             </div>

@@ -6,6 +6,8 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { AppContext, TeamType } from '~/types'
@@ -17,9 +19,13 @@ import { TicketPatternsSection } from './TicketPatternsSection'
 describe('TicketPatternsSection', () => {
     let logic: ReturnType<typeof ticketPatternSettingsLogic.build>
 
-    const mountWithTicketAccess = (ticketAccess: AccessControlLevel): void => {
+    const mountWithTicketAccess = (
+        ticketAccess: AccessControlLevel,
+        projectLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin
+    ): void => {
         initKeaTests(true, {
             ...MOCK_DEFAULT_TEAM,
+            effective_membership_level: projectLevel,
             conversations_settings: { pattern_detection_enabled: true },
         } as TeamType)
         window.POSTHOG_APP_CONTEXT = {
@@ -79,6 +85,14 @@ describe('TicketPatternsSection', () => {
 
         await waitFor(() => expect(screen.getByText(/Couldn't load your muted and watched topics/)).toBeInTheDocument())
         expect(screen.queryByText('None yet')).not.toBeInTheDocument()
+    })
+
+    it('turns the detection settings off for a project member who is not an admin', () => {
+        mountWithTicketAccess(AccessControlLevel.Editor, OrganizationMembershipLevel.Member)
+
+        expect(screen.getByTestId('ticket-pattern-detection-toggle')).toBeDisabled()
+        // LemonSelect renders a button that stays focusable so the reason tooltip still opens.
+        expect(screen.getByTestId('ticket-pattern-notify-role')).toHaveAttribute('aria-disabled', 'true')
     })
 
     it('turns the override controls off for someone who can only read tickets', () => {
