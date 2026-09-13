@@ -27,6 +27,7 @@ from products.tasks.backend.exceptions import (
     ProcessTaskFatalError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
+    SandboxRateLimitedError,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.sandbox import (
@@ -571,6 +572,9 @@ def _invoke_start_agent_server(
         )
         return health_duration_ms if isinstance(health_duration_ms, int) else None
 
+    except SandboxRateLimitedError:
+        # The log tails are two more proxied commands, and the proxy is already shedding.
+        raise
     except ProcessTaskError:
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)
@@ -943,7 +947,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                             ),
                         )
                     _record_agent_server_launch(sandbox, ctx, params)
-        except Exception:
+        except Exception as error:
             if attempt > 1:
                 increment_agent_server_readiness_retry(
                     attempt,
@@ -952,9 +956,11 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                     origin_product=ctx.origin_product,
                     runtime=runtime,
                 )
-            if agentsh_domains is not None:
-                _emit_agentsh_log_tail(ctx, sandbox)
-            _emit_agent_server_log_tail(ctx, sandbox)
+            # The log tails are two more proxied commands, and the proxy is already shedding.
+            if not isinstance(error, SandboxRateLimitedError):
+                if agentsh_domains is not None:
+                    _emit_agentsh_log_tail(ctx, sandbox)
+                _emit_agent_server_log_tail(ctx, sandbox)
             raise
 
         if attempt > 1:

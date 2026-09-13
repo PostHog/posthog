@@ -1,6 +1,8 @@
+import random
 from datetime import timedelta
 from typing import Any, Optional
 
+from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
@@ -141,6 +143,44 @@ class SandboxMissingRepositoryError(ProcessTaskFatalError):
     """
 
     pass
+
+
+# The egress proxy sheds for minutes at a time, so a control-plane retry must wait far longer
+# than the activity retry policy's default interval. The delay grows with the attempt and keeps
+# a random component, so the launches that the same window hit do not retry in lockstep.
+SANDBOX_RATE_LIMIT_BASE_DELAY_SECONDS = 45
+SANDBOX_RATE_LIMIT_MAX_DELAY_SECONDS = 300
+
+
+def sandbox_rate_limit_retry_delay(attempt: int) -> float:
+    ceiling = min(
+        SANDBOX_RATE_LIMIT_BASE_DELAY_SECONDS * 2 ** max(attempt - 1, 0), SANDBOX_RATE_LIMIT_MAX_DELAY_SECONDS
+    )
+    return random.uniform(ceiling / 2, ceiling)
+
+
+class SandboxRateLimitedError(SandboxExecutionError):
+    """The egress proxy rate-limited a call to the sandbox provider's control plane.
+
+    Every sandbox command reaches Modal through the shared egress proxy, which answers 429 while
+    it sheds. An expected, recoverable condition rather than a fault, so it is kept retryable but
+    not captured to error tracking. ``next_retry_delay`` pushes the retry past the shedding window
+    instead of burning every attempt inside it.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any]):
+        attempt = activity.info().attempt if activity.in_activity() else 1
+        # Bypass SandboxExecutionError.__init__ to pass cause=None with capture=False,
+        # skipping the capture_exception() call in ProcessTaskError (mirrors GitHubRateLimitedError).
+        ProcessTaskError.__init__(
+            self,
+            message,
+            context,
+            None,
+            capture=False,
+            non_retryable=False,
+            next_retry_delay=timedelta(seconds=sandbox_rate_limit_retry_delay(attempt)),
+        )
 
 
 class SandboxNotRunningError(SandboxExecutionError):

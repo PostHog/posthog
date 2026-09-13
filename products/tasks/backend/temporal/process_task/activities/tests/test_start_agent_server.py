@@ -10,6 +10,7 @@ from products.tasks.backend.exceptions import (
     ProcessTaskFatalError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
+    SandboxRateLimitedError,
     SandboxTimeoutError,
 )
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
@@ -386,6 +387,41 @@ async def test_await_agent_server_ready_records_failed_relaunch(mocker) -> None:
         origin_product=None,
         runtime="gvisor",
     )
+
+
+def test_invoke_start_agent_server_keeps_a_rate_limit_classified(mocker) -> None:
+    context = _context()
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.start_agent_server.side_effect = SandboxRateLimitedError(
+        "Sandbox control plane is rate limited", {"sandbox_id": "sandbox-id", "operation": "poll"}
+    )
+    agentsh_tail = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._emit_agentsh_log_tail"
+    )
+    agent_server_tail = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._emit_agent_server_log_tail"
+    )
+
+    with pytest.raises(SandboxRateLimitedError):
+        _invoke_start_agent_server(
+            sandbox,
+            context,
+            _LaunchParams(
+                mcp_configs=[],
+                relayed_mcp_servers=[],
+                actor_user_id=None,
+                agentsh_domains=["example.com"],
+                protected_base_branch=None,
+                event_ingest_token=None,
+                task_run_session_token=None,
+                event_ingest_url=None,
+                event_ingest_keep_stream_open=False,
+            ),
+            repo_ready_file=None,
+        )
+
+    agentsh_tail.assert_not_called()
+    agent_server_tail.assert_not_called()
 
 
 def _mock_github_integration(mocker, pr_base: str | None):
