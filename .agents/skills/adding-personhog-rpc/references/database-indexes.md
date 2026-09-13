@@ -10,11 +10,12 @@ All indexes below are sourced from `rust/persons_migrations/` SQL files — the 
 Partitioned by `team_id` (64 hash partitions).
 Primary key is composite `(team_id, id)`.
 
-| Index name                         | Type   | Columns           | Notes                                                                                                               |
-| ---------------------------------- | ------ | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `posthog_person_new_pkey`          | PK     | `(team_id, id)`   | Partition-pruned lookup                                                                                             |
-| `posthog_person_team_id_uuid_uniq` | UNIQUE | `(team_id, uuid)` | Partition-pruned uuid lookup. **Named `posthog_person_new_uuid_idx` in migration-built databases** — see note below |
-| `posthog_person_p{i}_id_idx`       | INDEX  | `(id)`            | Per-partition index on id (64 indexes, one per partition)                                                           |
+| Index name                                 | Type   | Columns                      | Notes                                                                                                                |
+| ------------------------------------------ | ------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `posthog_person_new_pkey`                  | PK     | `(team_id, id)`              | Partition-pruned lookup                                                                                              |
+| `posthog_person_team_id_uuid_uniq`         | UNIQUE | `(team_id, uuid)`            | Partition-pruned uuid lookup. **Named `posthog_person_new_uuid_idx` in migration-built databases** — see note below  |
+| `posthog_person_team_id_uuid_covering_idx` | INDEX  | `(team_id, uuid) INCLUDE id` | Covering (non-unique): `uuid -> id` runs index-only, heap-free when all-visible. Uniqueness stays on the index above |
+| `posthog_person_p{i}_id_idx`               | INDEX  | `(id)`                       | Per-partition index on id (64 indexes, one per partition)                                                            |
 
 > **The uuid index has two names.** `rust/persons_migrations/20251113000001` creates it as
 > `posthog_person_new_uuid_idx` (the table was `posthog_person_new` then, and `ALTER TABLE ... RENAME`
@@ -30,7 +31,7 @@ Constraints: `check_properties_size` — `pg_column_size(properties) <= 655360` 
 - `WHERE team_id = $1 AND id = $2` → PK scan
 - `WHERE team_id = $1 AND uuid = $2` → unique `(team_id, uuid)` index (partition-pruned)
 - `WHERE team_id = $1 AND id = ANY($2)` → PK scan
-- `WHERE team_id = $1 AND uuid = ANY($2)` → unique `(team_id, uuid)` index scan
+- `WHERE team_id = $1 AND uuid = ANY($2)` → unique `(team_id, uuid)` index scan; selecting only `id` can run index-only via `posthog_person_team_id_uuid_covering_idx` (heap-free only for pages the visibility map marks all-visible)
 
 ## posthog_persondistinctid
 
