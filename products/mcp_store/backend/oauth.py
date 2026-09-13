@@ -5,14 +5,15 @@ import secrets
 import dataclasses
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 import structlog
 import tldextract
 
 from posthog.dataclasses import frozen
-from posthog.security.url_validation import is_url_allowed
+from posthog.security.pinned_requests import SSRFBlockedError, pinned_request
+from posthog.security.url_validation import is_url_allowed, strip_userinfo
 
 from .models import MCPServerInstallation, MCPServerTemplate, TemplateOAuthCredentials
 from .oauth_credentials import resolve_oauth_credentials_source, validate_oauth_credentials_source_metadata
@@ -20,12 +21,9 @@ from .oauth_credentials import resolve_oauth_credentials_source, validate_oauth_
 logger = structlog.get_logger(__name__)
 
 TIMEOUT = 10
+MAX_DISCOVERY_REDIRECTS = 3
 SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS = ("none", "client_secret_post", "client_secret_basic")
 DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD = "client_secret_basic"
-
-
-class SSRFBlockedError(Exception):
-    pass
 
 
 class OAuthTokenExchangeError(Exception):
@@ -51,6 +49,26 @@ def _validate_url(url: str) -> None:
     allowed, reason = is_url_allowed(url)
     if not allowed:
         raise SSRFBlockedError(f"URL blocked by SSRF protection: {reason} ({url})")
+
+
+def _discovery_get(url: str) -> requests.Response:
+    """GET a discovery document, validating and pinning every redirect hop.
+
+    A discovery URL derives from a user-supplied MCP server URL, so the target
+    is attacker-controllable. ``pinned_request`` never follows a redirect,
+    because a redirect target has passed no check, so a hop is followed here
+    instead, where it re-enters validation.
+    """
+    current_url = url
+    for _ in range(MAX_DISCOVERY_REDIRECTS + 1):
+        response = pinned_request("GET", current_url, timeout=TIMEOUT)
+        if response.status_code not in requests.models.REDIRECT_STATI or not (
+            location := response.headers.get("Location")
+        ):
+            return response
+        current_url = strip_userinfo(urljoin(current_url, location))
+
+    raise SSRFBlockedError(f"Discovery URL redirected more than {MAX_DISCOVERY_REDIRECTS} times ({url})")
 
 
 def _canonical_origin(url: str) -> str | None:
@@ -180,8 +198,7 @@ def _fetch_auth_server_metadata(auth_server_url: str) -> dict:
     FALLBACK_STATUSES = {404, 405}
     last_exc: Exception = RuntimeError("no discovery candidates were attempted")
     for metadata_url in candidates:
-        _validate_url(metadata_url)
-        metadata_resp = requests.get(metadata_url, timeout=TIMEOUT)
+        metadata_resp = _discovery_get(metadata_url)
         if metadata_resp.status_code in FALLBACK_STATUSES:
             last_exc = requests.HTTPError(response=metadata_resp)
             continue
@@ -290,12 +307,9 @@ def discover_oauth_metadata(server_url: str) -> dict:
 
     # Step 1: Try RFC 9728 Protected Resource Metadata to find the authorization server
     resource_url = f"{origin}/.well-known/oauth-protected-resource{path}"
-    _validate_url(resource_url)
-    resource_resp = requests.get(resource_url, timeout=TIMEOUT)
+    resource_resp = _discovery_get(resource_url)
     if resource_resp.status_code == 404 and path:
-        fallback_url = f"{origin}/.well-known/oauth-protected-resource"
-        _validate_url(fallback_url)
-        resource_resp = requests.get(fallback_url, timeout=TIMEOUT)
+        resource_resp = _discovery_get(f"{origin}/.well-known/oauth-protected-resource")
 
     if resource_resp.ok:
         resource_data = resource_resp.json()
