@@ -1,6 +1,9 @@
 import { Decorator, Meta, StoryObj } from '@storybook/react'
-import { useEffect, useRef } from 'react'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
+import { useEffect, useState } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -11,23 +14,26 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 // before the story mounts and restore the original on unmount so story order can't leak.
 const grantWarehouseAccess: Decorator = function GrantWarehouseAccess(Story): JSX.Element {
     const appContext = (window as any).POSTHOG_APP_CONTEXT
-    const original = useRef<{ value: unknown }>()
-    if (appContext && !original.current) {
-        original.current = { value: appContext.resource_access_control }
+    const [warehouseAccessReady, setWarehouseAccessReady] = useState(!appContext)
+
+    useEffect(() => {
+        if (!appContext) {
+            return
+        }
+
+        const originalResourceAccessControl = appContext.resource_access_control
         appContext.resource_access_control = {
             ...appContext.resource_access_control,
             [AccessControlResourceType.WarehouseObjects]: AccessControlLevel.Editor,
         }
-    }
-    useEffect(
-        () => () => {
-            if (appContext && original.current) {
-                appContext.resource_access_control = original.current.value
-            }
-        },
-        [appContext]
-    )
-    return <Story />
+        setWarehouseAccessReady(true)
+
+        return () => {
+            appContext.resource_access_control = originalResourceAccessControl
+        }
+    }, [appContext])
+
+    return warehouseAccessReady ? <Story /> : <></>
 }
 
 // Top tools per server — mirrors the first recipe in the MCP analytics docs (queries.mdx).
@@ -97,6 +103,22 @@ const MANAGED_WAREHOUSE_CONNECTIONS = [
     },
 ]
 
+const BUILDER_DATABASE_SCHEMA = {
+    tables: {
+        events: {
+            id: 'events',
+            name: 'events',
+            type: 'posthog',
+            fields: {
+                event: { name: 'event', hogql_value: 'event', type: 'string', schema_valid: true },
+                timestamp: { name: 'timestamp', hogql_value: 'timestamp', type: 'datetime', schema_valid: true },
+                distinct_id: { name: 'distinct_id', hogql_value: 'distinct_id', type: 'string', schema_valid: true },
+            },
+        },
+    },
+    joins: [],
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Data Warehouse/SQL Editor',
@@ -105,6 +127,10 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/external_data_sources/wizard': () => [200, AVAILABLE_SOURCES],
+                '/api/environments/:team_id/data_modeling_dags': () => [200, { results: [] }],
+                '/api/environments/:team_id/data_modeling_nodes': () => [200, { results: [] }],
+                '/api/environments/:team_id/data_modeling_edges': () => [200, { results: [] }],
+                '/api/projects/:team_id/warehouse_expressions': () => [200, { results: [] }],
             },
             post: {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
@@ -139,6 +165,75 @@ export default meta
 
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
+
+export const Builder: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
+        pageUrl: urls.sqlEditor({}),
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/:kind': async ({ request }: { request: Request }) => {
+                        const body = (await request.json()) as { query?: { kind?: string } }
+                        return body?.query?.kind === 'DatabaseSchemaQuery'
+                            ? [200, BUILDER_DATABASE_SCHEMA]
+                            : [200, SQL_RESULTS]
+                    },
+                },
+            },
+        },
+        testOptions: {
+            waitForSelector: '[data-attr="bi-editor-rows-shelf"]',
+            viewport: { width: 1200, height: 800 },
+        },
+    },
+    play: async (): Promise<void> => {
+        const builderButton = await waitFor(() => {
+            const button = document.querySelector('[data-attr="sql-editor-builder-mode"]')
+            if (!button) {
+                throw new Error('Builder mode is not ready')
+            }
+            return button
+        })
+        await userEvent.click(builderButton)
+        await waitFor(() => {
+            if (!document.querySelector('[data-attr="bi-editor-rows-shelf"]')) {
+                throw new Error('Builder editor is not ready')
+            }
+        })
+    },
+}
+
+export const BuilderFromExistingSQL: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
+        pageUrl: urls.sqlEditor({ query: SAMPLE_SQL }),
+        testOptions: {
+            waitForSelector: '[role="dialog"]',
+            viewport: { width: 1200, height: 800 },
+        },
+    },
+    play: async (): Promise<void> => {
+        await waitFor(() => {
+            if (!document.querySelector('.view-lines')?.textContent?.includes('SELECT')) {
+                throw new Error('SQL query is not ready')
+            }
+        })
+        const builderButton = await waitFor(() => {
+            const button = document.querySelector('[data-attr="sql-editor-builder-mode"]')
+            if (!button) {
+                throw new Error('Builder mode is not ready')
+            }
+            return button
+        })
+        await userEvent.click(builderButton)
+        await waitFor(() => {
+            if (!document.querySelector('[role="dialog"]')) {
+                throw new Error('Builder confirmation is not ready')
+            }
+        })
+    },
+}
 
 // Selecting the managed warehouse puts its long name in the sidebar's connection selector, where it
 // has to ellipsize on one line rather than wrap or overflow into the Run button's toolbar.
