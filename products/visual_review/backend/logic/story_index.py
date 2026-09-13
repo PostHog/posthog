@@ -185,6 +185,9 @@ def fetch_story_index(repo: Repo, github_run_id: str) -> StoryIndex | None:
     cache_key = f"visual_review_story_index:{repo.id}:{github_run_id}"
     cached = cache.get(cache_key)
     if isinstance(cached, dict):
+        # The artifact behind an entry is deleted after a day, so an entry that expires can never
+        # be filled again. A hit extends it, which is how the warm runs hold a long-lived baseline.
+        cache.touch(cache_key, _CACHE_TTL_SECONDS)
         return StoryIndex(path_by_story_id=cached)
 
     try:

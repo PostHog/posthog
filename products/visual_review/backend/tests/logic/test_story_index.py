@@ -3,9 +3,11 @@
 import io
 import json
 import zipfile
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -110,11 +112,30 @@ class TestFetchStoryIndex:
         assert first is not None and second is not None
         assert dict(second.path_by_story_id) == {"a--b": "frontend/src/A.tsx"}
 
-    def test_a_cached_index_outlives_a_week_of_expired_artifacts(self) -> None:
-        # The artifact an index comes from is kept for one day, and the debt digest posts weekly. A
-        # daily task reads the index while the artifact still exists, so the entry has to survive
-        # until the next posting day or the digest attributes nothing.
-        assert story_index._CACHE_TTL_SECONDS >= 8 * 24 * 60 * 60
+    def test_a_read_keeps_the_index_of_a_baseline_that_does_not_move(self) -> None:
+        repo = _repo()
+        zip_bytes = _zip_bytes(
+            {"index.json": _index_document({"a--b": {"type": "story", "importPath": "../../frontend/src/A.tsx"}})}
+        )
+        start = datetime(2026, 9, 14, 7, 30, tzinfo=UTC)
+        # A second pair of responses, so an expired entry reads as another GitHub call rather than
+        # an exhausted mock. One read is two calls: the artifact listing and the download.
+        responses = [_listing({"name": _ARTIFACT_NAME, "id": 42}), _response(content=zip_bytes)] * 2
+        with (
+            patch(
+                "products.visual_review.backend.logic.github_api._github_api_request",
+                side_effect=responses,
+            ) as request,
+            time_machine.travel(start, tick=False) as traveller,
+        ):
+            assert story_index.fetch_story_index(repo, "98765") is not None
+            traveller.move_to(start + timedelta(days=7))
+            assert story_index.fetch_story_index(repo, "98765") is not None
+            traveller.move_to(start + timedelta(days=14))
+            index = story_index.fetch_story_index(repo, "98765")
+
+        assert index is not None
+        assert request.call_count == 2
 
     @pytest.mark.parametrize(
         "responses",

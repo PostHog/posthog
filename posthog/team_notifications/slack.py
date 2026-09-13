@@ -28,6 +28,8 @@ MAX_HEADER_CHARS = 150
 MAX_BUTTON_TEXT_CHARS = 75
 MAX_BUTTON_URL_CHARS = 3000
 MAX_BLOCKS = 50
+# The plain-text fallback. Slack cuts a longer one without saying so, rather than refusing the post.
+MAX_TEXT_CHARS = 40_000
 
 
 def clip_text(text: str, limit: int) -> str:

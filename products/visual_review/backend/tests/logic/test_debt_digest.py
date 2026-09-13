@@ -11,7 +11,13 @@ from django.utils import timezone
 from posthog_owners.schema import TeamEntry
 
 from posthog.models.team.team import Team
-from posthog.team_notifications.slack import MAX_BLOCKS, MAX_SECTION_CHARS, SlackChannel, SlackPostRefused
+from posthog.team_notifications.slack import (
+    MAX_BLOCKS,
+    MAX_SECTION_CHARS,
+    MAX_TEXT_CHARS,
+    SlackChannel,
+    SlackPostRefused,
+)
 
 from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
 from products.visual_review.backend.facade.contracts import (
@@ -99,9 +105,9 @@ class TestLead:
     @pytest.mark.parametrize(
         "expiring,pileups,fields",
         [
-            (1, 0, ["*1 quarantine* expires this week", "*0 snapshots* with piled-up variants"]),
-            (0, 2, ["*0 quarantines* expire this week", "*2 snapshots* with piled-up variants"]),
-            (3, 1, ["*3 quarantines* expire this week", "*1 snapshot* with piled-up variants"]),
+            (1, 0, ["*1 quarantine* expires soon", "*0 snapshots* with piled-up variants"]),
+            (0, 2, ["*0 quarantines* expire soon", "*2 snapshots* with piled-up variants"]),
+            (3, 1, ["*3 quarantines* expire soon", "*1 snapshot* with piled-up variants"]),
         ],
     )
     def test_the_lead_names_the_team_and_counts_both_conditions(
@@ -126,7 +132,7 @@ class TestLead:
         message = debt_digest.lead_message(_repo(), _team_digest(expiring=1, pileups=2), _MONDAY)
 
         assert message.text == (
-            "Visual review debt for team-devex in PostHog/posthog: 1 quarantine expires this week, "
+            "Visual review debt for team-devex in PostHog/posthog: 1 quarantine expires soon, "
             "2 snapshots with piled-up variants."
         )
 
@@ -135,9 +141,9 @@ class TestThreadReplies:
     @pytest.mark.parametrize(
         "expiring,pileups,headings",
         [
-            (1, 0, ["*Quarantines expiring this week*"]),
+            (1, 0, ["*Quarantines expiring soon*"]),
             (0, 1, ["*Snapshots with piled-up variants*"]),
-            (2, 2, ["*Quarantines expiring this week*", "*Snapshots with piled-up variants*"]),
+            (2, 2, ["*Quarantines expiring soon*", "*Snapshots with piled-up variants*"]),
         ],
     )
     def test_one_reply_per_condition_that_has_items(self, expiring: int, pileups: int, headings: list[str]) -> None:
@@ -181,9 +187,19 @@ class TestThreadReplies:
 
         assert len(messages) == 2
         assert all(len(message.blocks) <= MAX_BLOCKS for message in messages)
-        assert all(_section_texts(message)[0].startswith("*Quarantines expiring this week*") for message in messages)
+        assert all(_section_texts(message)[0].startswith("*Quarantines expiring soon*") for message in messages)
         # Every item is carried once, under a heading that says what the reader is looking at.
         assert sum(len(_section_texts(message)) - 1 for message in messages) == len(items)
+
+    def test_the_fallback_of_a_full_message_stays_under_the_slack_cap(self) -> None:
+        items = [_item(_PLACED, line="x" * debt_digest._MAX_LINE_CHARS)] * debt_digest._ITEMS_PER_MESSAGE
+        digest = debt_digest.TeamDigest(team_slug="team-devex", expiring_quarantines=items, variant_pileups=[])
+
+        messages = debt_digest.thread_messages(_repo(), digest, _MONDAY)
+
+        assert len(items) * debt_digest._MAX_LINE_CHARS > MAX_TEXT_CHARS
+        assert len(messages) == 1
+        assert len(messages[0].text) <= MAX_TEXT_CHARS
 
 
 class TestMaintainersMessage:

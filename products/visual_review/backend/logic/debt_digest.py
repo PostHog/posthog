@@ -59,6 +59,7 @@ from posthog.team_notifications.slack import (
     MAX_BLOCKS,
     MAX_BUTTON_URL_CHARS,
     MAX_SECTION_CHARS,
+    MAX_TEXT_CHARS,
     SlackButton,
     SlackChannel,
     SlackPostRefused,
@@ -125,7 +126,7 @@ _LEAD_BODY = (
     "Each item and its action is in the thread. Quarantines that lapse start failing the gate again on the next run."
 )
 _QUARANTINE_HEADING = (
-    "*Quarantines expiring this week*\n"
+    "*Quarantines expiring soon*\n"
     "Fix the story and let the quarantine lapse, or extend it with a new reason. "
     "A lapsed quarantine fails the gate again."
 )
@@ -542,7 +543,9 @@ def split_by_team(debt: RepoDebt, ownership: PathOwnership) -> RepoDigests:
 
 def _message(parts: Sequence[MessagePart]) -> SlackMessage:
     """One post from its parts. A part with no line of its own, such as a divider, adds none."""
-    return SlackMessage(blocks=[part.block for part in parts], text="\n".join(part.line for part in parts if part.line))
+    text = "\n".join(part.line for part in parts if part.line)
+    # Slack cuts a fallback over the cap without saying so, and the blocks carry every item anyway.
+    return SlackMessage(blocks=[part.block for part in parts], text=clip_text(text, MAX_TEXT_CHARS))
 
 
 def _split_into_messages(
@@ -608,7 +611,7 @@ def lead_text(repo: Repo, digest: TeamDigest) -> str:
     pileups = len(digest.variant_pileups)
     return clip_text(
         f"Visual review debt for {digest.team_slug} in {repo.repo_full_name}: "
-        f"{expiring} quarantine{'' if expiring == 1 else 's'} expire{'s' if expiring == 1 else ''} this week, "
+        f"{expiring} quarantine{'' if expiring == 1 else 's'} expire{'s' if expiring == 1 else ''} soon, "
         f"{pileups} snapshot{'' if pileups == 1 else 's'} with piled-up variants.",
         MAX_SECTION_CHARS,
     )
@@ -624,8 +627,7 @@ def lead_message(repo: Repo, digest: TeamDigest, now: datetime) -> SlackMessage:
             context_block(f"{repo.repo_full_name} · week of {_month_day(_monday_of(now))} · weekly digest"),
             fields_block(
                 [
-                    f"*{expiring} quarantine{'' if expiring == 1 else 's'}* "
-                    f"expire{'s' if expiring == 1 else ''} this week",
+                    f"*{expiring} quarantine{'' if expiring == 1 else 's'}* expire{'s' if expiring == 1 else ''} soon",
                     f"*{pileups} snapshot{'' if pileups == 1 else 's'}* with piled-up variants",
                 ]
             ),
