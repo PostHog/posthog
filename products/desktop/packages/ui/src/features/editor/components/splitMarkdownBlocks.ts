@@ -95,8 +95,16 @@ export function splitMarkdownBlocksFrom(
   ) {
     return { src, blocks: splitMarkdownBlocks(src) };
   }
-  const stable = previous.blocks.slice(0, -1);
-  const tailStart = stable.reduce((offset, block) => offset + block.length, 0);
+  // Re-cut the stable blocks from the CURRENT source instead of carrying the old
+  // strings over: a substring keeps its whole backing string alive, so reusing them
+  // would pin one full copy of the message per frame that ever stabilized a block.
+  const stable: string[] = [];
+  let tailStart = 0;
+  for (let i = 0; i < previous.blocks.length - 1; i++) {
+    const end = tailStart + previous.blocks[i].length;
+    stable.push(src.slice(tailStart, end));
+    tailStart = end;
+  }
   const tail = splitMarkdownBlocks(src.slice(tailStart));
   return { src, blocks: stable.concat(tail) };
 }

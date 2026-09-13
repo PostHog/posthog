@@ -27,15 +27,22 @@ describe("useThrottledValue", () => {
     expect(result.current).toBe("abc");
   });
 
-  it("passes the live value through while disabled and on the render that enables it", () => {
+  it("passes the live value through while disabled and until the next emission after re-enabling", () => {
     const { result, rerender } = renderHook(
       ({ value, enabled }) => useThrottledValue(value, 100, enabled),
-      { initialProps: { value: "a", enabled: false } },
+      { initialProps: { value: "a", enabled: true } },
     );
+
+    act(() => vi.advanceTimersByTime(10));
     rerender({ value: "ab", enabled: false });
     expect(result.current).toBe("ab");
 
     rerender({ value: "abc", enabled: true });
     expect(result.current).toBe("abc");
+    rerender({ value: "abcd", enabled: true });
+    expect(result.current).toBe("abcd");
+
+    act(() => vi.advanceTimersByTime(100));
+    expect(result.current).toBe("abcd");
   });
 });
