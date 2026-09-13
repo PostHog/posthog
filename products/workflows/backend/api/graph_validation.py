@@ -23,15 +23,8 @@ def _branch_slot_count(action: dict) -> int:
     return 0
 
 
-def validate_graph(actions: list[dict], edges: list[dict], abort_action: Optional[str] = None) -> list[str]:
-    """Structural validation of the workflow graph. Raises ValidationError on hard errors that would
-    break execution at runtime ('No next action found' and friends); returns a list of non-fatal
-    warnings (e.g. unreachable nodes) for the caller to surface. Complements the per-action and
-    whole-flow checks in HogFlowSerializer — those validate config; this validates the graph wiring."""
+def _validate_actions(action_ids: list[Optional[str]], trigger_ids: list[Optional[str]]) -> list[str]:
     errors: list[str] = []
-
-    action_ids = [a.get("id") for a in actions]
-    actions_by_id = {a.get("id"): a for a in actions}
 
     # Unique action ids — surgical edits reference nodes by id, so collisions are ambiguous.
     duplicate_ids = sorted({aid for aid in action_ids if action_ids.count(aid) > 1 and aid is not None})
@@ -39,45 +32,54 @@ def validate_graph(actions: list[dict], edges: list[dict], abort_action: Optiona
         errors.append(f"Duplicate action id(s): {', '.join(duplicate_ids)}. Action ids must be unique.")
 
     # Exactly one trigger.
-    trigger_ids = [a.get("id") for a in actions if a.get("type") == "trigger"]
     if len(trigger_ids) != 1:
         errors.append(f"Exactly one trigger action is required (found {len(trigger_ids)}).")
 
-    # Every edge endpoint references a real action.
-    seen_branch_keys: set[tuple] = set()
+    return errors
+
+
+def _validate_branch_edge(edge: dict, actions_by_id: dict, seen_branch_keys: set[tuple]) -> list[str]:
+    src = edge.get("from")
+    index = edge.get("index")
+    if index is None:
+        return [f"Branch edge from '{src}' is missing 'index'."]
+    if src not in actions_by_id:
+        return []
+
+    slot_count = _branch_slot_count(actions_by_id[src])
+    if slot_count == 0:
+        return [f"Action '{src}' (type {actions_by_id[src].get('type')}) does not support branch edges."]
+    if not (0 <= index < slot_count):
+        return [f"Branch edge from '{src}' has index {index} out of range [0, {slot_count})."]
+
+    key = (src, index)
+    if key in seen_branch_keys:
+        return [f"Duplicate branch edge from '{src}' with index {index}."]
+    seen_branch_keys.add(key)
+    return []
+
+
+def _validate_edges(edges: list[dict], actions_by_id: dict, seen_branch_keys: set[tuple]) -> list[str]:
+    errors: list[str] = []
     for edge in edges:
-        src, dst, edge_type = edge.get("from"), edge.get("to"), edge.get("type")
+        src, dst = edge.get("from"), edge.get("to")
+        # Every edge endpoint references a real action.
         if src not in actions_by_id:
             errors.append(f"Edge references unknown source action '{src}'.")
         if dst not in actions_by_id:
             errors.append(f"Edge references unknown target action '{dst}'.")
 
-        if edge_type == "branch":
-            index = edge.get("index")
-            if index is None:
-                errors.append(f"Branch edge from '{src}' is missing 'index'.")
-            elif src in actions_by_id:
-                slot_count = _branch_slot_count(actions_by_id[src])
-                if slot_count == 0:
-                    errors.append(
-                        f"Action '{src}' (type {actions_by_id[src].get('type')}) does not support branch edges."
-                    )
-                elif not (0 <= index < slot_count):
-                    errors.append(f"Branch edge from '{src}' has index {index} out of range [0, {slot_count}).")
-                else:
-                    key = (src, index)
-                    if key in seen_branch_keys:
-                        errors.append(f"Duplicate branch edge from '{src}' with index {index}.")
-                    seen_branch_keys.add(key)
+        if edge.get("type") == "branch":
+            errors.extend(_validate_branch_edge(edge, actions_by_id, seen_branch_keys))
+    return errors
 
-    # abort_action, when set, must point at a real action.
-    if abort_action and abort_action not in actions_by_id:
-        errors.append(f"abort_action references unknown action '{abort_action}'.")
 
+def _validate_wait_conditions(actions: list[dict], seen_branch_keys: set[tuple]) -> list[str]:
     # Every wait_until_condition needs its single resolution edge: a `branch` edge at index 0, taken when
     # the condition matches or an events entry fires. Without it the node only advances on the
     # max_wait_duration timeout (the `continue` edge) and silently ignores resolution — a footgun the
     # frontend never produces (it always wires this edge). seen_branch_keys holds only valid branch edges.
+    errors: list[str] = []
     for action in actions:
         if action.get("type") == "wait_until_condition" and (action.get("id"), 0) not in seen_branch_keys:
             errors.append(
@@ -85,6 +87,25 @@ def validate_graph(actions: list[dict], edges: list[dict], abort_action: Optiona
                 f"with index 0 (taken when the condition matches or an events entry fires). Without it the wait "
                 f"only ever advances on the max_wait_duration timeout, never on resolution."
             )
+    return errors
+
+
+def validate_graph(actions: list[dict], edges: list[dict], abort_action: Optional[str] = None) -> list[str]:
+    """Structural validation of the workflow graph. Raises ValidationError on hard errors that would
+    break execution at runtime ('No next action found' and friends); returns a list of non-fatal
+    warnings (e.g. unreachable nodes) for the caller to surface. Complements the per-action and
+    whole-flow checks in HogFlowSerializer — those validate config; this validates the graph wiring."""
+    action_ids = [a.get("id") for a in actions]
+    actions_by_id = {a.get("id"): a for a in actions}
+    trigger_ids = [a.get("id") for a in actions if a.get("type") == "trigger"]
+    seen_branch_keys: set[tuple] = set()
+
+    errors = _validate_actions(action_ids, trigger_ids)
+    errors.extend(_validate_edges(edges, actions_by_id, seen_branch_keys))
+    # abort_action, when set, must point at a real action.
+    if abort_action and abort_action not in actions_by_id:
+        errors.append(f"abort_action references unknown action '{abort_action}'.")
+    errors.extend(_validate_wait_conditions(actions, seen_branch_keys))
 
     if errors:
         raise serializers.ValidationError({"graph": errors})
