@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from unittest.mock import patch
@@ -7,10 +8,12 @@ from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from products.tasks.backend.logic.services.task_usage import TaskTokenUsageUnavailable
 from products.tasks.backend.models import Loop, Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
+    SPEND_METRIC_RECORDED_STATE_KEY,
     TIMED_OUT_INACTIVITY_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
     USAGE_METRICS_RECORDED_STATE_KEY,
@@ -47,6 +50,16 @@ class _RecordingMetricMeter:
 
     def create_histogram(self, name, description=None, unit=None):
         return _RecordingMetric(self.sink, name, self.attributes)
+
+
+@pytest.fixture(autouse=True)
+def unpriced_runs():
+    """No run is priced unless a test says so, so the terminal path never reads ClickHouse."""
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.update_task_run_status.get_local_task_run_token_costs",
+        return_value={},
+    ) as priced:
+        yield priced
 
 
 async def _run_update_task_run_status(
@@ -656,3 +669,73 @@ def test_terminal_retry_reschedules_a_wake_after_broker_failure(activity_environ
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
     assert send_task.call_count == 2
+
+
+@pytest.mark.django_db(transaction=True)
+@patch("products.tasks.backend.temporal.process_task.activities.update_task_run_status.record_run_model_spend")
+def test_terminal_transition_records_model_spend_once(mock_spend, unpriced_runs, activity_environment, test_task_run):
+    unpriced_runs.return_value = {str(test_task_run.id): Decimal("568.72")}
+    input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+
+    async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+    async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+    mock_spend.assert_called_once()
+    assert mock_spend.call_args.args[0] == pytest.approx(568.72)
+    assert mock_spend.call_args.kwargs["origin_product"] == Task.OriginProduct.USER_CREATED
+    assert mock_spend.call_args.kwargs["status"] == TaskRun.Status.COMPLETED
+    test_task_run.refresh_from_db()
+    assert test_task_run.state[SPEND_METRIC_RECORDED_STATE_KEY] is True
+
+
+@pytest.mark.django_db(transaction=True)
+@patch("products.tasks.backend.temporal.process_task.activities.update_task_run_status.record_run_model_spend")
+def test_cancelled_run_records_model_spend(mock_spend, unpriced_runs, activity_environment, test_task_run):
+    """A runaway run is the one most likely to be cancelled, so its spend must still land."""
+    unpriced_runs.return_value = {str(test_task_run.id): Decimal("42")}
+
+    async_to_sync(activity_environment.run)(
+        update_task_run_status, UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.CANCELLED)
+    )
+
+    assert mock_spend.call_args.kwargs["status"] == TaskRun.Status.CANCELLED
+
+
+@pytest.mark.django_db(transaction=True)
+@patch("products.tasks.backend.temporal.process_task.activities.update_task_run_status.record_run_model_spend")
+def test_run_with_nothing_attributed_records_no_spend(mock_spend, activity_environment, test_task_run):
+    async_to_sync(activity_environment.run)(
+        update_task_run_status, UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+    )
+
+    mock_spend.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@patch("products.tasks.backend.temporal.process_task.activities.update_task_run_status.record_run_model_spend")
+def test_disabled_spend_metric_reads_nothing(mock_spend, unpriced_runs, activity_environment, test_task_run, settings):
+    settings.TASKS_RUN_SPEND_METRIC_ENABLED = False
+    unpriced_runs.return_value = {str(test_task_run.id): Decimal("42")}
+
+    async_to_sync(activity_environment.run)(
+        update_task_run_status, UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+    )
+
+    unpriced_runs.assert_not_called()
+    mock_spend.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@patch("products.tasks.backend.temporal.process_task.activities.update_task_run_status.record_run_model_spend")
+def test_unavailable_pricing_does_not_fail_the_transition(
+    mock_spend, unpriced_runs, activity_environment, test_task_run
+):
+    unpriced_runs.side_effect = TaskTokenUsageUnavailable("no internal project here")
+
+    async_to_sync(activity_environment.run)(
+        update_task_run_status, UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+    )
+
+    test_task_run.refresh_from_db()
+    assert test_task_run.status == TaskRun.Status.COMPLETED
+    mock_spend.assert_not_called()

@@ -169,12 +169,21 @@ per-run dollar cap. Two JSON object settings can override it:
 - `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES` maps team IDs to caps.
 - `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES` maps AI product names to
   caps and defaults to
-  `{"signals_implementation": "15", "signals_inbox": "75", "signals_chat": "30"}`.
+  `{"signals_implementation": "20", "signals_inbox": "75", "signals_chat": "30"}`.
 
 A product override takes precedence over a team override, which takes precedence
 over the default cap. Set the product override to `{}` to disable the built-in
 implementation override. An empty environment value is treated as unset and
 restores the built-in map.
+
+`posthog_code` and `background_agents` runs mint no token at all until the product
+override names them, so they carry no per-run cap and no daily bound — the wall clock
+(`TASKS_MAX_RUN_DURATION_SECONDS`) is what ends one. They are held back because they have
+no server-side provenance: every unmapped origin resolves to one of them. Naming one in
+the product override both admits it to minting and sets its cap, so there is no default
+number to fall into. Read the spend distribution off the `tasks_run_model_spend_usd`
+histogram first and pick a number above real work: a cap that binds mid-run ends the run
+after its work is written and before it is committed.
 
 ### Which gateway a sandbox run uses
 

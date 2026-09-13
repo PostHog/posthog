@@ -80,6 +80,8 @@ from products.logs.backend.facade.temporal import (
 from products.tasks.backend.facade.temporal import (
     TASKS_LATENCY_HISTOGRAM_BUCKETS,
     TASKS_LATENCY_HISTOGRAM_METRICS,
+    TASKS_RUN_SPEND_HISTOGRAM_BUCKETS,
+    TASKS_RUN_SPEND_HISTOGRAM_METRICS,
     TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS,
     TASKS_RUN_TOKENS_HISTOGRAM_METRICS,
     TASKS_RUN_TURNS_HISTOGRAM_BUCKETS,
@@ -298,6 +300,7 @@ async def create_worker(
         )
         | dict(zip(TASKS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(TASKS_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(TASKS_RUN_TOKENS_HISTOGRAM_METRICS, itertools.repeat(TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS)))
+        | dict(zip(TASKS_RUN_SPEND_HISTOGRAM_METRICS, itertools.repeat(TASKS_RUN_SPEND_HISTOGRAM_BUCKETS)))
         | dict(zip(TASKS_RUN_TURNS_HISTOGRAM_METRICS, itertools.repeat(TASKS_RUN_TURNS_HISTOGRAM_BUCKETS)))
         | dict(
             zip(

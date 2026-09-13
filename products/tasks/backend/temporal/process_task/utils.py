@@ -49,8 +49,8 @@ from products.tasks.backend.logic.services.run_actor import (
 )
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
-    MINTABLE_PRODUCTS,
     mint_scoped_token,
+    product_may_mint,
     resolve_sandbox_ai_product,
     sandbox_product_routed,
 )
@@ -1362,7 +1362,7 @@ def ai_gateway_env_vars(
     }
     if team_id is not None:
         ai_product = resolve_sandbox_ai_product(origin_product, ai_stage, internal=internal)
-        if ai_product in MINTABLE_PRODUCTS and sandbox_product_routed(
+        if product_may_mint(ai_product) and sandbox_product_routed(
             ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS
         ):
             token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
