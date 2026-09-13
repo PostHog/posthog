@@ -247,6 +247,11 @@ class EditReportResult:
     # Nullable for the same reason `charts_set` is: taking the suggestions down reports 0, and 0
     # would otherwise mean both "cleared" and "never touched".
     suggested_prompts_set: int | None = None
+    # The repository the report points at once the edit settled, read back from the stored selection
+    # rather than echoed from the input. A caller that sent `repository` can compare the two: a
+    # backend that dropped the field, or a later write that replaced the selection, shows as a target
+    # the caller never asked for. None means the report has no target.
+    repository: str | None = None
     # The report's effective title after the edit (the rewritten title, or the stored one for a
     # note/reviewer-only edit) — telemetry-only, so the edited lifecycle event can classify the report
     # (`_report_classification_props`) even when the edit didn't touch the title.
@@ -781,6 +786,16 @@ def _refresh_inferred_repository(*, team_id: int, report_id: str, attribution: A
         repository=linked,
         attribution=attribution,
     )
+
+
+def _settled_repository(report_id: str) -> str | None:
+    """The repository the report points at right now, read from its stored selection."""
+    from products.signals.backend.report_generation.select_repo import (
+        persisted_repo_selection,  # noqa: PLC0415 — keeps the sandbox stack off this module's import path
+    )
+
+    selection = persisted_repo_selection(report_id)
+    return selection.repository if selection is not None else None
 
 
 async def _resolve_report_repository(
@@ -1847,6 +1862,38 @@ def _do_edit_report(
                 "signals_scout.edit_report: inferred repository refresh failed",
                 extra={"team_id": team.id, "report_id": report_id},
             )
+    # What the report holds once every write above has settled. The caller asked for a correction and
+    # gets told whether the report took it, instead of a `repository_set` that only reports this
+    # process's intent — a target that never reached the artefact leaves the report routed at the
+    # wrong codebase, and the next implementation run works there.
+    #
+    # Best-effort read: the edit has already committed, so a transient failure degrades to "no target
+    # known" rather than failing the call and inviting a retry that appends a second note.
+    settled_repository: str | None = None
+    try:
+        settled_repository = _settled_repository(report_id)
+    except Exception:
+        logger.warning(
+            "signals_scout.edit_report: failed to read back the report's repository",
+            extra={"team_id": team.id, "report_id": report_id},
+        )
+    else:
+        if repository is not None and settled_repository != (None if repository == NO_REPO else repository):
+            # Raised before the autostart hand-off below: a report whose target is not the one this
+            # edit named must not open a draft pull request on the strength of this call.
+            logger.error(
+                "signals_scout.edit_report: repository correction did not persist",
+                extra={
+                    "team_id": team.id,
+                    "report_id": report_id,
+                    "requested": repository,
+                    "settled": settled_repository,
+                },
+            )
+            raise InvalidScoutReportError(
+                f"the repository correction did not persist: the report points at "
+                f"{settled_repository or 'no repository'}, not {repository}"
+            )
     # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
     # title rewrite to its current value, or re-sending the charts already stored) must not claim the
     # run touched the report, or notify its destination a second time about nothing. Ordered BEFORE
@@ -1905,6 +1952,7 @@ def _do_edit_report(
         charts_set=charts_set,
         metrics_set=metrics_set,
         suggested_prompts_set=prompts_set,
+        repository=settled_repository,
         report_title=report_title,
     )
     return result
