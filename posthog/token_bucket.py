@@ -26,8 +26,8 @@ import math
 import time
 
 import structlog
-from redis.commands.core import Script
 from redis.exceptions import RedisError
+from redis_lua_py import Key, redis, script
 
 from posthog.dataclasses import frozen
 from posthog.redis import get_client
@@ -74,91 +74,62 @@ class BucketUnavailable:
     error: str
 
 
-# KEYS[1] bucket hash. ARGV: capacity, refill_per_sec, cost, now_ms.
-# Returns {allowed, remaining_floor, retry_after_ms, reset_ms}.
-_CONSUME_LUA = """
-local capacity = tonumber(ARGV[1])
-local refill_per_sec = tonumber(ARGV[2])
-local cost = tonumber(ARGV[3])
-local now_ms = tonumber(ARGV[4])
+@script
+def _consume_tokens(bucket: Key, capacity: float, refill_per_second: float, cost: int, now_ms: float) -> list[int]:
+    """Returns [allowed, remaining_floor, retry_after_ms, reset_ms]."""
+    stored_tokens, stored_ts = redis.hmget(bucket, "tokens", "ts")
+    if stored_tokens is None or stored_ts is None:
+        tokens = capacity
+        ts = now_ms
+    else:
+        tokens = float(stored_tokens)
+        ts = float(stored_ts)
 
-local state = redis.call('HMGET', KEYS[1], 'tokens', 'ts')
-local tokens = tonumber(state[1])
-local ts = tonumber(state[2])
-if tokens == nil or ts == nil then
-    tokens = capacity
-    ts = now_ms
-end
+    # Clamp a backwards clock (web workers supply now_ms and may disagree by a
+    # little) so a skewed worker can neither mint free tokens nor wipe accrual.
+    if now_ms < ts:
+        now_ms = ts
+    tokens = min(capacity, tokens + ((now_ms - ts) / 1000.0) * refill_per_second)
 
--- Clamp a backwards clock (web workers supply now_ms and may disagree by a
--- little) so a skewed worker can neither mint free tokens nor wipe accrual.
-if now_ms < ts then
-    now_ms = ts
-end
-tokens = math.min(capacity, tokens + ((now_ms - ts) / 1000.0) * refill_per_sec)
+    allowed = 0
+    if tokens >= cost:
+        tokens -= cost
+        allowed = 1
 
-local allowed = 0
-if tokens >= cost then
-    tokens = tokens - cost
-    allowed = 1
-end
+    redis.hset(bucket, "tokens", tokens, "ts", now_ms)
+    # Self-expire once the bucket would be full anyway, so idle keys don't accumulate.
+    redis.pexpire(bucket, math.ceil((capacity / refill_per_second) * 1000) + 60000)
 
-redis.call('HSET', KEYS[1], 'tokens', tokens, 'ts', now_ms)
--- Self-expire once the bucket would be full anyway, so idle keys don't accumulate.
-redis.call('PEXPIRE', KEYS[1], math.ceil((capacity / refill_per_sec) * 1000) + 60000)
-
-local retry_after_ms = 0
-if allowed == 0 then
-    retry_after_ms = math.ceil(((cost - tokens) / refill_per_sec) * 1000)
-end
-local reset_ms = math.ceil(((capacity - tokens) / refill_per_sec) * 1000)
-return {allowed, math.floor(tokens), retry_after_ms, reset_ms}
-"""
-
-# KEYS[1] bucket hash. ARGV: capacity, cost.
-# A missing key means the bucket is already full, so there is nothing to give back.
-_REFUND_LUA = """
-local capacity = tonumber(ARGV[1])
-local cost = tonumber(ARGV[2])
-local tokens = tonumber(redis.call('HGET', KEYS[1], 'tokens'))
-if tokens == nil then
-    return capacity
-end
-tokens = math.min(capacity, tokens + cost)
-redis.call('HSET', KEYS[1], 'tokens', tokens)
-return math.floor(tokens)
-"""
+    retry_after_ms = 0
+    if allowed == 0:
+        retry_after_ms = math.ceil(((cost - tokens) / refill_per_second) * 1000)
+    reset_ms = math.ceil(((capacity - tokens) / refill_per_second) * 1000)
+    return [allowed, math.floor(tokens), retry_after_ms, reset_ms]
 
 
-@frozen
-class _Scripts:
-    consume: Script
-    refund: Script
-
-
-_registered_scripts: _Scripts | None = None
-
-
-def _scripts() -> _Scripts:
-    global _registered_scripts
-    if _registered_scripts is None:
-        client = get_client()
-        _registered_scripts = _Scripts(
-            consume=client.register_script(_CONSUME_LUA),
-            refund=client.register_script(_REFUND_LUA),
-        )
-    return _registered_scripts
+@script
+def _refund_tokens(bucket: Key, capacity: float, cost: int) -> int:
+    stored_tokens = redis.hget(bucket, "tokens")
+    # A missing key means the bucket is already full, so there is nothing to give back.
+    if stored_tokens is None:
+        return math.floor(capacity)
+    tokens = min(capacity, float(stored_tokens) + cost)
+    redis.hset(bucket, "tokens", tokens)
+    return math.floor(tokens)
 
 
 def consume(key: str, budget: Budget, cost: int = 1) -> BucketDecision | BucketUnavailable:
     """Atomically refill the bucket and take ``cost`` tokens if available."""
     if cost < 1 or cost > budget.burst:
         raise ValueError(f"cost must be between 1 and burst ({budget.burst}), got {cost}")
-    consume_script = _scripts().consume
     try:
-        allowed, remaining, retry_after_ms, reset_ms = consume_script(
-            keys=[key],
-            args=[budget.burst, budget.refill_per_second, cost, int(time.time() * 1000)],
+        allowed, remaining, retry_after_ms, reset_ms = _consume_tokens(
+            get_client(),
+            bucket=key,
+            capacity=budget.burst,
+            refill_per_second=budget.refill_per_second,
+            cost=cost,
+            now_ms=int(time.time() * 1000),
         )
     except RedisError as e:
         logger.warning("token_bucket_unavailable", key=key, operation="consume", error=str(e))
@@ -176,9 +147,8 @@ def refund(key: str, budget: Budget, cost: int = 1) -> int | BucketUnavailable:
     """Give ``cost`` tokens back, capped at capacity. Returns the new whole-token count."""
     if cost < 1:
         raise ValueError(f"cost must be >= 1, got {cost}")
-    refund_script = _scripts().refund
     try:
-        return int(refund_script(keys=[key], args=[budget.burst, cost]))
+        return int(_refund_tokens(get_client(), bucket=key, capacity=budget.burst, cost=cost))
     except RedisError as e:
         logger.warning("token_bucket_unavailable", key=key, operation="refund", error=str(e))
         return BucketUnavailable(error=str(e))
@@ -210,9 +180,3 @@ def peek(key: str, budget: Budget) -> BucketDecision | BucketUnavailable:
         retry_after=0 if tokens >= 1 else math.ceil((1 - tokens) / budget.refill_per_second),
         reset=math.ceil((budget.burst - tokens) / budget.refill_per_second),
     )
-
-
-def TEST_reset_scripts() -> None:
-    """Drop cached script bindings so tests that swap the redis client re-register."""
-    global _registered_scripts
-    _registered_scripts = None

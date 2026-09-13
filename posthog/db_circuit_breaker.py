@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import time
 import logging
 from dataclasses import dataclass
@@ -8,6 +9,11 @@ from functools import lru_cache
 from django.conf import settings
 
 import redis
+from redis_lua_py import (
+    Key,
+    redis as r,
+    script,
+)
 from statshog.defaults.django import statsd
 
 from posthog.dataclasses import frozen
@@ -33,62 +39,60 @@ _REDIS_OP_TIMEOUT_SECONDS = 0.1
 # cooldown) so low-traffic products stay protected across idle gaps while down.
 _OPEN_MARKER_MIN_TTL_SECONDS = 300
 
+
 # Decide whether the breaker should let a connection attempt through. Returns
-# {allowed, is_probe, open_until}. While open and within cooldown the request is
+# [allowed, is_probe, open_until]. While open and within cooldown the request is
 # denied without touching the database, and the real Redis deadline is returned
 # so each worker can cache it accurately. Once cooldown expires the breaker is
 # half-open: a single worker wins the probe lease and is allowed through to test
 # recovery; everyone else keeps failing fast (open_until=0, so they don't cache
 # and keep re-checking Redis to pick up recovery promptly).
-_ALLOW_SCRIPT = """
-local open_until = redis.call('GET', KEYS[1])
-if not open_until then
-    return {1, 0, 0}
-end
-if tonumber(ARGV[1]) < tonumber(open_until) then
-    return {0, 0, tonumber(open_until)}
-end
-local got = redis.call('SET', KEYS[2], '1', 'NX', 'EX', ARGV[2])
-if got then
-    return {1, 1, 0}
-end
-return {0, 0, 0}
-"""
+@script
+def _allow_connection(open_until_key: Key, probe_key: Key, now: float, probe_timeout_seconds: int) -> list[int]:
+    open_until = r.get(open_until_key)
+    if open_until is None:
+        return [1, 0, 0]
+    if now < float(open_until):
+        return [0, 0, math.floor(float(open_until))]
+    if r.set(probe_key, "1", "NX", "EX", probe_timeout_seconds) is not None:
+        return [1, 1, 0]
+    return [0, 0, 0]
+
 
 # Record a failed connection. A failing probe re-opens the breaker immediately
 # and releases the lease. Otherwise the failure counter is incremented within a
 # fixed window (TTL set only when the counter is created); crossing the threshold
-# opens the breaker. The open marker (KEYS[2]) holds the cooldown deadline as its
-# value but is kept for ARGV[6] seconds — far longer than the cooldown — so a
+# opens the breaker. The open marker holds the cooldown deadline as its value but
+# is kept for open_marker_ttl seconds — far longer than the cooldown — so a
 # low-traffic product whose DB stays down through an idle gap still has the open
 # marker present when traffic resumes, forcing a single half-open probe instead
 # of letting every worker burn the connect timeout. Returns 1 when the breaker is
 # open after this failure, else 0.
-_FAILURE_SCRIPT = """
-local now = tonumber(ARGV[1])
-local threshold = tonumber(ARGV[2])
-local cooldown = tonumber(ARGV[3])
-local window = tonumber(ARGV[4])
-local is_probe = ARGV[5]
-local open_for = tonumber(ARGV[6])
+@script
+def _record_connection_failure(
+    fails_key: Key,
+    open_until_key: Key,
+    probe_key: Key,
+    now: float,
+    failure_threshold: int,
+    cooldown_seconds: int,
+    window_seconds: int,
+    was_probe: bool,
+    open_marker_ttl: int,
+) -> int:
+    if was_probe:
+        r.set(open_until_key, str(now + cooldown_seconds), "EX", open_marker_ttl)
+        r.delete(probe_key)
+        r.delete(fails_key)
+        return 1
 
-if is_probe == '1' then
-    redis.call('SET', KEYS[2], tostring(now + cooldown), 'EX', open_for)
-    redis.call('DEL', KEYS[3])
-    redis.call('DEL', KEYS[1])
-    return 1
-end
-
-local n = redis.call('INCR', KEYS[1])
-if n == 1 then
-    redis.call('EXPIRE', KEYS[1], window)
-end
-if n >= threshold then
-    redis.call('SET', KEYS[2], tostring(now + cooldown), 'EX', open_for)
-    return 1
-end
-return 0
-"""
+    failures = r.incr(fails_key)
+    if failures == 1:
+        r.expire(fails_key, window_seconds)
+    if failures >= failure_threshold:
+        r.set(open_until_key, str(now + cooldown_seconds), "EX", open_marker_ttl)
+        return 1
+    return 0
 
 
 @dataclass(frozen=True)
@@ -165,10 +169,6 @@ class ProductDBCircuitBreaker:
     """
 
     def __init__(self) -> None:
-        # Registered lazily off the first client; redis-py's Script handles the
-        # EVALSHA-then-load-on-NOSCRIPT dance for us.
-        self._allow_script: redis.commands.core.Script | None = None
-        self._failure_script: redis.commands.core.Script | None = None
         # alias -> local monotonic-ish deadline (time.time) we believe it's open until
         self._local_open_until: dict[str, float] = {}
 
@@ -193,11 +193,13 @@ class ProductDBCircuitBreaker:
             return _CLOSED
 
         keys = self._keys(alias)
-        if self._allow_script is None:
-            self._allow_script = client.register_script(_ALLOW_SCRIPT)
         try:
-            result = self._allow_script(
-                keys=[keys.open_until, keys.probe], args=[now, config.probe_timeout_seconds], client=client
+            result = _allow_connection(
+                client,
+                open_until_key=keys.open_until,
+                probe_key=keys.probe,
+                now=now,
+                probe_timeout_seconds=config.probe_timeout_seconds,
             )
         except Exception:
             logger.exception("product_db_circuit_breaker_allow_failed", extra={"alias": alias})
@@ -229,25 +231,23 @@ class ProductDBCircuitBreaker:
             return
 
         keys = self._keys(alias)
-        if self._failure_script is None:
-            self._failure_script = client.register_script(_FAILURE_SCRIPT)
         # Capture once so the local deadline matches the open_until Redis computes.
         now = _now()
         # Keep the open marker well past the cooldown so an idle, still-down product
         # forces a single probe (not a connect-timeout stampede) when traffic resumes.
         open_marker_ttl = max(config.cooldown_seconds * 10, _OPEN_MARKER_MIN_TTL_SECONDS)
         try:
-            opened = self._failure_script(
-                keys=[keys.fails, keys.open_until, keys.probe],
-                args=[
-                    now,
-                    config.failure_threshold,
-                    config.cooldown_seconds,
-                    config.window_seconds,
-                    int(was_probe),
-                    open_marker_ttl,
-                ],
-                client=client,
+            opened = _record_connection_failure(
+                client,
+                fails_key=keys.fails,
+                open_until_key=keys.open_until,
+                probe_key=keys.probe,
+                now=now,
+                failure_threshold=config.failure_threshold,
+                cooldown_seconds=config.cooldown_seconds,
+                window_seconds=config.window_seconds,
+                was_probe=was_probe,
+                open_marker_ttl=open_marker_ttl,
             )
         except Exception:
             logger.exception("product_db_circuit_breaker_record_failure_failed", extra={"alias": alias})

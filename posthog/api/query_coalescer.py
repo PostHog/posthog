@@ -20,6 +20,7 @@ from posthog import (
     redis as posthog_redis,
     settings,
 )
+from posthog.redis_scripts import delete_if_owner, expire_if_owner
 
 logger = structlog.get_logger(__name__)
 
@@ -36,20 +37,6 @@ HEARTBEAT_INTERVAL_SECONDS = 5
 # possibly outdated for force_blocking requests).
 DONE_TTL_SECONDS = 5
 ERROR_TTL_SECONDS = 5
-
-_RELEASE_LOCK_SCRIPT = """
-if redis.call("get", KEYS[1]) == ARGV[1] then
-    return redis.call("del", KEYS[1])
-end
-return 0
-"""
-
-_EXTEND_LOCK_SCRIPT = """
-if redis.call("get", KEYS[1]) == ARGV[1] then
-    return redis.call("expire", KEYS[1], ARGV[2])
-end
-return 0
-"""
 
 query_coalesce_counter = Counter(
     "posthog_query_coalesce_total",
@@ -80,7 +67,7 @@ class _Heartbeat:
     def _run(self, redis, lock_key: str, lock_value: str, channel_key: str) -> None:
         while not self._stop.wait(HEARTBEAT_INTERVAL_SECONDS):
             try:
-                redis.eval(_EXTEND_LOCK_SCRIPT, 1, lock_key, lock_value, LOCK_TTL_SECONDS)
+                expire_if_owner(redis, key=lock_key, token=lock_value, seconds=LOCK_TTL_SECONDS)
                 redis.publish(channel_key, "heartbeat")
             except RedisError:
                 break
@@ -258,7 +245,7 @@ class QueryCoalescer:
             self._heartbeat = None
         if self._is_leader and self._lock_value:
             try:
-                self._redis.eval(_RELEASE_LOCK_SCRIPT, 1, self._lock_key, self._lock_value)
+                delete_if_owner(self._redis, key=self._lock_key, token=self._lock_value)
             except RedisError:
                 pass
 

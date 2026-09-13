@@ -643,22 +643,23 @@ class TestCostAccumulation:
 class TestCostRateLimiterRedisIntegration:
     @pytest.mark.asyncio
     async def test_redis_incr_called_with_correct_args(self) -> None:
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import AsyncMock, MagicMock, patch
 
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         mock_redis = MagicMock()
-        mock_redis.eval = AsyncMock(return_value=0.5)
         mock_redis.get = AsyncMock(return_value=b"0.0")
 
         throttle = UserCostBurstThrottle(redis=mock_redis)
         context = make_context(product="background_agents")
 
-        await throttle.record_cost(context, 0.5)
+        with patch("llm_gateway.rate_limiting.redis_limiter._add_cost", AsyncMock(return_value=0)) as add_cost:
+            await throttle.record_cost(context, 0.5)
 
-        mock_redis.eval.assert_called_once()
-        call_args = mock_redis.eval.call_args
-        assert "ratelimit:cost:user:user_cost_burst:background_agents:1" in call_args[0]
+        add_cost.assert_called_once()
+        assert add_cost.call_args.args == (mock_redis,)
+        assert add_cost.call_args.kwargs["bucket_key"] == "ratelimit:cost:user:user_cost_burst:background_agents:1"
+        assert add_cost.call_args.kwargs["cost"] == 0.5
 
     @pytest.mark.asyncio
     async def test_redis_get_current_returns_accumulated_cost(self) -> None:
@@ -700,18 +701,20 @@ class TestCostRateLimiterRedisIntegration:
 
     @pytest.mark.asyncio
     async def test_falls_back_to_local_on_redis_error(self) -> None:
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import AsyncMock, MagicMock, patch
 
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         mock_redis = MagicMock()
-        mock_redis.eval = AsyncMock(side_effect=Exception("Redis error"))
         mock_redis.get = AsyncMock(side_effect=Exception("Redis error"))
 
         throttle = UserCostBurstThrottle(redis=mock_redis)
         context = make_context(product="background_agents")
 
-        await throttle.record_cost(context, 0.1)
+        with patch(
+            "llm_gateway.rate_limiting.redis_limiter._add_cost", AsyncMock(side_effect=Exception("Redis error"))
+        ):
+            await throttle.record_cost(context, 0.1)
 
         result = await throttle.allow_request(context)
         assert result.allowed is True

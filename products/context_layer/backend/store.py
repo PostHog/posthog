@@ -28,6 +28,7 @@ from redis.exceptions import RedisError
 from posthog.dataclasses import frozen
 from posthog.ph_client import ph_scoped_capture
 from posthog.redis import get_client
+from posthog.redis_scripts import delete_if_owner, pexpire_if_owner
 from posthog.storage import object_storage
 
 from products.context_layer.backend import repo_lint
@@ -147,24 +148,6 @@ def _lock_key(organization_id: uuid.UUID | str) -> str:
     return f"context_layer:repo:{organization_id}"
 
 
-# Renewal and release must check ownership and act atomically: after TTL expiry
-# another writer may hold the key, and a plain get-then-expire/delete could
-# extend or drop that writer's lock. Same scripts as posthog/api/query_coalescer.py.
-_RENEW_LOCK_SCRIPT = """
-if redis.call("get", KEYS[1]) == ARGV[1] then
-    return redis.call("pexpire", KEYS[1], ARGV[2])
-end
-return 0
-"""
-
-_RELEASE_LOCK_SCRIPT = """
-if redis.call("get", KEYS[1]) == ARGV[1] then
-    return redis.call("del", KEYS[1])
-end
-return 0
-"""
-
-
 @contextmanager
 def repo_writer_lock(organization_id: uuid.UUID | str) -> Iterator[None]:
     """Per-org writer lock: SET NX PX with a heartbeat, so a crashed writer
@@ -180,7 +163,7 @@ def repo_writer_lock(organization_id: uuid.UUID | str) -> Iterator[None]:
     def renew() -> None:
         while not stop.wait(LOCK_RENEW_INTERVAL_SECONDS):
             try:
-                client.eval(_RENEW_LOCK_SCRIPT, 1, key, token, LOCK_TTL_MS)
+                pexpire_if_owner(client, key=key, token=token, milliseconds=LOCK_TTL_MS)
             except RedisError:
                 break
 
@@ -194,7 +177,7 @@ def repo_writer_lock(organization_id: uuid.UUID | str) -> Iterator[None]:
         # The write has already landed by the time we release; a Redis error here
         # must not mask the result. The TTL frees the key if Redis stays down.
         try:
-            client.eval(_RELEASE_LOCK_SCRIPT, 1, key, token)
+            delete_if_owner(client, key=key, token=token)
         except RedisError:
             logger.warning("context_layer.repo_writer_lock.release_failed", organization_id=str(organization_id))
 

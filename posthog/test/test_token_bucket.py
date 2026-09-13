@@ -7,7 +7,7 @@ from parameterized import parameterized
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from posthog.redis import TEST_clear_clients
-from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, TEST_reset_scripts, consume, peek, refund
+from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume, peek, refund
 
 # 1 token per second, so refill math reads directly in seconds.
 ONE_PER_SECOND = Budget(burst=10, per_hour=3600)
@@ -16,9 +16,7 @@ ONE_PER_SECOND = Budget(burst=10, per_hour=3600)
 class TestTokenBucket(SimpleTestCase):
     def setUp(self) -> None:
         TEST_clear_clients()
-        TEST_reset_scripts()
         self.addCleanup(TEST_clear_clients)
-        self.addCleanup(TEST_reset_scripts)
 
     def test_burst_then_deny_with_accurate_retry_after(self) -> None:
         with time_machine.travel("2026-01-01 00:00:00", tick=False):
@@ -76,12 +74,10 @@ class TestTokenBucket(SimpleTestCase):
         broken = MagicMock()
         broken.register_script.return_value.side_effect = RedisConnectionError("down")
         broken.hmget.side_effect = RedisConnectionError("down")
-        TEST_reset_scripts()
         with patch("posthog.token_bucket.get_client", return_value=broken):
             assert isinstance(consume("bucket:down", ONE_PER_SECOND), BucketUnavailable)
             assert isinstance(refund("bucket:down", ONE_PER_SECOND), BucketUnavailable)
             assert isinstance(peek("bucket:down", ONE_PER_SECOND), BucketUnavailable)
-        TEST_reset_scripts()
 
     @parameterized.expand(
         [

@@ -24,6 +24,8 @@ from datetime import timedelta
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 
+from redis_lua_py import Key, redis, script
+
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 
 from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
@@ -117,13 +119,12 @@ def _get_team_limiter() -> RateLimit:
 # another dispatch can reclaim the slot and put its own member there, or the holder can come
 # back to life and renew. Both would be destroyed by a blind removal, letting two runs into a
 # ceiling of one.
-_EVICT_IF_UNCHANGED = """
-local score = redis.call('ZSCORE', KEYS[1], ARGV[1])
-if score and tonumber(score) == tonumber(ARGV[2]) then
-    return redis.call('ZREM', KEYS[1], ARGV[1])
-end
-return 0
-"""
+@script
+def _evict_member_if_unchanged(key: Key, member: str, score: float) -> int:
+    current_score = redis.zscore(key, member)
+    if current_score is not None and float(current_score) == score:
+        return redis.zrem(key, member)
+    return 0
 
 
 def acquire_run_slots(team_id: int, notebook_short_id: str, run_id: str) -> None:
@@ -233,7 +234,7 @@ def _active_run_ids(team_id: int, run_ids: list[str]) -> set[str]:
 def _evict_if_unchanged(limiter: RateLimit, key: str, member: str, score: float) -> bool:
     """Remove `member` only while it still holds `score`. Returns whether it went."""
     try:
-        return bool(limiter.redis_client.eval(_EVICT_IF_UNCHANGED, 1, key, member, repr(score)))
+        return bool(_evict_member_if_unchanged(limiter.redis_client, key=key, member=member, score=score))
     except Exception:
         return False
 

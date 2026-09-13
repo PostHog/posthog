@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -66,25 +66,26 @@ class TestTokenRateLimiter:
 
     async def test_release_returns_tokens_redis(self) -> None:
         mock_redis: MagicMock = MagicMock()
-        mock_redis.eval = AsyncMock(return_value=50)
 
         limiter = TokenRateLimiter(redis=mock_redis, limit=1000, window_seconds=60)
 
-        await limiter.release("test_key", 50)
+        with patch(
+            "llm_gateway.rate_limiting.redis_limiter._release_tokens", AsyncMock(return_value=50)
+        ) as release_tokens:
+            await limiter.release("test_key", 50)
 
-        mock_redis.eval.assert_called_once()
-        call_args = mock_redis.eval.call_args
-        assert "ratelimit:test_key" in call_args[0]
-        assert 50 in call_args[0]
+        release_tokens.assert_called_once_with(mock_redis, bucket_key="ratelimit:test_key", tokens=50)
 
     async def test_release_falls_back_on_redis_error(self) -> None:
         mock_redis: MagicMock = MagicMock()
-        mock_redis.eval = AsyncMock(side_effect=Exception("Redis error"))
 
         limiter = TokenRateLimiter(redis=mock_redis, limit=1000, window_seconds=60)
 
         # Should not raise, falls back to local
-        await limiter.release("test_key", 50)
+        with patch(
+            "llm_gateway.rate_limiting.redis_limiter._release_tokens", AsyncMock(side_effect=Exception("Redis error"))
+        ):
+            await limiter.release("test_key", 50)
 
     async def test_get_remaining_without_redis(self) -> None:
         limiter = TokenRateLimiter(redis=None, limit=1000, window_seconds=60)

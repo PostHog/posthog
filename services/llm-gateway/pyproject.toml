@@ -25,6 +25,7 @@ dependencies = [
     "cachetools>=5.5.0",
     "python-multipart>=0.0.9",
     "boto3>=1.42.65",
+    "redis-lua-py==0.8.0",
 ]
 
 [dependency-groups]
@@ -110,4 +111,6 @@ warn_unused_ignores = true
 [tool.uv]
 managed = true
 exclude-newer = "7 days"
-exclude-newer-package = { posthoganalytics = false }
+# redis-lua-py 0.8.0 was published 2026-09-13, so the cutoff hides it until
+# 2026-09-20. Drop its entry and re-lock after that; the resolved version does not change.
+exclude-newer-package = { posthoganalytics = false, redis-lua-py = false }

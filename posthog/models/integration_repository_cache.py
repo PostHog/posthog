@@ -34,6 +34,7 @@ from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.models.utils import UUIDModel
+from posthog.redis_scripts import delete_if_owner, expire_if_owner
 from posthog.sync import database_sync_to_async
 
 if TYPE_CHECKING:
@@ -55,21 +56,6 @@ SYNC_LOCK_POLL_INTERVAL_SECONDS = 1
 # Hard cap on follower wait. While the lock key exists, the leader heartbeated within the last
 # TTL window, so we wait; if the leader crashes, the TTL expires and the next acquire promotes us.
 SYNC_LOCK_MAX_WAIT_SECONDS = 60 * 20
-
-# Token-checked release: only delete the key if we still hold the token. Safe even if the TTL already expired.
-_RELEASE_LOCK_SCRIPT = """
-if redis.call("get", KEYS[1]) == ARGV[1] then
-    return redis.call("del", KEYS[1])
-end
-return 0
-"""
-# Token-checked extend: leader heartbeat refreshes its own TTL only — won't touch a successor's lock.
-_EXTEND_LOCK_SCRIPT = """
-if redis.call("get", KEYS[1]) == ARGV[1] then
-    return redis.call("expire", KEYS[1], ARGV[2])
-end
-return 0
-"""
 
 
 class SyncFullCacheTimeoutError(Exception):
@@ -440,7 +426,8 @@ async def _acquire_sync_lock(integration_id: int) -> AsyncIterator[None]:
             except TimeoutError:
                 pass
             try:
-                result = await redis.eval(_EXTEND_LOCK_SCRIPT, 1, lock_key, lock_token, str(SYNC_LOCK_TTL_SECONDS))
+                # Token-checked: the heartbeat refreshes its own TTL only, never a successor's lock.
+                result = await expire_if_owner(redis, key=lock_key, token=lock_token, seconds=SYNC_LOCK_TTL_SECONDS)
             except Exception:
                 logger.exception("github_full_cache.sync_lock_heartbeat_failed", integration_id=integration_id)
                 continue
@@ -469,6 +456,6 @@ async def _acquire_sync_lock(integration_id: int) -> AsyncIterator[None]:
         # Shield the redis call so a cancellation arriving mid-flight doesn't abort the unlock.
         # Release is token-checked: no-op if our token no longer matches.
         try:
-            await asyncio.shield(redis.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, lock_token))
+            await asyncio.shield(delete_if_owner(redis, key=lock_key, token=lock_token))
         except (Exception, asyncio.CancelledError):
             logger.exception("github_full_cache.sync_lock_release_failed", integration_id=integration_id)

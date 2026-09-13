@@ -8,6 +8,7 @@ exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
 posthoganalytics = false
+redis-lua-py = false
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -881,6 +882,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "python-multipart" },
     { name = "redis" },
+    { name = "redis-lua-py" },
     { name = "structlog" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -918,6 +920,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.1.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "redis", specifier = "==5.3.1" },
+    { name = "redis-lua-py", specifier = "==0.8.0" },
     { name = "structlog", specifier = ">=24.4.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
@@ -1528,6 +1531,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/6a/cf/128b1b6d7086200c9f387bd4be9b2572a30b90745ef078bd8b235042dc9f/redis-5.3.1.tar.gz", hash = "sha256:ca49577a531ea64039b5a36db3d6cd1a0c7a60c34124d46924a45b956e8cf14c", size = 4626200, upload-time = "2025-07-25T08:06:27.778Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7f/26/5c5fa0e83c3621db835cfc1f1d789b37e7fa99ed54423b5f519beb931aa7/redis-5.3.1-py3-none-any.whl", hash = "sha256:dc1909bd24669cc31b5f67a039700b16ec30571096c5f1f0d9d2324bff31af97", size = 272833, upload-time = "2025-07-25T08:06:26.317Z" },
+]
+
+[[package]]
+name = "redis-lua-py"
+version = "0.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "redis" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/40/ae/ae62ae9750259df0adae987ce3589b5acc20e10e97c8bb85c3be1f5fea24/redis_lua_py-0.8.0.tar.gz", hash = "sha256:1ac676139870399c66c31a6fc6cc88fefd3a367f0dc0b1ea2c82905740d9d79f", size = 271218, upload-time = "2026-09-13T08:36:25.467Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b0/e5/fd2beab0ad89c3abdcd4e5ff3f967fa46eb58e6c5e96a603c53e32738ef5/redis_lua_py-0.8.0-py3-none-any.whl", hash = "sha256:c27d6ac5b6c07d1b5b7f9e6189b7309dfac8d402405ff25d401a07645582afc1", size = 70321, upload-time = "2026-09-13T08:36:24.318Z" },
 ]
 
 [[package]]
