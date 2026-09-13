@@ -208,17 +208,13 @@ describe('dataQualityChecksLogic', () => {
         expect(lemonToast.success).toHaveBeenCalledWith('All 2\u00a0checks passed')
     })
 
-    it('reloads the run history after completion when it was opened while empty', async () => {
-        // History opened with no prior runs leaves suiteRuns empty, so length is a wrong proxy for
-        // "opened". A finished run must still refresh the list rather than stay on "No runs yet".
+    it('reloads the run history after completion when it was empty', async () => {
+        // An empty history must still refresh after a run finishes, rather than stay on
+        // "No runs yet", so the reload cannot be conditional on the list having rows.
         ;(warehouseSavedQueriesChecksRunCreate as jest.Mock).mockResolvedValue(
             buildSuiteRun({ status: 'completed', checks_passed: 1 })
         )
         await mountLogic()
-
-        // The user expands the run history while it is still empty.
-        logic.actions.loadSuiteRuns()
-        await expectLogic(logic).toFinishAllListeners()
         ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockClear()
 
         logic.actions.runCheck('check-1')
@@ -389,12 +385,14 @@ describe('dataQualityChecksLogic', () => {
         expect((warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mock.calls.length).toEqual(pollsBeforeDenied)
     })
 
-    it('adopts a run that was already in flight on mount', async () => {
+    it('adopts a run that was already in flight on mount, without a second request', async () => {
         ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [buildSuiteRun()] })
 
         await mountLogic()
 
-        expect(warehouseSavedQueriesCheckSuiteRunsList).toHaveBeenCalledWith('1', 'view-1', { limit: 1 })
+        // Adoption reads the newest row of the history this logic already loads, so mounting hits
+        // the list endpoint once rather than twice.
+        expect(warehouseSavedQueriesCheckSuiteRunsList).toHaveBeenCalledTimes(1)
         expect(logic.values.isSuiteRunning).toBe(true)
     })
 
