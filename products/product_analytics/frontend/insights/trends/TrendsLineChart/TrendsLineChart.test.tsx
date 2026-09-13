@@ -7,7 +7,6 @@ import { dimensions, dragSelection, rawDrag, setupJsdom, setupSyncRaf } from '@p
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { ExportType } from '~/exporter/types'
@@ -26,6 +25,8 @@ import {
 } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType, InsightShortId } from '~/types'
+
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { extendLabelsToLongestSeries } from './TrendsLineChart'
 
