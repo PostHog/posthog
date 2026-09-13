@@ -99,7 +99,7 @@ tools:
             - visual_review:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
         title: Update visual review repo settings
         description: >
