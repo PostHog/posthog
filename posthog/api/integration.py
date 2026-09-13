@@ -15,6 +15,7 @@ from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import requests
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
@@ -175,6 +176,37 @@ def _reraise_slack_api_error(error: SlackApiError) -> NoReturn:
     if error_code in SLACK_AUTH_FAILURE_CODES:
         raise SlackIntegrationInactiveError() from error
     raise error
+
+
+class TwilioIntegrationInvalidCredentialsError(APIException):
+    # Actionable 4xx rather than a raw 500, so the phone number picker can render guidance inline
+    # instead of a generic server error toast.
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "twilio_integration_invalid_credentials"
+    default_detail = (
+        "Twilio rejected your account SID and auth token. Reconnect Twilio with valid credentials "
+        "to load phone numbers."
+    )
+
+
+class TwilioUnavailableError(APIException):
+    # Twilio itself failed, so the credentials are not the thing to change. A 502 keeps this
+    # distinct from the credentials error for both the picker and error tracking.
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_code = "twilio_unavailable"
+    default_detail = "PostHog could not reach Twilio to load phone numbers. Try again in a few minutes."
+
+
+def _reraise_twilio_api_error(error: requests.RequestException) -> NoReturn:
+    """Translate a Twilio request failure into an actionable 4xx, or a 502 when Twilio itself failed.
+
+    An account that owns no phone numbers is not a failure and never reaches here, so the picker
+    can tell an empty account apart from a connection it has to fix.
+    """
+    response = getattr(error, "response", None)
+    if response is not None and response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN):
+        raise TwilioIntegrationInvalidCredentialsError() from error
+    raise TwilioUnavailableError() from error
 
 
 def validate_github_repository_name(repo: str) -> str:
@@ -1695,6 +1727,11 @@ class IntegrationViewSet(
         if data is not None and not force_refresh:
             return Response(data)
 
+        try:
+            phone_numbers = twilio.list_twilio_phone_numbers()
+        except requests.RequestException as e:
+            _reraise_twilio_api_error(e)
+
         response = {
             "phone_numbers": [
                 {
@@ -1702,7 +1739,7 @@ class IntegrationViewSet(
                     "phone_number": phone_number["phone_number"],
                     "friendly_name": phone_number["friendly_name"],
                 }
-                for phone_number in twilio.list_twilio_phone_numbers()
+                for phone_number in phone_numbers
             ],
             "lastRefreshedAt": timezone.now().isoformat(),
         }
