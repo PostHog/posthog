@@ -51,6 +51,23 @@ describe('emailTemplaterLogic', () => {
         jest.useRealTimers()
     })
 
+    describe('merge tags', () => {
+        // The workflow globals only exist on a workflow send. A standalone email destination would
+        // render them blank, so the builder must not offer them there.
+        it.each([
+            ['a workflow send', { workflow: { id: 'flow-1', name: 'Onboarding series' } }, true],
+            ['a standalone destination', {}, false],
+            ['no globals at all', undefined, false],
+        ])('offers the workflow tags for %s', async (_name, variables, offered) => {
+            logic = emailTemplaterLogic(makeProps({ variables }))
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect('workflow_name' in logic.values.mergeTags).toBe(offered)
+            expect('workflow_id' in logic.values.mergeTags).toBe(offered)
+        })
+    })
+
     describe('advanced fields', () => {
         it('hides advanced fields by default', async () => {
             logic = emailTemplaterLogic(makeProps())

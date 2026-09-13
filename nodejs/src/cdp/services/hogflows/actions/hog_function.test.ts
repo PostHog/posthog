@@ -273,6 +273,26 @@ describe('HogFunctionHandler', () => {
         })
     })
 
+    it('should render the workflow name and id referenced in a function input template', async () => {
+        invocation.hogFlow.name = 'Onboarding series'
+        action.config.inputs.name = {
+            value: 'Sent by {{ workflow.name }} ({{ workflow.id }})',
+            templating: 'liquid',
+        }
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(handlerResult.error).toBeUndefined()
+        expect(mockFetch.mock.calls[0][1].body).toContain(
+            `"name":"Sent by Onboarding series (${invocation.hogFlow.id})"`
+        )
+    })
+
     describe('missing variable references', () => {
         beforeEach(() => {
             // {variables.coupon} compiled to hog bytecode; the run has no `coupon` variable
