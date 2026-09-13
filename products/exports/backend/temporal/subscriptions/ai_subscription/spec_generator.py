@@ -341,9 +341,9 @@ def _person_property_names(team: Team, limit: int) -> list[str]:
     # index, because it mis-estimates how many rows have this type; the `team_id` index range plus a sort stays in
     # milliseconds on the largest projects.
     names = (
-        PropertyDefinition.objects.filter(
+        PropertyDefinition.objects.filter(  # nosemgrep: taxonomy-scope-uses-project-key -- see the comment above
             team_id=team.pk, type=PropertyDefinition.Type.PERSON
-        )  # nosemgrep: taxonomy-scope-uses-project-key
+        )
         .order_by("name")
         .values_list("name", flat=True)[:limit]
     )
