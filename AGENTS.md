@@ -88,7 +88,7 @@ See [Public open source repo guidance](#public-open-source-repo-guidance) for wh
 #### Before you push
 
 - **Never bypass the pre-push hooks** (`--no-verify`). They run `hogli ci:preflight --strict` and a merge-queue guard. When one blocks you, fix what it reports — `/running-ci-preflight` has the loop, `/merging-prs` explains the queue guard.
-- **Never force-push a branch that is in the merge queue** — it removes the PR from the queue. That includes restacking a stack whose base is queued.
+- **Do not update a queued PR without explicit user approval in the current conversation.** Before `git_signed_commit`, `git_signed_rewrite`, force-push, or any other remote update to a branch with an open PR, check its merge-queue status. If it is queued, stop and ask for approval for that PR. An update removes the PR from the queue and delays later entries. This includes restacking a stack whose base is queued.
 - Draft PRs run a narrowed CI matrix. To force the full one, see "Forcing the full matrix on a draft" in `/authoring-ci-workflows`.
 
 #### Stacked PRs
