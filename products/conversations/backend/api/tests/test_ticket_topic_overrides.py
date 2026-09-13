@@ -28,10 +28,17 @@ class TestTicketTopicOverrideAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["topic"] == stored
 
-    def test_a_topic_with_no_usable_word_is_rejected(self):
-        response = self.client.post(self.url, {"kind": "mute", "topic": "the and"}, format="json")
+    @parameterized.expand(
+        [
+            ("no_usable_word", "the and"),
+            ("more_than_two_usable_words", "export fails on mobile"),
+        ]
+    )
+    def test_a_topic_detection_cannot_hold_is_rejected(self, _name, typed):
+        response = self.client.post(self.url, {"kind": "mute", "topic": typed}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert TicketTopicOverride.objects.for_team(self.team.id).count() == 0
 
     def test_one_override_per_topic(self):
         self.client.post(self.url, {"kind": "mute", "topic": "billing"}, format="json")

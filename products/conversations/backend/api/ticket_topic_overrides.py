@@ -12,12 +12,13 @@ from posthog.event_usage import report_user_action
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.conversations.backend.models import TicketTopicOverride
-from products.conversations.backend.pattern_detection import MIN_TOKEN_LENGTH, topics_for
+from products.conversations.backend.pattern_detection import MIN_TOKEN_LENGTH, tokenize, topics_for
 
 if TYPE_CHECKING:
     from posthog.models import User
 
 MAX_OVERRIDES_PER_TEAM = 50
+MAX_TOPIC_TOKENS = 2
 
 
 class TicketTopicOverrideSerializer(serializers.ModelSerializer):
@@ -41,9 +42,14 @@ class TicketTopicOverrideSerializer(serializers.ModelSerializer):
         }
 
     def validate_topic(self, value: str) -> str:
+        # A longer phrase has several pairs to choose from, and the one kept would decide what the
+        # override suppresses. Ask for a shorter topic instead of picking for the person.
+        if len(tokenize(value)) > MAX_TOPIC_TOKENS:
+            raise serializers.ValidationError("Use one or two words, for example 'login failure'.")
         # Store the topic in the form detection produces, or a human-typed "Login Failures" never
-        # matches the "login failure" the detector compares against.
-        normalized = sorted(topics_for(value), key=lambda t: (-t.count(" "), -len(t)))
+        # matches the "login failure" the detector compares against. The last key settles a tie,
+        # which set iteration would otherwise decide differently in each process.
+        normalized = sorted(topics_for(value), key=lambda t: (-t.count(" "), -len(t), t))
         if not normalized:
             raise serializers.ValidationError(
                 f"Enter at least one word of {MIN_TOKEN_LENGTH} or more letters that is not a common word."
