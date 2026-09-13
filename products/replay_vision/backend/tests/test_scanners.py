@@ -774,14 +774,30 @@ class TestSummaryEmbeddingText:
 
 class TestToEventProperties:
     def test_flattens_with_scanner_output_prefix(self) -> None:
-        out = MonitorOutput(verdict="yes", reasoning="found it", confidence=0.9)
+        # Notability rides onto the event too, so it is queryable in insights alongside the verdict.
+        out = MonitorOutput(
+            verdict="yes",
+            reasoning="found it",
+            confidence=0.9,
+            notability=0.8,
+            notability_reason="the export failed twice",
+        )
         props = out.to_event_properties()
         assert props == {
             "scanner_output_verdict": "yes",
             "scanner_output_reasoning": "found it",
             "scanner_output_reasoning_segments": [],
             "scanner_output_confidence": 0.9,
+            "scanner_output_notability": 0.8,
+            "scanner_output_notability_reason": "the export failed twice",
         }
+
+    def test_unjudged_notability_flattens_as_null_not_zero(self) -> None:
+        # A scan that skipped notability must not read as "not notable" downstream.
+        out = MonitorOutput(verdict="yes", reasoning="found it", confidence=0.9)
+        props = out.to_event_properties()
+        assert props["scanner_output_notability"] is None
+        assert props["scanner_output_notability_reason"] is None
 
     def test_excludes_scanner_type_discriminator(self) -> None:
         # `scanner_type` lives at the top-level event property; flattening it would duplicate.

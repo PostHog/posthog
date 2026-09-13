@@ -4167,6 +4167,53 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         reasons = {item["observation"]["session_id"]: item["reason"]["kind"] for item in items}
         self.assertEqual(reasons["good-0"], "unviewed_recent")
 
+    def test_notability_ranks_below_intent_above_heuristics_and_carries_its_sentence(self) -> None:
+        # The scan's own judgment must beat keyword friction but never outrank what the user
+        # configured the scanner to find, and its sentence must reach the card.
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(
+            scanner,
+            "notable-sess",
+            20,
+            {
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "no",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "notability": 0.8,
+                    "notability_reason": "Tried the same export three times and never saw an error.",
+                },
+                "signals_count": 0,
+            },
+        )
+        self._succeeded_observation(
+            scanner,
+            "friction-sess",
+            10,
+            {
+                "model_output": {
+                    "scanner_type": "summarizer",
+                    "title": "t",
+                    "summary": "The user hit an error and retried.",
+                    "confidence": 0.9,
+                },
+                "signals_count": 0,
+            },
+        )
+        self._succeeded_observation(scanner, "intent-hit", 30, self._monitor_result("yes"))
+
+        resp = self.client.get(self.feed_url)
+        items = resp.json()["results"]
+        self.assertEqual(
+            [item["observation"]["session_id"] for item in items],
+            ["intent-hit", "notable-sess", "friction-sess"],
+        )
+        self.assertEqual(items[1]["reason"]["kind"], "notable")
+        self.assertEqual(
+            items[1]["reason"]["notability_reason"], "Tried the same export three times and never saw an error."
+        )
+
     def test_no_verdict_monitor_negation_is_not_friction(self) -> None:
         # "Did they struggle? No" reasoning restates the question; keyword matching must not
         # read the negation as a friction hit.
