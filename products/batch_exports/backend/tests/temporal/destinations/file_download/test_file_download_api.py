@@ -25,6 +25,7 @@ from posthog.temporal.tests.utils.events import generate_test_events, insert_eve
 
 from products.batch_exports.backend.api.file_download import (
     COUNT_ROWS_TIMEOUT_MESSAGE,
+    DEFAULT_MAX_SIZE_MB,
     _calculate_expiration_for_file_download,
     _generate_s3_pre_signed_url,
     _get_file_download_for_run,
@@ -187,6 +188,7 @@ async def test_file_download_retrieve_returns_error(
     assert data["status"] == "Failed", status_response.json()
     assert data.get("error", None) is not None
     assert data["error"] == "some error message"
+    assert "records_completed" not in data
 
 
 @pytest.mark.django_db(transaction=True)
@@ -208,6 +210,7 @@ async def test_file_download_retrieve_returns_files(
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         status=BatchExportRun.Status.COMPLETED,
+        records_completed=1234,
     )
 
     file_downloads = []
@@ -227,6 +230,7 @@ async def test_file_download_retrieve_returns_files(
     data = status_response.json()
     assert data["status"] == "Completed", status_response.json()
     assert data["files"] == [str(file_download.id) for file_download in file_downloads]
+    assert data["records_completed"] == 1234
 
 
 @pytest.mark.django_db(transaction=True)
@@ -806,6 +810,7 @@ class TestFileDownloadHogQL:
         batch_export_model = mock_start_file_download_export.call_args.kwargs["batch_export_model"]
         assert batch_export_model.name == "hogql"
         assert batch_export_model.hogql_query == hogql_query
+        assert mock_start_file_download_export.call_args.kwargs["max_size_mb"] == DEFAULT_MAX_SIZE_MB
 
     @pytest.mark.usefixtures("override_file_download_settings", "enable_hogql_flag")
     @pytest.mark.django_db(transaction=True)

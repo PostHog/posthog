@@ -20497,7 +20497,7 @@ export namespace Schemas {
        * * `snappy` - snappy */
       compression?: CompressionEnum | null;
       /**
-         * Split download into multiple files of at most this size in MB
+         * Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.
          * @minimum 0
          * @nullable
          */
@@ -78302,6 +78302,11 @@ export namespace Schemas {
     export interface RetrieveCompletedOutput {
       status: RetrieveCompletedOutputStatus;
       files: string[];
+      /**
+         * Number of rows this run exported.
+         * @nullable
+         */
+      records_completed: number | null;
     }
 
     /**
