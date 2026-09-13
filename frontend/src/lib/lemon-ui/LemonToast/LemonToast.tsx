@@ -14,6 +14,7 @@ import { IconErrorOutline, IconGift } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { Link } from '../Link'
 import { Spinner } from '../Spinner'
+import { getHelp } from './getHelp'
 
 export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
     return (
@@ -41,9 +42,7 @@ interface ToastOptionsWithButton<T = string> extends ToastOptions<T> {
 
 export const GET_HELP_BUTTON: ToastButton = {
     label: 'Get help',
-    action: () => {
-        window.open('https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast', '_blank')
-    },
+    action: getHelp,
 }
 
 // Fallback for when submitting a support ticket in-app fails: let the user reach us
