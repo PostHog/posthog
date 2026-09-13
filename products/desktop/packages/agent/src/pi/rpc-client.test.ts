@@ -145,6 +145,7 @@ import { closeSync, readFileSync, writeFileSync } from "node:fs";
 const bootstrap = JSON.parse(readFileSync(3, "utf8"));
 closeSync(3);
 writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
+  benjamin: process.env.POSTHOG_BENJAMIN ?? "",
   nodeMode: process.env.ELECTRON_RUN_AS_NODE ?? "",
   extensions: bootstrap.extensions,
   apiKey: bootstrap.providerOptions.apiKey,
@@ -152,6 +153,7 @@ writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
 process.stdin.resume();
 `,
     );
+    vi.stubEnv("POSTHOG_BENJAMIN", "1");
     const client = createPiRpcClient({
       cliPath: hostPath,
       taskContext: taskContext(directory),
@@ -164,6 +166,7 @@ process.stdin.resume();
       await vi.waitFor(async () => {
         await expect(readFile(capturePath, "utf8")).resolves.toBe(
           JSON.stringify({
+            benjamin: "1",
             nodeMode: "1",
             extensions: ["repository-tools"],
             apiKey: "proxy-key",
@@ -171,6 +174,7 @@ process.stdin.resume();
         );
       });
     } finally {
+      vi.unstubAllEnvs();
       await client.stop();
       await rm(directory, { recursive: true });
     }
