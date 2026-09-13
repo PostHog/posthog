@@ -1,6 +1,26 @@
 import { ApiRequestError } from "@posthog/api-client/fetcher";
-import type { Task, TaskRun, TaskRunStatus } from "@posthog/shared/types";
-import { describe, expect, it, vi } from "vitest";
+import type {
+  SignalReportArtefactsResponse,
+  Task,
+  TaskRun,
+  TaskRunArtefact,
+  TaskRunStatus,
+} from "@posthog/shared/types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderHook, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockClient = vi.hoisted(() => ({
+  getSignalReportArtefacts: vi.fn(),
+  getTask: vi.fn(),
+}));
+
+vi.mock("@posthog/ui/features/auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => mockClient,
+}));
+
+import { reportKeys } from "./useInboxReports";
 import {
   derivePurpose,
   fetchReportTasks,
@@ -10,6 +30,7 @@ import {
   getTaskPrUrl,
   type ReportTaskData,
   type ReportTaskPurpose,
+  useReportTasks,
 } from "./useReportTasks";
 
 function makeTask(
@@ -63,61 +84,106 @@ function entry(
   return { task, purpose, purposeLabel: purpose, startedAt: task.created_at };
 }
 
+function taskRunArtefact(taskId: string, type: string): TaskRunArtefact {
+  return {
+    id: `artefact-${taskId}`,
+    type: "task_run",
+    content: { task_id: taskId, product: "signals", type },
+    created_at: "2026-06-24T10:00:00Z",
+  };
+}
+
+function artefactsResponse(
+  artefacts: TaskRunArtefact[],
+): SignalReportArtefactsResponse {
+  return { results: artefacts, count: artefacts.length };
+}
+
 describe("fetchReportTasks", () => {
-  function artefact(taskId: string, type: string) {
-    return {
-      id: `artefact-${taskId}`,
-      type: "task_run",
-      content: { task_id: taskId, product: "signals", type },
-      created_at: "2026-06-24T10:00:00Z",
-    };
-  }
-
-  const getArtefacts = vi.fn();
-
-  function client(
-    artefacts: ReturnType<typeof artefact>[],
-    getTask: (taskId: string) => Promise<Task>,
-  ) {
-    getArtefacts.mockResolvedValue({
-      results: artefacts,
-      count: artefacts.length,
-    });
-    return {
-      getSignalReportArtefacts: getArtefacts,
-      getTask: (taskId: string) => getTask(taskId),
-    } as unknown as Parameters<typeof fetchReportTasks>[0];
+  function client(getTask: (taskId: string) => Promise<Task>) {
+    return { getTask: (taskId: string) => getTask(taskId) };
   }
 
   it("keeps the surviving runs when a task_run artefact points at a deleted task", async () => {
     const implementation = makeTask("impl", { prUrl: "https://gh/pr/1" });
     const tasks = await fetchReportTasks(
-      client(
-        [artefact("scout", "scout"), artefact("impl", "implementation")],
-        async (taskId) => {
-          if (taskId === "scout") {
-            throw new ApiRequestError(404, '{"detail":"Not found."}');
-          }
-          return implementation;
-        },
-      ),
-      "report-1",
+      client(async (taskId) => {
+        if (taskId === "scout") {
+          throw new ApiRequestError(404, '{"detail":"Not found."}');
+        }
+        return implementation;
+      }),
+      [
+        taskRunArtefact("scout", "scout"),
+        taskRunArtefact("impl", "implementation"),
+      ],
     );
 
     expect(tasks.map((t) => t.task)).toEqual([implementation]);
-    // Runs come from the whole log, so the oldest task_run is not truncated away.
-    expect(getArtefacts).toHaveBeenCalledWith("report-1", { limit: 1000 });
   });
 
   it("fails the fetch when a task lookup errors for any other reason", async () => {
     await expect(
       fetchReportTasks(
-        client([artefact("impl", "implementation")], async () => {
+        client(async () => {
           throw new ApiRequestError(500, '{"detail":"Server error."}');
         }),
-        "report-1",
+        [taskRunArtefact("impl", "implementation")],
       ),
     ).rejects.toThrow(ApiRequestError);
+  });
+});
+
+describe("useReportTasks", () => {
+  const REPORT_ID = "report-1";
+  const artefacts = artefactsResponse([
+    taskRunArtefact("impl", "implementation"),
+  ]);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockClient.getSignalReportArtefacts.mockResolvedValue(artefacts);
+    mockClient.getTask.mockImplementation(async (taskId: string) =>
+      makeTask(taskId),
+    );
+  });
+
+  function newQueryClient() {
+    return new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  }
+
+  function renderReportTasks(queryClient: QueryClient) {
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    return renderHook(() => useReportTasks(REPORT_ID, "ready"), { wrapper });
+  }
+
+  it("fills the shared artefacts cache with the whole log", async () => {
+    const queryClient = newQueryClient();
+    const { result } = renderReportTasks(queryClient);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data?.map((t) => t.task.id)).toEqual(["impl"]);
+    // The whole log, not the default page: the scout run is written when the
+    // report is created, so it is the first row a default page drops.
+    expect(mockClient.getSignalReportArtefacts).toHaveBeenCalledWith(
+      REPORT_ID,
+      { limit: 1000 },
+    );
+    expect(queryClient.getQueryData(reportKeys.artefacts(REPORT_ID))).toEqual(
+      artefacts,
+    );
+  });
+
+  it("reads a fresh shared artefacts cache instead of fetching again", async () => {
+    const queryClient = newQueryClient();
+    queryClient.setQueryData(reportKeys.artefacts(REPORT_ID), artefacts);
+    const { result } = renderReportTasks(queryClient);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data?.map((t) => t.task.id)).toEqual(["impl"]);
+    expect(mockClient.getSignalReportArtefacts).not.toHaveBeenCalled();
   });
 });
 

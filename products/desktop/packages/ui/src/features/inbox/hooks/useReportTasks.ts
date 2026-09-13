@@ -2,12 +2,19 @@ import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { humanizeIdentifier } from "@posthog/core/inbox/activityLog";
 import type {
+  AnySignalReportArtefact,
   SignalReportStatus,
   Task,
   TaskRunArtefactContent,
 } from "@posthog/shared/types";
 import { isTerminalStatus } from "@posthog/shared/types";
+import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
+import {
+  fetchReportArtefacts,
+  reportKeys,
+} from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
+import { useQueryClient } from "@tanstack/react-query";
 
 // Task↔report associations are unlabelled — a task's purpose is derived from the report's
 // `task_run` artefacts (the signals pipeline writes product="signals" with one of these types;
@@ -61,32 +68,19 @@ const PURPOSE_ORDER: ReportTaskPurpose[] = [
   "other",
 ];
 
-/** Matches the web inbox's report-detail fetch, which reads the same full log. */
-const FULL_ARTEFACT_LOG_LIMIT = 1000;
-
-type ReportTaskClient = Pick<
-  PostHogAPIClient,
-  "getSignalReportArtefacts" | "getTask"
->;
-
 export async function fetchReportTasks(
-  client: ReportTaskClient,
-  reportId: string,
+  client: Pick<PostHogAPIClient, "getTask">,
+  artefacts: AnySignalReportArtefact[],
 ): Promise<ReportTaskData[]> {
   // task_run artefacts ARE the task↔report association — one entry per associated task,
   // keyed by content.task_id (earliest artefact wins for startedAt). The runtime `type`
   // check is authoritative (the generic fallback artefact keeps `type: string` and
   // defeats static narrowing).
-  const artefacts = await client.getSignalReportArtefacts(reportId, {
-    // Runs are read from the whole log: the scout task_run is written when the report is
-    // created, so it is the first row a default page drops.
-    limit: FULL_ARTEFACT_LOG_LIMIT,
-  });
   const taskRunByTaskId = new Map<
     string,
     { product: string; type: string; startedAt: string }
   >();
-  for (const artefact of artefacts.results) {
+  for (const artefact of artefacts) {
     if (artefact.type !== "task_run") continue;
     const content = artefact.content as TaskRunArtefactContent;
     const existing = taskRunByTaskId.get(content.task_id);
@@ -132,13 +126,25 @@ export function useReportTasks(
     reportStatus === "candidate" ||
     reportStatus === "in_progress" ||
     reportStatus === "pending_input";
+  const staleTime = isActive ? 5_000 : 10_000;
+  const queryClient = useQueryClient();
 
   return useAuthenticatedQuery<ReportTaskData[]>(
     ["inbox", "report-tasks", reportId],
-    (client) => fetchReportTasks(client, reportId),
+    async (client) => {
+      // Read the log through the shared artefacts query so a report open in the detail
+      // pane fetches it once, and this poll refreshes it for the other readers too.
+      const artefacts = await queryClient.fetchQuery({
+        queryKey: reportKeys.artefacts(reportId),
+        queryFn: () => fetchReportArtefacts(client, reportId),
+        meta: AUTH_SCOPED_QUERY_META,
+        staleTime,
+      });
+      return fetchReportTasks(client, artefacts.results);
+    },
     {
       enabled: !!reportId,
-      staleTime: isActive ? 5_000 : 10_000,
+      staleTime,
       refetchInterval: isActive ? 5_000 : false,
     },
   );

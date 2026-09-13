@@ -164,8 +164,8 @@ Detail screens layer additional data on top of the base report:
 
 - `useInboxReportById(reportId)` for the report record.
 - `useInboxReportSignals(reportId)` for contributing findings.
-- `useInboxReportArtefacts(reportId)` for structured outputs such as suggested reviewers and repo selection.
-- `useReportTasks(reportId, status)` for linked research/implementation tasks.
+- `useInboxReportArtefacts(reportId)` for structured outputs such as suggested reviewers and repo selection. It reads the whole artefact log under one query key, so every reader of a report's artefacts shares one fetch.
+- `useReportTasks(reportId, status)` for linked research/implementation tasks. It derives the task ids from the `task_run` artefacts in that shared query and then loads each task.
 
 Ready and pending-input report details offer Resolve and Dismiss beside the other report actions. Resolve records why the work is done; Dismiss records why the report should leave the inbox. Reviewer detail lives in the sidebar, not the title header.
 
@@ -183,7 +183,7 @@ The Inbox reads from PostHog Cloud's Self-driving backend, currently implemented
 - `GET /api/projects/{teamId}/signals/reports/{id}/`: single report detail.
 - `GET /api/projects/{teamId}/signals/reports/{id}/signals/`: contributing findings.
 - `GET /api/projects/{teamId}/signals/reports/{id}/artefacts/`: structured report artefacts.
-- `GET /api/projects/{teamId}/signals/reports/{id}/tasks/`: tasks linked to a report.
+- `GET /api/projects/{teamId}/tasks/{id}/`: one linked task. There is no report-tasks endpoint: the link lives in the report's `task_run` artefacts.
 
 The shared renderer type for the report is `SignalReport` in `packages/shared/src/domain-types.ts`. If the backend serializer changes, update that type and the client methods in `packages/api-client/src/posthog-client.ts` together.
 
