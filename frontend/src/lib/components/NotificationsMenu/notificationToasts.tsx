@@ -38,6 +38,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, { Icon: ComponentType<{ className?
     achievement_unlocked: { Icon: IconStar, color: 'text-warning' },
     subscription_nudge: { Icon: IconBell, color: 'text-primary' },
     data_quality_check_failure: { Icon: IconWarning, color: 'text-danger' },
+    support_pattern_detected: { Icon: IconTrending, color: 'text-warning' },
 }
 
 export function getNotificationIcon(notificationType: string, className: string = 'size-5'): JSX.Element {

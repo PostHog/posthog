@@ -77,6 +77,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Data quality check failures',
         description: 'When a data quality check on a warehouse table or view starts failing',
     },
+    support_pattern_detected: {
+        label: 'Support ticket patterns',
+        description: 'When several customers raise the same topic in support within an hour',
+    },
 }
 
 export function NotificationTitle({
