@@ -20,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.better_sta
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.settings import (
     BETTER_STACK_ENDPOINTS,
     ENDPOINTS,
-    MERGE_ONLY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -110,7 +109,14 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
             ENDPOINTS,
             {name: endpoint_config.incremental_fields for name, endpoint_config in BETTER_STACK_ENDPOINTS.items()},
             names,
-            merge_only=MERGE_ONLY_ENDPOINTS,
+            # Fan-out children re-request each parent's whole child collection every sync, because
+            # neither child endpoint takes a server-side time filter. Appending that would
+            # duplicate every row the previous sync wrote, so they only offer incremental merge.
+            merge_only=[
+                name
+                for name, endpoint_config in BETTER_STACK_ENDPOINTS.items()
+                if endpoint_config.fanout is not None and endpoint_config.incremental_fields
+            ],
             should_sync_default={
                 name: endpoint_config.should_sync_default for name, endpoint_config in BETTER_STACK_ENDPOINTS.items()
             },

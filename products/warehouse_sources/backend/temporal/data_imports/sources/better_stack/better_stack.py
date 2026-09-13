@@ -22,10 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponsePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    IncrementalConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -73,7 +70,7 @@ class BetterStackPaginator(JSONResponsePaginator):
             _validate_pagination_url(self._next_url)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class BetterStackResumeConfig:
     # Full next-page URL from the response's `pagination.next` field (null on the last page). It
     # carries the page, per_page, and any `from` filter, so following it preserves the incremental
@@ -150,7 +147,7 @@ def _explode_response_times(item: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def _no_request_window(_cursor_path: str) -> Optional[IncrementalConfig]:
+def _no_request_window(_cursor_path: str) -> None:
     """Report that a fan-out child takes no server-side time filter.
 
     Neither child endpoint accepts one, so there is no cursor to bind a request window to. The

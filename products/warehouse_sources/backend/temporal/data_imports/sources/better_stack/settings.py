@@ -21,7 +21,7 @@ BETTER_STACK_ORG_BASE_URL = "https://betterstack.com/api"
 _SKIP_MISSING_PARENT: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
 
 
-@dataclass
+@dataclass(frozen=True)
 class BetterStackEndpointConfig:
     name: str
     path: str
@@ -178,10 +178,3 @@ BETTER_STACK_ENDPOINTS: dict[str, BetterStackEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(BETTER_STACK_ENDPOINTS.keys())
-
-# Fan-out children re-request each parent's whole child collection every sync, because neither
-# child endpoint takes a server-side time filter. Appending that would duplicate every row the
-# previous sync already wrote, so they only offer incremental merge.
-MERGE_ONLY_ENDPOINTS = tuple(
-    name for name, config in BETTER_STACK_ENDPOINTS.items() if config.fanout is not None and config.incremental_fields
-)
