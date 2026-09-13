@@ -6,7 +6,7 @@ rules:
     - match: '/actions/'
       owners: team-product-analytics
     - match: '/activity/'
-      owners: team-platform-features
+      owners: team-web-analytics
     - match: '/agentic/'
       owners: team-growth
     - match: '/alerts/'
