@@ -50,7 +50,7 @@ from ee.hogai.chat_agent.taxonomy.virtual_properties import (
     virtual_group_for_entity,
     virtual_property_no_values_message,
 )
-from ee.hogai.utils.helpers import sanitize_event_description
+from ee.hogai.utils.helpers import sanitize_event_description, sanitize_taxonomy_name, sanitize_taxonomy_value
 from ee.hogai.utils.prompt import format_prompt_string
 
 MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
@@ -160,10 +160,11 @@ class TaxonomyAgentToolkit:
         for property_type, prop_list in property_type_to_props.items():
             output_parts.append(f"<{property_type}>")
             for name, description in prop_list:
+                safe_name = sanitize_taxonomy_name(name)
                 if description:
-                    output_parts.append(f"- {name} – {description.replace('\n', ' ')}")
+                    output_parts.append(f"- {safe_name} – {description.replace('\n', ' ')}")
                 else:
-                    output_parts.append(f"- {name}")
+                    output_parts.append(f"- {safe_name}")
             output_parts.append(f"</{property_type}>")
 
         return "\n".join(output_parts)
@@ -396,11 +397,11 @@ class TaxonomyAgentToolkit:
         formatted_sample_values: list[str] = []
         for value in sample_values:
             if format_as_string:
-                formatted_sample_values.append(f'"{value}"')
+                formatted_sample_values.append(f'"{sanitize_taxonomy_value(str(value))}"')
             elif isinstance(value, float) and value.is_integer():
                 formatted_sample_values.append(str(int(value)))
             else:
-                formatted_sample_values.append(str(value))
+                formatted_sample_values.append(sanitize_taxonomy_value(str(value)))
         prop_values = ", ".join(formatted_sample_values)
 
         # If there wasn't an exact match with the user's search, we provide a hint that LLM can use an arbitrary value.
