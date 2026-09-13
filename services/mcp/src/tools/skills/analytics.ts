@@ -20,6 +20,8 @@
  *    than echoed into analytics.
  */
 
+import type { SkillLookupMissKind } from './notFound'
+
 /** The store's own constraint: lowercase alphanumerics and hyphens, max 64 chars.
  *  Enforced at skill creation, so a value outside it never named a real skill. */
 const RECORDABLE_SKILL_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/
@@ -59,6 +61,18 @@ function recordableBodyOffset(value: unknown): number | undefined {
  * output of `parseExecCallInnerArgs` in single-exec mode. Malformed input yields
  * no properties rather than throwing — analytics must never break a tool call.
  */
+/**
+ * Why a skill read returned 404, stamped on the errored `$mcp_tool_call`.
+ *
+ * Every miss looks the same in the data today, so an agent sent to the store for
+ * a built-in PostHog skill is indistinguishable from an agent that mistyped a
+ * name. A breakdown by this property separates the two, which is how the next
+ * catalog the store does not hold gets noticed.
+ */
+export function skillLookupMissProperties(kind: SkillLookupMissKind): Record<string, unknown> {
+    return { $mcp_skill_lookup_miss_kind: kind }
+}
+
 export function skillAnalyticsProperties(toolName: string | undefined, args: unknown): Record<string, unknown> {
     if (!toolName || !SKILL_READ_TOOLS.has(toolName)) {
         return {}

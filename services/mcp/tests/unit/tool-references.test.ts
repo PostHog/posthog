@@ -41,7 +41,15 @@ describe('checkReferencesInText', () => {
         ['bare prose adjective (highest-error)', 'rank by the highest-error tool first', []],
         ['capitalized prose does not match mid-word', 'Deep-dive skills are useful here', []],
         ['entity noun after backticks', 'teams enrolled via the `signals-scout` feature flag', []],
-        ['existing skill', 'load the finding-experiments skill first', []],
+        // `skill-get` only reads the project skills store, so a bare "load the X skill"
+        // sends an agent there for a built-in skill the store has never held.
+        ['built-in skill with no way to load it', 'load the finding-experiments skill first', ['finding-experiments']],
+        [
+            'built-in skill named with its learn command',
+            'load the finding-experiments skill first with `learn posthog:finding-experiments`',
+            [],
+        ],
+        ['built-in skill called one', 'load the finding-experiments skill first. It is a built-in PostHog skill.', []],
         ['skill name in invocation context', 'resolve the reference via `creating-experiments`', []],
     ])('%s', (_description, text, expectedNames) => {
         expect(flagged(text).map((f) => f.name)).toEqual(expectedNames)
