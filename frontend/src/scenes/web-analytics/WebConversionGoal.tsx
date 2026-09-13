@@ -3,14 +3,19 @@ import { useState } from 'react'
 
 import { IconCursor } from '@posthog/icons'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { urls } from 'scenes/urls'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ProductTab } from './common'
+import { conversionGoalOptionsLogic } from './conversionGoalOptionsLogic'
 
 export interface WebConversionGoalProps {
     value?: { actionId: number } | { customEventName: string } | null
@@ -26,6 +31,7 @@ export const WebConversionGoal = ({
     const { conversionGoal: logicConversionGoal, productTab } = useValues(webAnalyticsLogic)
     const { setConversionGoal: logicSetConversionGoal } = useActions(webAnalyticsLogic)
     const { actions } = useValues(actionsModel)
+    const { hasNoConversionGoalOptions } = useValues(conversionGoalOptionsLogic)
 
     const conversionGoal = propsValue !== undefined ? propsValue : logicConversionGoal
     const setConversionGoal = propsOnChange ?? logicSetConversionGoal
@@ -36,6 +42,28 @@ export const WebConversionGoal = ({
 
     if (propsValue === undefined && productTab !== ProductTab.ANALYTICS) {
         return null
+    }
+
+    // A goal is either an action or a custom event. With neither, the picker opens on an empty list
+    // with nothing to search for, so point at the action that makes the picker usable instead.
+    if (!conversionGoal && hasNoConversionGoalOptions) {
+        return (
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Action}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconCursor />}
+                    to={urls.createAction()}
+                    data-attr="web-analytics-conversion-goal-empty"
+                    tooltip="You have no actions or custom events yet. Create an action to track conversions."
+                >
+                    Set up conversions
+                </LemonButton>
+            </AccessControlAction>
+        )
     }
 
     return (
