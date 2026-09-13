@@ -95,6 +95,15 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
             ),
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        return {
+            # PostHog's own egress proxy answering the token-mint CONNECT tunnel with a 429 —
+            # the auth session already retries via DEFAULT_RETRY, so this is a proxy throttling
+            # burst that outlasted those attempts, not a Google or customer problem. Same
+            # reasoning ClickHouse and Salesforce apply to a 502/503/504 tunnel gateway status.
+            "Tunnel connection failed: 429",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
