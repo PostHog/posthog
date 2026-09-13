@@ -1123,6 +1123,33 @@ def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerial
     return None
 
 
+def validate_ticket_pattern_settings(value: dict) -> None:
+    """Check the ticket pattern keys of a conversations_settings payload, coercing them in place.
+
+    Shared by the team and project serializers. Both accept conversations_settings, and
+    /api/projects is the route clients reach, so a check on TeamSerializer alone never runs.
+    """
+    if "pattern_detection_enabled" in value:
+        value["pattern_detection_enabled"] = bool(value["pattern_detection_enabled"])
+    for count_key, floor, ceiling in (
+        ("pattern_min_requesters", 3, None),
+        ("pattern_min_tickets", 3, None),
+        # A burst is a short-window phenomenon and a quiet pattern auto-resolves after two
+        # windows, so a day is already past the point where the window says anything useful.
+        ("pattern_window_minutes", 15, 24 * 60),
+    ):
+        if count_key in value:
+            try:
+                count = int(value[count_key])
+            except (TypeError, ValueError):
+                raise serializers.ValidationError({count_key: "Must be a whole number."})
+            if count < floor:
+                raise serializers.ValidationError({count_key: f"Must be at least {floor}."})
+            if ceiling is not None and count > ceiling:
+                raise serializers.ValidationError({count_key: f"Must be at most {ceiling}."})
+            value[count_key] = count
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -1733,9 +1760,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 raise serializers.ValidationError(
                     {"slack_bot_display_name": "Must be 200 characters or fewer with no control characters."}
                 )
-        for toggle_key in ("slack_notify_on_join", "slack_notify_on_leave", "slack_nudge_enabled"):
+        for toggle_key in (
+            "slack_notify_on_join",
+            "slack_notify_on_leave",
+            "slack_nudge_enabled",
+        ):
             if toggle_key in value:
                 value[toggle_key] = bool(value[toggle_key])
+        validate_ticket_pattern_settings(value)
         if "slack_alert_channel_id" in value:
             alert_channel = value.get("slack_alert_channel_id")
             if alert_channel is None:

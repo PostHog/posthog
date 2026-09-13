@@ -13,6 +13,14 @@ from products.conversations.backend.temporal.coordinator import (
     SupportReplyCoordinatorWorkflow,
     support_collect_eligible_tickets_activity,
 )
+from products.conversations.backend.temporal.patterns.coordinator import (
+    TicketPatternCoordinatorWorkflow,
+    patterns_collect_eligible_teams_activity,
+)
+from products.conversations.backend.temporal.patterns.detect import (
+    TicketPatternDetectWorkflow,
+    detect_ticket_patterns_activity,
+)
 from products.conversations.backend.temporal.pipeline import (
     SupportReplyWorkflow,
     support_build_context_activity,
@@ -44,6 +52,8 @@ WORKFLOWS = [
     AccountChannelSummaryWorkflow,
     ZendeskImportCoordinatorWorkflow,
     ZendeskImportBatchWorkflow,
+    TicketPatternCoordinatorWorkflow,
+    TicketPatternDetectWorkflow,
 ]
 
 ACTIVITIES = [
@@ -65,4 +75,6 @@ ACTIVITIES = [
     zendesk_import_batch_activity,
     zendesk_import_update_job_status_activity,
     zendesk_import_update_job_progress_activity,
+    patterns_collect_eligible_teams_activity,
+    detect_ticket_patterns_activity,
 ]
