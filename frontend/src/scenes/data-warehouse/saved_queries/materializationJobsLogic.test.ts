@@ -25,6 +25,15 @@ const ELIGIBLE_CHECK = {
 }
 
 describe('materializationJobsLogic', () => {
+    // Role+name queries walk the whole rendered DOM; the buttons carry a data-attr, so query that.
+    const buttonByAttr = (attr: string): HTMLElement => {
+        const button = document.querySelector(`[data-attr="${attr}"]`)
+        if (!button) {
+            throw new Error(`No button with data-attr="${attr}"`)
+        }
+        return button as HTMLElement
+    }
+
     let logic: ReturnType<typeof materializationJobsLogic.build>
     let checkCalls = 0
     // Read on every saved-query fetch, so a test can move the saved cadence between reloads.
@@ -183,9 +192,9 @@ describe('materializationJobsLogic', () => {
         }
         render(createElement(MaterializationRunActions, { viewId: 'view-1', kind }))
         await expectLogic(logic).toFinishAllListeners()
-        expect(screen.getByRole('button', { name: 'Materialize' }).getAttribute('aria-disabled')).not.toBe('true')
+        expect(buttonByAttr('node-detail-materialize').getAttribute('aria-disabled')).not.toBe('true')
         await expectLogic(dataWarehouseViewsLogic(), () => {
-            fireEvent.click(screen.getByRole('button', { name: 'Materialize' }))
+            fireEvent.click(buttonByAttr('node-detail-materialize'))
         })
             .toDispatchActions(['materializeDataWarehouseSavedQuerySuccess'])
             .toFinishAllListeners()
@@ -364,11 +373,11 @@ describe('materializationJobsLogic', () => {
         expect(logic.values.savedQueryError).toBe(true)
         render(createElement(MaterializationRunActions, { viewId: 'view-1' }))
         await expectLogic(logic).toFinishAllListeners()
-        expect(screen.getByRole('button', { name: 'Retry status refresh' })).toBeTruthy()
+        expect(screen.getByLabelText('Retry status refresh')).toBeTruthy()
         materialized = false
         fail = false
         await expectLogic(logic, () => {
-            fireEvent.click(screen.getByRole('button', { name: 'Retry status refresh' }))
+            fireEvent.click(screen.getByLabelText('Retry status refresh'))
         }).toDispatchActions(['loadSavedQuerySuccess', 'loadDataModelingJobsSuccess'])
         expect(logic.values.materializationRefreshPending).toBe(false)
         expect(logic.values.savedQuery?.is_materialized).toBe(false)

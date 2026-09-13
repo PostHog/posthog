@@ -176,6 +176,13 @@ const SETTINGS_VIEW = {
 } as DataWarehouseSavedQuery
 
 export const MaterializationSettings: StoryObj = {
+    // This story renders the info pane on its own, so the editor the meta waits for never mounts.
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="sql-editor-sidebar-query-info-pane"]',
+            viewport: { width: 1600, height: 900 },
+        },
+    },
     render: () => (
         <BindLogic logic={sqlEditorLogic} props={{ tabId: 'settings-preview' }}>
             <QueryInfo tabId="settings-preview" view={SETTINGS_VIEW} tabbed />

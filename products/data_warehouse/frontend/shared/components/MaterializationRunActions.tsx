@@ -16,6 +16,8 @@ import {
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { SERVING_ENGINE } from 'products/data_modeling/frontend/suspension'
+
 export function MaterializationRunActions({
     viewId,
     kind = 'view',
@@ -172,9 +174,10 @@ export function MaterializationRunActions({
             </>
         )
     }
+    // Only ClickHouse serves queries, so a marker on a shadow engine means the comparison run
+    // stopped, not that this model stopped refreshing.
     const suspended =
-        !!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES] &&
-        !!Object.keys(savedQuery.suspended ?? {}).length
+        !!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES] && !!savedQuery.suspended?.[SERVING_ENGINE]
     const cadenceReason = modeDisabledReason(savedQuery.sync_frequency_bounds)
     const paused = !savedQuery.sync_frequency || savedQuery.sync_frequency === 'never'
     // Resuming clears the suspension that repeated failures set, and it schedules nothing. A model
