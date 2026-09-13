@@ -10,6 +10,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { userLogic } from 'scenes/userLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { timeSensitiveAuthenticationLogic } from './timeSensitiveAuthenticationLogic'
@@ -156,6 +157,23 @@ describe('timeSensitiveAuthenticationLogic', () => {
             await pending
 
             await expectLogic(logic).toMatchValues({ showAuthenticationModal: false })
+        })
+    })
+
+    describe('precheck', () => {
+        it('falls back to password re-authentication when the precheck request fails', async () => {
+            useMocks({ post: { '/api/login/precheck': () => [429, { detail: 'Request was throttled.' }] } })
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+
+            await expectLogic(logic, () => {
+                logic.actions.precheck()
+            }).toDispatchActions(['precheckSuccess'])
+
+            expect(logic.values.precheckResponse).toMatchObject({
+                status: 'completed',
+                precheckFailed: true,
+                password_login_available: true,
+            })
         })
     })
 

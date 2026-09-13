@@ -16,7 +16,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiError } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import { PrecheckResponseType } from 'scenes/authentication/login/loginLogic'
+import { PrecheckResponseType, precheckFallback } from 'scenes/authentication/login/loginLogic'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { userLogic } from 'scenes/userLogic'
 
@@ -251,8 +251,14 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             null as PrecheckResponseType | null,
             {
                 precheck: async () => {
-                    const response = await api.create('api/login/precheck', { email: values.user!.email })
-                    return { status: 'completed', ...response }
+                    const email = values.user!.email
+                    try {
+                        const response = await api.create('api/login/precheck', { email })
+                        return { status: 'completed', ...response, email }
+                    } catch {
+                        // Never let a failed precheck hide the password field and block re-authentication.
+                        return precheckFallback(email)
+                    }
                 },
             },
         ],
@@ -373,7 +379,9 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                     modalTrackingLogic.actions.setInterruptedForm(null)
                 }
 
-                if (!values.precheckResponse) {
+                // A failed precheck holds permissive defaults, not server truth, so retry it the next
+                // time the modal opens.
+                if (!values.precheckResponse || values.precheckResponse.precheckFailed) {
                     actions.precheck()
                 }
             }

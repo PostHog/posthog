@@ -251,7 +251,7 @@ describe('loginLogic', () => {
         })
     })
 
-    describe('precheck dedupe', () => {
+    describe('precheck request gating', () => {
         let logic: ReturnType<typeof loginLogic.build>
         let precheckHandler: jest.Mock
         const originalVendor = window.navigator.vendor
@@ -283,6 +283,16 @@ describe('loginLogic', () => {
             await expectLogic(logic).toDispatchActions(['precheckSuccess'])
             expect(precheckHandler).toHaveBeenCalledTimes(2)
         })
+
+        it.each(['', 'user', 'user@', 'user@example'])(
+            'does not precheck the incomplete address %p, which the server rejects with a 400',
+            async (email) => {
+                logic.actions.precheck({ email })
+                await expectLogic(logic).toDispatchActions(['precheckSuccess'])
+                expect(precheckHandler).not.toHaveBeenCalled()
+                expect(logic.values.precheckResponse.status).toEqual('pending')
+            }
+        )
 
         it('retries a failed precheck instead of caching its fallback for the page session', async () => {
             precheckHandler.mockImplementationOnce(() => [429, { detail: 'Request was throttled.' }])
