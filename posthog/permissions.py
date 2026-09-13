@@ -30,6 +30,7 @@ from posthog.auth import (
 )
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
+from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
@@ -98,6 +99,15 @@ def get_organization_from_view(view) -> Organization:
         pass
 
     raise ValueError("View not compatible with organization-based permissions!")
+
+
+def get_team_from_view(view) -> Team | None:
+    """The project a view is nested under, or None when the view is not project-nested."""
+    try:
+        team = view.team
+    except (KeyError, AttributeError, Team.DoesNotExist):
+        return None
+    return team if isinstance(team, Team) else None
 
 
 def get_required_organization_membership(request: Request, organization: Organization) -> OrganizationMembership:
@@ -764,6 +774,73 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
     return None
 
 
+SCOPE_DENIAL_EVENT = "api key scope denied"
+MAX_NAMED_SCOPES = 5
+
+
+def _format_named_ids(rows: list[tuple], total: int, noun: str) -> str:
+    named = [f"'{name}' (ID {row_id})" for row_id, name in rows[:MAX_NAMED_SCOPES]]
+    if not named:
+        return f"{total} {noun}"
+    remaining = total - len(named)
+    if remaining > 0:
+        return f"{', '.join(named)} and {remaining} more"
+    return ", ".join(named)
+
+
+def describe_scoped_projects(scoped_teams: list[int]) -> tuple[str, set[uuid.UUID]]:
+    """Name the projects a key is confined to, with the organizations that own them.
+
+    A denial only ever describes the caller's own credential. Naming anything the credential does
+    not reach would disclose it to a client the key owner never granted that reach to, and this
+    check runs before the membership permission, so an arbitrary project ID gets this far.
+    """
+    rows = list(Team.objects.filter(id__in=scoped_teams).order_by("name").values_list("id", "name", "organization_id"))
+    description = _format_named_ids([(row[0], row[1]) for row in rows], len(scoped_teams), "projects")
+    return description, {row[2] for row in rows}
+
+
+def describe_scoped_organizations(scoped_organizations: list[str]) -> str:
+    """The organization counterpart of `describe_scoped_projects`, with the same disclosure limit."""
+    rows = list(Organization.objects.filter(id__in=scoped_organizations).order_by("name").values_list("id", "name"))
+    return _format_named_ids(rows, len(scoped_organizations), "organizations")
+
+
+def report_scope_denial(
+    request,
+    view,
+    reason: str,
+    *,
+    team: Team | None = None,
+    organization: Organization | None = None,
+) -> None:
+    """Count scope denials, because support tickets were the only signal that this 403 fired."""
+    if organization is None:
+        # Without this the event falls back to the user's current organization, which attributes
+        # the denial to an organization that never received it.
+        try:
+            organization = get_organization_from_view(view)
+        except (ValueError, NotFound):
+            organization = None
+    authenticator = request.successful_authenticator
+    report_user_action(
+        request.user,
+        SCOPE_DENIAL_EVENT,
+        {
+            "denial_reason": reason,
+            "requested_team_id": team.id if team else None,
+            "requested_organization_id": str(organization.id) if organization else None,
+            "scoped_team_count": len(get_authenticator_scoped_team_ids(authenticator) or []),
+            "scoped_organization_count": len(get_authenticator_scoped_organization_ids(authenticator) or []),
+            "authentication_class": type(request.successful_authenticator).__name__,
+            "viewset": type(view).__name__,
+        },
+        team=team,
+        organization=organization,
+        request=request,
+    )
+
+
 class APIScopePermission(ScopeBasePermission):
     """
     The request is via an API key or OAuth token and the user has the appropriate scopes.
@@ -902,23 +979,70 @@ class APIScopePermission(ScopeBasePermission):
             # anywhere else it's a config error and we fail loudly.
             try:
                 team = view.team
-                if team.id not in scoped_teams:
-                    raise PermissionDenied(f"API key does not have access to the requested project: ID {team.id}.")
             except (KeyError, AttributeError):
+                report_scope_denial(
+                    request,
+                    view,
+                    "endpoint_is_not_project_based",
+                )
                 raise PermissionDenied("API keys with scoped projects are only supported on project-based endpoints.")
+
+            if team.id not in scoped_teams:
+                scoped_project_names, scoped_owner_ids = describe_scoped_projects(scoped_teams)
+                # The cross-organization case is the one callers cannot diagnose, because the key
+                # looks correct and no amount of project scoping can reach the project.
+                organization_clause = (
+                    "The requested project is in a different organization. "
+                    if team.organization_id not in scoped_owner_ids
+                    else ""
+                )
+                report_scope_denial(
+                    request,
+                    view,
+                    "project_not_in_key_scope",
+                    team=team,
+                    organization=team.organization,
+                )
+                raise PermissionDenied(
+                    f"API key does not have access to the requested project: ID {team.id}. "
+                    f"This key is scoped to {scoped_project_names}. "
+                    f"{organization_clause}"
+                    "Add the project to the key's scope, or use a key that is scoped to it."
+                )
 
         if scoped_organizations and not skip_team_and_org:
             # The flag also opts out of org enforcement — INTERNAL views aren't
             # org-nested today, but adding nesting later must revisit the flag.
             try:
                 organization = get_organization_from_view(view)
-                if str(organization.id) not in scoped_organizations:
-                    raise PermissionDenied(
-                        f"API key does not have access to the requested organization: ID {organization.id}."
-                    )
             except ValueError:
                 # Indicates this is not an organization scoped view
-                pass
+                return
+
+            if str(organization.id) not in scoped_organizations:
+                requested_team = get_team_from_view(view)
+                # The organization is derived from the requested project, so the project is the
+                # fact the caller can act on. An organization-nested route resolves no project,
+                # and there the project sentence would name something the request never held.
+                if requested_team:
+                    project_clause = f"The requested project (ID {requested_team.id}) belongs to that organization. "
+                    action_clause = "Use a key scoped to the organization that owns the project."
+                else:
+                    project_clause = ""
+                    action_clause = "Use a key scoped to the requested organization."
+                report_scope_denial(
+                    request,
+                    view,
+                    "organization_not_in_key_scope",
+                    team=requested_team,
+                    organization=organization,
+                )
+                raise PermissionDenied(
+                    f"API key does not have access to the requested organization: ID {organization.id}. "
+                    f"{project_clause}"
+                    f"This key is scoped to {describe_scoped_organizations(scoped_organizations)}. "
+                    f"{action_clause}"
+                )
 
     def _check_organization_personal_api_key_restrictions(self, request, view) -> None:
         """
