@@ -74,6 +74,20 @@ def _record_migration(cursor, filename: str) -> None:
     cursor.execute(f"INSERT INTO {TRACKING_TABLE} (filename) VALUES (%s)", [filename])
 
 
+def _is_no_transaction(sql_content: str) -> bool:
+    """Whether the migration must run outside a transaction.
+
+    Mirrors sqlx: a migration whose first non-empty line is the marker
+    ``-- no-transaction`` runs unwrapped. CREATE INDEX CONCURRENTLY needs this
+    because it cannot run inside a transaction block.
+    """
+    for line in sql_content.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped == "-- no-transaction"
+    return False
+
+
 def _ensure_database_exists(persons_url: str) -> None:
     """Create the persons database named in ``persons_url`` if it doesn't already exist.
 
@@ -190,9 +204,16 @@ class Command(BaseCommand):
 
                 sql_content = sql_file.read_text()
                 self.stdout.write(f"  Applying {sql_file.name}...")
-                with conn.transaction():
+                # The connection is autocommit; a no-transaction file (e.g. CREATE
+                # INDEX CONCURRENTLY) must run unwrapped, so each statement commits
+                # on its own instead of inside a per-file transaction.
+                if _is_no_transaction(sql_content):
                     cursor.execute(sql_content)
                     _record_migration(cursor, sql_file.name)
+                else:
+                    with conn.transaction():
+                        cursor.execute(sql_content)
+                        _record_migration(cursor, sql_file.name)
                 applied_count += 1
 
         action = "Would apply" if dry_run else "Applied"
