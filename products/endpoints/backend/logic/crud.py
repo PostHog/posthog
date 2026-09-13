@@ -10,6 +10,7 @@ import dataclasses
 from typing import Union, cast
 
 from django.db import transaction
+from django.db.models import Q
 
 import structlog
 from rest_framework.exceptions import APIException, ValidationError
@@ -209,8 +210,11 @@ class EndpointCrudService:
             if not version_targeted and not endpoint.is_active:
                 # A deactivated endpoint serves no version, so none should keep a
                 # materialization schedule running — tear down every materialized
-                # version, not just the current one.
-                for materialized_version in endpoint.versions.all():
+                # version, not just the current one. A paused version holds no saved
+                # query, but must still lose its marker so a later call cannot wake it.
+                for materialized_version in endpoint.versions.filter(
+                    Q(saved_query__isnull=False) | Q(materialization_hibernated_at__isnull=False)
+                ):
                     self.materialization.disable_materialization(endpoint, materialized_version)
             if data.is_active is not None and not version_targeted:
                 # Activation affects throttle classification — force a lazy re-check.

@@ -129,6 +129,14 @@ class TestMaterializationHibernation(APIBaseTest):
             assert self.version.last_executed_at is None
             assert self.version.materialization_hibernated_at is not None
 
+    def test_updating_an_inactive_endpoint_does_not_rewrite_versions_with_nothing_to_tear_down(self) -> None:
+        assert self.client.patch(self.detail_url, {"is_active": False}, format="json").status_code == 200
+        before = EndpointVersion.objects.get(pk=self.version.pk).updated_at
+        response = self.client.patch(self.detail_url, {"is_active": False}, format="json")
+        assert response.status_code == 200, response.content
+        self.version.refresh_from_db()
+        assert self.version.updated_at == before
+
     def test_calls_with_the_same_hibernation_snapshot_dispatch_once(self) -> None:
         EndpointVersion.objects.filter(pk=self.version.pk).update(materialization_hibernated_at=timezone.now())
         snapshots = [EndpointVersion.objects.get(pk=self.version.pk) for _ in range(2)]
