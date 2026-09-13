@@ -16,6 +16,7 @@ from posthog.dags import (
     orm_examples,
     part_breaker,
     person_overrides,
+    person_pg_cleanup_drain,
     postgres_to_clickhouse_etl,
     property_definitions,
 )
@@ -44,6 +45,7 @@ defs = dagster.Definitions(
         fix_person_id_overrides.fix_person_id_overrides_job,
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
+        person_pg_cleanup_drain.person_pg_cleanup_drain_job,
         postgres_to_clickhouse_etl.postgres_to_clickhouse_etl_job,
         property_definitions.property_definitions_ingestion_job,
         backups.sharded_backup,
