@@ -305,6 +305,11 @@ export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleOneRegExp = new 
 export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleTwoMax = 0
 
 export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.object({
+    expected_skill_id: zod.uuid().describe('Immutable ID of the skill version that the publisher reviewed.'),
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Skill version that the publisher reviewed. The request returns 409 if the latest version changed.'),
     display_name: zod
         .union([
             zod

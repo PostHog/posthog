@@ -85,6 +85,7 @@ from .skill_serializers import (
     LLMSkillListSerializer,
     LLMSkillMarketplaceCommandSerializer,
     LLMSkillMarketplaceIssueSerializer,
+    LLMSkillPublishConflictSerializer,
     LLMSkillPublishSerializer,
     LLMSkillPublishToCommunitySerializer,
     LLMSkillRenameSerializer,
@@ -1466,7 +1467,10 @@ class LLMSkillViewSet(
         )
         return Response(self._serialize_skill(renamed_skill))
 
-    @extend_schema(request=LLMSkillPublishToCommunitySerializer, responses={201: CommunitySkillPublishResultSerializer})
+    @extend_schema(
+        request=LLMSkillPublishToCommunitySerializer,
+        responses={201: CommunitySkillPublishResultSerializer, 409: LLMSkillPublishConflictSerializer},
+    )
     @action(
         methods=["POST"],
         detail=False,
@@ -1486,6 +1490,17 @@ class LLMSkillViewSet(
 
         payload = LLMSkillPublishToCommunitySerializer(data=request.data)
         payload.is_valid(raise_exception=True)
+
+        if (
+            skill.id != payload.validated_data["expected_skill_id"]
+            or skill.version != payload.validated_data["expected_version"]
+        ):
+            return Response(
+                {
+                    "detail": "This skill changed after you reviewed it. Reopen the dialog and review the latest version."
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         files = [{"path": f.path, "content": f.content, "content_type": f.content_type} for f in skill.files.all()]
         supplied_tags = payload.validated_data.get("tags")

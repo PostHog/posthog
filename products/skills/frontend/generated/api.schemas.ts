@@ -675,6 +675,13 @@ export interface LLMSkillFileApi {
 }
 
 export interface LLMSkillPublishToCommunityApi {
+    /** Immutable ID of the skill version that the publisher reviewed. */
+    expected_skill_id: string
+    /**
+     * Skill version that the publisher reviewed. The request returns 409 if the latest version changed.
+     * @minimum 1
+     */
+    expected_version: number
     /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
     display_name?: string
     /**
@@ -693,6 +700,11 @@ export interface CommunitySkillPublishResultApi {
     pr_number: number
     /** Name of the branch created in the community-skills repo. */
     branch: string
+}
+
+export interface LLMSkillPublishConflictApi {
+    /** Reason that the reviewed skill version can no longer be published. */
+    detail: string
 }
 
 export interface LLMSkillRenameApi {

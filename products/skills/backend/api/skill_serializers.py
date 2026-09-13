@@ -945,6 +945,13 @@ class LLMSkillMarketplaceCommandSerializer(serializers.Serializer):
 
 
 class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
+    expected_skill_id = serializers.UUIDField(
+        help_text="Immutable ID of the skill version that the publisher reviewed."
+    )
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Skill version that the publisher reviewed. The request returns 409 if the latest version changed.",
+    )
     display_name = serializers.RegexField(
         DISPLAY_NAME_PATTERN,
         required=False,
@@ -972,6 +979,10 @@ class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
             "and self-reported: it is not verified against the publisher's PostHog account."
         ),
     )
+
+
+class LLMSkillPublishConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Reason that the reviewed skill version can no longer be published.")
 
 
 class CommunitySkillPublishResultSerializer(serializers.Serializer):
