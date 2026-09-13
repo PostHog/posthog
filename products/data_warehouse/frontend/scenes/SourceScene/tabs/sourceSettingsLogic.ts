@@ -496,7 +496,7 @@ export interface sourceSettingsLogicActions {
         }
         payload?: any
     }
-    loadJobs: (options?: PollLoadOptions) => any
+    loadJobs: ({ isPoll }?: PollLoadOptions) => PollLoadOptions
     loadJobsFailure: (
         error: string,
         errorObject?: any
@@ -506,10 +506,10 @@ export interface sourceSettingsLogicActions {
     }
     loadJobsSuccess: (
         jobs: ExternalDataJob[],
-        payload?: any
+        payload?: PollLoadOptions
     ) => {
         jobs: ExternalDataJob[]
-        payload?: any
+        payload?: PollLoadOptions
     }
     loadMoreJobs: () => any
     loadMoreJobsFailure: (
@@ -526,7 +526,7 @@ export interface sourceSettingsLogicActions {
         jobs: ExternalDataJob[]
         payload?: any
     }
-    loadSource: (options?: PollLoadOptions) => any
+    loadSource: ({ isPoll }?: PollLoadOptions) => PollLoadOptions
     loadSourceFailure: (
         error: string,
         errorObject?: any
@@ -536,10 +536,10 @@ export interface sourceSettingsLogicActions {
     }
     loadSourceSuccess: (
         source: ExternalDataSource | null,
-        payload?: any
+        payload?: PollLoadOptions
     ) => {
         source: ExternalDataSource | null
-        payload?: any
+        payload?: PollLoadOptions
     }
     pausePolling: () => {
         value: true
