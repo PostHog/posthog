@@ -1857,6 +1857,7 @@ def prepare_toolbar_preloaded_flags(request):
             distinct_id=distinct_id,
             groups={},
             internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
+            max_retries=2,
         )
         flags = {
             flag_key: (

@@ -2103,6 +2103,9 @@ class TestUserAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_get_flags.call_args.kwargs["internal_request_token"], "test-internal-token")
+        # Toolbar launch is a debug surface, so a transient connect blip gets retried rather
+        # than failing the launch on the first timeout.
+        self.assertEqual(mock_get_flags.call_args.kwargs["max_retries"], 2)
 
     def test_get_toolbar_preloaded_flags_retrieves_from_cache(self):
         """Test that get_toolbar_preloaded_flags retrieves flags from cache"""
