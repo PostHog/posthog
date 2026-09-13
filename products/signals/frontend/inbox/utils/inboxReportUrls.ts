@@ -17,21 +17,10 @@ export function inboxReportDetailUrl(reportId: string, backUrl?: string, tab: In
         : urls.inboxReport(tab, reportId)
 }
 
-/**
- * The `?back=` path a report was opened with, or null when it carries none. Only an internal path is
- * honored: the value reaches the URL from anywhere, so an absolute or protocol-relative one would
- * turn the back button (and the verdict actions that follow it) into an open redirect.
- */
 export function inboxReportBackPath(searchParams: Record<string, any>): string | null {
     return getRelativeNextPath(searchParams.back, window.location)
 }
 
-/**
- * Where a report's back button and its verdict actions (dismiss, resolve, refund, restore) leave to:
- * the surface the report was opened from when it carries one, the current list tab otherwise. A
- * report opened from a scout page, the findings panel or triage has to come back to it — the reader
- * was working through that surface, not the list.
- */
 export function inboxReportReturnPath(searchParams: Record<string, any>, activeTab: InboxTabKey): string {
     return inboxReportBackPath(searchParams) ?? urls.inbox(activeTab)
 }

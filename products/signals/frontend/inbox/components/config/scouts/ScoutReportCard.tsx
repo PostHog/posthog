@@ -34,7 +34,6 @@ export function ScoutReportCard({
     action: ScoutReportAction
     /** Set on cross-fleet listings to show the touching scout's name (omitted on the per-scout page). */
     skillName?: string
-    /** The surface listing this card, so the report returns here when it is read, dismissed or resolved. */
     backUrl?: string
 }): JSX.Element {
     const conventionalTitle = parseConventionalCommitTitle(report.title)

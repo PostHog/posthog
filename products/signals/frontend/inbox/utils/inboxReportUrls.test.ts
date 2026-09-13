@@ -24,9 +24,6 @@ describe('inbox report urls', () => {
         })
     })
 
-    // The back path decides where the report's back button and its verdict actions leave to. It is
-    // read from a URL param that reaches the app from anywhere, so a non-internal value is rejected
-    // to keep it from becoming an open redirect.
     describe('inboxReportBackPath', () => {
         it.each<[string, any, string | null]>([
             ['an internal path', '/inbox/scouts/signals-scout-general', '/inbox/scouts/signals-scout-general'],

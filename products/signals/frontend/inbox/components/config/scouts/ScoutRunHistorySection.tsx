@@ -88,7 +88,6 @@ const ScoutRunRow = memo(function ScoutRunRow({
     const reportActivityLabel = scoutReportActivityLabel(run)
     const { authored: authoredReportIds, edited: editedReportIds } = runReportActivity(run)
     const hasBody = Boolean(run.summary) || status === 'failed' || expanded
-    // This list only renders on the scout's own page, so a report opened from it returns there.
     const backUrl = urls.inboxScout(skillName)
 
     return (

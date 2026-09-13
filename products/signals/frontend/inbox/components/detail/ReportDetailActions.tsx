@@ -41,8 +41,6 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     const { loadSelectedReport } = useActions(inboxSceneLogic)
     const { searchParams } = useValues(router)
     const [isRestoring, setIsRestoring] = useState(false)
-    // A verdict closes the report, so it leaves for wherever the report was opened from — the same
-    // path its back button takes.
     const returnPath = inboxReportReturnPath(searchParams, activeTab)
 
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
@@ -53,9 +51,6 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     // `resolved_via_merged_pr` branch in the refund endpoint.
     const staysPutOnRefund = isResolved && report.implementation_pr_merged === true
 
-    // Once a verdict persists, broadcast so every mounted list reconciles against the server (the
-    // report leaves Needs decision / Review and merge and joins Resolved or Dismissed), then leave
-    // the report.
     const leaveForOrigin = (): void => {
         reportStateChanged()
         router.actions.push(returnPath)
@@ -78,8 +73,6 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     const { canRefund, refundDisabledReason, isRefunding, onRefundClick } = useReportRefund({
         report,
         surface: 'detail_pane',
-        // Refunding dismisses the report server-side, so reconcile the lists the same way and
-        // leave the report — except for resolved reports, which stay where they are.
         onRefunded: () => {
             reportStateChanged()
             if (!staysPutOnRefund) {

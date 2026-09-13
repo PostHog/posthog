@@ -206,8 +206,7 @@ export function InboxDetailFrame({
 }: InboxDetailFrameProps): JSX.Element {
     const { searchParams } = useValues(router)
     // A `?back=` internal path (set by surfaces embedding inbox cards, e.g. the customer analytics
-    // feed, and by the scout surfaces that list reports) redirects the back button there instead of
-    // the inbox list tab.
+    // feed) redirects the back button there instead of the inbox list tab.
     const backOverride = inboxReportBackPath(searchParams)
     const backLabel = backOverride
         ? backOverride.startsWith(urls.inboxTriage())

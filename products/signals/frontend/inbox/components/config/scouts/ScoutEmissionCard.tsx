@@ -56,7 +56,6 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
     isDeepLinked?: boolean
     /** Cross-fleet listings set this to surface the scout (name in the header, "View scout" footer link). */
     showScout?: boolean
-    /** The surface listing this card, so the linked report returns here when it is read or given a verdict. */
     backUrl?: string
 }): JSX.Element {
     const [expanded, setExpanded] = useState(isDeepLinked)
