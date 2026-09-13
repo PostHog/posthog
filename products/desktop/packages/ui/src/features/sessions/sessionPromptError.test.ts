@@ -31,7 +31,7 @@ describe("showSessionPromptError", () => {
     };
   });
 
-  it("shows one connecting notice after the session has waited 20 seconds", async () => {
+  it("shows one connecting notice per session after it has waited 20 seconds", async () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
@@ -48,11 +48,21 @@ describe("showSessionPromptError", () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(toast.error).toHaveBeenCalledOnce();
       expect(toast.error).toHaveBeenCalledWith("Session is still connecting.", {
-        id: "session-connecting-task-1",
+        id: `session-connecting-task-1-${sessionState.session.startedAt}`,
       });
 
       showSessionPromptError("task-1", new SessionConnectingError());
       expect(toast.error).toHaveBeenCalledOnce();
+
+      sessionState.session.startedAt = Date.now();
+      showSessionPromptError("task-1", new SessionConnectingError());
+      expect(toast.error).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(toast.error).toHaveBeenCalledTimes(2);
+      expect(toast.error).toHaveBeenLastCalledWith("Session is still connecting.", {
+        id: `session-connecting-task-1-${sessionState.session.startedAt}`,
+      });
     } finally {
       vi.useRealTimers();
     }
