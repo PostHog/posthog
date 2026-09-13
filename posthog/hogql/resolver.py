@@ -1514,8 +1514,11 @@ class Resolver(CloningVisitor):
             if node.constraint and node.constraint.constraint_type == "USING":
                 # visit USING constraint before adding the table to avoid ambiguous names
                 node.constraint = self.visit_join_constraint(node.constraint)
-            if node.alias is None and self._join_chain_has_using(node):
-                node.alias = self._synthesize_using_join_alias(scope)
+            if node.alias is None:
+                if self._join_chain_has_using(node):
+                    node.alias = self._synthesize_using_join_alias(scope)
+                elif node.join_type is not None:
+                    node.alias = self._synthesize_join_alias(scope, node)
 
             node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
 
@@ -1726,6 +1729,20 @@ class Resolver(CloningVisitor):
         alias = f"__using_join_{index}"
         self._synthetic_using_join_aliases.add(alias)
         return alias
+
+    def _synthesize_join_alias(self, scope: ast.SelectQueryType, node: ast.JoinExpr) -> str:
+        """Alias a joined sub-select because ClickHouse requires a name for it."""
+        reserved_aliases = set(scope.tables)
+        next_join = node.next_join
+        while next_join is not None:
+            if next_join.alias is not None:
+                reserved_aliases.add(next_join.alias)
+            next_join = next_join.next_join
+
+        index = 1
+        while f"__join_{index}" in reserved_aliases:
+            index += 1
+        return f"__join_{index}"
 
     def _using_constraint_column_names(self, constraint: ast.JoinConstraint) -> list[str]:
         exprs = constraint.expr.exprs if isinstance(constraint.expr, ast.Tuple) else [constraint.expr]
