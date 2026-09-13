@@ -67,7 +67,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # read bills to, and the denial names only whichever one it hit first — so name both
             # roles rather than leaving the customer to work out which grant is missing. Matched on
             # the stable status wording, not the volatile permission and resource ids.
-            "PermissionDenied: 403 request failed": "BigQuery denied your service account access while reading your data. Grant it the BigQuery Data Viewer and Read Session User roles on the project you're syncing, then reconnect the source.",
+            "PermissionDenied: 403 request failed": "BigQuery denied your service account access while reading your data. Grant it the BigQuery Data Viewer role on the dataset you're syncing and the Read Session User role on its project, then reconnect the source.",
             # OAuth2 error code returned by Google's token endpoint when the service account grant
             # is rejected — a rotated/revoked private key ("Invalid JWT Signature") or a deleted
             # service account ("account not found"). Raised as a `RefreshError` while refreshing the
