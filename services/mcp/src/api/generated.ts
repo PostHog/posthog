@@ -31228,6 +31228,11 @@ export namespace Schemas {
          */
       suggested_reviewers?: SuggestedReviewer[];
       /**
+         * Optional repository to point the report at, as `owner/repo` — the fix for a report that surfaced against the wrong codebase, so you correct it in place instead of filing a duplicate. It replaces the report's current target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Omit the field to leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing under version control could change.
+         * @nullable
+         */
+      repository?: string | null;
+      /**
          * The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down.
          * @maxItems 20
          * @nullable
@@ -31259,6 +31264,8 @@ export namespace Schemas {
       evidence_appended: number;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
+      /** Whether the report's repository was replaced (true for a cleared target too). */
+      repository_set: boolean;
       /**
          * How many charts the report now shows, or null if the edit left its charts as they were (the field omitted, or a re-send of what was already stored). 0 means the edit took the report's charts down.
          * @nullable
