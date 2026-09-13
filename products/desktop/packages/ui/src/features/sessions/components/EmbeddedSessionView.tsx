@@ -32,11 +32,13 @@ export function EmbeddedSessionView({
     repoPath,
     isCloud,
     isRunning,
+    isConnecting,
     hasError,
     events,
     isPromptPending,
     promptStartedAt,
     isInitializing,
+    cloudStatus,
     cloudBranch,
     errorTitle,
     errorMessage,
@@ -64,6 +66,7 @@ export function EmbeddedSessionView({
         taskId={taskId}
         task={task}
         isRunning={isRunning}
+        isConnecting={isConnecting}
         isPromptPending={isPromptPending}
         promptStartedAt={promptStartedAt}
         onSendPrompt={handleSendPrompt}
@@ -79,6 +82,7 @@ export function EmbeddedSessionView({
         onNewSession={isCloud ? undefined : handleNewSession}
         isInitializing={isInitializing}
         isCloud={isCloud}
+        cloudStatus={cloudStatus}
         compact
         isActiveSession={isActiveSession}
         threadActions={threadActions?.({

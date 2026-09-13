@@ -2392,6 +2392,9 @@ export class SessionService {
           ...readCapabilities(result),
         });
 
+        // Send any prompt the user queued while the agent was connecting.
+        this.flushQueuedMessagesIfIdle(taskId);
+
         // Persist the merged config options
         if (configOptions) {
           this.d.setPersistedConfigOptions(taskRunId, configOptions);
@@ -2531,6 +2534,11 @@ export class SessionService {
     }
     if (existing?.initialPrompt?.length) {
       session.initialPrompt = existing.initialPrompt;
+    }
+    // Keep a prompt the user queued while connecting so a failed connect
+    // leaves it available to the retry / reset flow instead of dropping it.
+    if (existing?.messageQueue?.length) {
+      session.messageQueue = existing.messageQueue;
     }
     this.d.store.setSession(session);
   }
@@ -4228,9 +4236,15 @@ export class SessionService {
         );
       }
       if (session.status === "connecting") {
-        throw new Error(
-          "Session is still connecting. Please wait and try again.",
-        );
+        // Let the user queue one prompt while the agent connects; the
+        // connecting→connected transition drains it. A second submit is a
+        // no-op here (the composer blocks after the first while connecting).
+        if (session.messageQueue.length > 0) {
+          return { stopReason: "queued" };
+        }
+        this.d.store.enqueueMessage(taskId, extractPromptText(prompt));
+        this.d.log.info("Message queued while connecting", { taskId });
+        return { stopReason: "queued" };
       }
       throw new Error(`Session is not ready (status: ${session.status})`);
     }
@@ -4923,6 +4937,11 @@ export class SessionService {
     }
 
     if (session.cloudStatus !== "in_progress") {
+      // One prompt already waiting for the sandbox; the composer blocks after
+      // the first while connecting, so a second submit is a no-op.
+      if (session.messageQueue.length > 0) {
+        return { stopReason: "queued" };
+      }
       this.d.store.enqueueMessage(
         session.taskId,
         transport.promptText,
@@ -4947,6 +4966,11 @@ export class SessionService {
       session.isCloud &&
       session.status !== "connected"
     ) {
+      // One prompt already waiting for the agent to come up; block further
+      // submits until it connects (the composer enforces this in the UI).
+      if (session.messageQueue.length > 0) {
+        return { stopReason: "queued" };
+      }
       this.d.store.enqueueMessage(
         session.taskId,
         transport.promptText,

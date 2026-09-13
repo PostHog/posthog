@@ -12,6 +12,7 @@ export interface SessionViewState {
   isCloudRunTerminal: boolean;
   cloudStatus: TaskRunStatus | null;
   isRunning: boolean;
+  isConnecting: boolean;
   hasError: boolean;
   events: AcpMessage[];
   isPromptPending: boolean;
@@ -25,6 +26,7 @@ export interface SessionViewState {
 
 export interface SessionLifecycleState {
   isCloud: boolean;
+  sessionMatchesActiveRun: boolean;
   isCloudRunNotTerminal: boolean;
   isCloudRunTerminal: boolean;
   cloudStatus: TaskRunStatus | null;
@@ -73,6 +75,7 @@ export function deriveSessionLifecycleState(
 
   return {
     isCloud: effectiveIsCloud,
+    sessionMatchesActiveRun,
     isCloudRunNotTerminal: effectiveIsCloud && !isCloudRunTerminal,
     isCloudRunTerminal,
     cloudStatus,
@@ -98,11 +101,11 @@ export function deriveSessionViewState(
   );
   const {
     isCloud: effectiveIsCloud,
+    sessionMatchesActiveRun,
     isCloudRunNotTerminal,
     isCloudRunTerminal,
     cloudStatus,
     hasError,
-    isInitializing,
   } = lifecycle;
   const isRunning = effectiveIsCloud
     ? !hasError
@@ -111,6 +114,31 @@ export function deriveSessionViewState(
   const events = session?.events ?? [];
   const isPromptPending = session?.isPromptPending ?? false;
   const promptStartedAt = session?.promptStartedAt;
+
+  const isHydratingEmptyTranscript =
+    effectiveIsCloud &&
+    events.length === 0 &&
+    !isCloudRunTerminal &&
+    (session?.isHydratingTranscript ?? false);
+  // Once the active run has a session we dive straight into the thread +
+  // composer, even while the agent is still connecting, so a full-panel
+  // spinner only shows when there is nothing to render yet: no session for
+  // this run, a transcript still loading, or a dead session a restart is
+  // replacing. A task row keeps the wider startup window of the lifecycle
+  // state, because it reports "starting" until the first prompt lands.
+  const isInitializing = hasError
+    ? isTaskStarting
+    : !sessionMatchesActiveRun || isHydratingEmptyTranscript;
+
+  // The window between a session existing and the agent handshake landing.
+  // Cloud runs sit in "connecting" while the sandbox provisions; both hosts
+  // flip to "connected" once the agent accepts messages. Terminal cloud runs
+  // are done, not connecting.
+  const isConnecting =
+    !hasError &&
+    !!session &&
+    session.status !== "connected" &&
+    !isCloudRunTerminal;
 
   const cloudBranch = effectiveIsCloud
     ? (workspace?.baseBranch ?? task.latest_run?.branch ?? null)
@@ -122,6 +150,7 @@ export function deriveSessionViewState(
     isCloudRunTerminal,
     cloudStatus,
     isRunning: !!isRunning,
+    isConnecting,
     hasError,
     events,
     isPromptPending,

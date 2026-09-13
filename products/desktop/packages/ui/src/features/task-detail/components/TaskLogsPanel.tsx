@@ -56,6 +56,8 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     repoPath,
     isCloud,
     isRunning,
+    isConnecting,
+    cloudStatus,
     hasError,
     events,
     isPromptPending,
@@ -161,6 +163,7 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
               taskId={taskId}
               task={task}
               isRunning={isRunning}
+              isConnecting={isConnecting}
               isSuspended={isSuspended}
               onRestoreWorktree={
                 isSuspended ? handleRestoreWorktree : undefined
@@ -183,6 +186,7 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
               onNewSession={isCloud ? undefined : handleNewSession}
               isInitializing={isInitializing}
               isCloud={isCloud}
+              cloudStatus={cloudStatus}
               slackThreadUrl={slackThreadUrl}
             />
           </ErrorBoundary>

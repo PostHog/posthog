@@ -12,7 +12,7 @@ import {
 } from "@posthog/core/task-detail/previewConfig";
 import { useService } from "@posthog/di/react";
 import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
-import type { Task } from "@posthog/shared/domain-types";
+import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
 import {
   spendStopMessage,
   useSpendStop,
@@ -31,6 +31,7 @@ import { resolveAndAttachDroppedFiles } from "@posthog/ui/features/message-edito
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
 import { CloudStreamDisconnectedBanner } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
 import { ComposerWidth } from "@posthog/ui/features/sessions/components/ComposerWidth";
+import { ConnectingIndicator } from "@posthog/ui/features/sessions/components/ConnectingIndicator";
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import {
@@ -66,6 +67,7 @@ import {
   useModeConfigOptionForTask,
   useModelConfigOptionForTask,
   usePendingPermissionsForTask,
+  useQueuedMessagesForTask,
   useSessionSelector,
   useThoughtLevelConfigOptionForTask,
 } from "@posthog/ui/features/sessions/sessionStore";
@@ -102,6 +104,8 @@ interface SessionViewProps {
   taskId?: string;
   task?: Task;
   isRunning: boolean;
+  /** Session exists but the agent has not finished connecting yet. */
+  isConnecting?: boolean;
   isPromptPending?: boolean | null;
   promptStartedAt?: number | null;
   onBeforeSubmit?: (text: string, clearEditor: () => void) => boolean;
@@ -121,6 +125,7 @@ interface SessionViewProps {
   onNewSession?: () => void;
   isInitializing?: boolean;
   isCloud?: boolean;
+  cloudStatus?: TaskRunStatus | null;
   slackThreadUrl?: string;
   compact?: boolean;
   isActiveSession?: boolean;
@@ -138,6 +143,7 @@ export function SessionView({
   taskId,
   task,
   isRunning,
+  isConnecting = false,
   isPromptPending = false,
   promptStartedAt,
   onBeforeSubmit,
@@ -157,6 +163,7 @@ export function SessionView({
   onNewSession,
   isInitializing = false,
   isCloud = false,
+  cloudStatus = null,
   slackThreadUrl,
   compact = false,
   isActiveSession = true,
@@ -279,12 +286,19 @@ export function SessionView({
   const setContext = useDraftStore((s) => s.actions.setContext);
   const requestFocus = useDraftStore((s) => s.actions.requestFocus);
 
+  const queuedCount = useQueuedMessagesForTask(taskId).length;
+  // Let the user type while the agent connects, and enqueue one prompt that
+  // sends on connect. After one is queued, block the composer until connected.
+  const queuedWhileConnecting = isConnecting && queuedCount > 0;
+  const composerDisabled =
+    (!isRunning && !isConnecting) || queuedWhileConnecting;
+
   useEffect(() => {
     setContext(sessionId, {
       taskId,
       repoPath,
       cloudBranch,
-      disabled: !isRunning,
+      disabled: composerDisabled,
       isLoading: !!isPromptPending,
     });
   }, [
@@ -293,7 +307,7 @@ export function SessionView({
     taskId,
     repoPath,
     cloudBranch,
-    isRunning,
+    composerDisabled,
     isPromptPending,
   ]);
 
@@ -760,6 +774,13 @@ export function SessionView({
                 ) : (
                   <Box className="shrink-0">
                     <ComposerWidth compact={compact}>
+                      {isConnecting && (
+                        <ConnectingIndicator
+                          isCloud={isCloud}
+                          cloudStatus={cloudStatus}
+                          queued={queuedWhileConnecting}
+                        />
+                      )}
                       {taskId && (
                         <SessionSummaryPanel
                           taskId={taskId}
@@ -777,11 +798,11 @@ export function SessionView({
                         ref={editorRef}
                         sessionId={sessionId}
                         placeholder={
-                          isRunning
-                            ? "Type a message... ! for bash mode, / for skills"
-                            : "Waiting for the agent..."
+                          composerDisabled
+                            ? "Waiting for the agent..."
+                            : "Type a message... ! for bash mode, / for skills"
                         }
-                        disabled={!isRunning}
+                        disabled={composerDisabled}
                         submitDisabledExternal={
                           !isOnline ||
                           attachmentsUploading ||

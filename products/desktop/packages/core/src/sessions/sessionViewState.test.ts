@@ -49,7 +49,7 @@ function makeSession(
 }
 
 describe("deriveSessionViewState", () => {
-  it("keeps the loading view through optimistic prompts and setup events", () => {
+  it("opens the live cloud chat while setup events stream in", () => {
     const session = makeSession("in_progress");
     session.optimisticItems = [
       {
@@ -75,7 +75,7 @@ describe("deriveSessionViewState", () => {
     expect(
       deriveSessionViewState(session, makeTask("in_progress"), null, true)
         .isInitializing,
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("opens the live cloud chat after the active run sends its prompt", () => {
@@ -217,7 +217,7 @@ describe("deriveSessionViewState", () => {
     },
   );
 
-  it("keeps a local session loading until its first prompt", () => {
+  it("opens a connecting local session, but not an older run's", () => {
     const task = makeTask("in_progress");
     if (task.latest_run) {
       task.latest_run.environment = "local";
@@ -228,20 +228,14 @@ describe("deriveSessionViewState", () => {
 
     expect(
       deriveSessionViewState(session, task, null, false).isInitializing,
-    ).toBe(true);
-
-    session.status = "connected";
-    session.initialPrompt = [
-      { type: "text", text: "Inspect the example task" },
-    ];
-    expect(
-      deriveSessionViewState(session, task, null, false).isInitializing,
-    ).toBe(true);
-
-    session.firstPromptForRunId = session.taskRunId;
-    expect(
-      deriveSessionViewState(session, task, null, false).isInitializing,
     ).toBe(false);
+
+    const olderSession = makeSession("in_progress", "old-run");
+    olderSession.isCloud = false;
+    olderSession.status = "connecting";
+    expect(
+      deriveSessionViewState(olderSession, task, null, false).isInitializing,
+    ).toBe(true);
   });
 
   it("opens a connected local task when no initial prompt remains to send", () => {
@@ -270,5 +264,138 @@ describe("deriveSessionViewState", () => {
     expect(state.isCloudRunNotTerminal).toBe(true);
     expect(state.isCloudRunTerminal).toBe(false);
     expect(state.isInitializing).toBe(true);
+  });
+
+  const oneEvent = [{} as AgentSession["events"][number]];
+
+  it.each([
+    {
+      name: "local connecting shows the composer, not a full-panel spinner",
+      isCloud: false,
+      status: "connecting" as const,
+      events: [] as AgentSession["events"],
+      runStatus: "in_progress" as TaskRunStatus,
+      isConnecting: true,
+      isInitializing: false,
+      isRunning: false,
+    },
+    {
+      name: "local connecting with a painted tail is not initializing",
+      isCloud: false,
+      status: "connecting" as const,
+      events: oneEvent,
+      runStatus: "in_progress" as TaskRunStatus,
+      isConnecting: true,
+      isInitializing: false,
+      isRunning: false,
+    },
+    {
+      name: "local connected is neither connecting nor initializing",
+      isCloud: false,
+      status: "connected" as const,
+      events: oneEvent,
+      runStatus: "in_progress" as TaskRunStatus,
+      isConnecting: false,
+      isInitializing: false,
+      isRunning: true,
+    },
+    {
+      name: "cloud provisioning shows the composer while the sandbox spins up",
+      isCloud: true,
+      status: "connecting" as const,
+      events: [] as AgentSession["events"],
+      runStatus: "in_progress" as TaskRunStatus,
+      isConnecting: true,
+      isInitializing: false,
+      isRunning: true,
+    },
+    {
+      name: "cloud connected is not connecting",
+      isCloud: true,
+      status: "connected" as const,
+      events: oneEvent,
+      runStatus: "in_progress" as TaskRunStatus,
+      isConnecting: false,
+      isInitializing: false,
+      isRunning: true,
+    },
+    {
+      name: "a terminal cloud run is done, not connecting",
+      isCloud: true,
+      status: "connecting" as const,
+      events: oneEvent,
+      runStatus: "completed" as TaskRunStatus,
+      isConnecting: false,
+      isInitializing: false,
+      isRunning: true,
+    },
+  ])(
+    "$name",
+    ({
+      isCloud,
+      status,
+      events,
+      runStatus,
+      isConnecting,
+      isInitializing,
+      isRunning,
+    }) => {
+      const session = makeSession(runStatus);
+      session.isCloud = isCloud;
+      session.status = status;
+      session.events = events;
+
+      const state = deriveSessionViewState(
+        session,
+        makeTask(runStatus),
+        null,
+        isCloud,
+      );
+
+      expect(state.isConnecting).toBe(isConnecting);
+      expect(state.isInitializing).toBe(isInitializing);
+      expect(state.isRunning).toBe(isRunning);
+    },
+  );
+
+  it("is not connecting before a session exists", () => {
+    const state = deriveSessionViewState(
+      undefined,
+      makeTask("not_started"),
+      null,
+      true,
+    );
+
+    expect(state.isConnecting).toBe(false);
+    expect(state.isInitializing).toBe(true);
+  });
+});
+
+describe("deriveSessionLifecycleState", () => {
+  it("keeps a local session starting until its first prompt", () => {
+    const task = makeTask("in_progress");
+    if (task.latest_run) {
+      task.latest_run.environment = "local";
+    }
+    const session = makeSession("in_progress");
+    session.isCloud = false;
+    session.status = "connecting";
+
+    expect(
+      deriveSessionLifecycleState(session, task, false).isInitializing,
+    ).toBe(true);
+
+    session.status = "connected";
+    session.initialPrompt = [
+      { type: "text", text: "Inspect the example task" },
+    ];
+    expect(
+      deriveSessionLifecycleState(session, task, false).isInitializing,
+    ).toBe(true);
+
+    session.firstPromptForRunId = session.taskRunId;
+    expect(
+      deriveSessionLifecycleState(session, task, false).isInitializing,
+    ).toBe(false);
   });
 });
