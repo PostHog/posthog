@@ -33,7 +33,7 @@ from posthog.auth import (
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.utils import execute_with_timeout
-from posthog.permissions import AccessControlPermission, get_authenticator_scopes, posthog_feature_flag_value
+from posthog.permissions import AccessControlPermission, is_scout_sandbox_request, posthog_feature_flag_value
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
@@ -519,14 +519,7 @@ class LLMSkillViewSet(
         return None
 
     def _is_scout_sandbox_caller(self) -> bool:
-        """Whether the request is authenticated with a Signals scout sandbox token.
-
-        The scout harness's sandbox token is the only issuer of `signal_scout_internal:*`
-        scopes, so their presence identifies a scout run. Session auth and ordinary API
-        keys never carry them.
-        """
-        scopes = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
-        return scopes is not None and any(scope.startswith("signal_scout_internal:") for scope in scopes)
+        return is_scout_sandbox_request(self.request)
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()

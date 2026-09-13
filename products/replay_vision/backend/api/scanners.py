@@ -38,7 +38,7 @@ from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import get_authenticator_scopes
+from posthog.permissions import get_authenticator_scopes, is_scout_sandbox_request
 from posthog.ph_client import get_feature_flag_or_none
 from posthog.rate_limit import (
     AIBurstRateThrottle,
@@ -123,6 +123,7 @@ from products.replay_vision.backend.scanning import (
     scan_existing_scanner,
     scan_outcome_counts,
 )
+from products.replay_vision.backend.scout_writes import check_scout_scanner_credit_limit, refuse_scout_scanner_delete
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
@@ -711,6 +712,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         self._validate_scanner_config(attrs)
         self._validate_and_strip_query(attrs)
         self._drop_redacted_targeting_clear(attrs)
+        check_scout_scanner_credit_limit(
+            bool(self.context.get("scout_sandbox_caller")), instance=self.instance, attrs=attrs
+        )
         return attrs
 
     def _drop_redacted_targeting_clear(self, attrs: dict[str, Any]) -> None:
@@ -1705,6 +1709,19 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             "session_recording", required_level="viewer"
         ):
             raise PermissionDenied("Configuring a Replay Vision scanner requires session_recording read access.")
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        # The credit limit rule runs in the serializer, because only a serializer error keys its
+        # message to the `credit_limit` field.
+        context["scout_sandbox_caller"] = is_scout_sandbox_request(self.request)
+        return context
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # The per-scout grant excludes deletion, and one scope object covers the whole scanner
+        # surface, so this is where that exclusion lives.
+        refuse_scout_scanner_delete(is_scout_sandbox_request(request))
+        return super().destroy(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset: QuerySet[ReplayScanner]) -> QuerySet[ReplayScanner]:
         # `queryset` comes off the fail-closed default manager, so every action here — list, retrieve,

@@ -21,6 +21,7 @@ from posthog.schema import ProductIntentContext, ProductKey
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.event_usage import EventSource
 from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
@@ -764,6 +765,94 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             resp = self.client.post(f"{self.scanners_url}{scanner.id}/affected_cohort/", format="json")
         self.assertEqual(resp.status_code, 403, resp.json())
         self.assertIn("cohort", resp.json()["detail"])
+
+
+class TestScannerScoutCallerRules(_VisionAPITestCase):
+    """Wiring guards for the scout-only rules; their matrix lives in `test_scout_writes.py`.
+
+    A scout run reaches this API with a sandbox OAuth token, which is the only credential carrying
+    `signal_scout_internal:*`. These cases prove the viewset reads that credential and routes it to
+    the rules, and that the same calls from the person's own session are untouched.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        application = OAuthApplication.objects.create(
+            name="Signals scout sandbox",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        self.scout_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_scanner_scout_rules_test",
+            scope="signal_scout_internal:write replay_scanner:read replay_scanner:write session_recording:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+
+    def _authenticate_as_scout(self) -> None:
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.scout_token.token}")
+
+    def _payload(self, name: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "name": name,
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "did checkout complete?"},
+            "model": ScannerModel.GEMINI_3_8_FLASH,
+            **extra,
+        }
+
+    def test_scout_create_without_a_credit_limit_is_rejected(self) -> None:
+        self._authenticate_as_scout()
+
+        resp = self.client.post(self.scanners_url, data=self._payload("uncapped"), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "credit_limit")
+        self.assertFalse(ReplayScanner.objects.filter(team=self.team, name="uncapped").exists())
+
+    def test_scout_create_with_a_credit_limit_succeeds(self) -> None:
+        self._authenticate_as_scout()
+
+        resp = self.client.post(self.scanners_url, data=self._payload("capped", credit_limit=500), format="json")
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertEqual(resp.json()["credit_limit"], 500)
+
+    def test_scout_cannot_clear_a_credit_limit(self) -> None:
+        scanner = self._create_scanner(name="capped", credit_limit=500)
+        self._authenticate_as_scout()
+
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"credit_limit": None}, format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.credit_limit, 500)
+
+    def test_scout_delete_is_refused_and_the_scanner_survives(self) -> None:
+        scanner = self._create_scanner(name="keep-me")
+        self._authenticate_as_scout()
+
+        resp = self.client.delete(f"{self.scanners_url}{scanner.id}/")
+
+        self.assertEqual(resp.status_code, 403, resp.content)
+        self.assertTrue(ReplayScanner.objects.filter(pk=scanner.pk).exists())
+
+    def test_the_person_is_untouched_by_the_scout_rules(self) -> None:
+        # The same two calls a scout is refused, from the session the rules must not reach.
+        created = self.client.post(self.scanners_url, data=self._payload("uncapped-by-hand"), format="json")
+        self.assertEqual(created.status_code, 201, created.json())
+        self.assertIsNone(created.json()["credit_limit"])
+
+        deleted = self.client.delete(f"{self.scanners_url}{created.json()['id']}/")
+
+        self.assertEqual(deleted.status_code, 204, deleted.content)
 
 
 class TestReplayScannerTags(_VisionAPITestCase):
