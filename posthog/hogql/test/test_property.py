@@ -2261,7 +2261,12 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
         self.test_cases: list[tuple[str, Any, PropertyType, Any]] = [
             # String type: value, empty, "null" literal, null, not set
             ("string_value_prop", "hello", PropertyType.String, True),
-            ("string_empty_prop", "", PropertyType.String, self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED),
+            (
+                "string_empty_prop",
+                "",
+                PropertyType.String,
+                False if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED,
+            ),
             ("string_null_literal_prop", "null", PropertyType.String, self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED),
             ("string_null_prop", None, PropertyType.String, False),
             ("string_not_set_prop", self.NOT_SET, PropertyType.String, False),
@@ -2722,7 +2727,7 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-# $active_feature_flags is a native Array(String) subcolumn on the new events schema, so its negative
+# $exception_types is a native Array(String) subcolumn on the new events schema, so its negative
 # multi-value filters compile through the arrayExists optimizer rather than a scalar comparison. These
 # execute against ClickHouse to prove the optimized path returns the right rows, not only the right SQL.
 class TestNegativeArrayOperatorNullParityWithData(APIBaseTest):
@@ -2735,13 +2740,13 @@ class TestNegativeArrayOperatorNullParityWithData(APIBaseTest):
             team=cls.team,
             event=cls.EVENT,
             distinct_id="has_alpha",
-            properties={"$active_feature_flags": ["alpha", "gamma"]},
+            properties={"$exception_types": ["alpha", "gamma"]},
         )
         _create_event(
             team=cls.team,
             event=cls.EVENT,
             distinct_id="no_alpha",
-            properties={"$active_feature_flags": ["beta", "gamma"]},
+            properties={"$exception_types": ["beta", "gamma"]},
         )
         _create_event(team=cls.team, event=cls.EVENT, distinct_id="missing", properties={})
 
@@ -2776,4 +2781,4 @@ class TestNegativeArrayOperatorNullParityWithData(APIBaseTest):
         ]
     )
     def test_array_operator_row_counts(self, _name: str, filter_fields: dict, expected_count: int):
-        assert self._count({"type": "event", "key": "$active_feature_flags", **filter_fields}) == expected_count
+        assert self._count({"type": "event", "key": "$exception_types", **filter_fields}) == expected_count

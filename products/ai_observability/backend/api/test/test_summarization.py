@@ -11,6 +11,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -501,7 +503,6 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
 
     @patch("products.ai_observability.backend.api.summarization.summarize")
     def test_summarizes_an_event_predating_the_ai_events_split(self, mock_summarize):
-        """Events older than the ai_events retention window still hold their content inline."""
         self._approve_ai_processing()
         mock_summarize.return_value = SummarizationResponse(
             title="Event Summary",
@@ -539,8 +540,13 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        self.assertIn("how do i reset my password", response.data["text_repr"].lower())
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.data)
+            self.assertIn("message content for this event is no longer available", response.data["detail"])
+            mock_summarize.assert_not_called()
+        else:
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+            self.assertIn("how do i reset my password", response.data["text_repr"].lower())
 
     def test_unknown_event_uuid_is_reported_as_not_found(self):
         self._approve_ai_processing()

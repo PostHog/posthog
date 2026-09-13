@@ -20,8 +20,9 @@ from rest_framework import status
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.models.event.util import bulk_create_events
 from posthog.models.scoping import team_scope
-from posthog.temporal.tests.utils.events import generate_test_events, insert_event_values_in_clickhouse
+from posthog.temporal.tests.utils.events import generate_test_events
 
 from products.batch_exports.backend.api.file_download import (
     COUNT_ROWS_TIMEOUT_MESSAGE,
@@ -621,7 +622,7 @@ class TestFileDownloadHogQL:
             yield
 
     @pytest.fixture
-    async def hogql_export_test_events(self, clickhouse_client, team):
+    async def hogql_export_test_events(self, clickhouse_client, team, truncate_clickhouse_tables):
         """Insert events for this and another team directly into the events table.
 
         A hogql export reads the main (sharded) events table with no interval filter, so
@@ -643,8 +644,11 @@ class TestFileDownloadHogQL:
             event_name="test-{i}",
             properties={"$browser": "Chrome"},
         )
-        await insert_event_values_in_clickhouse(
-            client=clickhouse_client, events=events + events_from_other_team, table="sharded_events"
+        await sync_to_async(bulk_create_events)(
+            [
+                {**event, "event_uuid": event["uuid"], "person_properties": event["person_properties"] or {}}
+                for event in events + events_from_other_team
+            ]
         )
         return events
 

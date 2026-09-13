@@ -10,9 +10,13 @@ import pytz
 
 from posthog.schema import HogQLQuery
 
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.team import Team
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES, RecordingMetadata
 
@@ -151,6 +155,34 @@ def _latest_session_event_properties_between(
         HogQLQueryRunner,  # noqa: PLC0415 — breaks a circular import, matching this file's other HogQLQueryRunner imports
     )
 
+    tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
+    if use_new_events_schema(team.pk):
+        property_names = sorted(_DIAGNOSTIC_PROPERTIES - {"$session_recording_remote_config"})
+        fields = ", ".join(f"toJSONString(properties.{escape_clickhouse_identifier(key)})" for key in property_names)
+        # The open-ended SDK debug prefix requires the temporary bag, limited to one event.
+        native_query = f"""
+            SELECT {fields}, toJSONString(temporary_properties)
+            FROM {DISTRIBUTED_EVENTS_JSON_TABLE}
+            WHERE team_id = %(team_id)s
+                AND properties.`$session_id` = %(session_id)s
+                AND timestamp >= %(date_from)s
+                AND timestamp <= %(date_to)s
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """
+        rows = sync_execute(
+            native_query,
+            {"team_id": team.pk, "session_id": session_id, "date_from": date_from, "date_to": date_to},
+            team_id=team.pk,
+            ch_user=ClickHouseUser.APP,
+        )
+        if not rows:
+            return None
+        properties = {key: json.loads(value) for key, value in zip(property_names, rows[0][:-1]) if value is not None}
+        properties = {key: value for key, value in properties.items() if value is not None and value != ""}
+        properties.update(_filter_to_diagnostic_properties(json.loads(rows[0][-1])))
+        return properties
+
     query = HogQLQuery(
         query="""
             SELECT properties
@@ -163,7 +195,6 @@ def _latest_session_event_properties_between(
         """,
         values={"session_id": session_id, "date_from": date_from, "date_to": date_to},
     )
-    tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
     result = HogQLQueryRunner(team=team, query=query).calculate()
     if not result.results:
         return None

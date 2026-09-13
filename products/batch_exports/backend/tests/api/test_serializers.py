@@ -32,7 +32,7 @@ def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
                     personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
                 ),
             ),
-            dialect="clickhouse",
+            dialect="hogql",
         ),
     )
 
