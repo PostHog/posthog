@@ -65,6 +65,9 @@ export const DashboardPropertySearch: Story = {
 
 function EventsStoryRender(args: TaxonomicFilterProps): JSX.Element {
     useMountedLogic(actionsModel)
+    const { setActiveTab } = useActions(
+        taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+    )
 
     const { setIndex } = useActions(
         infiniteListLogic({
@@ -76,7 +79,10 @@ function EventsStoryRender(args: TaxonomicFilterProps): JSX.Element {
 
     // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
     // - we do want to show the definition popover here too
-    useDelayedOnMountEffect(() => setIndex(1))
+    useDelayedOnMountEffect(() => {
+        setActiveTab(TaxonomicFilterGroupType.Events)
+        setIndex(1)
+    })
 
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
@@ -104,6 +110,9 @@ export const EventsPremium: Story = {
     render: (args) => {
         useMountedLogic(actionsModel)
         useAvailableFeatures([AvailableFeature.INGESTION_TAXONOMY])
+        const { setActiveTab } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
 
         const { setIndex } = useActions(
             infiniteListLogic({
@@ -113,7 +122,10 @@ export const EventsPremium: Story = {
             })
         )
 
-        useDelayedOnMountEffect(() => setIndex(1))
+        useDelayedOnMountEffect(() => {
+            setActiveTab(TaxonomicFilterGroupType.Events)
+            setIndex(1)
+        })
 
         return (
             <div className="w-fit border rounded p-2 bg-surface-primary">

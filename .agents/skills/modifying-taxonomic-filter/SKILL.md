@@ -123,10 +123,10 @@ One feature flag selects between two surfaces. A bug report that doesn't reprodu
 locally is almost always a variant mismatch — confirm which surface the
 reporter is on first.
 
-| Surface        | Flag                            | Value | What renders                                      |
-| -------------- | ------------------------------- | ----- | ------------------------------------------------- |
-| `legacy-pill`  | `TAXONOMIC_FILTER_MENU_REBUILD` | off   | classic picker with a category dropdown           |
-| `rebuild-menu` | `TAXONOMIC_FILTER_MENU_REBUILD` | on    | ground-up rewrite in `menu/` over `headless/`     |
+| Surface        | Flag                            | Value | What renders                                  |
+| -------------- | ------------------------------- | ----- | --------------------------------------------- |
+| `legacy-pill`  | `TAXONOMIC_FILTER_MENU_REBUILD` | off   | classic picker with a category dropdown       |
+| `rebuild-menu` | `TAXONOMIC_FILTER_MENU_REBUILD` | on    | ground-up rewrite in `menu/` over `headless/` |
 
 - **legacy-pill** is the classic picker (`taxonomicFilterLogic.tsx` +
   `InfiniteList`) with a suffix category dropdown. A person can pin the

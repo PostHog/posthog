@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 
 import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 
-const DEFAULT_CATEGORY_RAIL_DOCKED = false
+const DEFAULT_CATEGORY_RAIL_DOCKED = false as boolean
 const categoryRailPersistenceConfig = {
     persist: true,
     prefix: `${getCurrentUserIdOrNone() ?? 'anonymous'}__${getCurrentTeamIdOrNone() ?? 'unknown'}__`,
