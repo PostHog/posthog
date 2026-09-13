@@ -162,6 +162,20 @@ def default_is_ai_training_opted_in():
     return getattr(settings, "CLOUD_DEPLOYMENT", None) != "EU"
 
 
+# Wide jsonb and text columns that the team-scoped request path does not read. That path defers
+# them, so a caller outside it loads them on demand and pays one extra query: today the quota
+# limits endpoint reads `usage`, and a deactivated organization reads `is_not_active_reason`.
+# Check the readers of a column before you add it here. `available_product_features` belongs to
+# the request path, because the access control layer reads it on every team-scoped request.
+COLD_REQUEST_PATH_ATTRS = (
+    "usage",
+    "customer_trust_scores",
+    "personalization",
+    "domain_whitelist",
+    "is_not_active_reason",
+)
+
+
 class Organization(ModelActivityMixin, UUIDTModel):
     class Meta:
         constraints = [
