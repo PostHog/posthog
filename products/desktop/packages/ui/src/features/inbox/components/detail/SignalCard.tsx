@@ -500,7 +500,6 @@ function ConversationsTicketSignalCard({
   const projectId = useAuthStateValue((s) => s.currentProjectId);
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
   const ticketRef = conversationsTicketRef(signal, extra);
-  // `target="_blank"` hands the link to the OS browser, so the report stays open in the app.
   const ticketUrl = ticketRef
     ? supportTicketUrl(ticketRef, { projectId, cloudRegion })
     : null;
@@ -522,6 +521,7 @@ function ConversationsTicketSignalCard({
         {extra.priority && <span>Priority: {extra.priority}</span>}
         <span className="flex-1" />
         {ticketUrl ? (
+          // `target="_blank"` hands the link to the OS browser, so the report stays open in the app.
           <a
             href={ticketUrl}
             target="_blank"
