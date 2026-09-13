@@ -350,10 +350,13 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == 306
+        # The large-project probe is a bounded count that also orders by name, so only the page fetches count here.
         page_fetches = [
             query["sql"]
             for query in captured.captured_queries
-            if "FROM posthog_eventdefinition" in query["sql"] and "ORDER BY" in query["sql"]
+            if "FROM posthog_eventdefinition" in query["sql"]
+            and "ORDER BY" in query["sql"]
+            and "count(*)" not in query["sql"]
         ]
         assert page_fetches
         assert all("LIMIT 10" in sql for sql in page_fetches)
