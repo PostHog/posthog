@@ -52,7 +52,6 @@
 1 posthog/storage/hypercache_verifier.py
 1 posthog/tasks/alerts/detector.py
 1 posthog/tasks/alerts/detectors/base.py
-1 posthog/taxonomy/property_definition_api.py
 1 posthog/temporal/ai/anomaly_investigation/notebook.py
 1 posthog/temporal/ai/anomaly_investigation/runner.py
 1 posthog/temporal/ai/anomaly_investigation/tools.py
