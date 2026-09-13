@@ -5,9 +5,10 @@ import './Exporter.scss'
 // before any module that builds a zod schema. See lib/configureZod.
 import '../lib/configureZod'
 
-import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
 import { BeforeSendFn, CapturedNetworkRequest } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
+
+import { polyfillCountryFlags } from 'lib/countryFlagEmojiPolyfill'
 
 import { Exporter } from '~/exporter/Exporter'
 import { ExportType, ExportedData } from '~/exporter/types'
@@ -69,13 +70,10 @@ initKea({ replaceInitialPathInWindow: false })
 // On Chrome + Windows, the country flag emojis don't render correctly. This is a polyfill for that.
 // It won't be applied on other platforms.
 //
-// NOTE: The first argument is the name of the polyfill to use. This is used to set the font family in our CSS.
-// Make sure to update the font family in the CSS if you change this.
-//
 // The polyfill runs canvas-based feature detection (getImageData) which can throw on some browser
 // states (e.g. Safari/macOS). It's purely cosmetic and best-effort, so swallow any failure.
 try {
-    polyfillCountryFlagEmojis('Emoji Flags Polyfill')
+    polyfillCountryFlags()
 } catch (error) {
     console.warn('[exporter] Country flag emoji polyfill detection failed:', error)
 }
