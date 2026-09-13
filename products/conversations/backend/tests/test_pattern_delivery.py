@@ -77,7 +77,7 @@ class TestPatternDelivery(BaseTest):
         posted_text = slack.return_value.chat_postMessage.call_args.kwargs["text"]
         assert "6 tickets from 6 customers about login" in posted_text
 
-    def test_notification_carries_the_pattern_idempotency_key(self):
+    def test_notification_dedupes_by_pattern_and_links_to_the_patterns_page(self):
         self.team.conversations_settings = {"pattern_notify_role_id": "11111111-1111-1111-1111-111111111111"}
         self.team.save()
 
@@ -88,6 +88,10 @@ class TestPatternDelivery(BaseTest):
         assert data.idempotency_key == f"conversations-pattern:{self.pattern.id}"
         assert data.target_type.value == "role"
         assert data.priority.value == "normal"
+        assert data.source_url == f"/project/{self.team.id}/support/patterns"
+        # A source type would win over the url and route the click to a ticket by this id.
+        assert data.source_type is None
+        assert data.source_id is None
 
     @parameterized.expand([("confirmed",), ("dismissed",), ("auto",)])
     def test_resolution_is_captured_with_its_kind(self, resolution):

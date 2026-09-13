@@ -23,7 +23,6 @@ from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
     Priority,
-    SourceType,
     TargetType,
     create_notification,
 )
@@ -76,8 +75,8 @@ def _notify(pattern: TicketPattern) -> None:
             target_id=str(role_id),
             resource_type="ticket",
             resource_id=str(pattern.id),
-            source_type=SourceType.TICKET,
-            source_id=str(pattern.id),
+            # No source_type: the menu turns one into a path from source_id, and a ticket source
+            # would send the click to a ticket that does not exist. A pattern is not a ticket.
             source_url=patterns_url(team),
             idempotency_key=f"conversations-pattern:{pattern.id}",
         )
