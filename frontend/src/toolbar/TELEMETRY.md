@@ -3,6 +3,35 @@
 All events are sent via `toolbarPosthogJS`, the toolbar's internal PostHog instance,
 unless noted otherwise. Events go to PostHog's internal project (prod) or `localhost:8000` (dev).
 
+## What the toolbar never captures
+
+The toolbar runs inside our customers' sites, so the host page is their data, not ours.
+`toolbarPosthogJS.ts` turns off every posthog-js feature that describes the host page:
+autocapture, pageviews, page leaves, web vitals, dead clicks, heatmaps, surveys, product tours,
+and exception autocapture. Session recording stays off until someone starts a product tour.
+
+Those options fall back to the internal project's remote config when unset, so the project
+settings could switch them back on. A `before_send` guard therefore drops the events too:
+`$autocapture`, `$copy_autocapture`, `$dead_click`, `$dead_swipe`, `$pageleave`, `$pageview`,
+`$rageclick`, `$web_vitals`, `$$heatmap`, and any `$exception` without a `toolbar_context`
+property. Report toolbar failures with `captureToolbarException`, which adds that property.
+
+posthog-js also describes the host page on every event it sends, whatever the event is. The same
+guard removes those properties from the events the toolbar keeps, so none of them reach the internal
+project: the page URL, host and path, the referrer and its search engine and keyword, the campaign
+parameters (`utm_*`, `gclid` and the rest), and every `$initial_` and `$session_entry_` copy of
+those. It removes them from the person properties as well, so a toolbar user's PostHog person never
+records the customer page they were on. `save_referrer` and `save_campaign_params` are off for the
+same reason, which stops posthog-js storing the values in the first place.
+
+The toolbar sends no logs either. Console capture is another switch the internal project's remote
+config controls, and log records leave on their own transport, which the `before_send` guard cannot
+see, so a `logs.beforeSend` hook drops every record. Nothing in this document reaches PostHog as a
+log.
+
+None of the events in this document therefore carry `$current_url`. To tell where a toolbar event
+came from, use the properties the toolbar sets itself, such as `api_host` on `toolbar loaded`.
+
 ## Lifecycle
 
 ### `toolbar loaded`
