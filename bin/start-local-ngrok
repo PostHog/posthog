@@ -11,8 +11,11 @@ elif [[ $# -gt 0 ]]; then
 fi
 
 site_url="${SITE_URL:-}"
-if [[ ! "$site_url" =~ ^https://[A-Za-z0-9-]+\.ngrok(-free)?\.dev/?$ ]]; then
-    echo "ngrok tunnel disabled: SITE_URL is not an ngrok URL"
+# ngrok issues .ngrok.app domains by default now, and .ngrok.dev to older accounts.
+# Accept both: a domain this pattern misses disables the tunnel with an exit 0, so the
+# only symptom is Slack webhooks that never arrive.
+if [[ ! "$site_url" =~ ^https://[A-Za-z0-9-]+\.ngrok(-free)?\.(app|dev)/?$ ]]; then
+    echo "ngrok tunnel disabled: SITE_URL is not an ngrok URL (expected https://<domain>.ngrok.app or .ngrok.dev)"
     exit 0
 fi
 

@@ -222,6 +222,14 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                         personId: extractPersonId(result.invocation),
                         actionId: extractActionId(result.invocation),
                         queueName: result.invocation.queue,
+                        // Persisted only across email-queue transitions: entering carries the
+                        // class routeEmailToQueue assigned, leaving restores the origin
+                        // priority. Elsewhere the row keeps its insert-time priority, so the
+                        // in-memory retry bumps on other queues stay unpersisted as before.
+                        priority:
+                            result.invocation.queue === 'email' || job.queueName === 'email'
+                                ? result.invocation.queuePriority
+                                : undefined,
                     })
                 }
             })

@@ -3,11 +3,10 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 
 from posthog.models import Team, User
-from posthog.models.scoping import team_scope
 
 from products.review_hog.backend.models import ReviewUserSettings
 from products.skills.backend.models.skills import LLMSkill
-from products.stamphog.backend.models import StamphogRepoConfig
+from products.stamphog.backend.facade.testing import seed_repo_config
 
 
 class TestReviewUserSettingsAPI(APIBaseTest):
@@ -66,14 +65,13 @@ class TestReviewUserSettingsAPI(APIBaseTest):
     def test_stamphog_connected_requires_a_synced_enabled_repo_config(
         self, _name, enabled, installation_id, connected_by_user_id, expected
     ) -> None:
-        with team_scope(self.team.id):
-            StamphogRepoConfig.objects.create(
-                team_id=self.team.id,
-                repository="posthog/posthog",
-                enabled=enabled,
-                installation_id=installation_id,
-                connected_by_user_id=connected_by_user_id,
-            )
+        seed_repo_config(
+            team_id=self.team.id,
+            repository="posthog/posthog",
+            enabled=enabled,
+            installation_id=installation_id,
+            connected_by_user_id=connected_by_user_id,
+        )
 
         res = self.client.get(self.url)
 

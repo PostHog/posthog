@@ -45,7 +45,9 @@ they serve unless the user asks to share them more widely.
 
 A component is authored exactly like a freeform canvas — load `building-react-quill-canvases` (or
 `building-html-canvases`) plus `querying-canvas-data` and `validating-and-publishing-canvases` —
-with three additions.
+with three additions. A component that shows PostHog data follows the same verifiability rule as
+any canvas: an insight-backed figure links its saved insight, an ad-hoc query exposes the exact
+query that ran (see "Verifiability" in `querying-canvas-data`).
 Start from the complete, buildable project in [references/component-example.md](references/component-example.md); its envelope, placement contract, capability declarations, and defensive `ph.state` access are the parts that break when improvised.
 
 - **Create with `kind=component`** and a `description` written for store search: say what the

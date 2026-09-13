@@ -126,6 +126,22 @@ describe('runningTimeLogic', () => {
             expect(lemonToast.error).not.toHaveBeenCalled()
         })
 
+        it('never persists a non-positive estimate', async () => {
+            // A bad baseline can make the backend return a negative sample size. It must not reach the record.
+            calculateRunningTimeMock.mockResolvedValue({
+                recommended_sample_size: -2000,
+                recommended_running_time_days: -20,
+            })
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['persistRunningTimeEstimate']).toFinishAllListeners()
+
+            expect(api.update).not.toHaveBeenCalled()
+            expect(logic.values.remainingDays).toBeNull()
+        })
+
         it('drops the estimate silently and resyncs the snapshot when it loses a concurrency race', async () => {
             calculateRunningTimeMock.mockResolvedValue({
                 recommended_sample_size: 2000,

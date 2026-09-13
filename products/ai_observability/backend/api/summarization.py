@@ -50,6 +50,7 @@ from posthog.rate_limit import (
 )
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.ai_observability.backend.summarization.budget import bounded_text_repr, text_repr_budget
 from products.ai_observability.backend.summarization.llm import summarize
 from products.ai_observability.backend.summarization.models import SummarizationMode
 from products.ai_observability.backend.summarization.utils import get_summary_cache_key
@@ -410,7 +411,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
 
         return dict(zip(HEAVY_COLUMN_NAMES, result.results[0]))
 
-    def _generate_text_repr(self, summarize_type: str, entity_data: dict) -> str:
+    def _generate_text_repr(self, summarize_type: str, entity_data: dict, model: str | None = None) -> str:
         """Generate line-numbered text representation for summarization.
 
         Args:
@@ -420,11 +421,13 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
         Returns:
             Line-numbered text representation
         """
+        budget = text_repr_budget(model)
         options: FormatterOptions = {
             "include_line_numbers": True,
             "truncated": False,
             "include_markers": False,
             "collapsed": False,
+            "max_length": budget,
         }
 
         if summarize_type == "trace":
@@ -434,8 +437,9 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
                 options=options,
             )
             return text
-        else:  # event
-            return format_event_text_repr(event=entity_data["event"], options=options)
+
+        # format_event_text_repr ignores max_length, so the budget has to be applied to its result.
+        return bounded_text_repr(format_event_text_repr(event=entity_data["event"], options=options), budget)
 
     def _build_summary_response(self, summary, text_repr: str, summarize_type: str) -> dict:
         """Build the API response dict from summary and text representation.
@@ -518,7 +522,18 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             OpenApiExample(
                 "Success Response",
                 value={
-                    "summary": "## Summary\n- User initiated conversation with greeting [L5-8]\n- Assistant responded with friendly message [L12-15]\n\n## Interesting Notes\n- Standard greeting pattern with no errors",
+                    "summary": {
+                        "title": "User greets the assistant",
+                        "flow_diagram": "User → Assistant → Response",
+                        "summary_bullets": [
+                            {"text": "User initiated conversation with a greeting", "line_refs": "L5"},
+                            {"text": "Assistant responded with a friendly message", "line_refs": "L12"},
+                        ],
+                        "interesting_notes": [
+                            {"text": "Standard greeting pattern with no errors", "line_refs": ""},
+                        ],
+                    },
+                    "text_repr": "L001: user: hi\nL012: assistant: hello",
                     "metadata": {
                         "text_repr_length": 450,
                         "model": "gpt-4.1",
@@ -610,7 +625,7 @@ The response includes the structured summary, the text representation, and metad
             if entity_data is None:
                 raise exceptions.ValidationError("No trace or event data was provided for summarization.")
 
-            text_repr = self._generate_text_repr(summarize_type, entity_data)
+            text_repr = self._generate_text_repr(summarize_type, entity_data, model)
 
             start_time = time.time()
             user_distinct_id = getattr(request.user, "distinct_id", None)

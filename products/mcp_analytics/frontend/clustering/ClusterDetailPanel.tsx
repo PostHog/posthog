@@ -18,7 +18,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import type { MCPIntentClusterApi } from '../generated/api.schemas'
 import { ClusterJourneySankey } from './ClusterJourneySankey'
 import { EntropyBadge } from './EntropyBadge'
-import { mcpClusteringLogic } from './mcpClusteringLogic'
+import { clusterCategories, mcpClusteringLogic } from './mcpClusteringLogic'
 
 function SectionLabel({ children, hint }: { children: string; hint?: string }): JSX.Element {
     return (
@@ -35,7 +35,7 @@ function SectionLabel({ children, hint }: { children: string; hint?: string }): 
  * sections scroll — the selected label is the only thing tying the two panes together.
  */
 export function ClusterDetailPanel(): JSX.Element {
-    const { selectedCluster, clusters } = useValues(mcpClusteringLogic)
+    const { selectedCluster, clusters, categoriesByTool } = useValues(mcpClusteringLogic)
 
     if (!selectedCluster) {
         return (
@@ -49,7 +49,10 @@ export function ClusterDetailPanel(): JSX.Element {
 
     return (
         <div className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-primary bg-surface-primary">
-            <ClusterDetailHeader cluster={selectedCluster} />
+            <ClusterDetailHeader
+                cluster={selectedCluster}
+                categories={clusterCategories(selectedCluster, categoriesByTool)}
+            />
             <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 p-4" data-quill>
                 <IntentsSection cluster={selectedCluster} />
                 <RoutingSection cluster={selectedCluster} />
@@ -63,7 +66,13 @@ export function ClusterDetailPanel(): JSX.Element {
     )
 }
 
-function ClusterDetailHeader({ cluster }: { cluster: MCPIntentClusterApi }): JSX.Element {
+function ClusterDetailHeader({
+    cluster,
+    categories,
+}: {
+    cluster: MCPIntentClusterApi
+    categories: string[]
+}): JSX.Element {
     const worstTool = [...cluster.tool_distribution].sort((a, b) => b.error_rate_pct - a.error_rate_pct)[0]
 
     return (
@@ -71,6 +80,15 @@ function ClusterDetailHeader({ cluster }: { cluster: MCPIntentClusterApi }): JSX
             <div className="flex flex-col gap-1">
                 <span className="text-xs uppercase text-muted font-medium">Selected intent group</span>
                 <h3 className="text-lg font-semibold leading-tight m-0">{cluster.label}</h3>
+                {categories.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-1">
+                        {categories.map((category) => (
+                            <Badge key={category} variant="info">
+                                {category}
+                            </Badge>
+                        ))}
+                    </div>
+                ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
                 <EntropyBadge entropy={cluster.routing_entropy} />

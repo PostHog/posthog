@@ -5,6 +5,8 @@ import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import type { IntegrationType } from '~/types'
+
 import { DESTINATIONS } from './destinations'
 import { BatchExportConfigurationForm } from './types'
 
@@ -82,16 +84,24 @@ export function BatchExportGeneralEditFields({
 export function BatchExportsEditFields({
     isNew,
     batchExportConfigForm,
+    selectedIntegration,
 }: {
     isNew: boolean
     batchExportConfigForm: BatchExportConfigurationForm
+    selectedIntegration?: IntegrationType | null
 }): JSX.Element {
     const destination = batchExportConfigForm.destination
     const definition = destination ? DESTINATIONS[destination] : undefined
 
     return (
         <div className="flex flex-col gap-y-4 max-w-200">
-            {definition && <definition.Fields isNew={isNew} formValues={batchExportConfigForm} />}
+            {definition && (
+                <definition.Fields
+                    isNew={isNew}
+                    formValues={batchExportConfigForm}
+                    selectedIntegration={selectedIntegration}
+                />
+            )}
         </div>
     )
 }

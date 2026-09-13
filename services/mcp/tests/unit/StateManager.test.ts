@@ -868,6 +868,36 @@ describe('StateManager', () => {
         })
     })
 
+    describe('getOrFetchIntegrationKinds', () => {
+        const projectId = '42'
+
+        it('returns undefined without calling the API when the key lacks integration:read', async () => {
+            await cache.set('apiKey', { scopes: ['project:read'], scoped_organizations: [], scoped_teams: [] })
+            const request = vi.fn()
+            ;(stateManager as any)._api = { request }
+
+            const result = await stateManager.getOrFetchIntegrationKinds(projectId)
+
+            expect(result).toBeUndefined()
+            expect(request).not.toHaveBeenCalled()
+        })
+
+        it('fetches, dedupes, and sorts integration kinds when the scope is present', async () => {
+            await cache.set('apiKey', { scopes: ['integration:read'], scoped_organizations: [], scoped_teams: [] })
+            const request = vi.fn().mockResolvedValue({
+                results: [{ kind: 'slack' }, { kind: 'github' }, { kind: 'github' }],
+            })
+            ;(stateManager as any)._api = { request }
+
+            const result = await stateManager.getOrFetchIntegrationKinds(projectId)
+
+            expect(result).toEqual(['github', 'slack'])
+            expect(request).toHaveBeenCalledWith(
+                expect.objectContaining({ method: 'GET', path: `/api/projects/${projectId}/integrations/` })
+            )
+        })
+    })
+
     describe('getAnalyticsContext', () => {
         it('returns organization, project, UUID, and name from the cached project', async () => {
             await cache.set('orgId', 'org-1')

@@ -90,6 +90,17 @@ class SlackIntegration:
 
         return sorted(channels, key=lambda x: x["name"])
 
+    def list_public_channels(self) -> list[dict]:
+        """Every public channel, without paging the private half.
+
+        ``list_channels`` also pages ``users_conversations`` and masks the name of every private
+        channel the caller cannot see, so a caller that matches on name pays for a listing where
+        those entries all collapse onto one unusable name. Background jobs want this one: they
+        have no request user to pass as ``authed_user``, so the private half can only ever be
+        masked for them.
+        """
+        return sorted(self._list_channels_by_type("public_channel"), key=lambda x: x["name"])
+
     def get_channel_by_id(
         self, channel_id: str, should_include_private_channels: bool = False, authed_user: str | None = None
     ) -> dict | None:
@@ -116,6 +127,66 @@ class SlackIntegration:
             if e.response["error"] == "channel_not_found":
                 return None
             raise
+
+    def list_users(self) -> list[dict]:
+        """Human workspace members the bot can DM, as raw Slack member payloads."""
+        max_page = SLACK_CHANNELS_MAX_PAGES
+        users: list[dict] = []
+        cursor = None
+
+        while max_page > 0:
+            max_page -= 1
+            res = self.client.users_list(limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor)
+            users.extend(
+                member
+                for member in res["members"]
+                if self._belongs_to_workspace(member) and self._is_dmable_user(member)
+            )
+            cursor = res["response_metadata"]["next_cursor"]
+            if not cursor:
+                break
+
+        return users
+
+    def get_user_by_id(self, user_id: str) -> dict | None:
+        try:
+            response = self.client.users_info(user=user_id)
+            member = response["user"]
+            if not self._belongs_to_workspace(member):
+                return None
+            return member if self._is_dmable_user(member) else None
+        except SlackApiError as e:
+            # user_not_visible is terminal too: the token can't see the member, so retrying the
+            # same lookup can never succeed.
+            if e.response["error"] in ("user_not_found", "user_not_visible"):
+                return None
+            raise
+
+    def _belongs_to_workspace(self, member: dict) -> bool:
+        # Slack also surfaces Connect externals the bot shares a channel with (users.info always,
+        # users.list depending on workspace shape), so reject members whose home workspace isn't
+        # this integration's: internal scout/DM output must never be routable outside the
+        # connected workspace. Enterprise Grid members may carry another primary team_id while
+        # still belonging to this workspace via enterprise_user.teams.
+        member_team_id = member.get("team_id")
+        enterprise_teams = (member.get("enterprise_user") or {}).get("teams") or []
+        return not member.get("is_stranger") and (
+            member_team_id is None
+            or member_team_id == self.integration.integration_id
+            or self.integration.integration_id in enterprise_teams
+        )
+
+    @staticmethod
+    def _is_dmable_user(member: dict) -> bool:
+        # Guests (single/multi-channel, often external people) are excluded like bots: DM surfaces
+        # deliver internal content, matching the slack_app onboarding and unfurl eligibility rules.
+        return (
+            not member.get("deleted")
+            and not member.get("is_bot")
+            and not member.get("is_restricted")
+            and not member.get("is_ultra_restricted")
+            and member.get("id") != "USLACKBOT"
+        )
 
     def _list_channels_by_type(
         self,

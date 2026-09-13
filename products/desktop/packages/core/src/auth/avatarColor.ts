@@ -26,7 +26,7 @@ const AVATAR_PALETTE: readonly AvatarColor[] = [
   { bg: "#8c3d5a", text: "#f0d0dc" },
 ] as const;
 
-export function avatarColorSeedHash(seed: string): number {
+function avatarColorSeedHash(seed: string): number {
   let hash = 0;
   for (let i = 0; i < seed.length; i += 1) {
     hash = (hash + seed.charCodeAt(i) * (i + 1)) % 9973;

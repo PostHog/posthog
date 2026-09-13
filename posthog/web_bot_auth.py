@@ -17,14 +17,17 @@ from posthog.web_bot_auth_keys import load_web_bot_auth_private_key_configuratio
 CONTENT_TYPE = "application/http-message-signatures-directory+json"
 _TAG = "http-message-signatures-directory"
 _SIGNATURE_LIFETIME_SECONDS = 300
+_CACHE_MAX_AGE_SECONDS = 60
 
-# Signed as a constant, never read from the request. The signature covers the authority, so a signer
-# that signed whichever Host it was handed would give any site proxying this route a directory that
-# verifies on that site while carrying our key. Preventing exactly that is what this signature is for.
+# Covering @authority prevents cross-authority signature replay. Keep its value constant so this
+# endpoint cannot act as a confused deputy and sign a directory for a requester-controlled domain.
+# Otherwise, another site could proxy this route and receive a directory that verifies for its
+# domain but contains our public key.
 #
-# This is the origin the bot names in Signature-Agent, and it is us.posthog.com rather than
-# posthog.com because Vercel reserves /.well-known and will not rewrite it, so posthog.com cannot
-# serve a response it computes per request.
+# PostHog normally hosts public identity metadata on the root posthog.com domain. Web Bot Auth is an
+# exception because its directory response needs a cryptographic signature with creation and
+# expiration timestamps. The root domain runs on Vercel, which only serves static files under
+# /.well-known, so Signature-Agent points to this Django app at us.posthog.com.
 _AUTHORITY = "us.posthog.com"
 
 
@@ -40,15 +43,15 @@ def public_jwk(key: Ed25519PrivateKey) -> dict[str, str]:
 
 
 def jwk_thumbprint(jwk: dict[str, str]) -> str:
-    """RFC 7638, over the required members only. RFC 8037 appendix A.3 fixes those for Ed25519."""
+    """RFC 7638 requires only these members. RFC 8037, appendix A.3, defines them for Ed25519."""
     canonical = json.dumps({"crv": jwk["crv"], "kty": jwk["kty"], "x": jwk["x"]}, separators=(",", ":"))
     return base64.urlsafe_b64encode(hashlib.sha256(canonical.encode()).digest()).decode().rstrip("=")
 
 
 def signature_base(keyid: str, nonce: str, created_at_seconds: int, content_digest: str) -> SignatureBase:
     """
-    RFC 9421 section 2.5. Returns the parameters alongside the base, because Signature-Input must
-    repeat them byte for byte and building them twice invites the two copies to differ.
+    RFC 9421 section 2.5 defines this signature base. Signature-Input must repeat the parameter bytes,
+    so this function returns the parameters with the base.
     """
     params = (
         f'("@authority";req "content-digest");alg="ed25519";keyid="{keyid}";nonce="{nonce}";'
@@ -80,17 +83,15 @@ def signed_directory(
             "Content-Digest": content_digest,
             "Signature-Input": ", ".join(signature_inputs),
             "Signature": ", ".join(signatures),
-            # A cached copy outlives its own signature, so every reader must reach this view.
-            "Cache-Control": "no-store",
+            "Cache-Control": f"public, max-age={_CACHE_MAX_AGE_SECONDS}",
         },
     )
 
 
 def http_message_signatures_directory(request: HttpRequest) -> HttpResponse:
     """
-    The Web Bot Auth key directory for PostHogSessionReplayBot. A stored file cannot serve this:
-    Cloudflare uses a key only when the response carries a signature made with that key, covering
-    the authority asked for and expiring minutes later.
+    Cloudflare uses the PostHogImageFetcherBot public key only if the corresponding private key signs
+    this directory response. The signature covers the requested authority and expires after five minutes.
 
     https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/
     """

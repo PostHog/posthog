@@ -267,7 +267,7 @@ class TestWorkflowDispatchPersistence(TestCase):
         self, _shadow_enabled: Mock, increment_missing_intent: Mock
     ) -> None:
         resumed_run = TaskRun.objects.create(
-            task=self.task_run.task, team=self.team, status=TaskRun.Status.QUEUED, state={"handoff_resumed": True}
+            task=self.task_run.task, team=self.team, status=TaskRun.Status.QUEUED, state={"same_run_resume": True}
         )
 
         uncovered = filter_uncovered_workflow_dispatch_run_ids([self.task_run.id, resumed_run.id])

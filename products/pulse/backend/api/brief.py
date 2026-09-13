@@ -21,10 +21,10 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import sync_connect
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.config import WORKFLOW_EXECUTION_TIMEOUT

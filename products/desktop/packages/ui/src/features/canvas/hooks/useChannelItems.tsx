@@ -3,9 +3,10 @@ import {
   type ChannelItemModel,
   type ChannelItemOwner,
   type ChannelSessionFacts,
+  type ChannelWorkspaceFacts,
 } from "@posthog/core/canvas/channelItems";
 import { formatBulkResult } from "@posthog/core/sidebar/selection";
-import type { WorkspaceMode } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
@@ -18,6 +19,7 @@ import { useChannelTasks } from "@posthog/ui/features/canvas/hooks/useChannelTas
 import {
   useDashboardMutations,
   useDashboards,
+  usePrimeCanvasView,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useSidebarSessionMap } from "@posthog/ui/features/sidebar/useSidebarSessionMap";
@@ -25,6 +27,7 @@ import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { toast } from "@posthog/ui/primitives/toast";
+import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 
@@ -37,6 +40,37 @@ import { useMemo } from "react";
  * nothing — which keeps the personal-channel ownership filter from running
  * against an identity we haven't established yet.
  */
+export function useChannelSessionFacts(): ChannelSessionFacts {
+  const sessions = useSidebarSessionMap();
+  const { timestamps } = useTaskViewed();
+  const { data: workspaces } = useWorkspaces();
+
+  return useMemo<ChannelSessionFacts>(() => {
+    const needsInputTaskIds = new Set<string>();
+    for (const [taskId, session] of sessions) {
+      if ((session.pendingPermissions?.size ?? 0) > 0) {
+        needsInputTaskIds.add(taskId);
+      }
+    }
+    const workspaceByTaskId = new Map<string, ChannelWorkspaceFacts>();
+    for (const [taskId, workspace] of Object.entries(workspaces ?? {})) {
+      workspaceByTaskId.set(taskId, {
+        mode: workspace.mode,
+        folderPath: workspace.folderPath,
+        isScratch: workspace.isScratch,
+        // The linked branch wins: a worktree's own branch is where the work is
+        // only until it is linked to the branch the PR is on.
+        branch: workspace.linkedBranch ?? workspace.branchName ?? undefined,
+      });
+    }
+    return {
+      needsInputTaskIds,
+      viewedTimestamps: timestamps,
+      workspaceByTaskId,
+    };
+  }, [sessions, timestamps, workspaces]);
+}
+
 export function useChannelItems(channelId: string): {
   items: ChannelItemModel[];
   actions: ChannelItemActions;
@@ -63,9 +97,13 @@ export function useChannelItems(channelId: string): {
   });
   const archivedTaskIds = useArchivedTaskIds();
   const { pinnedTaskIds, togglePin, setPinnedMany } = usePinnedTasks();
-  const { archiveTask } = useArchiveTask({ navigateSpace: "website" });
-  const { setPinned: setCanvasPinned, invalidateDashboards } =
-    useDashboardMutations();
+  const { archiveTask } = useArchiveTask({ navigateUnscoped: true });
+  const {
+    setPinned: setCanvasPinned,
+    fileDashboard,
+    invalidateDashboards,
+  } = useDashboardMutations();
+  const primeCanvasView = usePrimeCanvasView();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser, isLoading: viewerLoading } = useCurrentUser({
     client,
@@ -75,27 +113,7 @@ export function useChannelItems(channelId: string): {
   // permission prompt, when you last looked, and where the workspace is. The
   // session map is the sidebar's own subscription, which ignores the streamed
   // events a turn fires and only wakes on the fields a row reads.
-  const sessions = useSidebarSessionMap();
-  const { timestamps } = useTaskViewed();
-  const { data: workspaces } = useWorkspaces();
-  const sessionFacts = useMemo<ChannelSessionFacts>(() => {
-    const needsInputTaskIds = new Set<string>();
-    for (const [taskId, session] of sessions) {
-      if ((session.pendingPermissions?.size ?? 0) > 0) {
-        needsInputTaskIds.add(taskId);
-      }
-    }
-    const workspaceModeByTaskId = new Map<string, WorkspaceMode>();
-    for (const [taskId, workspace] of Object.entries(workspaces ?? {})) {
-      if (workspace.mode) workspaceModeByTaskId.set(taskId, workspace.mode);
-    }
-    return {
-      needsInputTaskIds,
-      viewedTimestamps: timestamps,
-      workspaceModeByTaskId,
-    };
-  }, [sessions, timestamps, workspaces]);
-
+  const sessionFacts = useChannelSessionFacts();
   const meUuid = currentUser?.uuid ?? null;
   const me = useMemo<ChannelItemOwner>(() => ({ uuid: meUuid }), [meUuid]);
   // Only a uuid establishes identity — ownership compares uuids, so a viewer
@@ -144,13 +162,27 @@ export function useChannelItems(channelId: string): {
     () => ({
       open: (item) => {
         if (item.kind === "canvas") {
+          // Canvases report as dashboard opens, the same event the canvases
+          // pane fires, so the two entry points can be compared.
+          track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
+            action_type: "open",
+            surface: "sidebar",
+            channel_id: channelId,
+            dashboard_id: item.id,
+          });
           void navigate({
-            to: "/website/$channelId/dashboards/$dashboardId",
+            to: "/spaces/$channelId/dashboards/$dashboardId",
             params: { channelId, dashboardId: item.id },
           });
         } else {
+          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+            action_type: "open_task",
+            surface: "sidebar",
+            channel_id: channelId,
+            task_id: item.id,
+          });
           void navigate({
-            to: "/website/$channelId/tasks/$taskId",
+            to: "/spaces/$channelId/tasks/$taskId",
             params: { channelId, taskId: item.id },
           });
         }
@@ -203,6 +235,19 @@ export function useChannelItems(channelId: string): {
       archive: (item) => {
         void archiveTask({ taskId: item.id });
       },
+      fileCanvas: async (item, targetChannelId) => {
+        try {
+          await fileDashboard(item.id, targetChannelId);
+          const targetName = channels.find(
+            (candidate) => candidate.id === targetChannelId,
+          )?.name;
+          toast.success(targetName ? `Filed to ${targetName}` : "Canvas filed");
+        } catch (error) {
+          toast.error("Couldn't file canvas", {
+            description: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
       // Canvases only, and through the shared undo window: the row disappears at
       // once and the host isn't told until the toast expires, so an accidental
       // delete costs nothing.
@@ -216,6 +261,7 @@ export function useChannelItems(channelId: string): {
           invalidate: invalidateDashboards,
         });
       },
+      primeCanvas: primeCanvasView,
     }),
     [
       channelId,
@@ -224,7 +270,10 @@ export function useChannelItems(channelId: string): {
       togglePin,
       setPinnedMany,
       archiveTask,
+      fileDashboard,
+      channels,
       invalidateDashboards,
+      primeCanvasView,
     ],
   );
 

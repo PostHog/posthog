@@ -2,24 +2,14 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.bland_ai import BlandAIResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.source import BlandAISource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.blandai import (
     BlandAISourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBlandAISource:
@@ -27,28 +17,6 @@ class TestBlandAISource:
         self.source = BlandAISource()
         self.team_id = 123
         self.config = BlandAISourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BLANDAI
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "BlandAI"
-        assert config.label == "Bland AI"
-        assert config.category == DataWarehouseSourceCategory.COMMUNICATION
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/bland_ai.svg"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/bland-ai"
-
-    def test_source_config_fields(self):
-        config = self.source.get_source_config
-        assert [f.name for f in config.fields] == ["api_key"]
-
-        api_key = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key.secret is True
-        assert api_key.required is True
 
     def test_lists_tables_without_credentials(self):
         # get_schemas iterates a static endpoint catalog with no I/O, so the public docs catalog renders.
@@ -75,10 +43,6 @@ class TestBlandAISource:
         assert schema.supports_append is supports_incremental
         assert schema.should_sync_default is should_sync_default
         assert schema.incremental_fields == INCREMENTAL_FIELDS[endpoint]
-
-    def test_get_schemas_filtered_by_names(self):
-        assert [s.name for s in self.source.get_schemas(self.config, self.team_id, names=["pathways"])] == ["pathways"]
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @parameterized.expand(
         [
@@ -118,40 +82,3 @@ class TestBlandAISource:
             assert is_valid is expected_valid
             assert error_message == expected_message
             mock_validate.assert_called_once_with(self.config.api_key)
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is BlandAIResumeConfig
-
-    @parameterized.expand(
-        [
-            ("incremental", True, "2026-01-01"),
-            # The watermark must not leak into a full-refresh run.
-            ("full_refresh", False, None),
-        ]
-    )
-    def test_source_for_pipeline_plumbs_arguments(self, _name, should_use_incremental_field, expected_last_value):
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.source.bland_ai_source"
-        ) as mock_bland_ai_source:
-            inputs = mock.MagicMock()
-            inputs.schema_name = "calls"
-            inputs.should_use_incremental_field = should_use_incremental_field
-            inputs.db_incremental_field_last_value = "2026-01-01"
-            manager = mock.MagicMock()
-
-            self.source.source_for_pipeline(self.config, manager, inputs)
-
-            mock_bland_ai_source.assert_called_once()
-            kwargs = mock_bland_ai_source.call_args.kwargs
-            assert kwargs["api_key"] == "key"
-            assert kwargs["endpoint"] == "calls"
-            assert kwargs["resumable_source_manager"] is manager
-            assert kwargs["should_use_incremental_field"] is should_use_incremental_field
-            assert kwargs["db_incremental_field_last_value"] == expected_last_value
-
-    def test_canonical_descriptions_keyed_by_endpoint(self):
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions) == set(ENDPOINTS)

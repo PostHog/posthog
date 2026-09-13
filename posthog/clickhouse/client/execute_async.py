@@ -15,6 +15,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import celery, redis
+from posthog.api_queries_budget import get_request_query_cost, reset_request_query_cost
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
@@ -120,9 +121,6 @@ class QueryStatusManager:
             clickhouse_query_progress_dict[clickhouse_query_progress["query_id"]] = clickhouse_query_progress
         self._store_clickhouse_query_progress_dict(clickhouse_query_progress_dict)
         self.redis_client.set(self.heartbeat_key, "1", ex=self.HEARTBEAT_TTL_SECONDS)
-
-    def has_results(self) -> bool:
-        return self.redis_client.exists(self.results_key) == 1
 
     def get_clickhouse_progresses(self) -> Optional[ClickhouseQueryProgress]:
         try:
@@ -264,6 +262,7 @@ def execute_process_query(
         wait_duration = (query_status.pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
         QUERY_WAIT_TIME.labels(team=team_id, mode=trigger).observe(wait_duration)
 
+    reset_request_query_cost()
     try:
         results = process_query_dict(
             team=team,
@@ -296,7 +295,7 @@ def execute_process_query(
         query_status.error = False
         raise
     except Exception as err:
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         query_status.results = None  # Clear results in case they are faulty
         is_user_safe_error = isinstance(
@@ -319,6 +318,12 @@ def execute_process_query(
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)
+        cost = get_request_query_cost()
+        if cost is not None:
+            query_status.bytes_read = cost.bytes_read
+            query_status.budget_remaining_bytes = (
+                int(cost.remaining_bytes) if cost.remaining_bytes is not None else None
+            )
         manager.store_query_status(query_status)
         cache_key = None
         try:
@@ -357,9 +362,17 @@ def enqueue_process_query_task(
     if force:
         cancel_query(team.id, query_id)
 
-    if manager.has_results() and not refresh_requested:
-        # If we've seen this query before return and don't resubmit it.
-        return manager.get_query_status()
+    if not refresh_requested:
+        try:
+            # Only join a query that is still running. We are here because the cache already
+            # decided this query needs to run, so handing back a finished record would replay the
+            # old result and start nothing, blocking the refresh until that record expires.
+            # Throttling a query that keeps failing is the query runner's job, not this one's.
+            in_flight = manager.get_query_status()
+            if not in_flight.complete:
+                return in_flight
+        except QueryNotFoundError:
+            pass
 
     try:
         if cache_key:

@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use personhog_coordination::pod::{desired_state, DesiredState};
 use personhog_coordination::protocol::{
-    drain_satisfied, freeze_quorum_met, plan_partial_rebalance, warm_satisfied,
+    drain_satisfied, freeze_quorum_met, plan_partial_rebalance, warm_satisfied, PlannedHandoff,
 };
 use personhog_coordination::strategy::{AssignmentStrategy, Member, StickyBalancedStrategy};
 use personhog_coordination::types::{
@@ -19,8 +19,8 @@ use personhog_coordination::types::{
 use stateright::{Model, Property};
 
 use crate::types::{
-    Action, Changelog, Handoff, HandoffId, Partition, PendingWarm, Phase, Pod, PodId, Router,
-    RouterId, StashedRequest, SystemState, WarmState,
+    Action, Changelog, Handoff, HandoffId, Partition, PendingUnit, PendingWarm, Phase, Pod, PodId,
+    Router, RouterId, StashedRequest, SystemState, WarmState,
 };
 
 /// Deterministic names bridging the model's compact u8 ids to the
@@ -153,6 +153,10 @@ pub struct HandoffModel {
     /// share (the coordinator's rollout policies). Zero models the
     /// steady state, where every pod is an uncapped active member.
     pub hold_pods: u8,
+    /// Apply rebalance plans in chunks (production: `apply_plan` past
+    /// the txn budget): the first planned handoff lands with the plan,
+    /// the rest apply later through `ApplyPendingUnit`.
+    pub chunked_plans: bool,
     /// Adds reachability probes (`sometimes` properties) for scenario
     /// shapes that only exist at larger scale — used to measure, rather
     /// than assume, which configurations actually reach them. Off in the
@@ -604,6 +608,11 @@ impl HandoffModel {
             // Decided in the arm: enablement is "the planner produced a
             // non-empty plan", which costs a full placement computation.
             Action::Rebalance => true,
+            // One pending suffix at a time: chunks of one plan apply
+            // sequentially in production; a competing plan is the
+            // Rebalance interleavings.
+            Action::RebalanceChunked => self.chunked_plans && state.pending_plan.is_empty(),
+            Action::ApplyPendingUnit => !state.pending_plan.is_empty(),
 
             Action::CancelDeadNewOwner(p) => matches!(
                 state.handoffs.get(&p),
@@ -688,22 +697,31 @@ fn mutate(last: &SystemState, apply: impl FnOnce(&mut SystemState)) -> Option<Sy
 /// `enabled` — each derives it from `last` and clones only once a
 /// successor is certain.
 impl HandoffModel {
-    /// The rebalance half of `handle_pod_change`: when the planner has
-    /// work, create Freezing handoffs for every assignment diff in one
-    /// transaction. In-flight handoffs pin their partitions — the
-    /// production `protocol::plan_partial_rebalance` excludes them from
-    /// the plan and attributes each to its target for the placement
-    /// computation — so rebalancing is enabled in every state and the
-    /// checker explores a rebalance racing every handoff phase. Only the
-    /// etcd writes are applied model-side, and assignments for
-    /// moved/fresh partitions are deferred until Complete
-    /// (`create_assignments_and_handoffs`). This action is atomic (plan
-    /// and apply in one transition); production earns that abstraction by
-    /// guarding the apply txn on its read-set — handoff keys still
-    /// absent, and each touched partition's assignment unchanged since the
-    /// snapshot — so a stale plan fails instead of replacing an in-flight
-    /// handoff or draining a superseded owner.
+    /// The rebalance half of `handle_pod_change`, applied in one
+    /// transition. In-flight handoffs pin their partitions
+    /// (`plan_partial_rebalance`), so rebalancing is enabled in every
+    /// state and races every handoff phase. Production guards each
+    /// partition's unit on its read-set, so a stale unit stands down
+    /// instead of clobbering an in-flight handoff; plans past the txn
+    /// budget apply in chunks, which `rebalance_chunked` explores.
     fn rebalance(&self, last: &SystemState) -> Option<SystemState> {
+        let (handoffs, quorum) = self.planned_handoffs(last)?;
+        mutate(last, |state| {
+            for planned in &handoffs {
+                Self::create_planned_handoff(state, planned, &quorum);
+            }
+        })
+    }
+
+    /// The planner's decision, shared by both apply shapes: the sorted
+    /// plan and the freeze quorum snapshotted with it. `None` when the
+    /// plan is empty — an empty plan is a no-op successor the checker
+    /// would dedup anyway, and deciding it before the clone skips the
+    /// clone-and-hash per state.
+    fn planned_handoffs(
+        &self,
+        last: &SystemState,
+    ) -> Option<(Vec<PlannedHandoff>, BTreeSet<RouterId>)> {
         let current: HashMap<u32, String> = last
             .assignments
             .iter()
@@ -723,10 +741,6 @@ impl HandoffModel {
             self.partitions as u32,
         );
         if plan.handoffs.is_empty() {
-            // An empty plan is a no-op successor the checker would dedup
-            // anyway; deciding it before the clone skips the
-            // clone-and-hash per state, which dominates once Rebalance is
-            // enabled everywhere.
             return None;
         }
         // The plan's order follows HashMap iteration; sort so sequential
@@ -740,31 +754,104 @@ impl HandoffModel {
             .router_ids()
             .filter(|r| last.routers[r].registered)
             .collect();
+        Some((plan.handoffs, quorum))
+    }
+
+    /// One planned creation landing (the atomic-apply path, where guards
+    /// trivially hold within the transition).
+    fn create_planned_handoff(
+        state: &mut SystemState,
+        planned: &PlannedHandoff,
+        quorum: &BTreeSet<RouterId>,
+    ) {
+        let id = state.next_handoff_id;
+        state.next_handoff_id += 1;
+        let clobbered = state
+            .handoffs
+            .insert(
+                planned.partition as Partition,
+                Handoff {
+                    id,
+                    old_owner: planned.old_owner.as_deref().map(pod_id),
+                    new_owner: pod_id(&planned.new_owner),
+                    phase: Phase::Freezing,
+                    quorum: quorum.clone(),
+                },
+            )
+            .is_some();
+        if clobbered {
+            // Planning a pinned partition would destroy its
+            // in-flight handoff (and orphan its acks); the
+            // always-property flags any interleaving where the
+            // exclusion fails to prevent that.
+            state.double_planned_handoff = true;
+        }
+    }
+
+    /// `rebalance` applying its plan the way `apply_plan` does past the
+    /// txn budget: the first handoff lands now, the rest wait as
+    /// pending units carrying their plan-time guards. Only offered when
+    /// the plan actually splits — a one-handoff plan is `Rebalance`.
+    fn rebalance_chunked(&self, last: &SystemState) -> Option<SystemState> {
+        let (handoffs, quorum) = self.planned_handoffs(last)?;
+        let (first, rest) = handoffs.split_first()?;
+        if rest.is_empty() {
+            return None;
+        }
         mutate(last, |state| {
-            for planned in plan.handoffs {
-                let id = state.next_handoff_id;
-                state.next_handoff_id += 1;
-                let clobbered = state
-                    .handoffs
-                    .insert(
-                        planned.partition as Partition,
-                        Handoff {
-                            id,
-                            old_owner: planned.old_owner.as_deref().map(pod_id),
-                            new_owner: pod_id(&planned.new_owner),
-                            phase: Phase::Freezing,
-                            quorum: quorum.clone(),
-                        },
-                    )
-                    .is_some();
-                if clobbered {
-                    // Planning a pinned partition would destroy its
-                    // in-flight handoff (and orphan its acks); the
-                    // always-property flags any interleaving where the
-                    // exclusion fails to prevent that.
-                    state.double_planned_handoff = true;
-                }
+            Self::create_planned_handoff(state, first, &quorum);
+            state.pending_plan = rest
+                .iter()
+                .map(|planned| {
+                    let partition = planned.partition as Partition;
+                    PendingUnit {
+                        partition,
+                        old_owner: planned.old_owner.as_deref().map(pod_id),
+                        new_owner: pod_id(&planned.new_owner),
+                        quorum: quorum.clone(),
+                        expected_assignment_version: state
+                            .assignment_versions
+                            .get(&partition)
+                            .copied()
+                            .unwrap_or(0),
+                    }
+                })
+                .collect();
+        })
+    }
+
+    /// A later chunk landing: the front pending unit applies if its
+    /// plan-time guards still hold — handoff key absent, assignment
+    /// version unchanged — and is dropped (stood down) otherwise, as a
+    /// conflicted chunk unit is in production.
+    fn apply_pending_unit(&self, last: &SystemState) -> Option<SystemState> {
+        let unit = last.pending_plan.first()?.clone();
+        mutate(last, |state| {
+            state.pending_plan.remove(0);
+            let version = state
+                .assignment_versions
+                .get(&unit.partition)
+                .copied()
+                .unwrap_or(0);
+            if state.handoffs.contains_key(&unit.partition)
+                || version != unit.expected_assignment_version
+            {
+                state.pending_unit_dropped = true;
+                return;
             }
+            let id = state.next_handoff_id;
+            state.next_handoff_id += 1;
+            state.handoffs.insert(
+                unit.partition,
+                Handoff {
+                    id,
+                    old_owner: unit.old_owner,
+                    new_owner: unit.new_owner,
+                    phase: Phase::Freezing,
+                    quorum: unit.quorum,
+                },
+            );
+            state.pending_unit_applied = true;
         })
     }
 
@@ -873,6 +960,12 @@ impl HandoffModel {
                 // `complete_handoff`: phase write and assignment flip are
                 // one etcd transaction.
                 state.assignments.insert(p, new_owner);
+                if self.chunked_plans {
+                    // The mod_revision a pending unit's precondition
+                    // compares; maintained only where something reads it,
+                    // so other configs don't split states by history.
+                    *state.assignment_versions.entry(p).or_insert(0) += 1;
+                }
             }
         })
     }
@@ -1146,6 +1239,8 @@ impl Model for HandoffModel {
             drained_acks: BTreeMap::new(),
             warmed_acks: BTreeMap::new(),
             next_handoff_id: 0,
+            pending_plan: Vec::new(),
+            assignment_versions: BTreeMap::new(),
             pods,
             routers,
             changelogs,
@@ -1162,6 +1257,8 @@ impl Model for HandoffModel {
             reaffirmed: false,
             replaced_with_successor: false,
             cancelled_while_stash_parked: false,
+            pending_unit_applied: false,
+            pending_unit_dropped: false,
         }]
     }
 
@@ -1177,6 +1274,8 @@ impl Model for HandoffModel {
             }
         };
         offer(Action::Rebalance);
+        offer(Action::RebalanceChunked);
+        offer(Action::ApplyPendingUnit);
         for p in self.partition_ids() {
             offer(Action::CancelDeadNewOwner(p));
             offer(Action::Cancel(p));
@@ -1232,6 +1331,8 @@ impl Model for HandoffModel {
         match action {
             // ── coordinator ────────────────────────────────────
             Action::Rebalance => self.rebalance(last),
+            Action::RebalanceChunked => self.rebalance_chunked(last),
+            Action::ApplyPendingUnit => self.apply_pending_unit(last),
             Action::AdvancePhase(p) => self.advance_phase(last, p),
 
             // The dead-new-owner arm of the coordinator's cleanup, now a
@@ -1490,7 +1591,7 @@ impl Model for HandoffModel {
                 // explored state, and the placement computation below is
                 // the one expensive part — it must stay behind the
                 // conjuncts that reject most states outright.
-                if !s.handoffs.is_empty() {
+                if !s.handoffs.is_empty() || !s.pending_plan.is_empty() {
                     return false;
                 }
                 let no_capacity = s.pods.values().all(|p| !p.registered);
@@ -1598,6 +1699,21 @@ impl Model for HandoffModel {
                             .is_some_and(|x| s.handoffs.values().any(|h2| h2.new_owner == x))
                     })
                 },
+            ));
+        }
+        if self.probes && self.chunked_plans {
+            // Both fates of a chunked plan's suffix are genuinely
+            // reachable: a late unit landing after other actions
+            // interleaved, and one stood down by a failed guard. The
+            // safety properties judge every interleaving that reaches
+            // them.
+            props.push(Property::<Self>::sometimes(
+                "chunked_pending_unit_applied",
+                |_, s| s.pending_unit_applied,
+            ));
+            props.push(Property::<Self>::sometimes(
+                "chunked_pending_unit_dropped",
+                |_, s| s.pending_unit_dropped,
             ));
         }
         props

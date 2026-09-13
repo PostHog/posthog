@@ -26,6 +26,8 @@ class TwitterSource(SimpleSource[TwitterSourceConfig]):
             name=SchemaExternalDataSourceType.TWITTER,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Twitter",
+            # Twitter was rebranded to X; match the terms users now search by.
+            keywords=["x", "x.com"],
             iconPath="/static/services/twitter.png",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,

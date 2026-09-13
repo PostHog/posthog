@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
@@ -31,6 +32,7 @@ import { createMarkSeenStep } from './session-batch-mark-seen-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
 import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
 import { createResolveKeyStep } from './session-resolve-key-step'
+import { createRecordSessionUsageStep, trackUnbilledNewSessions } from './session-usage-step'
 import { createTeamFilterStep } from './team-filter-step'
 import { createValidateSessionReplayHeadersStep } from './validate-headers-step'
 
@@ -78,6 +80,7 @@ export interface SessionReplayPipelineConfig {
     topHog: TopHogRegistry
     /** Debug logging matcher for partition-based debugging. */
     isDebugLoggingEnabled: ValueMatcher<number>
+    usageBatch?: UsageRecordBatch
 }
 
 /**
@@ -105,6 +108,7 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
         sessionKeyResolutionMaxConcurrency,
         topHog,
         isDebugLoggingEnabled,
+        usageBatch,
     } = config
 
     const pipelineConfig: PipelineConfig<OverflowOutput> = {
@@ -138,6 +142,9 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                     createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                         overflowMode,
                                         preservePartitionLocality: true, // Sessions must stay on the same partition
+                                        // Replay never reads or writes persons. The line above pins
+                                        // locality either way, so this only records the fact.
+                                        pipelineWritesPersons: false,
                                     })
                                 )
                                 // Validate the headers capture guarantees (DLQ if missing) and narrow the type
@@ -195,12 +202,14 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                 b
                                                     // Parse message content
                                                     .pipe(
-                                                        topHogWrapper(createParseMessageStep(), [
-                                                            timer('parse_time_ms_by_session_id', (input) => ({
-                                                                token: input.headers.token ?? 'unknown',
-                                                                session_id: input.headers.session_id ?? 'unknown',
-                                                            })),
-                                                        ])
+                                                        trackUnbilledNewSessions(
+                                                            topHogWrapper(createParseMessageStep(), [
+                                                                timer('parse_time_ms_by_session_id', (input) => ({
+                                                                    token: input.headers.token ?? 'unknown',
+                                                                    session_id: input.headers.session_id ?? 'unknown',
+                                                                })),
+                                                            ])
+                                                        )
                                                     )
                                                     // Monitor library version and emit warnings for old versions
                                                     .pipe(createLibVersionMonitorStep())
@@ -225,6 +234,7 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                             ]
                                                         )
                                                     )
+                                                    .pipe(createRecordSessionUsageStep(usageBatch))
                                             )
                                             .gather()
                                     )
@@ -291,7 +301,7 @@ export async function runSessionReplayPipeline(
     const batch = createBatch(messages.map((message) => ({ message, sessionBatchRecorder })))
     // The consumer drains each batch fully before feeding the next and the hooks always succeed,
     // so a rejected feed can only be a framework invariant violation.
-    const feedResult = await pipeline.feed(batch)
+    const feedResult = await pipeline.feed(batch, {})
     if (!feedResult.ok) {
         throw new Error(`session replay pipeline rejected feed: ${feedResult.kind} (${feedResult.reason})`)
     }

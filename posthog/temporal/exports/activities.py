@@ -9,10 +9,15 @@ from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
 from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, MAX_ERROR_TRACE_CHARS, truncate_for_temporal_payload
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult
+from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult, export_failure_metadata
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.tasks.failure_handler import SYSTEM_ERROR_NAMES, TIMEOUT_ERROR_NAMES, ExportCancelled
+from products.exports.backend.tasks.failure_handler import (
+    SYSTEM_ERROR_NAMES,
+    TIMEOUT_ERROR_NAMES,
+    ExportCancelled,
+    export_slo_failure_details,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -43,7 +48,18 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
                 source=EventSource(inputs.source) if inputs.source else None,
             )
         except Exception as e:
-            await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
+            try:
+                await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
+            except Exception as refresh_error:
+                # Preserve the export error because it determines the SLO classification.
+                logger.warning(
+                    "export_asset_activity.refresh_after_failure_failed",
+                    exported_asset_id=asset.id,
+                    team_id=asset.team_id,
+                    exception_class=type(refresh_error).__name__,
+                    error=str(refresh_error),
+                    exc_info=True,
+                )
             exception_class = type(e).__name__
             error_trace = "\n".join(traceback.format_exception(e)[:5])
             logger.warning(
@@ -62,6 +78,7 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             raise ApplicationError(
                 truncate_for_temporal_payload(str(e), MAX_ERROR_MESSAGE_CHARS),
                 truncate_for_temporal_payload(error_trace, MAX_ERROR_TRACE_CHARS),
+                export_failure_metadata(export_slo_failure_details(e)),
                 type=exception_class,
                 non_retryable=exception_class not in RETRYABLE_ERROR_NAMES,
             ) from e

@@ -395,7 +395,11 @@ def run(context: dict) -> dict:
     # head_checkout: the sandbox clones and checks out the PR head before this runs (see the server's
     # _clone_pr), so parent-PR symbols already resolve for stacked PRs and no worktree is needed.
     pipeline = Pipeline(
-        0, context.get("repo") or "", self_driving=bool(context.get("self_driving_review")), head_checkout=True
+        0,
+        context.get("repo") or "",
+        self_driving=bool(context.get("self_driving_review")),
+        review_trigger=str(context.get("review_trigger") or ""),
+        head_checkout=True,
     )
     pipeline.pr = _build_pr_data(context)
     # Reads commit trailers with `git log base..head` against the checkout, so it needs no token,

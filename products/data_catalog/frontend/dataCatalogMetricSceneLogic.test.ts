@@ -1,12 +1,13 @@
 import { router } from 'kea-router'
 
-import { ApiError } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
+import { dataCatalogAgentSyncLogic } from './dataCatalogAgentSyncLogic'
 import { dataCatalogMetricSceneLogic, MARKDOWN_DEFINITION_TEMPLATE } from './dataCatalogMetricSceneLogic'
 import {
     dataCatalogMetricsApproveCreate,
@@ -71,6 +72,10 @@ describe('dataCatalogMetricSceneLogic', () => {
         logic = dataCatalogMetricSceneLogic({ name: 'weekly_active_users' })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadMetricSuccess'])
+    })
+
+    afterEach(() => {
+        ;(ApiConfig.getCurrentTeamId as jest.Mock).mockReturnValue(1)
     })
 
     it('saving an approved metric edit reflects the proposed status from the response', async () => {
@@ -192,6 +197,140 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(lemonToast.error).toHaveBeenCalled()
     })
 
+    it('carries an open markdown draft to an externally renamed metric once', async () => {
+        ;(dataCatalogMetricsRetrieve as jest.Mock).mockResolvedValue(
+            buildMetric({
+                name: 'daily_paying_users',
+                definition_kind: 'MarkdownDefinition',
+                definition: { kind: 'MarkdownDefinition', markdown: '1. Count the users' },
+            })
+        )
+        logic.actions.setEditingDefinition(true)
+        logic.actions.setDraftMarkdown('1. Count users who paid')
+        logic.actions.renamedExternally('daily_paying_users')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain('/daily_paying_users')
+
+        const renamedLogic = dataCatalogMetricSceneLogic({ name: 'daily_paying_users' })
+        renamedLogic.mount()
+        await expectLogic(renamedLogic).toDispatchActions(['loadMetricSuccess']).toFinishAllListeners()
+
+        expect(renamedLogic.values.editingDefinition).toBe(true)
+        expect(renamedLogic.values.draftMarkdown).toEqual('1. Count users who paid')
+        renamedLogic.unmount()
+
+        const reloadedLogic = dataCatalogMetricSceneLogic({ name: 'daily_paying_users' })
+        reloadedLogic.mount()
+        await expectLogic(reloadedLogic).toDispatchActions(['loadMetricSuccess']).toFinishAllListeners()
+
+        expect(reloadedLogic.values.editingDefinition).toBe(false)
+        expect(reloadedLogic.values.draftMarkdown).toEqual('1. Count the users')
+        reloadedLogic.unmount()
+    })
+
+    it('drops a carried draft when the rename also switched the definition to a query kind', async () => {
+        // One agent call can rename the metric and replace its definition. The query-kind view has
+        // no markdown editor, so restoring the draft would leave text the user cannot reach.
+        logic.actions.setEditingDefinition(true)
+        logic.actions.setDraftMarkdown('1. Count users who paid')
+        logic.actions.renamedExternally('daily_paying_users')
+        await expectLogic(logic).toFinishAllListeners()
+
+        const renamedLogic = dataCatalogMetricSceneLogic({ name: 'daily_paying_users' })
+        renamedLogic.mount()
+        await expectLogic(renamedLogic).toDispatchActions(['loadMetricSuccess']).toFinishAllListeners()
+
+        expect(renamedLogic.values.editingDefinition).toBe(false)
+        expect(renamedLogic.values.draftMarkdown).toEqual('')
+        renamedLogic.unmount()
+    })
+
+    it('closes the open editor when the definition becomes a query kind', async () => {
+        jest.clearAllMocks()
+        ;(dataCatalogMetricsRetrieve as jest.Mock).mockResolvedValue(
+            buildMetric({
+                name: 'markdown_metric',
+                definition_kind: 'MarkdownDefinition',
+                definition: { kind: 'MarkdownDefinition', markdown: '1. Count the users' },
+            })
+        )
+        const markdownLogic = dataCatalogMetricSceneLogic({ name: 'markdown_metric' })
+        markdownLogic.mount()
+        await expectLogic(markdownLogic).toDispatchActions(['loadMetricSuccess'])
+
+        markdownLogic.actions.setEditingDefinition(true)
+        markdownLogic.actions.setDraftMarkdown('1. Count the users who paid')
+        ;(dataCatalogMetricsRetrieve as jest.Mock).mockResolvedValue(
+            buildMetric({ name: 'markdown_metric', definition_kind: 'HogQLQuery' })
+        )
+        markdownLogic.actions.loadMetric()
+        await expectLogic(markdownLogic).toDispatchActions(['loadMetricSuccess']).toFinishAllListeners()
+
+        expect(markdownLogic.values.editingDefinition).toBe(false)
+        expect(markdownLogic.values.draftSql).toEqual('SELECT 1')
+        markdownLogic.unmount()
+    })
+
+    it('does not reopen a carried draft after the load it was handed to fails', async () => {
+        logic.actions.setEditingDefinition(true)
+        logic.actions.setDraftMarkdown('1. Count users who paid')
+        logic.actions.renamedExternally('daily_paying_users')
+        await expectLogic(logic).toFinishAllListeners()
+        ;(dataCatalogMetricsRetrieve as jest.Mock).mockRejectedValueOnce(new ApiError('gone', 404))
+
+        const failedLogic = dataCatalogMetricSceneLogic({ name: 'daily_paying_users' })
+        failedLogic.mount()
+        await expectLogic(failedLogic).toDispatchActions(['loadMetricFailure']).toFinishAllListeners()
+        failedLogic.unmount()
+
+        ;(dataCatalogMetricsRetrieve as jest.Mock).mockResolvedValue(
+            buildMetric({
+                name: 'daily_paying_users',
+                definition_kind: 'MarkdownDefinition',
+                definition: { kind: 'MarkdownDefinition', markdown: '1. Count the users' },
+            })
+        )
+        const revisitedLogic = dataCatalogMetricSceneLogic({ name: 'daily_paying_users' })
+        revisitedLogic.mount()
+        await expectLogic(revisitedLogic).toDispatchActions(['loadMetricSuccess']).toFinishAllListeners()
+
+        expect(revisitedLogic.values.editingDefinition).toBe(false)
+        expect(revisitedLogic.values.draftMarkdown).toEqual('1. Count the users')
+        revisitedLogic.unmount()
+    })
+
+    it('does not carry a draft when an externally renamed metric is not being edited', async () => {
+        logic.actions.renamedExternally('daily_paying_users')
+        await expectLogic(logic).toFinishAllListeners()
+
+        const renamedLogic = dataCatalogMetricSceneLogic({ name: 'daily_paying_users' })
+        renamedLogic.mount()
+        await expectLogic(renamedLogic).toDispatchActions(['loadMetricSuccess']).toFinishAllListeners()
+
+        expect(renamedLogic.values.editingDefinition).toBe(false)
+        expect(renamedLogic.values.draftMarkdown).toEqual('')
+        renamedLogic.unmount()
+    })
+
+    it('does not restore a handed-off draft into a same-named metric in another project', async () => {
+        logic.actions.setEditingDefinition(true)
+        logic.actions.setDraftMarkdown('1. Count users who paid')
+        logic.actions.renamedExternally('cross_project_metric')
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The rename target's load in project 1 never consumed the draft (it failed or was
+        // interrupted). Opening the same metric name in another project must not restore it.
+        ;(ApiConfig.getCurrentTeamId as jest.Mock).mockReturnValue(2)
+        const otherProjectLogic = dataCatalogMetricSceneLogic({ name: 'cross_project_metric' })
+        otherProjectLogic.mount()
+        await expectLogic(otherProjectLogic).toDispatchActions(['loadMetricSuccess']).toFinishAllListeners()
+
+        expect(otherProjectLogic.values.editingDefinition).toBe(false)
+        expect(otherProjectLogic.values.draftMarkdown).toEqual('')
+        otherProjectLogic.unmount()
+    })
+
     it('opens the markdown editor once loaded when arriving with ?edit=definition', async () => {
         jest.clearAllMocks()
         ;(dataCatalogMetricsRetrieve as jest.Mock).mockResolvedValue(
@@ -208,6 +347,19 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(stubLogic.values.draftMarkdown).toEqual(MARKDOWN_DEFINITION_TEMPLATE)
         expect(router.values.searchParams.edit).toBeUndefined()
         stubLogic.unmount()
+    })
+
+    it('keeps the shared open-metric slot when the previous instance unmounts after the rename target mounts', async () => {
+        // A rename mounts the new keyed instance before React releases the old one. The old
+        // instance's late unmount must not blank the metric the new instance registered.
+        const renamedLogic = dataCatalogMetricSceneLogic({ name: 'wau' })
+        renamedLogic.mount()
+        await expectLogic(renamedLogic).toDispatchActions(['loadMetricSuccess'])
+
+        logic.unmount()
+
+        expect(dataCatalogAgentSyncLogic.values.openMetricName).toEqual('wau')
+        renamedLogic.unmount()
     })
 
     it('issues no requests for a traversal-shaped metric name', async () => {

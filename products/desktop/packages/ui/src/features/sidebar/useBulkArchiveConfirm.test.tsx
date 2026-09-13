@@ -66,6 +66,7 @@ describe("useBulkArchiveConfirm", () => {
 
     await user.click(screen.getByRole("button", { name: "Archive" }));
     expect(actions.archiveSelected).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Archive 3 sessions?")).not.toBeInTheDocument();
   });
 
   // Archiving clears the selection, so a dialog reading the count live would

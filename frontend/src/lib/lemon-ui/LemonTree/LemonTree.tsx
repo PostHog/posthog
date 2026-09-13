@@ -626,7 +626,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             return null
                         }
                         return (
-                            <div key={item.id} className="not-first:mt-3 py-1 px-2 flex items-center">
+                            <div
+                                key={item.id}
+                                className="not-first:mt-[var(--lemon-tree-category-gap,0.75rem)] py-[var(--lemon-tree-category-padding-y,0.25rem)] px-2 flex items-center"
+                            >
                                 <span className="text-xs font-semibold text-tertiary">{item.displayName}</span>
                             </div>
                         )

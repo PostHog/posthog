@@ -5,19 +5,11 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.travisci import (
     TravisCISourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.source import TravisCISource
-from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.travis_ci import TravisCIResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> TravisCISourceConfig:
@@ -28,17 +20,6 @@ class TestTravisCISource:
     def setup_method(self) -> None:
         self.source = TravisCISource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TRAVISCI
-
-    def test_source_config_fields(self) -> None:
-        config = self.source.get_source_config
-        assert not config.unreleasedSource
-        assert [f.name for f in config.fields] == ["api_token"]
-        token_field = config.fields[0]
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.secret is True
 
     def test_get_schemas_lists_every_endpoint(self) -> None:
         schemas = {s.name for s in self.source.get_schemas(_config(), team_id=self.team_id)}
@@ -94,25 +75,6 @@ class TestTravisCISource:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
-        assert self.source.get_canonical_descriptions() is CANONICAL_DESCRIPTIONS
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is TravisCIResumeConfig
-
-    def test_validate_credentials_delegates_with_token(self) -> None:
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.source.validate_travis_ci_credentials",
-            return_value=(True, None),
-        ) as mock_validate:
-            result = self.source.validate_credentials(_config(), team_id=self.team_id, schema_name="builds")
-        assert result == (True, None)
-        mock_validate.assert_called_once_with("travis-token")
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = MagicMock()

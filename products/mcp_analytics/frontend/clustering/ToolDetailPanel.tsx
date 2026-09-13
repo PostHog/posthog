@@ -5,7 +5,7 @@ import { ToolIntentDetail } from './ToolIntentDetail'
 
 /** The selected tool's intents and competitors, pinned beside the tool list. */
 export function ToolDetailPanel(): JSX.Element {
-    const { selectedTool, clusters } = useValues(mcpClusteringLogic)
+    const { selectedTool, clusters, categoriesByTool } = useValues(mcpClusteringLogic)
 
     if (!selectedTool) {
         return (
@@ -19,7 +19,11 @@ export function ToolDetailPanel(): JSX.Element {
         // Scrolls both ways: the intents table carries a competitor column that a narrow
         // pane can't fit, and clipping it silently would hide the comparison it exists for.
         <div className="h-full min-h-0 overflow-auto">
-            <ToolIntentDetail tool={selectedTool} clusters={clusters} />
+            <ToolIntentDetail
+                tool={selectedTool}
+                clusters={clusters}
+                categories={categoriesByTool[selectedTool.tool] ?? []}
+            />
         </div>
     )
 }

@@ -11,6 +11,7 @@ import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/s
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { clearSession, isOAuthMode, setOAuthContextIds } from 'lib/oauth/oauthClient'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { clearPendingVerificationEmail } from 'scenes/authentication/shared/verificationCode'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -610,6 +611,8 @@ export const userLogic = kea<userLogicType>([
             }
             cache.loggingOut = true
             posthog.reset()
+            // Drop the address a signup or login attempt stored for the verify page
+            clearPendingVerificationEmail()
 
             // OAuth mode: there's no local Django session to end — just drop the stored cloud
             // token and return to the local login. (A cross-origin /logout POST would do nothing.)
@@ -757,16 +760,18 @@ export const userLogic = kea<userLogicType>([
         },
         updateHasSeenProductIntroFor: async ({ productKey, value }, breakpoint) => {
             await breakpoint(10)
-            await api
-                .update('api/users/@me/', {
-                    has_seen_product_intro_for: {
-                        ...values.user?.has_seen_product_intro_for,
-                        [productKey]: value,
-                    },
-                })
-                .then(() => {
-                    actions.loadUser()
-                })
+            try {
+                // Its own endpoint rather than a field on the user PATCH: that one needs a recently
+                // authenticated session, so a risk step-up would answer a dismissal with the re-auth modal.
+                // It also merges the key server-side, so two tabs can't drop each other's write.
+                await api.update('api/users/@me/product_intro_seen', { product_key: productKey, seen: value })
+                actions.loadUser()
+            } catch (error: any) {
+                // Marking an intro seen runs behind whatever the user is already doing, so a failure is
+                // logged rather than surfaced: a toast would land on top of the intro they just dismissed.
+                // The intro comes back next visit, which is the honest outcome of a write that didn't land.
+                console.error(error)
+            }
         },
         switchTeam: ({ teamId, destination }) => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()

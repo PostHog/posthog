@@ -10,8 +10,6 @@ import React from "react";
 const DRAG_COLLAPSE_AT = SIDEBAR_MIN_WIDTH * 0.5;
 const DRAG_REOPEN_AT = DRAG_COLLAPSE_AT + 16;
 
-export const SLIDE_MS = 200;
-
 interface ResizableSidebarProps {
   children: React.ReactNode;
   open: boolean;
@@ -40,6 +38,8 @@ interface ResizableSidebarProps {
   // What the resize grip says once the pointer has rested on it. Defaults to
   // the bare "Resize"; a panel with a shortcut of its own passes that too.
   resizeTooltip?: React.ReactNode;
+  // Off when the child draws its own frame; two owners of an edge double it.
+  drawEdge?: boolean;
 }
 
 export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
@@ -58,6 +58,7 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
   onPeekLeave,
   onPeekDismiss,
   resizeTooltip = "Resize",
+  drawEdge = true,
 }) => {
   // Whether the active drag started on the docked sidebar or the floating
   // (peek) one — dragging back out must restore the same mode it closed from.
@@ -183,8 +184,10 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
         width: open ? `${width}px` : `${collapsedWidth}px`,
         minWidth: open ? `${width}px` : `${collapsedWidth}px`,
         maxWidth: open ? `${width}px` : `${collapsedWidth}px`,
-        borderLeft: !isLeft && open ? "1px solid var(--border)" : "none",
-        borderRight: isLeft && open ? "1px solid var(--border)" : "none",
+        borderLeft:
+          drawEdge && !isLeft && open ? "1px solid var(--border)" : "none",
+        borderRight:
+          drawEdge && isLeft && open ? "1px solid var(--border)" : "none",
       }}
       className="relative h-full shrink-0"
     >
@@ -212,8 +215,8 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
         }}
         className={
           isOverlay
-            ? `absolute inset-y-0 z-50 flex h-full min-w-0 flex-col border-border bg-chrome transition-transform duration-200 ease-out motion-reduce:transition-none ${
-                isLeft ? "left-0 border-r" : "right-0 border-l"
+            ? `absolute inset-y-0 z-50 flex h-full min-w-0 flex-col border-border bg-chrome transition-transform duration-200 ease-out motion-reduce:transition-none ${isLeft ? "left-0" : "right-0"} ${
+                drawEdge ? (isLeft ? "border-r" : "border-l") : ""
               } ${
                 // Shadow only while shown — at translateX(-100%) the panel's
                 // edge sits exactly on x=0 and an always-on shadow would paint

@@ -15,11 +15,10 @@ from posthog.models.team import Team
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.slo.types import SloOperation
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.api.brief import ProductBriefViewSet
 from products.pulse.backend.models import BriefConfig, ProductBrief
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def _temporal_client() -> MagicMock:

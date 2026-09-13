@@ -18,6 +18,7 @@ from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     HostInfo,
     LightweightDeleteMutationRunner,
+    MutationCapacityTimeout,
     MutationNotFound,
     MutationWaiter,
     Query,
@@ -27,6 +28,8 @@ from posthog.clickhouse.cluster import (
     redact_sql_secrets,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+
+pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture
@@ -542,6 +545,30 @@ def test_map_hosts_with_satellite_clusters() -> None:
         times_called.clear()
 
 
+def test_sibling_addresses_another_cluster_and_is_memoized() -> None:
+    hosts_by_cluster = {
+        "posthog": [("host1", 9000, 1, 1, "online", "data")],
+        "events": [
+            ("events-host1", 9000, 1, 1, "online", "data"),
+            ("events-host2", 9000, 2, 1, "online", "data"),
+        ],
+    }
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(side_effect=lambda query, params: hosts_by_cluster[params["name"]])
+
+    cluster = ClickhouseCluster(bootstrap_client_mock, cluster="posthog")
+
+    assert cluster.sibling("posthog") is cluster
+
+    sibling = cluster.sibling("events")
+    assert sibling.data_cluster_name == "events"
+    assert sorted(sibling.shards) == [1, 2]
+    # The handle it was derived from keeps its own shard map, so the two clusters are not merged.
+    assert cluster.shards == [1]
+    # Memoized: rebuilding would rediscover the hosts and open a second pool per host.
+    assert cluster.sibling("events") is sibling
+
+
 def test_satellite_cluster_hosts_have_no_shard_info() -> None:
     bootstrap_client_mock = Mock()
 
@@ -671,6 +698,31 @@ def test_map_hosts_with_combined_roles() -> None:
     with patch.object(ClickhouseCluster, "_ClickhouseCluster__get_task_function", mock_get_task_function):
         cluster.map_hosts_by_roles(lambda _: (), node_roles=[NodeRole.AUX, NodeRole.DATA]).result()
         assert sorted(executed_hosts) == ["aux-host-1", "data-host-1", "data-host-2"]
+
+
+def test_map_hosts_with_missing_role_defaults_to_noop() -> None:
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(
+        return_value=[
+            ("data-host-1", "9000", "1", "1", "online", "data"),
+        ]
+    )
+    cluster = ClickhouseCluster(bootstrap_client_mock)
+
+    assert cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.INGESTION_SMALL).result() == {}
+
+
+def test_map_hosts_with_required_missing_role_raises() -> None:
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(
+        return_value=[
+            ("data-host-1", "9000", "1", "1", "online", "data"),
+        ]
+    )
+    cluster = ClickhouseCluster(bootstrap_client_mock)
+
+    with pytest.raises(ValueError, match="No hosts found with roles.*INGESTION_SMALL"):
+        cluster.map_hosts_by_roles(lambda _: (), node_roles=[NodeRole.INGESTION_SMALL], require_hosts=True)
 
 
 def test_satellite_dedup_same_physical_host() -> None:
@@ -837,3 +889,50 @@ def test_query_repr_keeps_short_query_intact():
     rendered = repr(Query("SELECT 1"))
     assert "truncated" not in rendered
     assert "SELECT 1" in rendered
+
+
+def _client_reporting_unfinished(counts: list[int]) -> Mock:
+    remaining = list(counts)
+    client = Mock(spec=Client)
+    client.execute.side_effect = lambda *args, **kwargs: [[remaining.pop(0) if len(remaining) > 1 else remaining[0]]]
+    return client
+
+
+def test_wait_for_mutation_capacity_returns_once_the_table_is_free() -> None:
+    runner = LightweightDeleteMutationRunner(table="person", predicate="1")
+    client = _client_reporting_unfinished([2, 1, 0])
+
+    with patch("posthog.clickhouse.cluster.time.sleep"):
+        runner.wait_for_mutation_capacity(client, poll_interval=0)
+
+    assert client.execute.call_count == 3
+
+
+def test_wait_for_mutation_capacity_waits_indefinitely_by_default() -> None:
+    # The default has to stay "wait forever": every caller that predates capacity_timeout relies on
+    # it, and a deadline appearing under them would fail runs that today merely wait.
+    runner = LightweightDeleteMutationRunner(table="person", predicate="1")
+    assert runner.capacity_timeout == 0.0
+
+    client = _client_reporting_unfinished([1] * 5 + [0])
+    with (
+        patch("posthog.clickhouse.cluster.time.sleep"),
+        patch("posthog.clickhouse.cluster.time.monotonic", side_effect=range(1_000_000, 1_000_100)),
+    ):
+        runner.wait_for_mutation_capacity(client, poll_interval=0)
+
+    assert client.execute.call_count == 6
+
+
+def test_wait_for_mutation_capacity_gives_up_once_capacity_timeout_passes() -> None:
+    # This wait happens before the mutation exists, so the caller's wait-for-completion deadline
+    # cannot cover it; without this bound a mutation nobody here started blocks the run forever.
+    runner = LightweightDeleteMutationRunner(table="person", predicate="1", capacity_timeout=30.0)
+    client = _client_reporting_unfinished([1])
+
+    with (
+        patch("posthog.clickhouse.cluster.time.sleep"),
+        patch("posthog.clickhouse.cluster.time.monotonic", side_effect=[0.0, 10.0, 31.0]),
+    ):
+        with pytest.raises(MutationCapacityTimeout, match="waiting for capacity"):
+            runner.wait_for_mutation_capacity(client, poll_interval=0)

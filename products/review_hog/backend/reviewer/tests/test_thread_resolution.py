@@ -58,11 +58,13 @@ class TestThreadResolution:
         assert '"ThreadOutcome"' in prompt
         current_section = prompt.split("<current_thread>", 1)[1]
         assert "thread_id: PRRT_2" in current_section
+        assert "<reply_shape>" in prompt and "writing-simplified-technical-english" in prompt
 
     def test_followup_prompt_carries_only_the_next_thread(self) -> None:
         prompt = build_resolution_followup_prompt(thread=_thread("PRRT_9", body="the next ask"))
         assert "PRRT_9" in prompt and "the next ask" in prompt
         assert "skill-get" not in prompt  # the warm session already holds the criteria
+        assert "one verdict sentence" in prompt
 
     def test_pathological_comment_bodies_are_clipped(self) -> None:
         prompt = build_resolution_followup_prompt(thread=_thread("PRRT_9", body="x" * 50_000))

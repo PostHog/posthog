@@ -253,19 +253,6 @@ export async function raiseIfUserProvidedUrlUnsafe(url: string): Promise<void> {
     await staticLookupAsync(parsedUrl.hostname)
 }
 
-class SecureAgent extends Agent {
-    constructor() {
-        super({
-            keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
-            connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
-            connect: {
-                lookup: httpStaticLookup,
-                timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
-            },
-        })
-    }
-}
-
 // Safe way to use the same helpers for talking to internal endpoints such as other services
 class InsecureAgent extends Agent {
     constructor() {
@@ -282,7 +269,7 @@ class InsecureAgent extends Agent {
 // When a proxy URL is available, external requests go through a CONNECT tunnel.
 // The proxy handles SSRF blocking (private IP rejection) at the network level,
 // so we skip the DNS lookup (httpStaticLookup) which would be redundant.
-function makeSecureDispatcher(): Dispatcher {
+function makeSecureDispatcher({ allowH2 }: { allowH2: boolean }): Dispatcher {
     const proxyUrl =
         process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
 
@@ -291,26 +278,23 @@ function makeSecureDispatcher(): Dispatcher {
             uri: proxyUrl,
             keepAliveTimeout: requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
             connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
-            requestTls: {},
+            allowH2,
+            requestTls: { allowH2 },
         })
     }
-    return new SecureAgent()
+    return new Agent({
+        keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
+        connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
+        allowH2,
+        connect: {
+            lookup: httpStaticLookup,
+            timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+        },
+    })
 }
 
-const sharedSecureAgent = makeSecureDispatcher()
-// Unlike `makeSecureDispatcher`, this agent deliberately skips the ProxyAgent branch: CDP workers don't
-// set the proxy env vars, and SSRF stays covered via `httpStaticLookup`. If CDP egress ever moves behind
-// the proxy (see #49170), swap this for a `ProxyAgent` — undici's `ProxyAgent` supports `allowH2` — so
-// H2 traffic (e.g. APNs) doesn't silently keep going direct.
-const sharedSecureH2Agent = new Agent({
-    keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
-    connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
-    allowH2: true,
-    connect: {
-        lookup: httpStaticLookup,
-        timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
-    },
-})
+const sharedSecureAgent = makeSecureDispatcher({ allowH2: false })
+const sharedSecureH2Agent = makeSecureDispatcher({ allowH2: true })
 const sharedInsecureAgent = new InsecureAgent()
 
 function destroyBody(body: Dispatcher.ResponseData['body']): void {
@@ -434,17 +418,45 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
 export type StreamedFetchOptions = {
     headers?: HeadersInit
     timeoutMs: number
+    allowH2?: boolean
 }
 
 export type StreamedResponse = {
     status: number
     headers: Record<string, string>
+    headerLines: Array<{ name: string; value: string }>
     /**
      * Reads at most `maxBytes`, then abandons the rest. `overLimit` says the response had more, and
-     * `bytes` is then empty, because a truncated payload is not usable.
+     * `bytes` then contains the first `maxBytes`, so parsers with a bounded-prefix rule can use it.
      */
-    read: (maxBytes: number) => Promise<{ bytes: Buffer; overLimit: boolean }>
+    read: (maxBytes: number, retainPrefixOnOverflow?: boolean) => Promise<{ bytes: Buffer; overLimit: boolean }>
     discard: () => void
+}
+
+function orderedHeaderLines(raw: unknown): Array<{ name: string; value: string }> {
+    if (Array.isArray(raw)) {
+        const lines: Array<{ name: string; value: string }> = []
+        for (let index = 0; index + 1 < raw.length; index += 2) {
+            lines.push({ name: String(raw[index]).toLowerCase(), value: String(raw[index + 1]) })
+        }
+        return lines
+    }
+    if (!raw || typeof raw !== 'object') {
+        return []
+    }
+    return Object.entries(raw).flatMap(([name, value]) =>
+        (Array.isArray(value) ? value : [value]).flatMap((line) =>
+            line === undefined ? [] : [{ name: name.toLowerCase(), value: String(line) }]
+        )
+    )
+}
+
+function flattenHeaderLines(lines: Array<{ name: string; value: string }>): Record<string, string> {
+    const headers: Record<string, string> = Object.create(null)
+    for (const { name, value } of lines) {
+        headers[name] ??= value
+    }
+    return headers
 }
 
 /**
@@ -457,7 +469,8 @@ export type StreamedResponse = {
  */
 async function readCappedBody(
     body: Dispatcher.ResponseData['body'],
-    maxBytes: number
+    maxBytes: number,
+    retainPrefixOnOverflow: boolean
 ): Promise<{ bytes: Buffer; overLimit: boolean }> {
     const chunks: Buffer[] = []
     let total = 0
@@ -465,17 +478,26 @@ async function readCappedBody(
     try {
         for await (const chunk of body) {
             const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-            total += buffer.length
-            if (total > maxBytes) {
+            const remaining = maxBytes - total
+            if (buffer.length > remaining) {
+                if (remaining > 0) {
+                    chunks.push(buffer.subarray(0, remaining))
+                    total += remaining
+                }
                 overLimit = true
+                if (!retainPrefixOnOverflow) {
+                    chunks.length = 0
+                    total = 0
+                }
                 break
             }
             chunks.push(buffer)
+            total += buffer.length
         }
     } finally {
         destroyBody(body)
     }
-    return { bytes: overLimit ? Buffer.alloc(0) : Buffer.concat(chunks), overLimit }
+    return { bytes: Buffer.concat(chunks, total), overLimit }
 }
 
 /**
@@ -500,8 +522,9 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
         result = await request(parsed.toString(), {
             method: 'GET',
             headers: options.headers,
-            dispatcher: sharedSecureAgent,
+            dispatcher: options.allowH2 ? sharedSecureH2Agent : sharedSecureAgent,
             signal: AbortSignal.timeout(options.timeoutMs),
+            responseHeaders: 'raw',
         })
     } catch (error) {
         inflightExternalRequests.dec()
@@ -520,16 +543,18 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
         return true
     }
 
-    const headers = flattenHeaders(result.headers)
+    const headerLines = orderedHeaderLines(result.headers)
+    const headers = flattenHeaderLines(headerLines)
     return {
         status: result.statusCode,
         headers,
-        read: async (maxBytes: number) => {
+        headerLines,
+        read: async (maxBytes: number, retainPrefixOnOverflow = true) => {
             if (settled) {
                 return { bytes: Buffer.alloc(0), overLimit: false }
             }
             try {
-                return await readCappedBody(result.body, maxBytes)
+                return await readCappedBody(result.body, maxBytes, retainPrefixOnOverflow)
             } finally {
                 settle()
             }

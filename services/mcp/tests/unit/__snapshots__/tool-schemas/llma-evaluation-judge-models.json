@@ -2,11 +2,11 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "key_id": {
-            "description": "Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.",
+            "description": "Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). A key belongs to exactly one provider, so `provider` may be omitted alongside it; when both are given they must agree.",
             "type": "string"
         },
         "provider": {
-            "description": "LLM provider to list models for. Must be one of the supported providers.",
+            "description": "LLM provider to list models for. Omit it to list every supported provider and its models in one call.",
             "enum": [
                 "anthropic",
                 "azure_openai",
@@ -21,6 +21,5 @@
             "type": "string"
         }
     },
-    "required": ["provider"],
     "type": "object"
 }

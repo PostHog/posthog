@@ -1,5 +1,4 @@
-import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
@@ -22,25 +21,7 @@ export function SessionRecordingTab(): JSX.Element {
 }
 
 export function SessionRecordingContent(): JSX.Element {
-    const {
-        recordingProps,
-        recordingTimestamp,
-        isNotFound,
-        sessionPlayerMetaDataLoading,
-        isTimestampOutsideRecording,
-        sessionId,
-    } = useValues(sessionTabLogic)
-    const { seekToTimestamp, setPlay } = useActions(sessionTabLogic)
-
-    useEffect(() => {
-        if (sessionPlayerMetaDataLoading || isNotFound) {
-            return
-        }
-        if (recordingTimestamp) {
-            seekToTimestamp(recordingTimestamp)
-        }
-        setPlay()
-    }, [seekToTimestamp, recordingTimestamp, setPlay, isNotFound, sessionPlayerMetaDataLoading])
+    const { recordingProps, recordingTimestamp, isTimestampOutsideRecording, sessionId } = useValues(sessionTabLogic)
 
     const replayUrl = urls.replaySingle(
         sessionId,

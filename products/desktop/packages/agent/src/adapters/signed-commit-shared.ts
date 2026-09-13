@@ -69,14 +69,21 @@ export const SIGNED_REWRITE_TOOL_DESCRIPTION =
   "of `git push --force`. First rebase locally with normal `git` (resolving conflicts and " +
   "finishing with `git rebase --continue`, NOT `git commit`); then call this to republish the " +
   "branch's commits as Verified and atomically move the remote branch onto them. Use this to " +
-  "update an existing PR after a rebase or conflict fix. Rewrites the current branch by default. " +
+  "update an existing PR after a rebase or conflict fix. The commits always come from your " +
+  "local HEAD, so check out the branch you are rewriting first: `branch` only picks which " +
+  "remote ref moves, and calling this from another checkout publishes that checkout's history " +
+  "to `branch`. Defaults to the current branch. " +
   "Histories containing merge commits are refused — rebase (which flattens merges) first.";
 
 export const signedRewriteToolSchema = {
   branch: z
     .string()
     .optional()
-    .describe("Branch to rewrite; defaults to the current branch."),
+    .describe(
+      "Remote branch to move; defaults to the current branch. This picks the ref to update, " +
+        "NOT the history to publish — the commits come from your local HEAD either way, so " +
+        "check the branch out before rewriting it.",
+    ),
   onto: z
     .string()
     .optional()

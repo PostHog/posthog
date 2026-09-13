@@ -59,15 +59,22 @@ export class IngestionSessionReplayMlImageScrubDlqReplayServer implements NodeSe
 
         // A separate group from the scrub consumer's, and its own topic, so a replay run cannot
         // disturb the offsets of the lane it is feeding.
-        const consumer = new KafkaConsumer({
-            topic: dlqTopic,
-            groupId: `${this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID}-dlq-replay`,
-            autoCommit: true,
-            autoOffsetStore: true,
-            // Committing as it goes means an interrupted run resumes rather than starting over and
-            // replaying images the fixed sidecar has already taken.
-            callEachBatchWhenEmpty: true,
-        })
+        const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES + 64 * 1024
+        const consumer = new KafkaConsumer(
+            {
+                topic: dlqTopic,
+                groupId: `${this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID}-dlq-replay`,
+                autoCommit: true,
+                autoOffsetStore: true,
+                // Committing as it goes means an interrupted run resumes rather than starting over and
+                // replaying images the fixed sidecar has already taken.
+                callEachBatchWhenEmpty: true,
+            },
+            {
+                'fetch.message.max.bytes': maximumRecordBytes,
+                'max.partition.fetch.bytes': maximumRecordBytes,
+            }
+        )
 
         let idlePolls = 0
         let replayed = 0

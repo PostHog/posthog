@@ -2,9 +2,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { LemonDropdown, LemonSelect, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
+import { LemonDropdown, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
-import { BigLeaguesHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -16,13 +17,9 @@ import {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { accountSummariesLogic, NOT_LOADED, SUMMARIES_PAGE_SIZE } from './accountSummariesLogic'
+import { AccountSummaryCadencePicker } from './AccountSummaryCadencePicker'
 
-const CADENCE_OPTIONS: { value: SlackSummaryCadenceEnumApi | null; label: string }[] = [
-    { value: null, label: 'Off' },
-    { value: SlackSummaryCadenceEnumApi.Daily, label: 'Daily' },
-    { value: SlackSummaryCadenceEnumApi.Weekly, label: 'Weekly' },
-    { value: SlackSummaryCadenceEnumApi.Monthly, label: 'Monthly' },
-]
+const HedgehogBusiness = pngHoggie(businessEvolutionPng)
 
 function SummariesEmptyState({
     title,
@@ -35,26 +32,11 @@ function SummariesEmptyState({
 }): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
-            <BigLeaguesHog className="w-24 h-24" />
+            <HedgehogBusiness className="w-24 h-24" />
             <h4 className="mb-0">{title}</h4>
             <p className="text-secondary max-w-sm mb-0">{detail}</p>
             {children}
         </div>
-    )
-}
-
-function CadencePicker({ accountId }: { accountId: string }): JSX.Element {
-    const { summariesResult, cadenceSaving } = useValues(accountSummariesLogic({ accountId }))
-    const { setCadence } = useActions(accountSummariesLogic({ accountId }))
-    return (
-        <LemonSelect<SlackSummaryCadenceEnumApi | null>
-            size="small"
-            value={summariesResult.cadence}
-            options={CADENCE_OPTIONS}
-            onChange={(value) => setCadence(value)}
-            disabledReason={cadenceSaving ? 'Saving…' : undefined}
-            data-attr="account-summary-cadence-picker"
-        />
     )
 }
 
@@ -189,7 +171,7 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
                     detail={`${backfillDescription(cadence)} This usually takes a minute.`}
                 >
                     <Spinner className="text-xl" />
-                    <CadencePicker accountId={accountId} />
+                    <AccountSummaryCadencePicker accountId={accountId} />
                 </SummariesEmptyState>
             )
         }
@@ -202,7 +184,7 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
                         : "Get periodic AI summaries of this account's Slack channel, citing the original messages. Pick a cadence to turn them on."
                 }
             >
-                <CadencePicker accountId={accountId} />
+                <AccountSummaryCadencePicker accountId={accountId} />
             </SummariesEmptyState>
         )
     }
@@ -220,7 +202,7 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
                 </div>
                 <div className="flex items-center gap-2">
                     <span className="text-muted text-sm">Cadence</span>
-                    <CadencePicker accountId={accountId} />
+                    <AccountSummaryCadencePicker accountId={accountId} />
                 </div>
             </div>
             {summaries.map((summary) => (

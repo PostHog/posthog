@@ -22,11 +22,6 @@ class MeterScannerReadsResult(BaseModel, frozen=True):
     scanners_updated: int = 0
 
 
-class AutoMaterializeResult(BaseModel, frozen=True):
-    candidates: int = 0
-    materialized: int = 0
-
-
 def sweep_spend_bytes_24h(read_bytes_by_hour: dict[str, int] | None, now: dt.datetime) -> int:
     """Trailing-24h read spend from the metered hour buckets; tolerates stale, unpruned entries."""
     return _spend_since(read_bytes_by_hour, now - dt.timedelta(hours=24))

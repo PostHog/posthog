@@ -3,7 +3,7 @@ import { dayjs } from 'lib/dayjs'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
-import { dailyCronToTime, formatRunIntervalShort, prettifyScoutSkillName, ScoutRollup } from './scoutRunsWindow'
+import { dailyCronToTime, formatRunIntervalShort, scoutDisplayName, ScoutRollup } from './scoutRunsWindow'
 
 /**
  * Where a scout sits in the roster, in the backend's own lifecycle vocabulary.
@@ -82,11 +82,6 @@ export function scoutGroup(config: SignalScoutConfig, rollup: ScoutRollup | unde
     return rollupProducedOutput(rollup) ? 'working' : 'watching'
 }
 
-export interface ScoutGroupBucket {
-    key: ScoutGroupKey
-    configs: SignalScoutConfig[]
-}
-
 /** A roster row: a scout config paired with the lifecycle group it currently sits in. */
 export interface ScoutRosterRow {
     config: SignalScoutConfig
@@ -95,29 +90,7 @@ export interface ScoutRosterRow {
 
 /** A→Z by display name — the roster's default order and the Scout column's sort. */
 export function compareScoutsByName(a: SignalScoutConfig, b: SignalScoutConfig): number {
-    return prettifyScoutSkillName(a.skill_name).localeCompare(prettifyScoutSkillName(b.skill_name))
-}
-
-/** Buckets in display order, empty groups dropped. Input order is preserved inside each bucket. */
-export function groupScouts(
-    configs: SignalScoutConfig[],
-    rollups: Map<string, ScoutRollup>,
-    now: Date
-): ScoutGroupBucket[] {
-    const buckets = new Map<ScoutGroupKey, SignalScoutConfig[]>()
-    for (const config of configs) {
-        const key = scoutGroup(config, rollups.get(config.skill_name), now)
-        const bucket = buckets.get(key)
-        if (bucket) {
-            bucket.push(config)
-        } else {
-            buckets.set(key, [config])
-        }
-    }
-    return SCOUT_GROUP_ORDER.filter((key) => buckets.has(key)).map((key) => ({
-        key,
-        configs: buckets.get(key) ?? [],
-    }))
+    return scoutDisplayName(a).localeCompare(scoutDisplayName(b))
 }
 
 /** Longest run summary the roster shows before it stops being scannable. */
@@ -235,4 +208,14 @@ export function scoutCadenceLabel(config: SignalScoutConfig): string {
         return describeCron(config.run_cron_schedule)?.toLowerCase() ?? config.run_cron_schedule
     }
     return formatRunIntervalShort(config.run_interval_minutes)
+}
+
+const CLOCK_TIME_RE = /\d{1,2}:\d{2}/
+
+/**
+ * Whether the cadence states a clock time. Only a clock time is resolved in the project timezone,
+ * so only a cadence that names one needs the timezone said next to it; "every 30 minutes" has none.
+ */
+export function scoutCadenceNamesClockTime(config: SignalScoutConfig): boolean {
+    return CLOCK_TIME_RE.test(scoutCadenceLabel(config))
 }

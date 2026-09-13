@@ -103,7 +103,11 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
             deadLetters !== null
         )
 
-        const consumer = new KafkaConsumer(buildImageScrubConsumerConfig(this.config))
+        const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES + 64 * 1024
+        const consumer = new KafkaConsumer(buildImageScrubConsumerConfig(this.config), {
+            'fetch.message.max.bytes': maximumRecordBytes,
+            'max.partition.fetch.bytes': maximumRecordBytes,
+        })
         const batcher = new ImageBatcher(
             store,
             consumer,
@@ -118,6 +122,7 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
             Date.now(),
             deadLetters
         )
+        await scrubClient.waitUntilReachable()
         await consumer.connect((messages) => {
             const heartbeat = setInterval(() => consumer.heartbeat(), BATCH_HEARTBEAT_INTERVAL_MS)
             return batcher.handleBatch(messages, Date.now()).finally(() => clearInterval(heartbeat))

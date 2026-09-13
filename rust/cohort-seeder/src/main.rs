@@ -18,9 +18,9 @@ use tracing_subscriber::{fmt, EnvFilter, Layer};
 
 use cohort_seeder::app::completion::verify_marker_topic;
 use cohort_seeder::app::{
-    AutoDispatchPolicy, CompletionDriver, KafkaCommittedOffsets, KafkaTopicOffsets,
-    MarkerWatchTask, ObservePolicy, OrchestratorSettings, PersonComponents, PgMarkerFlush,
-    SeederOrchestrator, WatchDirectives, MARKER_WATCH_LIVENESS_DEADLINE,
+    prime_zero_series, AutoDispatchPolicy, CompletionDriver, KafkaCommittedOffsets,
+    KafkaTopicOffsets, MarkerWatchTask, ObservePolicy, OrchestratorSettings, PersonComponents,
+    PgMarkerFlush, SeederOrchestrator, WatchDirectives, MARKER_WATCH_LIVENESS_DEADLINE,
     ORCHESTRATOR_LIVENESS_DEADLINE,
 };
 use cohort_seeder::clickhouse::client::build_client;
@@ -88,11 +88,16 @@ async fn async_main(config: Config) -> Result<()> {
         .then(observability::metrics::install_recorder)
         .transpose()
         .context("installing Prometheus recorder")?;
+    prime_zero_series();
 
     let pool = get_pool_with_config(&config.database_url, config.pool_config())
         .context("creating cohort-seeder PostgreSQL pool")?;
     let clickhouse_client = build_client(&config).context("building ClickHouse client")?;
-    let scanner = ChunkScanner::new(clickhouse_client.clone());
+    let scanner = ChunkScanner::new(
+        clickhouse_client.clone(),
+        config.team_allowlist.clone(),
+        config.seeder_scan_shadow_compare,
+    );
     let producer = SeedTileProducer::new(
         &config.build_kafka_config(),
         config.seed_events_topic.clone(),
@@ -307,6 +312,9 @@ fn log_startup(config: &Config) {
         team_allowlist = ?config.team_allowlist,
         run_poll_secs = config.seeder_run_poll_secs,
         max_concurrent_chunks = config.seeder_max_concurrent_chunks,
+        max_chunk_attempts = config.seeder_max_chunk_attempts,
+        retry_backoff_base_secs = config.seeder_retry_backoff_base_secs,
+        retry_backoff_cap_secs = config.seeder_retry_backoff_cap_secs,
         max_lookback_days = config.seeder_max_lookback_days,
         bands_per_day = config.seeder_bands_per_day,
         tiles_per_second = config.seeder_tiles_per_sec,
@@ -316,6 +324,7 @@ fn log_startup(config: &Config) {
         persons_per_chunk = config.seeder_persons_per_chunk,
         person_max_concurrent_chunks = config.seeder_person_max_concurrent_chunks,
         person_emit_nonmatchers = config.seeder_person_emit_nonmatchers,
+        scan_shadow_compare = config.seeder_scan_shadow_compare,
         reconcile_auto_dispatch_enabled = config.seeder_reconcile_auto_dispatch_enabled,
         confirm_register_backfilled = config.seeder_confirm_register_backfilled,
         reconcile_max_concurrent_dispatches = config.seeder_reconcile_max_concurrent_dispatches,

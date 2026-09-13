@@ -3,16 +3,10 @@ import datetime
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualysvmdr import (
     QualysVmdrSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.qualys_vmdr import (
-    MISSING_GATEWAY_ERROR,
-    QualysVmdrResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.source import QualysVmdrSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.source"
 
@@ -36,13 +30,6 @@ class TestQualysVmdrSource:
     def setup_method(self):
         self.source = QualysVmdrSource()
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.QUALYSVMDR
-
-    def test_source_is_released(self):
-        config = self.source.get_source_config
-        assert not config.unreleasedSource
-
     def test_api_server_is_a_connection_host_field(self):
         # Retargeting `api_server` must force re-entry of the stored credentials
         assert "api_server" in self.source.connection_host_fields
@@ -60,23 +47,6 @@ class TestQualysVmdrSource:
     def test_get_schemas_filters_by_names(self):
         schemas = self.source.get_schemas(_config(), team_id=1, names=["scans"])
         assert [s.name for s in schemas] == ["scans"]
-
-    @pytest.mark.parametrize(
-        "transport_result",
-        [(True, None), (False, "Invalid Qualys credentials or API server URL")],
-    )
-    def test_validate_credentials(self, transport_result):
-        with mock.patch(f"{_MODULE}.validate_qualys_vmdr_credentials", return_value=transport_result) as validate:
-            result = self.source.validate_credentials(_config(), team_id=1)
-
-        assert result == transport_result
-        validate.assert_called_once_with("qualysapi.qualys.com", "user", "pass")
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(_inputs())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is QualysVmdrResumeConfig
 
     @pytest.mark.parametrize(
         "endpoint,expected_primary_keys,expected_partition_keys",
@@ -104,13 +74,6 @@ class TestQualysVmdrSource:
             self.source.source_for_pipeline(_config(), mock.MagicMock(), inputs)
 
         assert transport.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    @pytest.mark.parametrize(
-        "expected_key",
-        ["401 Client Error", "403 Client Error", "Unauthorized for url", MISSING_GATEWAY_ERROR],
-    )
-    def test_non_retryable_errors(self, expected_key):
-        assert expected_key in self.source.get_non_retryable_errors()
 
     def test_default_version_is_4_0_and_2_0_is_deprecated(self):
         # New sources start on 4.0; 2.0 carries the vendor's announced sunset date and 4.0 is clean.

@@ -13,6 +13,7 @@ import type {
     AppMetricsTotalsResponseApi,
     HogFunctionApi,
     HogFunctionInvocationApi,
+    HogFunctionMaskedSecretApi,
     HogFunctionPublishRequestApi,
     HogFunctionPublishResponseApi,
     HogFunctionRevisionApi,
@@ -495,6 +496,26 @@ export const getHogFunctionsIconsRetrieveUrl = (projectId: string) => {
 
 export const hogFunctionsIconsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getHogFunctionsIconsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFunctionsMaskedSecretsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_functions/masked_secrets/`
+}
+
+/**
+ * Hog functions storing the secret mask in place of a real credential.
+ *
+ * Such a function authenticates against nothing and fails every send. The original value
+ * cannot be restored from our side, so each listed input has to be entered again.
+ */
+export const hogFunctionsMaskedSecretsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<HogFunctionMaskedSecretApi[]> => {
+    return apiMutator<HogFunctionMaskedSecretApi[]>(getHogFunctionsMaskedSecretsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

@@ -2,10 +2,8 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getDjangoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, dedent, snippets } = ctx
-
-    const PythonEventCapture = snippets?.PythonEventCapture
+export const getDjangoInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
 
     return [
         {
@@ -77,11 +75,23 @@ export const getDjangoSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            content: <>{PythonEventCapture && <PythonEventCapture />}</>,
-        },
     ]
 }
+
+export const getDjangoEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { snippets } = ctx
+
+    const PythonEventCapture = snippets?.PythonEventCapture
+
+    return {
+        title: 'Send events',
+        content: <>{PythonEventCapture && <PythonEventCapture />}</>,
+    }
+}
+
+export const getDjangoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getDjangoInstallSteps(ctx),
+    getDjangoEventStep(ctx),
+]
 
 export const DjangoInstallation = createInstallation(getDjangoSteps)

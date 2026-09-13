@@ -13,11 +13,12 @@ import type {
     WorkflowHealthItemApi,
     WorkflowRunActivityApi,
 } from '../generated/api.schemas'
+import { workflowHealthItem } from '../lib/storyFixtures'
 
 const SOURCES: GitHubSourceApi[] = [{ id: 'src-1', repo: 'PostHog/posthog', prefix: '' }]
 
-// One overview payload feeding the whole hub: the trend sparkline cards and the quill cost-per-merge
-// line chart. Each trend series carries a null bucket so the trim + carry-forward path is exercised.
+// One overview payload feeding the whole hub's window-comparison cards. The series arrays are empty
+// because the hub requests include_series=false; the aggregates carry everything the cards render.
 const OVERVIEW: RepoOverviewApi = {
     run_count: 1284,
     run_count_prev: 1122,
@@ -25,7 +26,6 @@ const OVERVIEW: RepoOverviewApi = {
     success_rate_prev: 0.82,
     rerun_cycles: 41,
     rerun_cycles_prev: 30,
-    // Matches the cost_series merges below: 8 merges x 7 daily buckets.
     merged_pr_count: 56,
     merged_pr_count_prev: 49,
     median_open_to_merge_seconds: 14 * 3600,
@@ -36,42 +36,53 @@ const OVERVIEW: RepoOverviewApi = {
     billable_minutes_prev: 4890,
     estimated_cost_usd: 412.5,
     estimated_cost_usd_prev: 361.0,
+    cost_per_merge_usd: 7.37,
+    cost_per_merge_usd_prev: 7.37,
     // A slice of billable_minutes above, not an addition to it.
     merge_queue_billable_minutes: 1180,
     merge_queue_billable_minutes_prev: 940,
+    merge_queue_merged_pr_count: 48,
+    merge_queue_merged_pr_count_prev: 41,
+    merge_queue_median_first_gate_to_merge_seconds: 32 * 60,
+    merge_queue_median_first_gate_to_merge_seconds_prev: 41 * 60,
+    merge_queue_p90_first_gate_to_merge_seconds: 3 * 3600 + 8 * 60,
+    merge_queue_p90_first_gate_to_merge_seconds_prev: 3 * 3600 + 45 * 60,
+    merge_queue_p95_first_gate_to_merge_seconds: 4 * 3600 + 20 * 60,
+    merge_queue_p95_first_gate_to_merge_seconds_prev: 4 * 3600 + 55 * 60,
+    merge_queue_p99_first_gate_to_merge_seconds: 6 * 3600 + 10 * 60,
+    merge_queue_p99_first_gate_to_merge_seconds_prev: 7 * 3600,
+    merge_queue_avg_attempts_per_merge: 2.0,
+    merge_queue_avg_attempts_per_merge_prev: 1.8,
+    merge_queue_multi_attempt_merge_share: 0.417,
+    merge_queue_multi_attempt_merge_share_prev: 0.38,
+    merge_queue_failed_gate_merge_share: 0.337,
+    merge_queue_failed_gate_merge_share_prev: 0.28,
+    median_time_to_green_seconds: 13 * 60,
+    median_time_to_green_seconds_prev: 9 * 60,
+    merge_queue_trunk_available: false,
+    merge_queue_failed_or_cancelled_share: null,
+    merge_queue_failed_or_cancelled_share_prev: null,
+    merge_queue_skip_the_line_count: null,
+    merge_queue_skip_the_line_count_prev: null,
     jobs_available: true,
     default_branch: 'master',
+    cost_series: [],
     cost_series_granularity: 'day',
-    cost_series: [52.1, 47.8, 61.3, 58.9, 44.2, 49.5, 55.7].map((cost, i) => ({
-        bucket_start: `2026-06-${25 + i}T00:00:00Z`,
-        estimated_cost_usd: cost * 8,
-        merges: 8,
-        cost_per_merge_usd: cost,
-    })),
-    time_to_green_series: [540, 600, null, 660, 720, 900, 780].map((p50_seconds, i) => ({
-        bucket_start: `2026-06-${25 + i}T00:00:00Z`,
-        p50_seconds,
-    })),
+    time_to_green_series: [],
     time_to_green_series_granularity: 'day',
-    success_rate_series: [0.82, 0.85, 0.8, null, 0.88, 0.79, 0.87].map((success_rate, i) => ({
-        bucket_start: `2026-06-${25 + i}T00:00:00Z`,
-        success_rate,
-    })),
+    success_rate_series: [],
     success_rate_series_granularity: 'day',
-    open_to_merge_series: [14 * 3600, 16 * 3600, null, 12 * 3600, 15 * 3600, 18 * 3600, 13 * 3600].map(
-        (p50_seconds, i) => ({
-            bucket_start: `2026-06-${25 + i}T00:00:00Z`,
-            p50_seconds,
-        })
-    ),
+    open_to_merge_series: [],
     open_to_merge_series_granularity: 'day',
-    ready_to_merge_series: [9 * 3600, 11 * 3600, null, 8 * 3600, 10 * 3600, 12 * 3600, 9 * 3600].map(
-        (p50_seconds, i) => ({
-            bucket_start: `2026-06-${25 + i}T00:00:00Z`,
-            p50_seconds,
-        })
-    ),
+    ready_to_merge_series: [],
     ready_to_merge_series_granularity: 'day',
+    delivery_pipeline: {
+        merged_pr_count: 52,
+        stages: [
+            { stage: 'open_to_gate', median_seconds: 16 * 3600 + 18 * 60, p90_seconds: 4 * 86400, pr_count: 39 },
+            { stage: 'gate_to_merge', median_seconds: 30 * 60 + 42, p90_seconds: 3 * 3600 + 8 * 60, pr_count: 39 },
+        ],
+    },
 }
 
 const ACTIVITY: WorkflowRunActivityApi = {
@@ -88,31 +99,26 @@ const ACTIVITY: WorkflowRunActivityApi = {
     limit: 500,
 }
 
+const RUN_COUNT = 320
+
 function healthItem(
     workflowName: string,
     costUsd: number,
     failures: number[],
-    successRate: number
+    successRate: number,
+    mergeQueueRunCount: number = 0
 ): WorkflowHealthItemApi {
-    return {
-        repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
+    return workflowHealthItem({
         workflow_name: workflowName,
-        run_count: 320,
-        successful_run_count: Math.round(320 * successRate),
-        conclusive_run_count: 320,
+        run_count: RUN_COUNT,
+        successful_run_count: Math.round(RUN_COUNT * successRate),
+        conclusive_run_count: RUN_COUNT,
         success_rate: successRate,
         success_rate_prev: successRate - 0.03,
-        p50_seconds: 540,
-        p95_seconds: 1680,
         last_failure_at: failures.some((f) => f > 0) ? '2026-07-01T16:00:00Z' : null,
-        latest_run_failed: false,
-        latest_run_conclusion: 'success',
-        latest_run_id: 123456,
-        latest_run_attempt: 1,
-        granularity: 'day',
         billable_minutes: costUsd * 12,
         estimated_cost_usd: costUsd,
-        rerun_cycles: 6,
+        merge_queue_run_count: mergeQueueRunCount,
         buckets: failures.map((failed, i) => ({
             bucket_start: `2026-06-${25 + i}T00:00:00Z`,
             run_count: 44 + i,
@@ -120,13 +126,14 @@ function healthItem(
             successes: 40 + i - failed,
             failures: failed,
         })),
-    }
+    })
 }
 
+// Two workflows the merge queue runs, so the table shows both the gating order and the muted rest.
 const WORKFLOW_HEALTH: WorkflowHealthItemApi[] = [
-    healthItem('Backend CI', 210.4, [2, 0, 4, 1, 0, 3, 1], 0.91),
+    healthItem('Backend CI', 210.4, [2, 0, 4, 1, 0, 3, 1], 0.91, 186),
     healthItem('E2E - Playwright', 130.2, [5, 3, 6, 2, 4, 5, 3], 0.78),
-    healthItem('Frontend CI', 71.9, [0, 1, 0, 0, 2, 0, 1], 0.95),
+    healthItem('Frontend CI', 71.9, [0, 1, 0, 0, 2, 0, 1], 0.95, 174),
 ]
 
 const PULL_REQUESTS: PullRequestListApi = {
@@ -256,4 +263,27 @@ type Story = StoryObj<typeof meta>
 export const RepoOverview: Story = {
     render: () => <App />,
     parameters: { pageUrl: urls.engineeringAnalytics() },
+}
+
+// The Trunk-source variant: the failed-queue-run proxy card is replaced by the queue's own
+// eviction records.
+const OVERVIEW_WITH_TRUNK: RepoOverviewApi = {
+    ...OVERVIEW,
+    merge_queue_trunk_available: true,
+    merge_queue_failed_or_cancelled_share: 0.044,
+    merge_queue_failed_or_cancelled_share_prev: 0.032,
+    merge_queue_skip_the_line_count: 8,
+    merge_queue_skip_the_line_count_prev: 5,
+}
+
+export const RepoOverviewWithTrunkQueueData: Story = {
+    render: () => <App />,
+    parameters: { pageUrl: urls.engineeringAnalytics() },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/repo_overview/': OVERVIEW_WITH_TRUNK,
+            },
+        }),
+    ],
 }

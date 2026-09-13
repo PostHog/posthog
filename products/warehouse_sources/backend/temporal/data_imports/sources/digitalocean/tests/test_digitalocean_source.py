@@ -1,16 +1,13 @@
-from typing import Any
-
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source import DigitalOceanSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.digitalocean import (
     DigitalOceanSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> DigitalOceanSourceConfig:
@@ -18,27 +15,11 @@ def _config() -> DigitalOceanSourceConfig:
 
 
 class TestDigitalOceanSourceConfig:
-    def test_source_type(self) -> None:
-        assert DigitalOceanSource().source_type == ExternalDataSourceType.DIGITALOCEAN
-
-    def test_config_exposes_single_password_token_field(self) -> None:
-        config = DigitalOceanSource().get_source_config
-        assert [f.name for f in config.fields] == ["api_key"]
-        field = config.fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.required is True
-
     def test_stays_gated_in_alpha(self) -> None:
         # The source ships hidden (unreleasedSource) and labelled alpha until it's validated
         # against a live account; a regression that flips either would expose it prematurely.
         config = DigitalOceanSource().get_source_config
         assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_docs_url_matches_icon_slug(self) -> None:
-        config = DigitalOceanSource().get_source_config
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/digitalocean"
-        assert config.iconPath == "/static/services/digitalocean.svg"
 
 
 class TestDigitalOceanGetSchemas:
@@ -160,11 +141,6 @@ class TestDigitalOceanSourceForPipeline:
 
 
 class TestDigitalOceanNonRetryableErrors:
-    @pytest.mark.parametrize("status", ["401", "403"])
-    def test_auth_errors_are_non_retryable(self, status: str) -> None:
-        errors = DigitalOceanSource().get_non_retryable_errors()
-        assert any(status in key for key in errors)
-
     def test_error_keys_scope_to_base_host(self) -> None:
         # Matching the base host (not a per-request URL) keeps the match stable across endpoints.
         errors = DigitalOceanSource().get_non_retryable_errors()
@@ -177,8 +153,3 @@ class TestDigitalOceanCanonicalDescriptions:
         # LLM enrichment instead of the curated text, so keep the keys inside the endpoint set.
         descriptions = DigitalOceanSource().get_canonical_descriptions()
         assert set(descriptions.keys()) <= set(ENDPOINTS)
-
-    def test_covers_headline_infrastructure_endpoints(self) -> None:
-        descriptions: dict[str, Any] = dict(DigitalOceanSource().get_canonical_descriptions())
-        for endpoint in ("droplets", "databases", "kubernetes_clusters"):
-            assert descriptions[endpoint]["columns"]

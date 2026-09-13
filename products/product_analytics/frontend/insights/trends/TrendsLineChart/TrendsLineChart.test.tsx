@@ -7,6 +7,7 @@ import { dimensions, dragSelection, rawDrag, setupJsdom, setupSyncRaf } from '@p
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import type { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { ExportType } from '~/exporter/types'
@@ -25,6 +26,8 @@ import {
 } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType, InsightShortId } from '~/types'
+
+import { extendLabelsToLongestSeries } from './TrendsLineChart'
 
 // The full InsightViz tree is heavy to mount under jsdom; on contended CI shards
 // the default 1s waitFor / findBy timeout is too tight and flakes randomly.
@@ -897,9 +900,8 @@ describe('TrendsLineChart', () => {
             renderInsight({ query: buildTrendsQuery(), context: { onDateRangeZoom }, featureFlags: zoomFlag })
             const wrapper = await getChartWrapper()
 
-            dragSelection(wrapper, 1, 3, totalLabels)
-
             await waitFor(() => {
+                dragSelection(wrapper, 1, 3, totalLabels)
                 // Days, not the formatted axis labels ('Tue'/'Thu') the chart renders with.
                 expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-13')
             })
@@ -915,9 +917,8 @@ describe('TrendsLineChart', () => {
             const step = dimensions.plotWidth / (totalLabels - 1)
             const x = dimensions.plotLeft + step
             const y = dimensions.plotTop + dimensions.plotHeight / 2
-            rawDrag(wrapper, { from: { x: x - 40, y }, to: { x: x + 40, y } })
-
             await waitFor(() => {
+                rawDrag(wrapper, { from: { x: x - 40, y }, to: { x: x + 40, y } })
                 expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-11')
             })
         })
@@ -940,6 +941,30 @@ describe('TrendsLineChart', () => {
             dragSelection(wrapper, 1, 3, totalLabels)
 
             expect(getQuerySource().dateRange).toBeUndefined()
+        })
+    })
+
+    describe('extendLabelsToLongestSeries', () => {
+        const result = (data: number[]): IndexedTrendResult => ({ data }) as IndexedTrendResult
+
+        it('extends the hourly domain forward to a longer previous series', () => {
+            const currentDays = ['2020-01-02 00:00:00', '2020-01-02 01:00:00', '2020-01-02 02:00:00']
+            const extended = extendLabelsToLongestSeries(currentDays, 'hour', [
+                result([0, 0, 1]),
+                result([3, 0, 0, 0, 0]),
+            ])
+            expect(extended).toEqual([
+                '2020-01-02 00:00:00',
+                '2020-01-02 01:00:00',
+                '2020-01-02 02:00:00',
+                '2020-01-02 03:00:00',
+                '2020-01-02 04:00:00',
+            ])
+        })
+
+        it('leaves the domain untouched when no series is longer', () => {
+            const days = ['2020-01-02', '2020-01-03', '2020-01-04']
+            expect(extendLabelsToLongestSeries(days, 'day', [result([1, 2, 3]), result([4, 5, 6])])).toBe(days)
         })
     })
 })

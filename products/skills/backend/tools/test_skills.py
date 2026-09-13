@@ -1,17 +1,23 @@
 from posthog.test.base import BaseTest
+from unittest import TestCase
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
+from pydantic import ValidationError
 
 from posthog.models import Team
 
+from products.skills.backend.api.skill_serializers import SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.skills.backend.tools.skills import (
     ArchiveLLMSkillTool,
     CreateLLMSkillTool,
+    CreateSkillArgs,
     GetLLMSkillFileTool,
     GetLLMSkillTool,
     ListLLMSkillsTool,
     UpdateLLMSkillTool,
+    UpdateSkillArgs,
 )
 
 from ee.hogai.tool_errors import MaxToolFatalError
@@ -300,3 +306,20 @@ class TestArchiveLLMSkillTool(BaseTest):
 
         with self.assertRaisesRegex(MaxToolFatalError, "missing"):
             _run(tool, skill_name="missing")
+
+
+class TestSkillToolDescriptionCap(TestCase):
+    def _create(self, description: str) -> CreateSkillArgs:
+        return CreateSkillArgs(name="my-skill", description=description, body="# Body")
+
+    def _update(self, description: str) -> UpdateSkillArgs:
+        return UpdateSkillArgs(skill_name="my-skill", base_version=1, description=description)
+
+    @parameterized.expand(["_create", "_update"])
+    def test_description_capped_at_spec_limit(self, builder_name: str) -> None:
+        # These tools call create_skill / publish_skill_version directly, so the args schema is the only
+        # guard against persisting a description that export and community publish later reject.
+        build = getattr(self, builder_name)
+        with self.assertRaises(ValidationError):
+            build("x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1))
+        build("x" * SPEC_DESCRIPTION_MAX_LENGTH)

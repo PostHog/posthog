@@ -1,7 +1,14 @@
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalScoutRunSummary } from '../types'
-import { groupScouts, nextRunAt, scoutCadenceLabel, scoutGroup, ScoutGroupKey, scoutSubtitle } from './scoutGroups'
+import {
+    nextRunAt,
+    scoutCadenceLabel,
+    scoutCadenceNamesClockTime,
+    scoutGroup,
+    ScoutGroupKey,
+    scoutSubtitle,
+} from './scoutGroups'
 import { computeScoutRollups, ScoutRollup } from './scoutRunsWindow'
 
 const NOW = new Date('2026-06-27T22:00:00Z')
@@ -96,22 +103,6 @@ describe('scoutGroups', () => {
         })
     })
 
-    describe('groupScouts', () => {
-        it('returns buckets in display order and drops empty ones', () => {
-            const buckets = groupScouts(
-                [
-                    makeConfig({ id: 'a', skill_name: 'signals-scout-a' }),
-                    makeConfig({ id: 'b', skill_name: 'signals-scout-b', status: 'paused_by_user', enabled: false }),
-                    makeConfig({ id: 'c', skill_name: 'signals-scout-c', status: 'paused_by_system', enabled: false }),
-                ],
-                new Map(),
-                NOW
-            )
-            expect(buckets.map((bucket) => bucket.key)).toEqual(['needs_you', 'watching', 'off'])
-            expect(buckets[0].configs.map((config) => config.id)).toEqual(['c'])
-        })
-    })
-
     describe('scoutSubtitle', () => {
         it('names the failure streak so a paused scout says why', () => {
             const config = makeConfig({
@@ -180,6 +171,16 @@ describe('scoutGroups', () => {
             ],
         ])('%s', (_name, overrides, expected) => {
             expect(scoutCadenceLabel(makeConfig(overrides))).toEqual(expected)
+        })
+    })
+
+    describe('scoutCadenceNamesClockTime', () => {
+        it.each<[string, Partial<SignalScoutConfig>, boolean]>([
+            ['a rolling interval states no clock time', { run_interval_minutes: 60 }, false],
+            ['a plain daily cron states one', { run_cron_schedule: '0 9 * * *' }, true],
+            ['a richer cron states one', { run_cron_schedule: '35 8 * * 1-5' }, true],
+        ])('%s', (_name, overrides, expected) => {
+            expect(scoutCadenceNamesClockTime(makeConfig(overrides))).toBe(expected)
         })
     })
 

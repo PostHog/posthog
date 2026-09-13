@@ -4,18 +4,13 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviator import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.aviator import AviatorResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.source import AviatorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aviator import (
     AviatorSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(
@@ -40,24 +35,6 @@ def _source_inputs(
 class TestAviatorSource:
     def setup_method(self) -> None:
         self.source = AviatorSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AVIATOR
-
-    def test_source_config_has_a_single_secret_token_field(self) -> None:
-        config = self.source.get_source_config
-        assert len(config.fields) == 1
-        field = config.fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_token"
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.required is True
-        assert field.secret is True
-
-    def test_source_config_is_alpha(self) -> None:
-        config = self.source.get_source_config
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/aviator"
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static, no-I/O catalog, so the public docs table list must render.
@@ -108,22 +85,6 @@ class TestAviatorSource:
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs("repositories"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is AviatorResumeConfig
-
-    def test_source_for_pipeline_plumbs_token_and_endpoint(self) -> None:
-        config = AviatorSourceConfig(api_token="av_uat_test")
-        inputs = _source_inputs("merge_queue_analytics", last_value="2026-06-10", use_incremental=True)
-        with patch.object(source_module, "aviator_source") as mock_source:
-            self.source.source_for_pipeline(config, MagicMock(), inputs)
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["api_token"] == "av_uat_test"
-        assert kwargs["endpoint"] == "merge_queue_analytics"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-06-10"
 
     def test_source_for_pipeline_omits_last_value_when_not_incremental(self) -> None:
         # Passing a stale watermark on a full-refresh run would wrongly narrow the analytics window.

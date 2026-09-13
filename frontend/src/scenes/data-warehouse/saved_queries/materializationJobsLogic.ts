@@ -13,10 +13,11 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiConfig, PaginatedResponse } from 'lib/api'
+import api, { ApiConfig, ApiError, PaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -32,6 +33,7 @@ import { warehouseSavedQueriesResumeCreate } from 'products/data_warehouse/front
 import type { CountedPaginatedResponse } from '../../../lib/api'
 import { EMPTY_INCREMENTAL_DRAFT, IncrementalConfigDraft } from '../editor/IncrementalConfigFields'
 import { DEFAULT_MATERIALIZE_SYNC_FREQUENCY, dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
+import { latestSuccessfulSyncAt } from './materializationJobUtils'
 
 const REFRESH_INTERVAL = 10000
 const DEFAULT_JOBS_PAGE_SIZE = 10
@@ -52,6 +54,7 @@ export interface materializationJobsLogicValues {
     incrementalDraft: IncrementalConfigDraft
     incrementalDraftTouched: boolean
     initialSyncFrequency: DataModelingSyncInterval
+    lastSuccessfulSyncAt: string | null
     resumingMaterialization: boolean
     savedQuery: DataWarehouseSavedQuery | null
     savedQueryLoading: boolean
@@ -175,6 +178,7 @@ export interface materializationJobsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         hasMoreJobsToLoad: (dataModelingJobs: PaginatedResponse<DataModelingJob> | null) => boolean
+        lastSuccessfulSyncAt: (dataModelingJobs: PaginatedResponse<DataModelingJob> | null) => string | null
     }
 }
 
@@ -205,7 +209,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         // doesn't count as the user touching it.
         seedIncrementalDraft: (draft: IncrementalConfigDraft) => ({ draft }),
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, cache }) => ({
         savedQuery: [
             null as DataWarehouseSavedQuery | null,
             {
@@ -225,7 +229,18 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                     if (!sql) {
                         return null
                     }
-                    return await api.dataWarehouseSavedQueries.checkIncremental({ query: sql })
+                    // A rejected check is not the user's error, so never toast: the panel just omits the
+                    // incremental option. A 4xx is a deterministic refusal, so it is not retried. Anything
+                    // else is ours to look at, and the next savedQuery reload gets to try again.
+                    try {
+                        return await api.dataWarehouseSavedQueries.checkIncremental({ query: sql })
+                    } catch (e) {
+                        if (!(e instanceof ApiError && e.status && e.status >= 400 && e.status < 500)) {
+                            posthog.captureException(e)
+                            cache.incrementalCheckRequested = false
+                        }
+                        return null
+                    }
                 },
             },
         ],
@@ -329,6 +344,11 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         hasMoreJobsToLoad: [
             (s) => [s.dataModelingJobs],
             (dataModelingJobs: PaginatedResponse<DataModelingJob> | null) => !!dataModelingJobs?.next,
+        ],
+        lastSuccessfulSyncAt: [
+            (s) => [s.dataModelingJobs],
+            (dataModelingJobs: PaginatedResponse<DataModelingJob> | null) =>
+                latestSuccessfulSyncAt(dataModelingJobs?.results),
         ],
     }),
     afterMount(({ actions, props }) => {

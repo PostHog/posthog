@@ -3,12 +3,11 @@ from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
-from django.db.models import Q
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import STRIPE_POSTHOG_SECRET_NAMES, Integration, StripeIntegration
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, lock_oauth_connection
+from posthog.models.integration.stripe import revoke_team_oauth_tokens
+from posthog.models.oauth import OAuthApplication
 
 
 class PartialStripeWrite(Exception):
@@ -34,75 +33,6 @@ class Command(BaseCommand):
             type=int,
             default=None,
             help="Rotate a single team's Stripe integration only, for testing before a full run",
-        )
-
-    def _sweep_superseded_tokens(self, team_id: int, created_by_id: int, stale_token_ids: list[int]) -> None:
-        """Remove every credential for this team except the replacement just minted.
-
-        Queried inside the lock rather than deleted by the ids snapshotted before minting: a
-        holder of the legacy refresh token can exchange it while Stripe is being written, and
-        that mints a pair the snapshot never saw.
-
-        `lock_oauth_connection` is what serializes this against the minting side. Row locks alone
-        are not enough, for the reason its docstring gives: a blocked sweep re-checks the locked
-        row without widening its snapshot, so a token inserted meanwhile survives.
-        """
-        apps = StripeIntegration._posthog_oauth_apps_for_revocation()
-
-        with transaction.atomic():
-            user_ids = (
-                set(
-                    OAuthAccessToken.objects.filter(application__in=apps, scoped_teams__contains=[team_id]).values_list(
-                        "user_id", flat=True
-                    )
-                )
-                | set(
-                    OAuthRefreshToken.objects.filter(
-                        application__in=apps, scoped_teams__contains=[team_id]
-                    ).values_list("user_id", flat=True)
-                )
-                | {created_by_id}
-            )
-            # Before any row lock and in a fixed order, matching the minting side, so the two
-            # cannot deadlock against each other.
-            for user_id, application_id in sorted(
-                (user_id, app.id) for user_id in user_ids if user_id is not None for app in apps
-            ):
-                lock_oauth_connection(user_id=user_id, application_id=application_id)
-
-            superseded_ids = list(
-                OAuthAccessToken.objects.filter(application__in=apps, scoped_teams__contains=[team_id])
-                .exclude(id__in=self._replacement_token_ids(team_id, stale_token_ids))
-                .values_list("id", flat=True)
-            )
-
-            # Neither direction of the access/refresh link is reliably populated, so match both.
-            source_refresh_ids = [
-                refresh_id
-                for refresh_id in OAuthAccessToken.objects.filter(id__in=superseded_ids).values_list(
-                    "source_refresh_token_id", flat=True
-                )
-                if refresh_id is not None
-            ]
-            OAuthRefreshToken.objects.filter(
-                Q(access_token_id__in=superseded_ids) | Q(id__in=source_refresh_ids)
-            ).delete()
-            OAuthAccessToken.objects.filter(id__in=superseded_ids).delete()
-
-    @staticmethod
-    def _replacement_token_ids(team_id: int, stale_token_ids: list[int]) -> list[int]:
-        """The tokens minted by this run: on the marketplace application and not in the snapshot.
-
-        A refresh of a leaked legacy credential mints onto the orchestrator's application, so it
-        cannot be mistaken for the replacement.
-        """
-        return list(
-            OAuthAccessToken.objects.filter(
-                application__client_id=settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID,
-                scoped_teams__contains=[team_id],
-            )
-            .exclude(id__in=stale_token_ids)
-            .values_list("id", flat=True)
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -157,38 +87,26 @@ class Command(BaseCommand):
 
             try:
                 stripe_integration = StripeIntegration(integration)
-                stale_token_ids = list(
-                    OAuthAccessToken.objects.filter(
-                        application__in=StripeIntegration._posthog_oauth_apps_for_revocation(),
-                        scoped_teams__contains=[integration.team_id],
-                    ).values_list("id", flat=True)
-                )
 
                 # Mint before revoking. Revoking first strands the customer whenever the Stripe
                 # write fails, because their app keeps reading a token that no longer exists.
-                unwritten = stripe_integration.write_posthog_secrets(integration.team_id, created_by)
-                if unwritten and len(unwritten) < len(STRIPE_POSTHOG_SECRET_NAMES):
+                publication = stripe_integration.write_posthog_secrets(integration.team_id, created_by)
+                if publication.unwritten and len(publication.unwritten) < len(STRIPE_POSTHOG_SECRET_NAMES):
                     raise PartialStripeWrite(
-                        f"Stripe secret store partially updated, unwritten: {', '.join(unwritten)}. "
+                        f"Stripe secret store partially updated, unwritten: {', '.join(publication.unwritten)}. "
                         "Old and new tokens both left in place; this integration needs manual repair."
                     )
-                if unwritten:
-                    raise RuntimeError(f"Stripe secret store not updated: {', '.join(unwritten)}")
+                if publication.unwritten:
+                    raise RuntimeError(f"Stripe secret store not updated: {', '.join(publication.unwritten)}")
 
-                self._sweep_superseded_tokens(integration.team_id, created_by.id, stale_token_ids)
+                revoke_team_oauth_tokens(
+                    StripeIntegration._posthog_oauth_apps_for_revocation(),
+                    integration.team_id,
+                    keep_access_token_ids=[publication.access_token_id] if publication.access_token_id else [],
+                )
             except Exception as e:
-                # A mint that never reached Stripe leaves a credential nobody holds; drop it so
-                # retrying does not accumulate one per attempt. A partial write is the opposite:
-                # Stripe is already serving the new token for some keys, so deleting it here is
-                # what would break the customer.
-                if not isinstance(e, PartialStripeWrite):
-                    orphaned = OAuthAccessToken.objects.filter(
-                        application__in=StripeIntegration._posthog_oauth_apps_for_revocation(),
-                        scoped_teams__contains=[integration.team_id],
-                    ).exclude(id__in=stale_token_ids)
-                    OAuthRefreshToken.objects.filter(access_token__in=orphaned).delete()
-                    orphaned.delete()
-
+                # write_posthog_secrets already drops a credential that never reached Stripe, and a
+                # partial write must keep both, so there is nothing to unwind here.
                 capture_exception(e, {"integration_id": integration.id, "team_id": integration.team_id})
                 self.stdout.write(self.style.ERROR(f"  {label}: failed ({e})"))
                 failed.append(f"{label}: {e}")

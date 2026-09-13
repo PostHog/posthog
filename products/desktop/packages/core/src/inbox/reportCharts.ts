@@ -2,7 +2,7 @@ import type { SignalReportChartSize } from "@posthog/shared/types";
 
 type QueryNode = Record<string, unknown>;
 
-export type ReportChartRender = "line" | "bar" | "number" | "auto";
+export type ReportChartRender = "line" | "bar" | "number" | "table" | "auto";
 
 /**
  * What to do with a chart's stored query. The backend only guarantees the
@@ -22,12 +22,44 @@ function isRecord(value: unknown): value is QueryNode {
 }
 
 function renderFromDisplay(display: unknown): ReportChartRender {
-  if (display === "BoldNumber") return "number";
-  if (display === "ActionsBar" || display === "ActionsBarValue") return "bar";
-  if (display === "ActionsLineGraph" || display === "ActionsAreaGraph") {
+  if (display === "BoldNumber" || display === "Metric") return "number";
+  if (
+    display === "ActionsBar" ||
+    display === "ActionsUnstackedBar" ||
+    display === "ActionsStackedBar" ||
+    display === "ActionsBarValue" ||
+    display === "ActionsPie"
+  ) {
+    return "bar";
+  }
+  if (
+    display === "ActionsLineGraph" ||
+    display === "ActionsAreaGraph" ||
+    display === "ActionsLineGraphCumulative"
+  ) {
     return "line";
   }
+  if (display === "ActionsTable" || display === "WorldMap") return "table";
   return "auto";
+}
+
+function trendsRenderFromDisplay(
+  display: unknown,
+  sourceKind: "TrendsQuery" | "StickinessQuery",
+): ReportChartRender | null {
+  if (display === undefined || display === "Auto") {
+    return sourceKind === "StickinessQuery" ? "bar" : "line";
+  }
+  if (
+    display === "CalendarHeatmap" ||
+    display === "TwoDimensionalHeatmap" ||
+    display === "BoxPlot" ||
+    display === "SlopeGraph" ||
+    display === "ScatterPlot"
+  ) {
+    return null;
+  }
+  return renderFromDisplay(display);
 }
 
 export function planReportChart(query: unknown): ReportChartPlan {
@@ -42,6 +74,31 @@ export function planReportChart(query: unknown): ReportChartPlan {
   const source = isRecord(query.source) ? query.source : null;
   if (query.kind === "InsightVizNode") {
     if (!source) return { kind: "invalid" };
+    // Lifecycle results share the trends series shape, and PostHog draws them
+    // as bars; run them rather than degrade to a link-out card.
+    if (source.kind === "LifecycleQuery") {
+      return { kind: "run", source, render: "bar" };
+    }
+    // Only the step visualization maps onto a categorical bar chart; the
+    // trends and time-to-convert visualizations have different result shapes.
+    if (source.kind === "FunnelsQuery") {
+      const filter = isRecord(source.funnelsFilter)
+        ? source.funnelsFilter
+        : null;
+      const vizType = filter?.funnelVizType;
+      if (vizType !== undefined && vizType !== "steps") {
+        return { kind: "open-only" };
+      }
+      // Compare merges current and previous periods into one response the
+      // categorical bar chart cannot disambiguate, so degrade to a link-out card.
+      const compareFilter = isRecord(source.compareFilter)
+        ? source.compareFilter
+        : null;
+      if (compareFilter?.compare === true) {
+        return { kind: "open-only" };
+      }
+      return { kind: "run", source, render: "bar" };
+    }
     if (source.kind !== "TrendsQuery" && source.kind !== "StickinessQuery") {
       return { kind: "open-only" };
     }
@@ -50,12 +107,8 @@ export function planReportChart(query: unknown): ReportChartPlan {
         ? source.trendsFilter
         : source.stickinessFilter;
     const display = isRecord(filter) ? filter.display : undefined;
-    const render = renderFromDisplay(display);
-    return {
-      kind: "run",
-      source,
-      render: render === "auto" ? "line" : render,
-    };
+    const render = trendsRenderFromDisplay(display, source.kind);
+    return render ? { kind: "run", source, render } : { kind: "open-only" };
   }
   if (query.kind === "DataVisualizationNode") {
     if (!source || source.kind !== "HogQLQuery") {
@@ -210,49 +263,143 @@ function normalizeDayLabels(labels: string[]): string[] {
   return matches.map((match) => (match as RegExpExecArray)[1]);
 }
 
-function shapeTrendsResponse(
-  response: QueryNode,
+function trendsAggregateValue(result: QueryNode): number | null {
+  const aggregated = asFiniteNumber(result.aggregated_value);
+  if (aggregated !== null) return aggregated;
+  const data = Array.isArray(result.data) ? result.data : [];
+  if (data.length === 0) return null;
+  return data.reduce<number>(
+    (sum, value) => sum + (asFiniteNumber(value) ?? 0),
+    0,
+  );
+}
+
+function trendsAggregateLabel(result: QueryNode, index: number): string {
+  // A compared insight returns the current and previous periods as two results
+  // with identical labels; the period lives only in compare_label.
+  const period =
+    typeof result.compare_label === "string" && result.compare_label
+      ? ` (${result.compare_label})`
+      : "";
+  if (Object.hasOwn(result, "breakdown_value")) {
+    const value = result.breakdown_value;
+    if (value === null || value === undefined || value === "")
+      return `No value${period}`;
+    if (Array.isArray(value)) return value.map(String).join(" · ") + period;
+    return `${String(value)}${period}`;
+  }
+  const label =
+    typeof result.label === "string" && result.label
+      ? result.label
+      : `Series ${index + 1}`;
+  return `${label}${period}`;
+}
+
+function shapeTrendsAggregates(
+  seriesResults: QueryNode[],
   render: ReportChartRender,
 ): ReportChartData {
+  const entries = seriesResults.flatMap((result, index) => {
+    const value = trendsAggregateValue(result);
+    return value === null
+      ? []
+      : [{ label: trendsAggregateLabel(result, index), value }];
+  });
+  if (entries.length === 0) return { type: "empty" };
+  if (render === "number") {
+    return {
+      type: "number",
+      value: entries.reduce((sum, entry) => sum + entry.value, 0),
+    };
+  }
+  if (render === "bar" && entries.length <= MAX_BAR_CATEGORIES) {
+    return {
+      type: "series",
+      render: "bar",
+      labels: entries.map((entry) => entry.label),
+      series: [
+        {
+          key: "aggregate-values",
+          label: "Total",
+          data: entries.map((entry) => entry.value),
+        },
+      ],
+      isTimeSeries: false,
+      interval: "day",
+    };
+  }
+  const hasBreakdown = seriesResults.some((result) =>
+    Object.hasOwn(result, "breakdown_value"),
+  );
+  return asTable(
+    entries.map((entry) => [entry.label, entry.value]),
+    [hasBreakdown ? "Breakdown" : "Series", "Total"],
+  );
+}
+
+function shapeTrendsResponse(
+  response: QueryNode,
+  plan: Extract<ReportChartPlan, { kind: "run" }>,
+): ReportChartData {
   const results = Array.isArray(response.results) ? response.results : [];
-  const seriesResults = results.filter(isRecord);
+  let seriesResults = results.filter(isRecord);
+  // The backend returns all four lifecycle statuses regardless of the saved
+  // insight's display filter; the web renderer drops the untoggled ones
+  // client-side, so this chart has to as well.
+  if (plan.source.kind === "LifecycleQuery") {
+    const lifecycleFilter = isRecord(plan.source.lifecycleFilter)
+      ? plan.source.lifecycleFilter
+      : null;
+    const toggled = Array.isArray(lifecycleFilter?.toggledLifecycles)
+      ? lifecycleFilter.toggledLifecycles.filter(
+          (status): status is string => typeof status === "string",
+        )
+      : null;
+    if (toggled) {
+      seriesResults = seriesResults.filter((result) =>
+        toggled.includes(String(result.status)),
+      );
+    }
+  }
   if (seriesResults.length === 0) return { type: "empty" };
 
-  if (render === "number") {
-    const total = seriesResults.reduce((sum, result) => {
-      const aggregated = asFiniteNumber(result.aggregated_value);
-      if (aggregated !== null) return sum + aggregated;
-      const data = Array.isArray(result.data) ? result.data : [];
-      return (
-        sum + data.reduce<number>((s, v) => s + (asFiniteNumber(v) ?? 0), 0)
-      );
-    }, 0);
-    return { type: "number", value: total };
+  if (plan.render === "number" || plan.render === "table") {
+    return shapeTrendsAggregates(seriesResults, plan.render);
   }
 
-  const first = seriesResults[0];
+  const resultsWithData = seriesResults.filter(
+    (result) => Array.isArray(result.data) && result.data.length > 0,
+  );
+  if (resultsWithData.length === 0) {
+    return shapeTrendsAggregates(seriesResults, plan.render);
+  }
+
+  const first = resultsWithData[0];
+  const useStickinessLabels =
+    plan.source.kind === "StickinessQuery" && Array.isArray(first.labels);
   const labels = (
-    Array.isArray(first.days) ? first.days : (first.labels ?? [])
+    useStickinessLabels
+      ? first.labels
+      : Array.isArray(first.days)
+        ? first.days
+        : (first.labels ?? [])
   ) as unknown[];
   const stringLabels = normalizeDayLabels(labels.map(String));
-  if (stringLabels.length === 0) return { type: "empty" };
+  if (stringLabels.length === 0) {
+    return shapeTrendsAggregates(seriesResults, plan.render);
+  }
 
-  const series = seriesResults.slice(0, MAX_SERIES).map((result, index) => {
-    const data = (Array.isArray(result.data) ? result.data : []).map(
-      (v) => asFiniteNumber(v) ?? 0,
-    );
-    return {
-      key: `series-${index}`,
-      label:
-        typeof result.label === "string" && result.label
-          ? result.label
-          : `Series ${index + 1}`,
-      data,
-    };
-  });
+  const series = resultsWithData.slice(0, MAX_SERIES).map((result, index) => ({
+    key: `series-${index}`,
+    label:
+      typeof result.label === "string" && result.label
+        ? result.label
+        : `Series ${index + 1}`,
+    data: (result.data as unknown[]).map((value) => asFiniteNumber(value) ?? 0),
+  }));
   return {
     type: "series",
-    render: render === "bar" ? "bar" : "line",
+    render: plan.render === "bar" ? "bar" : "line",
     labels: stringLabels,
     series,
     isTimeSeries: stringLabels.every(isDateLike),
@@ -387,6 +534,52 @@ function shapeHogQLResponse(
   return asTable(rows, columns);
 }
 
+function funnelStepName(step: QueryNode, index: number): string {
+  if (typeof step.custom_name === "string" && step.custom_name)
+    return step.custom_name;
+  if (typeof step.name === "string" && step.name) return step.name;
+  return `Step ${index + 1}`;
+}
+
+/**
+ * A steps funnel becomes a categorical bar chart: one bar per step, one
+ * series per breakdown. Results arrive either as a flat step list or, with a
+ * breakdown, as one step list per breakdown value.
+ */
+function shapeFunnelsResponse(response: QueryNode): ReportChartData {
+  const results = Array.isArray(response.results) ? response.results : [];
+  const branches: QueryNode[][] = results.every(Array.isArray)
+    ? (results as unknown[][]).map((branch) => branch.filter(isRecord))
+    : [results.filter(isRecord)];
+  const steps = branches[0] ?? [];
+  if (steps.length === 0) return { type: "empty" };
+
+  const labels = steps.map((step, index) => funnelStepName(step, index));
+  const series = branches.slice(0, MAX_SERIES).map((branch, index) => {
+    const breakdown = branch[0]?.breakdown_value;
+    const label = Array.isArray(breakdown)
+      ? breakdown.map(String).join(" · ")
+      : breakdown !== undefined && breakdown !== null && breakdown !== ""
+        ? String(breakdown)
+        : branches.length > 1
+          ? `Series ${index + 1}`
+          : "Users";
+    return {
+      key: `funnel-${index}`,
+      label,
+      data: labels.map((_, step) => asFiniteNumber(branch[step]?.count) ?? 0),
+    };
+  });
+  return {
+    type: "series",
+    render: "bar",
+    labels,
+    series,
+    isTimeSeries: false,
+    interval: "day",
+  };
+}
+
 function asTable(rows: unknown[][], columns: string[]): ReportChartData {
   return { type: "table", columns, rows: rows.slice(0, MAX_TABLE_ROWS) };
 }
@@ -402,9 +595,13 @@ export function shapeReportChartData(
 ): ReportChartData {
   if (
     plan.source.kind === "TrendsQuery" ||
-    plan.source.kind === "StickinessQuery"
+    plan.source.kind === "StickinessQuery" ||
+    plan.source.kind === "LifecycleQuery"
   ) {
-    return shapeTrendsResponse(response, plan.render);
+    return shapeTrendsResponse(response, plan);
+  }
+  if (plan.source.kind === "FunnelsQuery") {
+    return shapeFunnelsResponse(response);
   }
   return shapeHogQLResponse(response, plan.render);
 }

@@ -15,12 +15,13 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.models import Organization, Team
 
-from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.facade.tasks import reconcile_all_managed_warehouse_tables_task
-from products.data_warehouse.backend.tasks.tasks import (
-    ensure_managed_warehouse_direct_source_v2_task,
+from products.data_warehouse.backend.facade.api import (
+    DIRECT_POSTGRES_URL_PATTERN,
     schedule_managed_warehouse_direct_source_ensure,
     schedule_soft_delete_managed_warehouse_sources,
+)
+from products.data_warehouse.backend.facade.tasks import (
+    ensure_managed_warehouse_direct_source_v2_task,
     soft_delete_managed_warehouse_sources_task,
     soft_delete_managed_warehouse_sources_v2_task,
 )
@@ -1113,41 +1114,6 @@ class TestReconcileManagedWarehouseTables:
         table = DataWarehouseTable.raw_objects.get(id=schema.table_id)
         assert schema.deleted is False
         assert table.deleted is False
-
-    def test_periodic_sweep_schedules_every_managed_project(self) -> None:
-        org, team = self._setup()
-        all_rows = _MEMBERSHIPS[str(org.id)] + [
-            # Legacy shared-table membership remains an enrolled project, so the sweep schedules it.
-            _membership(team.id + 1, str(org.id), "team_x", legacy_shared=True),
-        ]
-
-        with (
-            patch(
-                "products.data_warehouse.backend.tasks.tasks.list_enabled_backfill_team_memberships",
-                return_value=all_rows,
-            ),
-            patch(
-                "products.data_warehouse.backend.tasks.tasks.schedule_managed_warehouse_tables_reconcile"
-            ) as schedule,
-        ):
-            reconcile_all_managed_warehouse_tables_task()
-
-        assert schedule.call_count == 2
-        assert {call.kwargs["team_id"] for call in schedule.call_args_list} == {team.id, team.id + 1}
-
-    def test_periodic_sweep_skips_run_when_control_plane_unreachable(self) -> None:
-        with (
-            patch(
-                "products.data_warehouse.backend.tasks.tasks.list_enabled_backfill_team_memberships",
-                return_value=None,
-            ),
-            patch(
-                "products.data_warehouse.backend.tasks.tasks.schedule_managed_warehouse_tables_reconcile"
-            ) as schedule,
-        ):
-            reconcile_all_managed_warehouse_tables_task()
-
-        schedule.assert_not_called()
 
     def test_periodic_reconcile_does_not_create_a_missing_connection(self) -> None:
         org = Organization.objects.create(name="Org")

@@ -3,14 +3,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
+from posthog.schema import SourceFieldSelectConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.cal_com import CalComResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.source import CalComSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calcom import CalComSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCalComSource:
@@ -18,19 +14,6 @@ class TestCalComSource:
         self.source = CalComSource()
         self.team_id = 123
         self.config = CalComSourceConfig(api_key="cal_live_key", region="us")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CALCOM
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "CalCom"
-        assert config.label == "Cal.com"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/cal-com"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
 
     def test_region_field_defaults_to_us(self) -> None:
         # Every connection made before this field existed talks to the US host, so the default must
@@ -40,46 +23,10 @@ class TestCalComSource:
         assert field.defaultValue == "us"
         assert {option.value for option in field.options} == {"us", "eu"}
 
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
     def test_no_connection_host_fields(self) -> None:
         # `region` only picks between two fixed Cal.com hosts, so it can't be used to retarget a
         # preserved key at a server the editor controls.
         assert self.source.connection_host_fields == []
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_covers_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_only_bookings_supports_incremental(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["bookings"].supports_incremental is True
-        assert [f["field"] for f in schemas["bookings"].incremental_fields] == ["updatedAt", "createdAt"]
-        for name, schema in schemas.items():
-            if name == "bookings":
-                continue
-            assert schema.supports_incremental is False
-            assert schema.incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["bookings"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "bookings"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -102,18 +49,6 @@ class TestCalComSource:
     def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.source.validate_credentials")
-    def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (False, "Invalid Cal.com API key")
-        result = self.source.validate_credentials(self.config, self.team_id)
-        assert result == (False, "Invalid Cal.com API key")
-        mock_validate.assert_called_once_with("cal_live_key", "us")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is CalComResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.source.cal_com_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

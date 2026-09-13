@@ -9,14 +9,18 @@ import {
 } from 'lib/components/InsightLegend/utils'
 import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import {
+    FEATURE_FLAGS,
+    NON_TIME_SERIES_DISPLAY_TYPES,
+    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
+    PIE_DISPLAY_TYPES,
+} from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { AggregationType } from 'scenes/insights/views/InsightsTable/insightsTableDataLogic'
@@ -112,6 +116,8 @@ import {
     SlowQueryPossibilities,
 } from '~/types'
 
+import { getClampedFunnelStepRange } from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
+
 import type { DataColorTheme } from '../../lib/colors'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type {
@@ -149,9 +155,12 @@ import type {
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
 import type { PathsV2Query } from '../../queries/schema/schema-general'
-import type { AnyPropertyFilter, GroupTypeIndex, PropertyGroupFilter } from '../../types'
+import type { ActionType, AnyPropertyFilter, GroupTypeIndex, PropertyGroupFilter } from '../../types'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
+
+// Stable empty list so the allEventNames selector does not recompute while actionsModel is unmounted
+const NO_ACTIONS: ActionType[] = []
 
 // Trends/stickiness displays whose chart renders the in-chart quill legend (line/area/cumulative,
 // bar layouts, and pie). Lifecycle always renders it regardless of display.
@@ -162,6 +171,7 @@ export const DISPLAYS_WITH_IN_CHART_LEGEND = [
     ChartDisplayType.ActionsBar,
     ChartDisplayType.ActionsUnstackedBar,
     ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsDonut,
 ]
 
 // Omit must distribute over the query-node union: a plain Omit would collapse the update type
@@ -1211,7 +1221,7 @@ export interface insightVizDataLogicMeta {
                 | WebOverviewQuery
                 | WebStatsTableQuery
                 | null,
-            actions: import('~/types').ActionType[]
+            arg: ActionType[]
         ) => string[]
         theme: (
             getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // dataThemeLogic
@@ -2301,7 +2311,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     ((isTrends || isStickiness || isLifecycle) &&
                         (insightFilter as TrendsFilter)?.showValuesOnSeries) ||
                     (isTrends &&
-                        (insightFilter as TrendsFilter)?.display === ChartDisplayType.ActionsPie &&
+                        PIE_DISPLAY_TYPES.includes((insightFilter as TrendsFilter)?.display as ChartDisplayType) &&
                         (insightFilter as TrendsFilter)?.showValuesOnSeries === undefined)
                 )
             },
@@ -2442,7 +2452,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // all events used in the insight (useful for fetching only relevant property definitions)
         allEventNames: [
-            (s) => [s.querySource, actionsModel.selectors.actions],
+            // actionsModel is only mounted by the surfaces that read this value. Reading it through
+            // findMounted keeps the shared insight logic from fetching every action on mount.
+            (s) => [s.querySource, () => actionsModel.findMounted()?.values.actions ?? NO_ACTIONS],
             (
                 querySource:
                     | FunnelsQuery

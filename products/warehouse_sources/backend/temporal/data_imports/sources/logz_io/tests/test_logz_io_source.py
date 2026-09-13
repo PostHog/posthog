@@ -1,23 +1,13 @@
 import pytest
-from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-)
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.logzio import LogzIOSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.logz_io import LogzIOResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.source import LogzIOSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.source"
 
@@ -27,9 +17,6 @@ class TestLogzIOSource:
         self.source = LogzIOSource()
         self.team_id = 123
         self.config = LogzIOSourceConfig(api_token="token", region="us")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LOGZIO
 
     def test_connection_host_fields_includes_region(self):
         # region picks the host the stored token is sent to, so editing it must re-require the secret.
@@ -44,19 +31,6 @@ class TestLogzIOSource:
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/logz-io"
         # A finished source must never keep the scaffold's unreleasedSource flag (it hides the source).
         assert config.unreleasedSource is None
-
-    def test_source_config_fields(self):
-        fields = self.source.get_source_config.fields
-        assert [f.name for f in fields] == ["api_token", "region"]
-
-        api_token = next(f for f in fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")
-        assert api_token.type == SourceFieldInputConfigType.PASSWORD
-        assert api_token.secret is True
-        assert api_token.required is True
-
-        region = next(f for f in fields if isinstance(f, SourceFieldSelectConfig) and f.name == "region")
-        assert region.defaultValue == "us"
-        assert {opt.value for opt in region.options} == {"us", "eu", "uk", "ca", "au", "wa"}
 
     def test_lists_tables_without_credentials(self):
         # get_schemas iterates a static endpoint catalog with no I/O, so the public docs catalog renders.
@@ -107,44 +81,3 @@ class TestLogzIOSource:
     )
     def test_non_retryable_errors_ignore_transient_and_unrelated(self, other_error: str):
         assert not any(key in other_error for key in self.source.get_non_retryable_errors())
-
-    @mock.patch(f"{SOURCE}.validate_logz_io_credentials")
-    def test_validate_credentials_plumbs_arguments(self, mock_validate: mock.MagicMock):
-        mock_validate.return_value = (True, None)
-        assert self.source.validate_credentials(self.config, self.team_id, "alerts") == (True, None)
-        mock_validate.assert_called_once_with("token", "us", "alerts")
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is LogzIOResumeConfig
-
-    @mock.patch(f"{SOURCE}.logz_io_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "search_logs"
-        inputs.should_use_incremental_field = True
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["api_token"] == "token"
-        assert kwargs["region"] == "us"
-        assert kwargs["endpoint"] == "search_logs"
-        assert kwargs["resumable_source_manager"] is manager
-
-    @mock.patch(f"{SOURCE}.logz_io_source")
-    def test_source_for_pipeline_omits_watermark_when_not_incremental(self, mock_source: mock.MagicMock):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "alerts"
-        inputs.should_use_incremental_field = False
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_keyed_by_endpoint(self):
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions).issubset(set(ENDPOINTS))
-        assert "search_logs" in descriptions

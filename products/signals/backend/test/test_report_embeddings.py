@@ -18,6 +18,7 @@ from products.signals.backend.report_embeddings import (
     emit_report_tombstone,
     render_report_document,
 )
+from products.signals.backend.scout_report.persistence import update_scout_report
 
 EMBED_PATH = "products.signals.backend.receivers.emit_report_embedding"
 TOMBSTONE_PATH = "products.signals.backend.receivers.emit_report_tombstone"
@@ -339,6 +340,52 @@ class TestReportEmbeddingReceiver(BaseTest):
             report.save(update_fields=["title", "updated_at"])
         assert self.embed.call_count == 0
         assert self.tombstone.call_count == 1
+
+    def test_reviewed_edit_re_embeds_instead_of_retracting(self) -> None:
+        # The scout edit tool runs the safety judge over the full title+summary rewrite before writing
+        # (`edit_report` → `update_scout_report(reviewed=True)`), so its save must re-index the judged
+        # text — tombstoning it would retract every judged scout edit from the dedupe index.
+        with self.captureOnCommitCallbacks(execute=True):
+            report = self._create_report(title=REPORT_TITLE, summary=REPORT_SUMMARY)
+        self.embed.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            update_scout_report(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                title="Checkout errors on mobile",
+                summary="Rate tripled on iOS",
+                reviewed=True,
+            )
+        assert self.tombstone.call_count == 0
+        assert self.embed.call_count == 1
+        assert self.embed.call_args.kwargs["content"] == "Checkout errors on mobile\n\nRate tripled on iOS"
+
+    def test_reviewed_no_op_rewrite_restores_a_tombstoned_embedding(self) -> None:
+        # An unreviewed edit tombstoned the embedding while Postgres kept the text. Re-sending that
+        # exact document through the judged edit path is the recovery route: nothing changes in
+        # Postgres, but the marked save must re-index instead of being skipped as a no-op rewrite.
+        with self.captureOnCommitCallbacks(execute=True):
+            report = self._create_report(title=REPORT_TITLE, summary=REPORT_SUMMARY)
+        with self.captureOnCommitCallbacks(execute=True):
+            report._unreviewed_edit = True  # type: ignore[attr-defined]
+            report.save(update_fields=["title", "updated_at"])
+        assert self.tombstone.call_count == 1
+        self.embed.reset_mock()
+        report.refresh_from_db()
+        updated_at_before = report.updated_at
+        with self.captureOnCommitCallbacks(execute=True):
+            update_scout_report(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                title=REPORT_TITLE,
+                summary=REPORT_SUMMARY,
+                reviewed=True,
+            )
+        assert self.embed.call_count == 1
+        assert self.embed.call_args.kwargs["content"] == REPORT_DOCUMENT
+        # Nothing changed, so the report must not jump the inbox's recency ordering.
+        report.refresh_from_db()
+        assert report.updated_at == updated_at_before
 
     @parameterized.expand([("no_verdicts", []), ("cascading_verdicts", [False, True])])
     def test_hard_deleting_a_report_retracts_it_exactly_once(self, _name: str, verdicts: list[bool]) -> None:

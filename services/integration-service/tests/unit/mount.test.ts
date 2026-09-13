@@ -75,14 +75,14 @@ describe('reading the mount', () => {
     it.each([
         ['steady with no fallback sibling', { HUBSPOT_APP_CLIENT_SECRET: 'sec' }, { state: 'steady', value: 'sec' }],
         [
-            'rotating when the sibling holds the outgoing value',
-            { HUBSPOT_APP_CLIENT_SECRET: 'new', HUBSPOT_APP_CLIENT_SECRET_FALLBACKS: 'old' },
-            { state: 'rotating', value: 'new', previous: 'old' },
+            'rotating when the sibling holds a staged replacement',
+            { HUBSPOT_APP_CLIENT_SECRET: 'live', HUBSPOT_APP_CLIENT_SECRET_FALLBACKS: 'staged' },
+            { state: 'rotating', value: 'live', incoming: 'staged' },
         ],
         [
             'the newest entry when the fallback list holds several',
-            { HUBSPOT_APP_CLIENT_SECRET: 'new', HUBSPOT_APP_CLIENT_SECRET_FALLBACKS: 'old, older' },
-            { state: 'rotating', previous: 'old' },
+            { HUBSPOT_APP_CLIENT_SECRET: 'live', HUBSPOT_APP_CLIENT_SECRET_FALLBACKS: 'staged, older' },
+            { state: 'rotating', incoming: 'staged' },
         ],
         [
             'steady when the fallback repeats the current value',

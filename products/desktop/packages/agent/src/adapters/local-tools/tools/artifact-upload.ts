@@ -8,7 +8,7 @@ import type {
 export const MAX_ARTIFACT_UPLOAD_BYTES = 30 * 1024 * 1024;
 // The inline fallback base64-encodes the file into a JSON body, so it is held to a lower
 // ceiling than a direct-to-storage POST to stay under the API's request size limit.
-export const MAX_INLINE_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_INLINE_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 export interface ArtifactUpload {
   name: string;

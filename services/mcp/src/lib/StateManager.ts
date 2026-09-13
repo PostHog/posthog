@@ -400,6 +400,31 @@ export class StateManager {
     }
 
     /**
+     * Integration kinds (github, slack, ...) connected in the project, for the
+     * environment prompt. Returns undefined when the key lacks `integration:read`
+     * so the prompt renders nothing rather than a false "none connected".
+     */
+    async getOrFetchIntegrationKinds(projectId: string): Promise<string[] | undefined> {
+        const apiKey = await this.getApiKey()
+        if (!hasScope(apiKey.scopes, 'integration:read')) {
+            return undefined
+        }
+        return this.getOrFetchCached({
+            name: 'integration_kinds',
+            cacheKey: `integrationKinds:${projectId}` as const,
+            fetchedAtKey: `integrationKindsFetchedAt:${projectId}` as const,
+            fetcher: async () => {
+                const result = await this._api.request<Schemas.PaginatedIntegrationConfigList>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(projectId)}/integrations/`,
+                    query: { limit: 100 },
+                })
+                return [...new Set((result.results ?? []).map((integration) => String(integration.kind)))].sort()
+            },
+        })
+    }
+
+    /**
      * The third-party MCP tools this user can reach, from the gateway.
      *
      * Shorter TTL than the other cached entities: connecting a server is a deliberate
@@ -416,13 +441,21 @@ export class StateManager {
         })
     }
 
-    async getEnvironmentPrompt(): Promise<string | undefined> {
+    async getEnvironmentPrompt(opts?: { includeProductContext?: boolean }): Promise<string | undefined> {
+        const includeProductContext = opts?.includeProductContext !== false
         const [user, org, project] = await Promise.all([
             this.getCachedOrFetchUser().catch(() => undefined),
             this.getCachedOrFetchOrg().catch(() => undefined),
             this.getCachedOrFetchProject().catch(() => undefined),
         ])
-        return buildActiveEnvironmentContextPrompt(user, org, project, this._api.publicBaseUrl)
+        const integrationKinds =
+            includeProductContext && project
+                ? await this.getOrFetchIntegrationKinds(String(project.id)).catch(() => undefined)
+                : undefined
+        return buildActiveEnvironmentContextPrompt(user, org, project, this._api.publicBaseUrl, {
+            integrationKinds,
+            includeProductContext,
+        })
     }
 
     /**

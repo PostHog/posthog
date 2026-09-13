@@ -108,6 +108,61 @@ def _session_returning(responses: list[requests.Response]):
     return type("_S", (), {"post": staticmethod(lambda *a, **k: next(it))})()
 
 
+def _session_with_side_effects(items: list):
+    # Each item is either a Response to return or an Exception to raise, in order.
+    it = iter(items)
+
+    def _post(*a, **k):
+        item = next(it)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    return type("_S", (), {"post": staticmethod(_post)})()
+
+
+def test_refresh_retries_transient_transport_error_then_succeeds():
+    # PostHog's egress proxy can return a transient 502 on CONNECT, surfaced as a requests
+    # ProxyError before any token is minted; retrying should recover instead of failing the sync.
+    items = [
+        requests.exceptions.ProxyError("Cannot connect to proxy"),
+        requests.exceptions.ProxyError("Cannot connect to proxy"),
+        _token_response(200, {"access_token": "fresh-token"}),
+    ]
+
+    with (
+        unittest.mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
+            return_value=_session_with_side_effects(items),
+        ),
+        unittest.mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.time.sleep"
+        ) as mock_sleep,
+    ):
+        token = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")
+
+    assert token == "fresh-token"
+    assert mock_sleep.call_count == 2
+
+
+def test_refresh_raises_transport_error_after_exhausting_retries():
+    items = [requests.exceptions.ProxyError("Cannot connect to proxy") for _ in range(auth._MAX_TOKEN_REFRESH_ATTEMPTS)]
+
+    with (
+        unittest.mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
+            return_value=_session_with_side_effects(items),
+        ),
+        unittest.mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.time.sleep"
+        ) as mock_sleep,
+        pytest.raises(requests.exceptions.ProxyError),
+    ):
+        _ = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")
+
+    assert mock_sleep.call_count == auth._MAX_TOKEN_REFRESH_ATTEMPTS - 1
+
+
 def test_refresh_retries_transient_token_request_then_succeeds():
     # Salesforce locks concurrent token requests with a 400 "token request is already being
     # processed"; the lock clears, so a retry should recover instead of failing the sync.

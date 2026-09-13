@@ -7,6 +7,7 @@ import { beforeUnload, router } from 'kea-router'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -17,6 +18,7 @@ import {
     BatchExportConfigurationTest,
     BatchExportConfigurationTestStep,
     BatchExportService,
+    IntegrationType,
 } from '~/types'
 
 import { batchExportDataLogic } from './batchExportDataLogic'
@@ -118,6 +120,10 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
     return config
 }
 
+// $feature_flag_called is high volume and is being deprecated from the events table, so new exports
+// leave it out by default. It shows up prefilled under "Exclude events" and can be removed there.
+export const DEFAULT_EXCLUDE_EVENTS = ['$feature_flag_called']
+
 export function getDefaultConfiguration(service: string): Record<string, any> {
     const definition = DESTINATIONS[service as BatchExportService['type']]
     return {
@@ -125,6 +131,7 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
         destination: service,
         model: 'events',
         paused: true,
+        exclude_events: [...DEFAULT_EXCLUDE_EVENTS],
         ...(definition ? definition.defaults() : {}),
     }
 }
@@ -535,6 +542,7 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
 export interface batchExportConfigFormLogicValues {
     batchExportConfig: BatchExportConfiguration | null // batchExportDataLogic
     batchExportConfigLoading: boolean // batchExportDataLogic
+    integrations: IntegrationType[] | null // integrationsLogic
     teamTimezone: string // teamLogic
     teamWeekStartDay: number // teamLogic
     batchExportConfigTest: BatchExportConfigurationTest | null
@@ -559,6 +567,7 @@ export interface batchExportConfigFormLogicValues {
     requiredFields: string[]
     runningStep: number | null
     savedConfiguration: Record<string, any>
+    selectedIntegration: IntegrationType | null
     selectedModel: string
     service:
         | 'AwsS3'
@@ -568,7 +577,6 @@ export interface batchExportConfigFormLogicValues {
         | 'HTTP'
         | 'Postgres'
         | 'Redshift'
-        | 'S3'
         | 'S3Compatible'
         | 'Snowflake'
         | null
@@ -700,7 +708,6 @@ export interface batchExportConfigFormLogicMeta {
                 | 'HTTP'
                 | 'Postgres'
                 | 'Redshift'
-                | 'S3'
                 | 'S3Compatible'
                 | 'Snowflake'
                 | null
@@ -712,7 +719,6 @@ export interface batchExportConfigFormLogicMeta {
             | 'HTTP'
             | 'Postgres'
             | 'Redshift'
-            | 'S3'
             | 'S3Compatible'
             | 'Snowflake'
             | null
@@ -727,11 +733,14 @@ export interface batchExportConfigFormLogicMeta {
                 | 'HTTP'
                 | 'Postgres'
                 | 'Redshift'
-                | 'S3'
                 | 'S3Compatible'
                 | 'Snowflake'
                 | null
         ) => boolean
+        selectedIntegration: (
+            integrations: IntegrationType[] | null,
+            configuration: Record<string, any>
+        ) => IntegrationType | null
         requiredFields: (
             service:
                 | 'AwsS3'
@@ -741,12 +750,12 @@ export interface batchExportConfigFormLogicMeta {
                 | 'HTTP'
                 | 'Postgres'
                 | 'Redshift'
-                | 'S3'
                 | 'S3Compatible'
                 | 'Snowflake'
                 | null,
             isNew: boolean,
-            configuration: Record<string, any>
+            configuration: Record<string, any>,
+            selectedIntegration: IntegrationType | null
         ) => string[]
     }
 }
@@ -778,6 +787,8 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             ['timezone as teamTimezone', 'weekStartDay as teamWeekStartDay'],
             batchExportDataLogic({ id: props.id }),
             ['batchExportConfig', 'batchExportConfigLoading'],
+            integrationsLogic,
+            ['integrations'],
         ],
         actions: [
             batchExportDataLogic({ id: props.id }),
@@ -956,7 +967,6 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     | 'HTTP'
                     | 'Postgres'
                     | 'Redshift'
-                    | 'S3'
                     | 'S3Compatible'
                     | 'Snowflake'
                     | null
@@ -979,15 +989,22 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     | 'HTTP'
                     | 'Postgres'
                     | 'Redshift'
-                    | 'S3'
                     | 'S3Compatible'
                     | 'Snowflake'
                     | null
             ): boolean =>
                 !!service && ['Postgres', 'Redshift', 'Snowflake', 'Databricks', 'BigQuery'].includes(service),
         ],
+        // The Integration picked in the form, for destinations whose required fields depend on what
+        // the Integration itself stores (a plain Redshift connection carries its own host, an AWS
+        // one does not).
+        selectedIntegration: [
+            (s) => [s.integrations, s.configuration],
+            (integrations: IntegrationType[] | null, config: Record<string, any>): IntegrationType | null =>
+                integrations?.find((integration) => integration.id === config.integration_id) ?? null,
+        ],
         requiredFields: [
-            (s) => [s.service, s.isNew, s.configuration],
+            (s) => [s.service, s.isNew, s.configuration, s.selectedIntegration],
             (
                 service:
                     | 'AwsS3'
@@ -997,12 +1014,12 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     | 'HTTP'
                     | 'Postgres'
                     | 'Redshift'
-                    | 'S3'
                     | 'S3Compatible'
                     | 'Snowflake'
                     | null,
                 isNew: boolean,
-                config: Record<string, any>
+                config: Record<string, any>,
+                selectedIntegration: IntegrationType | null
             ): string[] => {
                 const generalRequiredFields = ['interval', 'name', 'model']
                 if (!service) {
@@ -1012,7 +1029,10 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 if (!definition) {
                     return generalRequiredFields
                 }
-                return [...generalRequiredFields, ...definition.requiredFields({ isNew, formValues: config })]
+                return [
+                    ...generalRequiredFields,
+                    ...definition.requiredFields({ isNew, formValues: config, selectedIntegration }),
+                ]
             },
         ],
     })),
@@ -1031,28 +1051,34 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 destination: buildDestinationPayload(formdata) as any,
             } as any
 
-            if (props.id) {
-                const res = await api.batchExports.update(props.id, data)
-                lemonToast.success('Batch export configuration updated successfully')
+            try {
+                if (props.id) {
+                    const res = await api.batchExports.update(props.id, data)
+                    lemonToast.success('Batch export configuration updated successfully')
+                    void addProductIntent({
+                        product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
+                        intent_context: ProductIntentContext.BATCH_EXPORT_UPDATED,
+                    })
+                    actions.setBatchExportConfig(res)
+                    actions.updateBatchExportConfigSuccess(res)
+                    return
+                }
+                const res = await api.batchExports.create(data)
+                actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
+
                 void addProductIntent({
                     product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
-                    intent_context: ProductIntentContext.BATCH_EXPORT_UPDATED,
+                    intent_context: ProductIntentContext.BATCH_EXPORT_CREATED,
                 })
-                actions.setBatchExportConfig(res)
+
+                router.actions.replace(urls.batchExport(res.id))
+                lemonToast.success('Batch export created successfully')
                 actions.updateBatchExportConfigSuccess(res)
-                return
+            } catch (error: any) {
+                // Not rethrown, matching `deleteBatchExport` below: the unsaved values stay on the
+                // form either way, and a rejecting listener escapes kea as an unhandled rejection.
+                lemonToast.error(error.detail || error.message || 'Could not save the batch export. Try again.')
             }
-            const res = await api.batchExports.create(data)
-            actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
-
-            void addProductIntent({
-                product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
-                intent_context: ProductIntentContext.BATCH_EXPORT_CREATED,
-            })
-
-            router.actions.replace(urls.batchExport(res.id))
-            lemonToast.success('Batch export created successfully')
-            actions.updateBatchExportConfigSuccess(res)
         },
         updateBatchExportConfigSuccess: ({ batchExportConfig }) => {
             if (!batchExportConfig) {

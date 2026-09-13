@@ -17,6 +17,7 @@ from posthog.schema import ExperimentQuery
 from posthog.clickhouse.client.connection import Workload
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
 from products.experiments.backend.models.experiment import ExperimentMetricResult, ExperimentTimeseriesRecalculation
 from products.experiments.backend.temporal.metric_resolution import build_metric
 
@@ -101,7 +102,7 @@ def backfill_experiment_timeseries(recalculation_id: str, *, backfill_until: dat
                     "fingerprint": fingerprint,
                     "query_from": experiment.start_date,
                     "status": ExperimentMetricResult.Status.COMPLETED,
-                    "result": result.model_dump(),
+                    "result": sanitize_non_finite(result.model_dump()),
                     "query_id": None,
                     "completed_at": datetime.now(ZoneInfo("UTC")),
                     "error_message": None,

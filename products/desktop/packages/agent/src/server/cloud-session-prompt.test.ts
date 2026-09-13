@@ -1,3 +1,4 @@
+import { PRODUCT_ENGINEER_PROMPT } from "@posthog/shared/product-engineer-prompt";
 import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
 import { describe, expect, it } from "vitest";
 import { buildCloudSessionSystemPrompt } from "./agent-server";
@@ -14,13 +15,17 @@ describe("buildCloudSessionSystemPrompt", () => {
         append: "Use the canvas tools.",
       },
     ],
-  ])("includes rich-output instructions for %s", (_name, userPrompt) => {
+  ])("includes shared guidance for %s", (_name, userPrompt) => {
     const prompt = buildCloudSessionSystemPrompt(
       "Cloud task instructions.",
       userPrompt,
     );
     const text = typeof prompt === "string" ? prompt : prompt.append;
 
+    expect(text).toContain(PRODUCT_ENGINEER_PROMPT);
     expect(text).toContain(RICH_OUTPUT_TAGS_PROMPT);
+    expect(text.indexOf(PRODUCT_ENGINEER_PROMPT)).toBeLessThan(
+      text.indexOf("Cloud task instructions."),
+    );
   });
 });

@@ -95,14 +95,6 @@
                         "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
                     },
                     {
-                        "name": "chart.js",
-                        "message": "Do not directly import chart.js. Only import the Chart and friends exported from 'lib/Chart'."
-                    },
-                    {
-                        "name": "chart.js/auto",
-                        "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from 'lib/Chart'."
-                    },
-                    {
                         "name": "~/queries/schema",
                         "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
                     },
@@ -210,6 +202,12 @@
             }
         },
         {
+            "files": ["services/mcp/src/generated/**/*.ts", "services/mcp/src/tools/generated/**/*.ts"],
+            "rules": {
+                "@typescript-eslint/explicit-function-return-type": "off"
+            }
+        },
+        {
             "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}"],
             "rules": {
                 "no-console": [
@@ -255,14 +253,6 @@
                             {
                                 "name": "dayjs",
                                 "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
-                            },
-                            {
-                                "name": "chart.js",
-                                "message": "Do not directly import chart.js. Only import the Chart and friends exported from 'lib/Chart'."
-                            },
-                            {
-                                "name": "chart.js/auto",
-                                "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from 'lib/Chart'."
                             },
                             {
                                 "name": "~/queries/schema",
@@ -315,14 +305,6 @@
                             {
                                 "name": "dayjs",
                                 "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
-                            },
-                            {
-                                "name": "chart.js",
-                                "message": "Do not directly import chart.js. Only import the Chart and friends exported from 'lib/Chart'."
-                            },
-                            {
-                                "name": "chart.js/auto",
-                                "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from 'lib/Chart'."
                             },
                             {
                                 "name": "~/queries/schema",

@@ -2,7 +2,7 @@
  *  Decoding a multi-megapixel PNG is tens of ms; the pipeline touches the source 4-5 times. */
 import sharp, { type Sharp } from 'sharp'
 
-import { LIMIT_INPUT_PIXELS } from './blur.ts'
+import { inspectImage, sharpForImage } from './image-input.ts'
 import { type Dims, limitsFromEnv, planScales } from './scale-plan.ts'
 
 export interface Src {
@@ -16,11 +16,8 @@ export interface Src {
 
 /** Source dimensions from the header alone, so the plan can be made before any pixel is decoded. */
 export async function probeDims(input: Buffer): Promise<Dims> {
-    const meta = await sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS }).metadata()
-    if (!meta.width || !meta.height) {
-        throw new Error('image has invalid dimensions')
-    }
-    return { width: meta.width, height: meta.height }
+    const description = await inspectImage(input)
+    return { width: description.width, height: description.height }
 }
 
 /**
@@ -31,17 +28,14 @@ export async function probeDims(input: Buffer): Promise<Dims> {
  * modules that happen to apply it.
  */
 export async function decodeSrc(input: Buffer, frame?: Dims): Promise<Src> {
-    const meta = await sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS }).metadata()
-    if (!meta.width || !meta.height) {
-        throw new Error('image has invalid dimensions')
-    }
-    const target = frame ?? planScales({ width: meta.width, height: meta.height }, limitsFromEnv()).frame
+    const description = await inspectImage(input)
+    const target = frame ?? planScales(description, limitsFromEnv()).frame
     const targetW = target.width
     const targetH = target.height
     // flatten, NOT removeAlpha: removeAlpha discards the alpha channel but keeps the RGB underneath,
     // so content hidden under fully transparent pixels (invisible in the replay) would surface in
     // the scrubbed output. Flatten composites over a background, destroying hidden RGB.
-    const { data, info } = await sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS })
+    const { data, info } = await sharpForImage(input)
         .resize(targetW, targetH, { fit: 'fill' })
         .flatten({ background: '#fff' })
         .raw()
@@ -50,8 +44,8 @@ export async function decodeSrc(input: Buffer, frame?: Dims): Promise<Src> {
         data,
         W: info.width,
         H: info.height,
-        format: meta.format ?? 'unknown',
-        inputPixels: meta.width * meta.height,
+        format: description.format,
+        inputPixels: description.width * description.height,
     }
 }
 

@@ -2,11 +2,12 @@
 needs to drive cells — which cells exist, what each depends on, and which are stale.
 
 Staleness is derived, not stored: a cell is stale when re-running it now would execute
-different code than its last completed run. For SQL cells that comparison uses the
-CTE-resolved code (upstream definitions inline into the stored run code, so an upstream
-edit changes the resolution); for Python cells it falls back to raw-code drift plus
-upstream run recency (python runs materialize inputs by run, but the run row does not
-record which input runs were used).
+different code than its last completed run. For a SQL cell that last ran on ClickHouse the
+comparison uses the variable-bound, CTE-resolved code (notebook variables and upstream
+definitions inline into the stored run code, so a changed value or an upstream edit changes
+the resolution). A SQL cell that last ran on the sandbox's DuckDB, and a Python cell, fall
+back to code drift plus upstream run recency: both materialize inputs by run, and neither
+run row records which input runs or variable values it used.
 """
 
 import re
@@ -16,9 +17,16 @@ from typing import Any
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
 from products.notebooks.backend.models import NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals
 from products.notebooks.backend.sql_v2_references import _TableReferenceCollector, resolve_sql_v2_references
+from products.notebooks.backend.sql_v2_variables import (
+    NotebookVariable,
+    build_notebook_variables,
+    substitute_duckdb_variables,
+    substitute_hogql_variables,
+)
 from products.notebooks.backend.util import (
     _get_markdown_notebook_markdown,
     _iter_markdown_component_blocks,
@@ -26,6 +34,14 @@ from products.notebooks.backend.util import (
 )
 
 _CELL_TAGS = {"SQLV2": "sql", "PythonV2": "python", "Query": "saved_insight"}
+
+# The most cells one notebook may hold. A cell is the expensive unit: a SQL or Python cell is a
+# ClickHouse query or a sandbox execution, and the MCP tools let an agent add one and run it in
+# the same call, in a loop, with nothing between it and storage. Counted the way `extract_cells`
+# counts, so this ceiling and what the API reports as a cell are the same number.
+MAX_NOTEBOOK_CELLS = 50
+
+__all__ = ["NotebookCellLimitExceeded"]
 _DATAFRAME_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _CODE_PREVIEW_CHARS = 8_000
 
@@ -66,6 +82,22 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
             )
         )
     return cells
+
+
+def validate_cell_count(previous_content: Any, next_content: Any) -> None:
+    """Refuse a save that grows a notebook past the cell ceiling.
+
+    Only growth is refused. A notebook already over the ceiling — written before this existed,
+    or by a path that predates it — stays editable, so its owner can delete cells down instead
+    of finding every save rejected. A save that leaves the count unchanged always passes.
+    """
+    next_count = len(extract_cells(next_content))
+    if next_count <= MAX_NOTEBOOK_CELLS or next_count <= len(extract_cells(previous_content)):
+        return
+    raise NotebookCellLimitExceeded(
+        f"This notebook is at its limit of {MAX_NOTEBOOK_CELLS} cells. "
+        "Delete a cell before adding another, or start a new notebook for the next step."
+    )
 
 
 def _referenced_names(cell: NotebookCellState, candidates: set[str]) -> set[str]:
@@ -112,8 +144,9 @@ def _is_stale(
     latest_run: NotebookNodeRun,
     cells_by_node: dict[str, NotebookCellState],
     latest_done_by_node: dict[str, NotebookNodeRun],
+    variables: list[NotebookVariable],
 ) -> bool:
-    if cell.cell_type == "sql":
+    if cell.cell_type == "sql" and latest_run.node_type != NotebookNodeRun.NodeType.DUCKDB:
         refs: dict[str, str | None] = {}
         for upstream_id in cell.depends_on:
             upstream = cells_by_node[upstream_id]
@@ -122,13 +155,26 @@ def _is_stale(
                 upstream_run.code if upstream_run is not None and upstream.cell_type == "sql" else None
             )
         try:
-            return resolve_sql_v2_references(cell.code, refs) != latest_run.code
+            # Same order as dispatch (resolve_sql_node_run): variables bind before the CTE
+            # merge, so a changed variable value changes the resolution and marks the cell
+            # stale, while an unchanged one compares equal to the stored run code.
+            return resolve_sql_v2_references(substitute_hogql_variables(cell.code, variables), refs) != latest_run.code
         except Exception:
             # No resolvable definition for a referenced upstream (never ran, renamed,
-            # deleted): whatever produced the last result no longer reflects the
-            # document, which is exactly what stale means.
+            # deleted) or a variable the notebook no longer declares: whatever produced
+            # the last result no longer reflects the document, which is exactly what
+            # stale means.
             return True
-    if cell.code.strip() != latest_run.code.strip():
+    if cell.cell_type == "sql":
+        # A DuckDB run stores the code with `{name}` rewritten to `$name` parameters and the
+        # local frames left as table names, so that rewrite is the comparable form.
+        try:
+            code = substitute_duckdb_variables(cell.code, variables)[0]
+        except Exception:
+            return True
+    else:
+        code = cell.code
+    if code.strip() != latest_run.code.strip():
         return True
     for upstream_id in cell.depends_on:
         upstream_run = latest_done_by_node.get(upstream_id)
@@ -155,6 +201,7 @@ def annotate_run_state(cells: list[NotebookCellState], team_id: int, notebook: A
             latest_done_by_node[run.node_id] = run
 
     cells_by_node = {cell.node_id: cell for cell in cells}
+    variables = build_notebook_variables(notebook.variables or [])
     for cell in cells:
         if cell.cell_type not in ("sql", "python"):
             continue
@@ -174,7 +221,7 @@ def annotate_run_state(cells: list[NotebookCellState], team_id: int, notebook: A
         if latest.status == NotebookNodeRun.Status.RUNNING:
             cell.status = "running"
         elif latest.status == NotebookNodeRun.Status.DONE and _is_stale(
-            cell, latest, cells_by_node, latest_done_by_node
+            cell, latest, cells_by_node, latest_done_by_node, variables
         ):
             cell.status = "stale"
         else:

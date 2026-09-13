@@ -28,16 +28,21 @@ class OrganizationDomainAdmin(admin.ModelAdmin):
         "verification_challenge",
         "last_verification_retry",
         # Legacy, frozen columns — edit SAML settings via IdentityProviderConfigAdmin instead.
+        "_identity_provider_config",
         "_saml_entity_id",
         "_saml_acs_url",
         "_saml_x509_cert",
+        "_scim_enabled",
+        "_scim_bearer_token",
+        "_id_jag_issuer_url",
+        "_id_jag_jwks_url",
+        "_id_jag_allowed_clients",
     )
-    autocomplete_fields = ["organization", "identity_provider_config"]
+    autocomplete_fields = ["organization"]
     fieldsets = (
-        (None, {"fields": ("id", "organization", "domain", "identity_provider_config")}),
+        (None, {"fields": ("id", "organization", "domain", "_identity_provider_config")}),
         ("Verification", {"fields": ("verification_challenge", "verified_at", "last_verification_retry")}),
         ("Access Control", {"fields": ("jit_provisioning_enabled", "sso_enforcement")}),
-        ("SAML Configuration", {"fields": ("_saml_entity_id", "_saml_acs_url", "_saml_x509_cert")}),
     )
     list_display_links = ("domain",)
     ordering = ("domain",)
@@ -53,6 +58,6 @@ class OrganizationDomainAdmin(admin.ModelAdmin):
     @admin.display(description="SAML Status")
     def saml_status(self, obj):
         """Display SAML configuration status"""
-        if obj.has_saml:
+        if obj.saml_identity_provider_configs.exists():
             return format_html('<span style="color: green;">✓ Configured</span>')
         return format_html('<span style="color: gray;">Not Configured</span>')

@@ -272,7 +272,7 @@ fn snappy_round_trip_decodes_and_maps() {
     req.encode(&mut encoded).unwrap();
     let compressed = snap::raw::Encoder::new().compress_vec(&encoded).unwrap();
 
-    let decoded =
+    let (decoded, _) =
         decode_write_request(&compressed, MAX_DECOMPRESSED).expect("snappy+protobuf decode");
     let (rows, _) = write_request_to_kafka_rows(decoded);
 
@@ -311,6 +311,41 @@ fn rejects_decompression_bomb_before_allocating() {
     // The same payload passes with an adequate cap, so the rejection above is
     // the cap and not a decode failure.
     assert!(decode_write_request(&compressed, encoded.len()).is_ok());
+}
+
+/// Quota and rate limiting charge the payload size the handler reports. This
+/// route bypasses `RequestDecompressionLayer`, so that size has to come from the
+/// decoder: reporting the request body length charges the snappy-compressed
+/// size, while the OTLP and logs paths charge the decompressed size.
+#[test]
+fn reports_decompressed_payload_size() {
+    let req = WriteRequest {
+        timeseries: vec![series(
+            vec![label("__name__", "up"), label("job", "prometheus")],
+            (0..200)
+                .map(|i| Sample {
+                    value: 1.0,
+                    timestamp: now_ms() + i,
+                })
+                .collect(),
+        )],
+        metadata: vec![],
+    };
+    let mut encoded = Vec::new();
+    req.encode(&mut encoded).unwrap();
+    let compressed = snap::raw::Encoder::new().compress_vec(&encoded).unwrap();
+
+    let (_, uncompressed_bytes) =
+        decode_write_request(&compressed, MAX_DECOMPRESSED).expect("snappy+protobuf decode");
+
+    assert_eq!(uncompressed_bytes, encoded.len() as u64);
+    // Keeps the assertion above from passing vacuously: a payload that did not
+    // compress would satisfy it whichever size the decoder reported.
+    assert!(
+        uncompressed_bytes > compressed.len() as u64,
+        "fixture did not compress: {uncompressed_bytes} decompressed vs {} compressed",
+        compressed.len()
+    );
 }
 
 /// The prometheus route is deliberately kept off `RequestDecompressionLayer`, so

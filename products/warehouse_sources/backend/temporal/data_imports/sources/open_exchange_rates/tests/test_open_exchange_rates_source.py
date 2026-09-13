@@ -1,25 +1,13 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openexchangerates import (
     OpenExchangeRatesSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates import (
-    OpenExchangeRatesResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.source import (
     OpenExchangeRatesSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOpenExchangeRatesSource:
@@ -27,33 +15,6 @@ class TestOpenExchangeRatesSource:
         self.source = OpenExchangeRatesSource()
         self.team_id = 123
         self.config = OpenExchangeRatesSourceConfig(app_id="oxr-test", base_currency="USD", start_date=None)
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.OPENEXCHANGERATES
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "OpenExchangeRates"
-        assert config.label == "Open Exchange Rates"
-        assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/open-exchange-rates"
-        assert [f.name for f in config.fields] == ["app_id", "base_currency", "start_date"]
-
-    def test_app_id_field_is_secret_password(self) -> None:
-        field = next(f for f in self.source.get_source_config.fields if f.name == "app_id")
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
-    @pytest.mark.parametrize("field_name", ["base_currency", "start_date"])
-    def test_optional_fields_are_not_required(self, field_name: str) -> None:
-        field = next(f for f in self.source.get_source_config.fields if f.name == field_name)
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.required is False
-        assert field.secret is False
 
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — safe to surface in public docs.
@@ -130,11 +91,6 @@ class TestOpenExchangeRatesSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("oxr-test")
 
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is OpenExchangeRatesResumeConfig
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.source.open_exchange_rates_source"
     )
@@ -169,8 +125,3 @@ class TestOpenExchangeRatesSource:
 
         # A non-incremental sync must not pass a stale watermark down to the transport.
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_cover_all_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions) == set(ENDPOINTS)
-        assert "rate" in descriptions["historical"]["columns"]

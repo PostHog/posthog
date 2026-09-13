@@ -1,4 +1,4 @@
-import { cn } from "@posthog/quill";
+import { Button, cn } from "@posthog/quill";
 import type { FeedQueryKeyChip } from "@posthog/ui/features/command/useFeedQueryCommands";
 import { useState } from "react";
 
@@ -18,49 +18,40 @@ export function PaletteFilterChips({
   return (
     <div
       className={cn(
-        "flex gap-1.5 border-(--gray-a4) border-b px-3 py-1.5",
+        "flex gap-0.5 border-border border-b px-2.5 py-1",
         open ? "flex-wrap items-start" : "items-center",
       )}
     >
-      <span className="shrink-0 select-none py-1 text-(--gray-9) text-[11px]">
+      <span className="shrink-0 select-none px-1 py-0.5 text-[11px] text-subtle-foreground">
         Filter by
       </span>
       {visible.map((chip) => (
-        <button
+        <Button
           key={chip.label}
-          type="button"
-          className={cn(
-            "flex h-[22px] shrink-0 items-center rounded-md border border-(--gray-a6) bg-(--gray-a2) px-2",
-            "text-[11.5px]",
-            "hover:border-(--gray-a8) hover:bg-(--gray-a4)",
-            "focus-visible:-outline-offset-1 focus-visible:outline focus-visible:outline-(--focus-8) focus-visible:outline-2",
-          )}
+          size="xs"
+          className="shrink-0 gap-1.5 font-normal"
           onMouseDown={(e) => e.preventDefault()}
           onClick={chip.apply}
         >
-          <span className="flex items-baseline gap-1.5 leading-none">
-            <span className="font-mono text-(--blue-11) text-[11px]">
-              {chip.label}
-            </span>
-            {open && chip.hint && (
-              <span className="text-(--gray-9)">{chip.hint}</span>
-            )}
+          <span className="font-mono text-[11px] text-muted-foreground">
+            {chip.label}
           </span>
-        </button>
+          {open && chip.hint && (
+            <span className="text-[11px] text-subtle-foreground">
+              {chip.hint}
+            </span>
+          )}
+        </Button>
       ))}
       {overflow > 0 && (
-        <button
-          type="button"
-          className={cn(
-            "h-[22px] shrink-0 rounded-md px-2 text-(--gray-11) text-[11.5px] leading-none",
-            "hover:bg-(--gray-a3) hover:text-(--gray-12)",
-            "focus-visible:-outline-offset-1 focus-visible:outline focus-visible:outline-(--focus-8) focus-visible:outline-2",
-          )}
+        <Button
+          size="xs"
+          className="shrink-0 font-normal text-[11px] text-subtle-foreground"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => setExpanded((value) => !value)}
         >
           {expanded ? "Show fewer" : `${overflow} more`}
-        </button>
+        </Button>
       )}
     </div>
   );

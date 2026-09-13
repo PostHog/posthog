@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, TypedDict
 
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
 import structlog
@@ -9,6 +10,7 @@ from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
 from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
 from products.data_modeling.backend.models.dag import DAG, REVENUE_ANALYTICS_DAG_NAME
@@ -158,6 +160,33 @@ class ManagedDAGError(Exception):
     pass
 
 
+def _rollback_created_node(node: Node, created: bool) -> None:
+    """Undo a Node this call just created, if it's still safe to do so.
+
+    Only ever deletes a node this call created via get_or_create — a node that already
+    existed (and so may be shared by other views) is never touched here, no matter how
+    the rest of the sync fails. Also refuses to delete a node that gained a dependent
+    while we were still resolving the query, mirroring the guard
+    datawarehouse_managed_viewset.py applies before dropping a stale node. A concurrent
+    sync can still attach that dependent between our check and the DELETE, so the check
+    and delete run under a row lock, and a resulting IntegrityError is treated as "someone
+    else has claimed this node" rather than allowed to abort the whole sync.
+    """
+    if not created:
+        return
+    try:
+        with transaction.atomic():
+            locked = Node.objects.select_for_update().filter(pk=node.pk).first()
+            if locked is not None and not locked.outgoing_edges.exists():
+                locked.delete()
+    except IntegrityError:
+        logger.warning(
+            "Skipped rollback delete of DAG node claimed by a concurrent sync",
+            node_id=str(node.pk),
+            team_id=node.team_id,
+        )
+
+
 def sync_saved_query_to_dag(
     saved_query: "DataWarehouseSavedQuery",
     extra_properties: dict | None = None,  # TODO(andrew): remove this after backfill
@@ -201,7 +230,7 @@ def sync_saved_query_to_dag(
 
     node_type = node_type_for(saved_query)
 
-    target, _ = Node.objects.get_or_create(
+    target, created = Node.objects.get_or_create(
         team=team,
         saved_query=saved_query,
         dag=dag,
@@ -213,7 +242,11 @@ def sync_saved_query_to_dag(
     # Internal DAG sync (no user); bypass warehouse HogQL access control so dependency resolution
     # sees every referenced table/view.
     if database is None:
-        database = Database.create_for(team=team, bypass_warehouse_access_control=True)
+        database = Database.create_for(
+            team=team,
+            bypass_warehouse_access_control=True,
+            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+        )
     # clear previous incoming edges, dependencies may have changed
     Edge.objects.filter(team=team, target=target).delete()
 
@@ -231,7 +264,7 @@ def sync_saved_query_to_dag(
                 properties=extra_properties,
             )
     except Exception:
-        target.delete()
+        _rollback_created_node(target, created)
         raise
 
     # resolution succeeded, so an edge-less adoption marker no longer describes this node

@@ -66,7 +66,7 @@ class PersonioSource(ResumableSource[PersonioSourceConfig, PersonioResumeConfig]
             label="Personio",
             caption="""Enter your Personio API credentials to pull your Personio HR data into the PostHog Data warehouse.
 
-An admin can create API credentials in Personio under Settings > Integrations > API credentials. Grant the read scopes for the datasets you want to sync (`personio:persons:read`, `personio:absences:read`, `personio:attendances:read`) and whitelist the employee attributes you need — attributes that aren't whitelisted are silently omitted from responses.""",
+An admin can create API credentials in Personio under Settings > Integrations > API credentials. Grant the read scopes for the datasets you want to sync (`personio:persons:read`, `personio:absences:read`, `personio:attendances:read`, `personio:salary-bands:read`, `personio:cost-centers:read`) and whitelist the employee attributes you need — attributes that aren't whitelisted are silently omitted from responses.""",
             iconPath="/static/services/personio.png",
             docsUrl="https://posthog.com/docs/cdp/sources/personio",
             releaseStatus=ReleaseStatus.ALPHA,

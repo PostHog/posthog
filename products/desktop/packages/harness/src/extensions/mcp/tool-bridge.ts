@@ -549,7 +549,12 @@ export class ToolBridge {
           timeoutMs,
           signal,
         );
-        return { content, details: {} };
+        return {
+          content,
+          details: {
+            posthog: { mcp: { server: serverName, tool: tool.name } },
+          },
+        };
       },
     });
     return description;

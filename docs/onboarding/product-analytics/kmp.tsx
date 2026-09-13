@@ -2,7 +2,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getKMPInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, Tab, dedent } = ctx
 
     return [
@@ -188,21 +188,27 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            badge: 'recommended',
-            content: (
-                <>
-                    <Markdown>
-                        Once installed, PostHog automatically captures app lifecycle events on Android and iOS. Send an
-                        event manually from shared code to test your integration:
-                    </Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'kotlin',
-                                file: 'Kotlin',
-                                code: dedent`
+    ]
+}
+
+export const getKMPEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
+    return {
+        title: 'Send events',
+        badge: 'recommended',
+        content: (
+            <>
+                <Markdown>
+                    Once installed, PostHog automatically captures app lifecycle events on Android and iOS. Send an
+                    event manually from shared code to test your integration:
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'kotlin',
+                            file: 'Kotlin',
+                            code: dedent`
                                     import com.posthog.kmp.PostHog
 
                                     PostHog.capture(
@@ -212,13 +218,17 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                         )
                                     )
                                 `,
-                            },
-                        ]}
-                    />
-                </>
-            ),
-        },
-    ]
+                        },
+                    ]}
+                />
+            </>
+        ),
+    }
 }
+
+export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getKMPInstallSteps(ctx),
+    getKMPEventStep(ctx),
+]
 
 export const KMPInstallation = createInstallation(getKMPSteps)

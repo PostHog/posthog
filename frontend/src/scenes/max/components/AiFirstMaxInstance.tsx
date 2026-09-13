@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
 
+import { DebugLogsMenu } from 'products/posthog_ai/frontend/api/primitives'
 import { EmbeddedRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import { Intro } from '../Intro'
@@ -29,11 +30,14 @@ export function ChatHeader({
     tabId,
     children,
     hideBorder,
+    isSandboxRuntime,
 }: {
     conversationId: string | null
     tabId?: string
     children?: React.ReactNode
     hideBorder?: boolean
+    /** Debug rows only exist on the sandbox runtime, so the staff menu that reveals them is hidden elsewhere. */
+    isSandboxRuntime?: boolean
 }): JSX.Element {
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { chatTitle } = useValues(maxLogic)
@@ -57,6 +61,7 @@ export function ChatHeader({
                 )}
             </div>
             <div className="flex items-center gap-2">
+                {isSandboxRuntime && <DebugLogsMenu variant="lemon" />}
                 <PhaiViewToggle variant="lemon" />
                 {conversationId ? (
                     <LemonButton
@@ -105,6 +110,8 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
         return (
             <div className="flex flex-col grow overflow-hidden h-full">
                 <div className="flex w-full items-center justify-end gap-2 py-2 px-2 border-b border-primary">
+                    {/* The new view is the runner, which is always the sandbox runtime — no runtime check needed. */}
+                    <DebugLogsMenu variant="lemon" />
                     <PhaiViewToggle variant="lemon" />
                 </div>
                 <div className="flex flex-col flex-1 min-h-0">
@@ -127,7 +134,11 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
             <BindLogic logic={maxLogic} props={{ panelId: tabId }}>
                 <BindLogic logic={maxThreadLogic} props={threadProps}>
                     <div className="flex flex-col grow overflow-hidden">
-                        <ChatHeader conversationId={conversationId} tabId={tabId} />
+                        <ChatHeader
+                            conversationId={conversationId}
+                            tabId={tabId}
+                            isSandboxRuntime={conversation?.agent_runtime === 'sandbox'}
+                        />
                         {isMaxAvailable ? (
                             <ChatArea
                                 threadVisible={threadVisible}

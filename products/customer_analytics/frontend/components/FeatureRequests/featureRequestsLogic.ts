@@ -1,15 +1,19 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import type { Sorting } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils/dom'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
+import type { OrganizationMemberType, TeamPublicType, TeamType, UserBasicType } from '../../../../../frontend/src/types'
 import {
     accountsList,
     featureRequestProductAreasCreate,
@@ -33,15 +37,18 @@ import type {
     FeatureRequestAccountLinkApi,
     FeatureRequestApi,
     FeatureRequestEvidenceApi,
+    FeatureRequestEvidencePayloadApi,
     FeatureRequestHistoryApi,
     FeatureRequestProductAreaApi,
     FeatureRequestStatusEnumApi,
     PaginatedFeatureRequestListApi,
-    RequestPriorityEnumApi,
+    FeatureRequestPriorityEnumApi,
 } from '../../generated/api.schemas'
+import { getFeatureRequestBackLabel, getFeatureRequestBackUrl } from './featureRequestNavigation'
 import {
     FEATURE_REQUEST_ORDERING_OPTIONS,
     FEATURE_REQUEST_PRIORITY_FILTER_OPTIONS,
+    FeatureRequestEvents,
     FEATURE_REQUEST_STATUS_OPTIONS,
     FeatureRequestArchiveState,
     FeatureRequestOrdering,
@@ -65,10 +72,45 @@ export function featureRequestEvidenceElementId(evidenceId: string): string {
     return `feature-request-evidence-${evidenceId}`
 }
 
-const FILTER_URL_KEYS = ['search', 'status', 'priority', 'product_area', 'account', 'archive', 'sort', 'page'] as const
+function hasFeatureRequestEvidence(evidence: FeatureRequestEvidencePayloadApi): boolean {
+    return Boolean(
+        evidence.summary?.trim() ||
+        evidence.customer_quote?.trim() ||
+        evidence.source_url?.trim() ||
+        evidence.image_ids?.length ||
+        evidence.requested_on ||
+        evidence.evidence_source !== 'conversation'
+    )
+}
+
+const FILTER_URL_KEYS = [
+    'search',
+    'status',
+    'priority',
+    'product_area',
+    'account',
+    'created_by',
+    'archive',
+    'sort',
+    'page',
+] as const
+const FEATURE_REQUEST_SORT_COLUMNS = new Set([
+    'title',
+    'account',
+    'product_area',
+    'status',
+    'priority',
+    'created_by',
+    'evidence_count',
+    'updated_at',
+])
+const persistConfig = {
+    persist: true,
+    prefix: `${window.POSTHOG_APP_CONTEXT?.current_team?.id}_customer_analytics_feature_requests__`,
+}
 const VALID_STATUSES = new Set(FEATURE_REQUEST_STATUS_OPTIONS.map((option) => option.value))
 const VALID_PRIORITIES = new Set(FEATURE_REQUEST_PRIORITY_FILTER_OPTIONS.map((option) => option.value))
-const VALID_ORDERINGS = new Set(FEATURE_REQUEST_ORDERING_OPTIONS.map((option) => option.value))
+const VALID_ORDERINGS = new Set(FEATURE_REQUEST_ORDERING_OPTIONS)
 const VALID_ARCHIVE_STATES = new Set<FeatureRequestArchiveState>(['active', 'archived', 'all'])
 
 export interface FeatureRequestListState {
@@ -77,6 +119,7 @@ export interface FeatureRequestListState {
     priorityFilter: FeatureRequestPriorityFilter[]
     productAreaFilter: string[]
     accountFilter: string[]
+    createdByFilter: number[]
     archiveState: FeatureRequestArchiveState
     requestOrdering: FeatureRequestOrdering
     featureRequestsPage: number
@@ -90,6 +133,11 @@ function parseListParam(raw: unknown, valid?: Set<string>): string[] {
         .split(',')
         .map((value) => value.trim())
         .filter((value) => value && (!valid || valid.has(value)))
+}
+
+function parsePositiveIntegerListParam(raw: unknown): number[] {
+    const values = typeof raw === 'number' ? [raw] : parseListParam(raw).map(Number)
+    return values.filter((value) => Number.isInteger(value) && value > 0)
 }
 
 export function parseFeatureRequestSearchParams(searchParams: Record<string, any>): FeatureRequestListState {
@@ -109,10 +157,19 @@ export function parseFeatureRequestSearchParams(searchParams: Record<string, any
         priorityFilter: parseListParam(searchParams.priority, VALID_PRIORITIES) as FeatureRequestPriorityFilter[],
         productAreaFilter: parseListParam(searchParams.product_area),
         accountFilter: parseListParam(searchParams.account),
+        createdByFilter: parsePositiveIntegerListParam(searchParams.created_by),
         archiveState,
         requestOrdering,
         featureRequestsPage: Number.isInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1,
     }
+}
+
+export function featureRequestOrderingToSorting(ordering: FeatureRequestOrdering): Sorting | null {
+    const columnKey = ordering.replace(/^-/, '')
+    if (!FEATURE_REQUEST_SORT_COLUMNS.has(columnKey)) {
+        return null
+    }
+    return { columnKey, order: ordering.startsWith('-') ? -1 : 1 }
 }
 
 export function featureRequestSearchParams(values: FeatureRequestListState): Record<string, string> {
@@ -131,6 +188,9 @@ export function featureRequestSearchParams(values: FeatureRequestListState): Rec
     }
     if (values.accountFilter.length) {
         params.account = values.accountFilter.join(',')
+    }
+    if (values.createdByFilter.length) {
+        params.created_by = values.createdByFilter.join(',')
     }
     if (values.archiveState !== 'active') {
         params.archive = values.archiveState
@@ -163,6 +223,8 @@ const newIdempotencyKey = (): string => uuid()
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface featureRequestsLogicValues {
+    meFirstMembers: OrganizationMemberType[] // membersLogic
+    members: OrganizationMemberType[] | null // membersLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     accountFilter: string[]
     accountId: string | null
@@ -191,6 +253,8 @@ export interface featureRequestsLogicValues {
     addingAccount: boolean
     archiveState: FeatureRequestArchiveState
     createRequestOpen: boolean
+    createdByFilter: number[]
+    creatorById: Record<number, UserBasicType>
     currentTeamId: string
     description: string
     editAccountIds: string[]
@@ -199,7 +263,7 @@ export interface featureRequestsLogicValues {
     editError: string | null
     editExpectedVersion: number
     editIsStale: boolean
-    editPriority: RequestPriorityEnumApi | null
+    editPriority: FeatureRequestPriorityEnumApi | null
     editProductAreaIds: string[]
     editProductAreaOptions: {
         disabledReason?: string
@@ -223,6 +287,8 @@ export interface featureRequestsLogicValues {
     evidenceSource: string
     evidenceSummary: string
     evidenceUrl: string
+    featureRequestBackLabel: string | null
+    featureRequestBackUrl: string
     featureRequestsError: string | null
     featureRequestsPage: number
     featureRequestsResponse: PaginatedFeatureRequestListApi
@@ -231,6 +297,7 @@ export interface featureRequestsLogicValues {
     hasActiveFilters: boolean
     idempotencyKey: string
     listSearchParams: Record<string, string>
+    loadedAccountsById: Record<string, AccountApi>
     mutatingArchive: boolean
     priorityFilter: FeatureRequestPriorityFilter[]
     productAreaActive: boolean
@@ -264,6 +331,7 @@ export interface featureRequestsLogicValues {
     statusFilter: FeatureRequestStatusEnumApi[]
     submitDisabledReason: string | undefined
     submittingRequest: boolean
+    tableSorting: Sorting | null
     title: string
     uploadingEvidenceImages: boolean
     visibleActiveRequestAccountLinks: FeatureRequestAccountLinkApi[]
@@ -271,6 +339,9 @@ export interface featureRequestsLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface featureRequestsLogicActions {
+    ensureAllMembersLoaded: () => {
+        value: true
+    } // membersLogic
     archiveActiveRequest: () => {
         value: true
     }
@@ -416,6 +487,9 @@ export interface featureRequestsLogicActions {
     saveRequestChanges: () => {
         value: true
     }
+    setAccountFilter: (accountFilter: string[]) => {
+        accountFilter: string[]
+    }
     setAccountId: (accountId: string | null) => {
         accountId: string | null
     }
@@ -433,6 +507,9 @@ export interface featureRequestsLogicActions {
     }
     setArchiveState: (archiveState: FeatureRequestArchiveState) => {
         archiveState: FeatureRequestArchiveState
+    }
+    setCreatedByFilter: (createdByFilter: number[]) => {
+        createdByFilter: number[]
     }
     setDescription: (description: string) => {
         description: string
@@ -452,8 +529,8 @@ export interface featureRequestsLogicActions {
     setEditIsStale: (editIsStale: boolean) => {
         editIsStale: boolean
     }
-    setEditPriority: (editPriority: RequestPriorityEnumApi | null) => {
-        editPriority: RequestPriorityEnumApi | null
+    setEditPriority: (editPriority: FeatureRequestPriorityEnumApi | null) => {
+        editPriority: FeatureRequestPriorityEnumApi | null
     }
     setEditProductAreaIds: (editProductAreaIds: string[]) => {
         editProductAreaIds: string[]
@@ -500,6 +577,9 @@ export interface featureRequestsLogicActions {
     setProductAreaDisplayOrder: (productAreaDisplayOrder: number) => {
         productAreaDisplayOrder: number
     }
+    setProductAreaFilter: (productAreaFilter: string[]) => {
+        productAreaFilter: string[]
+    }
     setProductAreaIds: (productAreaIds: string[]) => {
         productAreaIds: string[]
     }
@@ -536,6 +616,9 @@ export interface featureRequestsLogicActions {
     setSubmittingRequest: (submittingRequest: boolean) => {
         submittingRequest: boolean
     }
+    setTableSorting: (sorting: Sorting | null) => {
+        sorting: Sorting | null
+    }
     setTitle: (title: string) => {
         title: string
     }
@@ -558,14 +641,8 @@ export interface featureRequestsLogicActions {
     submitRequest: () => {
         value: true
     }
-    toggleAccountFilter: (accountId: string) => {
-        accountId: string
-    }
     togglePriorityFilter: (requestPriority: FeatureRequestPriorityFilter) => {
         requestPriority: FeatureRequestPriorityFilter
-    }
-    toggleProductAreaFilter: (productAreaId: string) => {
-        productAreaId: string
     }
     toggleStatusFilter: (requestStatus: FeatureRequestStatusEnumApi) => {
         requestStatus: FeatureRequestStatusEnumApi
@@ -579,6 +656,7 @@ export interface featureRequestsLogicActions {
 export interface featureRequestsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         currentTeamId: (currentTeam: TeamPublicType | TeamType | null) => string
+        creatorById: (meFirstMembers: OrganizationMemberType[]) => Record<number, UserBasicType>
         activeProductAreas: (productAreas: FeatureRequestProductAreaApi[]) => FeatureRequestProductAreaApi[]
         filteredProductAreas: (
             productAreas: FeatureRequestProductAreaApi[],
@@ -586,6 +664,8 @@ export interface featureRequestsLogicMeta {
         ) => FeatureRequestProductAreaApi[]
         accountOptions: (
             accounts: AccountApi[],
+            loadedAccountsById: Record<string, AccountApi>,
+            accountFilter: string[],
             selectedAccount: FeatureRequestAccountApi | null,
             activeRequest: FeatureRequestApi | null
         ) => {
@@ -625,7 +705,8 @@ export interface featureRequestsLogicMeta {
             title: string,
             accountId: string | null,
             productAreaIds: string[],
-            submittingRequest: boolean
+            submittingRequest: boolean,
+            uploadingEvidenceImages: boolean
         ) => string | undefined
         editDisabledReason: (
             editTitle: string,
@@ -638,7 +719,9 @@ export interface featureRequestsLogicMeta {
             addAccountId: string | null,
             evidenceSummary: string,
             evidenceQuote: string,
+            evidenceSource: string,
             evidenceUrl: string,
+            evidenceRequestedOn: string | null,
             evidenceImageIds: string[],
             uploadingEvidenceImages: boolean,
             savingEvidence: boolean
@@ -650,6 +733,7 @@ export interface featureRequestsLogicMeta {
             priorityFilter: FeatureRequestPriorityFilter[],
             productAreaFilter: string[],
             accountFilter: string[],
+            createdByFilter: number[],
             archiveState: FeatureRequestArchiveState
         ) => boolean
         listSearchParams: (
@@ -658,10 +742,14 @@ export interface featureRequestsLogicMeta {
             priorityFilter: FeatureRequestPriorityFilter[],
             productAreaFilter: string[],
             accountFilter: string[],
+            createdByFilter: number[],
             archiveState: FeatureRequestArchiveState,
             requestOrdering: FeatureRequestOrdering,
             featureRequestsPage: number
         ) => Record<string, string>
+        tableSorting: (requestOrdering: FeatureRequestOrdering) => Sorting | null
+        featureRequestBackLabel: (searchParams: Record<string, any>) => string | null
+        featureRequestBackUrl: (listSearchParams: Record<string, string>, searchParams: Record<string, any>) => string
     }
 }
 
@@ -674,7 +762,10 @@ export type featureRequestsLogicType = MakeLogicType<
 
 export const featureRequestsLogic = kea<featureRequestsLogicType>([
     path(['products', 'customer_analytics', 'frontend', 'components', 'FeatureRequests', 'featureRequestsLogic']),
-    connect(() => ({ values: [teamLogic, ['currentTeam']] })),
+    connect(() => ({
+        values: [teamLogic, ['currentTeam'], membersLogic, ['meFirstMembers', 'members']],
+        actions: [membersLogic, ['ensureAllMembersLoaded']],
+    })),
     actions({
         setActiveRequestId: (requestId: string | null) => ({ requestId }),
         setFeatureRequestsPage: (page: number) => ({ page }),
@@ -682,10 +773,12 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         toggleStatusFilter: (requestStatus: FeatureRequestStatusEnumApi) => ({ requestStatus }),
         togglePriorityFilter: (requestPriority: FeatureRequestPriorityFilter) => ({ requestPriority }),
-        toggleProductAreaFilter: (productAreaId: string) => ({ productAreaId }),
-        toggleAccountFilter: (accountId: string) => ({ accountId }),
+        setProductAreaFilter: (productAreaFilter: string[]) => ({ productAreaFilter }),
+        setAccountFilter: (accountFilter: string[]) => ({ accountFilter }),
+        setCreatedByFilter: (createdByFilter: number[]) => ({ createdByFilter }),
         setArchiveState: (archiveState: FeatureRequestArchiveState) => ({ archiveState }),
         setRequestOrdering: (requestOrdering: FeatureRequestOrdering) => ({ requestOrdering }),
+        setTableSorting: (sorting: Sorting | null) => ({ sorting }),
         clearFilters: true,
         openCreateRequest: true,
         closeCreateRequest: true,
@@ -716,7 +809,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         setEditAccountIds: (editAccountIds: string[]) => ({ editAccountIds }),
         setEditProductAreaIds: (editProductAreaIds: string[]) => ({ editProductAreaIds }),
         setEditStatus: (editStatus: FeatureRequestStatusEnumApi) => ({ editStatus }),
-        setEditPriority: (editPriority: RequestPriorityEnumApi | null) => ({ editPriority }),
+        setEditPriority: (editPriority: FeatureRequestPriorityEnumApi | null) => ({ editPriority }),
         setEditExpectedVersion: (editExpectedVersion: number) => ({ editExpectedVersion }),
         setEditError: (editError: string | null) => ({ editError }),
         setEditIsStale: (editIsStale: boolean) => ({ editIsStale }),
@@ -766,6 +859,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                         priorities: values.priorityFilter.length ? values.priorityFilter : undefined,
                         product_area_ids: values.productAreaFilter.length ? values.productAreaFilter : undefined,
                         account_ids: values.accountFilter.length ? values.accountFilter : undefined,
+                        created_by_ids: values.createdByFilter.length ? values.createdByFilter : undefined,
                         archive_state: values.archiveState,
                         request_ordering: values.requestOrdering,
                     }),
@@ -816,8 +910,9 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 setSearchQuery: () => 1,
                 toggleStatusFilter: () => 1,
                 togglePriorityFilter: () => 1,
-                toggleProductAreaFilter: () => 1,
-                toggleAccountFilter: () => 1,
+                setProductAreaFilter: () => 1,
+                setAccountFilter: () => 1,
+                setCreatedByFilter: () => 1,
                 setArchiveState: () => 1,
                 setRequestOrdering: () => 1,
                 clearFilters: () => 1,
@@ -833,6 +928,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
         statusFilter: [
             [] as FeatureRequestStatusEnumApi[],
+            persistConfig,
             {
                 toggleStatusFilter: (state, { requestStatus }) => toggleValue(state, requestStatus),
                 setFiltersFromUrl: (_, { filters }) => filters.statusFilter,
@@ -841,6 +937,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
         priorityFilter: [
             [] as FeatureRequestPriorityFilter[],
+            persistConfig,
             {
                 togglePriorityFilter: (state, { requestPriority }) => toggleValue(state, requestPriority),
                 setFiltersFromUrl: (_, { filters }) => filters.priorityFilter,
@@ -849,22 +946,43 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
         productAreaFilter: [
             [] as string[],
+            persistConfig,
             {
-                toggleProductAreaFilter: (state, { productAreaId }) => toggleValue(state, productAreaId),
+                setProductAreaFilter: (_, { productAreaFilter }) => productAreaFilter,
                 setFiltersFromUrl: (_, { filters }) => filters.productAreaFilter,
                 clearFilters: () => [],
             },
         ],
         accountFilter: [
             [] as string[],
+            persistConfig,
             {
-                toggleAccountFilter: (state, { accountId }) => toggleValue(state, accountId),
+                setAccountFilter: (_, { accountFilter }) => accountFilter,
                 setFiltersFromUrl: (_, { filters }) => filters.accountFilter,
+                clearFilters: () => [],
+            },
+        ],
+        loadedAccountsById: [
+            {} as Record<string, AccountApi>,
+            {
+                loadAccountsSuccess: (state, { accounts }) => ({
+                    ...state,
+                    ...Object.fromEntries(accounts.map((account) => [account.id, account])),
+                }),
+            },
+        ],
+        createdByFilter: [
+            [] as number[],
+            persistConfig,
+            {
+                setCreatedByFilter: (_, { createdByFilter }) => createdByFilter,
+                setFiltersFromUrl: (_, { filters }) => filters.createdByFilter,
                 clearFilters: () => [],
             },
         ],
         archiveState: [
             'active' as FeatureRequestArchiveState,
+            persistConfig,
             {
                 setArchiveState: (_, { archiveState }) => archiveState,
                 setFiltersFromUrl: (_, { filters }) => filters.archiveState,
@@ -873,10 +991,10 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
         requestOrdering: [
             '-updated_at' as FeatureRequestOrdering,
+            persistConfig,
             {
                 setRequestOrdering: (_, { requestOrdering }) => requestOrdering,
                 setFiltersFromUrl: (_, { filters }) => filters.requestOrdering,
-                clearFilters: () => '-updated_at',
             },
         ],
         accountSearch: ['', { setAccountSearch: (_, { accountSearch }) => accountSearch }],
@@ -1074,7 +1192,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             },
         ],
         editPriority: [
-            null as RequestPriorityEnumApi | null,
+            null as FeatureRequestPriorityEnumApi | null,
             {
                 openEditRequest: (_, { featureRequest }) => featureRequest.request_priority,
                 setEditPriority: (_, { editPriority }) => editPriority,
@@ -1155,6 +1273,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceSummary: [
             '',
             {
+                openCreateRequest: () => '',
+                closeCreateRequest: () => '',
                 openAddAccount: () => '',
                 openNewEvidence: () => '',
                 openEditEvidence: (_, { evidence }) => evidence.summary,
@@ -1164,6 +1284,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceQuote: [
             '',
             {
+                openCreateRequest: () => '',
+                closeCreateRequest: () => '',
                 openAddAccount: () => '',
                 openNewEvidence: () => '',
                 openEditEvidence: (_, { evidence }) => evidence.customer_quote,
@@ -1173,6 +1295,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceSource: [
             'conversation',
             {
+                openCreateRequest: () => 'conversation',
+                closeCreateRequest: () => 'conversation',
                 openAddAccount: () => 'conversation',
                 openNewEvidence: () => 'conversation',
                 openEditEvidence: (_, { evidence }) => evidence.evidence_source,
@@ -1182,6 +1306,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceUrl: [
             '',
             {
+                openCreateRequest: () => '',
+                closeCreateRequest: () => '',
                 openAddAccount: () => '',
                 openNewEvidence: () => '',
                 openEditEvidence: (_, { evidence }) => evidence.source_url,
@@ -1191,6 +1317,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceRequestedOn: [
             null as string | null,
             {
+                openCreateRequest: () => null,
+                closeCreateRequest: () => null,
                 openAddAccount: () => null,
                 openNewEvidence: () => null,
                 openEditEvidence: (_, { evidence }) => evidence.requested_on,
@@ -1200,6 +1328,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceDraftVersion: [
             0,
             {
+                openCreateRequest: (state) => state + 1,
+                closeCreateRequest: (state) => state + 1,
                 openAddAccount: (state) => state + 1,
                 openNewEvidence: (state) => state + 1,
                 openEditEvidence: (state) => state + 1,
@@ -1210,6 +1340,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceFilesToUpload: [
             [] as File[],
             {
+                openCreateRequest: () => [],
+                closeCreateRequest: () => [],
                 openAddAccount: () => [],
                 openNewEvidence: () => [],
                 openEditEvidence: () => [],
@@ -1221,6 +1353,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceImageIds: [
             [] as string[],
             {
+                openCreateRequest: () => [],
+                closeCreateRequest: () => [],
                 openAddAccount: () => [],
                 openNewEvidence: () => [],
                 openEditEvidence: (_, { evidence }) => [...evidence.image_ids],
@@ -1236,6 +1370,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceError: [
             null as string | null,
             {
+                openCreateRequest: () => null,
+                closeCreateRequest: () => null,
                 openAddAccount: () => null,
                 openNewEvidence: () => null,
                 openEditEvidence: () => null,
@@ -1249,6 +1385,11 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         currentTeamId: [
             (selectors) => [selectors.currentTeam],
             (currentTeam: TeamPublicType | TeamType | null): string => String(currentTeam?.id ?? ''),
+        ],
+        creatorById: [
+            (selectors) => [selectors.meFirstMembers],
+            (meFirstMembers: OrganizationMemberType[]): Record<number, UserBasicType> =>
+                Object.fromEntries(meFirstMembers.map((member) => [member.user.id, member.user])),
         ],
         activeProductAreas: [
             (selectors) => [selectors.productAreas],
@@ -1268,22 +1409,41 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             },
         ],
         accountOptions: [
-            (selectors) => [selectors.accounts, selectors.selectedAccount, selectors.activeRequest],
+            (selectors) => [
+                selectors.accounts,
+                selectors.loadedAccountsById,
+                selectors.accountFilter,
+                selectors.selectedAccount,
+                selectors.activeRequest,
+            ],
             (
                 accounts: AccountApi[],
+                loadedAccountsById: Record<string, AccountApi>,
+                accountFilter: string[],
                 selectedAccount: FeatureRequestAccountApi | null,
                 activeRequest: FeatureRequestApi | null
             ): { key: string; label: string }[] => {
-                const accountById = new Map<string, FeatureRequestAccountApi>(
+                const accountById = new Map<string, AccountApi | FeatureRequestAccountApi>(
                     accounts.map((account) => [account.id, account])
                 )
-                if (selectedAccount) {
+                for (const accountId of accountFilter) {
+                    const selectedFilterAccount = loadedAccountsById[accountId]
+                    if (selectedFilterAccount && !accountById.has(accountId)) {
+                        accountById.set(accountId, selectedFilterAccount)
+                    }
+                }
+                if (selectedAccount && !accountById.has(selectedAccount.id)) {
                     accountById.set(selectedAccount.id, selectedAccount)
                 }
                 for (const link of activeRequest?.account_links ?? []) {
-                    accountById.set(link.account.id, link.account)
+                    if (!accountById.has(link.account.id)) {
+                        accountById.set(link.account.id, link.account)
+                    }
                 }
-                return [...accountById.values()].map((account) => ({ key: account.id, label: account.name }))
+                return [...accountById.values()].map((account) => ({
+                    key: account.id,
+                    label: account.name,
+                }))
             },
         ],
         addAccountOptions: [
@@ -1355,13 +1515,18 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 selectors.accountId,
                 selectors.productAreaIds,
                 selectors.submittingRequest,
+                selectors.uploadingEvidenceImages,
             ],
             (
                 title: string,
                 accountId: string | null,
                 productAreaIds: string[],
-                submittingRequest: boolean
+                submittingRequest: boolean,
+                uploadingEvidenceImages: boolean
             ): string | undefined => {
+                if (uploadingEvidenceImages) {
+                    return 'Uploading images'
+                }
                 if (submittingRequest) {
                     return 'Saving request'
                 }
@@ -1411,7 +1576,9 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 selectors.addAccountId,
                 selectors.evidenceSummary,
                 selectors.evidenceQuote,
+                selectors.evidenceSource,
                 selectors.evidenceUrl,
+                selectors.evidenceRequestedOn,
                 selectors.evidenceImageIds,
                 selectors.uploadingEvidenceImages,
                 selectors.savingEvidence,
@@ -1421,7 +1588,9 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 addAccountId: string | null,
                 summary: string,
                 quote: string,
+                source: string,
                 sourceUrl: string,
+                requestedOn: string | null,
                 imageIds: string[],
                 uploadingImages: boolean,
                 saving: boolean
@@ -1435,8 +1604,18 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 if (addingAccount && !addAccountId) {
                     return 'Select an account'
                 }
-                if (!addingAccount && !summary.trim() && !quote.trim() && !sourceUrl.trim() && imageIds.length === 0) {
-                    return 'Enter a summary, customer quote, source URL, or image'
+                if (
+                    !addingAccount &&
+                    !hasFeatureRequestEvidence({
+                        summary,
+                        customer_quote: quote,
+                        evidence_source: source,
+                        source_url: sourceUrl,
+                        requested_on: requestedOn,
+                        image_ids: imageIds,
+                    })
+                ) {
+                    return 'Enter a summary, customer quote, source URL, image, request date, or change the source'
                 }
                 return undefined
             },
@@ -1460,6 +1639,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 selectors.priorityFilter,
                 selectors.productAreaFilter,
                 selectors.accountFilter,
+                selectors.createdByFilter,
                 selectors.archiveState,
             ],
             (
@@ -1468,6 +1648,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 priorities: FeatureRequestPriorityFilter[],
                 productAreas: string[],
                 accounts: string[],
+                createdByFilter: number[],
                 archiveState: FeatureRequestArchiveState
             ): boolean =>
                 Boolean(
@@ -1476,6 +1657,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                     priorities.length ||
                     productAreas.length ||
                     accounts.length ||
+                    createdByFilter.length ||
                     archiveState !== 'active'
                 ),
         ],
@@ -1486,6 +1668,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 selectors.priorityFilter,
                 selectors.productAreaFilter,
                 selectors.accountFilter,
+                selectors.createdByFilter,
                 selectors.archiveState,
                 selectors.requestOrdering,
                 selectors.featureRequestsPage,
@@ -1496,6 +1679,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 priorityFilter: FeatureRequestPriorityFilter[],
                 productAreaFilter: string[],
                 accountFilter: string[],
+                createdByFilter: number[],
                 archiveState: FeatureRequestArchiveState,
                 requestOrdering: FeatureRequestOrdering,
                 featureRequestsPage: number
@@ -1506,10 +1690,25 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                     priorityFilter,
                     productAreaFilter,
                     accountFilter,
+                    createdByFilter,
                     archiveState,
                     requestOrdering,
                     featureRequestsPage,
                 }),
+        ],
+        tableSorting: [
+            (selectors) => [selectors.requestOrdering],
+            (requestOrdering: FeatureRequestOrdering): Sorting | null =>
+                featureRequestOrderingToSorting(requestOrdering),
+        ],
+        featureRequestBackLabel: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, any>): string | null => getFeatureRequestBackLabel(searchParams.origin),
+        ],
+        featureRequestBackUrl: [
+            (selectors) => [selectors.listSearchParams, router.selectors.searchParams],
+            (listSearchParams: Record<string, string>, searchParams: Record<string, any>): string =>
+                getFeatureRequestBackUrl(searchParams.origin, listSearchParams),
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -1521,10 +1720,24 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         },
         toggleStatusFilter: () => actions.loadFeatureRequests(),
         togglePriorityFilter: () => actions.loadFeatureRequests(),
-        toggleProductAreaFilter: () => actions.loadFeatureRequests(),
-        toggleAccountFilter: () => actions.loadFeatureRequests(),
+        setProductAreaFilter: () => actions.loadFeatureRequests(),
+        setAccountFilter: () => actions.loadFeatureRequests(),
+        setCreatedByFilter: () => actions.loadFeatureRequests(),
         setArchiveState: () => actions.loadFeatureRequests(),
         setRequestOrdering: () => actions.loadFeatureRequests(),
+        setTableSorting: ({ sorting }) => {
+            if (!sorting) {
+                return
+            }
+            const requestOrdering = `${sorting.order === -1 ? '-' : ''}${sorting.columnKey}` as FeatureRequestOrdering
+            if (VALID_ORDERINGS.has(requestOrdering)) {
+                posthog.capture(FeatureRequestEvents.Sorted, {
+                    column: sorting.columnKey,
+                    direction: sorting.order === -1 ? 'desc' : 'asc',
+                })
+                actions.setRequestOrdering(requestOrdering)
+            }
+        },
         clearFilters: () => actions.loadFeatureRequests(),
         openCreateRequest: () => {
             actions.setIdempotencyKey(newIdempotencyKey())
@@ -1591,12 +1804,22 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             }
             actions.setSubmittingRequest(true)
             try {
+                const evidence = {
+                    summary: values.evidenceSummary.trim(),
+                    customer_quote: values.evidenceQuote.trim(),
+                    evidence_source: values.evidenceSource,
+                    source_url: values.evidenceUrl.trim(),
+                    requested_on: values.evidenceRequestedOn,
+                    image_ids: values.evidenceImageIds,
+                }
+                const hasEvidence = hasFeatureRequestEvidence(evidence)
                 const created = await featureRequestsCreate(values.currentTeamId, {
                     title: values.title.trim(),
                     description: values.description.trim(),
                     account_id: values.accountId,
                     product_area_ids: values.productAreaIds,
                     idempotency_key: values.idempotencyKey,
+                    evidence: hasEvidence ? evidence : undefined,
                 })
                 actions.closeCreateRequest()
                 router.actions.push(urls.customerAnalyticsFeatureRequests(created.id), values.listSearchParams)
@@ -1738,12 +1961,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                     requested_on: values.evidenceRequestedOn,
                     image_ids: values.evidenceImageIds,
                 }
-                const hasEvidence = Boolean(
-                    evidenceFields.summary ||
-                    evidenceFields.customer_quote ||
-                    evidenceFields.source_url ||
-                    evidenceFields.image_ids.length
-                )
+                const hasEvidence = hasFeatureRequestEvidence(evidenceFields)
                 let updated: FeatureRequestApi
                 if (addingAccount && values.addAccountId) {
                     updated = await featureRequestsAddAccountCreate(values.currentTeamId, values.activeRequest.id, {
@@ -1867,8 +2085,9 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             setSearchQuery: toUrl,
             toggleStatusFilter: toUrl,
             togglePriorityFilter: toUrl,
-            toggleProductAreaFilter: toUrl,
-            toggleAccountFilter: toUrl,
+            setProductAreaFilter: toUrl,
+            setAccountFilter: toUrl,
+            setCreatedByFilter: toUrl,
             setArchiveState: toUrl,
             setRequestOrdering: toUrl,
             clearFilters: toUrl,
@@ -1877,18 +2096,33 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
     urlToAction(({ actions, values }) => {
         const applyFromUrl = (_: unknown, searchParams: Record<string, any>): void => {
             const parsed = parseFeatureRequestSearchParams(searchParams)
+            const hasFiltersInUrl = FILTER_URL_KEYS.some((key) => key !== 'page' && searchParams[key] !== undefined)
+            const filters = hasFiltersInUrl
+                ? parsed
+                : {
+                      searchQuery: parsed.searchQuery,
+                      statusFilter: values.statusFilter,
+                      priorityFilter: values.priorityFilter,
+                      productAreaFilter: values.productAreaFilter,
+                      accountFilter: values.accountFilter,
+                      createdByFilter: values.createdByFilter,
+                      archiveState: values.archiveState,
+                      requestOrdering: values.requestOrdering,
+                      featureRequestsPage: parsed.featureRequestsPage,
+                  }
             const current = featureRequestSearchParams({
                 searchQuery: values.searchQuery,
                 statusFilter: values.statusFilter,
                 priorityFilter: values.priorityFilter,
                 productAreaFilter: values.productAreaFilter,
                 accountFilter: values.accountFilter,
+                createdByFilter: values.createdByFilter,
                 archiveState: values.archiveState,
                 requestOrdering: values.requestOrdering,
                 featureRequestsPage: values.featureRequestsPage,
             })
-            if (JSON.stringify(current) !== JSON.stringify(featureRequestSearchParams(parsed))) {
-                actions.setFiltersFromUrl(parsed)
+            if (JSON.stringify(current) !== JSON.stringify(featureRequestSearchParams(filters))) {
+                actions.setFiltersFromUrl(filters)
             }
         }
         return {
@@ -1906,5 +2140,6 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         actions.loadFeatureRequests()
         actions.loadProductAreas()
         actions.loadAccounts('')
+        actions.ensureAllMembersLoaded()
     }),
 ])

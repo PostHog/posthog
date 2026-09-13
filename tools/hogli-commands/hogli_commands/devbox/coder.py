@@ -31,7 +31,13 @@ from hogli import telemetry
 from hogli.manifest import load_manifest
 
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-_TAILSCALE_RUNBOOK_URL = "https://runbooks.posthog.com/vpn/#tailscale"
+_TAILSCALE_RUNBOOK_URL = "https://wiki.posthog.com/access/vpn#which-tailnet"
+# The only tailnet that routes to devboxes. PostHog also runs per-environment
+# tailnets (dev, prod-us, prod-eu, internal) for CI runners and subnet routers;
+# none of them reach the Coder control plane. Tailscale only asks which tailnet
+# to join at first sign-in, so someone who picked wrong there stays wrong
+# silently and forever -- worth naming as its own diagnosis.
+EXPECTED_TAILNET = "posthog.com"
 DEFAULT_TEMPLATE = "posthog-linux"
 # Newer coder versions added an interactive "Select a preset" prompt to `coder
 # create` that `--yes` does not bypass. Callers must always forward `--preset`
@@ -360,10 +366,34 @@ def _tailscale_status() -> dict[str, Any] | None:
         return None
 
 
+def _backend_running(status: dict[str, Any] | None) -> bool:
+    """Return whether a `tailscale status --json` blob reports a live backend."""
+    return bool(status and status.get("BackendState") == "Running")
+
+
+def _tailnet_name(status: dict[str, Any] | None) -> str | None:
+    """Return the active tailnet's name from a `tailscale status --json` blob."""
+    current_tailnet = (status or {}).get("CurrentTailnet")
+    if not isinstance(current_tailnet, dict):
+        return None
+    name = current_tailnet.get("Name")
+    return name if isinstance(name, str) and name else None
+
+
 def tailscale_connected() -> bool:
     """Check if Tailscale is running and connected."""
+    return _backend_running(_tailscale_status())
+
+
+def tailscale_state() -> tuple[bool, str | None]:
+    """Return ``(connected, tailnet name)`` from a single `tailscale status` probe.
+
+    Bundled because each `_tailscale_status()` call is a subprocess, and the
+    two facts are always reported next to each other. The name is ``None``
+    when Tailscale is down or the blob does not name a tailnet.
+    """
     status = _tailscale_status()
-    return bool(status and status.get("BackendState") == "Running")
+    return _backend_running(status), _tailnet_name(status)
 
 
 def _tailscale_install_hint() -> str:
@@ -391,6 +421,21 @@ def _tailscale_connect_hint() -> str:
 def _tailscale_cli_missing_on_macos() -> bool:
     """Return whether macOS has the Tailscale app but no CLI on PATH."""
     return sys.platform == "darwin" and shutil.which("tailscale") is None and os.path.isfile(_MACOS_TAILSCALE_CLI)
+
+
+def _tailnet_switch_hint() -> str:
+    """Return the command for moving to the PostHog tailnet.
+
+    On macOS the GUI is how most people signed in, and `tailscale` is often
+    not on PATH at all -- so name the app-bundle CLI there instead.
+    """
+    cli = _MACOS_TAILSCALE_CLI if _tailscale_cli_missing_on_macos() else "tailscale"
+    return (
+        f"`{cli} switch {EXPECTED_TAILNET}` if you have signed into it before, "
+        f"otherwise `{cli} logout && {cli} login` and pick {EXPECTED_TAILNET} "
+        "at the tailnet picker (in the GUI: Add account, sign in, select "
+        f"{EXPECTED_TAILNET})."
+    )
 
 
 def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
@@ -548,16 +593,25 @@ def _diagnose_unreachable_coder() -> CoderReachabilityDiagnosis:
     status = _tailscale_status()
     tailnet_name: str | None = None
     if status:
-        current_tailnet = status.get("CurrentTailnet")
-        if isinstance(current_tailnet, dict):
-            name = current_tailnet.get("Name")
-            if isinstance(name, str) and name:
-                tailnet_name = name
-                facts.append(f"Tailscale tailnet: {name}")
-        if tailnet_name is None:
-            facts.append("Tailscale tailnet: <unknown>")
+        tailnet_name = _tailnet_name(status)
+        facts.append(f"Tailscale tailnet: {tailnet_name or '<unknown>'}")
     else:
         facts.append("Tailscale status: unavailable")
+
+    # Checked before DNS and TCP because every downstream probe fails the same
+    # way from the wrong tailnet, and their fixes (MagicDNS, the ACL grant)
+    # would all be red herrings.
+    if tailnet_name is not None and tailnet_name != EXPECTED_TAILNET:
+        return CoderReachabilityDiagnosis(
+            code="wrong_tailnet",
+            cause=f"Signed into the '{tailnet_name}' tailnet, not '{EXPECTED_TAILNET}'.",
+            next_step=(
+                f"Devboxes only exist on '{EXPECTED_TAILNET}' — the other tailnets are for CI "
+                f"runners and subnet routers. Switch: {_tailnet_switch_hint()} "
+                f"Details: {_TAILSCALE_RUNBOOK_URL}"
+            ),
+            facts=facts,
+        )
 
     resolved_ip = _resolve_host_ip(host)
     if resolved_ip is None:
@@ -566,9 +620,12 @@ def _diagnose_unreachable_coder() -> CoderReachabilityDiagnosis:
             code="dns_lookup_failed",
             cause=f"DNS lookup for {host} failed.",
             next_step=(
-                "MagicDNS may be off or you may be on the wrong tailnet. "
-                "Verify the tailnet name above is PostHog's, then run "
-                "`sudo tailscale up --accept-dns`."
+                "MagicDNS is probably off — turn on 'Use Tailscale DNS' in the "
+                "client, or run `sudo tailscale up --accept-dns`. If it is "
+                "already on, a stale router/ISP resolver is the usual culprit: "
+                "add 8.8.8.8 or 1.1.1.1 to this machine's DNS settings. Do not "
+                "reach for an exit node — devboxes are reached as tailnet peers, "
+                "so it only slows everything down and hides the real cause."
             ),
             facts=facts,
         )
@@ -617,10 +674,10 @@ def _diagnose_blocked_route(
             code="no_subnet_routes_advertised",
             cause="No peer on your tailnet advertises subnet routes.",
             next_step=(
-                "Either you are not on the PostHog tailnet (check the name "
-                "above), or your account has not been added to the Tailscale "
-                f"policy yet. See {_TAILSCALE_RUNBOOK_URL} for the policy "
-                "request flow, then reach out to Team DevEx with the facts below."
+                f"Either you are not on the '{EXPECTED_TAILNET}' tailnet (check "
+                "the name above), or your account has not been added to the "
+                f"Tailscale policy yet. See {_TAILSCALE_RUNBOOK_URL} for both, "
+                "then reach out to Team DevEx with the facts below."
             ),
             facts=facts,
         )

@@ -47,7 +47,7 @@ class OpenAISource(ResumableSource[OpenAISourceConfig, OpenAIResumeConfig]):
             name=SchemaExternalDataSourceType.OPEN_AI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="OpenAI",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your OpenAI Admin API key to pull your organization's API usage, cost, and admin data into the PostHog Data warehouse.
 
 Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization settings](https://platform.openai.com/settings/organization/admin-keys). Only organization owners can create one; a regular project API key cannot read organization usage or costs.""",
@@ -128,10 +128,7 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_openai_credentials(config.api_key):
-            return True, None
-
-        return False, "Invalid OpenAI Admin API key"
+        return validate_openai_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[OpenAIResumeConfig]:
         return ResumableSourceManager[OpenAIResumeConfig](inputs, OpenAIResumeConfig)

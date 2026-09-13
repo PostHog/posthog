@@ -208,6 +208,14 @@ describe('fetch', () => {
             await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Hostname is not allowed`))
         })
 
+        it('uses secure DNS lookup when HTTP/2 is enabled', async () => {
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: '10.0.0.1', family: 4 }] as any)
+
+            await expect(fetch('https://example.com', { allowH2: true })).rejects.toThrow(
+                new SecureRequestError('Hostname is not allowed')
+            )
+        })
+
         it.each([
             ['::ffff:169.254.169.254', 'IPv6-mapped IMDS'],
             ['::ffff:127.0.0.1', 'IPv6-mapped loopback'],

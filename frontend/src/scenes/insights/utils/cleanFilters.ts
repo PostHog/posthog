@@ -4,6 +4,7 @@ import {
     NON_TIME_SERIES_DISPLAY_TYPES,
     NON_VALUES_ON_SERIES_DISPLAY_TYPES,
     PERCENT_STACK_VIEW_DISPLAY_TYPE,
+    PIE_DISPLAY_TYPES,
     RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
     RETENTION_MEAN_NONE,
     ShownAsValue,
@@ -454,7 +455,7 @@ export function cleanFilters(
 
         if (
             !!trendLikeFilter.display &&
-            trendLikeFilter.display === ChartDisplayType.ActionsPie &&
+            PIE_DISPLAY_TYPES.includes(trendLikeFilter.display) &&
             trendLikeFilter.show_values_on_series === undefined
         ) {
             trendLikeFilter.show_values_on_series = true
@@ -470,7 +471,7 @@ export function cleanFilters(
 
         if (
             !!trendLikeFilter.display &&
-            trendLikeFilter.display === ChartDisplayType.ActionsPie &&
+            PIE_DISPLAY_TYPES.includes(trendLikeFilter.display) &&
             trendLikeFilter.show_percent_stack_view === undefined
         ) {
             trendLikeFilter.show_percent_stack_view = true

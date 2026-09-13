@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.source import OpenMeteoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.source"
 
@@ -54,9 +53,6 @@ class TestOpenMeteoSource:
         self.source = OpenMeteoSource()
         self.team_id = 123
         self.config = OpenMeteoSourceConfig(locations="51.5,-0.12,London", start_date="2024-01-01", api_key=None)
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.OPENMETEO
 
     def test_source_config_is_released_as_alpha(self) -> None:
         config = self.source.get_source_config
@@ -138,12 +134,6 @@ class TestOpenMeteoSource:
         # retry a permanent failure forever.
         assert error_message_matches(raised_message, self.source.get_non_retryable_errors().keys())
 
-    def test_validate_credentials_delegates_to_the_transport(self) -> None:
-        with mock.patch(f"{SOURCE_MODULE}.validate_open_meteo_credentials", return_value=(True, None)) as validate:
-            assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
-
-        validate.assert_called_once_with("51.5,-0.12,London", None, "2024-01-01")
-
     def test_resumable_manager_is_namespaced_per_schema(self) -> None:
         manager = self.source.get_resumable_source_manager(_inputs("weather_current"))
 
@@ -152,28 +142,6 @@ class TestOpenMeteoSource:
         # The archive stores a date and the rolling endpoints a location index. Sharing one Redis key
         # would let a retry that switches schema load a cursor the other endpoint cannot use.
         assert manager._namespace == "weather_current"
-
-    @pytest.mark.parametrize(
-        "should_use_incremental_field,expected_last_value",
-        [(True, "2026-01-01T00:00"), (False, None)],
-    )
-    def test_source_for_pipeline_only_passes_the_watermark_on_incremental_runs(
-        self, should_use_incremental_field: bool, expected_last_value: str | None
-    ) -> None:
-        inputs = _inputs(
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value="2026-01-01T00:00",
-        )
-        manager = mock.MagicMock()
-
-        with mock.patch(f"{SOURCE_MODULE}.open_meteo_source") as open_meteo_source:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-
-        kwargs = open_meteo_source.call_args.kwargs
-        assert kwargs["endpoint_name"] == "weather_archive_hourly"
-        assert kwargs["locations_raw"] == "51.5,-0.12,London"
-        assert kwargs["start_date_raw"] == "2024-01-01"
-        assert kwargs["db_incremental_field_last_value"] == expected_last_value
 
     def test_source_for_pipeline_returns_a_lazy_response(self) -> None:
         response = self.source.source_for_pipeline(self.config, mock.MagicMock(), _inputs("weather_current"))

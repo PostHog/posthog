@@ -6,6 +6,8 @@ import { KafkaConsumerV2 } from '~/common/kafka/consumer/consumer-v2'
 import { DlqOutput, IngestionWarningsOutput, LogEntriesOutput, OverflowOutput, TophogOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import {
     EventIngestionRestrictionManager,
@@ -55,6 +57,7 @@ import { SessionTracker } from './sessions/session-tracker'
  */
 export type SessionRecordingIngesterConfig = SessionRecordingConfig &
     SessionRecordingApiConfig &
+    UsageIngestionConfig &
     Pick<
         IngestionConsumerConfig,
         // INGESTION_OVERFLOW_MODE drives force-overflow routing; the rest are for TopHog metrics.
@@ -126,6 +129,7 @@ export class SessionRecordingIngester {
     private readonly keyStore: KeyStore
     private readonly encryptor: RecordingEncryptor
     private readonly createPipeline: SessionReplayPipelineFactory
+    private readonly usageBatch: UsageRecordBatch
 
     constructor(
         private config: SessionRecordingIngesterConfig,
@@ -148,6 +152,10 @@ export class SessionRecordingIngester {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
 
         this.promiseScheduler = new PromiseScheduler()
+        this.usageBatch = new UsageRecordBatch(createUsageIngestionClient(config, 'session_replay'), {
+            unit: 'recordings',
+            isTeamEnabled: usageReportTeamMatcher(config),
+        })
 
         // The v2 consumer defers the unassign on revoke until in-flight work is drained and the
         // revoke hook has run, so a revoke can flush the current batch (persisting sessions and
@@ -326,7 +334,14 @@ export class SessionRecordingIngester {
         })
         await this.batchLock(async () => {
             logger.info('🔁', 'blob_ingester_consumer_v2 - flushing batch', { batchSize: this.currentBatch.size })
-            await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () => this.currentBatch.flush())
+            // Billing has nothing to wait on the batch for, and a usage outage must not stop lag
+            // reporting or the batch reset — so it goes out alongside and swallows its own failure.
+            await Promise.all([
+                instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () => this.currentBatch.flush()),
+                this.usageBatch.flush().catch((error) => {
+                    logger.warn('⚠️', 'blob_ingester_consumer_v2 - usage flush failed', { error })
+                }),
+            ])
             // The flush committed the batch's offsets, so its data is now durably ingested — report lag.
             // Skipped if the flush above threw, so a failed flush records no premature lag sample.
             this.lagReporter.flush()
@@ -360,6 +375,7 @@ export class SessionRecordingIngester {
             sessionKeyResolutionMaxConcurrency: this.config.SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY,
             topHog: this.topHog,
             isDebugLoggingEnabled: this.isDebugLoggingEnabled,
+            usageBatch: this.usageBatch,
         })
 
         // Check that the storage backend is healthy before starting the consumer

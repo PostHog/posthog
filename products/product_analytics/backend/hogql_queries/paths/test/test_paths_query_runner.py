@@ -1,8 +1,9 @@
 import dataclasses
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
+    BaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
@@ -14,7 +15,7 @@ from django.utils.timezone import now
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
-from posthog.schema import CachedPathsQueryResponse
+from posthog.schema import CachedPathsQueryResponse, DashboardFilter, IntervalType, PathsFilter, PathsQuery
 
 from posthog.models import Team
 
@@ -150,7 +151,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        with freeze_time("2012-01-15T03:21:34.000Z"):
+        with time_machine.travel("2012-01-15T03:21:34.000Z", tick=False):
             result = PathsQueryRunner(
                 query={
                     "kind": "PathsQuery",
@@ -177,7 +178,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[3].target, "3_/about")
         self.assertEqual(response[3].value, 1)
 
-        with freeze_time("2012-01-15T03:21:34.000Z"):
+        with time_machine.travel("2012-01-15T03:21:34.000Z", tick=False):
             date_from = now() - relativedelta(days=7)
             result = PathsQueryRunner(
                 query={
@@ -1047,7 +1048,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0].target, "2_/about")
         self.assertEqual(response[0].value, 2)
 
-    @freeze_time("2012-01-15T03:21:34.000Z")
+    @time_machine.travel("2012-01-15T03:21:34.000Z", tick=False)
     def test_path_replacements_none_does_not_apply_team_cleaning(self):
         """pathReplacements=None (omitted) should not apply team cleaning — the frontend sets True explicitly."""
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
@@ -1082,7 +1083,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         combined = " ".join(sources_and_targets)
         assert "123" in combined or "456" in combined
 
-    @freeze_time("2012-01-15T03:21:34.000Z")
+    @time_machine.travel("2012-01-15T03:21:34.000Z", tick=False)
     def test_path_replacements_false_skips_team_cleaning(self):
         """pathReplacements=False should not apply team path cleaning filters."""
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
@@ -1118,7 +1119,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         combined = " ".join(sources_and_targets)
         assert "123" in combined or "456" in combined
 
-    @freeze_time("2012-01-15T03:21:34.000Z")
+    @time_machine.travel("2012-01-15T03:21:34.000Z", tick=False)
     def test_path_replacements_apply_capture_group_backreference_alias(self):
         """A team cleaning alias can reuse regex capture groups via re2 `\\1` syntax. The paths runner
         builds its own replaceRegexpAll chain, so this guards backreference substitution on that path
@@ -1155,3 +1156,33 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         assert "/m/123/orders" in combined
         # The capture groups were substituted, not passed through literally.
         assert "\\1" not in combined
+
+
+class TestPathsDashboardFilters(BaseTest):
+    def _runner(self) -> PathsQueryRunner:
+        return PathsQueryRunner(query=PathsQuery(pathsFilter=PathsFilter()), team=self.team)
+
+    def test_interval_override_silently_skipped_for_non_interval_query(self) -> None:
+        runner = self._runner()
+
+        runner.apply_dashboard_filters(DashboardFilter(interval=IntervalType.WEEK))
+
+        assert not hasattr(runner.query, "interval")
+
+    @parameterized.expand(
+        [
+            ("override_forces_on", None, True, True),
+            ("override_forces_off", True, False, False),
+            ("absent_override_leaves_query_untouched", True, None, True),
+        ]
+    )
+    def test_dashboard_test_accounts_override(
+        self, _name: str, initial: bool | None, dashboard_filter: bool | None, expected: bool
+    ) -> None:
+        runner = self._runner()
+        if initial is not None:
+            runner.query.filterTestAccounts = initial
+
+        runner.apply_dashboard_filters(DashboardFilter(filterTestAccounts=dashboard_filter))
+
+        assert runner.query.filterTestAccounts is expected

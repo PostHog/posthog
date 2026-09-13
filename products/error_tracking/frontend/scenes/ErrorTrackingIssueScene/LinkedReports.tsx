@@ -54,6 +54,9 @@ function LinkedReportRow({ report }: { report: SignalReportApi }): JSX.Element {
  * This is a section of the right pane, not a card sitting on top of one, so it wears the pane's own
  * chrome: square corners, no outer border, and rows that run the full width. The name takes the AI
  * color, which is how the app marks the work its own software did.
+ *
+ * The section never takes more than half the pane. An issue the agent looked at many times would
+ * otherwise push the exception card, and with it the stack trace, off the bottom of the pane.
  */
 export function LinkedReportsSection({ reports }: { reports: SignalReportApi[] }): JSX.Element | null {
     if (reports.length === 0) {
@@ -62,7 +65,7 @@ export function LinkedReportsSection({ reports }: { reports: SignalReportApi[] }
     return (
         // The pane paints no background of its own on desktop, so this section paints the same one the
         // exception card below it paints. Without it the rows show the page behind the pane.
-        <div className="shrink-0 flex flex-col bg-surface-primary">
+        <div className="min-h-0 max-h-[50%] flex flex-col bg-surface-primary">
             <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b shrink-0">
                 <div className="flex items-center gap-1 text-lg h-full">
                     <IconLogomark />
@@ -72,9 +75,13 @@ export function LinkedReportsSection({ reports }: { reports: SignalReportApi[] }
                     <span className="text-xs text-muted-alt">PostHog agent</span>
                 </Tooltip>
             </div>
-            {reports.map((report) => (
-                <LinkedReportRow key={report.id} report={report} />
-            ))}
+            {/* The header stays put while the rows scroll, so the section keeps its name once the list
+                is longer than the space it has. */}
+            <div className="min-h-0 overflow-y-auto">
+                {reports.map((report) => (
+                    <LinkedReportRow key={report.id} report={report} />
+                ))}
+            </div>
         </div>
     )
 }

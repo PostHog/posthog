@@ -28,6 +28,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SidePanelTab } from '~/types'
 
 import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import { DebugLogsMenu } from 'products/posthog_ai/frontend/api/primitives'
 
 import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
@@ -40,6 +41,7 @@ import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
+import { mainFocusUrl } from './mainFocusUrl'
 import { MaxLogicProps, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 import { SandboxComposerSurfaces, Thread } from './Thread'
@@ -104,7 +106,9 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     // The new posthog_ai view's back button walks its own panel view state (run -> history -> composer)
     // rather than legacy Max's conversation stack — mounting this tiny headless logic in legacy view is
     // harmless (unconditional hooks).
-    const { canGoBack: panelCanGoBack } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
+    const { canGoBack: panelCanGoBack, activeCreation: panelActiveCreation } = useValues(
+        runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID })
+    )
     const { goBack: panelGoBack } = useActions(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
 
     const threadProps: MaxThreadLogicProps = {
@@ -117,6 +121,12 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
 
     const isNewView = effectivePhaiView === 'new'
     const headerBackDisabled = isNewView ? !panelCanGoBack : backButtonDisabled
+
+    const openAsMainFocusUrl = mainFocusUrl({
+        isNewView,
+        activeCreation: panelActiveCreation,
+        conversationId,
+    })
 
     const content = !isMaxAvailable ? (
         <MaxNotConfigured />
@@ -216,12 +226,16 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         <IconShare className="text-tertiary size-3 group-hover:text-primary z-10" />
                     </ButtonPrimitive>
                 )}
+                {/* The new view is the runner (always sandbox); legacy view only shows debug rows on a
+                    sandbox conversation, so the menu stays hidden on LangGraph threads. */}
+                {(isNewView || conversation?.agent_runtime === 'sandbox') && <DebugLogsMenu variant="primitive" />}
                 <PhaiViewToggle variant="primitive" />
                 <Link
                     buttonProps={{
                         iconOnly: true,
                     }}
-                    to={urls.ai(conversationId ?? undefined)}
+                    to={openAsMainFocusUrl ?? undefined}
+                    disabledReason={openAsMainFocusUrl ? undefined : 'This chat is still starting'}
                     onClick={() => {
                         closeSidePanel()
                     }}

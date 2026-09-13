@@ -137,16 +137,28 @@ def definition_fingerprint(query: dict | None, config: IncrementalConfig) -> Opt
 def window_start(state: IncrementalState, config: IncrementalConfig) -> Any:
     """The lower bound for this run: the stored watermark, deserialized, then pulled back by the
     lookback. Deserializing first is load-bearing: a persisted temporal watermark is an ISO
-    string, and shifting has to happen on the datetime it encodes, not on the string.
+    string, and shifting has to happen on the value it encodes, not on the string.
 
-    Only datetime watermarks can be shifted; a numeric or string key has no meaningful notion of
-    "seconds earlier", so its lookback is ignored rather than guessed at.
+    Both temporal watermarks shift. A datetime shifts by the exact seconds. A date has day
+    granularity (a day- or week-bucketed key such as ``toStartOfWeek`` yields one), so it shifts by
+    whole days, rounding a partial-day lookback up. A date cannot represent a sub-day cutoff and the
+    injected filter is inclusive, so rounding down would collapse any lookback below one day to a
+    no-op that silently skips corrections in earlier buckets. Rounding up re-scans the whole bucket
+    that holds the cutoff instead. A numeric or string key has no meaningful notion of "seconds
+    earlier", so its lookback is ignored rather than guessed at.
     """
     watermark = deserialize_watermark(state.watermark, state.watermark_type)
     if watermark is None:
         return None
-    if config.lookback_seconds and isinstance(watermark, datetime):
-        return watermark - timedelta(seconds=config.lookback_seconds)
+    if config.lookback_seconds:
+        # datetime subclasses date, so test it first.
+        if isinstance(watermark, datetime):
+            return watermark - timedelta(seconds=config.lookback_seconds)
+        if isinstance(watermark, date):
+            # Ceiling division rounds a partial-day lookback up to a whole day (see above).
+            seconds_per_day = 60 * 60 * 24
+            days = (config.lookback_seconds + seconds_per_day - 1) // seconds_per_day
+            return watermark - timedelta(days=days)
     return watermark
 
 

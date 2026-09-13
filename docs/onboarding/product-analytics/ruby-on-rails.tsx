@@ -2,7 +2,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getRubyOnRailsSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getRubyOnRailsInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
     return [
@@ -99,18 +99,24 @@ export const getRubyOnRailsSteps = (ctx: OnboardingComponentsContext): StepDefin
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            badge: 'recommended',
-            content: (
-                <>
-                    <Markdown>Once installed, you can manually send events to test your integration:</Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'ruby',
-                                file: 'Ruby',
-                                code: dedent`
+    ]
+}
+
+export const getRubyOnRailsEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
+    return {
+        title: 'Send events',
+        badge: 'recommended',
+        content: (
+            <>
+                <Markdown>Once installed, you can manually send events to test your integration:</Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'ruby',
+                            file: 'Ruby',
+                            code: dedent`
                                     PostHog.capture({
                                         distinct_id: 'user_123',
                                         event: 'button_clicked',
@@ -119,13 +125,17 @@ export const getRubyOnRailsSteps = (ctx: OnboardingComponentsContext): StepDefin
                                         }
                                     })
                                 `,
-                            },
-                        ]}
-                    />
-                </>
-            ),
-        },
-    ]
+                        },
+                    ]}
+                />
+            </>
+        ),
+    }
 }
+
+export const getRubyOnRailsSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getRubyOnRailsInstallSteps(ctx),
+    getRubyOnRailsEventStep(ctx),
+]
 
 export const RubyOnRailsInstallation = createInstallation(getRubyOnRailsSteps)

@@ -167,17 +167,14 @@ export async function archiveTasks(
 ): Promise<ArchiveTasksResult> {
   if (taskIds.length === 0) return { archived: 0, failed: 0 };
 
-  let archived = 0;
-  let failed = 0;
-  for (const id of taskIds) {
-    try {
-      await archiveTask(id, deps, { skipNavigate: true });
-      archived++;
-    } catch {
-      failed++;
-    }
-  }
-  return { archived, failed };
+  const results = await Promise.allSettled(
+    taskIds.map((id) => archiveTask(id, deps, { skipNavigate: true })),
+  );
+  const archived = results.filter((result) => result.status === "fulfilled");
+  return {
+    archived: archived.length,
+    failed: results.length - archived.length,
+  };
 }
 
 export function shouldNavigateAwayForBulkArchive(

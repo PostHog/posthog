@@ -41,6 +41,8 @@ import {
     canViewUsageAndSpend as canViewUsageAndSpendUtil,
     getMinimumBillingAccessLevel,
     getMinimumUsageSpendReadAccessLevel,
+    isUsageApproachingLimit,
+    isUsageAtOrOverLimit,
     isMemberUsageSpendReadAccessEnabled,
 } from './billing-utils'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
@@ -262,7 +264,7 @@ export interface billingLogicValues {
     isCreditFormValid: boolean
     isManagedAccount: boolean
     isOnboarding: boolean
-    isProductOverUsageLimit: (productKey: ProductKey) => boolean
+    isProductAtOrOverUsageLimit: (productKey: ProductKey) => boolean
     isPurchaseCreditsModalOpen: boolean
     isUnlicensedDebug: boolean
     minimumBillingAccessLevel: OrganizationMembershipLevel
@@ -629,11 +631,7 @@ export interface billingLogicMeta {
         minimumUsageSpendReadAccessLevel: (featureFlags: FeatureFlagsSet) => OrganizationMembershipLevel
         canViewUsageAndSpend: (currentOrganization: OrganizationType | null, featureFlags: FeatureFlagsSet) => boolean
         canOnlyViewUsageAndSpend: (canViewUsageAndSpend: boolean, canAccessBilling: boolean) => boolean
-        billingEntryUrl: (
-            canAccessBilling: boolean,
-            canOnlyViewUsageAndSpend: boolean,
-            featureFlags: FeatureFlagsSet
-        ) => string | null
+        billingEntryUrl: (canAccessBilling: boolean, canOnlyViewUsageAndSpend: boolean) => string | null
         upgradeLink: (preflight: PreflightStatus | null) => string
         isUnlicensedDebug: (preflight: PreflightStatus | null, billing: BillingType | null) => boolean
         supportPlans: (billing: BillingType | null) => BillingPlanType[]
@@ -650,7 +648,7 @@ export interface billingLogicMeta {
         startupProgramLabelCurrent: (billing: BillingType | null) => StartupProgramLabel | null
         startupProgramLabelPrevious: (billing: BillingType | null) => StartupProgramLabel | null
         isAnnualPlanCustomer: (billing: BillingType | null) => boolean
-        isProductOverUsageLimit: (billing: BillingType | null) => (productKey: ProductKey) => boolean
+        isProductAtOrOverUsageLimit: (billing: BillingType | null) => (productKey: ProductKey) => boolean
         billingPeriodUTC: (billing: BillingType | null) => BillingPeriod
         showBillingSummary: (billing: BillingType | null, isOnboarding: boolean) => boolean
         showCreditCTAHero: (creditOverview: {
@@ -1104,16 +1102,10 @@ export const billingLogic = kea<billingLogicType>([
                 canViewUsageAndSpend && !canAccessBilling,
         ],
         billingEntryUrl: [
-            (s) => [s.canAccessBilling, s.canOnlyViewUsageAndSpend, s.featureFlags],
-            (
-                canAccessBilling: boolean,
-                canOnlyViewUsageAndSpend: boolean,
-                featureFlags: FeatureFlagsSet
-            ): string | null => {
+            (s) => [s.canAccessBilling, s.canOnlyViewUsageAndSpend],
+            (canAccessBilling: boolean, canOnlyViewUsageAndSpend: boolean): string | null => {
                 if (canAccessBilling) {
-                    return featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-                        ? urls.organizationBillingSection('overview')
-                        : urls.organizationBilling()
+                    return urls.organizationBillingSection('overview')
                 }
                 if (canOnlyViewUsageAndSpend) {
                     return urls.organizationBillingSection('usage')
@@ -1204,12 +1196,12 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.billing],
             (billing: BillingType | null): boolean => billing?.is_annual_plan_customer || false,
         ],
-        isProductOverUsageLimit: [
+        isProductAtOrOverUsageLimit: [
             (s) => [s.billing],
             (billing: BillingType | null): ((productKey: ProductKey) => boolean) =>
                 (productKey: ProductKey): boolean => {
                     const product = billing?.products?.find((p) => p.type === productKey)
-                    return (product?.percentage_usage ?? 0) > 1
+                    return isUsageAtOrOverLimit(product?.percentage_usage)
                 },
         ],
         billingPeriodUTC: [
@@ -1495,7 +1487,7 @@ export const billingLogic = kea<billingLogicType>([
 
             const productsAtOrOverLimit =
                 values.billing.products?.filter((x: BillingProductV2Type) => {
-                    if (x.percentage_usage < 1 || !x.usage_key) {
+                    if (!isUsageAtOrOverLimit(x.percentage_usage) || !x.usage_key) {
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`
@@ -1540,7 +1532,7 @@ export const billingLogic = kea<billingLogicType>([
 
             const productsApproachingLimit =
                 values.billing.products?.filter((x: BillingProductV2Type) => {
-                    if (x.percentage_usage <= ALLOCATION_THRESHOLD_ALERT || x.percentage_usage >= 1) {
+                    if (!isUsageApproachingLimit(x.percentage_usage, ALLOCATION_THRESHOLD_ALERT)) {
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`

@@ -17,9 +17,12 @@ export function githubRefChipFor(
 
   // A bare URL reads as noise in a sentence, so it becomes owner/repo#number.
   const isAutoLink = typeof children === "string" && children === href;
-  const label = isAutoLink
-    ? `${githubRef.owner}/${githubRef.repo}#${githubRef.number}`
-    : children;
+  const label =
+    isAutoLink && githubRef.isReviewComment
+      ? `Comment on PR #${githubRef.number}`
+      : isAutoLink
+        ? `${githubRef.owner}/${githubRef.repo}#${githubRef.number}`
+        : children;
 
   if (githubRef.kind === "pr") {
     return (

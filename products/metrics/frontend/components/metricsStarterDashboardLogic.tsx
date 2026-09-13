@@ -16,7 +16,7 @@ import { metricsAttributeValuesRetrieve, metricsValuesRetrieve } from 'products/
 import type { _MetricNameApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import type { InsightModel } from '../../../../frontend/src/types'
-import { RECOMMENDED_AGGREGATION_BY_TYPE, toKnownMetricType } from './metricsViewerLogic'
+import { RECOMMENDED_AGGREGATION_BY_TYPE, nodeAggregationFields, toKnownMetricType } from './metricsViewerLogic'
 
 // A metric name can appear under more than one OTel type, so option identity
 // must include both. \0 can't occur in ingest strings, so the key is collision-free.
@@ -219,9 +219,7 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                     const clause: MetricsQueryClause = {
                         name: 'a',
                         metricName,
-                        // The REST viewer's 'p95' shorthand maps to the node's quantile aggregation.
-                        aggregation: recommended === 'p95' ? 'quantile' : recommended,
-                        ...(recommended === 'p95' ? { quantile: 0.95 } : {}),
+                        ...nodeAggregationFields(recommended),
                         ...(metricType ? { metricType } : {}),
                         ...(serviceName
                             ? { filters: [{ key: 'service.name', op: 'eq' as const, value: serviceName }] }

@@ -37,10 +37,13 @@ from products.metrics.backend.facade.contracts import (
 )
 from products.metrics.backend.fundamentals import Sample, TemporalReducer, apply_plan, plan_reduction, reduce_temporal
 from products.metrics.backend.metric_query_runner import (
-    _INTERVAL_LADDER,
     _QUERY_SETTINGS,
     MetricQueryRunner,
-    filters_expr,
+    _interval_step,
+    counter_lookback,
+    series_labels_query,
+    series_scope_expr,
+    time_range_expr,
     type_filter_expr,
 )
 
@@ -56,14 +59,6 @@ DEFAULT_MAX_SAMPLES_PER_SERIES = 12
 _MAX_ROWS_READ = 50000
 
 
-def _interval_step(interval: str) -> dt.timedelta:
-    """The bucket's width, from the same ladder the chart uses."""
-    for name, step, _ in _INTERVAL_LADDER:
-        if name == interval:
-            return step
-    raise ValueError(f"Unknown interval: {interval!r}")
-
-
 def _as_utc(timestamp: dt.datetime) -> dt.datetime:
     """ClickHouse hands timestamps back naive; the bucket edges are aware."""
     return timestamp.replace(tzinfo=dt.UTC) if timestamp.tzinfo is None else timestamp.astimezone(dt.UTC)
@@ -77,32 +72,46 @@ def _raw_samples_query(
     filters: Sequence[MetricFilter],
     metric_type: str | None,
 ) -> ast.SelectQuery:
+    # The labels are joined on after the LIMIT so the row bound applies to the
+    # data points read, not to the join output. A series without a row yet
+    # keeps its samples and shows empty labels.
     query = parse_select(
         """
             SELECT
-                service_name,
-                attributes,
-                resource_attributes,
-                metric_type,
-                aggregation_temporality,
-                timestamp,
-                value
-            FROM posthog.metrics
-            WHERE metric_name = {metric_name}
-              AND timestamp >= {date_from}
-              AND timestamp < {date_to}
-              AND {filters}
-              AND {type_filter}
-            ORDER BY timestamp ASC
-            LIMIT {row_limit}
+                s.series_fingerprint,
+                s.service_name,
+                ser.attributes,
+                ser.resource_attributes,
+                s.metric_type,
+                s.aggregation_temporality,
+                s.timestamp,
+                s.value
+            FROM (
+                SELECT
+                    series_fingerprint,
+                    service_name,
+                    metric_type,
+                    aggregation_temporality,
+                    timestamp,
+                    value
+                FROM posthog.metrics
+                WHERE metric_name = {metric_name}
+                  AND {time_range}
+                  AND {series_scope}
+                  AND {type_filter}
+                ORDER BY timestamp ASC
+                LIMIT {row_limit}
+            ) AS s
+            LEFT JOIN {series_labels} AS ser ON s.series_fingerprint = ser.series_fingerprint
+            ORDER BY s.timestamp ASC
         """,
         placeholders={
             "metric_name": ast.Constant(value=metric_name),
-            "date_from": ast.Constant(value=date_from),
-            "date_to": ast.Constant(value=bucket_end),
-            "filters": filters_expr(filters),
+            "time_range": time_range_expr(date_from, bucket_end),
+            "series_scope": series_scope_expr(metric_name, filters),
             "type_filter": type_filter_expr(metric_type),
             "row_limit": ast.Constant(value=_MAX_ROWS_READ),
+            "series_labels": series_labels_query(metric_name),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -114,7 +123,6 @@ def _actual_value(
     team: Team,
     metric_name: str,
     aggregation: str,
-    date_from: dt.datetime,
     bucket_start: dt.datetime,
     bucket_end: dt.datetime,
     interval: str,
@@ -124,15 +132,15 @@ def _actual_value(
 ) -> float | None:
     """What the product would plot for this point, through the real runner.
 
-    `date_from` reaches back one bucket for the counter functions so the
-    runner's window function sees the predecessor sample, exactly as it does
-    under the chart; only the requested bucket's row is returned.
+    The runner reaches back past `date_from` on its own for the counter
+    functions' predecessor sample, so this asks for exactly the one bucket the
+    decomposition is explaining.
     """
     rows = MetricQueryRunner(
         team=team,
         metric_name=metric_name,
         aggregation=aggregation,
-        date_from=date_from,
+        date_from=bucket_start,
         date_to=bucket_end,
         interval=interval,
         filters=filters,
@@ -162,17 +170,18 @@ def decompose_bucket(
     bucket_start = _as_utc(bucket_start)
     step = _interval_step(interval)
     bucket_end = bucket_start + step
-    # The counter functions diff against the last sample before the bucket, the
-    # way the chart's window function does, so their raw read reaches back one
-    # bucket for that predecessor.
+    # The counter functions diff against the newest sample before the bucket,
+    # the way the chart's window function does, so their raw read reaches back
+    # over exactly the runner's lookback. A shorter reach here would find a
+    # different predecessor and report a disagreement the chart does not have.
     needs_boundary = aggregation in ("rate", "increase")
-    date_from = bucket_start - step if needs_boundary else bucket_start
+    read_from = bucket_start - counter_lookback(interval) if needs_boundary else bucket_start
 
     response = execute_hogql_query(
         query_type="MetricBucketDecomposition",
         query=_raw_samples_query(
             metric_name=metric_name,
-            date_from=date_from,
+            date_from=read_from,
             bucket_end=bucket_end,
             filters=filters,
             metric_type=metric_type,
@@ -184,20 +193,23 @@ def decompose_bucket(
     rows = response.results or []
     rows_truncated = len(rows) >= _MAX_ROWS_READ
 
-    # Group the raw rows into series, keyed the way a series is actually
-    # identified: everything that isn't the timestamp or the value.
-    grouped: dict[tuple, list[Sample]] = {}
-    predecessors: dict[tuple, Sample] = {}
-    identities: dict[tuple, tuple[str, dict[str, str], dict[str, str]]] = {}
+    # Group the raw rows into series by the fingerprint ingest assigned, which
+    # is the same identity the chart's window functions partition on.
+    grouped: dict[int, list[Sample]] = {}
+    predecessors: dict[int, Sample] = {}
+    identities: dict[int, tuple[str, dict[str, str], dict[str, str]]] = {}
     resolved_type = metric_type or ""
     temporality = ""
-    for service_name, attributes, resource_attributes, row_metric_type, row_temporality, timestamp, value in rows:
-        key = (
-            service_name,
-            tuple(sorted(dict(attributes).items())),
-            tuple(sorted(dict(resource_attributes).items())),
-            row_metric_type,
-        )
+    for (
+        key,
+        service_name,
+        attributes,
+        resource_attributes,
+        row_metric_type,
+        row_temporality,
+        timestamp,
+        value,
+    ) in rows:
         sample = Sample(timestamp=_as_utc(timestamp), value=float(value))
         if sample.timestamp < bucket_start:
             # Only a series' newest pre-bucket reading matters: it is the
@@ -207,7 +219,7 @@ def decompose_bucket(
                 predecessors[key] = sample
         else:
             grouped.setdefault(key, []).append(sample)
-        identities.setdefault(key, (service_name, dict(attributes), dict(resource_attributes)))
+        identities.setdefault(key, (service_name, dict(attributes or {}), dict(resource_attributes or {})))
         # A bucket normally holds one type and one temporality; when a name has
         # been ingested as several, the first is enough to plan a reduction and
         # the type check reports the blend separately.
@@ -241,6 +253,13 @@ def decompose_bucket(
     for key in ordered_keys[:max_series]:
         samples = grouped[key]
         service_name, labels, resource_labels = identities[key]
+        if plan.temporal is TemporalReducer.POOLED_SAMPLES:
+            series_value = None
+        else:
+            # Normalized the same way as the bucket's total, so the series
+            # a reader adds up still reach the number they are explaining.
+            reduced = reduce_temporal(reduction_input[key], plan.temporal)
+            series_value = None if reduced is None else reduced / plan.divisor
         breakdown.append(
             MetricSeriesBreakdown(
                 service_name=service_name,
@@ -252,11 +271,7 @@ def decompose_bucket(
                 ),
                 sample_count=len(samples),
                 samples_truncated=len(samples) > max_samples_per_series,
-                # Normalized the same way as the bucket's total, so the series
-                # a reader adds up still reach the number they are explaining.
-                value=None
-                if plan.temporal is TemporalReducer.POOLED_SAMPLES
-                else reduce_temporal(reduction_input[key], plan.temporal) / plan.divisor,
+                value=series_value,
             )
         )
 
@@ -264,7 +279,6 @@ def decompose_bucket(
         team=team,
         metric_name=metric_name,
         aggregation=aggregation,
-        date_from=date_from,
         bucket_start=bucket_start,
         bucket_end=bucket_end,
         interval=interval,

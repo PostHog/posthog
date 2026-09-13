@@ -132,4 +132,33 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             created_by="The user who created the custom field.",
         ),
     },
+    "ai_studio_runs": {
+        "description": "A single AI Studio run (rule execution), with the credits it consumed. Requires an AI Studio-licensed organization.",
+        "docs_url": "https://developers.asana.com/reference/ai-studio-usage-api",
+        "columns": _columns(
+            rule="The AI Studio smart rule that executed.",
+            rule_owner="The user who owns the rule that ran.",
+            triggered_by="The user whose action triggered the run.",
+            triggering_container="The project or portfolio the run was triggered from.",
+            division="The division the run is attributed to.",
+            run_started_at="Time at which the run was triggered.",
+            run_completed_at="Time at which the run finished.",
+            status="Outcome of the run (success, failed, cancelled).",
+            model="The AI model used for the run.",
+            credits_used="Number of AI Studio credits the run consumed.",
+            credit_source="Whether the consumed credits were paid or free.",
+        ),
+    },
+    "ai_studio_seats": {
+        "description": "A current snapshot of an AI Studio seat — who holds it, at what tier, and in what state. Only paid seats are returned.",
+        "docs_url": "https://developers.asana.com/reference/ai-studio-usage-api",
+        "columns": _columns(
+            user="The user who holds the seat.",
+            license="The AI Studio license tier of the seat (ai_studio_pro, ai_studio_plus, ai_studio_max).",
+            state="Current state of the seat (active, revoked, expired).",
+            assigned_at="Time at which the seat was granted.",
+            revoked_at="Time at which the seat was revoked or expired.",
+            assigned_by="The user who assigned the seat.",
+        ),
+    },
 }

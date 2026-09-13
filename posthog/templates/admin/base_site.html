@@ -5,7 +5,7 @@
 {% block extrastyle %}
     {{ block.super }}
     {% if is_impersonated_session %}
-    <style>
+        <style>
         .impersonation-banner {
             background: #fff3cd;
             border-bottom: 2px solid #f0c000;
@@ -25,16 +25,16 @@
         .impersonation-banner a.impersonation-stop:hover {
             color: #000 !important;
         }
-    </style>
+        </style>
     {% endif %}
 {% endblock %}
 {% block header %}
     {% if is_impersonated_session and impersonated_user %}
-    <div class="impersonation-banner">
-        Acting as <strong>{{ user.email }}</strong> in admin while impersonating
-        <strong>{{ impersonated_user.email }}</strong>.
-        <a class="impersonation-stop" href="/admin/logout/">Stop impersonating</a>
-    </div>
+        <div class="impersonation-banner">
+            Acting as <strong>{{ user.email }}</strong> in admin while impersonating
+            <strong>{{ impersonated_user.email }}</strong>.
+            <a class="impersonation-stop" href="/admin/logout/">Stop impersonating</a>
+        </div>
     {% endif %}
     {{ block.super }}
 {% endblock %}

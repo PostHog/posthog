@@ -277,6 +277,9 @@ export class SessionBatchRecorder {
                     messageCount,
                     snapshotSource,
                     snapshotLibrary,
+                    snapshotMode,
+                    replayIndexEntries,
+                    replayIndexTruncated,
                     batchId,
                 } = await sessionBlockRecorder.end()
 
@@ -328,6 +331,9 @@ export class SessionBatchRecorder {
                     messageCount,
                     snapshotSource,
                     snapshotLibrary,
+                    snapshotMode,
+                    replayIndexEntries,
+                    replayIndexTruncated,
                     batchId,
                     eventCount,
                     retentionPeriodDays,

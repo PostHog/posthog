@@ -42,10 +42,18 @@ const MOCK_FLAGS: FeatureFlagType[] = [
     }),
 ]
 
+const OFF_PAGE_FLAG = createMockFlag({
+    id: 101,
+    key: 'flag-101',
+    name: 'Flag 101',
+    active: true,
+})
+
 const MOCK_EVALUATION_REASONS = {
     'flag-1': { value: true, evaluation: { reason: 'condition_match', condition_index: 0 } },
     'flag-2': { value: false, evaluation: { reason: 'no_condition_match' } },
     'flag-3': { value: true, evaluation: { reason: 'condition_match', condition_index: 1 } },
+    'flag-101': { value: true, evaluation: { reason: 'condition_match', condition_index: 0 } },
 }
 
 describe('relatedFeatureFlagsLogic', () => {
@@ -105,13 +113,10 @@ describe('relatedFeatureFlagsLogic', () => {
                 logic.actions.setFilters({ type: FeatureFlagReleaseType.ReleaseToggle })
             }).toFinishAllListeners()
 
-            await expectLogic(flagsLogic).toFinishAllListeners()
-
-            expect(flagsLogic.values.featureFlags.results).toHaveLength(2)
-            expect(flagsLogic.values.featureFlags.results.map((f) => f.key)).toEqual(['flag-1', 'flag-2'])
-
+            expect(logic.values.featureFlags.results.map((flag) => flag.key)).toEqual(['flag-1', 'flag-2'])
             expect(logic.values.mappedRelatedFeatureFlags).toHaveLength(2)
             expect(logic.values.mappedRelatedFeatureFlags.map((f) => f.key)).toEqual(['flag-1', 'flag-2'])
+            expect(flagsLogic.values.filters.type).toBeUndefined()
         })
 
         it('should filter flags by type=multivariant on server side', async () => {
@@ -119,11 +124,7 @@ describe('relatedFeatureFlagsLogic', () => {
                 logic.actions.setFilters({ type: FeatureFlagReleaseType.Variants })
             }).toFinishAllListeners()
 
-            await expectLogic(flagsLogic).toFinishAllListeners()
-
-            expect(flagsLogic.values.featureFlags.results).toHaveLength(1)
-            expect(flagsLogic.values.featureFlags.results[0].key).toEqual('flag-3')
-
+            expect(logic.values.featureFlags.results.map((flag) => flag.key)).toEqual(['flag-3'])
             expect(logic.values.mappedRelatedFeatureFlags).toHaveLength(1)
             expect(logic.values.mappedRelatedFeatureFlags[0].key).toEqual('flag-3')
         })
@@ -133,12 +134,8 @@ describe('relatedFeatureFlagsLogic', () => {
                 logic.actions.setFilters({ active: 'true' })
             }).toFinishAllListeners()
 
-            await expectLogic(flagsLogic).toFinishAllListeners()
-
-            expect(flagsLogic.values.featureFlags.results).toHaveLength(2)
-            expect(flagsLogic.values.featureFlags.results.map((f) => f.key)).toEqual(['flag-1', 'flag-3'])
-
-            expect(flagsLogic.values.featureFlags.results.every((f) => f.active)).toBe(true)
+            expect(logic.values.featureFlags.results.map((flag) => flag.key)).toEqual(['flag-1', 'flag-3'])
+            expect(logic.values.featureFlags.results.every((flag) => flag.active)).toBe(true)
         })
 
         it('should filter flags by active=false on server side', async () => {
@@ -146,11 +143,8 @@ describe('relatedFeatureFlagsLogic', () => {
                 logic.actions.setFilters({ active: 'false' })
             }).toFinishAllListeners()
 
-            await expectLogic(flagsLogic).toFinishAllListeners()
-
-            expect(flagsLogic.values.featureFlags.results).toHaveLength(1)
-            expect(flagsLogic.values.featureFlags.results[0].key).toEqual('flag-2')
-            expect(flagsLogic.values.featureFlags.results[0].active).toBe(false)
+            expect(logic.values.featureFlags.results.map((flag) => flag.key)).toEqual(['flag-2'])
+            expect(logic.values.featureFlags.results[0].active).toBe(false)
         })
 
         it('should combine multiple filters', async () => {
@@ -158,10 +152,7 @@ describe('relatedFeatureFlagsLogic', () => {
                 logic.actions.setFilters({ type: FeatureFlagReleaseType.ReleaseToggle, active: 'true' })
             }).toFinishAllListeners()
 
-            await expectLogic(flagsLogic).toFinishAllListeners()
-
-            expect(flagsLogic.values.featureFlags.results).toHaveLength(1)
-            expect(flagsLogic.values.featureFlags.results[0].key).toEqual('flag-1')
+            expect(logic.values.featureFlags.results.map((flag) => flag.key)).toEqual(['flag-1'])
         })
 
         it('should clear type filter when replace=true and type not in new filters', async () => {
@@ -173,15 +164,11 @@ describe('relatedFeatureFlagsLogic', () => {
                 logic.actions.setFilters({ active: 'true' }, true)
             }).toFinishAllListeners()
 
-            await expectLogic(flagsLogic).toFinishAllListeners()
-
-            expect(flagsLogic.values.featureFlags.results).toHaveLength(2)
-            expect(flagsLogic.values.featureFlags.results.map((f) => f.key)).toEqual(['flag-1', 'flag-3'])
+            expect(logic.values.featureFlags.results.map((flag) => flag.key)).toEqual(['flag-1', 'flag-3'])
         })
 
         it('should still apply client-side filtering for reason filter', async () => {
             setupMocks()
-            await expectLogic(flagsLogic).toFinishAllListeners()
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
@@ -197,13 +184,70 @@ describe('relatedFeatureFlagsLogic', () => {
             setupMocks()
             await expectLogic(logic).toFinishAllListeners()
 
-            await expectLogic(flagsLogic, () => {
+            await expectLogic(logic, () => {
                 logic.actions.loadRelatedFeatureFlags()
             })
                 .toDispatchActions(['loadFeatureFlags'])
                 .toFinishAllListeners()
 
             await expectLogic(logic).toFinishAllListeners()
+        })
+    })
+
+    describe('isolated server-side search', () => {
+        let requestedSearches: (string | null)[]
+
+        const setupMocks = (): void => {
+            requestedSearches = []
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: ({ request }) => {
+                        const search = new URL(request.url).searchParams.get('search')
+                        requestedSearches.push(search)
+                        return search
+                            ? [200, { results: [OFF_PAGE_FLAG], count: 1 }]
+                            : [200, { results: MOCK_FLAGS, count: 101 }]
+                    },
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/evaluation_reasons`]:
+                        MOCK_EVALUATION_REASONS,
+                },
+            })
+        }
+
+        beforeEach(() => {
+            setupMocks()
+            flagsLogic = featureFlagsLogic()
+            flagsLogic.mount()
+            logic = relatedFeatureFlagsLogic({ distinctId: 'test-user' })
+            logic.mount()
+        })
+
+        it('does not write the search term into the shared featureFlagsLogic', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm('flag-1')
+            }).toFinishAllListeners()
+
+            expect(logic.values.searchTerm).toEqual('flag-1')
+            // The shared list logic must stay on its default search — a leak here surfaced as an
+            // empty flags list showing a term the user never typed on that scene.
+            expect(flagsLogic.values.filters.search).toBeUndefined()
+        })
+
+        it('finds a matching flag outside the loaded page', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.mappedRelatedFeatureFlags.map((flag) => flag.key)).not.toContain('flag-101')
+
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm('flag-101')
+            }).toFinishAllListeners()
+
+            expect(requestedSearches).toContain('flag-101')
+            expect(logic.values.filteredMappedFlags.map((flag) => flag.key)).toEqual(['flag-101'])
+            expect(logic.values.pagination).toEqual(expect.objectContaining({ currentPage: 1, entryCount: 1 }))
         })
     })
 
@@ -245,11 +289,7 @@ describe('relatedFeatureFlagsLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.loadRelatedFeatureFlags()
             }).toFinishAllListeners()
-            await expectLogic(flagsLogic).toFinishAllListeners()
-
             expect(logic.values.loadError).toBe(false)
-            // Server-controlled paging over the full flags list must come back after a retry —
-            // this table pages through featureFlagsLogic, not through its own rows
             expect(logic.values.pagination).toEqual(
                 expect.objectContaining({ controlled: true, entryCount: MOCK_FLAGS.length })
             )

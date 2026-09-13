@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -50,6 +50,28 @@ class TestOAuthModels(TestCase):
 
     @parameterized.expand(
         [
+            ("whole_token", "openid  llm_gateway:read query:read", True, True),
+            ("substring", "openid llm_gateway:reader query:read", True, False),
+            ("different_case", "openid LLM_GATEWAY:READ query:read", True, False),
+            ("no_application", "llm_gateway:read", False, False),
+        ]
+    )
+    def test_access_tokens_with_scope(
+        self, name: str, stored_scopes: str, application_bound: bool, expected: bool
+    ) -> None:
+        app = self._make_app(f"Scope lookup {name}", f"scope_lookup_{name}")
+        access_token = OAuthAccessToken.objects.create(
+            application=app if application_bound else None,
+            user=self.user,
+            token=f"scope_lookup_token_{name}",
+            expires=timezone.now() + timedelta(minutes=5),
+            scope=stored_scopes,
+        )
+
+        self.assertEqual(OAuthAccessToken.with_scope("llm_gateway:read").filter(pk=access_token.pk).exists(), expected)
+
+    @parameterized.expand(
+        [
             ("empty_scopes_broad", [], [], [], []),
             ("explicit_no_optional_all_required", ["insight:read"], [], ["insight:read"], ["insight:read"]),
             ("split", ["insight:read"], ["dashboard:read"], ["insight:read", "dashboard:read"], ["insight:read"]),
@@ -87,14 +109,13 @@ class TestOAuthModels(TestCase):
             "CIMD Split",
             "cimd_split_client",
             is_cimd_client=True,
-            cimd_metadata_url="https://example.com/oauth-client",
             scopes=["insight:read"],
             optional_scopes=["dashboard:read"],
         )
         self.assertEqual(app.required_scopes, ["insight:read"])
         self.assertEqual(app.ceiling_scopes, ["insight:read", "dashboard:read"])
 
-    @freeze_time("2024-01-01 00:00:00")
+    @time_machine.travel("2024-01-01 00:00:00", tick=False)
     def test_create_oauth_application_with_skip_authorization_fails(self):
         # Test that creating an application with skip_authorization=True raises an error
         with self.assertRaises(ValidationError):
@@ -592,7 +613,7 @@ class TestOAuthModels(TestCase):
         self.assertFalse(OAuthGrant.objects.filter(id=grant.id).exists())
         self.assertFalse(OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists())
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_revoke_application_sessions_revokes_across_all_users_and_leaves_other_apps(self):
         app = self._make_app("Narrowed App", "narrowed_client_id")
         other_app = self._make_app("Other App", "other_client_id")
@@ -625,7 +646,7 @@ class TestOAuthModels(TestCase):
         self.assertEqual(OAuthRefreshToken.objects.filter(application=app, revoked__isnull=True).count(), 0)
         self.assertTrue(OAuthAccessToken.objects.filter(id=survivor.id).exists())
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_revoke_application_sessions_stamps_sessions_revoked_at(self):
         app = self._make_app("Stamped App", "stamped_client_id")
         other_app = self._make_app("Untouched App", "untouched_client_id")

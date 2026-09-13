@@ -63,6 +63,12 @@ class AdyenSource(ResumableSource[AdyenSourceConfig, AdyenResumeConfig]):
         return {
             "401 Client Error: Unauthorized": "Adyen rejected the API key. Check the key, and that it matches the environment you selected.",
             "403 Client Error: Forbidden": "Adyen denied access. Check that the API credential has the roles needed for the tables you're syncing.",
+            # None deliberately: _require_identifier already raises these naming the exact missing
+            # or malformed field, so a curated message would just repeat it with less precision.
+            "Balance platform ID is required to sync this table.": None,
+            "Merchant account is required to sync this table.": None,
+            "Balance platform ID contains unsupported characters.": None,
+            "Merchant account contains unsupported characters.": None,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

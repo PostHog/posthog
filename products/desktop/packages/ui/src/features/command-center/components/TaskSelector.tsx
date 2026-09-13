@@ -5,7 +5,6 @@ import {
   Plus,
   Terminal,
 } from "@phosphor-icons/react";
-import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { Popover } from "@radix-ui/themes";
 import { type ReactNode, useCallback, useState } from "react";
 import { Combobox } from "../../../primitives/combobox/Combobox";
@@ -63,11 +62,7 @@ export function TaskSelector({
 
   const handleNewTask = useCallback(() => {
     handleOpenChange(false);
-    if (onNewTask) {
-      onNewTask();
-    } else {
-      openTaskInput();
-    }
+    onNewTask?.();
   }, [handleOpenChange, onNewTask]);
 
   const handleNewTerminal = useCallback(() => {
@@ -159,14 +154,16 @@ export function TaskSelector({
                 </div>
               )}
               <Combobox.Footer>
-                <button
-                  type="button"
-                  className="combobox-footer-button"
-                  onClick={handleNewTask}
-                >
-                  <Plus size={11} weight="bold" />
-                  New task
-                </button>
+                {onNewTask && (
+                  <button
+                    type="button"
+                    className="combobox-footer-button"
+                    onClick={handleNewTask}
+                  >
+                    <Plus size={11} weight="bold" />
+                    New task
+                  </button>
+                )}
                 {onNewTerminal && (
                   <button
                     type="button"

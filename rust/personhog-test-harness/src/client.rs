@@ -2,10 +2,12 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use personhog_common::client::RouterClient;
+use personhog_common::grpc::CLIENT_NAME_HEADER;
 use personhog_proto::personhog::{
     identity::v1::{
         person_hog_identity_client::PersonHogIdentityClient, GetOrCreatePersonEntry,
-        GetOrCreatePersonResult, GetOrCreatePersonsByDistinctIdsRequest,
+        GetOrCreatePersonResult, GetOrCreatePersonsByDistinctIdsRequest, MergePersonsRequest,
+        MergePersonsResponse, MergeSource,
     },
     lifecycle::v1::{
         person_hog_lifecycle_client::PersonHogLifecycleClient, DeletePersonOutcome,
@@ -17,10 +19,21 @@ use personhog_proto::personhog::{
         UpdatePersonPropertiesResponse,
     },
 };
+use tonic::metadata::MetadataValue;
 use tonic::transport::Channel;
 use tonic::Request;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const HARNESS_CLIENT_NAME: &str = "personhog-test-harness";
+
+fn with_client_name<T>(message: T) -> Request<T> {
+    let mut request = Request::new(message);
+    request.metadata_mut().insert(
+        CLIENT_NAME_HEADER,
+        MetadataValue::from_static(HARNESS_CLIENT_NAME),
+    );
+    request
+}
 
 /// Harness wrapper over the shared router client: same wire behavior,
 /// anyhow-flavored results for scenario code.
@@ -40,7 +53,8 @@ impl HarnessClient {
     /// connection landed on.
     pub async fn connect_with_channels(url: &str, channels: usize) -> Result<Self> {
         let inner = RouterClient::with_channels(url, REQUEST_TIMEOUT, channels)
-            .context("invalid router URL")?;
+            .context("invalid router URL")?
+            .with_client_name(HARNESS_CLIENT_NAME);
         Ok(Self { inner })
     }
 
@@ -106,6 +120,7 @@ impl HarnessClient {
     ) -> Result<UpdatePersonPropertiesResponse> {
         self.inner
             .update_person_properties(UpdatePersonPropertiesRequest {
+                force_update: true,
                 team_id,
                 person_id,
                 event_name: "$set".to_string(),
@@ -148,12 +163,56 @@ impl IdentityClient {
         let resp = self
             .inner
             .clone()
-            .get_or_create_persons_by_distinct_ids(Request::new(
+            .get_or_create_persons_by_distinct_ids(with_client_name(
                 GetOrCreatePersonsByDistinctIdsRequest { entries },
             ))
             .await
             .context("GetOrCreatePersonsByDistinctIds failed")?;
         Ok(resp.into_inner().results)
+    }
+
+    /// Merge `source_distinct_ids` into the person that
+    /// `target_distinct_id` resolves to. A retry with the same op id
+    /// returns the recorded outcome and does not merge again. The
+    /// creator must stay stable across those retries, so the caller
+    /// mints it once per merge alongside the op id.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn merge_persons(
+        &self,
+        team_id: i64,
+        target_distinct_id: &str,
+        source_distinct_ids: &[String],
+        event_set: serde_json::Value,
+        event_set_once: serde_json::Value,
+        op_id: &uuid::Uuid,
+        creator_event_uuid: &uuid::Uuid,
+        allow_identified_sources: bool,
+        move_limit: i64,
+    ) -> Result<MergePersonsResponse> {
+        let resp = self
+            .inner
+            .clone()
+            .merge_persons(with_client_name(MergePersonsRequest {
+                team_id,
+                target_distinct_id: target_distinct_id.to_string(),
+                sources: source_distinct_ids
+                    .iter()
+                    .map(|did| MergeSource {
+                        source_distinct_id: did.clone(),
+                        event_uuid: uuid::Uuid::new_v4().to_string(),
+                    })
+                    .collect(),
+                event_set: serde_json::to_vec(&event_set)?,
+                event_set_once: serde_json::to_vec(&event_set_once)?,
+                op_id: op_id.to_string(),
+                allow_identified_sources,
+                move_limit: Some(move_limit),
+                created_at: 0,
+                creator_event_uuid: creator_event_uuid.to_string(),
+            }))
+            .await
+            .context("MergePersons failed")?;
+        Ok(resp.into_inner())
     }
 }
 
@@ -190,7 +249,7 @@ impl LifecycleClient {
         let resp = self
             .inner
             .clone()
-            .delete_persons(Request::new(DeletePersonsRequest {
+            .delete_persons(with_client_name(DeletePersonsRequest {
                 team_id,
                 person_ids,
                 op_id: op_id.to_string(),

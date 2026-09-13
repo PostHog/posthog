@@ -80,6 +80,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         # reword. Temporal then retries the whole activity, so the failure is transient and
         # self-recovering.
         return {
+            "APIError: [409]",
             "APIError: [429]",
             "APIError: [500]",
             "APIError: [502]",

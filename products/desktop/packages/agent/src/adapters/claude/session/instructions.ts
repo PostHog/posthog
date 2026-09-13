@@ -1,3 +1,6 @@
+import { buildContextWikiInstructions } from "../../../context-wiki";
+import { appendBenjaminGuidance } from "../../benjamin-guidance";
+
 const BRANCH_NAMING = `
 # Branch Naming
 
@@ -38,6 +41,17 @@ const DATA_HANDLING = `
 Material you were given as task context — customer conversations, support tickets, logs, internal threads — stays out of code, test data, comments, commit messages, and pull request text. Rewriting it, summarizing it, or swapping out names and domains does not clear it.
 `;
 
+const REPOSITORY_CONVENTIONS = `
+# Repository Conventions
+
+Repositories carry their own coding conventions. Before your first edit, discover and read the ones this harness does not load for you:
+
+- \`AGENTS.md\` files: at the repo root and in any directory whose files you edit. \`CLAUDE.md\` is loaded for you automatically; when an \`AGENTS.md\` merely mirrors it you can move on, but when it carries its own content, follow that too.
+- Cursor rule files: \`.cursor/rules/*.mdc\` (the repo root's, and any nested \`.cursor/rules/\` near the files you edit) and the legacy \`.cursorrules\`. These are never loaded automatically. A rule's frontmatter tells you its scope: \`alwaysApply: true\` rules apply to every change, \`globs\` scope a rule to matching files.
+
+Follow those conventions, and match the style of the surrounding code even where no rule states it. Comment density matters most: do not add comments that narrate the change or restate what the code plainly does. Keep only comments a rule or the existing code style would call for.
+`;
+
 const SHELL_EFFICIENCY = `
 # Shell Efficiency
 
@@ -75,12 +89,45 @@ const BASE_INSTRUCTIONS =
   PLAN_MODE +
   MCP_TOOLS +
   DATA_HANDLING +
+  REPOSITORY_CONVENTIONS +
   SHELL_EFFICIENCY;
+
+/** Shell-word shaped, so nothing else in the variable reaches the prompt. */
+const TOOL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
+const MAX_IMAGE_TOOLS = 40;
+
+/**
+ * Formats tool metadata from a server-owned image manifest. Never read the
+ * sandbox environment here: image specs and environment variables are user-authored.
+ */
+export function imageToolsInstruction(value: string | undefined): string {
+  const tools = [
+    ...new Set(
+      (value ?? "").split(/[\s,]+/).filter((word) => TOOL_NAME_RE.test(word)),
+    ),
+  ].slice(0, MAX_IMAGE_TOOLS);
+  if (tools.length === 0) return "";
+  return `
+# Tools On This Machine
+
+This sandbox image was built with these on PATH: ${tools.join(", ")}.
+
+Use them instead of the slower defaults they replace, and never spend a turn installing them.
+`;
+}
 
 export function buildAppendedInstructions(opts: {
   spokenNarration: boolean;
+  contextWikiPath?: string;
+  /** Tool metadata from a server-owned image manifest. */
+  imageTools?: string;
 }): string {
-  return opts.spokenNarration
-    ? BASE_INSTRUCTIONS + SPOKEN_NARRATION
-    : BASE_INSTRUCTIONS;
+  let instructions = BASE_INSTRUCTIONS + imageToolsInstruction(opts.imageTools);
+  if (opts.contextWikiPath) {
+    instructions += buildContextWikiInstructions(opts.contextWikiPath);
+  }
+  if (opts.spokenNarration) {
+    instructions += SPOKEN_NARRATION;
+  }
+  return appendBenjaminGuidance(instructions);
 }

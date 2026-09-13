@@ -9,7 +9,7 @@ from django.utils import timezone
 from posthog.schema import ActorsQuery
 
 from posthog.hogql_queries.actor_strategies import PersonStrategy
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models import Team
 from posthog.test.persons import create_person, update_person
 

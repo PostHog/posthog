@@ -106,3 +106,29 @@ class TestSchemaAccumulation:
         schema = writer.get_schema()
         assert schema is not None
         assert schema.field("consumed_quantity").type == pa.float64()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer._write_parquet_to_s3"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.ensure_bucket")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.get_s3_client")
+    def test_conflicting_column_types_across_batches_fall_back_to_text(
+        self, mock_get_s3_client, _mock_ensure_bucket, _mock_write
+    ) -> None:
+        # A vendor sending the same id as int in one page and string in the next used to abort
+        # the whole table's sync with ArrowTypeError when the batch schemas were folded together.
+        mock_get_s3_client.return_value.info.return_value = {"Size": 1}
+
+        job = MagicMock()
+        job.team_id = 1
+        job.created_at = datetime(2026, 8, 5, tzinfo=UTC)
+        job.workflow_run_id = "run-1"
+
+        writer = S3BatchWriter(MagicMock(), job, schema_id="schema-1", run_uuid="run-1")
+
+        writer.write_batch(pa.table({"owner_id": pa.array([1], type=pa.int64())}), 0)
+        writer.write_batch(pa.table({"owner_id": pa.array(["2"], type=pa.string())}), 1)
+
+        schema = writer.get_schema()
+        assert schema is not None
+        assert schema.field("owner_id").type == pa.string()

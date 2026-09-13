@@ -16,10 +16,13 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { UUIDT } from '~/common/utils/utils'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
+import {
+    IngestionTestInfra,
+    createIngestionTestInfra,
+    ensureIngestionE2EInfraReady,
+} from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '~/tests/helpers/sql'
+import { createUserTeamAndOrganization, fetchPostgresPersons, uniqueTestId } from '~/tests/helpers/sql'
 import { PipelineEvent, PluginsServerConfig, ProjectId, Team } from '~/types'
 
 jest.mock('~/common/utils/token-bucket', () => {
@@ -150,7 +153,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
             })
             const kafkaProducer = await KafkaProducerWrapper.create(infra.config.KAFKA_CLIENT_RACK)
 
-            const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
+            const teamId = uniqueTestId()
             const userId = teamId
             const organizationId = new UUIDT().toString()
 
@@ -211,13 +214,8 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
     const testWithTeamIngester = createTestWithTeamIngester()
 
     beforeAll(async () => {
-        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
-        await resetTestDatabase()
+        await ensureIngestionE2EInfraReady()
         process.env.SITE_URL = 'https://example.com'
-    })
-
-    afterAll(async () => {
-        await resetTestDatabase()
     })
 
     testWithTeamIngester(

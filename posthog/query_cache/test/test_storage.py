@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 import zstd
 from parameterized import parameterized
@@ -15,23 +15,16 @@ from posthog.query_cache import (
     get_stale_insights,
     storage as qc_storage,
 )
-from posthog.query_cache.serialization import QUERY_CACHE_SPLIT_MAGIC, encode_split_cached_response
-from posthog.query_cache.storage import (
-    S3_POINTER_MAGIC,
-    ZSTD_FRAME_MAGIC,
-    S3BlobPointer,
-    decode_pointer,
-    encode_pointer,
-    entry_redis_key,
-    is_s3_pointer,
-    s3_write_mode,
-)
+from posthog.query_cache.serialization import encode_split_cached_response
+from posthog.query_cache.size_tracker import TeamCacheSizeTracker
+from posthog.query_cache.storage import S3_POINTER_MAGIC, ZSTD_FRAME_MAGIC, entry_redis_key
 from posthog.storage.object_storage import ObjectStorageError
 
 
 class FakeObjectStorage:
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], bytes] = {}
+        self.written_keys: list[str] = []
         self.fail_writes = False
         self.fail_reads = False
 
@@ -39,6 +32,7 @@ class FakeObjectStorage:
         if self.fail_writes:
             raise ObjectStorageError("write failed")
         self.objects[(bucket, key)] = content
+        self.written_keys.append(key)
 
     def read_bytes(self, bucket: str, key: str, *, missing_ok: bool = False) -> bytes | None:
         if self.fail_reads:
@@ -49,83 +43,8 @@ class FakeObjectStorage:
             raise ObjectStorageError("read failed")
         return self.objects[(bucket, key)]
 
-
-class TestS3PointerCodec(SimpleTestCase):
-    def test_pointer_round_trips(self):
-        pointer = S3BlobPointer(bucket="cache-bucket", key="query_cache/1/some_key")
-        assert decode_pointer(encode_pointer(pointer)) == pointer
-
-    @parameterized.expand(
-        [
-            ("legacy_json_blob", b'{"results": []}'),
-            ("split_format_blob", QUERY_CACHE_SPLIT_MAGIC + b"\x00rest"),
-            ("empty", b""),
-        ]
-    )
-    def test_blob_formats_are_not_pointers(self, _name, data):
-        assert not is_s3_pointer(data)
-        assert decode_pointer(data) is None
-
-    @parameterized.expand(
-        [
-            ("not_json", S3_POINTER_MAGIC + b"notjson"),
-            ("missing_keys", S3_POINTER_MAGIC + b'{"v": 1}'),
-            ("unknown_version", S3_POINTER_MAGIC + b'{"v": 2, "b": "bucket", "k": "key"}'),
-            ("non_string_key", S3_POINTER_MAGIC + b'{"v": 1, "b": "bucket", "k": [1, 2]}'),
-        ]
-    )
-    def test_corrupt_pointer_decodes_to_none(self, _name, data):
-        assert is_s3_pointer(data)
-        assert decode_pointer(data) is None
-
-
-@override_settings(OBJECT_STORAGE_ENABLED=True)
-class TestS3WriteMode(SimpleTestCase):
-    def test_disabled_object_storage_fails_closed(self):
-        # UnavailableStorage swallows writes silently, so routing while storage is off would
-        # store pointers to blobs that were never written.
-        with (
-            override_settings(OBJECT_STORAGE_ENABLED=False),
-            patch("posthog.query_cache.storage._organization_id_for_team") as org_mock,
-        ):
-            assert s3_write_mode(team_id=1) == "off"
-            org_mock.assert_not_called()
-
-    @parameterized.expand(
-        [
-            ("on", "on"),
-            ("shadow", "shadow"),
-            (True, "off"),
-            (False, "off"),
-            (None, "off"),
-            ("unknown-variant", "off"),
-        ]
-    )
-    def test_only_known_variants_activate(self, variant, expected):
-        with (
-            patch("posthog.query_cache.storage._organization_id_for_team", return_value="0189-org-uuid"),
-            patch("posthog.query_cache.storage.get_feature_flag_or_none", return_value=variant),
-        ):
-            assert s3_write_mode(team_id=1) == expected
-
-    def test_unresolvable_organization_fails_closed_without_flag_evaluation(self):
-        with (
-            patch("posthog.query_cache.storage._organization_id_for_team", return_value=None),
-            patch("posthog.query_cache.storage.get_feature_flag_or_none") as flag_mock,
-        ):
-            assert s3_write_mode(team_id=1) == "off"
-            flag_mock.assert_not_called()
-
-    def test_flag_evaluation_supplies_group_properties(self):
-        # Without group_properties, an id-filtered rollout evaluates inconclusive under
-        # only_evaluate_locally and silently reads as off.
-        with (
-            patch("posthog.query_cache.storage._organization_id_for_team", return_value="0189-org-uuid"),
-            patch("posthog.query_cache.storage.get_feature_flag_or_none", return_value="on") as flag_mock,
-        ):
-            assert s3_write_mode(team_id=1) == "on"
-        assert flag_mock.call_args.kwargs["groups"] == {"organization": "0189-org-uuid"}
-        assert flag_mock.call_args.kwargs["group_properties"] == {"organization": {"id": "0189-org-uuid"}}
+    def delete(self, bucket: str, key: str) -> None:
+        self.objects.pop((bucket, key), None)
 
 
 def _redis_raw(cache_key: str) -> bytes | None:
@@ -251,9 +170,21 @@ class TestQueryCacheS3Routing(BaseTest):
             assert self._redis_holds_pointer(cache_key)
             older_upload()
 
+        # The superseded upload deletes its own blob; only the winning upload's object remains.
+        assert len(self.storage.objects) == 1
         entry = cache.lookup().entry
         assert entry is not None
         assert entry.as_full_response() == newer
+
+        # A lost reply makes the redis client retry the swap script after it already landed.
+        # The retry must report swapped even though `expected` no longer matches, because a
+        # False return sends the upload down the superseded path, which deletes the blob the
+        # live entry now points at.
+        raw_pointer = _redis_raw(cache_key)
+        assert raw_pointer is not None
+        tracker = TeamCacheSizeTracker(team_id=self.team.pk)
+        assert tracker.replace_value(cache_key, raw_pointer, ttl=600, expected=b"stale-inline-bytes") is True
+        assert _redis_raw(cache_key) == raw_pointer
 
     def test_on_mode_large_result_round_trips_via_pointer(self):
         cache_key = f"s3_on_large_{self.team.pk}"
@@ -269,7 +200,7 @@ class TestQueryCacheS3Routing(BaseTest):
         assert entry is not None
         assert entry.as_full_response() == response
 
-    def test_each_upload_writes_a_fresh_object(self):
+    def test_replacing_a_pointer_entry_deletes_the_replaced_blob(self):
         cache_key = f"s3_fresh_object_{self.team.pk}"
         cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
         first = self._large_response()
@@ -280,7 +211,10 @@ class TestQueryCacheS3Routing(BaseTest):
             cache.store_result(response=second, target_age=None)
 
         # A shared object key would let overlapping recomputes overwrite each other's blob.
-        assert len(self.storage.objects) == 2
+        assert len(set(self.storage.written_keys)) == 2
+        # The second store replaced the first store's pointer, which enqueued a delete for its
+        # blob (Celery runs eagerly under TEST); only the second store's object remains.
+        assert len(self.storage.objects) == 1
         entry = cache.lookup().entry
         assert entry is not None
         assert entry.as_full_response() == second

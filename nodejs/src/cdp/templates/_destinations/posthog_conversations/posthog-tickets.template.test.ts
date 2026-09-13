@@ -54,4 +54,27 @@ describe('posthog conversations ticket templates', () => {
             expect(response.execResult).toEqual({ id: 'ticket-1', status: 'new' })
         })
     })
+
+    describe('get ticket first_customer_message_text opt-in', () => {
+        const tester = new TemplateTester(getTicketTemplate)
+
+        beforeEach(async () => {
+            await tester.beforeEach()
+        })
+
+        const fetchUrl = (response: Awaited<ReturnType<TemplateTester['invoke']>>): string =>
+            (response.invocation.queueParameters as { url: string }).url
+
+        it('does not request the field by default', async () => {
+            const response = await tester.invoke({ ticket_id: 'ticket-1' })
+            expect(fetchUrl(response)).not.toContain('include_first_customer_message_text')
+        })
+
+        it('appends the query param when opted in', async () => {
+            const response = await tester.invoke({ ticket_id: 'ticket-1', include_first_customer_message_text: true })
+            expect(fetchUrl(response)).toContain(
+                '/api/conversations/external/ticket/ticket-1?include_first_customer_message_text=true'
+            )
+        })
+    })
 })

@@ -1,14 +1,11 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getNuxtSteps as getNuxtStepsPA } from '../product-analytics/nuxt'
+import { getNuxtInstallSteps } from '../product-analytics/nuxt'
 import { StepDefinition } from '../steps'
 
 export const getNuxtSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
-
-    // Get installation steps from product-analytics only
-    const installationSteps = getNuxtStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
 
     // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [
@@ -41,7 +38,7 @@ export const getNuxtSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
         },
     ]
 
-    return [...installationSteps, ...experimentSteps]
+    return [...getNuxtInstallSteps(ctx), ...experimentSteps]
 }
 
 export const NuxtInstallation = createInstallation(getNuxtSteps)

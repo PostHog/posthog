@@ -31,6 +31,9 @@ export type RequestProperties = {
     // Sandbox-provisioned task id: forwarded to the PostHog API as `X-PostHog-Task-Id` on every
     // call so writes can be attributed to the agent's task (validated server-side per team).
     taskId?: string | undefined
+    // Origin product of the sandboxed task (`X-PostHog-Task-Origin`, e.g. `signals_scout`).
+    // The consumer header can't carry this: scouts and Desktop tasks both send `posthog-code`.
+    taskOriginProduct?: string | undefined
     // Dev/test-only per-request feature-flag overrides — a JSON object string from
     // `?flag_overrides=` or the `x-posthog-flag-overrides` header. Parsed and gated
     // to NODE_ENV development/test (fail-closed) in `resolveFeatureFlagOverrides`.
@@ -87,6 +90,7 @@ export function parseRequestProperties(
         mcpVendorClient: vendorClient,
         mode: parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
         taskId: sanitizeHeaderValue(header(request, 'x-posthog-task-id')),
+        taskOriginProduct: sanitizeHeaderValue(header(request, 'x-posthog-task-origin')),
         transport,
         requestStartTime: Date.now(),
         featureFlagOverrides: header(request, 'x-posthog-flag-overrides') || params.get('flag_overrides') || undefined,

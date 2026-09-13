@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
-import { IconPencil, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
+import { IconRefresh, IconSearch } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonDivider,
     LemonInput,
     LemonSwitch,
     LemonTable,
@@ -16,13 +16,11 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { pngHoggie } from 'lib/brand/hoggies'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -30,33 +28,96 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { visionDocsUrl, VisionDocsLink } from '../components/DocsLink'
+import { VisionDocsLink } from '../components/DocsLink'
 import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
+import { replayVisionEmptyState } from '../emptyState/replayVisionEmptyState'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { ObservationSearchTab } from '../search/ObservationSearchTab'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { CreateScannerButton } from './components/CreateScannerButton'
-import { ScannerListEmptyState, computeScannerListEmptyStateVariant } from './components/ScannerListEmptyState'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
+import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
 import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
 import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
-
-const HedgehogXRay = pngHoggie(xRayPng)
 
 const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
     value,
     label,
 }))
 
+function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element {
+    const { deletingIds } = useValues(replayScannersLogic)
+    const { deleteScanner, duplicateScanner } = useActions(replayScannersLogic)
+
+    return (
+        <More
+            data-attr="vision-scanner-row-more"
+            overlay={
+                <>
+                    <LemonButton
+                        fullWidth
+                        to={urls.replayVision(scanner.id)}
+                        disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
+                        data-attr="vision-scanner-edit-row"
+                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                    >
+                        Edit
+                    </LemonButton>
+                    <LemonButton
+                        fullWidth
+                        onClick={() => duplicateScanner(scanner.id)}
+                        // Duplicating creates a new scanner, so gate on resource-level edit access
+                        // rather than this row's per-object level.
+                        disabledReason={getReplayVisionEditDisabledReason()}
+                        data-attr="vision-scanner-duplicate"
+                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                    >
+                        Duplicate
+                    </LemonButton>
+                    <LemonDivider />
+                    <LemonButton
+                        fullWidth
+                        status="danger"
+                        loading={deletingIds.includes(scanner.id)}
+                        disabledReason={
+                            deletingIds.includes(scanner.id)
+                                ? 'Deleting…'
+                                : getReplayVisionDeleteDisabledReason(scanner.user_access_level)
+                        }
+                        onClick={() =>
+                            LemonDialog.open({
+                                title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
+                                description: 'This cannot be undone.',
+                                primaryButton: {
+                                    children: 'Delete',
+                                    status: 'danger',
+                                    onClick: () => deleteScanner(scanner.id),
+                                },
+                                secondaryButton: { children: 'Cancel' },
+                            })
+                        }
+                        data-attr="vision-scanner-delete"
+                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                    >
+                        Delete
+                    </LemonButton>
+                </>
+            }
+        />
+    )
+}
+
 export const scene: SceneExport = {
     component: ReplayScannersScene,
     logic: replayScannersLogic,
     productKey: ProductKey.REPLAY_VISION,
+    emptyState: replayVisionEmptyState,
 }
 
 export function ReplayScannersScene(): JSX.Element {
@@ -67,7 +128,6 @@ export function ReplayScannersScene(): JSX.Element {
         scannersTotal,
         scannersSort,
         togglingIds,
-        deletingIds,
         search,
         enabledFilter,
         scannerTypeFilter,
@@ -79,20 +139,10 @@ export function ReplayScannersScene(): JSX.Element {
         scannerStats,
         scannerStatsLoading,
     } = useValues(replayScannersLogic)
-    const { loadScanners, deleteScanner, toggleScannerEnabled, setScannersFilters, clearFilters } =
-        useActions(replayScannersLogic)
+    const { loadScanners, toggleScannerEnabled, setScannersFilters, clearFilters } = useActions(replayScannersLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const { showUsd } = useValues(visionQuotaLogic)
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-
-    const emptyStateVariant = computeScannerListEmptyStateVariant({
-        onScannersTab: searchParams.tab !== 'usage',
-        receivedFeatureFlags,
-        scannerStatsLoading,
-        scannerTotal: scannerStats?.total,
-        featureFlags,
-    })
 
     const columns: LemonTableColumns<ReplayScanner> = [
         {
@@ -192,49 +242,9 @@ export function ReplayScannersScene(): JSX.Element {
             sorter: true,
         },
         {
-            title: 'Actions',
             key: 'actions',
-            render: (_, scanner) => (
-                <div className="flex gap-1">
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconPencil />}
-                        to={urls.replayVision(scanner.id)}
-                        disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
-                        tooltip="Edit"
-                        data-attr="vision-scanner-edit-row"
-                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                    />
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        status="danger"
-                        icon={<IconTrash />}
-                        loading={deletingIds.includes(scanner.id)}
-                        disabledReason={
-                            deletingIds.includes(scanner.id)
-                                ? 'Deleting…'
-                                : getReplayVisionDeleteDisabledReason(scanner.user_access_level)
-                        }
-                        onClick={() =>
-                            LemonDialog.open({
-                                title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
-                                description: 'This cannot be undone.',
-                                primaryButton: {
-                                    children: 'Delete',
-                                    status: 'danger',
-                                    onClick: () => deleteScanner(scanner.id),
-                                },
-                                secondaryButton: { children: 'Cancel' },
-                            })
-                        }
-                        tooltip="Delete"
-                        data-attr="vision-scanner-delete"
-                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                    />
-                </div>
-            ),
+            width: 0,
+            render: (_, scanner) => <ScannerRowActions scanner={scanner} />,
         },
     ]
 
@@ -265,32 +275,22 @@ export function ReplayScannersScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {!emptyStateVariant && (
-                <ProductIntroduction
-                    productName="Replay vision"
-                    productKey={ProductKey.REPLAY_VISION}
-                    thingName="scanner"
-                    description="Replay vision runs scanners over your completed sessions on a schedule or on demand. Describe what you want to look for and the model watches each recording for it — categorizing sessions, scoring intent, flagging bugs, or detecting any pattern you can put into a prompt. Each result lands as a queryable event you can build insights, alerts, and cohorts on."
-                    secondaryDescription="Start from a template or build a fully custom scanner."
-                    customHog={HedgehogXRay}
-                    action={() => push(urls.replayVisionTemplates())}
-                    docsURL={visionDocsUrl()}
-                />
-            )}
-
             <LemonTabs
-                activeKey={searchParams.tab === 'usage' ? 'usage' : 'scanners'}
-                onChange={(tab) => push(urls.replayVision(), tab === 'usage' ? { tab } : {})}
+                activeKey={
+                    [ReplayScannerTab.Search, 'usage'].includes(searchParams.tab) ? searchParams.tab : 'scanners'
+                }
+                onChange={(tab) => push(urls.replayVision(), tab === 'scanners' ? {} : { tab })}
                 tabs={[
                     { key: 'scanners', label: 'Scanners', content: <></> },
+                    { key: ReplayScannerTab.Search, label: 'Search', content: <></> },
                     { key: 'usage', label: 'Usage', content: <></> },
                 ]}
             />
 
-            {searchParams.tab === 'usage' ? (
+            {searchParams.tab === ReplayScannerTab.Search ? (
+                <ObservationSearchTab scanner={null} />
+            ) : searchParams.tab === 'usage' ? (
                 <VisionUsageTab />
-            ) : emptyStateVariant ? (
-                <ScannerListEmptyState variant={emptyStateVariant} />
             ) : (
                 <>
                     {(scannerStats?.total ?? 0) > 0 ? (

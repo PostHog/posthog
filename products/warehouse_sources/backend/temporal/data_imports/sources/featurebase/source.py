@@ -150,6 +150,16 @@ class FeaturebaseSource(
             ),
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch_page` (featurebase.py) already retries `FeaturebaseRetryableError` (429/5xx),
+        # read timeouts, connection errors, and chunked-encoding errors with backoff; if that
+        # budget still exhausts, Temporal retries the whole activity, so the failure is transient
+        # and self-recovering rather than a bug to page on.
+        return {
+            "Featurebase API error (retryable)",
+            "HTTPSConnectionPool(host='do.featurebase.app', port=443)",
+        }
+
     def get_schemas(
         self,
         config: FeaturebaseSourceConfig,

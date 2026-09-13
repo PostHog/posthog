@@ -18,6 +18,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType, DataModelingJob, LogEntryLevel } from '~/types'
 
+import { SERVING_ENGINE } from 'products/data_modeling/frontend/suspension'
+import { MaterializationRunErrorCell } from 'products/data_warehouse/frontend/shared/components/MaterializationRunErrorCell'
+
 import { IncrementalConfigOptions } from '../editor/IncrementalConfigFields'
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
@@ -32,9 +35,6 @@ import {
 
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
-// Matches DataModelingJobEngine.CLICKHOUSE, the engine materialized queries are served from.
-const SERVING_ENGINE = 'clickhouse'
-
 interface MaterializationStatusPanelProps {
     viewId: string
     /**
@@ -43,6 +43,8 @@ interface MaterializationStatusPanelProps {
      * when `kind === 'endpoint'` — those mutations bypass the endpoint's `_disable_materialization` flow.
      */
     kind?: 'view' | 'endpoint'
+    /** Drops the "Materialization" heading where the surface already names the panel, such as a tab. */
+    hideTitle?: boolean
 }
 
 // Watermarks are only ISO strings for date/datetime incremental keys. Numeric and arbitrary
@@ -106,7 +108,11 @@ function getMaterializationDisabledReasons(
     }
 }
 
-export function MaterializationStatusPanel({ viewId, kind = 'view' }: MaterializationStatusPanelProps): JSX.Element {
+export function MaterializationStatusPanel({
+    viewId,
+    kind = 'view',
+    hideTitle,
+}: MaterializationStatusPanelProps): JSX.Element {
     const jobsLogic = materializationJobsLogic({ viewId, kind })
     const {
         dataModelingJobs,
@@ -184,7 +190,8 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
     const refreshModeChanged = structuralChange || lookbackChanged
     const startingFrequency = defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency)
     const noCadenceReason = unsatisfiableReason(savedQuery.sync_frequency_bounds)
-    const isPaused = !savedQuery.sync_frequency || savedQuery.sync_frequency === 'never'
+    const cadenceOwnedElsewhere = modeDisabledReason(savedQuery.sync_frequency_bounds)
+    const isPaused = !cadenceOwnedElsewhere && (!savedQuery.sync_frequency || savedQuery.sync_frequency === 'never')
 
     // Prefer the serving engine's entry when several engines are suspended.
     const suspension = savedQuery.suspended
@@ -200,8 +207,12 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
             <div className="flex flex-col flex-1 gap-4">
                 <div>
                     <div className="flex flex-row items-center gap-2">
-                        <h3 className="mb-0">Materialization</h3>
-                        <LemonTag type="warning">BETA</LemonTag>
+                        {!hideTitle && (
+                            <>
+                                <h3 className="mb-0">Materialization</h3>
+                                <LemonTag type="warning">BETA</LemonTag>
+                            </>
+                        )}
                         {savedQuery?.latest_error && savedQuery.status === 'Failed' && (
                             <Tooltip title={savedQuery.latest_error} interactive>
                                 <LemonTag type="danger">Error</LemonTag>
@@ -250,6 +261,12 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                                   savedQuery.incremental_state?.watermark
                                               )}`
                                             : 'The last run rebuilt the whole table. The next one will update only new rows.'}
+                                    </div>
+                                )}
+                                {isPaused && kind !== 'endpoint' && (
+                                    <div className="text-xs text-secondary mt-1">
+                                        Scheduled refreshes are paused. Pick a cadence to resume, or use Sync now to
+                                        refresh it once.
                                     </div>
                                 )}
                                 <div className="flex flex-col gap-2 items-start mt-2">
@@ -326,7 +343,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                                 tooltip="Stop refreshing on a schedule. The table stays, holding what it last loaded."
                                                 disabledReason={
                                                     materializationAccessReason ||
-                                                    modeDisabledReason(savedQuery.sync_frequency_bounds) ||
+                                                    cadenceOwnedElsewhere ||
                                                     (isPaused ? 'Already paused. Pick a cadence to resume.' : undefined)
                                                 }
                                                 loading={updatingDataWarehouseSavedQuery}
@@ -369,7 +386,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                         )}
                                     </div>
                                 </div>
-                                {incrementalFlagOn && !savedQuery.managed_viewset_kind && (
+                                {incrementalFlagOn && !savedQuery.managed_viewset_kind && incrementalCheck && (
                                     <div className="mt-4 max-w-160">
                                         <h4 className="mb-0">Refresh mode</h4>
                                         <IncrementalConfigOptions
@@ -509,7 +526,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                             title: 'Status',
                             dataIndex: 'status',
                             render: (_, job: DataModelingJob) => {
-                                const { status, error, rows_materialized, rows_expected } = job
+                                const { status, rows_materialized, rows_expected } = job
                                 const statusToType: Record<string, LemonTagType> = {
                                     Completed: 'success',
                                     Failed: 'danger',
@@ -540,14 +557,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                     )
                                 }
 
-                                const statusTag =
-                                    error && status !== 'Completed' ? (
-                                        <Tooltip title={error} interactive>
-                                            <LemonTag type={type}>{status}</LemonTag>
-                                        </Tooltip>
-                                    ) : (
-                                        <LemonTag type={type}>{status}</LemonTag>
-                                    )
+                                const statusTag = <LemonTag type={type}>{status}</LemonTag>
                                 return (
                                     <div className="flex items-center gap-1">
                                         {statusTag}
@@ -559,6 +569,13 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                     </div>
                                 )
                             },
+                        },
+                        {
+                            title: 'Error',
+                            dataIndex: 'error',
+                            render: (_, { error, status }: DataModelingJob) => (
+                                <MaterializationRunErrorCell error={error} status={status} />
+                            ),
                         },
                         {
                             title: 'Rows',

@@ -188,6 +188,31 @@ def person_property_sync_enabled_for(team_id: int, binding: WarehouseBinding) ->
 
 
 @dataclasses.dataclass(frozen=True)
+class AccountPropertySourceProjection:
+    """One account-target source's materialization projection."""
+
+    key_column: str
+    columns: frozenset[str]
+
+
+AccountPropertyProjectionResolver = Callable[[int, WarehouseBinding], Optional[list[AccountPropertySourceProjection]]]
+_account_property_projection_resolver: Optional[AccountPropertyProjectionResolver] = None
+
+
+def register_account_property_projection(fn: AccountPropertyProjectionResolver) -> None:
+    global _account_property_projection_resolver
+    _account_property_projection_resolver = fn
+
+
+def account_property_projection_for(
+    team_id: int, binding: WarehouseBinding
+) -> Optional[list[AccountPropertySourceProjection]]:
+    if _account_property_projection_resolver is None:
+        return None
+    return _account_property_projection_resolver(team_id, binding)
+
+
+@dataclasses.dataclass(frozen=True)
 class PersonPropertySyncSource:
     """One enabled person- or group-target source's sync config, resolved through the hook below so
     the sync job (owned by warehouse_sources) never imports the customer_analytics config models.

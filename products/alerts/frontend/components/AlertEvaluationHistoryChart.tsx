@@ -1,16 +1,39 @@
-import annotationPlugin from 'chartjs-plugin-annotation'
 import { useMemo } from 'react'
 
-import { Chart } from 'lib/Chart'
-import { useChart } from 'lib/hooks/useChart'
+import {
+    ReferenceLines,
+    ScatterChart,
+    type ScatterPoint,
+    type ScatterSeries,
+    type ScatterTooltipContext,
+    TooltipSurface,
+    TooltipSwatch,
+    useChartTheme,
+} from '@posthog/quill-charts'
+
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
-Chart.register(annotationPlugin)
+import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
+
+const handleChartError = makeChartErrorHandler('alerts-evaluation-history-chart')
 
 const ROLLING_WINDOW = 5
 
 type PointClassification = 'historical' | 'currentOnly' | 'none'
+
+interface HistoryPointMeta {
+    label: string
+    classification: PointClassification
+}
+
+// Semantic status colors, legible on light and dark chart surfaces: red = fired, orange = would
+// fire now, indigo = normal.
+const CLASSIFICATION_STYLE: Record<PointClassification, { color: string; shape: 'circle' | 'square' | 'triangle' }> = {
+    none: { color: '#6366f1', shape: 'circle' },
+    historical: { color: '#dc2626', shape: 'square' },
+    currentOnly: { color: '#ea580c', shape: 'triangle' },
+}
 
 export interface AlertEvaluationHistoryPoint {
     label: string
@@ -153,143 +176,82 @@ export function AlertEvaluationHistoryChart({
         return detectSpikesAboveTrend(values, trailingAverage).map((flagged) => (flagged ? 'historical' : 'none'))
     }, [classifyUnusualWithoutThresholds, hasHistoricalFiringState, points, thresholds, values])
 
-    const thresholdAnnotations = useMemo(() => {
-        if (thresholds.length === 0) {
+    const theme = useChartTheme()
+
+    const scatterSeries = useMemo((): ScatterSeries<HistoryPointMeta>[] => {
+        const byClass: Record<PointClassification, ScatterPoint<HistoryPointMeta>[]> = {
+            none: [],
+            historical: [],
+            currentOnly: [],
+        }
+        points.forEach((point, index) => {
+            const classification = pointClassifications[index] ?? 'none'
+            byClass[classification].push({ x: index, y: point.value, meta: { label: point.label, classification } })
+        })
+        // Normal points first so flagged markers draw on top.
+        return (['none', 'historical', 'currentOnly'] as const)
+            .filter((classification) => byClass[classification].length > 0)
+            .map((classification) => ({
+                key: classification,
+                label: classification,
+                points: byClass[classification],
+                shape: CLASSIFICATION_STYLE[classification].shape,
+                color: CLASSIFICATION_STYLE[classification].color,
+            }))
+    }, [points, pointClassifications])
+
+    const referenceLines = useMemo(
+        () =>
+            thresholds.map((threshold) => ({
+                value: threshold.value,
+                label: threshold.label,
+                labelPosition: 'start' as const,
+                variant: 'alert' as const,
+            })),
+        [thresholds]
+    )
+
+    const yDomain = useMemo((): readonly [number, number] | undefined => {
+        if (thresholds.length === 0 || values.length === 0) {
             return undefined
         }
-        return Object.fromEntries(
-            thresholds.map((threshold, index) => [
-                `${threshold.direction}-${index}`,
-                {
-                    type: 'line' as const,
-                    yMin: threshold.value,
-                    yMax: threshold.value,
-                    borderColor:
-                        threshold.direction === 'upper' ? 'rgba(220, 38, 38, 0.72)' : 'rgba(234, 88, 12, 0.75)',
-                    borderWidth: 1.5,
-                    borderDash: [5, 4],
-                    label: {
-                        display: true,
-                        content: threshold.label,
-                        position: 'start' as const,
-                        font: { size: 9 },
-                        color: threshold.direction === 'upper' ? 'rgba(220, 38, 38, 0.95)' : 'rgba(234, 88, 12, 0.95)',
-                        backgroundColor: 'transparent',
-                    },
-                },
-            ])
-        )
-    }, [thresholds])
+        const dataMin = Math.min(...values)
+        const dataMax = Math.max(...values)
+        const min = Math.min(dataMin, ...thresholds.map((threshold) => threshold.value))
+        const max = Math.max(dataMax, ...thresholds.map((threshold) => threshold.value))
+        if (min === dataMin && max === dataMax) {
+            return undefined
+        }
+        const headroom = (max - min) * 0.05 || 1
+        return [min < dataMin ? min - headroom : min, max > dataMax ? max + headroom : max]
+    }, [thresholds, values])
 
-    const { canvasRef } = useChart({
-        getConfig: () => ({
-            type: 'line' as const,
-            data: {
-                labels,
-                datasets: [
-                    {
-                        label: valueLabel,
-                        data: values,
-                        showLine: false,
-                        borderWidth: 0,
-                        backgroundColor: 'transparent',
-                        fill: false,
-                        pointRadius: (context) => (pointClassifications[context.dataIndex] === 'none' ? 4 : 4.5),
-                        pointHoverRadius: (context) => (pointClassifications[context.dataIndex] === 'none' ? 5 : 5.5),
-                        pointStyle: (context) => {
-                            const classification = pointClassifications[context.dataIndex]
-                            if (classification === 'historical') {
-                                return 'rect'
-                            }
-                            if (classification === 'currentOnly') {
-                                return 'triangle'
-                            }
-                            return 'circle'
-                        },
-                        pointBackgroundColor: (context) => {
-                            const classification = pointClassifications[context.dataIndex]
-                            if (classification === 'historical') {
-                                return 'rgba(220, 38, 38, 0.92)'
-                            }
-                            if (classification === 'currentOnly') {
-                                return 'rgba(234, 88, 12, 0.85)'
-                            }
-                            return 'transparent'
-                        },
-                        pointBorderColor: (context) => {
-                            const classification = pointClassifications[context.dataIndex]
-                            if (classification === 'historical') {
-                                return 'rgba(127, 29, 29, 1)'
-                            }
-                            if (classification === 'currentOnly') {
-                                return 'rgba(154, 52, 18, 1)'
-                            }
-                            return 'rgba(99, 102, 241, 0.95)'
-                        },
-                        pointBorderWidth: 1.75,
-                    },
-                ],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: { mode: 'nearest' as const, axis: 'x' as const, intersect: false },
-                plugins: {
-                    legend: { display: false },
-                    ...(thresholdAnnotations ? { annotation: { annotations: thresholdAnnotations } } : {}),
-                    tooltip: {
-                        enabled: true,
-                        callbacks: {
-                            title: (items) => (items[0] ? String(items[0].label) : ''),
-                            label: (context) => {
-                                const value = context.parsed.y
-                                if (value == null || Number.isNaN(value)) {
-                                    return context.dataset.label ?? ''
-                                }
-                                const classification = pointClassifications[context.dataIndex]
-                                let suffix = ''
-                                if (classification === 'historical') {
-                                    suffix = hasHistoricalFiringState
-                                        ? ' (triggered the alert)'
-                                        : thresholds.length > 0
-                                          ? ' (outside threshold)'
-                                          : ' (unusual compared to recent values)'
-                                } else if (classification === 'currentOnly') {
-                                    suffix = ' (would trigger the alert now)'
-                                }
-                                return `${valueLabel}: ${formatValue(value)}${suffix}`
-                            },
-                        },
-                    },
-                },
-                scales: {
-                    x: {
-                        display: true,
-                        ticks: { maxRotation: 45, minRotation: 0, autoSkip: true, maxTicksLimit: 6, font: { size: 9 } },
-                        grid: { display: true, color: 'rgba(0,0,0,0.06)', drawTicks: false },
-                    },
-                    y: {
-                        display: true,
-                        position: 'left' as const,
-                        ticks: {
-                            maxTicksLimit: 5,
-                            font: { size: 10 },
-                            callback: (value: string | number) => formatValue(Number(value)),
-                        },
-                        grid: { color: 'rgba(0,0,0,0.06)' },
-                    },
-                },
-            },
-        }),
-        deps: [
-            chartSeries,
-            valueLabel,
-            thresholdAnnotations,
-            pointClassifications,
-            hasHistoricalFiringState,
-            formatValue,
-        ],
-    })
+    const renderTooltip = (ctx: ScatterTooltipContext<HistoryPointMeta>): JSX.Element => {
+        const { point } = ctx
+        const classification = point.meta?.classification ?? 'none'
+        let suffix = ''
+        if (classification === 'historical') {
+            suffix = hasHistoricalFiringState
+                ? ' (triggered the alert)'
+                : thresholds.length > 0
+                  ? ' (outside threshold)'
+                  : ' (unusual compared to recent values)'
+        } else if (classification === 'currentOnly') {
+            suffix = ' (would trigger the alert now)'
+        }
+        return (
+            <TooltipSurface>
+                <div className="font-semibold">{point.meta?.label}</div>
+                <div className="flex items-center gap-2">
+                    <TooltipSwatch color={point.color} />
+                    <span>
+                        {valueLabel}: <strong className="tabular-nums">{formatValue(point.y)}</strong>
+                        {suffix}
+                    </span>
+                </div>
+            </TooltipSurface>
+        )
+    }
 
     const historicalCount = pointClassifications.filter((classification) => classification === 'historical').length
     const currentOnlyCount = pointClassifications.filter((classification) => classification === 'currentOnly').length
@@ -331,8 +293,24 @@ export function AlertEvaluationHistoryChart({
     return (
         <div className="space-y-2">
             <p className="text-muted text-xs mb-0">{historyCaption}</p>
-            <div className="h-56 w-full min-h-56">
-                <canvas ref={canvasRef} />
+            <div className="h-56 w-full min-h-56 flex flex-col">
+                <ScatterChart<HistoryPointMeta>
+                    series={scatterSeries}
+                    theme={theme}
+                    config={{
+                        xAxis: {
+                            domain: [-0.5, Math.max(points.length - 0.5, 0.5)],
+                            tickFormatter: (value) => labels[Math.round(value)] ?? '',
+                        },
+                        yAxis: { domain: yDomain, tickFormatter: (value) => formatValue(value) },
+                        showGrid: true,
+                        tooltip: { enabled: true },
+                    }}
+                    tooltip={renderTooltip}
+                    onError={handleChartError}
+                >
+                    <ReferenceLines lines={referenceLines} />
+                </ScatterChart>
             </div>
             <p className="text-muted text-xs mb-0">{summary}</p>
             {hasHistoricalFiringState && currentOnlyCount > 0 ? (

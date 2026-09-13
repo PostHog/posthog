@@ -683,7 +683,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     String(values.currentProjectId),
                     run.repo_id,
                     run.run_type,
-                    { identifier: snapshot.identifier, reason: '' }
+                    { identifier: snapshot.identifier }
                 )
                 lemonToast.success('Identifier unquarantined — future runs will gate on it again')
                 actions.loadQuarantinedIdentifiers()

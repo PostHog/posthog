@@ -35,7 +35,14 @@ The gateway experience has these pages and workflows:
 
 - **MCP servers**: Browse the catalog, search by server details, filter by category, and see connection status.
   Users with permission can add a hosted custom server and choose OAuth or API key authentication.
-  Admins can set its team availability, and eligible users can grant initial agent access.
+  The server keeps that choice: a teammate who connects later follows it, so a server added with an API key asks each member for their own key instead of starting an OAuth flow.
+  Connecting to a registered custom server is not gated by the "members can add custom servers" setting.
+  Admins can set its team availability.
+  Every connection is shared with the built-in PostHog agents automatically when the connecting user may manage agent access (admins always, members while team settings allow it).
+  The built-in agents are the support agent, the scout agent, and the workflow agent, which runs the "Create AI task" step of a workflow; a step picks among the servers shared with the whole project, the same way a scout does.
+  An agent added to the catalog later inherits the grants its siblings already hold on the team the first time it is synced.
+  The add-server form picks how far that share reaches: only the user's own runs (the default), or every agent run in the project.
+  Connecting a catalog server shares it for the user's own runs; the server page widens it to the team or revokes it.
   Connecting starts the appropriate authorization flow, while an existing connection opens its configuration.
 - **Server details**: Manage a personal connection by enabling, reconnecting, disconnecting, or removing it.
   Admins can also manage team and member access.
@@ -60,10 +67,11 @@ Settings supplies its own navigation shell so the gateway workflows fit the main
 The catalog is **code**: `backend/catalog.py` holds one `CatalogEntry` per server.
 At app startup, every environment queues `sync_mcp_server_templates` (see `backend/tasks/tasks.py`, queued from `backend/apps.py`), which upserts entries into `MCPServerTemplate` rows:
 
-- Rows are keyed on `url`. New entries are created; existing rows get **content fields** updated (name, description, auth_type, category, icon_domain, docs_url). The catalog owns content — edit it in code, not admin.
-- **Operational state is never touched by the sync**: `is_active` after creation, `oauth_credentials`, and `oauth_metadata` once set belong to the row and to operators. Rows absent from the catalog (e.g. admin-added) are left alone.
-- **Activation gate**: a newly created entry is probed live (`backend/probe.py` — MCP initialize handshake, OAuth metadata discovery, a real DCR registration, authorization-endpoint liveness). It is born active only when the probe passes for the auth model the catalog declares. Servers that need shared OAuth credentials (no DCR) are born inactive until an operator provisions them.
-- Probes run **only on creation** — a DCR probe mints a real client on the provider, so re-probing every sync would leak registrations.
+- Rows are keyed on `url`. New entries are created; existing rows get **content fields** updated (name, description, auth type, category, icon, docs URL, OAuth scope allowlist, and credential source). The catalog owns content. Edit it in code, not admin.
+- **Operational state normally stays operator-owned**: the sync preserves `is_active`, `oauth_credentials`, and `oauth_metadata` after creation unless an auth change or suspension must fail closed. A catalog-managed credential source is the exception: sync activates it after a successful shared-client probe and deactivates it when its required settings disappear. Rows absent from the catalog remain untouched.
+- **Activation gate**: a newly created entry is probed live (`backend/probe.py` — MCP initialize handshake, OAuth metadata discovery, a real DCR registration, authorization-endpoint liveness). It is born active only when the probe passes for the auth model the catalog declares. A reviewed instance credential source can satisfy the shared-client gate without copying secrets into the template.
+- **Temporary suspension**: `disabled=True` keeps a catalog entry inactive and deactivates an existing row on the next sync. Removing it lets a configured credential source retry its shared-client probe; other entries still require operator review.
+- Probes run **only on creation**, except when a configured credential source is inactive or first adopted. DCR probes never repeat because they mint real clients.
 
 To add a server, follow the `adding-mcp-store-servers` skill (`.agents/skills/adding-mcp-store-servers/`).
 To probe a server by hand:
@@ -80,6 +88,7 @@ Only **hosted (remote) MCP servers** on a public HTTPS endpoint speaking the str
 Adds and auto-activates on merge:
 
 - OAuth servers with Dynamic Client Registration — the probe mints a real DCR client and verifies the authorization page.
+- OAuth servers backed by a configured, catalog-reviewed instance credential source — the probe verifies the shared client and authorization page.
 - API-key and unauthenticated servers that answer the MCP initialize handshake without credentials.
 
 Adds but ships **inactive** until an operator finishes activation (see the runbook below):
@@ -94,6 +103,28 @@ Can't be added:
 - Servers that aren't publicly reachable — private IPs, VPN-only hosts, and internal domains are blocked by SSRF protection.
 - Non-HTTP transports (WebSocket-only) and legacy HTTP+SSE dual-endpoint servers — the probe and proxy speak streamable HTTP only.
 - Any URL that fails the probe (`speaks_mcp: false`) — never ship an unprobed URL.
+
+### Internal endpoint escape hatch
+
+Cloud operators can allow a small number of private Streamable HTTP endpoints
+for internal dogfooding with the `MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM`
+environment variable. Its value is a JSON object keyed by team ID; every entry
+must be a complete MCP URL, for example:
+
+```text
+MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM={"2":["http://grafana-mcp.monitoring.svc.cluster.local/mcp"]}
+```
+
+Matching is byte-for-byte and team-scoped. Configuring an endpoint does not
+allow another team, path, host, port, trailing-slash variant, or any other
+private address. Requests to an allowed endpoint bypass the process HTTP proxy on this MCP-only code path so
+cluster-local traffic is not sent to Smokescreen; the process-wide `NO_PROXY`
+configuration is unchanged.
+
+This setting only makes the endpoint reachable. Operators must separately
+restrict it with a NetworkPolicy and application authentication, and create the
+internal installation explicitly. Internal endpoints do not belong in
+`backend/catalog.py` and are never made visible in the public marketplace.
 
 Known gap: API keys are sent as `Authorization: Bearer <key>`, so servers that require a custom header (`X-API-Key`, ...) or exotic auth (signed JWTs, mTLS, IP allowlists) pass the probe but fail at first real install.
 A real end-to-end install (Gate B in the skill) is the only check that catches these.
@@ -121,15 +152,26 @@ To show brand icons on a self-hosted instance, create a logo.dev account, genera
 ## Auth models
 
 - **OAuth with DCR** (most modern remote servers): nothing to provision. Each install discovers OAuth metadata fresh and mints a per-user client via RFC 7591. Template `oauth_credentials`/`oauth_metadata` stay empty.
+- **OAuth with an instance credential source**: a catalog entry can reuse a client already configured for that PostHog environment. The template stores only the source name; installs resolve the current credentials at runtime, so rotation does not create another secret copy. Each source pins its trusted issuer, authorization endpoint, and token endpoint before any secret leaves PostHog.
 - **OAuth without DCR** ("shared creds"): an operator registers one OAuth app with the vendor and pastes `client_id`/`client_secret` into Django admin (stored encrypted per template). The sync pre-fills `oauth_metadata` from discovery; installs then share the client while each user gets their own tokens. Redirect URI: `{SITE_URL}/api/mcp_store/oauth_redirect/`.
 - **API key**: users supply their own key at install; nothing on the template.
 
-## Operator runbook: activating a shared-creds server
+OAuth catalog entries can set `oauth_scope_allowlist` to limit registration and authorization to reviewed scopes. Without an allowlist, the client requests every scope advertised by the server. Shared clients derive their token endpoint authentication method from discovered metadata unless `oauth_credentials.token_endpoint_auth_method` overrides it.
 
-1. Register an OAuth app in the vendor's developer console with redirect URI `https://us.posthog.com/api/mcp_store/oauth_redirect/` (repeat for EU with the EU host).
-2. Django admin → MCP server templates → the server: paste client ID and client secret.
-3. `oauth_metadata` should already be populated by the sync; if empty, run the "Discover metadata" admin action.
-4. Tick "is active". Repeat per environment — templates are per-database rows.
+Slack uses the existing `SLACK_APP_CLIENT_ID` and `SLACK_APP_CLIENT_SECRET` instance settings. Its catalog entry remains suspended until the production Slack app supports MCP and its regional callbacks are live. After the suspension is removed, catalog sync activates Slack only when both settings exist and the shared-client probe passes. Each Desktop user still completes a separate OAuth grant for the catalog's reviewed MCP scopes.
+
+## Operator runbook: activating a manually provisioned shared-creds server
+
+1. Register these redirect URIs in the vendor's developer console:
+   - `https://us.posthog.com/api/mcp_store/oauth_redirect/`
+   - `https://eu.posthog.com/api/mcp_store/oauth_redirect/`
+2. Request only the scopes in the catalog entry's `oauth_scope_allowlist` and complete any provider review.
+3. Django admin → MCP server templates → the server: paste client ID and client secret.
+4. Confirm the discovered metadata and token endpoint authentication method. Run the "Discover metadata" admin action if metadata is empty.
+5. Complete one internal authorization and tool discovery in each environment.
+6. Tick "is active". Repeat per environment because templates are per-database rows.
+
+If the catalog entry has `disabled=True`, remove the suspension in a follow-up only after these checks pass. Removing the suspension does not reactivate a manually provisioned row.
 
 ## Reaching connected servers from an agent
 
@@ -144,6 +186,11 @@ There are two ways a caller uses a connection, and they differ in who speaks MCP
   Discovery for that path is `GET .../mcp_server_installations/available_tools/`, which returns every callable tool across the caller's connections in one request, each namespaced by a server slug (`linear__create_issue`).
   When two connections share a display name, both slugs carry a fragment of their installation id (`linear-a1b2c3`), and that ambiguity is decided over every connection the caller can address rather than only the reachable ones — otherwise an expiring token could re-point a tool name at a different connection between refreshes.
   The `exec` side lives in `services/mcp/src/lib/gateway-tools.ts` and is gated on the `mcp-gateway` flag.
+
+Agents mount a connection without connecting to it, so an installation's `description` (copied from the catalog entry at install time) travels with the server config and is what the agent's tool search matches on until the first call.
+A connection with no description is only findable by searching its exact name.
+Cloud runs read it through `get_installations_for_sandbox`, which falls back to the template's description; desktop runs read it from the installation serializer.
+Either way the description is for pi only, so the agent server drops it before passing servers to claude or codex.
 
 Both paths resolve policy through the same `resolve_call_decision` / `_gateway_decision` in `backend/proxy.py` and write the same `MCPAuditEvent` rows, so approval state and the audit trail cannot diverge between them.
 `needs_approval` and `do_not_use` tools are refused before any upstream request.

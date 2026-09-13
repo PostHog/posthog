@@ -41,6 +41,13 @@ class Command(BaseCommand):
                 "problem this command exists to fix."
             )
 
+        configured = settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID
+        if configured and client_id != configured:
+            raise CommandError(
+                f"This region runs on STRIPE_MARKETPLACE_OAUTH_CLIENT_ID={configured}. Reconciling "
+                f"{client_id} would report success while leaving the application in use untouched."
+            )
+
         existing = OAuthApplication.objects.filter(client_id=client_id).first()
 
         # Mirrors the orchestrator's row so refresh behaves identically; the Stripe app sends no
@@ -58,7 +65,12 @@ class Command(BaseCommand):
         if dry_run:
             verb = "would reconcile" if existing else "would create"
             self.stdout.write(f"{verb} {APP_NAME} (client_id={client_id})")
-            self.stdout.write(f"  ceiling_scopes: {StripeIntegration.SCOPES}")
+            if existing:
+                self.stdout.write(
+                    f"  ceiling_scopes: {' '.join(existing.ceiling_scopes)} -> {StripeIntegration.SCOPES}"
+                )
+            else:
+                self.stdout.write(f"  ceiling_scopes: {StripeIntegration.SCOPES}")
             self.stdout.write("  can_issue_deep_links: False")
             return
 
@@ -66,6 +78,9 @@ class Command(BaseCommand):
         for field, value in desired.items():
             setattr(app, field, value)
         app.scopes = StripeIntegration.SCOPES.split()
+        # ceiling_scopes is scopes + optional_scopes, so leaving optional_scopes alone would keep
+        # anything a drifted row carries grantable outside the list this command sets.
+        app.optional_scopes = []
         # Assigning a fresh config rather than update_provisioning, which merges: on a drifted row
         # that would leave every capability it does not name switched on.
         app.provisioning = ProvisioningConfig()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import importlib.util
@@ -7,6 +8,7 @@ from pathlib import Path
 from types import ModuleType
 
 import unittest
+from unittest import mock
 
 from parameterized import parameterized
 
@@ -80,31 +82,48 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             self.assertIn("same_app:products/feature_flags/backend", result.groups)
             self.assertEqual(["products/feature_flags/backend/test/test_api.py"], result.tests)
 
+    def test_ast_selection_ignores_deleted_test_files(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            selection = _load_selection_module()
+            selection.REPO_ROOT = Path(root)
+
+            result = selection.ast_select_tests(["posthog/test/test_deleted.py"], {})
+
+            self.assertEqual({}, result.groups)
+            self.assertEqual([], result.tests)
+
     def test_ast_selection_matches_posthog_api_test_by_filename(self) -> None:
-        selection = _load_selection_module()
+        with tempfile.TemporaryDirectory() as root:
+            tmp_path = Path(root)
+            selection = _load_selection_module()
+            selection.REPO_ROOT = tmp_path
 
-        result = selection.ast_select_tests(
-            ["posthog/api/project.py"],
-            {
-                "posthog/api/test/test_project.py": selection.TestFeatures(
-                    path="posthog/api/test/test_project.py",
-                    imports_api_client=True,
-                    api_tokens=("project",),
-                ),
-                "posthog/api/test/test_user.py": selection.TestFeatures(
-                    path="posthog/api/test/test_user.py",
-                    imports_api_client=True,
-                    api_tokens=("user",),
-                ),
-            },
-        )
+            neighbor = tmp_path / "posthog" / "api" / "test" / "test_project.py"
+            neighbor.parent.mkdir(parents=True)
+            neighbor.touch()
 
-        self.assertIn("conventional_neighbors", result.groups)
-        self.assertIn("posthog_api_route_tokens", result.groups)
-        # same-app fallback includes all tests under posthog/api/
-        self.assertIn("same_app:posthog/api", result.groups)
-        self.assertIn("posthog/api/test/test_project.py", result.tests)
-        self.assertIn("posthog/api/test/test_user.py", result.tests)
+            result = selection.ast_select_tests(
+                ["posthog/api/project.py"],
+                {
+                    "posthog/api/test/test_project.py": selection.TestFeatures(
+                        path="posthog/api/test/test_project.py",
+                        imports_api_client=True,
+                        api_tokens=("project",),
+                    ),
+                    "posthog/api/test/test_user.py": selection.TestFeatures(
+                        path="posthog/api/test/test_user.py",
+                        imports_api_client=True,
+                        api_tokens=("user",),
+                    ),
+                },
+            )
+
+            self.assertIn("conventional_neighbors", result.groups)
+            self.assertIn("posthog_api_route_tokens", result.groups)
+            # same-app fallback includes all tests under posthog/api/
+            self.assertIn("same_app:posthog/api", result.groups)
+            self.assertIn("posthog/api/test/test_project.py", result.tests)
+            self.assertIn("posthog/api/test/test_user.py", result.tests)
 
     def test_snob_selection_filters_to_python_files(self) -> None:
         selection = _load_selection_module()
@@ -113,6 +132,7 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             selected_test = selection.REPO_ROOT / "posthog" / "api" / "test" / "test_feature_flags.py"
             selected_test.parent.mkdir(parents=True)
             selected_test.write_text("def test_feature_flags():\n    pass\n")
+            deleted_test = selection.REPO_ROOT / "posthog" / "api" / "test" / "test_deleted.py"
 
             seen_changed_files: list[list[str]] = []
 
@@ -120,7 +140,7 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
 
             def get_tests(changed_files: list[str]) -> set[str]:
                 seen_changed_files.append(changed_files)
-                return {str(selected_test)}
+                return {str(selected_test), str(deleted_test)}
 
             fake_snob.get_tests = get_tests  # type: ignore[attr-defined]
             previous_snob = sys.modules.get("snob_lib")
@@ -249,19 +269,24 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             selection.HIGH_FANOUT_PATH = original_path
 
     def test_changed_tests_do_not_trigger_full_run_patterns(self) -> None:
-        selection = _load_selection_module()
+        with tempfile.TemporaryDirectory() as root:
+            selection = _load_selection_module()
+            selection.REPO_ROOT = Path(root)
+            test_path = selection.REPO_ROOT / "posthog" / "test" / "test_version_requirement.py"
+            test_path.parent.mkdir(parents=True)
+            test_path.touch()
 
-        result = selection.ast_select_tests(
-            ["posthog/test/test_version_requirement.py"],
-            {
-                "posthog/test/test_version_requirement.py": selection.TestFeatures(
-                    path="posthog/test/test_version_requirement.py"
-                )
-            },
-        )
+            result = selection.ast_select_tests(
+                ["posthog/test/test_version_requirement.py"],
+                {
+                    "posthog/test/test_version_requirement.py": selection.TestFeatures(
+                        path="posthog/test/test_version_requirement.py"
+                    )
+                },
+            )
 
-        self.assertEqual([], result.full_run_reasons)
-        self.assertEqual({"changed_tests": ["posthog/test/test_version_requirement.py"]}, result.groups)
+            self.assertEqual([], result.full_run_reasons)
+            self.assertEqual({"changed_tests": ["posthog/test/test_version_requirement.py"]}, result.groups)
 
     # ci-backend's `legacy` paths filter routes these into test selection, but none of
     # them is Python, so the import graph reaches no test through them. Without a full-run
@@ -281,17 +306,62 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
 
         self.assertTrue(result.full_run_reasons, f"{path} selected nothing and forced no full run")
 
-    def test_segments_for_test_file_mirrors_matrix_partition(self) -> None:
+    @parameterized.expand(
+        [
+            ("core", "posthog/models/test_a.py", {"core"}),
+            # POE patterns run in both the Core matrix and the person-on-events matrix.
+            ("poe_runs_in_core_too", "posthog/clickhouse/test_b.py", {"core", "poe"}),
+            ("temporal", "posthog/temporal/tests/test_c.py", {"temporal"}),
+            # The Temporal invocation runs the product suites alongside posthog/temporal.
+            ("temporal_signals_emission", "products/signals/backend/emission/test_c.py", {"temporal"}),
+            # Explicitly ignored by the Core invocation, and not a draft-narrowable matrix.
+            ("core_ignored_dags", "posthog/dags/test_e.py", set()),
+            ("core_ignored_repo_invariants", "posthog/test/repo_invariants/test_f.py", set()),
+            # Product/turbo tests are not part of any draft-narrowable Django matrix.
+            ("turbo_product", "products/warehouse_sources/backend/test_d.py", set()),
+        ]
+    )
+    def test_segments_for_test_file_mirrors_matrix_partition(self, _name: str, path: str, expected: set[str]) -> None:
         selection = _load_selection_module()
 
-        self.assertEqual(selection.segments_for_test_file("posthog/models/test_a.py"), frozenset({"core"}))
-        # POE patterns run in both the Core matrix and the person-on-events matrix.
-        self.assertEqual(selection.segments_for_test_file("posthog/clickhouse/test_b.py"), frozenset({"core", "poe"}))
-        self.assertEqual(selection.segments_for_test_file("posthog/temporal/tests/test_c.py"), frozenset({"temporal"}))
-        # Explicitly ignored by the Core invocation, and not a draft-narrowable matrix.
-        self.assertEqual(selection.segments_for_test_file("posthog/dags/test_e.py"), frozenset())
-        # Product/turbo tests are not part of any draft-narrowable Django matrix.
-        self.assertEqual(selection.segments_for_test_file("products/warehouse_sources/backend/test_d.py"), frozenset())
+        self.assertEqual(selection.segments_for_test_file(path), frozenset(expected))
+
+    @parameterized.expand(
+        [
+            (
+                "compat_targets_set",
+                "posthog/clickhouse ee/clickhouse",
+                ["ee/clickhouse/test_g.py", "posthog/clickhouse/test_b.py"],
+            ),
+            ("no_compat_targets", "", []),
+        ]
+    )
+    def test_selected_files_by_segment_reads_compat_targets_from_the_env(
+        self, _name: str, targets: str, expected_compat: list[str]
+    ) -> None:
+        selection = _load_selection_module()
+
+        selected = [
+            "ee/clickhouse/test_g.py",
+            "posthog/clickhouse/test_b.py",
+            "posthog/dags/test_e.py",
+            "posthog/models/test_a.py",
+            "posthog/temporal/tests/test_c.py",
+            "products/warehouse_sources/backend/test_d.py",
+        ]
+
+        with mock.patch.dict(os.environ, {"CLICKHOUSE_COMPAT_PYTEST_TARGETS": targets}):
+            by_segment = selection.selected_files_by_segment(selected)
+
+        self.assertEqual(
+            by_segment,
+            {
+                "core": ["ee/clickhouse/test_g.py", "posthog/clickhouse/test_b.py", "posthog/models/test_a.py"],
+                "poe": ["ee/clickhouse/test_g.py", "posthog/clickhouse/test_b.py"],
+                "temporal": ["posthog/temporal/tests/test_c.py"],
+                "compat": expected_compat,
+            },
+        )
 
     def test_narrowable_baseline_excludes_turbo_product_tests(self) -> None:
         selection = _load_selection_module()

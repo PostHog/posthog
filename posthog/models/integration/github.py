@@ -37,6 +37,7 @@ _GITHUB_COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 # Upper bound on the diff text we return, to keep a pathological diff (generated/vendored
 # files) from bloating the JSON response and worker memory. ~1 MB of text.
 _MAX_DIFF_CHARS = 1_000_000
+_MAX_FILE_CONTENTS_BYTES = 10 * 1024 * 1024
 
 
 def _is_safe_github_repo_path(repo_path: str) -> bool:
@@ -124,16 +125,30 @@ class GitHubIntegration(GitHubIntegrationBase):
     @classmethod
     def fetch_installation_access(cls, installation_id: str) -> GitHubInstallationAccess:
         try:
-            installation_info = cls.client_request(f"installations/{installation_id}").json()
-            access_token_response = cls.client_request(
-                f"installations/{installation_id}/access_tokens", method="POST"
-            ).json()
+            installation_info_response = cls.client_request(f"installations/{installation_id}")
+            access_token_response = cls.client_request(f"installations/{installation_id}/access_tokens", method="POST")
         except Exception as exc:
             raise GitHubInstallationAccessFetchError("installation_fetch_failed") from exc
 
-        installation_access_token = access_token_response.get("token")
-        token_expires_at = access_token_response.get("expires_at")
-        if not installation_access_token or not token_expires_at:
+        # A non-200 body here is an error envelope without `account`, and callers persist
+        # `account.login` as the display name; failing keeps the numeric installation id out of the UI.
+        if installation_info_response.status_code != 200:
+            logger.warning(
+                "GitHubIntegration: failed to fetch installation info",
+                installation_id=installation_id,
+                status_code=installation_info_response.status_code,
+            )
+            raise GitHubInstallationAccessFetchError("installation_fetch_failed")
+
+        try:
+            installation_info = installation_info_response.json()
+            access_token_data = access_token_response.json()
+        except ValueError as exc:
+            raise GitHubInstallationAccessFetchError("installation_fetch_failed") from exc
+
+        installation_access_token = access_token_data.get("token")
+        token_expires_at = access_token_data.get("expires_at")
+        if access_token_response.status_code != 201 or not installation_access_token or not token_expires_at:
             raise GitHubInstallationAccessFetchError("installation_token_failed")
 
         return GitHubInstallationAccess(
@@ -141,7 +156,7 @@ class GitHubIntegration(GitHubIntegrationBase):
             installation_info=installation_info,
             access_token=installation_access_token,
             token_expires_at=token_expires_at,
-            repository_selection=access_token_response.get("repository_selection", "selected"),
+            repository_selection=access_token_data.get("repository_selection", "selected"),
         )
 
     @classmethod
@@ -384,6 +399,22 @@ class GitHubIntegration(GitHubIntegrationBase):
         issue = response.json()
 
         return {"number": issue["number"], "repository": repository}
+
+    def close_issue(self, repository: str, number: int, *, completed: bool = False) -> None:
+        """Close an issue with the reason that matches the report outcome. Raises on failure."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self.api_request(
+            "PATCH",
+            f"/repos/{repo_path}/issues/{number}",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}",
+            json_body={"state": "closed", "state_reason": "completed" if completed else "not_planned"},
+        )
+        if response.status_code != 200:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: failed to close issue {repo_path}#{number}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
 
     def search_issues(self, repository: str, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Search existing GitHub issues in a repository for the link-existing flow."""
@@ -809,6 +840,7 @@ class GitHubIntegration(GitHubIntegrationBase):
         exist — a missing file is a normal state, not an error. The SHA lets a caller
         pass it straight to ``update_file`` for a conflict-safe write. Counterpart to
         ``update_file``, kept here so URL and token handling stay inside the client.
+        Raises ``GitHubIntegrationError`` rather than return a partial or oversized file.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
@@ -826,7 +858,39 @@ class GitHubIntegration(GitHubIntegrationBase):
                 status_code=response.status_code,
             )
         payload = response.json()
-        return {"content": base64.b64decode(payload["content"]).decode("utf-8"), "sha": payload["sha"]}
+        size = payload["size"]
+        if size > _MAX_FILE_CONTENTS_BYTES:
+            raise GitHubIntegrationError(
+                f"{file_path} in {repository} is {size} bytes, over the {_MAX_FILE_CONTENTS_BYTES} byte limit"
+            )
+        content: bytes | bytearray
+        if payload["encoding"] == "none":
+            # The contents API omits content above 1 MB.
+            blob_response = self.api_request(
+                "GET",
+                f"/repos/{repo_path}/git/blobs/{payload['sha']}",
+                endpoint="/repos/{owner}/{repo}/git/blobs/{file_sha}",
+                headers={"Accept": "application/vnd.github.raw+json"},
+                stream=True,
+            )
+            try:
+                if blob_response.status_code != 200:
+                    raise GitHubIntegrationError(
+                        f"Failed to read {file_path} from {repository}: {blob_response.text}",
+                        status_code=blob_response.status_code,
+                    )
+                content = bytearray()
+                for chunk in blob_response.iter_content(chunk_size=64 * 1024):
+                    content += chunk
+                    if len(content) > size:
+                        break
+            finally:
+                blob_response.close()
+        else:
+            content = base64.b64decode(payload["content"])
+        if len(content) != size:
+            raise GitHubIntegrationError(f"Read {len(content)} of {size} bytes of {file_path} from {repository}")
+        return {"content": content.decode("utf-8"), "sha": payload["sha"]}
 
     def create_pull_request(
         self, repository: str, title: str, body: str, head_branch: str, base_branch: str | None = None

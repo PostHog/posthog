@@ -388,6 +388,7 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
                     ("distinct_id", "STRING"),
                     ("team_id", "BIGINT"),
                     ("timestamp", "TIMESTAMP"),
+                    ("created_at", "TIMESTAMP"),
                     ("databricks_ingested_timestamp", "TIMESTAMP"),
                 ],
                 id="events-missing-person_properties",

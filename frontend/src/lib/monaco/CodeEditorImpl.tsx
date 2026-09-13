@@ -40,6 +40,8 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     sourceQuery?: AnyDataNode
     globals?: Record<string, any>
     schema?: Record<string, any> | null
+    /** Ask for per-filter index eligibility. Costs a second resolution pass server-side, so set it only where the result is rendered. */
+    indexUsage?: boolean
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
     onFixWithAI?: (prompt: string) => void
@@ -151,6 +153,7 @@ export function CodeEditor({
     sourceQuery,
     schema,
     onError,
+    indexUsage,
     onMetadata,
     onMetadataLoading,
     onFixWithAI,
@@ -178,9 +181,15 @@ export function CodeEditor({
     const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
 
     const [realKey] = useState(() => codeEditorIndex++)
+    // Monaco expects a string; a non-string `value` throws `t.create is not a function` deep in
+    // its model setup. Serialize objects and arrays as pretty JSON so the content stays visible
+    // (not `[object Object]`) and matches CodeEditorResizeable's height calc. Normalize once so
+    // the editor and codeEditorLogic (which sends the value in metadata requests) agree on the
+    // text. Keep null/undefined as-is so the editor stays uncontrolled.
+    const normalizedValue = value == null || typeof value === 'string' ? value : JSON.stringify(value, null, 2)
     const builtCodeEditorLogic = codeEditorLogic({
         key: queryKey ?? `new/${realKey}`,
-        query: value ?? '',
+        query: normalizedValue ?? '',
         metadataQuery: metadataQuery,
         metadataQueryOffset: metadataQueryOffset,
         language: editorProps.language ?? 'text',
@@ -189,6 +198,7 @@ export function CodeEditor({
         monaco: monaco,
         editor: editor,
         onError,
+        indexUsage,
         onMetadata,
         onMetadataLoading,
         onFixWithAI,
@@ -647,7 +657,7 @@ export function CodeEditor({
                 key={queryKey}
                 theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 loading={<Spinner />}
-                value={value}
+                value={normalizedValue}
                 options={editorOptions}
                 onMount={editorOnMount}
                 {...editorProps}

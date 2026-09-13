@@ -39,6 +39,17 @@ _SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
 # means cleaning up its rows out-of-band.
 _COMPANION_SKILL_DIRS = ("authoring-scouts",)
 
+# Companions that another product ships and maintains, seeded on the same terms as the ones above.
+# A scout is exactly the agent the companion rule is written for: it reads skills through
+# `llma-skill-get`, which only sees per-team rows, so a skill that lives solely in
+# `dist/skills.zip` is unreachable from a run no matter what the scout's prompt says. The
+# alternative — each product bundling a private copy onto every scout it creates — freezes the
+# copy at creation, so an edit to the source never reaches a scout already in rotation.
+# Cross-product by file path, not by import: the harness reads the markdown and never imports the
+# owning product. The stranding caveat above applies here too.
+_PRODUCTS_DIR = Path(__file__).resolve().parents[3]
+_EXTERNAL_COMPANION_SKILL_DIRS = (_PRODUCTS_DIR / "replay_vision" / "skills" / "exploring-replay-vision-observations",)
+
 # Mirrors the regex in `products/posthog_ai/scripts/build_skills.py` so frontmatter parsing
 # stays consistent across the two consumers. Keep these in sync if the skill spec evolves.
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
@@ -312,16 +323,30 @@ def discover_canonical_skills(skills_dir: Path | None = None) -> tuple[Canonical
     on the first read instead of flapping silently.
     """
     base = skills_dir or _SKILLS_DIR
+    # `skills_dir` means "read this fleet in isolation", which is what the tests want; the
+    # cross-product companions belong to the real fleet only.
+    external = _EXTERNAL_COMPANION_SKILL_DIRS if skills_dir is None else ()
     if not base.is_dir():
         return ()
-    discovered: list[CanonicalSkill] = []
-    by_name: dict[str, Path] = {}
+    candidates: list[tuple[Path, bool]] = []
     for entry in sorted(base.iterdir()):
         if not entry.is_dir():
             continue
         is_scout = entry.name.startswith(SIGNALS_SCOUT_SKILL_PREFIX)
-        if not is_scout and entry.name not in _COMPANION_SKILL_DIRS:
+        if is_scout or entry.name in _COMPANION_SKILL_DIRS:
+            candidates.append((entry, is_scout))
+    for entry in external:
+        if not (entry / "SKILL.md").is_file():
+            # Warn rather than raise: `canonical_skill_names` turns a parse error into an empty
+            # fleet, so a moved directory in another product would make every scout read as
+            # custom. The fleet lock in the tests is what fails loud on this.
+            logger.warning("discover_canonical_skills: external companion skill missing at %s", entry)
             continue
+        candidates.append((entry, False))
+
+    discovered: list[CanonicalSkill] = []
+    by_name: dict[str, Path] = {}
+    for entry, is_scout in candidates:
         if not (entry / "SKILL.md").is_file():
             continue
         skill = _parse_canonical_skill(entry, is_scout=is_scout)

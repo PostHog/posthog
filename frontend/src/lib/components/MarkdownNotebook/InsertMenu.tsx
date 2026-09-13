@@ -182,11 +182,11 @@ export function renderHighlightedInsertCommandLabel(label: string, query: string
 
 export function getFilteredInsertCommands(commands: InsertCommand[], query: string): InsertCommand[] {
     const normalizedQuery = query.trim().toLowerCase()
-    if (!normalizedQuery) {
-        return commands
-    }
+    const filteredCommands = normalizedQuery
+        ? commands.filter((command) => getInsertCommandSearchText(command).includes(normalizedQuery))
+        : commands
 
-    return commands.filter((command) => getInsertCommandSearchText(command).includes(normalizedQuery))
+    return Object.values(groupInsertCommandsByCategory(filteredCommands)).flat()
 }
 
 export function getInsertCommandSearchText(command: InsertCommand): string {

@@ -13,6 +13,7 @@ import {
     getInternalTagName,
     getSessionID,
     getSessionStartTimestamp,
+    getSummarizationLookupDateRange,
     hasCostBreakdown,
     hasStringContentField,
     isEmptyJSONStructure,
@@ -136,6 +137,24 @@ describe('mapEvaluationRunRow', () => {
 
         expect(run.result).toBeNull()
         expect(run.applicable).toBe(false)
+    })
+})
+
+describe('getSummarizationLookupDateRange', () => {
+    it('brackets the entity timestamp by a day either side', () => {
+        expect(getSummarizationLookupDateRange('2026-01-01T00:00:00Z')).toEqual({
+            date_from: '2025-12-31T00:00:00.000Z',
+            date_to: '2026-01-02T00:00:00.000Z',
+        })
+    })
+
+    // Without the guard, dayjs anchors on now, so the window never contains an older entity
+    // and the endpoint answers 404 instead of falling back to its own default.
+    it.each([
+        ['missing', undefined],
+        ['unparseable', 'not a timestamp'],
+    ])('sends no window at all when the timestamp is %s', (_, createdAt) => {
+        expect(getSummarizationLookupDateRange(createdAt)).toEqual({})
     })
 })
 

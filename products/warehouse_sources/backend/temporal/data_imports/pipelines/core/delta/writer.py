@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     normalize_column_name,
     raise_on_nullability_drift,
     realign_decimal_buffers,
+    relax_batch_nullability,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import evolve_delta_schema
@@ -293,6 +294,11 @@ class DeltaWriter:
         # realign_decimal_buffers). Sub-tables derived below via filter()/take() are
         # freshly allocated by pyarrow and so inherit safe alignment.
         data = realign_decimal_buffers(data)
+
+        # A source can declare a column NOT NULL and still send nulls in it, and every delta path
+        # below refuses such a batch. Correct the claim first, which also creates a new table with
+        # nullability that matches its data (see relax_batch_nullability).
+        data = relax_batch_nullability(data)
 
         delta_table = await self._table.get_delta_table()
 

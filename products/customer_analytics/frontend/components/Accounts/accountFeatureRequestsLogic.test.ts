@@ -7,8 +7,8 @@ import { ApiError } from 'lib/api'
 import { initKeaTests } from '~/test/init'
 
 import * as generatedApi from '../../generated/api'
-import type { FeatureRequestApi } from '../../generated/api.schemas'
-import { accountFeatureRequestsLogic } from './accountFeatureRequestsLogic'
+import type { FeatureRequestApi, PaginatedFeatureRequestListApi } from '../../generated/api.schemas'
+import { ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE, accountFeatureRequestsLogic } from './accountFeatureRequestsLogic'
 
 const existingRequest: FeatureRequestApi = {
     id: 'request-1',
@@ -32,6 +32,7 @@ const existingRequest: FeatureRequestApi = {
             updated_at: '2026-01-01T00:00:00Z',
         },
     ],
+    evidence_count: 0,
     product_areas: [],
     created_by: 1,
     updated_by: 1,
@@ -78,15 +79,15 @@ describe('accountFeatureRequestsLogic', () => {
         logic.unmount()
     })
 
-    it('paginates linked requests on the server', async () => {
-        const requests = Array.from({ length: 21 }, (_, index) => ({
+    it('paginates linked requests and searches from the first page', async () => {
+        const requests = Array.from({ length: ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE + 1 }, (_, index) => ({
             ...existingRequest,
             id: `request-${index + 1}`,
             title: `Request ${index + 1}`,
         }))
         const listSpy = jest.spyOn(generatedApi, 'featureRequestsList').mockImplementation(async (_teamId, params) => {
             const offset = params?.offset ?? 0
-            const limit = params?.limit ?? 20
+            const limit = params?.limit ?? ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE
             return {
                 count: requests.length,
                 next: offset + limit < requests.length ? 'next' : null,
@@ -98,15 +99,68 @@ describe('accountFeatureRequestsLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.accountRequests.results).toHaveLength(20)
+        expect(logic.values.accountRequests.results).toHaveLength(ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE)
 
         await expectLogic(logic, () => logic.actions.setAccountRequestsPage(2)).toFinishAllListeners()
 
         expect(logic.values.accountRequests.results).toHaveLength(1)
         expect(listSpy).toHaveBeenCalledWith(
             String(MOCK_DEFAULT_TEAM.id),
-            expect.objectContaining({ account_ids: ['account-2'], limit: 20, offset: 20 })
+            expect.objectContaining({
+                account_ids: ['account-2'],
+                limit: ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE,
+                offset: ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE,
+            })
         )
+
+        await expectLogic(logic, () => logic.actions.setAccountRequestsSearch('scheduled')).toFinishAllListeners()
+
+        expect(logic.values.accountRequestsPage).toBe(1)
+        expect(listSpy).toHaveBeenLastCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({
+                account_ids: ['account-2'],
+                limit: ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE,
+                offset: 0,
+                search: 'scheduled',
+            })
+        )
+        logic.unmount()
+    })
+
+    it('ignores a stale page response after a newer request finishes', async () => {
+        let resolvePageTwo: (response: PaginatedFeatureRequestListApi) => void = () => undefined
+        let resolvePageThree: (response: PaginatedFeatureRequestListApi) => void = () => undefined
+        const pageTwoResponse = new Promise<PaginatedFeatureRequestListApi>((resolve) => {
+            resolvePageTwo = resolve
+        })
+        const pageThreeResponse = new Promise<PaginatedFeatureRequestListApi>((resolve) => {
+            resolvePageThree = resolve
+        })
+        jest.spyOn(generatedApi, 'featureRequestsList')
+            .mockResolvedValueOnce(emptyPage)
+            .mockImplementation(async (_teamId, params) => {
+                if (params?.offset === ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE) {
+                    return pageTwoResponse
+                }
+                if (params?.offset === ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE * 2) {
+                    return pageThreeResponse
+                }
+                return emptyPage
+            })
+        const logic = accountFeatureRequestsLogic({ accountId: 'account-2' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setAccountRequestsPage(2)
+        logic.actions.setAccountRequestsPage(3)
+        const requestCount = ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE * 2 + 1
+        resolvePageThree({ ...emptyPage, count: requestCount, results: [{ ...existingRequest, id: 'request-page-3' }] })
+        resolvePageTwo({ ...emptyPage, count: requestCount, results: [{ ...existingRequest, id: 'request-page-2' }] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.accountRequestsPage).toBe(3)
+        expect(logic.values.accountRequests.results.map((request) => request.id)).toEqual(['request-page-3'])
         logic.unmount()
     })
 

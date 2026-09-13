@@ -9,8 +9,8 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role, RoleMembership
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 
 
 class TestUserTeamsAccessControl(BaseTest):
@@ -139,6 +139,39 @@ class TestUserTeamsAccessControl(BaseTest):
         self.assertEqual(user_teams.count(), 2)
         self.assertIn(self.team, user_teams)
         self.assertIn(private_team, user_teams)
+
+    def test_user_teams_ignores_role_membership_from_another_organization(self):
+        other_organization = Organization.objects.create(name="Other organization")
+        other_team = Team.objects.create(organization=other_organization, name="Other private team")
+        OrganizationMembership.objects.create(
+            organization=other_organization,
+            user=self.user,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        role = Role.objects.create(name="Other organization role", organization=other_organization)
+        RoleMembership.objects.create(
+            role=role,
+            user=self.user,
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=other_team,
+            resource="project",
+            resource_id=str(other_team.id),
+            access_level="none",
+            organization_member=None,
+            role=None,
+        )
+        AccessControl.objects.create(
+            team=other_team,
+            resource="project",
+            resource_id=str(other_team.id),
+            access_level="member",
+            organization_member=None,
+            role=role,
+        )
+
+        assert other_team not in self.user.teams.all()
 
     def test_user_teams_role_based_access_inert_without_role_based_access_feature(self):
         """Role-backed project AccessControl rows must NOT grant team visibility when the

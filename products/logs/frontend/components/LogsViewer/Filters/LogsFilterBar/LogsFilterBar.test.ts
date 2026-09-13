@@ -46,6 +46,12 @@ describe('addLogsValueFilter', () => {
         expect(addLogsValueFilter(LOGS_GROUP, 'message', messageSearchItem('foobar'), existing)).toHaveLength(2)
     })
 
+    it('reconciles with an existing filter on the same attribute instead of duplicating it', () => {
+        const existing = addLogsValueFilter(LOGS_GROUP, 'message', messageSearchItem('foobar'), [])
+
+        expect(addLogsValueFilter(LOGS_GROUP, 'message', messageSearchItem('foobar'), existing)).toEqual(existing)
+    })
+
     // The regression: without recording the complete filter here, the only record of this selection is
     // taxonomicFilterLogic's, which drops the value — so re-selecting from "Recent" yields `message`
     // with nothing to match on.

@@ -3,6 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
+
 import { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 
@@ -439,6 +441,342 @@ describe('workflowLogic auto-save', () => {
             await jest.advanceTimersByTimeAsync(3500)
             await expectLogic(logic).toDispatchActions(['saveWorkflow', 'saveWorkflowSuccess'])
             expect(updateCalls).toBe(1)
+        })
+    })
+
+    describe('a save that overlaps another save', () => {
+        let serverUpdatedAt: string
+        let rejected: number
+        let releaseFirstPatch: (() => void) | null
+        let firstPatchSeen: Promise<void>
+        let scheduleWrites: number
+        let events: string[]
+
+        beforeEach(async () => {
+            serverUpdatedAt = '2026-05-01T00:00:00.000Z'
+            rejected = 0
+            scheduleWrites = 0
+            events = []
+            releaseFirstPatch = null
+            let markFirstPatchSeen = (): void => {}
+            firstPatchSeen = new Promise<void>((resolve) => {
+                markFirstPatchSeen = resolve
+            })
+            let patches = 0
+
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': () => [
+                        200,
+                        makeWorkflow({ updated_at: serverUpdatedAt }),
+                    ],
+                    '/api/environments/:team_id/hog_flows/:id/schedules': { results: [] },
+                },
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/schedules': () => {
+                        scheduleWrites += 1
+                        events.push('schedule')
+                        return [200, { id: 'sched-1', rrule: 'FREQ=DAILY', starts_at: '2026-07-01T00:00:00.000Z' }]
+                    },
+                },
+                patch: {
+                    // Stands in for perform_update, which rejects a write whose base_updated_at is
+                    // older than the stored stamp with a 409.
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        patches += 1
+                        // Hold the first save open so the second one overlaps it, the way a slow
+                        // save on a large workflow does.
+                        if (patches === 1) {
+                            await new Promise<void>((resolve) => {
+                                releaseFirstPatch = resolve
+                                markFirstPatchSeen()
+                            })
+                        }
+                        if (body.base_updated_at && body.base_updated_at < serverUpdatedAt) {
+                            rejected += 1
+                            return [409, { detail: 'stale_update', code: 'stale_update' }]
+                        }
+                        serverUpdatedAt = new Date(Date.parse(serverUpdatedAt) + 1000).toISOString()
+                        events.push('patch')
+                        return [200, makeWorkflow({ updated_at: serverUpdatedAt, name: body.name })]
+                    },
+                },
+            })
+
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        })
+
+        it('does not raise the conflict banner at the only editor', async () => {
+            logic.actions.setWorkflowValue('name', 'Renamed by me')
+            await expectLogic(logic).toDispatchActions(['saveWorkflow'])
+            await firstPatchSeen
+
+            // The user clicks "Save draft" while the auto-save is still in flight.
+            logic.actions.submitWorkflow()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            releaseFirstPatch?.()
+            await new Promise((resolve) => setTimeout(resolve, 200))
+
+            expect({ rejected, banner: logic.values.externallyEdited }).toEqual({ rejected: 0, banner: false })
+        })
+
+        it('runs the manual-only save work once when a manual save queues behind an auto-save', async () => {
+            // Both saves now land, where the second used to 409. The auto-save must not pick up the
+            // manual save's label and repeat its side effects, which include creating a schedule.
+            logic.actions.setScheduleStartsAt('2026-07-01T00:00:00.000Z')
+
+            logic.actions.setWorkflowValue('name', 'Renamed by me')
+            await expectLogic(logic).toDispatchActions(['saveWorkflow'])
+            await firstPatchSeen
+
+            logic.actions.submitWorkflow()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            releaseFirstPatch?.()
+            await new Promise((resolve) => setTimeout(resolve, 300))
+
+            // The schedule belongs to the manual save, so it is written once and only after that
+            // save lands. Attributing it to the auto-save puts it between the two patches.
+            expect(events).toEqual(['patch', 'patch', 'schedule'])
+            expect(scheduleWrites).toBe(1)
+        })
+
+        it("ignores the second queued save's own edit event", async () => {
+            // The loader's loading flag is one boolean, so the first save clears it while the
+            // second still runs. An echo of the second save arriving in that window used to read
+            // as somebody else's edit, which is the false banner this whole change removes.
+            resourceEditedLogic.mount()
+            // Both saves are held, so the second is provably still open when the echo arrives.
+            const release: (() => void)[] = []
+            let held = 0
+            let sawSecond = (): void => {}
+            const secondPatchSeen = new Promise<void>((resolve) => {
+                sawSecond = resolve
+            })
+            let loads = 0
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': () => {
+                        loads += 1
+                        return [200, makeWorkflow({ updated_at: serverUpdatedAt })]
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async () => {
+                        held += 1
+                        if (held === 2) {
+                            sawSecond()
+                        }
+                        await new Promise<void>((resolve) => release.push(resolve))
+                        return [200, makeWorkflow({ updated_at: '2026-05-01T00:00:0' + held + '.000Z' })]
+                    },
+                },
+            })
+
+            logic.actions.setWorkflowValue('name', 'Renamed by me')
+            await expectLogic(logic).toDispatchActions(['saveWorkflow'])
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            logic.actions.submitWorkflow()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            release[0]()
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+            await secondPatchSeen
+
+            // The first save has landed and the second is still open. Its own emit arrives now.
+            resourceEditedLogic.actions.resourceEdited({
+                notification_type: 'resource_edited',
+                team_id: 1,
+                resource_type: 'HogFlow',
+                resource_id: WORKFLOW_ID,
+                updated_at: '2027-01-01T00:00:00.000Z',
+                actor_user_id: 1,
+            })
+            await new Promise((resolve) => setTimeout(resolve, 200))
+
+            // Reacting here means treating this editor's own in-flight save as somebody else's:
+            // a reload that resets the form under the person, or the banner.
+            expect({ reloads: loads, banner: logic.values.externallyEdited }).toEqual({
+                reloads: 0,
+                banner: false,
+            })
+
+            release[1]()
+            await new Promise((resolve) => setTimeout(resolve, 300))
+        })
+
+        it('keeps the form submitting until the queued manual save lands', async () => {
+            logic.actions.setWorkflowValue('name', 'Renamed by me')
+            await expectLogic(logic).toDispatchActions(['saveWorkflow'])
+            await firstPatchSeen
+
+            logic.actions.submitWorkflow()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            // The save button reads this. While it stays true the button cannot fire a second save.
+            expect(logic.values.isWorkflowSubmitting).toBe(true)
+
+            releaseFirstPatch?.()
+            await new Promise((resolve) => setTimeout(resolve, 200))
+
+            expect(logic.values.isWorkflowSubmitting).toBe(false)
+        })
+    })
+
+    describe('draft actions on an active workflow', () => {
+        const staged = makeWorkflow({
+            status: 'active',
+            draft: { name: 'Autosave test', actions: [], edges: [] },
+            draft_updated_at: '2026-05-01T00:01:00.000Z',
+        })
+
+        beforeEach(async () => {
+            useMocks({
+                get: { '/api/environments/:team_id/hog_flows/:id/': staged },
+                patch: { '/api/environments/:team_id/hog_flows/:id/': () => [200, staged] },
+            })
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        })
+
+        it('keeps the draft actions mounted and blocks publish while edits are unsaved', () => {
+            logic.actions.setWorkflowValue('name', 'Still typing')
+
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+            // Hiding these on a dirty form moved a different action under the pointer every time
+            // auto-save landed.
+            expect(logic.values.showDraftActions).toBe(true)
+            // Publish promotes the staged draft, not what is on screen.
+            expect(logic.values.publishDisabledReason).toBe('Save your changes first')
+            // Discarding reloads the workflow, which would drop the edits still in the form.
+            expect(logic.values.discardDisabledReason).toBe('Save or clear your changes first')
+        })
+
+        it('allows publish once auto-save clears the unsaved edits', async () => {
+            jest.useFakeTimers()
+
+            logic.actions.setWorkflowValue('name', 'Edited')
+            await jest.advanceTimersByTimeAsync(3500)
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+
+            expect(logic.values.publishDisabledReason).toBeUndefined()
+            expect(logic.values.discardDisabledReason).toBeUndefined()
+        })
+
+        it('still stages content when a queued save undoes the edit the previous save wrote', async () => {
+            // Comparing against kea's copy would compare this edit with the state from two saves
+            // ago. The undo then looks like no change at all, so its payload carries no content and
+            // the draft keeps the step the user just deleted, which publishing would deploy.
+            const patched: Record<string, any>[] = []
+            let releaseFirst: () => void = () => {}
+            let seen = 0
+            const base = staged.actions
+            const withStep = [
+                ...base,
+                {
+                    id: 'delay_node',
+                    type: 'delay',
+                    name: 'Wait',
+                    description: '',
+                    created_at: 0,
+                    updated_at: 0,
+                    config: { delay_duration: '5m' },
+                },
+            ] as HogFlow['actions']
+            // Start from a draft that holds the live steps, so reverting lands exactly back on it.
+            const loaded = makeWorkflow({
+                ...staged,
+                draft: { ...(staged.draft as any), actions: base, edges: staged.edges },
+            })
+
+            useMocks({
+                get: { '/api/environments/:team_id/hog_flows/:id/': loaded },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        patched.push(body)
+                        if (++seen === 1) {
+                            await new Promise<void>((resolve) => {
+                                releaseFirst = resolve
+                            })
+                        }
+                        // A staged save answers with the live row plus the new draft blob.
+                        return [
+                            200,
+                            makeWorkflow({
+                                ...loaded,
+                                draft: { ...(loaded.draft as any), actions: body.actions ?? base },
+                                draft_updated_at: new Date(Date.parse('2026-05-01T00:02:00.000Z') + seen).toISOString(),
+                            }),
+                        ]
+                    },
+                },
+            })
+
+            logic.actions.loadWorkflow()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            // Add a step, let that save start, then take it back out while it is still open.
+            logic.actions.setWorkflowValues({ actions: withStep })
+            logic.actions.markAutoSave(true)
+            logic.actions.saveWorkflow(logic.values.workflow)
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            logic.actions.setWorkflowValues({ actions: base })
+            logic.actions.markAutoSave(true)
+            logic.actions.saveWorkflow(logic.values.workflow)
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            releaseFirst()
+            await new Promise((resolve) => setTimeout(resolve, 400))
+
+            // The undo must reach the draft, not be dropped as "nothing changed".
+            expect(patched[1]?.actions?.map((a: any) => a.id)).toEqual(base.map((a) => a.id))
+            expect(patched[1]?.stage_draft).toBe(true)
+        })
+
+        it('does not re-enable a workflow when a save is queued behind a disable', async () => {
+            // The disable request is held open, so the save below queues behind it and carries the
+            // form's stale status. Landing that would put a stopped workflow back into sending.
+            const patched: Record<string, any>[] = []
+            let releaseDisable: () => void = () => {}
+            let seen = 0
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        patched.push(body)
+                        if (++seen === 1) {
+                            await new Promise<void>((resolve) => {
+                                releaseDisable = resolve
+                            })
+                        }
+                        return [200, makeWorkflow({ ...staged, status: body.status ?? 'draft' })]
+                    },
+                },
+            })
+
+            logic.actions.saveWorkflowPartial({ status: 'draft' })
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            logic.actions.setWorkflowValue('name', 'Edited while disabling')
+            logic.actions.submitWorkflow()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            releaseDisable()
+            await new Promise((resolve) => setTimeout(resolve, 300))
+
+            expect(patched[0].status).toBe('draft')
+            // The queued form save must not speak about status at all.
+            expect(patched[1]).not.toHaveProperty('status')
         })
     })
 

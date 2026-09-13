@@ -116,14 +116,13 @@ database "posthog" {
       type = "Nullable(String)"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_events_json'"
-      group_name           = "kafka_group_name = 'clickhouse_events_json_native_json'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_events_json_native_json"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
-
 
   materialized_view "events_json_table_mv" {
     to_table = "posthog.writable_events_json"
@@ -249,4 +248,27 @@ SQL
       type = "Array(String)"
     }
   }
+
+
+  # Local stacks create every topic with one partition, so only one consumer of this group can
+  # get an assignment. The rest retry forever, which holds threads and floods the server log.
+  # The table itself is declared in roles/coshared/logs_avro_ingest, which dev and the local
+  # stacks share, so the count is lowered here instead of there.
+  patch_table "kafka_logs_avro" {
+    engine "kafka" {
+      collection           = "warpstream_logs"
+      topic_list           = "clickhouse_logs"
+      group_name           = "clickhouse-logs-avro-new"
+      format               = "Avro"
+      num_consumers        = 1
+      skip_broken_messages = 100
+      poll_timeout_ms      = 3000
+      poll_max_batch_size  = 1000
+      thread_per_consumer  = true
+    }
+    settings = {
+      input_format_avro_allow_missing_fields = "1"
+    }
+  }
+
 }

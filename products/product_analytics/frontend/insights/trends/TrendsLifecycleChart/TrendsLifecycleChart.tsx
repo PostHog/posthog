@@ -6,6 +6,7 @@ import type { ChartLegendConfig, PointClickData, TooltipContext } from '@posthog
 
 import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
 import { getBarColorFromStatus } from 'lib/colors'
+import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -22,7 +23,6 @@ import type { LifecycleToggle } from '~/types'
 
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
-import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { buildBaseLegendConfig } from '../shared/buildBaseLegendConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import {

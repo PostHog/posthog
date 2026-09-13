@@ -48,6 +48,19 @@ def build_workflow_jobs(
     return query_workflow_jobs(curated=curated, run_id=run_id, run_attempt=run_attempt)
 
 
+def _parse_run_scope(value: str | None) -> WorkflowHealthRunScope:
+    """Absent/blank selects 'all'; anything else must be an exact enum value (ValueError → 400)."""
+    normalized = value.strip() if value else ""
+    if not normalized:
+        return WorkflowHealthRunScope.ALL
+    try:
+        return WorkflowHealthRunScope(normalized)
+    except ValueError:
+        raise ValueError(
+            f"run_scope must be one of: {', '.join(scope.value for scope in WorkflowHealthRunScope)}"
+        ) from None
+
+
 def build_workflow_run_list(
     *,
     curated: CuratedGitHubSource,
@@ -56,6 +69,7 @@ def build_workflow_run_list(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
 ) -> list[WorkflowRunDetail]:
     owner, name = _require_repo(repo)
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
@@ -67,6 +81,7 @@ def build_workflow_run_list(
         date_from=parsed_from,
         date_to=parsed_to,
         branch=branch,
+        run_scope=_parse_run_scope(run_scope),
     )
 
 
@@ -78,6 +93,7 @@ def build_workflow_run_activity(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
 ) -> WorkflowRunActivity:
     owner, name = _require_repo(repo)
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
@@ -89,6 +105,7 @@ def build_workflow_run_activity(
         date_from=parsed_from,
         date_to=parsed_to,
         branch=branch,
+        run_scope=_parse_run_scope(run_scope),
     )
 
 
@@ -100,6 +117,7 @@ def build_workflow_runner_costs(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
 ) -> list[WorkflowRunnerCost]:
     owner, name = _require_repo(repo)
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
@@ -111,6 +129,7 @@ def build_workflow_runner_costs(
         date_from=parsed_from,
         date_to=parsed_to,
         branch=branch,
+        run_scope=_parse_run_scope(run_scope),
     )
 
 
@@ -130,19 +149,6 @@ def build_workflow_health(
         branch=branch,
         run_scope=_parse_run_scope(run_scope),
     )
-
-
-def _parse_run_scope(value: str | None) -> WorkflowHealthRunScope:
-    """Absent/blank selects 'all'; anything else must be an exact enum value (ValueError → 400)."""
-    normalized = value.strip() if value else ""
-    if not normalized:
-        return WorkflowHealthRunScope.ALL
-    try:
-        return WorkflowHealthRunScope(normalized)
-    except ValueError:
-        raise ValueError(
-            f"run_scope must be one of: {', '.join(scope.value for scope in WorkflowHealthRunScope)}"
-        ) from None
 
 
 def build_repo_overview(
@@ -210,8 +216,14 @@ def build_job_aggregates(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
 ) -> list[WorkflowJobAggregate]:
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_job_aggregates(
-        curated=curated, workflow_name=workflow_name, date_from=parsed_from, date_to=parsed_to, branch=branch
+        curated=curated,
+        workflow_name=workflow_name,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
+        run_scope=_parse_run_scope(run_scope),
     )

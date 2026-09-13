@@ -89,6 +89,15 @@ export function ToolPivotTable(): JSX.Element {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
+                        {sortedTools.length === 0 ? (
+                            <TableRow>
+                                {/* A category can name tools this snapshot never saw, so an empty
+                                    table is reachable and has to say why rather than show bare headers. */}
+                                <TableCell colSpan={7} className="p-4 text-center text-sm text-muted">
+                                    No tools match the current category scope or search.
+                                </TableCell>
+                            </TableRow>
+                        ) : null}
                         {sortedTools.map((tool) => (
                             <TableRow
                                 key={tool.tool}

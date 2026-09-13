@@ -42,9 +42,6 @@
     "src/features/navigation/components/NavDrawer.tsx": {
       "TS2551 Property 'absoluteFillObject' does not exist on type 'typeof StyleSheet'. Did you mean 'absoluteFill'?": 2
     },
-    "src/features/tasks/components/PlanApprovalCard.test.tsx": {
-      "TS2339 Property 'root' does not exist on type 'never'.": 2
-    },
     "src/features/tasks/components/PlanApprovalCard.tsx": {
       "TS2345 Argument of type 'CloudPermissionOption' is not assignable to parameter of type 'PermissionOption'.": 3
     },

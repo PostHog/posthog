@@ -31,8 +31,10 @@ logger = get_write_only_logger()
 # constant EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE — this shared Temporal module must not
 # depend on a product. The error-tracking issue-created workflow fails open on it, so it is
 # expected control flow, not a defect.
+# "AIFeaturesCloudOnly" is raised by the AI observability guard on non-cloud deployments (see
+# posthog/temporal/ai_observability/llm_endpoint.py). It reflects the deployment, not a defect.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
-    {"trace_not_settled", "TransientRepartitionError", "EmbeddingServiceUnavailable"}
+    {"trace_not_settled", "TransientRepartitionError", "EmbeddingServiceUnavailable", "AIFeaturesCloudOnly"}
 )
 
 

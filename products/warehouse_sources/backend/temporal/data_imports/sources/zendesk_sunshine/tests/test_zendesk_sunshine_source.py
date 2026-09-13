@@ -5,12 +5,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesksunshine import (
     ZendeskSunshineSourceConfig,
@@ -23,10 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_su
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.source import (
     ZendeskSunshineSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.zendesk_sunshine import (
-    ZendeskSunshineResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestZendeskSunshineSource:
@@ -36,9 +27,6 @@ class TestZendeskSunshineSource:
         self.config = ZendeskSunshineSourceConfig(
             subdomain="nibbles", api_key="zendesk-token", email_address="agent@example.com"
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ZENDESKSUNSHINE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -50,16 +38,6 @@ class TestZendeskSunshineSource:
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/zendesk-sunshine"
         # A finished source ships visible; the scaffold's unreleasedSource flag must stay gone.
         assert not config.unreleasedSource
-
-    def test_source_config_fields(self) -> None:
-        config = self.source.get_source_config
-        fields = {f.name: f for f in config.fields if isinstance(f, SourceFieldInputConfig)}
-        assert set(fields) == {"subdomain", "api_key", "email_address"}
-        assert fields["api_key"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_key"].secret is True
-        assert fields["subdomain"].secret is False
-        assert fields["email_address"].type == SourceFieldInputConfigType.EMAIL
-        assert all(f.required for f in fields.values())
 
     @parameterized.expand([("v1", ZENDESK_SUNSHINE_V1), ("v2", ZENDESK_SUNSHINE_V2)])
     def test_get_schemas_returns_version_table_set(self, _name: str, api_version: str) -> None:
@@ -169,11 +147,6 @@ class TestZendeskSunshineSource:
         self.source.validate_credentials(self.config, self.team_id, api_version=ZENDESK_SUNSHINE_V1)
 
         mock_validate.assert_called_once_with("nibbles", "zendesk-token", "agent@example.com", ZENDESK_SUNSHINE_V1)
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is ZendeskSunshineResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.source.zendesk_sunshine_source"

@@ -7,9 +7,9 @@ function msg(offset: number, overrides: Partial<SerializedKafkaMessage> = {}): S
         partition: 0,
         offset,
         timestamp: 0,
-        key: null,
+        key: 't:a',
         value: null,
-        headers: { token: 't', distinct_id: 'a' },
+        headers: {},
         ...overrides,
     }
 }
@@ -42,21 +42,18 @@ describe('FeedOrderSentinel', () => {
         expect(sentinel.check([msg(40)], 'c2', false)).toEqual({ outOfOrder: 1, replayed: 0 })
     })
 
-    it('tracks keys independently across partitions and distinct_ids', () => {
+    it('tracks keys independently across partitions and Kafka keys', () => {
         const sentinel = new FeedOrderSentinel()
-        sentinel.check(
-            [msg(10), msg(10, { partition: 1 }), msg(10, { headers: { token: 't', distinct_id: 'b' } })],
-            'c1',
-            false
-        )
+        sentinel.check([msg(10), msg(10, { partition: 1 }), msg(10, { key: 't:b' })], 'c1', false)
         // Same offsets again on other keys don't interfere; only 'a' on partition 0 regresses.
         expect(sentinel.check([msg(9)], 'c1', false)).toEqual({ outOfOrder: 1, replayed: 0 })
         expect(sentinel.check([msg(11, { partition: 1 })], 'c1', false)).toEqual({ outOfOrder: 0, replayed: 0 })
     })
 
-    it('skips messages without routing headers', () => {
+    it.each([null, ''])('skips unkeyed messages even when routing headers are present (key: %j)', (key) => {
         const sentinel = new FeedOrderSentinel()
-        const result = sentinel.check([msg(5, { headers: {} }), msg(1, { headers: {} })], 'c1', false)
+        const headers = { token: 't', distinct_id: 'a' }
+        const result = sentinel.check([msg(5, { key, headers }), msg(1, { key, headers })], 'c1', false)
         expect(result).toEqual({ outOfOrder: 0, replayed: 0 })
         expect(sentinel.size).toBe(0)
     })
@@ -64,8 +61,8 @@ describe('FeedOrderSentinel', () => {
     it('evicts the least-recently-seen key at capacity and rebaselines it silently', () => {
         const sentinel = new FeedOrderSentinel(2)
         sentinel.check([msg(10)], 'c1', false)
-        sentinel.check([msg(10, { headers: { token: 't', distinct_id: 'b' } })], 'c1', false)
-        sentinel.check([msg(10, { headers: { token: 't', distinct_id: 'c' } })], 'c1', false)
+        sentinel.check([msg(10, { key: 't:b' })], 'c1', false)
+        sentinel.check([msg(10, { key: 't:c' })], 'c1', false)
         expect(sentinel.size).toBe(2)
         // 'a' was evicted: its regression rebaselines instead of firing.
         expect(sentinel.check([msg(5)], 'c1', false)).toEqual({ outOfOrder: 0, replayed: 0 })

@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use common_kafka::kafka_producer::{
@@ -91,11 +91,29 @@ pub enum IssueStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum IssueSeverity {
+pub enum IssueSeverity {
     Low,
     Medium,
     High,
     Critical,
+}
+
+impl FromStr for IssueSeverity {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.eq_ignore_ascii_case("low") {
+            Ok(Self::Low)
+        } else if value.eq_ignore_ascii_case("medium") {
+            Ok(Self::Medium)
+        } else if value.eq_ignore_ascii_case("high") {
+            Ok(Self::High)
+        } else if value.eq_ignore_ascii_case("critical") {
+            Ok(Self::Critical)
+        } else {
+            Err(())
+        }
+    }
 }
 
 pub(crate) fn infer_issue_severity(
@@ -212,6 +230,23 @@ impl Issue {
         .await?;
 
         Ok(issue)
+    }
+
+    pub async fn apply_initial_severity<'c, E>(
+        &mut self,
+        severity: String,
+        executor: E,
+    ) -> Result<(), sqlx::Error>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        sqlx::query("UPDATE posthog_errortrackingissue SET severity = $1 WHERE id = $2")
+            .bind(&severity)
+            .bind(self.id)
+            .execute(executor)
+            .await?;
+        self.severity = Some(severity);
+        Ok(())
     }
 
     pub async fn maybe_reopen<'c, E>(&mut self, executor: E) -> Result<bool, UnhandledError>
@@ -740,6 +775,30 @@ mod test {
                 expected.map(str::to_string)
             );
         }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn initial_severity_update_reaches_state_and_notification_payloads(pool: sqlx::PgPool) {
+        let mut issue = super::Issue::insert_new(
+            1,
+            "TypeError".to_string(),
+            "Example".to_string(),
+            None,
+            &pool,
+        )
+        .await
+        .unwrap();
+
+        issue
+            .apply_initial_severity("critical".to_string(), &pool)
+            .await
+            .unwrap();
+
+        let state =
+            super::FingerprintIssueState::new(&issue, "fingerprint", None, chrono::Utc::now());
+        let snapshot = super::issue_snapshot(&issue);
+        assert_eq!(state.issue_severity.as_deref(), Some("critical"));
+        assert_eq!(snapshot.severity.as_deref(), Some("critical"));
     }
 
     #[tokio::test]

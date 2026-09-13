@@ -8,7 +8,7 @@ export class CohortPage {
     constructor(private readonly page: Page) {}
 
     async createCohort(name: string): Promise<void> {
-        await this.page.click('[data-attr="new-cohort"]')
+        await this.page.click('[data-attr="create-cohort"]')
         await this.page.click('[data-attr="cohort-selector-field-value"]')
         await this.page.click('[data-attr="cohort-personPropertyBehavioral-have_property-type"]')
         await this.page.click('[data-attr="cohort-taxonomic-field-key"]')

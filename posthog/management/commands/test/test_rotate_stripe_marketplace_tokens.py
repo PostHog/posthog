@@ -284,7 +284,7 @@ class TestRotateStripeMarketplaceTokens(BaseTest):
         assert OAuthAccessToken.objects.filter(application=self.new_app, scoped_teams__contains=[self.team.pk]).exists()
 
     @patch("stripe.StripeClient")
-    @patch("posthog.management.commands.rotate_stripe_marketplace_tokens.lock_oauth_connection")
+    @patch("posthog.models.integration.stripe.lock_oauth_connection")
     def test_takes_the_connection_lock_before_deleting(self, mock_lock, MockStripeClient) -> None:
         mock_client = MagicMock()
         MockStripeClient.return_value = mock_client
@@ -316,6 +316,137 @@ class TestRotateStripeMarketplaceTokens(BaseTest):
         assert (self.user.pk, self.old_app.id) in locked_pairs
         assert (self.user.pk, self.new_app.id) in locked_pairs
         assert not any(deleted_while_unlocked)
+
+    @patch("stripe.StripeClient")
+    def test_sweeps_a_refresh_token_no_access_token_points_at(self, MockStripeClient) -> None:
+        mock_client = MagicMock()
+        MockStripeClient.return_value = mock_client
+
+        integration, stale_access, _ = self._create_integration_with_token(
+            self.team, "acct_unlinked", self.old_app, created_by=self.user
+        )
+        # What the Stripe provisioning refresh leaves behind: the superseded row keeps no link to
+        # any access token, so a link-based sweep cannot see it.
+        unlinked = OAuthRefreshToken.objects.create(
+            application=self.old_app,
+            token="ph_refresh_unlinked",
+            user=self.user,
+            access_token=None,
+            scoped_teams=[self.team.pk],
+        )
+
+        with self.settings(
+            STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.new_app.client_id,
+            STRIPE_POSTHOG_OAUTH_CLIENT_ID=self.old_app.client_id,
+            STRIPE_APP_CLIENT_ID="stripe_app_client_id",
+            STRIPE_APP_SECRET_KEY="sk_test",
+        ):
+            call_command("rotate_stripe_marketplace_tokens", stdout=StringIO())
+
+        assert not OAuthRefreshToken.objects.filter(pk=unlinked.pk).exists()
+        assert not OAuthAccessToken.objects.filter(pk=stale_access.pk).exists()
+        assert OAuthAccessToken.objects.filter(application=self.new_app, scoped_teams__contains=[self.team.pk]).exists()
+
+    @patch("stripe.StripeClient")
+    def test_a_write_that_never_reaches_stripe_leaves_no_credential(self, MockStripeClient) -> None:
+        mock_client = MagicMock()
+        mock_client.apps.secrets.create.side_effect = Exception("simulated Stripe API failure")
+        MockStripeClient.return_value = mock_client
+
+        integration, stale_access, stale_refresh = self._create_integration_with_token(
+            self.team, "acct_total_failure", self.old_app, created_by=self.user
+        )
+
+        out = StringIO()
+        with self.settings(
+            STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.new_app.client_id,
+            STRIPE_POSTHOG_OAUTH_CLIENT_ID=self.old_app.client_id,
+            STRIPE_APP_CLIENT_ID="stripe_app_client_id",
+            STRIPE_APP_SECRET_KEY="sk_test",
+        ):
+            call_command("rotate_stripe_marketplace_tokens", stdout=out)
+
+        assert "Failed: 1" in out.getvalue()
+        # The customer keeps what Stripe is still serving, and the unusable mint is gone.
+        assert OAuthAccessToken.objects.filter(pk=stale_access.pk).exists()
+        assert OAuthRefreshToken.objects.filter(pk=stale_refresh.pk).exists()
+        assert not OAuthAccessToken.objects.filter(
+            application=self.new_app, scoped_teams__contains=[self.team.pk]
+        ).exists()
+
+    @patch("stripe.StripeClient")
+    def test_leaves_a_credential_shared_with_another_team(self, MockStripeClient) -> None:
+        mock_client = MagicMock()
+        MockStripeClient.return_value = mock_client
+
+        other_team = Team.objects.create(organization=self.organization, name="Sibling team")
+        integration, stale_access, _ = self._create_integration_with_token(
+            self.team, "acct_shared", self.old_app, created_by=self.user
+        )
+        # A provisioning credential can cover several teams at once. Rotating one of them must
+        # not take the others down with it.
+        shared = OAuthAccessToken.objects.create(
+            application=self.old_app,
+            token="ph_access_shared",
+            user=self.user,
+            expires=timezone.now() + timedelta(days=14),
+            scope="query:read",
+            scoped_teams=[self.team.pk, other_team.pk],
+        )
+
+        with self.settings(
+            STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.new_app.client_id,
+            STRIPE_POSTHOG_OAUTH_CLIENT_ID=self.old_app.client_id,
+            STRIPE_APP_CLIENT_ID="stripe_app_client_id",
+            STRIPE_APP_SECRET_KEY="sk_test",
+        ):
+            call_command("rotate_stripe_marketplace_tokens", stdout=StringIO())
+
+        # The sibling keeps working, and this team can no longer reach anything through it.
+        shared.refresh_from_db()
+        assert shared.scoped_teams == [other_team.pk]
+        assert not OAuthAccessToken.objects.filter(pk=stale_access.pk).exists()
+
+    @patch("stripe.StripeClient")
+    def test_a_multi_team_legacy_credential_cannot_keep_reaching_this_team(self, MockStripeClient) -> None:
+        mock_client = MagicMock()
+        MockStripeClient.return_value = mock_client
+
+        other_team = Team.objects.create(organization=self.organization, name="Second team")
+        integration, _, _ = self._create_integration_with_token(
+            self.team, "acct_multi", self.old_app, created_by=self.user
+        )
+        # What a leaked legacy credential looks like after the provisioning refresh recomputes
+        # its scope: still on the orchestrator application, now covering more than one team.
+        widened = OAuthAccessToken.objects.create(
+            application=self.old_app,
+            token="ph_access_widened",
+            user=self.user,
+            expires=timezone.now() + timedelta(days=14),
+            scope="query:read",
+            scoped_teams=[self.team.pk, other_team.pk],
+        )
+        widened_refresh = OAuthRefreshToken.objects.create(
+            application=self.old_app,
+            token="ph_refresh_widened",
+            user=self.user,
+            access_token=widened,
+            scoped_teams=[self.team.pk, other_team.pk],
+        )
+
+        with self.settings(
+            STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.new_app.client_id,
+            STRIPE_POSTHOG_OAUTH_CLIENT_ID=self.old_app.client_id,
+            STRIPE_APP_CLIENT_ID="stripe_app_client_id",
+            STRIPE_APP_SECRET_KEY="sk_test",
+        ):
+            call_command("rotate_stripe_marketplace_tokens", stdout=StringIO())
+
+        widened.refresh_from_db()
+        widened_refresh.refresh_from_db()
+        assert self.team.pk not in widened.scoped_teams
+        assert self.team.pk not in widened_refresh.scoped_teams
+        assert widened.scoped_teams == [other_team.pk]
 
     @parameterized.expand(
         [

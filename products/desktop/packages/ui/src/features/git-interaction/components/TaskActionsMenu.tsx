@@ -23,12 +23,12 @@ import {
   Button as QButton,
   DropdownMenu as QDropdownMenu,
   DropdownMenuItem as QDropdownMenuItem,
-  Spinner,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
 import type { PrActionType } from "@posthog/shared";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
 import { toast } from "../../../primitives/toast";
@@ -441,9 +441,7 @@ export function GitActionControl({
   const showDropdown = actions.length > 1;
   const isPrimaryDisabled = !primaryAction.enabled || isBusy;
 
-  // Outlined rather than solid: the git action is one of several things the
-  // header offers, not the header's call to action, and "Continue in cloud"
-  // sits right beside it.
+  // Outlined rather than solid because the git action is one of several header actions.
   const primaryButton = (
     <QButton
       size="sm"
@@ -451,11 +449,7 @@ export function GitActionControl({
       disabled={isPrimaryDisabled}
       onClick={() => onSelect(primaryAction.id)}
     >
-      {isBusy ? (
-        <Spinner className="size-3" />
-      ) : (
-        getGitActionIcon(primaryAction.id)
-      )}
+      {isBusy ? <Spinner size="sm" /> : getGitActionIcon(primaryAction.id)}
       {primaryAction.label}
     </QButton>
   );

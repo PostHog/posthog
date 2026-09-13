@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockClient = vi.hoisted(() => ({
   warmTask: vi.fn(),
+  cancelTaskRun: vi.fn().mockResolvedValue({}),
 }));
 const flagState = vi.hoisted(() => ({ enabled: true }));
 
@@ -22,6 +23,7 @@ import { takeWarmTaskLease } from "./warmTaskLease";
 
 interface Props {
   workspaceMode: WorkspaceMode;
+  claudeModelAccess?: string;
   selectedRepository?: string | null;
   repositories?: string[];
   githubIntegrationId?: number;
@@ -70,6 +72,42 @@ describe("useWarmTask", () => {
       await vi.advanceTimersByTimeAsync(600);
     });
   }
+
+  it.each([false, true])(
+    "releases an unused warm run and permits another warm request (late: %s)",
+    async (late) => {
+      let finishWarm:
+        | ((value: { task_id: string; run_id: string }) => void)
+        | undefined;
+      if (late)
+        mockClient.warmTask.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishWarm = resolve;
+            }),
+        );
+      const { rerender } = renderHook((props: Props) => useWarmTask(props), {
+        initialProps: cloudTyping,
+      });
+      await flushDebounce();
+      rerender({ ...cloudTyping, claudeModelAccess: "own-subscription" });
+      if (finishWarm)
+        await act(async () => {
+          finishWarm?.({ task_id: "task-1", run_id: "run-1" });
+        });
+      await flushDebounce();
+      expect(mockClient.warmTask).toHaveBeenCalledTimes(1);
+      expect(mockClient.cancelTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        undefined,
+        true,
+      );
+      rerender(cloudTyping);
+      await flushDebounce();
+      expect(mockClient.warmTask).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("fires a debounced warm when cloud + repo + typing", async () => {
     renderHook((props: Props) => useWarmTask(props), {

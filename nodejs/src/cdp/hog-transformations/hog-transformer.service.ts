@@ -27,6 +27,7 @@ import { getTransformationFunctions } from './transformation-functions'
 export interface HogTransformerConfig {
     siteUrl: string
     hogRustVmExecutionEnabled: boolean
+    hogRustVmBatchExecutionEnabled: boolean
     mmdbFileLocation: string
 }
 
@@ -102,6 +103,15 @@ export class HogTransformerService implements HogTransformer {
         await this.hogFunctionMonitoringService.flush()
     }
 
+    public async prefetchHogFunctionsForTeams(teamIds: number[]): Promise<void> {
+        // Warm the by-team and by-id loaders directly, skipping the per-team assembly and sort
+        // that getHogFunctionsForTeams would do and the event path redoes anyway.
+        const idsByTeam = await this.hogFunctionManager.getHogFunctionIdsForTeams(teamIds, ['transformation'], {
+            flush: true,
+        })
+        await this.hogFunctionManager.getHogFunctions(Object.values(idsByTeam).flat(), { flush: true })
+    }
+
     private async getTransformationFunctions() {
         if (!this.cachedTransformationFunctions) {
             this.cachedGeoIp = await this.geoipService.get()
@@ -168,16 +178,11 @@ export class HogTransformerService implements HogTransformer {
         }
 
         const results: CyclotronJobInvocationResult[] = []
-        const transformationsSucceeded: string[] = []
-        const transformationsFailed: string[] = []
-        const transformationsSkipped: string[] = []
 
         // Create globals once and update the event properties after each transformation
         const globals = this.createInvocationGlobals(event)
 
         for (const hogFunction of teamHogFunctions) {
-            const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
-
             // Create filterGlobals for each iteration - it references globals.event.properties
             // which gets updated after each successful transformation
             const filterGlobals = convertToHogFunctionFilterGlobal(globals)
@@ -195,7 +200,6 @@ export class HogTransformerService implements HogTransformer {
                 this.hogFunctionMonitoringService.queueLogs(filterResults.logs, 'hog_function')
 
                 if (!filterResults.match) {
-                    transformationsSkipped.push(transformationIdentifier)
                     continue
                 }
             }
@@ -220,14 +224,12 @@ export class HogTransformerService implements HogTransformer {
                     },
                     'hog_function'
                 )
-                transformationsFailed.push(transformationIdentifier)
                 continue
             }
 
             results.push(result)
 
             if (result.error) {
-                transformationsFailed.push(transformationIdentifier)
                 continue
             }
 
@@ -243,7 +245,6 @@ export class HogTransformerService implements HogTransformer {
                     },
                     'hog_function'
                 )
-                transformationsFailed.push(transformationIdentifier)
                 return {
                     event: null,
                     invocationResults: results,
@@ -263,7 +264,6 @@ export class HogTransformerService implements HogTransformer {
                 logger.error('⚠️', 'Invalid transformation result - missing or invalid properties', {
                     function_id: hogFunction.id,
                 })
-                transformationsFailed.push(transformationIdentifier)
                 continue
             }
 
@@ -276,7 +276,6 @@ export class HogTransformerService implements HogTransformer {
                         function_id: hogFunction.id,
                         event: transformedEvent.event,
                     })
-                    transformationsFailed.push(transformationIdentifier)
                     continue
                 }
                 event.event = transformedEvent.event
@@ -288,7 +287,6 @@ export class HogTransformerService implements HogTransformer {
                         function_id: hogFunction.id,
                         distinct_id: transformedEvent.distinct_id,
                     })
-                    transformationsFailed.push(transformationIdentifier)
                     continue
                 }
                 event.distinct_id = transformedEvent.distinct_id
@@ -298,26 +296,6 @@ export class HogTransformerService implements HogTransformer {
             globals.event.properties = event.properties
             globals.event.event = event.event
             globals.event.distinct_id = event.distinct_id
-
-            transformationsSucceeded.push(transformationIdentifier)
-        }
-
-        // Use direct property assignment instead of spreading to avoid copying the entire object
-        if (
-            transformationsFailed.length > 0 ||
-            transformationsSkipped.length > 0 ||
-            transformationsSucceeded.length > 0
-        ) {
-            event.properties = event.properties || {}
-            if (transformationsFailed.length > 0) {
-                event.properties.$transformations_failed = transformationsFailed
-            }
-            if (transformationsSkipped.length > 0) {
-                event.properties.$transformations_skipped = transformationsSkipped
-            }
-            if (transformationsSucceeded.length > 0) {
-                event.properties.$transformations_succeeded = transformationsSucceeded
-            }
         }
 
         return {
@@ -327,7 +305,7 @@ export class HogTransformerService implements HogTransformer {
     }
 
     public transformEvent(event: PluginEvent, teamHogFunctions: HogFunctionType[]): Promise<TransformationResult> {
-        // Sanitize transform event properties
+        // These properties are retired, so drop any a client sends rather than letting them through
         if (event.properties) {
             for (const key of ['$transformations_failed', '$transformations_skipped', '$transformations_succeeded']) {
                 if (key in event.properties) {
@@ -354,7 +332,9 @@ export class HogTransformerService implements HogTransformer {
 
         if (this.rustVmExecutor) {
             const sensitiveValues = this.hogExecutor.getSensitiveValues(hogFunction, globalsWithInputs.inputs)
-            const rustResult = this.rustVmExecutor.execute(invocation, sensitiveValues)
+            const rustResult = this.config.hogRustVmBatchExecutionEnabled
+                ? await this.rustVmExecutor.executeBatched(invocation, sensitiveValues)
+                : this.rustVmExecutor.execute(invocation, sensitiveValues)
             // Null means the Rust VM can't run this program (addon not built, unsupported host
             // function): fall through to the Node VM.
             if (rustResult) {
@@ -369,7 +349,11 @@ export class HogTransformerService implements HogTransformer {
 /** Config read by createHogTransformerService when running inside ingestion. */
 export type HogTransformerServiceConfig = Pick<
     CommonConfig,
-    'SITE_URL' | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED' | 'MMDB_FILE_LOCATION' | 'TRANSFORMATIONS_HOG_TIMEOUT_MS'
+    | 'SITE_URL'
+    | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED'
+    | 'CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED'
+    | 'MMDB_FILE_LOCATION'
+    | 'TRANSFORMATIONS_HOG_TIMEOUT_MS'
 >
 
 export interface HogTransformerServiceDeps {
@@ -407,6 +391,7 @@ export function createHogTransformerService(
         {
             siteUrl: config.SITE_URL,
             hogRustVmExecutionEnabled: config.CDP_HOG_RUST_VM_EXECUTION_ENABLED,
+            hogRustVmBatchExecutionEnabled: config.CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED,
             mmdbFileLocation: config.MMDB_FILE_LOCATION,
         }
     )

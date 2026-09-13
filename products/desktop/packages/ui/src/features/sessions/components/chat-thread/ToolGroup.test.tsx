@@ -14,6 +14,7 @@ function subagentItem(
   options: {
     status?: "completed" | "in_progress";
     turnComplete?: boolean;
+    subagentCount?: number;
   } = {},
 ): SessionUpdateItem {
   return {
@@ -26,6 +27,15 @@ function subagentItem(
       kind: "other",
       status: options.status ?? "completed",
       _meta: posthogToolMeta({ toolName: "spawn_agent" }),
+      details: options.subagentCount
+        ? {
+            mode: "parallel",
+            results: Array.from({ length: options.subagentCount }, () => ({
+              agent: "Explore",
+              task: "Inspect project files",
+            })),
+          }
+        : undefined,
     },
     turnContext: {
       toolCalls: new Map(),
@@ -76,7 +86,7 @@ describe("ToolGroup", () => {
     {
       name: "tallies the run once it settles",
       items: [subagentItem("spawn-1"), subagentItem("spawn-2")],
-      expected: "2 subagents",
+      expected: "Ran 2 subagents",
     },
     {
       name: "names the current tool while the run is active",
@@ -101,6 +111,12 @@ describe("ToolGroup", () => {
   ])("$name", ({ items, expected }) => {
     renderGroup(items);
     expect(screen.getByText(expected)).toBeInTheDocument();
+  });
+
+  it("counts every parallel subagent in one tool call", () => {
+    renderGroup([subagentItem("spawn-1", { subagentCount: 2 })]);
+
+    expect(screen.getByText("Ran 2 subagents")).toBeInTheDocument();
   });
 
   it("starts collapsed", () => {

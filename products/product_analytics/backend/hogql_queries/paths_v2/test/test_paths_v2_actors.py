@@ -23,7 +23,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
+from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.models.person import Person
 from posthog.test.test_journeys import journeys_for
 

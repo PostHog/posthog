@@ -21,8 +21,6 @@ function activity(overrides: Partial<TaskActivity> = {}): TaskActivity {
     snippet: "ping @[Me](me@posthog.com)",
     latest_author: ann,
     latest_message_id: "m1",
-    target_scope: null,
-    target_id: null,
     is_unread: true,
     ...overrides,
   };
@@ -44,8 +42,6 @@ describe("toTaskActivityItems", () => {
         messageId: "m1",
         commentId: null,
         commentTarget: null,
-        targetScope: null,
-        targetId: null,
         isUnread: true,
       },
     ]);
@@ -66,15 +62,6 @@ describe("toTaskActivityItems", () => {
       scope: "task_artifact",
       itemId: "artifact-1",
     });
-  });
-
-  it("maps a report canvas target for direct navigation", () => {
-    const [item] = toTaskActivityItems([
-      activity({ target_scope: "desktop_canvas", target_id: "canvas-1" }),
-    ]);
-
-    expect(item.targetScope).toBe("desktop_canvas");
-    expect(item.targetId).toBe("canvas-1");
   });
 
   it("labels untitled tasks and tolerates missing optional values", () => {

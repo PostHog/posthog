@@ -50,15 +50,6 @@ const mockTrpcFs = vi.hoisted(() => ({
   readFileAsBase64: { query: vi.fn() },
 }));
 
-const mockTrpcHandoff = vi.hoisted(() => ({
-  preflightToCloud: { query: vi.fn() },
-  executeToCloud: { mutate: vi.fn() },
-}));
-
-const mockTrpcOs = vi.hoisted(() => ({
-  openExternal: { mutate: vi.fn() },
-}));
-
 const mockAuthenticatedClient = vi.hoisted(() => ({
   createTaskRun: vi.fn(),
   appendTaskRunLog: vi.fn(),
@@ -91,7 +82,7 @@ const mockAuth = vi.hoisted(() => ({
     },
     currentOrgId: "org-1",
     currentProjectId: 123,
-    hasCodeAccess: true,
+    desktopAccess: { projectId: 123, status: "allowed", reason: null },
     needsScopeReauth: false,
   })),
   getAuthenticatedClient: vi.fn<() => Promise<Record<string, unknown> | null>>(
@@ -174,8 +165,6 @@ vi.mock("@posthog/di/container", () => ({
         logs: mockTrpcLogs,
         cloudTask: mockTrpcCloudTask,
         fs: mockTrpcFs,
-        handoff: mockTrpcHandoff,
-        os: mockTrpcOs,
       };
     }
     if (token === Symbol.for("posthog.ui.ImperativeQueryClient")) {
@@ -301,7 +290,6 @@ vi.mock("@posthog/core/sessions/sessionEvents", async () => {
     extractPromptText: vi.fn((p) => (typeof p === "string" ? p : "text")),
     getUserShellExecutesSinceLastPrompt: vi.fn(() => []),
     isFatalSessionError: actual.isFatalSessionError,
-    isRateLimitError: actual.isRateLimitError,
     normalizePromptToBlocks: vi.fn((p) =>
       typeof p === "string" ? [{ type: "text", text: p }] : p,
     ),
@@ -374,7 +362,7 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
       },
       currentOrgId: "org-1",
       currentProjectId: 123,
-      hasCodeAccess: true,
+      desktopAccess: { projectId: 123, status: "allowed", reason: null },
       needsScopeReauth: false,
     });
     mockTrpcAgent.onSessionEvent.subscribe.mockReturnValue({

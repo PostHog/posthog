@@ -6,22 +6,53 @@ import {
   GitFork,
   Lightning,
   Plus,
+  Shapes,
   Terminal,
   X,
 } from "@phosphor-icons/react";
+import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { isBrainrotCell } from "@posthog/core/command-center/grid";
-import { Spinner as QuillSpinner, Text as QuillText } from "@posthog/quill";
+import { readRunMode } from "@posthog/core/sidebar/buildSidebarData";
+import { resolveEffectiveCloudStatus } from "@posthog/core/task-detail/cloudRunState";
+import {
+  Button,
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  Text as QuillText,
+} from "@posthog/quill";
 import { ANALYTICS_EVENTS, type WorkspaceMode } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { FreeformCanvasView } from "@posthog/ui/features/canvas/freeform/FreeformCanvasView";
+import { GridCanvasView } from "@posthog/ui/features/canvas/grid/GridCanvasView";
+import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { destroyShellTerminal } from "@posthog/ui/features/terminal/destroyShellTerminal";
 import { ShellTerminal } from "@posthog/ui/features/terminal/ShellTerminal";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { secureRandomString } from "@posthog/ui/utils/random";
 import { Flex, Text } from "@radix-ui/themes";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { useOptionalAuthenticatedClient } from "../../auth/authClient";
+import { useAuthStateValue } from "../../auth/store";
+import { useCurrentUser } from "../../auth/useCurrentUser";
+import { useAutoresearchDraftStore } from "../../autoresearch/autoresearchDraftStore";
+import { SpaceSelect } from "../../canvas/components/SpaceSelect";
+import { useTaskChannels } from "../../canvas/hooks/useTaskChannels";
+import { useBluebirdFlag } from "../../feature-flags/useBluebirdFlag";
 import { useFolders } from "../../folders/useFolders";
 import { useCloudPrUrl } from "../../git-interaction/useCloudPrUrl";
 import { useDraftStore } from "../../message-editor/draftStore";
@@ -74,20 +105,24 @@ function CellStatusBadge({
     taskRunEnvironment: task.latest_run?.environment,
   });
 
-  const label = STATUS_LABEL[status];
+  const displayStatus = cell.hasUnseenCompletion ? "completed" : status;
+  const label = STATUS_LABEL[displayStatus];
   if (label === null) return null;
 
   const taskRunStatus = isCloud
-    ? (session?.cloudStatus ?? task.latest_run?.status ?? undefined)
+    ? (resolveEffectiveCloudStatus(task, session) ?? undefined)
     : undefined;
 
   return (
-    <span className="inline-flex items-center gap-0.5 rounded bg-gray-3 px-1 py-0.5 text-[10px] text-gray-11">
+    <span
+      className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] ${cell.hasUnseenCompletion ? "bg-primary text-primary-foreground" : "bg-gray-3 text-gray-11"}`}
+    >
       <TaskIcon
         workspaceMode={workspaceMode ?? undefined}
-        isGenerating={session?.isPromptPending}
-        needsPermission={(session?.pendingPermissions?.size ?? 0) > 0}
+        isGenerating={status === "running"}
+        needsPermission={status === "waiting"}
         taskRunStatus={taskRunStatus}
+        runMode={readRunMode(task.latest_run?.state)}
         prState={prState}
         hasDiff={hasDiff}
         size={10}
@@ -109,14 +144,35 @@ function EnvironmentBadge({ mode }: { mode: WorkspaceMode | null }) {
   );
 }
 
-function EmptyCell({ cellIndex }: { cellIndex: number }) {
+export function CommandCenterEmptyCell({ action }: { action: ReactNode }) {
+  return (
+    <Empty className="h-full border-0 bg-gray-1">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Plus size={20} />
+        </EmptyMedia>
+        <EmptyTitle>Empty tile</EmptyTitle>
+        <EmptyDescription>
+          Drag a task from the sidebar, or add one.
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>{action}</EmptyContent>
+    </Empty>
+  );
+}
+
+function EmptyCell({
+  cellIndex,
+  replaceExisting,
+}: {
+  cellIndex: number;
+  replaceExisting: boolean;
+}) {
   const [selectorOpen, setSelectorOpen] = useState(false);
   // The command-center terminal is unavailable on cloud-only hosts.
   const { localWorkspaces } = useHostCapabilities();
-  const isCreating = useCommandCenterStore((s) =>
-    s.creatingCells.includes(cellIndex),
-  );
-  const assignTask = useCommandCenterStore((s) => s.assignTask);
+  const composer = useCommandCenterStore((s) => s.composer);
+  const finishCreating = useCommandCenterStore((s) => s.finishCreating);
   const setBrainrotCell = useCommandCenterStore((s) => s.setBrainrotCell);
   const setTerminalCell = useCommandCenterStore((s) => s.setTerminalCell);
   const startCreating = useCommandCenterStore((s) => s.startCreating);
@@ -124,9 +180,32 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   const layout = useCommandCenterStore((s) => s.layout);
   const cells = useCommandCenterStore((s) => s.cells);
   const brainrotMode = useSettingsStore((s) => s.brainrotMode);
-  const clearDraft = useDraftStore((s) => s.actions.setDraft);
-
-  const sessionId = getCellSessionId(cellIndex);
+  const spacesEnabled = useBluebirdFlag();
+  const { channels, personalChannel } = useTaskChannels({
+    enabled: spacesEnabled,
+  });
+  const [pickedSpaceId, setPickedSpaceId] = useState<string | null>(null);
+  // A task created without a space lands in #me, so the chip starts there. The
+  // flag gates the chip here rather than through the query, whose cache another
+  // surface may have already filled.
+  const spaceId = spacesEnabled
+    ? (pickedSpaceId ?? personalChannel?.id ?? null)
+    : null;
+  const space = channels.find((c) => c.id === spaceId);
+  const authIdentity = useAuthStateValue(getAuthIdentity);
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
+  const authScope =
+    authIdentity && currentUser?.uuid
+      ? `${authIdentity}:${currentUser.uuid}`
+      : null;
+  const sessionId = authScope ? getCellSessionId(authScope, cellIndex) : null;
+  const currentSessionIdRef = useRef(sessionId);
+  currentSessionIdRef.current = sessionId;
+  const isCreating =
+    sessionId !== null &&
+    composer?.cellIndex === cellIndex &&
+    composer.sessionId === sessionId;
 
   const handleBrainrot = useCallback(() => {
     track(ANALYTICS_EVENTS.BRAINROT_ACTIVATED, {
@@ -143,40 +222,60 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
     [setTerminalCell, cellIndex],
   );
 
+  const handleNewTask = useCallback(() => {
+    if (sessionId) startCreating(cellIndex, sessionId, replaceExisting);
+  }, [startCreating, cellIndex, sessionId, replaceExisting]);
+
+  // Claiming the tile is what keeps the run in the grid: without it the task
+  // exists but its session has nowhere to render.
   const handleTaskCreated = useCallback(
     (task: Task) => {
-      assignTask(cellIndex, task.id);
-      clearDraft(sessionId, null);
+      if (!sessionId) {
+        void openTask(task);
+        return;
+      }
+      if (currentSessionIdRef.current !== sessionId) {
+        stopCreating(sessionId);
+        clearComposerDraft(sessionId);
+        return;
+      }
+      const assigned = finishCreating(sessionId, task.id);
+      clearComposerDraft(sessionId);
+      // Creation may finish after the user replaced or removed the tile. The
+      // task still exists, so open it instead of overwriting newer grid state.
+      if (!assigned) void openTask(task);
     },
-    [assignTask, cellIndex, clearDraft, sessionId],
+    [finishCreating, sessionId, stopCreating],
   );
 
   const handleCancel = useCallback(() => {
-    stopCreating(cellIndex);
-    clearDraft(sessionId, null);
-  }, [stopCreating, cellIndex, clearDraft, sessionId]);
+    if (!sessionId) return;
+    stopCreating(sessionId);
+    clearComposerDraft(sessionId);
+    // The next task in this tile starts from #me again, like its prompt draft.
+    setPickedSpaceId(null);
+  }, [stopCreating, sessionId]);
 
-  const wasCreatingRef = useRef(false);
   useEffect(() => {
-    if (wasCreatingRef.current && !isCreating) {
-      clearDraft(sessionId, null);
+    if (
+      !composer ||
+      composer.cellIndex !== cellIndex ||
+      !sessionId ||
+      composer.sessionId === sessionId
+    ) {
+      return;
     }
-    wasCreatingRef.current = isCreating;
-  }, [isCreating, clearDraft, sessionId]);
+    stopCreating(composer.sessionId);
+    clearComposerDraft(composer.sessionId);
+  }, [cellIndex, composer, sessionId, stopCreating]);
 
   if (isCreating) {
     return (
-      <Flex direction="column" height="100%">
-        <Flex
-          align="center"
-          justify="between"
-          px="2"
-          py="1"
-          className="shrink-0 border-gray-6 border-b"
-        >
-          <Text className="font-medium font-mono text-[11px] text-gray-11">
+      <div className="flex h-full flex-col">
+        <div className="flex shrink-0 items-center justify-between border-gray-6 border-b px-2 py-1">
+          <QuillText className="font-medium font-mono text-[11px] text-gray-11">
             New task
-          </Text>
+          </QuillText>
           <button
             type="button"
             onClick={handleCancel}
@@ -185,40 +284,62 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
           >
             <X size={12} />
           </button>
-        </Flex>
-        <Flex direction="column" className="min-h-0 flex-1">
-          <TaskInput sessionId={sessionId} onTaskCreated={handleTaskCreated} />
-        </Flex>
-      </Flex>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <TaskInput
+            sessionId={sessionId}
+            onTaskCreated={handleTaskCreated}
+            showNewTaskSuggestions={false}
+            allowNoRepo
+            channelId={spaceId ?? undefined}
+            channelRepositories={space?.repositories}
+            channelGithubIntegration={space?.github_integration}
+            spaceSelector={
+              spaceId
+                ? ({ disabled }) => (
+                    <SpaceSelect
+                      value={spaceId}
+                      onChange={setPickedSpaceId}
+                      disabled={disabled}
+                    />
+                  )
+                : undefined
+            }
+          />
+        </div>
+      </div>
     );
   }
 
   return (
-    <Flex align="center" justify="center" height="100%">
-      <Flex direction="column" align="center" gap="2" className="select-none">
+    <CommandCenterEmptyCell
+      action={
         <TaskSelector
           cellIndex={cellIndex}
           open={selectorOpen}
           onOpenChange={setSelectorOpen}
-          onNewTask={() => startCreating(cellIndex)}
+          onNewTask={!composer && sessionId ? handleNewTask : undefined}
           onNewTerminal={localWorkspaces ? handleNewTerminal : undefined}
           onBrainrot={brainrotMode ? handleBrainrot : undefined}
         >
-          <button
+          <Button
             type="button"
             onClick={() => setSelectorOpen(true)}
-            className="flex items-center gap-1.5 rounded-md border border-gray-7 border-dashed px-3 py-1.5 text-[12px] text-gray-10 transition-colors hover:border-gray-9 hover:text-gray-12"
+            variant="outline"
+            size="default"
           >
             <Plus size={12} />
             Add task
-          </button>
+          </Button>
         </TaskSelector>
-        <Text className="text-[11px] text-gray-9">
-          or drag a task from the sidebar
-        </Text>
-      </Flex>
-    </Flex>
+      }
+    />
   );
+}
+
+function clearComposerDraft(sessionId: string): void {
+  useDraftStore.getState().actions.setDraft(sessionId, null);
+  useAutoresearchDraftStore.getState().clearDraft(sessionId);
 }
 
 const BRAINROT_PLAYLIST_IDS = [
@@ -226,9 +347,15 @@ const BRAINROT_PLAYLIST_IDS = [
   "PLSzOLzwLMqSM",
 ];
 const BRAINROT_EMBED_ORIGIN = "https://www.youtube-nocookie.com";
+// Player errors like 153 arrive as onError messages, but the widget can stay
+// silent when the embed document itself fails to load or boot. Silence after
+// load is the only renderer-visible signal of that failure.
+const BRAINROT_WIDGET_SILENCE_TIMEOUT_MS = 15_000;
 
 function brainrotEmbedUrl(playlistId: string): string {
-  return `${BRAINROT_EMBED_ORIGIN}/embed/videoseries?list=${playlistId}&enablejsapi=1&autoplay=1&mute=1&playsinline=1&rel=0`;
+  // loop=1 duplicates the setLoop postMessage call, so looping survives when
+  // the widget's postMessage channel is unavailable.
+  return `${BRAINROT_EMBED_ORIGIN}/embed/videoseries?list=${playlistId}&enablejsapi=1&autoplay=1&mute=1&playsinline=1&rel=0&loop=1`;
 }
 
 function pickBrainrotEmbedUrl(): string {
@@ -243,6 +370,8 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
   const clearCell = useCommandCenterStore((s) => s.clearCell);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const randomizedRef = useRef(false);
+  const errorTrackedRef = useRef(false);
+  const silenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [loading, setLoading] = useState(true);
   // Lazy initializer so the playlist choice is made once per mount.
   const [embedUrl] = useState(pickBrainrotEmbedUrl);
@@ -263,13 +392,31 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
       if (event.origin !== BRAINROT_EMBED_ORIGIN) return;
       if (event.source !== iframeRef.current?.contentWindow) return;
       if (typeof event.data !== "string") return;
-      let message: { info?: { playlist?: unknown } };
+      let message: { event?: unknown; info?: unknown };
       try {
         message = JSON.parse(event.data);
       } catch {
         return;
       }
-      const playlist = message.info?.playlist;
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+        silenceTimeoutRef.current = null;
+      }
+      if (message.event === "onError" && !errorTrackedRef.current) {
+        errorTrackedRef.current = true;
+        const code =
+          typeof message.info === "number"
+            ? message.info
+            : Number(message.info);
+        track(ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR, {
+          error_code: Number.isFinite(code) ? code : null,
+          reason: "player_error",
+        });
+      }
+      const playlist =
+        typeof message.info === "object" && message.info !== null
+          ? (message.info as { playlist?: unknown }).playlist
+          : undefined;
       if (
         randomizedRef.current ||
         !Array.isArray(playlist) ||
@@ -284,7 +431,13 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
       postToPlayer("setLoop", [true]);
     };
     window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+        silenceTimeoutRef.current = null;
+      }
+    };
   }, [postToPlayer]);
 
   const handleLoad = useCallback(() => {
@@ -297,6 +450,16 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
       }),
       BRAINROT_EMBED_ORIGIN,
     );
+    if (silenceTimeoutRef.current) {
+      clearTimeout(silenceTimeoutRef.current);
+    }
+    silenceTimeoutRef.current = setTimeout(() => {
+      silenceTimeoutRef.current = null;
+      track(ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR, {
+        error_code: null,
+        reason: "no_widget_messages",
+      });
+    }, BRAINROT_WIDGET_SILENCE_TIMEOUT_MS);
   }, [cellIndex]);
 
   return (
@@ -325,11 +488,7 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
           onLoad={handleLoad}
           className="h-full w-full border-0"
         />
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-11">
-            <QuillSpinner className="h-6 w-6" />
-          </div>
-        )}
+        {loading && <LoadingState className="absolute inset-0" />}
       </div>
     </div>
   );
@@ -390,6 +549,93 @@ function TerminalCell({
   );
 }
 
+function CanvasCell({
+  cellIndex,
+  canvasId,
+}: {
+  cellIndex: number;
+  canvasId: string;
+}) {
+  const clearCell = useCommandCenterStore((s) => s.clearCell);
+  const { dashboard, isLoading } = useDashboard(canvasId);
+  const navigate = useNavigate();
+  const canvasKind = dashboard?.kind;
+
+  useEffect(() => {
+    if (!canvasKind) return;
+    track(ANALYTICS_EVENTS.COMMAND_CENTER_CANVAS_VIEWED, {
+      dashboard_id: canvasId,
+      canvas_kind: canvasKind,
+    });
+  }, [canvasId, canvasKind]);
+
+  const handleOpen = useCallback(() => {
+    if (!dashboard) return;
+    void navigate({
+      to: "/spaces/$channelId/dashboards/$dashboardId",
+      params: { channelId: dashboard.channelId, dashboardId: canvasId },
+    });
+  }, [canvasId, dashboard, navigate]);
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-gray-6 border-b px-2 py-1">
+        <Shapes size={12} className="shrink-0 text-violet-9" />
+        <QuillText
+          className="min-w-0 flex-1 truncate font-medium text-[12px]"
+          title={dashboard?.name}
+        >
+          {dashboard?.name ??
+            (isLoading ? "Loading canvas…" : "Canvas unavailable")}
+        </QuillText>
+        {dashboard && (
+          <button
+            type="button"
+            onClick={handleOpen}
+            className="flex h-5 w-5 items-center justify-center rounded text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12"
+            title="Open canvas"
+          >
+            <ArrowsOut size={12} />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => clearCell(cellIndex)}
+          className="flex h-5 w-5 items-center justify-center rounded text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12"
+          title="Remove from grid"
+        >
+          <X size={12} />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1">
+        {isLoading ? (
+          <LoadingState />
+        ) : dashboard?.kind === "grid" ? (
+          <GridCanvasView canvasId={canvasId} interactive={false} />
+        ) : dashboard ? (
+          <FreeformCanvasView
+            threadId={`dashboard:${canvasId}`}
+            interactive={false}
+            embedded
+          />
+        ) : (
+          <Empty className="h-full border-0">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Shapes size={20} />
+              </EmptyMedia>
+              <EmptyTitle>Canvas unavailable</EmptyTitle>
+              <EmptyDescription>
+                This canvas is no longer available.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PopulatedCell({
   cell,
   isActiveSession,
@@ -400,7 +646,9 @@ function PopulatedCell({
   const clearCell = useCommandCenterStore((s) => s.clearCell);
 
   const handleExpand = useCallback(() => {
-    void openTask(cell.task);
+    void openTask(cell.task, {
+      channelId: cell.task.channel ?? undefined,
+    });
   }, [cell.task]);
 
   const handleRemove = useCallback(() => {
@@ -408,7 +656,9 @@ function PopulatedCell({
   }, [clearCell, cell.cellIndex]);
 
   return (
-    <Flex direction="column" height="100%">
+    <div
+      className={`flex h-full flex-col ${cell.hasUnseenCompletion ? "ring-2 ring-primary ring-inset" : ""}`}
+    >
       <Flex
         align="center"
         gap="2"
@@ -460,7 +710,7 @@ function PopulatedCell({
           isActiveSession={isActiveSession}
         />
       </Flex>
-    </Flex>
+    </div>
   );
 }
 
@@ -470,6 +720,10 @@ export function CommandCenterPanel({
 }: CommandCenterPanelProps) {
   if (cell.isBrainrot) {
     return <BrainrotCell cellIndex={cell.cellIndex} />;
+  }
+
+  if (cell.canvasId) {
+    return <CanvasCell cellIndex={cell.cellIndex} canvasId={cell.canvasId} />;
   }
 
   if (cell.terminalId) {
@@ -483,7 +737,12 @@ export function CommandCenterPanel({
   }
 
   if (!cell.taskId || !cell.task) {
-    return <EmptyCell cellIndex={cell.cellIndex} />;
+    return (
+      <EmptyCell
+        cellIndex={cell.cellIndex}
+        replaceExisting={cell.taskId !== null}
+      />
+    );
   }
 
   return (

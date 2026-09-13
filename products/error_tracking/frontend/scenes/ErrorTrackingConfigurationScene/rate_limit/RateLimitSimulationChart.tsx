@@ -1,6 +1,11 @@
 import { useMemo } from 'react'
 
-import { type Series, TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
+import {
+    type Series,
+    type TimeInterval,
+    TimeSeriesBarChart,
+    type TimeSeriesBarChartConfig,
+} from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
@@ -45,21 +50,28 @@ function fillBuckets(volume: ExceptionVolumeBucket[], bucketMinutes: number): Ex
     }))
 }
 
-export function formatBucketLabel(iso: string, bucketMinutes: number): string {
-    const ts = dayjs(iso)
+function bucketInterval(bucketMinutes: number): TimeInterval {
     if (bucketMinutes >= 1440) {
-        return ts.format('MMM D')
+        return 'day'
     }
-    return ts.format('MMM D, HH:mm')
+    if (bucketMinutes >= 60) {
+        return 'hour'
+    }
+    return 'minute'
 }
 
 /** Shared config for the rate limit bar charts: hidden bucket ticks, stacked bars, default tooltip
  *  with a total row. */
 export function buildRateLimitBarChartConfig(
-    barLayout: NonNullable<TimeSeriesBarChartConfig['barLayout']>
+    barLayout: NonNullable<TimeSeriesBarChartConfig['barLayout']>,
+    bucketMinutes: number
 ): TimeSeriesBarChartConfig {
     return {
-        xAxis: { hide: true },
+        xAxis: {
+            hide: true,
+            timezone: dayjs.tz.guess(),
+            interval: bucketInterval(bucketMinutes),
+        },
         showAxisLines: { x: false, y: true },
         barLayout,
         legend: { show: false },
@@ -85,7 +97,7 @@ export function RateLimitSimulationChart({
 
     const { labels, series } = useMemo(() => {
         const filled = fillBuckets(volume, bucketMinutes)
-        const labels = filled.map((b) => formatBucketLabel(b.bucket, bucketMinutes))
+        const labels = filled.map((b) => b.bucket)
         const counts = filled.map((b) => b.count)
 
         if (!hasLimit || rateLimit === null) {
@@ -111,7 +123,7 @@ export function RateLimitSimulationChart({
 
     const theme = useChartTheme()
     const config = useChartConfig<TimeSeriesBarChartConfig>(() => {
-        const base = buildRateLimitBarChartConfig(hasLimit ? 'stacked' : 'grouped')
+        const base = buildRateLimitBarChartConfig(hasLimit ? 'stacked' : 'grouped', bucketMinutes)
         if (!hasLimit || rateLimit === null) {
             return base
         }

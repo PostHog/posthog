@@ -52,3 +52,22 @@ class TestDemoWorldPaidSignals(SimpleTestCase):
     def test_a_paid_click_id_exists_without_any_medium(self):
         autotagged = [c for c in FREE_CHANNELS if c.extra_properties.get("gad_source") and not c.utm_medium]
         assert autotagged, "nothing covers paid traffic detectable only by gad_source"
+
+    def test_a_paid_click_id_exists_without_any_utm(self):
+        # gad_source above still rides alongside a utm_source, so it never exercises the
+        # click-id branch on its own.
+        assert [c for c in FREE_CHANNELS if c.click_id_property == "gclid" and not c.utm_source], (
+            "nothing covers a paid click whose only evidence is the click id"
+        )
+
+    def test_fbclid_exists_without_any_other_paid_signal(self):
+        assert [
+            c for c in FREE_CHANNELS if c.click_id_property == "fbclid" and not c.utm_source and not c.extra_properties
+        ], "nothing covers fbclid as the sole identifier, so excluding it proves nothing"
+
+    def test_a_campaign_exists_with_nothing_naming_its_source(self):
+        assert [
+            c
+            for c in FREE_CHANNELS
+            if c.utm_campaign and not c.utm_source and not c.click_id_property and not c.extra_properties
+        ], "nothing covers a campaign-only pageview, so the source requirement is untested"

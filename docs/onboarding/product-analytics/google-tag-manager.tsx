@@ -4,10 +4,8 @@ import { StepDefinition } from '../steps'
 import { DEFAULT_SNIPPET_METHODS, snippetFunctions } from './_snippets/js-snippet-builder'
 import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
-export const getGoogleTagManagerSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, dedent, snippets } = ctx
-
-    const JSEventCapture = snippets?.JSEventCapture
+export const getGoogleTagManagerInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
 
     return [
         {
@@ -60,11 +58,23 @@ export const getGoogleTagManagerSteps = (ctx: OnboardingComponentsContext): Step
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            content: <>{JSEventCapture && <JSEventCapture />}</>,
-        },
     ]
 }
+
+export const getGoogleTagManagerEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { snippets } = ctx
+
+    const JSEventCapture = snippets?.JSEventCapture
+
+    return {
+        title: 'Send events',
+        content: <>{JSEventCapture && <JSEventCapture />}</>,
+    }
+}
+
+export const getGoogleTagManagerSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getGoogleTagManagerInstallSteps(ctx),
+    getGoogleTagManagerEventStep(ctx),
+]
 
 export const GoogleTagManagerInstallation = createInstallation(getGoogleTagManagerSteps)

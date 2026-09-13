@@ -1,3 +1,4 @@
+import { Tooltip } from '@posthog/lemon-ui'
 import { useChartLayout } from '@posthog/quill-charts'
 
 import { getColorVar } from 'lib/colors'
@@ -8,6 +9,12 @@ export interface MetricsExemplar {
     /** Emission time of the traced sample, as epoch ms. */
     timeMs: number
     onClick: () => void
+    /** Design-token color name. Defaults to 'brand-blue'; error-spike markers pass 'danger' so the
+     * two kinds sharing this overlay stay distinguishable. */
+    color?: string
+    /** Shown in a hover tooltip and as the button's aria-label — what this dot is, before
+     * the user clicks it. Required: an unlabeled dot on a chart is not self-explanatory. */
+    tooltipLabel: string
 }
 
 const RADIUS = 4
@@ -22,9 +29,20 @@ export function MetricsExemplarMarkers({ exemplars }: { exemplars: MetricsExempl
     }
 
     const bucketTimes = labels.map((label) => dayjs(label).valueOf())
-    // `link`, not a data color: a dot navigates to a trace, and it must not read as a fourth series.
-    const color = getColorVar('link')
     const baseline = dimensions.plotTop + dimensions.plotHeight
+
+    // `getColorVar` reads computed styles (a potential style recalc), so resolve each
+    // distinct token once here rather than per marker — there are only a couple across
+    // the whole overlay (default plus any caller override like 'danger').
+    const resolvedColors = new Map<string, string>()
+    const colorFor = (token: string): string => {
+        let color = resolvedColors.get(token)
+        if (color === undefined) {
+            color = getColorVar(token)
+            resolvedColors.set(token, color)
+        }
+        return color
+    }
 
     return (
         <>
@@ -33,26 +51,32 @@ export function MetricsExemplarMarkers({ exemplars }: { exemplars: MetricsExempl
                 if (x === null) {
                     return null
                 }
+                const color = colorFor(exemplar.color ?? 'brand-blue')
                 return (
-                    <button
-                        key={`${exemplar.timeMs}-${index}`}
-                        type="button"
-                        aria-label={`Open the trace emitted at ${dayjs(exemplar.timeMs).format('D MMM YYYY HH:mm:ss')}`}
-                        data-attr="metrics-exemplar-marker"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            exemplar.onClick()
-                        }}
-                        className="absolute pointer-events-auto rounded-full border cursor-pointer transition-transform hover:scale-150"
-                        style={{
-                            left: x - RADIUS,
-                            top: baseline - RADIUS,
-                            width: RADIUS * 2,
-                            height: RADIUS * 2,
-                            backgroundColor: hexToRGBA(color, 0.85),
-                            borderColor: color,
-                        }}
-                    />
+                    <Tooltip key={`${exemplar.timeMs}-${index}`} title={exemplar.tooltipLabel}>
+                        <button
+                            type="button"
+                            aria-label={exemplar.tooltipLabel}
+                            data-attr="metrics-exemplar-marker"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                exemplar.onClick()
+                            }}
+                            // Opts this marker out of the chart's own hover/tooltip tracking (see
+                            // `useChartInteraction`'s `originatesInInteractiveOverlay`), so hovering
+                            // the dot shows its own tooltip instead of the chart's nearest-point one.
+                            data-hog-charts-interactive-overlay
+                            className="absolute pointer-events-auto rounded-full border cursor-pointer transition-transform hover:scale-150"
+                            style={{
+                                left: x - RADIUS,
+                                top: baseline - RADIUS,
+                                width: RADIUS * 2,
+                                height: RADIUS * 2,
+                                backgroundColor: hexToRGBA(color, 0.85),
+                                borderColor: color,
+                            }}
+                        />
+                    </Tooltip>
                 )
             })}
         </>

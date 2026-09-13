@@ -2,10 +2,6 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
-    SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH,
-    SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
 
 
@@ -32,24 +28,6 @@ def test_graphql_access_denied_is_non_retryable(error_message):
     patterns = ShopifySource().get_non_retryable_errors()
     assert any(pattern in error_message for pattern in patterns), (
         f"GraphQL access-denied error '{error_message}' should match a non-retryable pattern"
-    )
-
-
-def test_payment_required_is_non_retryable():
-    error_message = _http_error_message(402, "Payment Required")
-    assert SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH in error_message
-    patterns = ShopifySource().get_non_retryable_errors()
-    assert any(pattern in error_message for pattern in patterns), (
-        f"402 Payment Required error '{error_message}' should match a non-retryable pattern"
-    )
-
-
-def test_graphql_unauthorized_is_non_retryable():
-    error_message = _http_error_message(401, "Unauthorized")
-    assert SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH in error_message
-    patterns = ShopifySource().get_non_retryable_errors()
-    assert any(pattern in error_message for pattern in patterns), (
-        f"401 Unauthorized error '{error_message}' should match a non-retryable pattern"
     )
 
 
@@ -92,6 +70,8 @@ def test_transient_http_errors_stay_retryable(status_code, reason):
         "Shopify: internal error from request 500 Internal Server Error",
         'Shopify: internal errors in payload [{"message": "internal error", "extensions": {"code": "internal_server_error"}}]',
         "Shopify: connection broken while reading response: Connection broken: IncompleteRead(0 bytes read)",
+        "Failed to retrieve Shopify access token: 500 Internal Server Error",
+        "Failed to retrieve Shopify access token: 429 Too Many Requests",
     ],
 )
 def test_exhausted_internal_retries_are_classified_as_retryable(error_message):

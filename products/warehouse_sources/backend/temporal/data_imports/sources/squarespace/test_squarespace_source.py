@@ -1,11 +1,8 @@
-from typing import Any
-
 import pytest
 from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.squarespace import (
     SquarespaceSourceConfig,
 )
@@ -18,20 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.squarespac
     SQUARESPACE_API_VERSION_V2,
     SquarespaceSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.squarespace import (
-    SquarespaceResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"orders", "products", "transactions"}
-
-
-def _make_inputs(**overrides: Any) -> mock.MagicMock:
-    inputs = mock.MagicMock()
-    inputs.schema_name = overrides.get("schema_name", "orders")
-    inputs.should_use_incremental_field = overrides.get("should_use_incremental_field", False)
-    inputs.db_incremental_field_last_value = overrides.get("db_incremental_field_last_value", None)
-    return inputs
 
 
 class TestSquarespaceSource:
@@ -39,9 +24,6 @@ class TestSquarespaceSource:
         self.source = SquarespaceSource()
         self.team_id = 123
         self.config = SquarespaceSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SQUARESPACE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -99,17 +81,6 @@ class TestSquarespaceSource:
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
-        "expected_key",
-        ["401 Client Error: Unauthorized", "403 Client Error: Forbidden"],
-    )
-    def test_non_retryable_errors(self, expected_key: str) -> None:
-        assert any(expected_key in key for key in self.source.get_non_retryable_errors())
-
-    def test_canonical_descriptions_cover_all_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions) == set(ENDPOINTS)
-
-    @pytest.mark.parametrize(
         "mock_return, schema_name, expected_valid, expected_has_message",
         [
             ((True, False), None, True, False),
@@ -134,40 +105,3 @@ class TestSquarespaceSource:
         assert is_valid is expected_valid
         assert (message is not None) is expected_has_message
         mock_validate.assert_called_once_with(self.config.api_key, schema_name)
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SquarespaceResumeConfig
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.source.squarespace_source"
-    )
-    def test_source_for_pipeline_passes_arguments(self, mock_squarespace_source: mock.MagicMock) -> None:
-        inputs = _make_inputs(
-            schema_name="transactions",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-01-01T00:00:00Z",
-        )
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        _, kwargs = mock_squarespace_source.call_args
-        assert kwargs["api_key"] == self.config.api_key
-        assert kwargs["endpoint"] == "transactions"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.source.squarespace_source"
-    )
-    def test_source_for_pipeline_drops_last_value_when_not_incremental(
-        self, mock_squarespace_source: mock.MagicMock
-    ) -> None:
-        inputs = _make_inputs(should_use_incremental_field=False, db_incremental_field_last_value="ignored")
-        self.source.source_for_pipeline(self.config, mock.MagicMock(spec=ResumableSourceManager), inputs)
-
-        _, kwargs = mock_squarespace_source.call_args
-        assert kwargs["db_incremental_field_last_value"] is None

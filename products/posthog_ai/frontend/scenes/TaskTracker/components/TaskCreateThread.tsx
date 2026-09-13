@@ -1,6 +1,4 @@
-import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
-
-import { TaskHeaderActionsSkeleton } from './taskDetailSkeletons'
+import { StartupRunChat } from './StartupRunChat'
 import { TaskRunSceneShell } from './TaskRunSceneShell'
 
 export interface TaskCreateThreadProps {
@@ -12,8 +10,8 @@ export interface TaskCreateThreadProps {
 
 /**
  * The optimistic create thread shown the instant the user hits send, before the task/run exist. It renders the
- * same scene shell as the detail page — in its all-loading state, since the task/title/run don't exist yet, so
- * the header shows skeletons — wrapped around the pending `RunSurface` (no `runId`): `taskTrackerSceneLogic` has
+ * same scene shell as the detail page, with metadata omitted until the task/run exist,
+ * wrapped around the pending `RunSurface` (no `runId`): `taskTrackerSceneLogic` has
  * already seeded the bound `runStreamLogic` (keyed by `streamKey`) with the typed message + provisioning
  * indicator via `startOptimisticRun`, so this just renders that thread. Rendering the identical shell here is
  * what makes the `/tasks/new → /tasks/:id` handoff seamless — once the run is created the scene navigates to the
@@ -24,19 +22,13 @@ export function TaskCreateThread({ streamKey, isMobile }: TaskCreateThreadProps)
         <TaskRunSceneShell
             task={null}
             selectedRun={null}
-            isHeaderLoading
-            titleActions={<TaskHeaderActionsSkeleton />}
             sceneMenuBarEnabled={false}
             onArchive={() => {}}
             taskError={null}
             onRetry={() => {}}
             isMobile={isMobile}
         >
-            <div className="@container/thread flex flex-col h-full -mx-4">
-                <RunSurface.Root taskId="" runId={null} streamKey={streamKey} interaction="live">
-                    <RunSurface.Thread className="flex-1 min-h-0" listClassName="py-4" rowClassName="px-4" />
-                </RunSurface.Root>
-            </div>
+            <StartupRunChat streamKey={streamKey} escapeScope="chat" />
         </TaskRunSceneShell>
     )
 }

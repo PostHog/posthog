@@ -9,7 +9,7 @@ import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types
 import { featureRequestsList, featureRequestsUpdate } from '../../generated/api'
 import type { FeatureRequestApi, PaginatedFeatureRequestListApi } from '../../generated/api.schemas'
 
-export const ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE = 20
+export const ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE = 5
 const AVAILABLE_REQUESTS_LIMIT = 50
 const EMPTY_REQUESTS_RESPONSE: PaginatedFeatureRequestListApi = {
     count: 0,
@@ -29,6 +29,7 @@ export interface accountFeatureRequestsLogicValues {
     accountRequestsError: string | null
     accountRequestsLoading: boolean
     accountRequestsPage: number
+    accountRequestsSearch: string
     availableRequests: FeatureRequestApi[]
     availableRequestsError: string | null
     availableRequestsLoading: boolean
@@ -50,7 +51,7 @@ export interface accountFeatureRequestsLogicActions {
     linkSelectedRequest: () => {
         value: true
     }
-    loadAccountRequests: () => any
+    loadAccountRequests: (_?: any) => any
     loadAccountRequestsFailure: (
         error: string,
         errorObject?: any
@@ -85,6 +86,9 @@ export interface accountFeatureRequestsLogicActions {
     }
     setAccountRequestsPage: (page: number) => {
         page: number
+    }
+    setAccountRequestsSearch: (search: string) => {
+        search: string
     }
     setLinkingRequest: (linkingRequest: boolean) => {
         linkingRequest: boolean
@@ -125,6 +129,7 @@ export const accountFeatureRequestsLogic = kea<accountFeatureRequestsLogicType>(
         closeRequestPicker: true,
         setSelectedRequestId: (selectedRequestId: string | null) => ({ selectedRequestId }),
         setAccountRequestsPage: (page: number) => ({ page }),
+        setAccountRequestsSearch: (search: string) => ({ search }),
         setRequestSearch: (search: string) => ({ search }),
         linkSelectedRequest: true,
         setLinkingRequest: (linkingRequest: boolean) => ({ linkingRequest }),
@@ -133,13 +138,17 @@ export const accountFeatureRequestsLogic = kea<accountFeatureRequestsLogicType>(
         accountRequests: [
             EMPTY_REQUESTS_RESPONSE,
             {
-                loadAccountRequests: async () =>
-                    featureRequestsList(String(values.currentTeam?.id), {
+                loadAccountRequests: async (_ = null, breakpoint) => {
+                    const response = await featureRequestsList(String(values.currentTeam?.id), {
                         account_ids: [props.accountId],
                         archive_state: 'all',
+                        search: values.accountRequestsSearch.trim() || undefined,
                         limit: ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE,
                         offset: (values.accountRequestsPage - 1) * ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE,
-                    }),
+                    })
+                    breakpoint()
+                    return response
+                },
             },
         ],
         availableRequests: [
@@ -176,8 +185,10 @@ export const accountFeatureRequestsLogic = kea<accountFeatureRequestsLogicType>(
             1,
             {
                 setAccountRequestsPage: (_, { page }) => page,
+                setAccountRequestsSearch: () => 1,
             },
         ],
+        accountRequestsSearch: ['', { setAccountRequestsSearch: (_, { search }) => search }],
         requestSearch: [
             '',
             {
@@ -215,6 +226,10 @@ export const accountFeatureRequestsLogic = kea<accountFeatureRequestsLogicType>(
     listeners(({ props, values, actions }) => ({
         openRequestPicker: () => actions.loadAvailableRequests(),
         setAccountRequestsPage: () => actions.loadAccountRequests(),
+        setAccountRequestsSearch: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadAccountRequests()
+        },
         setRequestSearch: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadAvailableRequests()

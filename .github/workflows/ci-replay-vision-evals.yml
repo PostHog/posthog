@@ -66,6 +66,7 @@ jobs:
               if: steps.gate.outputs.enabled == 'true'
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: steps.gate.outputs.enabled == 'true' && env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -92,11 +93,8 @@ jobs:
 
             - name: Install uv
               if: steps.gate.outputs.enabled == 'true'
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              uses: ./.github/actions/setup-uv
               with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
                   save-cache: false
 
             - name: Install python dependencies
@@ -110,6 +108,12 @@ jobs:
               with:
                   toolchain: 1.91.1
                   components: cargo
+
+            - name: Install protoc
+              # A one-shot suite builds the personhog binaries during preflight, and their proto
+              # crate compiles .proto files in a build script. The runner image has no protoc.
+              if: steps.gate.outputs.enabled == 'true'
+              uses: ./.github/actions/setup-protoc
 
             - name: Install sqlx-cli
               if: steps.gate.outputs.enabled == 'true'

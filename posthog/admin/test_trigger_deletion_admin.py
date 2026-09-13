@@ -119,7 +119,7 @@ class TestOrganizationAdminTriggerDeletion(BaseTest):
         # silently drops inline onclick attributes. Guards against reintroducing one.
         request = self.factory.get(f"/admin/posthog/organization/{self.organization.pk}/change/")
         request.user = self.user
-        request.csp_nonce = "test-nonce-value"  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
+        request.csp_nonce = "test-nonce-value"  # type: ignore[attr-defined]
         _attach_messages(request)
         self.admin._current_request = request
 
@@ -220,7 +220,7 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         # silently drops inline onclick attributes. Guards against reintroducing one.
         request = self.factory.get(f"/admin/posthog/project/{self.project.pk}/change/")
         request.user = self.user
-        request.csp_nonce = "test-nonce-value"  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
+        request.csp_nonce = "test-nonce-value"  # type: ignore[attr-defined]
         _attach_messages(request)
         self.admin._current_request = request
 

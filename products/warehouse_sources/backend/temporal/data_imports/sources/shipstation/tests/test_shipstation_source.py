@@ -1,10 +1,9 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shipstation import (
     ShipStationSourceConfig,
 )
@@ -15,11 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shipstatio
     SHIPSTATION_V2,
     V2_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.shipstation import (
-    ShipStationResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.source import ShipStationSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestShipStationSource:
@@ -27,21 +22,6 @@ class TestShipStationSource:
         self.source = ShipStationSource()
         self.team_id = 123
         self.config = ShipStationSourceConfig(api_key="api-key", api_secret="api-secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SHIPSTATION
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "ShipStation"
-        assert config.label == "ShipStation"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/shipstation.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key", "api_secret"]
 
     @pytest.mark.parametrize(
         "field_name, required",
@@ -155,13 +135,6 @@ class TestShipStationSource:
         assert error_message == expected_message
         # Pre-creation validation probes the default version (new sources are stamped v2).
         mock_validate.assert_called_once_with(self.config.api_key, self.config.api_secret, SHIPSTATION_V2)
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ShipStationResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.source.shipstation_source"

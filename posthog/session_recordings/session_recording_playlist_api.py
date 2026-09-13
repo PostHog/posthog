@@ -36,8 +36,6 @@ from posthog.models.activity_logging.activity_log import Change, Detail, changes
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
 from posthog.redis import get_client
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
@@ -52,6 +50,12 @@ from posthog.session_recordings.synthetic_playlists import (
     get_synthetic_playlist,
 )
 from posthog.utils import relative_date_parse
+
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -88,6 +92,12 @@ class SessionRecordingPlaylistPagination(LimitOffsetPagination):
     default_limit = 100
     max_limit = PLAYLIST_LIST_MAX_LIMIT
 
+
+# Built-in (synthetic) collections have no DB row and derive their contents per request,
+# so recordings cannot be pinned to them. Guard the write paths with a clear message.
+SYNTHETIC_PLAYLIST_ADD_ERROR = (
+    "This is a built-in collection, so you can't add recordings to it. Create your own collection to save recordings."
+)
 
 DEFAULT_PLAYLIST_ORDER = "-last_modified_at"
 # Orders the list endpoint supports. An unrecognised `order` normalises to the
@@ -1010,6 +1020,9 @@ class SessionRecordingPlaylistViewSet(
     ) -> response.Response:
         playlist = self.get_object()
 
+        if getattr(playlist, "_is_synthetic", False):
+            raise ValidationError(SYNTHETIC_PLAYLIST_ADD_ERROR)
+
         # TODO: Maybe we need to save the created_at date here properly to help with filtering
         if request.method == "POST":
             if playlist.type == SessionRecordingPlaylist.PlaylistType.FILTERS:
@@ -1050,6 +1063,9 @@ class SessionRecordingPlaylistViewSet(
         **kwargs: Any,
     ) -> response.Response:
         playlist = self.get_object()
+
+        if getattr(playlist, "_is_synthetic", False):
+            raise ValidationError(SYNTHETIC_PLAYLIST_ADD_ERROR)
 
         # Get session_recording_ids from request body
         session_recording_ids = request.data.get("session_recording_ids", [])

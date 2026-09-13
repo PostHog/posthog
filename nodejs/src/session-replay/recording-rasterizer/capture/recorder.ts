@@ -1,6 +1,7 @@
 import type { InactivityPeriod } from '@posthog/replay-headless/protocol'
 
 import { config as defaultConfig } from '~/session-replay/recording-rasterizer/config'
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
 import {
     RasterizationProgress,
@@ -100,7 +101,21 @@ export async function rasterizeRecording(
 
         const blockProxy = new BlockProxy(cfg, log)
         const blockCount = await blockProxy.fetchBlocks(input)
-        log.info({ blockCount }, 'block listing fetched')
+        const compressedBytes = blockProxy.totalCompressedBytes
+        log.info({ blockCount, compressedBytes }, 'block listing fetched')
+        if (!Number.isFinite(compressedBytes)) {
+            // A malformed listing yields NaN, and NaN > cap is false: the gate would switch off
+            // silently. Fail open, but visibly.
+            log.warn({ blockCount }, 'block listing has non-numeric byte ranges; size gate skipped')
+        } else if (compressedBytes > cfg.maxRecordingCompressedBytes) {
+            // Fail permanently before loading: oversized recordings run the pod into its memory
+            // limit, and the kernel kill takes the healthy renders on the pod down with it.
+            throw new RasterizationError(
+                `Recording too large to render: ${compressedBytes} compressed bytes in ${blockCount} blocks (limit ${cfg.maxRecordingCompressedBytes})`,
+                false,
+                'RECORDING_TOO_LARGE'
+            )
+        }
 
         const playerConfig = buildPlayerConfig(input, captureConfig.playbackSpeed, blockCount)
         player = new PlayerController(capturePage, blockProxy, onProgress, log)

@@ -6,8 +6,8 @@ from rest_framework import serializers
 
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled, widget_flag_enabled
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_access import check_widget_tile_product_access

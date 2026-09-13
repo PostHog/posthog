@@ -79,6 +79,24 @@ Violations fail the build.
 - **Length**: 52 characters or fewer
 - **Convention**: `domain-action`, e.g. `cohorts-create`, `dashboard-get`, `feature-flags-list`
 
+#### Keep action verbs out of compact tool domains
+
+The single-exec prompt builds its compact domain index with
+`ToolDomainExtractor`. Large families can split at an intermediate segment.
+Without action trimming, `experiment-freeze-exposure` can advertise the
+redundant domain `experiment-freeze` instead of `experiment`.
+
+Whenever you add or rename an action tool, check the
+[`TRAILING_ACTIONS`](services/mcp/src/lib/instructions.ts) set in the
+same change. If a rendered domain can end in an operation verb that is not
+already present, add the verb. Cover it in
+`services/mcp/tests/unit/instructions.test.ts`. This applies even when the verb
+is not the final segment of the full tool name.
+
+Add operation verbs such as `freeze`, `publish`, or `emit`. Do not add resource
+or capability nouns such as `config`, `logs`, `stats`, or `schedule` merely to
+make the prompt shorter; those remain useful discovery domains.
+
 ### Feature identifiers
 
 - **Format**: lowercase snake*case — only `[a-z0-9*]`, must start with a letter
@@ -146,6 +164,10 @@ tools:
       # include and exclude are mutually exclusive
       selectable: true # add optional `fields` param so the agent picks a subset of `include` per call
       # (constrained to the allowlist); omit `fields` to return the full set. Requires `include`.
+      strip_nulls: true # remove keys whose value is `null`, applied after include/exclude
+      # Use it on tools that echo a nested serializer schema, where the unset optional fields
+      # dominate the payload. Rejected with `list: true`, where per-row null removal makes the
+      # TOON table larger. Use `exclude` to drop the fields on a list tool instead.
     feature_flag: my-flag-key # gate this tool behind a PostHog feature flag
     feature_flag_behavior: enable # 'enable' (default) or 'disable'
 ```

@@ -27,6 +27,7 @@ function createMockContext(overrides: {
         stateManager: {
             getOrgID: overrides.getOrgID ?? vi.fn().mockResolvedValue(ACTIVE_ORG),
             getCachedOrFetchOrg,
+            getOrFetchIntegrationKinds: vi.fn().mockResolvedValue(undefined),
         },
         env: {},
         sessionManager: {},

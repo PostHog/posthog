@@ -297,6 +297,10 @@ export const InsightsBulkSetTestAccountFilterCreateBody = /* @__PURE__ */ zod.ob
  */
 export const insightsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const insightsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const insightsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const InsightsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.number())
@@ -308,7 +312,10 @@ export const InsightsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(insightsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(insightsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set.'),
 })
 
 /**
@@ -331,7 +338,7 @@ export const InsightsGenerateMetadataCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped. Returns 201 on success regardless of how many ids were retained.
+ * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped, as are views from impersonated staff-support sessions. Returns 201 on success regardless of how many ids were retained.
  */
 export const insightsViewedCreateBodyInsightIdsMax = 2500
 

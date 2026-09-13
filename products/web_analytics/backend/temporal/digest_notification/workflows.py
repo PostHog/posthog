@@ -68,10 +68,12 @@ class WADigestNotificationWorkflow(PostHogWorkflow):
             if page.batches:
                 workflow.logger.info(
                     "Fanning out WA digest notification page",
-                    batches=len(page.batches),
-                    orgs=page.org_count,
-                    cursor=cursor,
-                    next_cursor=page.cursor,
+                    extra={
+                        "batches": len(page.batches),
+                        "orgs": page.org_count,
+                        "cursor": cursor,
+                        "next_cursor": page.cursor,
+                    },
                 )
 
                 batch_count += len(page.batches)

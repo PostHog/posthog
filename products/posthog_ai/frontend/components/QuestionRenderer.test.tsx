@@ -38,29 +38,33 @@ describe('QuestionRenderer', () => {
         cleanup()
     })
 
-    it('previews the answer on the second line and shows the full Q&A on expand', () => {
+    it('shows the full Q&A on expand', () => {
         renderCard(makeMessage({ rawOutput: { answers: { 'Which goal matters most?': 'Revenue' } } }))
 
-        // Preview on the header's second line (always visible).
-        expect(screen.getByText('Revenue')).toBeInTheDocument()
+        expect(screen.queryByText('Revenue')).not.toBeInTheDocument()
         // The full question + answer live in the collapsible body.
         expect(screen.queryByText('Which goal matters most?')).not.toBeInTheDocument()
 
         fireEvent.click(screen.getByRole('button'))
         expect(screen.getByText('Which goal matters most?')).toBeInTheDocument()
-        expect(screen.getAllByText('Revenue').some((el) => el.classList.contains('font-medium'))).toBe(true)
+        expect(screen.getByText('Revenue')).toBeInTheDocument()
         // The header label ("Goal") is dropped from the recap.
         expect(screen.queryByText('Goal')).not.toBeInTheDocument()
     })
 
-    it('does not render a body while the question is still being asked', () => {
-        renderCard(makeMessage({ status: 'in_progress', rawOutput: undefined }))
+    it.each(['in_progress', 'failed', 'completed'] as const)(
+        'lets the user read an unanswered question when the call is %s',
+        (status) => {
+            renderCard(makeMessage({ status, rawOutput: undefined }))
 
-        expect(screen.queryByText('Which goal matters most?')).not.toBeInTheDocument()
-        expect(screen.queryByRole('button')).not.toBeInTheDocument()
-    })
+            expect(screen.queryByText('Which goal matters most?')).not.toBeInTheDocument()
+            fireEvent.click(screen.getByRole('button'))
+            expect(screen.getByText('Which goal matters most?')).toBeVisible()
+            expect(screen.queryByText('Revenue')).not.toBeInTheDocument()
+        }
+    )
 
-    it('recaps each answer for a multi-question request', () => {
+    it('retains unanswered questions alongside answers for a partially answered request', () => {
         renderCard(
             makeMessage({
                 rawInput: {
@@ -69,25 +73,33 @@ describe('QuestionRenderer', () => {
                         { question: 'When?', header: 'When', multiSelect: false, options: [{ label: 'Weekly' }] },
                     ],
                 },
-                rawOutput: { answers: { 'Goal?': 'Revenue', 'When?': 'Weekly' } },
+                rawOutput: { answers: { 'Goal?': 'Revenue' } },
             })
         )
 
         fireEvent.click(screen.getByRole('button'))
         expect(screen.getByText('Revenue')).toBeInTheDocument()
-        expect(screen.getByText('Weekly')).toBeInTheDocument()
+        expect(screen.getByText('When?')).toBeInTheDocument()
+        expect(screen.queryByText('Weekly')).not.toBeInTheDocument()
     })
 
     it('falls back to a joined answer string when there is no per-question map', () => {
         renderCard(makeMessage({ rawOutput: { text: 'User picked Revenue' } }))
 
+        fireEvent.click(screen.getByRole('button'))
         expect(screen.getByText('User picked Revenue')).toBeInTheDocument()
     })
 
     it('shows the error message when the call failed', () => {
-        renderCard(makeMessage({ status: 'failed', rawOutput: undefined, error: { message: 'Question timed out' } }))
+        const title = 'Choose a goal for this analysis before continuing with the remaining steps.'
+        renderCard(
+            makeMessage({ title, status: 'failed', rawOutput: undefined, error: { message: 'Question timed out' } })
+        )
 
         expect(screen.getByText('Question timed out')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button'))
+        expect(screen.getByText(title)).toBeInTheDocument()
+        expect(screen.getByText('Which goal matters most?')).toBeVisible()
     })
 
     it('falls back to the generic tool card when the input has no questions', () => {

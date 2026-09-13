@@ -8,7 +8,6 @@ from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.groq.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.groq.source import GroqSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.groq.source"
 
@@ -20,9 +19,6 @@ def _make_config(api_key: str = "gsk_test") -> Any:
 
 
 class TestGroqSource:
-    def test_source_type(self) -> None:
-        assert GroqSource().source_type == ExternalDataSourceType.GROQ
-
     def test_source_config_has_single_password_api_key_field(self) -> None:
         config = GroqSource().get_source_config
         assert [f.name for f in config.fields] == ["api_key"]
@@ -32,11 +28,6 @@ class TestGroqSource:
         assert api_key_field.type == "password"
         assert api_key_field.secret is True
         assert api_key_field.required is True
-
-    def test_source_config_stays_unreleased_alpha(self) -> None:
-        config = GroqSource().get_source_config
-        assert config.releaseStatus == "alpha"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/groq"
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
@@ -87,17 +78,6 @@ class TestGroqSource:
             ok, message = GroqSource().validate_credentials(_make_config(), team_id=1)
         assert ok is expected_ok
         assert message == expected_message
-
-    def test_source_for_pipeline_plumbs_key_and_endpoint(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "batches"
-        inputs.logger = MagicMock()
-        with patch(f"{MODULE}.groq_source") as source_fn:
-            GroqSource().source_for_pipeline(_make_config("gsk_abc"), inputs)
-        source_fn.assert_called_once()
-        kwargs = source_fn.call_args.kwargs
-        assert kwargs["api_key"] == "gsk_abc"
-        assert kwargs["endpoint"] == "batches"
 
     @parameterized.expand(
         [

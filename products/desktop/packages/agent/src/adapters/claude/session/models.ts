@@ -1,11 +1,17 @@
 import {
   DEFAULT_OPTION_META_KEY,
   OPTION_DOCS_URL_META_KEY,
+  supports1MContext,
+  supportsFastMode,
 } from "@posthog/shared";
 import {
   EFFORT_LEVEL_DOCS_URLS,
   EFFORT_LEVEL_LABELS,
 } from "@posthog/shared/domain-types";
+import {
+  normalizeModelId,
+  reasoningEffortsForModel,
+} from "@posthog/shared/model-catalog";
 import type { EffortLevel } from "../types";
 
 export const DEFAULT_MODEL = "opus";
@@ -19,28 +25,29 @@ export const FALLBACK_MODEL = "claude-opus-4-8";
 // shape, so effort-capable models default to high to keep thinking enabled.
 export const DEFAULT_EFFORT: EffortLevel = "high";
 
-const GATEWAY_TO_SDK_MODEL: Record<string, string> = {
-  "claude-opus-4-7": "opus",
-  "claude-opus-4-8": "opus",
-  "claude-sonnet-4-6": "sonnet",
-};
-
-export function toSdkModelId(modelId: string): string {
-  return GATEWAY_TO_SDK_MODEL[modelId] ?? modelId;
+export function resolveFallbackModel(modelId: string): string | undefined {
+  return modelId === FALLBACK_MODEL ? undefined : FALLBACK_MODEL;
 }
 
-const MODELS_WITH_1M_CONTEXT = new Set([
-  "claude-opus-4-7",
-  "claude-opus-4-8",
-  "claude-opus-5",
-  "claude-sonnet-4-6",
-  "claude-sonnet-5",
-  "claude-fable-5",
-]);
-
-export function supports1MContext(modelId: string): boolean {
-  return MODELS_WITH_1M_CONTEXT.has(modelId);
+export function rerootedModelOptions(
+  modelId: string | undefined,
+  existingFallbackModel?: string,
+  machineAuth?: boolean,
+):
+  | { model: string; fallbackModel: string | undefined }
+  | Record<string, never> {
+  if (!modelId) return {};
+  if (machineAuth) {
+    return { model: modelId, fallbackModel: undefined };
+  }
+  const fallbackModel =
+    existingFallbackModel && existingFallbackModel !== modelId
+      ? existingFallbackModel
+      : resolveFallbackModel(modelId);
+  return { model: modelId, fallbackModel };
 }
+
+export { supports1MContext, supportsFastMode };
 
 export const CONTEXT_WINDOW_1M_BETA = "context-1m-2025-08-07";
 export const CONTEXT_WINDOW_200K_TOKENS = 200_000;
@@ -61,30 +68,12 @@ export function getContextWindowOptions(
   ];
 }
 
-const STANDARD_EFFORT_LEVELS: readonly EffortLevel[] = [
-  "low",
-  "medium",
-  "high",
-];
-const EXTENDED_EFFORT_LEVELS: readonly EffortLevel[] = [
-  ...STANDARD_EFFORT_LEVELS,
-  "xhigh",
-  "max",
-  "ultracode",
-];
-const MODEL_EFFORT_LEVELS: Readonly<Record<string, readonly EffortLevel[]>> = {
-  "claude-opus-4-7": EXTENDED_EFFORT_LEVELS,
-  "claude-opus-4-8": EXTENDED_EFFORT_LEVELS,
-  "claude-opus-5": EXTENDED_EFFORT_LEVELS,
-  "claude-sonnet-4-6": STANDARD_EFFORT_LEVELS,
-  "claude-sonnet-5": EXTENDED_EFFORT_LEVELS,
-  "claude-fable-5": EXTENDED_EFFORT_LEVELS,
-  "@cf/zai-org/glm-5.2": ["high", "max"],
-  "zai-org/glm-5.3": ["high", "max"],
-};
+function effortLevelsFor(modelId: string): readonly EffortLevel[] {
+  return reasoningEffortsForModel("claude", modelId);
+}
 
 export function supportsEffort(modelId: string): boolean {
-  return MODEL_EFFORT_LEVELS[modelId] !== undefined;
+  return effortLevelsFor(modelId).length > 0;
 }
 
 export function resolveEffortForModel(
@@ -96,23 +85,13 @@ export function resolveEffortForModel(
 }
 
 export function supportsXhighEffort(modelId: string): boolean {
-  return MODEL_EFFORT_LEVELS[modelId]?.includes("xhigh") ?? false;
+  return effortLevelsFor(modelId).includes("xhigh");
 }
 
 const MODELS_TO_EXCLUDE_MCP_TOOLS = new Set(["claude-haiku-4-5"]);
 
 export function supportsMcpInjection(modelId: string): boolean {
   return !MODELS_TO_EXCLUDE_MCP_TOOLS.has(modelId);
-}
-
-const MODELS_WITH_FAST_MODE = new Set([
-  "claude-opus-4-7",
-  "claude-opus-4-8",
-  "claude-opus-5",
-]);
-
-export function supportsFastMode(modelId: string): boolean {
-  return MODELS_WITH_FAST_MODE.has(modelId);
 }
 
 export function getFastModeOptions(
@@ -147,15 +126,16 @@ function effortOptionMeta(
   return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
+/** Null rather than an empty list for a model with no effort control, so the caller
+ * renders no dropdown instead of an empty one. */
 export function getEffortOptions(modelId: string): EffortOption[] | null {
-  const levels = MODEL_EFFORT_LEVELS[modelId];
-  return (
-    levels?.map((value) => ({
-      value,
-      name: EFFORT_LEVEL_LABELS[value],
-      _meta: effortOptionMeta(value),
-    })) ?? null
-  );
+  const levels = effortLevelsFor(modelId);
+  if (levels.length === 0) return null;
+  return levels.map((value) => ({
+    value,
+    name: EFFORT_LEVEL_LABELS[value],
+    _meta: effortOptionMeta(value),
+  }));
 }
 
 // Model alias resolution — lets callers use human-friendly aliases like

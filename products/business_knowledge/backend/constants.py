@@ -181,6 +181,13 @@ BK_RERANK_SNIPPET_CHARS = 500
 # embedding service is slow, FTS alone fires (graceful degradation).
 BK_QUERY_EMBEDDING_TIMEOUT = 5.0
 
+# --- Search endpoint bounds ---
+# Ranked-chunk count for the documents/search endpoint. The default when the
+# caller passes no `limit`, and the hard cap the view clamps `limit` to.
+# `search_knowledge` also clamps its anchor count to the max.
+BK_SEARCH_DEFAULT_LIMIT = 10
+BK_SEARCH_MAX_LIMIT = 20
+
 # --- Always-on context cap ---
 # Hard char cap for always-on sources injected into every support prompt.
 # These bypass query filtering, so unbounded injection blows the token budget.

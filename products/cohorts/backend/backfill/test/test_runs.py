@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
@@ -10,6 +11,11 @@ from parameterized import parameterized
 
 from products.cohorts.backend.backfill.pinning import PersonPinningCapExceeded
 from products.cohorts.backend.backfill.runs import (
+    BackfillRefusalReason,
+    BackfillRunAttempt,
+    attempt_backfill_run_for_cohort,
+    attempt_person_backfill_run_for_cohort,
+    cancel_runs,
     create_backfill_run_for_cohort,
     create_person_backfill_run_for_cohort,
     create_person_team_backfill_run,
@@ -133,6 +139,53 @@ class TestBackfillRuns(BaseTest):
 
         self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
+
+    def test_attempt_names_active_participation_and_a_missing_cohort(self) -> None:
+        cohort = self._cohort()
+        created = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        self.assertIsNotNone(created.run)
+        self.assertIsNone(created.reason)
+
+        blocked = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited")
+        self.assertIsNone(blocked.run)
+        self.assertEqual(blocked.reason, BackfillRefusalReason.PARTICIPATION_ACTIVE)
+
+        missing = attempt_backfill_run_for_cohort(self.team.id, cohort.id + 10_000, "cohort_edited")
+        self.assertEqual(missing.reason, BackfillRefusalReason.COHORT_MISSING)
+
+    @parameterized.expand(
+        [
+            ("behavioral", attempt_backfill_run_for_cohort),
+            ("person_property", attempt_person_backfill_run_for_cohort),
+        ]
+    )
+    def test_attempt_names_a_team_outside_the_realtime_allowlist(
+        self, _name: str, attempt: Callable[[int, int, str], BackfillRunAttempt]
+    ) -> None:
+        # A team dropping out of the allowlist is the first gate either creator hits. Unlabelled it
+        # lands in the flat `refused` bucket, which reads as an unclassified refusal.
+        cohort = self._cohort()
+
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none"):
+            self.assertEqual(
+                attempt(self.team.id, cohort.id, "cohort_created").reason,
+                BackfillRefusalReason.TEAM_NOT_REALTIME,
+            )
+
+    def test_failed_run_frees_the_per_cohort_slot(self) -> None:
+        # The seeder fails a run whose chunk exhausted its retry budget. That only unwedges the
+        # cohort if `failed` stops counting as active here: otherwise the uniqueness slot stays
+        # taken and no replacement run can ever be created for that cohort.
+        cohort = self._cohort()
+        first = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert first is not None
+        self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+
+        first.status = CohortBackfillRunStatus.FAILED
+        first.save(update_fields=["status"])
+
+        self.assertIsNotNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 2)
 
     def test_active_team_run_prevents_overlapping_cohort_run(self) -> None:
         cohort = self._cohort()
@@ -375,6 +428,49 @@ class TestPersonBackfillRuns(BaseTest):
         estimate.assert_not_called()
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
 
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
+    def test_both_budget_gates_report_over_budget(self, estimate: mock.Mock) -> None:
+        # The budget refuses in two places — before the sizing scan when in-flight runs already ate
+        # it, and after when the estimate pushes the total over. Both have to name the budget, or
+        # the alert only sees whichever one the team happens to hit.
+        estimate.return_value = self._estimate(estimated_topic_bytes=1_000_001)
+        first = self._cohort()
+        second = Cohort.objects.create(
+            team=self.team,
+            name="second person cohort",
+            cohort_type=CohortType.REALTIME,
+            filters=self._filters(),
+        )
+
+        post_scan = attempt_person_backfill_run_for_cohort(self.team.id, first.id, "cohort_created")
+        self.assertIsNone(post_scan.run)
+        self.assertEqual(post_scan.reason, BackfillRefusalReason.OVER_BUDGET)
+
+        estimate.return_value = self._estimate(estimated_topic_bytes=1_000_000)
+        self.assertIsNotNone(create_person_backfill_run_for_cohort(self.team.id, first.id, "cohort_created"))
+        estimate.reset_mock()
+        pre_scan = attempt_person_backfill_run_for_cohort(self.team.id, second.id, "cohort_created")
+
+        estimate.assert_not_called()
+        self.assertIsNone(pre_scan.run)
+        self.assertEqual(pre_scan.reason, BackfillRefusalReason.OVER_BUDGET)
+
+    def test_attempt_reports_the_occupied_slot_and_success(self) -> None:
+        cohort = self._cohort()
+
+        with mock.patch(
+            "products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes",
+            return_value=self._estimate(),
+        ):
+            created = attempt_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+            self.assertIsNotNone(created.run)
+            self.assertIsNone(created.reason)
+
+            blocked = attempt_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited")
+
+        self.assertIsNone(blocked.run)
+        self.assertEqual(blocked.reason, BackfillRefusalReason.PARTICIPATION_ACTIVE)
+
     @override_settings(BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS=0)
     def test_cohort_run_warns_and_refuses_pinning_cap(self) -> None:
         cohort = self._cohort()
@@ -613,3 +709,137 @@ class TestPersonBackfillRuns(BaseTest):
 
         with self.settings(**{setting_name: False}), self.assertRaisesMessage(ValueError, expected_error):
             create_person_team_backfill_run(self.team.id, "team_enablement", 30)
+
+
+@override_settings(
+    REALTIME_COHORT_TEAM_ALLOWLIST="all",
+    BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED=True,
+    BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
+)
+class TestCancelRuns(BaseTest):
+    def _cohort(self, event: str = "$pageview") -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            name=event,
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": event,
+                            "event_type": "events",
+                            "value": "performed_event_multiple",
+                            "conditionHash": f"hash-{event}",
+                            "time_value": 7,
+                            "time_interval": "day",
+                            "operator": "gte",
+                            "operator_value": 2,
+                        }
+                    ],
+                }
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("cohort_scoped", CohortBackfillScope.COHORT),
+            ("team_scoped", CohortBackfillScope.TEAM),
+        ]
+    )
+    def test_cancel_frees_the_active_uniqueness_slot(self, _name: str, scope: str) -> None:
+        cohort = self._cohort()
+        if scope == CohortBackfillScope.COHORT:
+            run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        else:
+            run = create_team_backfill_run(self.team.id, "team_enablement")
+        assert run is not None
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=CohortBackfillRunStatus.SEEDING
+        )
+        self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+
+        outcome = cancel_runs([(run.id, self.team.id)], reason="wedged in seeding")
+
+        run.refresh_from_db()
+        self.assertEqual(outcome.cancelled_run_ids, (run.id,))
+        self.assertEqual(run.status, CohortBackfillRunStatus.CANCELLED)
+        self.assertIsNotNone(run.finished_at)
+        self.assertEqual(run.error, "wedged in seeding")
+        # Releasing the partial unique constraint is the whole point: a run nobody can finish
+        # otherwise blocks its cohort or team from ever backfilling again.
+        self.assertIsNotNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+
+    def test_cancel_refuses_a_run_whose_readiness_was_already_stamped(self) -> None:
+        cohort = self._cohort()
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        CohortBackfillRunCohort.objects.for_team(self.team.id).filter(run_id=run.id).update(
+            stamped_at=datetime.now(UTC)
+        )
+
+        outcome = cancel_runs([(run.id, self.team.id)], reason="sweep")
+
+        run.refresh_from_db()
+        # A stamp is one way and the flags service already reads it, so a cancel behind one would
+        # leave the cohort marked ready by a run claiming it was abandoned.
+        self.assertEqual(outcome.refused, ((run.id, "stamped"),))
+        self.assertEqual(run.status, CohortBackfillRunStatus.AWAITING_BOUNDARY)
+
+    @parameterized.expand([("refused", False), ("allowed", True)])
+    def test_cancel_only_touches_a_finalizable_run_on_request(self, _name: str, allow: bool) -> None:
+        cohort = self._cohort()
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=CohortBackfillRunStatus.RECONCILING, reconcile_observed_at=datetime.now(UTC)
+        )
+
+        outcome = cancel_runs([(run.id, self.team.id)], reason="sweep", allow_finalizable=allow)
+
+        run.refresh_from_db()
+        # The seeder may have observed the run since the operator listed it, and this one is a
+        # finished backfill the finalizer would legitimately complete.
+        if allow:
+            self.assertEqual(outcome.cancelled_run_ids, (run.id,))
+            self.assertEqual(run.status, CohortBackfillRunStatus.CANCELLED)
+        else:
+            self.assertEqual(outcome.refused, ((run.id, "finalizable"),))
+            self.assertEqual(run.status, CohortBackfillRunStatus.RECONCILING)
+
+    def test_cancel_keeps_an_earlier_supersession_message(self) -> None:
+        cohort = self._cohort()
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        supersede_active_runs(self.team.id, [cohort.id], kind=CohortBackfillKind.BEHAVIORAL)
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=CohortBackfillRunStatus.SEEDING
+        )
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run_id=run.id)
+
+        cancel_runs([(run.id, self.team.id)], reason="operator sweep")
+
+        participation.refresh_from_db()
+        # The edit-time supersession is why this backfill stopped mattering; operator text must not
+        # overwrite that provenance.
+        self.assertEqual(participation.error, "Cohort definition changed during backfill")
+
+    def test_cancel_drains_an_observed_run_whose_participations_are_all_resolved(self) -> None:
+        cohort = self._cohort()
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        CohortBackfillRunCohort.objects.for_team(self.team.id).filter(run_id=run.id).update(
+            superseded_at=datetime.now(UTC)
+        )
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=CohortBackfillRunStatus.RECONCILING, reconcile_observed_at=datetime.now(UTC)
+        )
+
+        outcome = cancel_runs([(run.id, self.team.id)], reason="orphaned sweep")
+
+        run.refresh_from_db()
+        # The inventory classifies this `orphaned`, not `finalizable`, because the finalizer would
+        # only terminalize it. Refusing it here would leave nothing able to release its slot.
+        self.assertEqual(outcome.cancelled_run_ids, (run.id,))
+        self.assertEqual(run.status, CohortBackfillRunStatus.CANCELLED)

@@ -21,6 +21,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     EvalReportMetrics,
     ReportSection,
 )
+from posthog.temporal.ai_observability.eval_reports.targets import SESSION_ID_ALLOWLIST_KEY, TRACE_ID_ALLOWLIST_KEY
 from posthog.temporal.ai_observability.eval_reports.types import RunEvalReportAgentInput
 
 
@@ -298,6 +299,54 @@ class TestValidateAgentOutput(SimpleTestCase):
         content.citations = [Citation(generation_id="g", trace_id="t", reason="r")]
         self.assertIsNone(_validate_agent_output(content))
 
+    @parameterized.expand(
+        [
+            ("report title", "Regression in `{id}`", "Summary", "A finding."),
+            ("section title", "A valid punchline", "Regression in `{id}`", "A finding."),
+            ("section content", "A valid punchline", "Summary", "See `{id}`."),
+        ]
+    )
+    def test_dead_backticked_id_fails(self, _name, title, section_title, section_content):
+        # An opaque session ID the run handled but never cited would ship dead.
+        session_id = "chat_thread_9f2b1a"
+        content = EvalReportContent(
+            title=title.format(id=session_id),
+            sections=[
+                ReportSection(
+                    title=section_title.format(id=session_id),
+                    content=section_content.format(id=session_id),
+                )
+            ],
+            citations=[],
+            metrics=EvalReportMetrics(),
+        )
+        reason = _validate_agent_output(content, {session_id})
+        self.assertIsNotNone(reason)
+        self.assertIn(session_id, reason or "")
+
+    def test_cited_backticked_id_passes(self):
+        content = self._valid_content()
+        session_id = "chat_thread_9f2b1a"
+        content.sections = [ReportSection(title="Summary", content=f"See `{session_id}`.")]
+        content.citations = [Citation(session_id=session_id, reason="regression")]
+        self.assertIsNone(_validate_agent_output(content, {session_id}))
+
+    @parameterized.expand([("report title", True), ("section title", False)])
+    def test_cited_backticked_id_in_a_title_fails(self, _name, in_report_title):
+        # No renderer runs citation linking over a title, so citing the ID does not revive it.
+        session_id = "chat_thread_9f2b1a"
+        content = self._valid_content()
+        if in_report_title:
+            content.title = f"Regression in `{session_id}`"
+        else:
+            content.sections = [ReportSection(title=f"Regression in `{session_id}`", content="A finding.")]
+        content.citations = [Citation(session_id=session_id, reason="regression")]
+
+        reason = _validate_agent_output(content, {session_id})
+
+        self.assertIsNotNone(reason)
+        self.assertIn(session_id, reason or "")
+
 
 class TestAppendReferencesSection(SimpleTestCase):
     def test_no_citations_leaves_sections_untouched(self):
@@ -404,6 +453,54 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
         )
         # the agent is built with the gateway-helper client, not a directly-constructed one
         self.assertIs(mock_create_agent.call_args.kwargs["model"], mock_build_llm.return_value)
+
+
+class TestRunEvalReportAgentDeadIdGuard(SimpleTestCase):
+    """The dead-ID guard reads the handled IDs off the finished agent state.
+
+    Opaque IDs are not UUID-shaped, so the guard only catches them while the
+    query allowlists come back on the invoke result. If that wiring breaks the
+    guard degrades to UUID-only and an uncited opaque ID ships dead again.
+    """
+
+    @patch.object(graph, "build_langchain_callbacks", return_value=[])
+    @patch.object(graph, "create_react_agent")
+    @patch.object(graph, "build_langchain_chat_client")
+    @patch.object(graph, "_compute_metrics")
+    def test_uncited_opaque_id_from_the_result_allowlist_falls_back(
+        self, mock_metrics, _mock_build_llm, mock_create_agent, _mock_build_callbacks
+    ):
+        mock_metrics.return_value = EvalReportMetrics()
+        session_id = "chat_thread_9f2b1a"
+        mock_agent = MagicMock()
+        mock_agent.invoke.return_value = {
+            "report": EvalReportContent(
+                title="A report",
+                sections=[ReportSection(title="Summary", content=f"See `{session_id}`.")],
+                metrics=EvalReportMetrics(),
+            ),
+            TRACE_ID_ALLOWLIST_KEY: [],
+            SESSION_ID_ALLOWLIST_KEY: [session_id],
+        }
+        mock_create_agent.return_value = mock_agent
+
+        content = graph.run_eval_report_agent(
+            RunEvalReportAgentInput(
+                team_id=1,
+                report_id="report-1",
+                evaluation_id="eval-1",
+                evaluation_name="Relevance",
+                evaluation_description="",
+                evaluation_prompt="",
+                evaluation_type="llm_judge",
+                period_start="2026-04-08T14:00:00+00:00",
+                period_end="2026-04-08T15:00:00+00:00",
+                previous_period_start="2026-04-08T13:00:00+00:00",
+            )
+        )
+
+        self.assertEqual(content.title, "Automated fallback report for Relevance")
+        self.assertIn(session_id, content.sections[0].content)
 
 
 class TestRunEvalReportAgentMetricsUnavailable(SimpleTestCase):

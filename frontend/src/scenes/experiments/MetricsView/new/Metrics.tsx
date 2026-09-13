@@ -12,9 +12,10 @@ import { SummarizeExperimentButton } from '~/scenes/experiments/components/Summa
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
 import { AddMetricButton } from '~/scenes/experiments/Metrics/AddMetricButton'
-import { METRIC_CONTEXTS } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
 import { getExperimentVariants, isSavedExperiment, metricResults } from '~/scenes/experiments/utils'
 import { Experiment } from '~/types'
+
+import { METRIC_CONTEXTS } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 
 import { HowToReadTooltip } from './HowToReadTooltip'
 import { MetricsTable } from './MetricsTable'

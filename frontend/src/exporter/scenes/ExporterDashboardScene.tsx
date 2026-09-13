@@ -59,7 +59,7 @@ export default function ExporterDashboardScene({
     type: ExportedData['type']
     themes: ExportedData['themes']
 }): JSX.Element {
-    const queryBasedDashboard = useMemo(() => getQueryBasedDashboard(dashboard)!, [dashboard])
+    const queryBasedDashboard = useMemo(() => getQueryBasedDashboard(dashboard, 'exported_dashboard')!, [dashboard])
     return (
         <>
             {type !== ExportType.Image && (

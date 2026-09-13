@@ -288,30 +288,6 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
 
 
 @pytest.mark.ee
-class TestModelPathViewSetAccessControl(WarehouseAccessControlTestMixin):
-    """Read-only DAG endpoints — viewer OK, none blocked."""
-
-    resource = "warehouse_objects"
-
-    def _list_url(self) -> str:
-        return f"/api/projects/{self.team.pk}/warehouse_model_paths/"
-
-    def test_viewer_can_list(self):
-        self._create_access_control(self.viewer_user, access_level="viewer")
-        self.client.force_login(self.viewer_user)
-
-        response = self.client.get(self._list_url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_project_default_none_blocks(self):
-        self._create_project_default(access_level="none")
-        self.client.force_login(self.viewer_user)
-
-        response = self.client.get(self._list_url())
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-
-@pytest.mark.ee
 class TestDataModelingJobViewSetAccessControl(WarehouseAccessControlTestMixin):
     """Read-only job listing — viewer OK, none blocked."""
 

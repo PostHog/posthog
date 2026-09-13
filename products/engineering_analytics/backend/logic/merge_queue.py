@@ -34,6 +34,8 @@ A queue that batched several PRs onto one gate branch would break the one-PR ass
 shape above does — batching would need a new shape here, not a new rule at each call site.
 """
 
+from datetime import timedelta
+
 # Both shapes carry the source PR as a ``pr-<number>`` segment; the trailing separator ('/' before
 # Trunk's uuid, '-' before GitHub's sha) is what ends the digit run. ``[0-9]`` rather than ``\d``
 # keeps the pattern backslash-free, so it survives embedding in a HogQL string literal unescaped.
@@ -42,6 +44,12 @@ _SOURCE_PR_PATTERN = "^(?:trunk-merge/|gh-readonly-queue/[^/]+/)pr-([0-9]+)[/-]"
 # The identities a real merge queue acts as. GitHub's native queue pushes gate branches without
 # opening a PR, so only Trunk needs an entry today.
 MERGE_QUEUE_BOT_HANDLES: frozenset[str] = frozenset({"trunk-io[bot]"})
+
+# How far behind a merge population's start the gate-run scan reaches. Gate runs start
+# minutes-to-hours before their merge; dwell beyond this truncates honestly, because the first
+# OBSERVED gate run anchors every gate measure. One bound for every gate read, so two surfaces
+# cannot split the same PR's legs differently.
+GATE_RUN_LOOKBACK = timedelta(days=7)
 
 
 # Both helpers ``ifNull`` their input, and that is load-bearing rather than defensive: a branch or
@@ -105,3 +113,10 @@ def merge_queue_branch_expr(branch_column: str, *, queue_actor_column: str) -> s
     cleanup we have today; misrecognizing one loses data.
     """
     return f"{source_pr_number_expr(branch_column, queue_actor_column=queue_actor_column)} > 0"
+
+
+def gate_attempt_expr(branch_column: str) -> str:
+    """HogQL expression naming the gate attempt a run belongs to: the gate branch with Trunk's
+    ``-bisection`` suffix collapsed, so a flake-bisection probe groups with the attempt it
+    investigates instead of counting as an attempt of its own."""
+    return f"replaceRegexpOne({branch_column}, '-bisection$', '')"

@@ -13,7 +13,7 @@ def canvas_belongs_to_task(*, team_id: int, user_id: int | None, canvas_id: str,
             Canvas.objects.for_team(team_id)
             .filter(id=canvas_id, deleted=False)
             .filter(tasks_facade.visible_channels_q(user_id, relation="channel"))
-            .filter(Q(discussion_task_id=task_id) | Q(generation_task_id=task_id) | Q(source_versions__task_id=task_id))
+            .filter(Q(generation_task_id=task_id) | Q(source_versions__task_id=task_id))
             .exists()
         )
     except (ValueError, ValidationError):

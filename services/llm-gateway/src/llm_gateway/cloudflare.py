@@ -11,7 +11,7 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
     LiteLLMMessagesToCompletionTransformationHandler,
 )
 
-from llm_gateway.anthropic_request import convert_enabled_thinking_to_adaptive
+from llm_gateway.anthropic_request import convert_enabled_thinking_to_adaptive, force_stream_usage
 from llm_gateway.anthropic_stream import observe_anthropic_stream
 from llm_gateway.config import Settings
 from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
@@ -87,6 +87,7 @@ def _inject_cloudflare_params(kwargs: dict[str, Any], api_base: str, api_key: st
     # provider-specific params a caller's runtime sends (e.g. Anthropic's reasoning_effort /
     # context_management). Drop the unsupported ones instead of failing the request.
     kwargs.setdefault("drop_params", True)
+    force_stream_usage(kwargs, continuous_usage_stats=False)
 
 
 def make_cloudflare_anthropic_call(api_base: str, api_key: str) -> Callable[..., Awaitable[Any]]:

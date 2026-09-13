@@ -44,8 +44,9 @@ from posthog.rate_limit import (
     OrganizationInviteBurstThrottle,
     OrganizationInviteSustainedThrottle,
 )
-from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.tasks.email import send_invite
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl, ordered_access_levels
 
 logger = structlog.get_logger(__name__)
 
@@ -272,7 +273,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 # User is not an org admin/owner
                 pass
 
-            from ee.models.rbac.access_control import AccessControl
+            from products.access_control.backend.models.access_control import AccessControl
 
             # Check if the team has an access control row that applies to the entire resource
             team_access_controls = AccessControl.objects.filter(

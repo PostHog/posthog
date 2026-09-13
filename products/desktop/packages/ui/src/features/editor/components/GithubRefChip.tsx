@@ -18,7 +18,26 @@ interface GithubRefChipLinkProps
   /** Names the icon for screen readers. Omit when the icon says nothing extra. */
   iconLabel?: string;
   toneClass?: string;
+  /** Keeps a trailing `#number` visible when the label truncates. */
+  preservePrNumber?: boolean;
   children: ReactNode;
+}
+
+/**
+ * Splits `owner/repo#number` into the part that may truncate and the number
+ * that may not, so neither the start nor the end of the number is ellipsized.
+ * Only labels that end in a number qualify: `#12 - Title` already keeps its
+ * number at the front.
+ */
+function splitRefNumber(label: ReactNode): [string, string] | null {
+  if (typeof label !== "string") {
+    return null;
+  }
+  const match = label.match(/^(.*)(#\d+)$/);
+  if (!match) {
+    return null;
+  }
+  return [match[1], match[2]];
 }
 
 /**
@@ -32,9 +51,25 @@ export const GithubRefChipLink = forwardRef<
   HTMLButtonElement,
   GithubRefChipLinkProps
 >(function GithubRefChipLink(
-  { href, icon: RefIcon, iconLabel, toneClass, children, ...buttonProps },
+  {
+    href,
+    icon: RefIcon,
+    iconLabel,
+    toneClass,
+    preservePrNumber,
+    children,
+    ...buttonProps
+  },
   ref,
 ) {
+  // The number lives in its own span that cannot shrink, so a truncating label
+  // keeps the whole number readable instead of ellipsizing one end of it.
+  const split = preservePrNumber ? splitRefNumber(children) : null;
+  // ch because the unit scales with the label's own font: the preserved number
+  // keeps roughly this many digits readable at any text size, and the label
+  // span's max-width subtracts the same width so a long number cannot push the
+  // chip past its cap.
+  const numberCh = split ? split[1].length : 0;
   return (
     <Button
       ref={ref}
@@ -53,21 +88,36 @@ export const GithubRefChipLink = forwardRef<
       }
       {...buttonProps}
       className={cn(
-        "cli-file-mention focus-visible:-outline-offset-1 mx-0.5 max-w-full cursor-pointer! whitespace-nowrap pl-1.5 align-baseline no-underline",
+        // overflow-hidden: nothing in the content box shrinks below its
+        // content size, so a long preserved number would otherwise paint past
+        // the chip edge.
+        "cli-file-mention focus-visible:-outline-offset-1 mx-0.5 inline-block max-w-full cursor-pointer! select-text overflow-hidden whitespace-nowrap pl-1.5 align-baseline leading-[1.375rem] no-underline",
         buttonProps.className,
       )}
     >
       <RefIcon
         size={12}
         weight="bold"
-        className={cn("shrink-0", toneClass)}
+        className={cn("mr-1 inline-block align-[-0.125em]", toneClass)}
         aria-label={iconLabel}
         aria-hidden={iconLabel ? undefined : true}
         role={iconLabel ? "img" : undefined}
       />
-      <span className={cn("min-w-0 max-w-64 truncate", toneClass)}>
-        {children}
+      <span
+        // 1rem is the icon and its margin, which share the chip's content box
+        // with the label; numberCh is the preserved number's width. Without
+        // those subtractions the label paints past the chip edge in a narrow
+        // panel instead of truncating.
+        className={cn("inline-block truncate align-top", toneClass)}
+        style={{
+          maxWidth: `min(16rem, calc(100% - 1rem - ${numberCh}ch))`,
+        }}
+      >
+        {split ? split[0] : children}
       </span>
+      {split && (
+        <span className={cn("shrink-0 align-top", toneClass)}>{split[1]}</span>
+      )}
     </Button>
   );
 });
@@ -90,6 +140,7 @@ export function GithubRefChip({
     <GithubRefChipLink
       href={href}
       icon={kind === "pr" ? GitPullRequestIcon : GithubLogoIcon}
+      preservePrNumber={kind === "pr"}
     >
       {children}
     </GithubRefChipLink>

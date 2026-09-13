@@ -9,6 +9,7 @@ vi.mock("@posthog/quill-charts", () => ({
 
 import {
   modelColorsForDays,
+  spendLimitGoalLines,
   spendSeriesForDays,
   tokenTotalsForDay,
 } from "./SpendOverTimeCard";
@@ -84,5 +85,20 @@ describe("spendSeriesForDays", () => {
     const colors = modelColorsForDays(days);
 
     expect(colors.get("gpt-5")).not.toBe(colors.get("claude-opus-4-8"));
+  });
+});
+
+describe("spendLimitGoalLines", () => {
+  it("draws a line only for the daily limits that are set", () => {
+    expect(spendLimitGoalLines({ warnUsd: null, stopUsd: null })).toEqual([]);
+
+    const lines = spendLimitGoalLines({
+      warnUsd: 20,
+      stopUsd: 50,
+    });
+    expect(lines.map((line) => [line.value, line.label])).toEqual([
+      [20, "Warning $20.00"],
+      [50, "Stop $50.00"],
+    ]);
   });
 });
