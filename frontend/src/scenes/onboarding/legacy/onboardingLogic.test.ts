@@ -14,6 +14,7 @@ import { initKeaTests } from '~/test/init'
 import { OnboardingStepKey } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'
+import { onboardingProviderRegistry } from './stepProviderRegistry'
 import { INSTALL_DEDUP_KEYS } from './types'
 
 /**
@@ -679,6 +680,34 @@ describe('onboardingLogic — flow composition', () => {
             logic.actions.setOnCompleteOnboardingRedirectUrl('/custom-target')
             expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/custom-target')
         })
+
+        // A destination captured before onboarding created the project cannot name a record of
+        // that project, so following it ends onboarding on a "not found" page.
+        it.each([
+            ['/replay/0198f0a2-1b2c-7000-abcd-000000000000'],
+            ['/project/1234/replay/0198f0a2-1b2c-7000-abcd-000000000000'],
+            ['/insights/aBcDeFgH'],
+            ['/dashboard/5'],
+            ['/error_tracking/0198f0a2-1b2c-7000-abcd-000000000000'],
+            ['/llm-analytics/traces/0198f0a2-1b2c-7000-abcd-000000000000'],
+            ['/insights/aBcDeFgH/edit'],
+            ['/workflows/0198f0a2-1b2c-7000-abcd-000000000000/workflow'],
+        ])('redirect override %s is dropped for the per-product URL', (override) => {
+            logic.actions.setProductKey(ProductKey.SESSION_REPLAY)
+            logic.actions.setOnCompleteOnboardingRedirectUrl(override)
+            expect(logic.values.onCompleteOnboardingRedirectUrl).toBe(
+                onboardingProviderRegistry[ProductKey.SESSION_REPLAY]?.completeRedirectUrl?.()
+            )
+        })
+
+        it.each([['/replay/home'], ['/replay/home?filters=%7B%7D'], ['/insights'], ['/custom-target']])(
+            'redirect override %s is kept',
+            (override) => {
+                logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)
+                logic.actions.setOnCompleteOnboardingRedirectUrl(override)
+                expect(logic.values.onCompleteOnboardingRedirectUrl).toBe(override)
+            }
+        )
     })
 
     describe('onboardingFlowVariant', () => {

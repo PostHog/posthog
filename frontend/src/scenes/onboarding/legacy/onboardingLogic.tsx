@@ -36,6 +36,7 @@ import type {
     UserType,
 } from '../../../types'
 import { arraysEqual, parseProductsParam, stepKeyToTitle } from './onboardingFlowUtils'
+import { pointsToRecordOfAnotherProject } from './onboardingRedirect'
 import { appendSharedTrailingSteps, mayBeAppendedLater } from './sharedSteps'
 import { onboardingProviderRegistry } from './stepProviderRegistry'
 import { type OnboardingFlowContext, type OnboardingStepDescriptor } from './types'
@@ -649,7 +650,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
         onCompleteOnboardingRedirectUrl: [
             (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
             (productKey: ProductKey | null, onCompleteOnboardingRedirectUrlOverride: string | null): string => {
-                if (onCompleteOnboardingRedirectUrlOverride) {
+                // Following a stale record link ends onboarding on a "not found" page.
+                if (
+                    onCompleteOnboardingRedirectUrlOverride &&
+                    !pointsToRecordOfAnotherProject(onCompleteOnboardingRedirectUrlOverride)
+                ) {
                     return onCompleteOnboardingRedirectUrlOverride
                 }
                 if (!productKey) {

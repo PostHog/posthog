@@ -8,6 +8,8 @@ import { ReplayCaptureDiagnosticsPanel } from 'scenes/session-recordings/compone
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ReplayTabs } from '~/types'
+
 export function RecordingNotFound({ sessionRecordingId }: { sessionRecordingId?: string }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
@@ -54,6 +56,15 @@ export function RecordingNotFound({ sessionRecordingId }: { sessionRecordingId?:
                                 </div>
                             </LemonBanner>
                         )}
+                        <div className="flex justify-center mt-4">
+                            <LemonButton
+                                data-attr="recording-404-browse-recordings"
+                                type="primary"
+                                to={urls.replay(ReplayTabs.Home)}
+                            >
+                                Browse recordings in this project
+                            </LemonButton>
+                        </div>
                     </>
                 }
             />
