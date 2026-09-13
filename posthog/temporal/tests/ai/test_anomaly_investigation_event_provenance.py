@@ -70,7 +70,7 @@ def test_context_carries_the_provenance_block() -> None:
     context = build_anomaly_context(
         alert_name="Headline metric dipped",
         metric_description="Recording AI summaries",
-        detector_type="zscore",
+        detector_config={"type": "zscore"},
         triggered_dates=["2026-08-30"],
         triggered_metadata=None,
         calculated_value=3896.0,
