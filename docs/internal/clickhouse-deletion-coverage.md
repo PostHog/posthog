@@ -79,8 +79,9 @@ ClickHouse has no S3 dictionary source, but that source runs its query locally, 
 - Retention belongs to the bucket lifecycle policy, set through `DICTIONARY_STAGING_S3_*`. Nothing deletes the objects.
 
 The same staging carries the person-overrides squash, which is not a deletion but has the identical problem.
-`squash_person_overrides` rewrites `person_id` on `sharded_events` and `sharded_events_json` through a mutation that joins a snapshot dictionary, then deletes the overrides it just applied.
-Skipping the second table there is worse than under-deleting: the overrides that record the correct `person_id` are gone in the next op, so the divergence is permanent.
+`squash_person_overrides` rewrites `person_id` on every table in `SQUASH_TARGETS` — `sharded_events`, `sharded_events_json` and `sharded_flag_evaluations` — through a mutation that joins a snapshot dictionary, then deletes the overrides it just applied.
+Skipping one of those tables is worse than under-deleting: the overrides that record the correct `person_id` are gone in the next op, so the divergence is permanent.
+`SQUASH_TARGETS` is deliberately its own list rather than `PERSONAL_DATA_TARGETS`, so registering a table for deletion does not silently enroll it in the squash as well.
 `posthog/dags/common/staged_dictionary.py` holds the piece both jobs share.
 
 ## Covered tables
@@ -171,10 +172,10 @@ The fix would belong to the producer, not the scanner.
 Keeping the fork downstream of person resolution is the contract, tracked on #81002.
 
 Write-time parity is not sufficient on its own, because a later merge moves the person the sweep looks for.
-`squash_person_overrides` rewrites `person_id` on `EVENTS_TARGETS` only, so after person A merges into B the events rows carry B while the flag-evaluation rows still carry A.
-A deletion of B is queued under B's uuid, so it misses those rows and they survive, with their event `properties` and their stale `person_id`, until the TTL drops the part.
-The squash deletes the overrides right after applying them, so nothing can reconcile the divergence afterwards.
-Extending the squash to `FLAG_EVALUATIONS` is the fix, and it belongs to `posthog/dags/person_overrides.py` rather than to this table. Tracked on #93035.
+After person A merges into B, a deletion of B is queued under B's uuid, so any row still carrying A matches nothing and survives with its event `properties` and its stale `person_id` until the TTL drops the part.
+`sharded_flag_evaluations` is a squash target as well as a deletion target for that reason: it is in `SQUASH_TARGETS` in `posthog/dags/person_overrides.py`, and `person_id` is not in its sort key, so it takes the same `ALTER UPDATE` the events tables take.
+A table missing from `SQUASH_TARGETS` strands its rows permanently, because the squash deletes the overrides that recorded the mapping right after applying them.
+Rows a merge stranded before `sharded_flag_evaluations` joined the list age out with their partition.
 
 ## Related, and deliberately unchanged
 
@@ -187,5 +188,8 @@ Extending the squash to `FLAG_EVALUATIONS` is the fix, and it belongs to `postho
 Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` needs the rewrite machinery to reach the table, not just assignable columns; `stores_person_properties` needs the table's `person_properties` column to actually hold reachable data, not just exist in the schema; see `FLAG_EVALUATIONS` for a table where those diverged.
 If it is not going to be swept, add it to `TTL_ONLY_TABLES` with the window you are accepting.
 If its storage lives on a cluster other than the one the deletion jobs connect to, give it a `cluster_setting` naming that cluster and mark it `optional`; see "Reach" and "Dispatching" above for which sweeps then reach it and which refuse.
+If a merge can move the `person_id` it stamps, add it to `SQUASH_TARGETS` in `posthog/dags/person_overrides.py` as well; registering it for deletion does not enroll it.
+The squash applies an `ALTER UPDATE`, so the column has to sit outside the table's sort key; see the person_id parity section above.
 
-`posthog/clickhouse/test/test_deletion_coverage.py` fails on any storage table that declares `person_properties` and appears in neither list, so the decision has to be made rather than skipped.
+`posthog/clickhouse/test/test_deletion_coverage.py` fails on any storage table that declares `person_properties` and appears in neither deletion list, so that decision has to be made rather than skipped.
+Nothing yet forces the `SQUASH_TARGETS` decision.
