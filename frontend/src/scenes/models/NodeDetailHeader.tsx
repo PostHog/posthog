@@ -63,7 +63,14 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
             />
             <ScenePanel>
                 <ScenePanelInfoSection>
-                    <SceneActivityIndicator prefix="Created" at={node?.created_at} by={savedQuery?.created_by} />
+                    {/* Take the date from the saved query, because the author next to it comes from
+                        there too. A node backfilled from an existing saved query holds the date of
+                        the backfill, so the two would describe different events. */}
+                    <SceneActivityIndicator
+                        prefix="Created"
+                        at={savedQuery?.created_at ?? node?.created_at}
+                        by={savedQuery?.created_by}
+                    />
                 </ScenePanelInfoSection>
             </ScenePanel>
         </>
