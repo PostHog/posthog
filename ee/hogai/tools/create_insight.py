@@ -530,6 +530,9 @@ class CreateInsightTool(MaxTool):
     name: Literal["create_insight"] = "create_insight"
     args_schema: type[BaseModel] = CreateInsightToolArgs
     context_prompt_template: str = INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE
+    # Fail closed: a caller that skips `create_tool_class` gets a usable tool that advertises no
+    # group type, instead of a validation error.
+    description: str = format_prompt_string(INSIGHT_TOOL_PROMPT, groups=[])
 
     def get_required_resource_access(self):
         """Creating an insight requires editor-level access to insights."""

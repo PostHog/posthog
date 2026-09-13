@@ -17,6 +17,7 @@ from ee.hogai.tool_errors import (
     MaxToolRetryableError,
     MaxToolTransientError,
 )
+from ee.hogai.tools import load_all_tools
 from ee.hogai.utils.types.base import NodePath
 
 
@@ -491,6 +492,18 @@ class TestToolAccessControlDeclarations(BaseTest):
                 f"Tools without access control declaration: {missing_access_control}. "
                 f"Either add get_required_resource_access() or add to TOOLS_WITHOUT_ACCESS_CONTROL with a reason."
             )
+
+
+class TestToolDescriptionDefaults(BaseTest):
+    def test_all_tools_construct_without_an_explicit_description(self):
+        """A tool built outside its `create_tool_class` factory must still be a usable tool."""
+        load_all_tools()
+        _import_max_tools()
+
+        for tool_name, tool_class in CONTEXTUAL_TOOL_NAME_TO_TOOL.items():
+            with self.subTest(tool=tool_name.value):
+                tool = tool_class(team=self.team, user=self.user)
+                self.assertTrue(tool.description.strip(), f"{tool_name.value} has an empty description")
 
 
 class _ApprovalArgs(BaseModel):

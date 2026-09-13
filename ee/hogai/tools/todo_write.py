@@ -204,6 +204,15 @@ NEGATIVE_TODO_EXAMPLES = [
 ]
 
 
+def _format_todo_write_examples(examples: Sequence[TodoWriteExample]) -> str:
+    return "\n".join(
+        [
+            format_prompt_string(TODO_WRITE_EXAMPLE_PROMPT, example=example.example, reasoning=example.reasoning)
+            for example in examples
+        ]
+    )
+
+
 # Has its unique schema that doesn't match the Deep Research schema
 class TodoItem(BaseModel):
     content: str = Field(..., min_length=1)
@@ -218,6 +227,12 @@ class TodoWriteToolArgs(BaseModel):
 class TodoWriteTool(MaxTool):
     name: Literal["todo_write"] = "todo_write"
     args_schema: type[BaseModel] = TodoWriteToolArgs
+    # Fail closed: a caller that skips `create_tool_class` gets a usable tool, not a validation error.
+    description: str = format_prompt_string(
+        TODO_WRITE_PROMPT,
+        positive_todo_examples=_format_todo_write_examples(POSITIVE_TODO_EXAMPLES),
+        negative_todo_examples=_format_todo_write_examples(NEGATIVE_TODO_EXAMPLES),
+    )
 
     POSITIVE_TODO_EXAMPLES: ClassVar[list[TodoWriteExample]] = POSITIVE_TODO_EXAMPLES
     NEGATIVE_TODO_EXAMPLES: ClassVar[list[TodoWriteExample]] = NEGATIVE_TODO_EXAMPLES
@@ -291,12 +306,3 @@ class TodoWriteTool(MaxTool):
             context_manager=context_manager,
             description=formatted_prompt,
         )
-
-
-def _format_todo_write_examples(examples: Sequence[TodoWriteExample]) -> str:
-    return "\n".join(
-        [
-            format_prompt_string(TODO_WRITE_EXAMPLE_PROMPT, example=example.example, reasoning=example.reasoning)
-            for example in examples
-        ]
-    )

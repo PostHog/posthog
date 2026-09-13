@@ -111,6 +111,9 @@ async def _get_default_tools_prompt(
 
 class SwitchModeTool(MaxTool):
     name: Literal[AssistantTool.SWITCH_MODE] = AssistantTool.SWITCH_MODE
+    # Fail closed: a caller that skips `create_tool_class` gets a usable tool that advertises no
+    # mode, instead of a validation error.
+    description: str = format_prompt_string(SWITCH_MODE_PROMPT, default_tools="", available_modes="")
     _mode_registry: dict[AgentMode, "AgentModeDefinition"]
 
     async def _arun_impl(self, new_mode: str) -> tuple[str, AgentMode | None]:
