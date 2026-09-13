@@ -1460,6 +1460,17 @@ class TestRetryableErrors:
             _raise_meta_api_error(response)
         assert any(pattern in str(exc_info.value) for pattern in patterns)
 
+    def test_proxy_tunnel_429_matches_retryable_pattern(self) -> None:
+        # PostHog's own egress proxy throttling the CONNECT tunnel, surfaced by requests as a
+        # ProxyError once in-process retries are exhausted.
+        error_message = (
+            "HTTPSConnectionPool(host='graph.facebook.com', port=443): Max retries exceeded with url: "
+            "/v25.0/oauth/access_token (Caused by ProxyError('Cannot connect to proxy.', "
+            "OSError('Tunnel connection failed: 429 Too Many Requests')))"
+        )
+        patterns = MetaAdsSource().get_retryable_errors()
+        assert any(pattern in error_message for pattern in patterns)
+
     def test_too_much_data_timeout_does_not_match_retryable_pattern(self) -> None:
         # The too-much-data timeout keeps its own non-retryable classification (adaptive chunking
         # already exhausted) — plain retries never resolve it, so it must not also be tagged
