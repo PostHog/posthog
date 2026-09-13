@@ -869,6 +869,28 @@ class TestToolbox(unittest.TestCase):
         )
         mock_login.assert_called_once_with("dev-eks", timeout=unittest.mock.ANY)
 
+    @patch("toolbox.kubernetes.time.sleep")
+    @patch("toolbox.kubernetes.check_context_access", side_effect=[(False, "not ready yet"), (True, "")])
+    @patch("toolbox.kubernetes.get_context_profile", return_value="dev-eks")
+    @patch("toolbox.kubernetes.time.monotonic", side_effect=[0, 1, 2, 3])
+    def test_wait_for_context_access_polls_until_grant_appears(self, mock_time, mock_profile, mock_access, mock_sleep):
+        self.assertTrue(wait_for_context_access("dev-eks", "posthog"))
+        self.assertEqual(mock_access.call_count, 2)
+        mock_sleep.assert_called_once()
+
+    @patch("toolbox.kubernetes.time.sleep")
+    @patch("toolbox.kubernetes.check_context_access", return_value=(False, "not ready yet"))
+    @patch("toolbox.kubernetes.get_context_profile", return_value="dev-eks")
+    @patch("toolbox.kubernetes.time.monotonic", side_effect=[0, 1, 2, 601])
+    def test_wait_for_context_access_gives_up_after_deadline(self, mock_time, mock_profile, mock_access, mock_sleep):
+        self.assertFalse(wait_for_context_access("dev-eks", "posthog"))
+        self.assertEqual(mock_access.call_count, 1)
+
+    @patch("toolbox.kubernetes.get_context_profile", side_effect=RuntimeError("could not derive an AWS profile"))
+    @patch("toolbox.kubernetes.time.monotonic", return_value=0)
+    def test_wait_for_context_access_stops_when_profile_cannot_be_derived(self, mock_time, mock_profile):
+        self.assertFalse(wait_for_context_access("dev-eks", "posthog"))
+
     def test_summarize_diagnostic_surfaces_aws_no_access(self):
         diagnostic = "aws: [ERROR]: ForbiddenException when calling GetRoleCredentials: No access\nUnable to connect"
         self.assertEqual(summarize_diagnostic(diagnostic), "AWS reports that this profile currently has no access")
