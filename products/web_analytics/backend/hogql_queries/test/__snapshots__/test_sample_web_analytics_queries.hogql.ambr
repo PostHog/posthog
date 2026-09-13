@@ -1018,7 +1018,7 @@
   FROM
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            tuple(properties.$viewport_width, properties.$viewport_height) AS breakdown_value,
+            tuple(if(or(equals(properties.$viewport_width, NULL), equals(properties.$viewport_height, NULL), equals(properties.$viewport_width, 0), equals(properties.$viewport_height, 0)), NULL, properties.$viewport_width), if(or(equals(properties.$viewport_width, NULL), equals(properties.$viewport_height, NULL), equals(properties.$viewport_width, 0), equals(properties.$viewport_height, 0)), NULL, properties.$viewport_height)) AS breakdown_value,
             if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
             any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp
      FROM events
@@ -1026,7 +1026,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING and(notEquals(tupleElement(`context.columns.breakdown_value`, 1), NULL), notEquals(tupleElement(`context.columns.breakdown_value`, 2), NULL), notEquals(tupleElement(`context.columns.breakdown_value`, 1), 0), notEquals(tupleElement(`context.columns.breakdown_value`, 2), 0))
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
