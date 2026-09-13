@@ -299,6 +299,8 @@ class TestReportCheckExecution(APIBaseTest):
         assert '"outcome":"errored"' in latest
         assert "Stack trace" not in latest
         assert "secret internals" not in latest
+        # Named like the passed and failed lines, so a report with several checks stays readable.
+        assert "Checkout errors stay low could not be measured" in latest
 
     def test_a_suppressed_report_pauses_its_checks(self) -> None:
         self._check()

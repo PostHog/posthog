@@ -154,8 +154,11 @@ def evaluate_check_value(*, comparison: CheckComparison, observed_value: float, 
     )
 
 
-def _errored_explanation(error: Exception) -> str:
+def _errored_explanation(error: Exception, *, subject: str) -> str:
     """The line a report reader sees when a run could not be measured.
+
+    It opens with the check's title, as the passed and failed lines do, so a report carrying several
+    checks does not log entries a reader cannot tell apart.
 
     Our own validation and resolution failures name something the reader can act on, so they are
     kept. Anything else is reduced to the fixed line: a query error can carry generated SQL and a
@@ -165,8 +168,8 @@ def _errored_explanation(error: Exception) -> str:
     """
     reason = str(error).strip() if isinstance(error, ValueError | TimeoutError) else ""
     if not reason:
-        return "The check could not be measured."
-    return f"The check could not be measured: {reason[:MAX_CHECK_ERROR_REASON_LENGTH]}"
+        return f"{subject} could not be measured."
+    return f"{subject} could not be measured: {reason[:MAX_CHECK_ERROR_REASON_LENGTH]}"
 
 
 def measure_check(check: SignalReportCheck, *, deadline: float) -> CheckVerdict:
@@ -180,7 +183,7 @@ def measure_check(check: SignalReportCheck, *, deadline: float) -> CheckVerdict:
         measurement = measure_metric(query, check.report.team, deadline=deadline, include_series=False)
     except Exception as error:
         logger.exception("signals.report_check.measurement_failed", check_id=str(check.id), team_id=check.team_id)
-        return CheckVerdict(outcome="errored", explanation=_errored_explanation(error))
+        return CheckVerdict(outcome="errored", explanation=_errored_explanation(error, subject=check.title))
     return evaluate_check_value(comparison=config.comparison, observed_value=measurement.value, subject=check.title)
 
 
