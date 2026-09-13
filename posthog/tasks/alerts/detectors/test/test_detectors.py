@@ -324,6 +324,35 @@ class TestMovingAverageSmoothing:
         assert cliff_index in result.triggered_indices
         assert cliff_index + 2 not in result.triggered_indices
 
+    def test_spike_does_not_echo_when_it_leaves_the_smoothing_window(self) -> None:
+        # A rectangular smoothing window followed by a first difference is a lagged
+        # difference, so a spike used to trigger twice: once at the spike, and once
+        # smooth_n points later, when it left the window and became a large negative
+        # velocity. That second trigger points at an ordinary value.
+        data = np.array([55, 48, 62] * 12, dtype=float)
+        spike_index = len(data) - 8
+        data[spike_index] = 279.0
+
+        detector = ZScoreDetector({"threshold": 0.95, "window": 10, "preprocessing": {"smooth_n": 3, "diffs_n": 1}})
+        result = detector.detect_batch(data)
+
+        assert spike_index in result.triggered_indices
+        assert not [i for i in result.triggered_indices if i > spike_index]
+
+    def test_threshold_detector_keeps_moving_average_scale(self) -> None:
+        # ThresholdDetector compares the preprocessed value against an absolute bound, so
+        # it must keep the rectangular kernel. The exponential kernel used by normalized
+        # detectors roughly doubles a step's smoothed magnitude, which a fixed bound does
+        # not normalize away. On this warmed-up +100 step the moving average yields 33.33
+        # (below 40, silent) while the EMA would yield 50 (above 40, a new false alert).
+        data = np.array([50.0] * 20 + [150.0])
+        config = {"upper_bound": 40, "preprocessing": {"smooth_n": 3, "diffs_n": 1}}
+
+        result = ThresholdDetector(config).detect(data)
+
+        assert not result.is_anomaly
+        assert result.metadata["value"] == pytest.approx(100.0 / 3.0)
+
 
 class TestPyODDetectors:
     @parameterized.expand(PYOD_DETECTORS_FOR_ANOMALY_TEST)
