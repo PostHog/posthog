@@ -66,6 +66,8 @@ import type {
     NodeKind,
     ProductItemCategory,
     ProductKey,
+    QueryScanSummary,
+    QueryScanWarning,
     QuerySchema,
     QueryStatus,
     QuickFilterContext,
@@ -2657,6 +2659,8 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     alerts?: AlertType[]
     query?: Node | null
     query_status?: QueryStatus
+    /** Tiles never see the response's `warnings`, so a scan's findings ride on the summary here. */
+    query_scan?: QueryScanSummary & { warnings?: QueryScanWarning[] }
     is_cached?: boolean
     filter_override_context?: InsightFilterOverrideContextApi | null
     resolved_date_range?: ResolvedDateRangeResponse | null

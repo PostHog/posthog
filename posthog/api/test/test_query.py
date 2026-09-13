@@ -29,6 +29,9 @@ from posthog.schema import (
     HogQLQuery,
     PersonPropertyFilter,
     PropertyOperator,
+    QueryScanFindingKind,
+    QueryScanMode,
+    QueryScanStatus,
     QueryStatus,
 )
 
@@ -43,11 +46,16 @@ from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
+from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
 from posthog.models import PersonalAPIKey
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
+from posthog.query_scan.findings import build_warning
+from posthog.query_scan.flag import QueryScanFlag
+from posthog.query_scan.slot import QueryScanSlot
+from posthog.query_scan.test.slots import stored_slot
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
@@ -93,6 +101,28 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(response.status_code, ClickHouseQueryTimeOut.status_code)
         self.assertEqual(mock_capture.called, expect_capture)
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut("query timed out"), ClickHouseQueryTimeOut.status_code),
+            ("internal clickhouse error", InternalCHQueryError("too many rows", code=158), 500),
+        ]
+    )
+    def test_a_killed_run_puts_its_scan_on_the_error_body(self, _name, error, expected_status):
+        error.cache_key = "cache_key_1"
+        error.query_scan = {"mode": "show", "rows_read": 41_200, "duration_ms": 19_000, "killed": True}
+
+        with patch("posthog.api.query.process_query_model", side_effect=error):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": HogQLQuery(query="select 1").model_dump()},
+            )
+
+        self.assertEqual(response.status_code, expected_status)
+        # Without the cache key on the failure the caller cannot read the stored analysis.
+        extra = response.json()["extra"]
+        self.assertEqual(extra["cache_key"], "cache_key_1")
+        self.assertEqual(extra["query_scan"]["killed"], True)
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):
@@ -1016,6 +1046,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "dashboard_id": mock.ANY,
                         "query_progress": None,
                         "labels": None,
+                        "cache_key": None,
+                        "query_scan": None,
                     }
                 },
             )
@@ -1322,6 +1354,64 @@ class TestQueryRetrieve(APIBaseTest):
         response = self.client.delete(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.redis_client_mock.delete.call_count, 2)
+
+
+SHOW_FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+LOG_ONLY_FLAG = QueryScanFlag(mode=QueryScanMode.LOG_ONLY, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+
+A_STORED_SCAN = stored_slot(
+    QueryScanSlot(
+        status=QueryScanStatus.DONE,
+        range_share=0.8,
+        project_share=0.25,
+        killed=True,
+        findings=(build_warning(kind=QueryScanFindingKind.NO_EVENT_FILTER, query_kind="HogQLQuery"),),
+    )
+)
+
+
+class TestQueryScan(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.redis_client_mock = mock.Mock()
+        patcher = mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=self.redis_client_mock)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        flag_patcher = mock.patch("posthog.api.query.get_query_scan_flag", return_value=SHOW_FLAG)
+        self.flag_mock = flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+
+    def test_returns_the_stored_scan(self):
+        self.redis_client_mock.get.return_value = A_STORED_SCAN
+
+        response = self.client.get(f"/api/environments/{self.team.id}/query/scan/cache_key_1/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual(body["status"], "done")
+        self.assertEqual(body["range_share"], 0.8)
+        self.assertEqual(body["project_share"], 0.25)
+        self.assertTrue(body["killed"])
+        self.assertEqual([warning["kind"] for warning in body["warnings"]], ["no_event_filter"])
+        # "Fix with AI" sends this, so the endpoint builds it rather than the client.
+        self.assertIn("- no_event_filter:", body["assistant_prompt"])
+
+    @parameterized.expand(
+        [
+            ("the query was never analyzed", None, SHOW_FLAG),
+            # `log_only` collects the analysis without showing it to anyone, so the endpoint that
+            # serves it to a client has to stay closed on that mode.
+            ("the team is in log-only mode", A_STORED_SCAN, LOG_ONLY_FLAG),
+            ("the flag is off", A_STORED_SCAN, None),
+        ]
+    )
+    def test_returns_404_when(self, _name, stored, flag):
+        self.redis_client_mock.get.return_value = stored
+        self.flag_mock.return_value = flag
+
+        response = self.client.get(f"/api/environments/{self.team.id}/query/scan/cache_key_1/")
+
+        self.assertEqual(response.status_code, 404)
 
 
 class TestQueryDraftSql(APIBaseTest):

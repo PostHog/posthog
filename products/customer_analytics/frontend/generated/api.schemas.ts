@@ -1454,9 +1454,43 @@ export interface ClickhouseQueryProgressApi {
     time_elapsed: number
 }
 
+export type QueryScanModeApi = (typeof QueryScanModeApi)[keyof typeof QueryScanModeApi]
+
+export const QueryScanModeApi = {
+    LogOnly: 'log_only',
+    Show: 'show',
+} as const
+
+export type QueryScanStatusApi = (typeof QueryScanStatusApi)[keyof typeof QueryScanStatusApi]
+
+export const QueryScanStatusApi = {
+    Pending: 'pending',
+    Done: 'done',
+} as const
+
+export interface QueryScanSummaryApi {
+    /** The message the Fix with AI button sends to the assistant. Set once the analysis is done and a finding can be fixed in the query. */
+    assistant_prompt?: string | null
+    /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
+    duration_ms: number
+    /** True when ClickHouse stopped the run instead of finishing it. */
+    killed?: boolean | null
+    mode: QueryScanModeApi
+    /** How much of all the project's events the query read, 0 to 1. Set once the analysis is done. */
+    project_share?: number | null
+    /** How much of the project's events in the query's date range the query read, 0 to 1. Set once the analysis is done. */
+    range_share?: number | null
+    /** Rows ClickHouse read for the last fresh run, all tables included. */
+    rows_read: number
+    /** Absent when the run was too fast to analyze. */
+    status?: QueryScanStatusApi | null
+}
+
 export interface QueryStatusApi {
     budget_remaining_bytes?: number | null
     bytes_read?: number | null
+    /** Cache key of the run that failed, so clients can ask for its query scan. */
+    cache_key?: string | null
     /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
     complete?: boolean | null
     dashboard_id?: number | null
@@ -1476,6 +1510,7 @@ export interface QueryStatusApi {
     /** ONLY async queries use QueryStatus. */
     query_async?: true
     query_progress?: ClickhouseQueryProgressApi | null
+    query_scan?: QueryScanSummaryApi | null
     results?: unknown
     /** When was query execution task enqueued. */
     start_time?: string | null
@@ -1575,6 +1610,38 @@ export interface AccessControlFilterWarningApi {
     type?: 'access_control'
 }
 
+export type QueryScanFindingKindApi = (typeof QueryScanFindingKindApi)[keyof typeof QueryScanFindingKindApi]
+
+export const QueryScanFindingKindApi = {
+    NoEventFilter: 'no_event_filter',
+    NoStartDate: 'no_start_date',
+    PersonsJoin: 'persons_join',
+} as const
+
+export type QueryScanFindingReasonApi = (typeof QueryScanFindingReasonApi)[keyof typeof QueryScanFindingReasonApi]
+
+export const QueryScanFindingReasonApi = {
+    InOr: 'in_or',
+    Wrapped: 'wrapped',
+    Negated: 'negated',
+    Dynamic: 'dynamic',
+    NotPruned: 'not_pruned',
+    Filters: 'filters',
+} as const
+
+export interface QueryScanWarningApi {
+    /** The one fact the finding rests on. */
+    evidence?: string | null
+    /** What "Fix with AI" and the assistant are told to do. */
+    fix: string
+    kind: QueryScanFindingKindApi
+    /** Shown to the person: what happened and what to do. */
+    message: string
+    /** Only with `no_event_filter` and `no_start_date`. */
+    reason?: QueryScanFindingReasonApi | null
+    type?: 'query_scan'
+}
+
 export interface AccountsTableQueryResponseApi {
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -1599,8 +1666,8 @@ export interface AccountsTableQueryResponseApi {
     timings?: QueryTimingApi[] | null
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. Also carries query scan findings, see `QueryScanWarning`. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | QueryScanWarningApi)[] | null
 }
 
 export type AccountsTableSortDirectionApi =

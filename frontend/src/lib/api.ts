@@ -29,8 +29,8 @@ import {
     AggregatedSpanRow,
     AnyResponseType,
     DashboardFilter,
-    DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
+    DataWarehouseManagedViewsetKind,
     DomainConnectProviderName,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
@@ -54,6 +54,7 @@ import {
     Node,
     NodeKind,
     QueryLogTags,
+    QueryScanResponse,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -1740,6 +1741,10 @@ export class ApiRequest {
 
     public queryLog(queryId: string, teamId?: TeamType['id']): ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
+    }
+
+    public queryScan(cacheKey: string, teamId?: TeamType['id']): ApiRequest {
+        return this.query(teamId).addPathComponent('scan').addPathComponent(cacheKey)
     }
 
     public queryCancel(clientQueryId: string, teamId?: TeamType['id']): ApiRequest {
@@ -6373,6 +6378,12 @@ const api = {
     queryLog: {
         async get(queryId: string): Promise<HogQLQueryResponse> {
             return await new ApiRequest().queryLog(queryId).get()
+        },
+    },
+
+    queryScan: {
+        async get(cacheKey: string): Promise<QueryScanResponse> {
+            return await new ApiRequest().queryScan(cacheKey).get()
         },
     },
 

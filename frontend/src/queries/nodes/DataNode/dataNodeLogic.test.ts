@@ -1,10 +1,41 @@
 import { expectLogic, partial } from 'kea-test-utils'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { useMocks } from '~/mocks/jest'
+import {
+    QUERY_SCAN_POLL_DEADLINE_MS,
+    QUERY_SCAN_POLL_DELAYS_MS,
+    dataNodeLogic,
+} from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
 import { DashboardFilter, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
+
+const SCAN_ENDPOINT = '/api/environments/:team_id/query/scan/:cache_key/'
+const PENDING_SCAN = { status: 'pending', warnings: [], killed: false }
+const DONE_SCAN = {
+    status: 'done',
+    assistant_prompt: 'Help me get what this query is trying to find, as fast as possible.',
+    warnings: [
+        {
+            type: 'query_scan',
+            kind: 'no_event_filter',
+            message: 'This query read every event in its date range.',
+            fix: 'Add an event filter.',
+        },
+    ],
+    range_share: 0.42,
+    project_share: 0.1,
+    killed: false,
+}
+
+function pendingScanResponse(cacheKey = 'cache-key'): Record<string, unknown> {
+    return {
+        results: [],
+        cache_key: cacheKey,
+        query_scan: { mode: 'show', rows_read: 10, duration_ms: 2000, status: 'pending' },
+    }
+}
 
 jest.mock('~/queries/query', () => {
     return {
@@ -784,5 +815,149 @@ describe('dataNodeLogic', () => {
             false,
             undefined
         )
+    })
+
+    const mountWithPendingScan = (): void => {
+        mockedQuery.mockResolvedValueOnce(pendingScanResponse())
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({ kind: NodeKind.EventsQuery, select: ['*'] }),
+        })
+        logic.mount()
+    }
+
+    it('polls a slow run on a backoff and folds the finished scan into the response', async () => {
+        jest.useFakeTimers()
+        try {
+            let scanCalls = 0
+            useMocks({
+                get: {
+                    [SCAN_ENDPOINT]: () => {
+                        scanCalls += 1
+                        return [200, scanCalls === 1 ? PENDING_SCAN : DONE_SCAN]
+                    },
+                },
+            })
+            mountWithPendingScan()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.queryScan?.summary.status).toBe('pending')
+
+            await jest.advanceTimersByTimeAsync(QUERY_SCAN_POLL_DELAYS_MS[0])
+            expect(scanCalls).toBe(1)
+            expect(logic.values.queryScan?.summary.status).toBe('pending')
+
+            await jest.advanceTimersByTimeAsync(QUERY_SCAN_POLL_DELAYS_MS[1])
+            expect(scanCalls).toBe(2)
+            expect(logic.values.queryScan?.summary.status).toBe('done')
+            expect(logic.values.queryScan?.summary.range_share).toBe(0.42)
+            expect(logic.values.queryScan?.findings).toHaveLength(1)
+            expect(logic.values.queryScan?.assistantPrompt).toBe(DONE_SCAN.assistant_prompt)
+
+            // The analysis is done, so no more asks go out.
+            await jest.advanceTimersByTimeAsync(60000)
+            expect(scanCalls).toBe(2)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('fetches the findings once for a stopped run whose analysis an earlier run stored', async () => {
+        jest.useFakeTimers()
+        try {
+            let scanCalls = 0
+            useMocks({
+                get: {
+                    [SCAN_ENDPOINT]: () => {
+                        scanCalls += 1
+                        return [200, DONE_SCAN]
+                    },
+                },
+            })
+            // The runner reports the stored analysis as done on the error, and an error carries no findings.
+            mockedQuery.mockRejectedValueOnce(
+                Object.assign(new Error('Query was cancelled'), {
+                    data: {
+                        extra: {
+                            cache_key: 'cache-key',
+                            query_scan: {
+                                mode: 'show',
+                                rows_read: 10,
+                                duration_ms: 2000,
+                                status: 'done',
+                                killed: true,
+                            },
+                        },
+                    },
+                })
+            )
+            logic = dataNodeLogic({
+                key: testUniqueKey,
+                query: setLatestVersionsOnQuery({ kind: NodeKind.EventsQuery, select: ['*'] }),
+            })
+            logic.mount()
+
+            // Well before the first backoff step, so a poll on the backoff would not have gone out yet.
+            await jest.advanceTimersByTimeAsync(100)
+            expect(scanCalls).toBe(1)
+            expect(logic.values.queryScan?.summary.killed).toBe(true)
+            expect(logic.values.queryScan?.findings).toHaveLength(1)
+            expect(logic.values.queryScan?.assistantPrompt).toBe(DONE_SCAN.assistant_prompt)
+
+            await jest.advanceTimersByTimeAsync(60000)
+            expect(scanCalls).toBe(1)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('stops polling when the scan endpoint 404s', async () => {
+        jest.useFakeTimers()
+        try {
+            let scanCalls = 0
+            useMocks({
+                get: {
+                    [SCAN_ENDPOINT]: () => {
+                        scanCalls += 1
+                        return [404, {}]
+                    },
+                },
+            })
+            mountWithPendingScan()
+            await jest.advanceTimersByTimeAsync(2000)
+            expect(scanCalls).toBe(1)
+
+            // A 404 is what a dead job looks like once its pending slot expires, so the poll ends.
+            await jest.advanceTimersByTimeAsync(120000)
+            expect(scanCalls).toBe(1)
+            expect(logic.values.queryScan?.summary.status).toBe('pending')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('stops polling once the run is too old to wait for', async () => {
+        jest.useFakeTimers()
+        try {
+            let scanCalls = 0
+            useMocks({
+                get: {
+                    [SCAN_ENDPOINT]: () => {
+                        scanCalls += 1
+                        return [200, PENDING_SCAN]
+                    },
+                },
+            })
+            mountWithPendingScan()
+
+            await jest.advanceTimersByTimeAsync(QUERY_SCAN_POLL_DEADLINE_MS + 60000)
+            const callsByDeadline = scanCalls
+            // It kept asking on the repeating 30 s interval, past the fixed backoff steps.
+            expect(callsByDeadline).toBeGreaterThan(QUERY_SCAN_POLL_DELAYS_MS.length)
+
+            await jest.advanceTimersByTimeAsync(120000)
+            expect(scanCalls).toBe(callsByDeadline)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 })

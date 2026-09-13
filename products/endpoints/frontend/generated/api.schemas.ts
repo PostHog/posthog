@@ -1012,9 +1012,43 @@ export interface ClickhouseQueryProgressApi {
     time_elapsed: number
 }
 
+export type QueryScanModeApi = (typeof QueryScanModeApi)[keyof typeof QueryScanModeApi]
+
+export const QueryScanModeApi = {
+    LogOnly: 'log_only',
+    Show: 'show',
+} as const
+
+export type QueryScanStatusApi = (typeof QueryScanStatusApi)[keyof typeof QueryScanStatusApi]
+
+export const QueryScanStatusApi = {
+    Pending: 'pending',
+    Done: 'done',
+} as const
+
+export interface QueryScanSummaryApi {
+    /** The message the Fix with AI button sends to the assistant. Set once the analysis is done and a finding can be fixed in the query. */
+    assistant_prompt?: string | null
+    /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
+    duration_ms: number
+    /** True when ClickHouse stopped the run instead of finishing it. */
+    killed?: boolean | null
+    mode: QueryScanModeApi
+    /** How much of all the project's events the query read, 0 to 1. Set once the analysis is done. */
+    project_share?: number | null
+    /** How much of the project's events in the query's date range the query read, 0 to 1. Set once the analysis is done. */
+    range_share?: number | null
+    /** Rows ClickHouse read for the last fresh run, all tables included. */
+    rows_read: number
+    /** Absent when the run was too fast to analyze. */
+    status?: QueryScanStatusApi | null
+}
+
 export interface QueryStatusApi {
     budget_remaining_bytes?: number | null
     bytes_read?: number | null
+    /** Cache key of the run that failed, so clients can ask for its query scan. */
+    cache_key?: string | null
     /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
     complete?: boolean | null
     dashboard_id?: number | null
@@ -1034,6 +1068,7 @@ export interface QueryStatusApi {
     /** ONLY async queries use QueryStatus. */
     query_async?: true
     query_progress?: ClickhouseQueryProgressApi | null
+    query_scan?: QueryScanSummaryApi | null
     results?: unknown
     /** When was query execution task enqueued. */
     start_time?: string | null

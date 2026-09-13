@@ -1,5 +1,3 @@
-import re
-
 from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantHogQLQuery, HogQLNotice, HogQLQuery
@@ -15,6 +13,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLOutputParserMixin
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.format import sanitize_warning_line
 from ee.hogai.mcp_tool import MCPTool, MCPToolResult, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.execute_sql.direct_connection_suggestions import build_direct_connection_suggestion
@@ -155,25 +154,11 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
         return validate_taxonomy_references(parsed_query, self._team, table_names)
 
 
-# Event/property names are externally writable (anyone capturing events controls them), and a warning's
-# message embeds the name + suggestion verbatim into agent context. Strip control characters/newlines AND
-# angle brackets — the latter stops a crafted name (e.g. containing `</taxonomy_warnings>`) from closing
-# the wrapper early and breaking out of the delimited block — and cap length. This can't stop plain-text
-# influence (no escaping can), but it keeps the names contained as data inside the labeled block.
-_UNSAFE_WARNING_CHARS = re.compile(r"[\x00-\x1f\x7f<>]")
-_MAX_WARNING_CHARS = 300
-
-
-def _sanitize_warning_line(message: str) -> str:
-    cleaned = re.sub(r"\s+", " ", _UNSAFE_WARNING_CHARS.sub(" ", message)).strip()
-    return cleaned[:_MAX_WARNING_CHARS] + "…" if len(cleaned) > _MAX_WARNING_CHARS else cleaned
-
-
 def _prepend_taxonomy_warnings(results: str, warnings: list[HogQLNotice]) -> str:
     if not warnings:
         return results
 
-    lines = "\n".join(f"- {_sanitize_warning_line(warning.message)}" for warning in warnings)
+    lines = "\n".join(f"- {sanitize_warning_line(warning.message)}" for warning in warnings)
     return (
         "<taxonomy_warnings>\n"
         "Your query references names that don't exist in this project's taxonomy. "

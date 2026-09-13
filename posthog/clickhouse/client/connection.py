@@ -189,9 +189,45 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     return __user_dict[ClickHouseUser.DEFAULT]
 
 
+@frozen
+class QuerySummary:
+    """What one ClickHouse query read."""
+
+    rows: int = 0
+    elapsed_ns: int = 0
+
+
+class ClickHouseClient(SyncClient):
+    """Keeps the progress of a query the server stopped.
+
+    The driver forgets its last query when it reconnects after an error, but a stopped query has
+    already read rows, and the query scan reports them. The record is kept here until read once.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        # Set before the base constructor, which calls reset_last_query.
+        self.last_query_before_reset: Any = None
+        super().__init__(*args, **kwargs)
+
+    def reset_last_query(self) -> None:
+        last_query = getattr(self, "last_query", None)
+        # A second disconnect must not drop what the first one stashed.
+        if last_query is not None:
+            self.last_query_before_reset = last_query
+        super().reset_last_query()
+
+    def take_last_query_before_reset(self) -> Any:
+        """Return the stashed query info and forget it, so one execution is never counted twice."""
+        stashed = self.last_query_before_reset
+        self.last_query_before_reset = None
+        return stashed
+
+
 class ProxyClient:
     def __init__(self, client: "HttpClient"):
         self._client = client
+        # The HTTP client has no last_query, so it reports what it read here instead.
+        self.last_query_summary: QuerySummary | None = None
 
     def execute(
         self,
@@ -204,11 +240,16 @@ class ProxyClient:
         types_check=False,
         columnar=False,
     ):
+        self.last_query_summary = None
         if query_id:
             if settings is None:
                 settings = {}
             settings["query_id"] = query_id
         result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
+        self.last_query_summary = QuerySummary(
+            rows=int(result.summary.get("read_rows", 0)),
+            elapsed_ns=int(result.summary.get("elapsed_ns", 0)),
+        )
 
         # we must play with result summary here
         written_rows = int(result.summary.get("written_rows", 0))
@@ -379,7 +420,7 @@ def default_client(host=settings.CLICKHOUSE_HOST, password=None):
 
     password overrides the static CLICKHOUSE_PASSWORD, for example with a resolved file-backed token.
     """
-    return SyncClient(
+    return ClickHouseClient(
         host=host,
         # We set "system" here as we don't necessarily have a "default" database,
         # which is what the clickhouse_driver would use by default. We are
@@ -396,7 +437,21 @@ def default_client(host=settings.CLICKHOUSE_HOST, password=None):
     )
 
 
-class RefreshingChPool(ChPool):
+class ClickHouseChPool(ChPool):
+    """A pool of ClickHouseClient. ``ChPool._connect`` hardcodes the driver's client class, so it is
+    repeated here with ours."""
+
+    def _connect(self, key: str | None = None) -> ClickHouseClient:
+        client = ClickHouseClient(**self.connection_args)
+        if key is not None:
+            self._used[key] = client
+            self._rused[id(client)] = key
+        else:
+            self._pool.append(client)
+        return client
+
+
+class RefreshingChPool(ClickHouseChPool):
     """ChPool that stamps the current credential onto every pulled client.
 
     The pool is keyed on identity rather than the credential, so one pool survives credential
@@ -444,7 +499,7 @@ def _make_ch_pool(
         # kwargs["password"] is only the lazy seed here; RefreshingChPool re-stamps every pulled client.
         return RefreshingChPool(credential_provider=credential_provider, **kwargs)
 
-    return ChPool(**kwargs)
+    return ClickHouseChPool(**kwargs)
 
 
 make_ch_pool = cache(_make_ch_pool)
