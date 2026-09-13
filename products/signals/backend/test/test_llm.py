@@ -159,6 +159,25 @@ async def test_request_shape_follows_model_capabilities(
 
 
 @pytest.mark.asyncio
+async def test_system_prompt_carries_a_cache_breakpoint() -> None:
+    client = _mock_anthropic_client()
+    with patch(f"{MODULE_PATH}.get_async_anthropic_gateway_client", return_value=client):
+        await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=lambda text: text,
+            stage="safety_filter",
+        )
+
+    # Dropping the breakpoint re-bills the whole system prompt on every call and nothing fails,
+    # so the request shape is the only place the regression shows.
+    assert client.messages.create.call_args.kwargs["system"] == [
+        {"type": "text", "text": "s", "cache_control": {"type": "ephemeral"}}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_explicit_model_overrides_the_matching_model() -> None:
     client = _mock_anthropic_client()
     with (
