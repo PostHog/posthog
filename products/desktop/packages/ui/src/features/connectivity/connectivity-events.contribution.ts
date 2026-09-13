@@ -5,13 +5,13 @@ import {
   CONNECTIVITY_CLIENT,
   type ConnectivityClient,
 } from "./connectivityClient";
-import { initializeConnectivityToast } from "./connectivityToast";
+import { initializeConnectivityToastDismissal } from "./connectivityToast";
 
 /**
  * Boots connectivity once at startup (formerly the platform-adapters/connectivity
  * side-effect module): seeds the domain online store from the host's current
- * status, keeps it in sync via the status-change subscription, and starts the
- * debounced offline toast.
+ * status, keeps it in sync via the status-change subscription, and clears the
+ * offline toast on reconnect.
  */
 @injectable()
 export class ConnectivityEventsContribution implements Contribution {
@@ -32,6 +32,6 @@ export class ConnectivityEventsContribution implements Contribution {
       onData: (status) => setOnline(status.isOnline),
     });
 
-    initializeConnectivityToast();
+    initializeConnectivityToastDismissal();
   }
 }
