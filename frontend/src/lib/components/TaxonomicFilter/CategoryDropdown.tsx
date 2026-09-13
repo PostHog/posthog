@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconChevronDown, IconPin, IconPinFilled } from '@posthog/icons'
+import { IconChevronDown, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -65,8 +65,8 @@ export function CategoryDropdown({
             items: [
                 {
                     key: 'toggle-category-rail',
-                    label: categoryRailPinned ? 'Unpin categories' : 'Pin categories',
-                    icon: categoryRailPinned ? <IconPinFilled /> : <IconPin />,
+                    label: categoryRailPinned ? 'Undock categories' : 'Dock categories',
+                    icon: categoryRailPinned ? <IconSidebarClose /> : <IconSidebarOpen />,
                     'data-attr': 'taxonomic-category-rail-toggle',
                     onClick: () => {
                         setCategoryRailPinned(!categoryRailPinned)

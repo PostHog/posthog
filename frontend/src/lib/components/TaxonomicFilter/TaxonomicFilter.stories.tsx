@@ -558,7 +558,7 @@ export const CategoryDropdown: Story = {
         ...CATEGORY_DROPDOWN_PARAMETERS,
         docs: {
             description: {
-                story: 'The active category appears as a pill in the search input. Open it to browse categories or pin the category rail.',
+                story: 'The active category appears as a pill in the search input. Open it to browse categories or dock the category rail.',
             },
         },
     },

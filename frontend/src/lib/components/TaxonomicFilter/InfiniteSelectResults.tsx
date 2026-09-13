@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconPinFilled } from '@posthog/icons'
+import { IconSidebarClose } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
@@ -215,13 +215,13 @@ export function InfiniteSelectResults({
         <div ref={wrapperRef} className="@container flex flex-row h-full">
             {showCategoryColumn && (
                 <div className="TaxonomicFilter__category-rail border-r pr-2 mr-2 flex-shrink-0 border-primary @max-[32rem]:hidden">
-                    <div className="taxonomic-group-title justify-between gap-1">
+                    <div className="taxonomic-group-title items-center justify-between gap-1">
                         <span>Categories</span>
                         <LemonButton
                             type="tertiary"
                             size="xsmall"
-                            icon={<IconPinFilled />}
-                            tooltip="Unpin categories"
+                            icon={<IconSidebarClose />}
+                            tooltip="Undock categories"
                             data-attr="taxonomic-category-rail-unpin"
                             onClick={() => setCategoryRailPinned(false)}
                         />
