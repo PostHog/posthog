@@ -12,8 +12,8 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import type { MetricsQuery, MetricsQueryClause } from '~/queries/schema/schema-general'
 import type { DashboardType } from '~/types'
 
-import { metricsAttributeValuesRetrieve, metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
-import type { _MetricNameApi } from 'products/metrics/frontend/generated/api.schemas'
+import { metricsAttributeValuesRetrieve, metricsNamesRetrieve } from 'products/metrics/frontend/generated/api'
+import type { _MetricPickerNameApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import type { InsightModel } from '../../../../frontend/src/types'
 import { RECOMMENDED_AGGREGATION_BY_TYPE, nodeAggregationFields, toKnownMetricType } from './metricsViewerLogic'
@@ -28,7 +28,7 @@ export interface metricsStarterDashboardLogicValues {
     creating: boolean
     dashboardName: string
     isModalOpen: boolean
-    metricOptions: _MetricNameApi[]
+    metricOptions: _MetricPickerNameApi[]
     metricOptionsLoading: boolean
     selectedMetrics: string[]
     serviceName: string
@@ -161,11 +161,11 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
             },
         ],
         metricOptions: [
-            [] as _MetricNameApi[],
+            [] as _MetricPickerNameApi[],
             {
                 loadMetricOptions: async (_, breakpoint) => {
                     await breakpoint(100)
-                    const response = await metricsValuesRetrieve(String(values.currentTeamId), {})
+                    const response = await metricsNamesRetrieve(String(values.currentTeamId), {})
                     breakpoint()
                     return response.results
                 },

@@ -12,7 +12,7 @@ import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/typ
 import {
     metricsQueryCreate,
     metricsSamplesCreate,
-    metricsValuesRetrieve,
+    metricsNamesRetrieve,
 } from 'products/metrics/frontend/generated/api'
 import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
 
@@ -26,7 +26,7 @@ jest.mock('posthog-js')
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
-    metricsValuesRetrieve: jest.fn(),
+    metricsNamesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
     metricsSamplesCreate: jest.fn(),
     metricsCharacterizeCreate: jest.fn(),
@@ -74,7 +74,7 @@ describe('metricsUsageTrackingLogic', () => {
         } as AppContext
         initKeaTests()
         jest.mocked(posthog.capture).mockClear()
-        jest.mocked(metricsValuesRetrieve).mockReset().mockResolvedValue({ results: [] })
+        jest.mocked(metricsNamesRetrieve).mockReset().mockResolvedValue({ results: [] })
         jest.mocked(metricsQueryCreate).mockReset().mockResolvedValue({ results: [] })
         jest.mocked(metricsSamplesCreate).mockReset().mockResolvedValue({ results: [] })
         logic = metricsUsageTrackingLogic()
