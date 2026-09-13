@@ -48,7 +48,10 @@ _ZIP_TIMEOUT_SECONDS = 60
 # rather than made the worker's problem.
 _MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
 _MAX_INDEX_BYTES = 32 * 1024 * 1024
-_CACHE_TTL_SECONDS = 2 * 24 * 60 * 60
+# GitHub keeps the Storybook build artifact for one day, and the debt digest that reads this index
+# posts once a week. A daily task warms the cache while the artifact still exists, so an entry has
+# to outlive a full week for the next weekly post to still find it.
+_CACHE_TTL_SECONDS = 60 * 60 * 24 * 8
 
 
 @frozen
@@ -182,6 +185,9 @@ def fetch_story_index(repo: Repo, github_run_id: str) -> StoryIndex | None:
     cache_key = f"visual_review_story_index:{repo.id}:{github_run_id}"
     cached = cache.get(cache_key)
     if isinstance(cached, dict):
+        # The artifact behind an entry is deleted after a day, so an entry that expires can never
+        # be filled again. A hit extends it, which is how the warm runs hold a long-lived baseline.
+        cache.touch(cache_key, _CACHE_TTL_SECONDS)
         return StoryIndex(path_by_story_id=cached)
 
     try:
