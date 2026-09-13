@@ -64,33 +64,38 @@ export function getForwardConnectedIndices(startNode: PathNodeData): {
     return { nodeIndices, linkIndices }
 }
 
+/** A node tall enough to show its card at all times, with no hover. */
+export const isCardAlwaysVisible = (node: PathNodeData): boolean => node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT
+
 export const activateNodes = (nodes: PathNodeData[], activeIndices: Set<number>): PathNodeData[] =>
     nodes.map((node) => ({
         ...node,
-        visible: activeIndices.has(node.index) || node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT,
+        visible: activeIndices.has(node.index) || isCardAlwaysVisible(node),
         active: activeIndices.has(node.index),
     }))
 
 export const deactivateNodes = (nodes: PathNodeData[]): PathNodeData[] =>
     nodes.map((node) => ({
         ...node,
-        visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT,
+        visible: isCardAlwaysVisible(node),
         active: false,
     }))
 
-export function resolveCardOverlaps(nodes: PathNodeData[], canvasHeight: number): PathNodeData[] {
-    const visibleNodes = nodes.filter((n) => n.visible)
-    if (visibleNodes.length === 0) {
-        return nodes
-    }
-
-    const topByIndex = new Map<number, number>()
-    for (const node of visibleNodes) {
-        topByIndex.set(node.index, calculatePathNodeCardTop(node, canvasHeight))
-    }
-
+/**
+ * Card top per node index, nudged down so that cards in the same layer do not overlap.
+ *
+ * Only the always-visible cards take part. A card that hover reveals keeps its natural top.
+ * A layout that changes with the hover state moves cards out from under the pointer. That
+ * clears the hover, which moves them back, and the cards flicker.
+ */
+export function resolveCardOverlaps(nodes: PathNodeData[], canvasHeight: number): Map<number, number> {
     const byLayer = new Map<number, PathNodeData[]>()
-    for (const node of visibleNodes) {
+    const topByIndex = new Map<number, number>()
+    for (const node of nodes) {
+        if (!isCardAlwaysVisible(node)) {
+            continue
+        }
+        topByIndex.set(node.index, calculatePathNodeCardTop(node, canvasHeight))
         const group = byLayer.get(node.layer) ?? []
         group.push(node)
         byLayer.set(node.layer, group)
@@ -108,9 +113,7 @@ export function resolveCardOverlaps(nodes: PathNodeData[], canvasHeight: number)
         }
     }
 
-    return nodes.map((node) =>
-        resolvedTops.has(node.index) ? { ...node, resolvedTop: resolvedTops.get(node.index) } : node
-    )
+    return resolvedTops
 }
 
 export function roundedRect(

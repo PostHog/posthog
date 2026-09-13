@@ -4,6 +4,7 @@ import {
     PathNodeData,
     PathTargetLink,
     activateNodes,
+    calculatePathNodeCardTop,
     deactivateNodes,
     getForwardConnectedIndices,
     pageUrl,
@@ -447,38 +448,40 @@ describe('resolveCardOverlaps', () => {
         const { nodes } = buildPathGraph(['/', '/about'])
         // Two nodes in different layers — won't overlap each other
         // Override to put them in the same layer with close y positions
-        nodes[0] = { ...nodes[0], layer: 0, y0: 0, y1: 100, visible: true }
-        nodes[1] = { ...nodes[1], layer: 0, y0: 5, y1: 105, visible: true }
+        nodes[0] = { ...nodes[0], layer: 0, y0: 0, y1: 100 }
+        nodes[1] = { ...nodes[1], layer: 0, y0: 5, y1: 105 }
 
-        const result = resolveCardOverlaps(nodes, 720)
+        const tops = resolveCardOverlaps(nodes, 720)
 
-        expect(result[0].resolvedTop).not.toBeUndefined()
-        expect(result[1].resolvedTop).not.toBeUndefined()
-        expect(result[1].resolvedTop!).toBeGreaterThan(result[0].resolvedTop!)
+        expect(tops.get(1)).not.toBeUndefined()
+        expect(tops.get(1)!).toBeGreaterThan(tops.get(0)!)
         // Gap should be at least CARD_HEIGHT + OVERLAP_GAP
-        expect(result[1].resolvedTop! - result[0].resolvedTop!).toBeGreaterThanOrEqual(42) // 38 + 4
+        expect(tops.get(1)! - tops.get(0)!).toBeGreaterThanOrEqual(42) // 38 + 4
     })
 
     it('does not adjust cards in different layers', () => {
         const { nodes } = buildPathGraph(['/', '/about'])
-        nodes[0] = { ...nodes[0], layer: 0, y0: 0, y1: 100, visible: true }
-        nodes[1] = { ...nodes[1], layer: 1, y0: 5, y1: 105, visible: true }
+        nodes[0] = { ...nodes[0], layer: 0, y0: 0, y1: 100 }
+        nodes[1] = { ...nodes[1], layer: 1, y0: 5, y1: 105 }
 
-        const result = resolveCardOverlaps(nodes, 720)
+        const tops = resolveCardOverlaps(nodes, 720)
 
         // Each card gets its own layer group — no nudging needed
-        expect(result[0].resolvedTop).not.toBeUndefined()
-        expect(result[1].resolvedTop).not.toBeUndefined()
+        expect(tops.get(0)).toBe(calculatePathNodeCardTop(nodes[0], 720))
+        expect(tops.get(1)).toBe(calculatePathNodeCardTop(nodes[1], 720))
     })
 
-    it('leaves hidden nodes without resolvedTop', () => {
+    it('keeps the cards that only hover reveals out of the layout', () => {
         const { nodes } = buildPathGraph(['/', '/about'])
-        nodes[0] = { ...nodes[0], visible: true }
-        nodes[1] = { ...nodes[1], visible: false }
+        // A short node has no card until it is hovered, and sits above the card of a tall one
+        nodes[0] = { ...nodes[0], layer: 0, y0: 20, y1: 120 }
+        nodes[1] = { ...nodes[1], layer: 0, y0: 0, y1: 15 }
 
-        const result = resolveCardOverlaps(nodes, 720)
+        const tops = resolveCardOverlaps(nodes, 720)
 
-        expect(result[0].resolvedTop).not.toBeUndefined()
-        expect(result[1].resolvedTop).toBeUndefined()
+        expect(tops.has(1)).toBe(false)
+        // The revealed card must not push the always-visible card down, or the pointer
+        // slides off the card it is hovering and the hover flickers
+        expect(tops.get(0)).toBe(calculatePathNodeCardTop(nodes[0], 720))
     })
 })
