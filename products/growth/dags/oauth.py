@@ -7,35 +7,38 @@ from django.db.models import Model, Q, QuerySet
 from django.utils import timezone
 
 import dagster
+from oauth2_provider.settings import oauth2_settings
 
 from posthog.dags.common import JobOwners
 from posthog.models.oauth import OAuthAccessToken, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 
-def batch_delete_model(queryset: QuerySet, query: Q, context: dagster.OpExecutionContext, token_type: str) -> int:
+def batch_delete_model(queryset: QuerySet, context: dagster.OpExecutionContext, token_type: str) -> int:
     """Delete tokens in batches to avoid locking up the tables."""
-    CLEAR_EXPIRED_TOKENS_BATCH_SIZE = getattr(settings, "CLEAR_EXPIRED_TOKENS_BATCH_SIZE", 1000)
-    CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL = getattr(settings, "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL", 0.1)
+    # Both settings live in the OAUTH2_PROVIDER dict, so a top-level lookup never finds them.
+    batch_size = oauth2_settings.CLEAR_EXPIRED_TOKENS_BATCH_SIZE
+    batch_interval = oauth2_settings.CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL
 
-    current_no = start_no = queryset.count()
-    context.log.info(f"Starting deletion of {start_no} {token_type}")
+    context.log.info(f"Starting deletion of {token_type}")
 
-    while current_no:
-        flat_queryset = queryset.values_list("id", flat=True)[:CLEAR_EXPIRED_TOKENS_BATCH_SIZE]
-        batch_length = flat_queryset.count()
-
-        if batch_length == 0:
+    deleted = 0
+    while True:
+        # Each pass is an unindexed anti-join, so it costs a scan. Read the ids once and count
+        # them in Python: a count over the same queryset scans again for a number we already have.
+        batch_ids = list(queryset.values_list("id", flat=True)[:batch_size])
+        if not batch_ids:
             break
 
-        cast(Any, queryset.model).objects.filter(id__in=list(flat_queryset)).delete()
-        context.log.debug(f"{batch_length} {token_type} deleted, {current_no - batch_length} left")
+        cast(Any, queryset.model).objects.filter(id__in=batch_ids).delete()
+        deleted += len(batch_ids)
+        context.log.debug(f"{len(batch_ids)} {token_type} deleted, {deleted} in total")
 
-        queryset = cast(Any, queryset.model).objects.filter(query)
-        time.sleep(CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL)
-        current_no = queryset.count()
+        # A short batch is the last batch, so stop without a scan that returns nothing.
+        if len(batch_ids) < batch_size:
+            break
 
-    stop_no = cast(Any, queryset.model).objects.filter(query).count()
-    deleted = start_no - stop_no
+        time.sleep(batch_interval)
+
     return deleted
 
 
@@ -47,7 +50,7 @@ def clear_expired_tokens_by_type(
 
     for query_name, query in queries.items():
         queryset = cast(Any, model).objects.filter(query)
-        deleted_count = batch_delete_model(queryset, query, context, f"{model.__name__} {query_name}")
+        deleted_count = batch_delete_model(queryset, context, f"{model.__name__} {query_name}")
         results[query_name] = deleted_count
         context.log.info(f"{deleted_count} {model.__name__} {query_name} deleted")
 
