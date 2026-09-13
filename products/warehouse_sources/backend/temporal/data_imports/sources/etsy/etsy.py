@@ -120,7 +120,9 @@ class EtsyClient:
             response = self._send(path, params)
 
         if response.status_code >= 300:
-            self._logger.error(f"Etsy API error: status={response.status_code}, path={path}")
+            self._logger.error(
+                f"Etsy API error: status={response.status_code}, path={path}, body={response.text[:500]}"
+            )
             response.raise_for_status()
             raise EtsyAPIError(f"Unexpected Etsy redirect response: status={response.status_code}, path={path}")
 

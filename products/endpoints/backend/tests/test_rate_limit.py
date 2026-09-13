@@ -169,7 +169,7 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
         [
             (DataModelingJob.Status.COMPLETED, DataModelingJob.Engine.CLICKHOUSE, True),
             (DataModelingJob.Status.FAILED, DataModelingJob.Engine.CLICKHOUSE, False),
-            (DataModelingJob.Status.COMPLETED, DataModelingJob.Engine.DUCKGRES, False),
+            (DataModelingJob.Status.COMPLETED, DataModelingJob.Engine.LEGACY_DUCKGRES, False),
         ]
     )
     def test_readiness_derives_from_newest_clickhouse_job(self, job_status, engine, expected_ready):

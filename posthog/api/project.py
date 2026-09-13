@@ -2015,7 +2015,6 @@ class ProjectViewSet(
             project.organization_id = target_organization.id
             project.save()
 
-            # Record the arrival for the receiving organization.
             log_activity(
                 organization_id=cast(UUIDT, target_organization_id),
                 team_id=project.pk,
@@ -2027,8 +2026,8 @@ class ProjectViewSet(
                 detail=Detail(name="moved to another organization", changes=[project_change]),
             )
 
-            # Record the departure for the losing organization. Its members can no longer reach the
-            # project, so this org-scoped entry is their only readable record of who moved it and where.
+            # Record departure for the losing organization. Its members can no longer reach this
+            # project, so an org-scoped audit entry is their only readable record.
             log_activity(
                 organization_id=current_organization.id,
                 team_id=None,
@@ -2037,7 +2036,6 @@ class ProjectViewSet(
                 scope="Project",
                 item_id=project.pk,
                 activity="updated",
-                # Name the project itself; the losing org can no longer resolve it any other way.
                 detail=Detail(name=str(project.name), changes=[project_change]),
             )
 
@@ -2045,7 +2043,6 @@ class ProjectViewSet(
                 team.organization_id = target_organization.id
                 team.save()
 
-                # One departure entry per environment, so the losing org sees which ones left.
                 log_activity(
                     organization_id=current_organization.id,
                     team_id=None,

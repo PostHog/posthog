@@ -31,6 +31,8 @@ Nothing here requires a parameter-group change or a reboot.
   `ALTER EXTENSION pg_stat_statements UPDATE` there after a major upgrade. The
   collector reads the columns the installed version has and emits one
   `pgss_stale` event (plus a warning log) until the extension catches up.
+  Below 1.8 (the PG13 definition) `query_stats` and `aurora_plans` collect
+  nothing until the extension is updated.
 * `pg_proctab` — optional. Not installed anywhere today; `CREATE EXTENSION
   pg_proctab` in the maintenance database enables `system_cpu`,
   `system_memory`, `system_disk`, `backend_cpu`. Until then those four log one

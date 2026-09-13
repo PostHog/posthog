@@ -1314,6 +1314,9 @@ expose = [
     "backend\\.constants.*",
     "backend\\.models.*",
     "backend\\.temporal.*",
+    # Other products register LearningEvidenceProvider here. BK never imports them.
+    "backend\\.learning\\.contracts.*",
+    "backend\\.learning\\.providers.*",
 ]
 from = [
     "products.business_knowledge",
