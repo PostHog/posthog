@@ -272,7 +272,8 @@ export function SQLEditor({
                                         <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
                                             <div className="flex h-full min-h-0 flex-col overflow-hidden">
                                                 {showSceneTitle ? <SQLEditorSceneTitle /> : null}
-                                                <div className="flex min-h-0 flex-1">
+                                                <div className="relative flex min-h-0 flex-1">
+                                                    <InsightLoadingOverlay />
                                                     {showDatabaseTreePanel && (
                                                         <DatabaseTree
                                                             databaseTreeRef={databaseTreeRef}
@@ -337,6 +338,18 @@ function ViewLoadingOverlay(): JSX.Element | null {
     }
     return (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-primary/70">
+            <Spinner className="text-2xl" />
+        </div>
+    )
+}
+
+function InsightLoadingOverlay(): JSX.Element | null {
+    const { insightLoading } = useValues(sqlEditorLogic)
+    if (!insightLoading) {
+        return null
+    }
+    return (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-primary">
             <Spinner className="text-2xl" />
         </div>
     )

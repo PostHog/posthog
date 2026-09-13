@@ -3598,14 +3598,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.setInsightLoading(true)
                     let insight: QueryBasedInsightModel | null
                     try {
-                        insight = await insightsApi.getByShortId(shortId, undefined, 'async')
-                    } catch {
+                        insight = await insightsApi.getByShortId(shortId, true)
+                    } catch (error) {
                         actions.setInsightLoading(false)
-                        lemonToast.error('Insight not found')
+                        lemonToast.error(
+                            error instanceof ApiError && error.status === 404
+                                ? 'Insight not found'
+                                : error instanceof ApiError && error.detail
+                                  ? error.detail
+                                  : "Couldn't load the insight. Refresh the page and try again."
+                        )
                         return
                     }
-                    actions.setInsightLoading(false)
                     if (!insight) {
+                        actions.setInsightLoading(false)
                         lemonToast.error('Insight not found')
                         return
                     }
@@ -3619,6 +3625,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         actions.setSourceQuery(applyFiltersFromUrl(insightVisualizationQuery))
                     }
                     actions.editInsight(queryToOpen, insight, biEditorStateFromUrl ?? undefined)
+                    actions.setInsightLoading(false)
                     if (!outputTabFromUrl) {
                         actions.setActiveTab(OutputTab.Visualization)
                     }
