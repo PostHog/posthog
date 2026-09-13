@@ -540,8 +540,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         data["inputs_schema"] = data.get("inputs_schema", instance.inputs_schema if instance else [])
         if "inputs" not in data:
             data["inputs"] = instance.inputs if instance else {}
-        elif instance and not self.context.get("inputs_are_complete"):
-            data["inputs"] = _merge_stored_inputs(data["inputs"], instance.inputs)
+        elif instance and self.partial:
+            # Only a partial update merges. A nested serializer validating a whole configuration, such
+            # as the one an invocation test sends, replaces the inputs it carries.
+            base = self.context.get("inputs_merge_base", instance.inputs)
+            data["inputs"] = _merge_stored_inputs(data["inputs"], base)
 
         # Always ensure filters is initialized as an empty object if it's null
         data["filters"] = data.get("filters", instance.filters if instance else {}) or {}
@@ -1034,6 +1037,18 @@ class HogFunctionViewSet(
     filterset_class = HogFunctionFilterSet
     log_source = "hog_function"
     app_source = "hog_function"
+
+    def get_serializer(self, *args: Any, **kwargs: Any) -> BaseSerializer:
+        serializer = super().get_serializer(*args, **kwargs)
+        # A draft-routed edit builds on the staged config, not on the live row. Merging onto the live
+        # inputs would revert an input an earlier edit staged, because `_write_draft` then replaces
+        # the draft's whole `inputs` object with this edit's.
+        if self.action in ("update", "partial_update") and self._should_route_to_draft(serializer):
+            instance = cast(HogFunction, serializer.instance)
+            draft_inputs = (instance.draft or {}).get("inputs")
+            if isinstance(draft_inputs, dict):
+                serializer.context["inputs_merge_base"] = {**(instance.inputs or {}), **draft_inputs}
+        return serializer
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # Rerun re-executes stored invocations — it replays up to 30 days of
@@ -1565,13 +1580,13 @@ class HogFunctionViewSet(
             }
             # The draft goes back through the normal serializer so publish revalidates strictly and
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
-            # A draft is a full config snapshot, so its `inputs` replace the live ones outright. A
-            # partial update merges instead, and merging here would restore an input the draft drops.
+            # A draft is a full config snapshot, so its `inputs` replace the live ones outright. An
+            # empty merge base does that: merging here would restore an input the draft drops.
             serializer = self.get_serializer(
                 locked,
                 data=dict(locked.draft),
                 partial=True,
-                context={**self.get_serializer_context(), "inputs_are_complete": True},
+                context={**self.get_serializer_context(), "inputs_merge_base": {}},
             )
             serializer.is_valid(raise_exception=True)
             serializer.save()

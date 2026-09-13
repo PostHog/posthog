@@ -228,6 +228,21 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert inputs.get("headers") is None
         assert inputs["url"]["value"] == "https://example.com/live"
 
+    def test_a_later_input_edit_keeps_an_earlier_staged_input(self):
+        function_id = self._create(
+            inputs_schema=[
+                {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
+                {"key": "headers", "type": "dictionary", "label": "Headers", "required": False},
+            ],
+            inputs={"url": {"value": "https://example.com/live"}, "headers": {"value": {"X-Live": "1"}}},
+        )
+        self._stage(function_id, {"inputs": {"url": {"value": "https://example.com/staged"}}})
+
+        draft = self._stage(function_id, {"inputs": {"headers": {"value": {"X-Staged": "1"}}}})["draft"]
+
+        assert draft["inputs"]["url"]["value"] == "https://example.com/staged"
+        assert draft["inputs"]["headers"]["value"] == {"X-Staged": "1"}
+
     @parameterized.expand(
         [
             ("no_token", {"confirm": True}, status.HTTP_400_BAD_REQUEST),
@@ -419,6 +434,23 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert response.status_code == status.HTTP_200_OK, response.json()
         configuration = mock_invoke.call_args.kwargs["payload"]["configuration"]
         assert configuration["inputs"]["token"]["value"] == "live-token"
+
+    def test_invocations_use_draft_omits_an_input_the_draft_clears(self):
+        function_id = self._create(
+            inputs_schema=[
+                {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
+                {"key": "headers", "type": "dictionary", "label": "Headers", "required": False},
+            ],
+            inputs={"url": {"value": "https://example.com/live"}, "headers": {"value": {"X-Live": "1"}}},
+        )
+        self._stage(function_id, {"inputs": {"headers": {}}})
+
+        response, mock_invoke = self._test_invoke(function_id, {"use_draft": True})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        configuration = mock_invoke.call_args.kwargs["payload"]["configuration"]
+        # The test has to exercise what publish would ship, so a live input the draft drops stays out.
+        assert "headers" not in configuration["inputs"]
 
     def test_invocations_use_draft_without_a_draft_is_rejected(self):
         function_id = self._create()
