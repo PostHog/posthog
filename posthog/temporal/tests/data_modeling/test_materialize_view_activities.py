@@ -22,6 +22,7 @@ from posthog.hogql.resolver import ResolverFactory
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseError
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
     FailMaterializationInputs,
@@ -38,6 +39,7 @@ from posthog.temporal.data_modeling.activities import (
 )
 from posthog.temporal.data_modeling.activities.materialize_view import (
     LOGGER,
+    DuplicateOutputColumnError,
     EmptyHogQLResponseColumnsError,
     InvalidNodeTypeException,
     get_aws_storage_options,
@@ -1718,6 +1720,44 @@ class TestHogqlTableDescribeSettings:
         ]
         assert "globalIn(" in client.describe_calls[1][0]
         assert batches[0][1] == [("distinct_id", "String")]
+
+
+class TestHogqlTableDuplicateOutputColumns:
+    @pytest.mark.parametrize(
+        ("describe_body", "expected_duplicates"),
+        [
+            pytest.param(b"event\tDateTime\nevent\tDateTime\n", ["event"], id="type-the-wrapper-converts"),
+            pytest.param(b"event\tString\nevent\tString\n", ["event"], id="type-the-wrapper-leaves-alone"),
+            # Delta refuses these at the write, so the scan they would cost is wasted either way
+            pytest.param(b"event\tString\nEvent\tString\n", ["event", "Event"], id="names-differing-only-by-case"),
+        ],
+    )
+    async def test_a_repeated_output_name_is_refused_before_the_query_runs(
+        self, ateam: Team, describe_body: bytes, expected_duplicates: list[str]
+    ) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("event", pa.string())]))
+        client.describe_body = describe_body
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        # selecting a column on top of an asterisk that already includes it, which the resolver
+        # allows through where an explicit `x AS a, y AS a` is refused as a redefined alias
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+            ),
+            pytest.raises(DuplicateOutputColumnError) as error,
+        ):
+            _ = [batch async for batch in hogql_table("SELECT *, event FROM events", ateam, LOGGER.bind())]
+
+        assert error.value.duplicates == expected_duplicates
+        for name in expected_duplicates:
+            assert f'"{name}"' in str(error.value)
+        assert client.arrow_query_calls == 0
+        # a broken saved query is the customer's to fix, so the refusal must not reach error tracking
+        assert isinstance(error.value, NonReportableError)
 
 
 class _SlowDescribeClient(_EmptyArrowClient):
