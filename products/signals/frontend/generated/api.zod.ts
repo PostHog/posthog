@@ -376,7 +376,7 @@ export const SignalsReportChecksCreateBody = /* @__PURE__ */ zod
                     .describe('The value observed when the check was written, recorded on each result for context.'),
             })
             .describe(
-                'A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.'
+                'A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived.'
             )
             .describe('What the check measures and what the result must satisfy; the shape depends on `kind`.'),
         next_run_at: zod.iso

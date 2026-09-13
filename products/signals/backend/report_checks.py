@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from products.signals.backend.report_metrics import validate_live_metric_query, validate_metric_id
 
@@ -47,6 +47,8 @@ MAX_CONSECUTIVE_CHECK_ERRORS = 3
 
 
 class CheckThresholdBounds(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     lower: float
     upper: float
 
@@ -64,6 +66,8 @@ class CheckComparison(BaseModel):
     would need a second comparison engine for a distinction a soak window does not make, so they are
     not offered: "stays at or below 10 a day" is the same expectation.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     operator: CheckOperator = Field(description="`lte`, `gte`, or `between`.")
     value: float | None = Field(
@@ -103,7 +107,12 @@ class MetricThresholdConfig(BaseModel):
     The number comes either from a metric the report already shows (``metric_id``) or from a query
     the author supplies. Both end up in the same runner, so a supplied query must satisfy the live
     metric contract — the node allowlist, the bounded window, and the single-output-series rule.
+
+    Unknown keys are refused rather than ignored, so a misspelled field name is reported instead of
+    being dropped in silence and stored as it arrived.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     metric_id: str | None = Field(
         default=None,

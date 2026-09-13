@@ -89,6 +89,21 @@ class TestCheckComparison(SimpleTestCase):
                 {"query": _PAGEVIEWS, "metric_id": "errors", "comparison": {"operator": "lte", "value": 1}},
             ),
             ("empty_metric_id", {"metric_id": "", "comparison": {"operator": "lte", "value": 1}}),
+            (
+                "unknown_config_key",
+                {"query": _PAGEVIEWS, "comparison": {"operator": "lte", "value": 1}, "baselineValue": 3},
+            ),
+            (
+                "unknown_comparison_key",
+                {"query": _PAGEVIEWS, "comparison": {"operator": "lte", "value": 1, "tolerance": 2}},
+            ),
+            (
+                "unknown_bounds_key",
+                {
+                    "query": _PAGEVIEWS,
+                    "comparison": {"operator": "between", "bounds": {"lower": 1, "upper": 5, "step": 1}},
+                },
+            ),
             ("uppercase_metric_id", {"metric_id": "Checkout_Errors", "comparison": {"operator": "lte", "value": 1}}),
             (
                 "unbounded_query",

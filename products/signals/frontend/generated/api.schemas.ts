@@ -2309,6 +2309,9 @@ export type MetricThresholdConfigApiQuery = { [key: string]: unknown } | null
  * The number comes either from a metric the report already shows (``metric_id``) or from a query
  * the author supplies. Both end up in the same runner, so a supplied query must satisfy the live
  * metric contract — the node allowlist, the bounded window, and the single-output-series rule.
+ *
+ * Unknown keys are refused rather than ignored, so a misspelled field name is reported instead of
+ * being dropped in silence and stored as it arrived.
  */
 export interface MetricThresholdConfigApi {
     /** Identifier of a metric on the report whose query this check measures. */
