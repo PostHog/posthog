@@ -127,6 +127,11 @@ class FunnelResultsFormatter:
         if not isinstance(results, list) or len(results) == 0:
             return "No data recorded for this time period."
 
+        # The query can declare the trends viz type but return results of another shape.
+        first_series = results[0]
+        if not isinstance(first_series, dict) or not first_series.get("days") or not first_series.get("data"):
+            return "No data recorded for this time period."
+
         results = cast(list[dict[str, Any]], results)
         return self._format_trends_series(results)
 
