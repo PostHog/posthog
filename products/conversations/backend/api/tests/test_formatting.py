@@ -26,6 +26,12 @@ def _list_item(*content: dict) -> dict:
     return {"type": "listItem", "content": list(content)}
 
 
+_IMAGE_ONLY_CONTEXT_BLOCK = {
+    "type": "context",
+    "elements": [{"type": "image", "image_url": "https://example.com/i.png", "alt_text": "logo"}],
+}
+
+
 class TestSlackFormatting(SimpleTestCase):
     @parameterized.expand(
         [
@@ -145,6 +151,127 @@ class TestSlackFormatting(SimpleTestCase):
         assert {"type": "italic"} in link_text_node["marks"]
         assert {"type": "underline"} in link_text_node["marks"]
         assert {"type": "link", "attrs": {"href": "https://posthog.com"}} in link_text_node["marks"]
+
+    @parameterized.expand(
+        [
+            (
+                "section_mrkdwn",
+                [{"type": "section", "text": {"type": "mrkdwn", "text": "*What we saw.* HTTP 429 on `/query/`"}}],
+                "**What we saw.** HTTP 429 on `/query/`",
+            ),
+            (
+                "sections_separated_by_divider",
+                [
+                    {"type": "section", "text": {"type": "mrkdwn", "text": "First"}},
+                    {"type": "divider"},
+                    {"type": "section", "text": {"type": "mrkdwn", "text": "Second"}},
+                ],
+                "First\n\nSecond",
+            ),
+            (
+                "section_newlines_become_line_breaks",
+                [{"type": "section", "text": {"type": "mrkdwn", "text": "one\ntwo"}}],
+                "one  \ntwo",
+            ),
+            (
+                "section_fields",
+                [
+                    {
+                        "type": "section",
+                        "fields": [{"type": "mrkdwn", "text": "*Q1*"}, {"type": "mrkdwn", "text": "*Q2*"}],
+                    }
+                ],
+                "**Q1**\n\n**Q2**",
+            ),
+            (
+                "header_plain_text_is_escaped_and_bolded",
+                [{"type": "header", "text": {"type": "plain_text", "text": "Q1. What changed"}}],
+                "**Q1\\. What changed**",
+            ),
+            (
+                "context_elements_keep_text_and_skip_images",
+                [
+                    {
+                        "type": "context",
+                        "elements": [
+                            {"type": "image", "image_url": "https://example.com/i.png", "alt_text": "logo"},
+                            {"type": "mrkdwn", "text": "sent by our tooling"},
+                        ],
+                    }
+                ],
+                "sent by our tooling",
+            ),
+            (
+                "rich_text_and_section_both_survive",
+                [
+                    {
+                        "type": "rich_text",
+                        "elements": [
+                            {"type": "rich_text_section", "elements": [{"type": "text", "text": "typed intro"}]}
+                        ],
+                    },
+                    {"type": "section", "text": {"type": "mrkdwn", "text": "generated detail"}},
+                ],
+                "typed intro\n\ngenerated detail",
+            ),
+        ]
+    )
+    def test_block_kit_body_is_kept_instead_of_the_notification_fallback(
+        self, _name: str, blocks: list[dict], expected: str
+    ) -> None:
+        content, rich_content = slack_to_content_and_rich_content("short notification summary", blocks)
+        assert content == expected
+        assert rich_content is None
+
+    def test_block_kit_blocks_with_no_text_leave_the_notification_summary_in_place(self) -> None:
+        blocks = [_IMAGE_ONLY_CONTEXT_BLOCK]
+
+        content, rich_content = slack_to_content_and_rich_content("short notification summary", blocks)
+
+        assert content == "short notification summary"
+        assert rich_content is None
+
+    def test_textless_block_kit_block_leaves_rich_text_styling_intact(self) -> None:
+        blocks = [
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [{"type": "text", "text": "underlined", "style": {"underline": True}}],
+                    }
+                ],
+            },
+            _IMAGE_ONLY_CONTEXT_BLOCK,
+        ]
+
+        content, rich_content = slack_to_content_and_rich_content("fallback", blocks)
+
+        assert content == "underlined"
+        # Underline has no markdown form, so routing this message through the markdown walk
+        # would drop the mark and the reader has nothing left to render it from.
+        assert rich_content is not None
+        assert {"type": "underline"} in rich_content["content"][0]["content"][0]["marks"]
+
+    @parameterized.expand(
+        [
+            ("section", [{"type": "section", "text": {"type": "mrkdwn", "text": "   "}}]),
+            ("header", [{"type": "header", "text": {"type": "plain_text", "text": "   "}}]),
+        ]
+    )
+    def test_whitespace_only_block_leaves_the_notification_summary_in_place(
+        self, _name: str, blocks: list[dict]
+    ) -> None:
+        content, _ = slack_to_content_and_rich_content("short notification summary", blocks)
+
+        assert content == "short notification summary"
+
+    def test_section_block_mention_resolves_to_a_display_name(self) -> None:
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "ping <@U123ABC> please"}}]
+
+        content, _ = slack_to_content_and_rich_content("fallback", blocks, user_names={"U123ABC": "Alice"})
+
+        assert content == "ping @Alice please"
 
     def test_outbound_rich_content_emits_blocks_and_text_fallback(self) -> None:
         rich_content = {
@@ -499,6 +626,22 @@ class TestSlackFormatting(SimpleTestCase):
                     }
                 ],
                 {"U111AAA"},
+            ),
+            (
+                "section_and_context_block_mentions",
+                "",
+                [
+                    {"type": "section", "text": {"type": "mrkdwn", "text": "cc <@U444DDD>"}},
+                    {"type": "section", "fields": [{"type": "mrkdwn", "text": "owner <@U555EEE>"}]},
+                    {"type": "context", "elements": [{"type": "mrkdwn", "text": "raised by <@U666FFF>"}]},
+                ],
+                {"U444DDD", "U555EEE", "U666FFF"},
+            ),
+            (
+                "plain_text_mentions_are_not_collected",
+                "",
+                [{"type": "header", "text": {"type": "plain_text", "text": "cc <@U777GGG>"}}],
+                set(),
             ),
         ]
     )
