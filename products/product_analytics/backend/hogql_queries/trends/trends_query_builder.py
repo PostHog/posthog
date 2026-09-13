@@ -427,9 +427,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         day_start = ast.Alias(
             alias="day_start",
-            expr=ast.Call(
-                name=f"toStartOf{self.query_date_range.interval_name.title()}", args=[ast.Field(chain=["timestamp"])]
-            ),
+            expr=ast.Call(name=f"toStartOf{self.query_date_range.interval_name.title()}", args=[self._timestamp_expr]),
         )
 
         if self._trends_display.is_total_value():
@@ -806,17 +804,21 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         # Dates
         if not self._aggregation_operation.requires_query_orchestration():
-            date_range_placeholders = self.query_date_range.to_placeholders()
+            date_range_placeholders = {
+                **self.query_date_range.to_placeholders(),
+                "timestamp": self._timestamp_expr,
+            }
             filters.extend(
                 [
                     parse_expr(
-                        "timestamp >= {date_from_with_adjusted_start_of_interval}", placeholders=date_range_placeholders
+                        "{timestamp} >= {date_from_with_adjusted_start_of_interval}",
+                        placeholders=date_range_placeholders,
                     ),
-                    parse_expr("timestamp <= {date_to}", placeholders=date_range_placeholders),
+                    parse_expr("{timestamp} <= {date_to}", placeholders=date_range_placeholders),
                 ]
             )
 
-        day_of_week_filter = self.query_date_range.day_of_week_filter_expr(ast.Field(chain=["timestamp"]))
+        day_of_week_filter = self.query_date_range.day_of_week_filter_expr(self._timestamp_expr)
         if day_of_week_filter is not None:
             filters.append(day_of_week_filter)
 

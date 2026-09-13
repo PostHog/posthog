@@ -214,6 +214,16 @@ class ExpressionField(DatabaseField):
     isolate_scope: Optional[bool] = None
 
 
+def data_warehouse_timestamp_alias(timestamp_field: str) -> str:
+    """Name of the hidden field that holds one data warehouse timestamp mapping.
+
+    A table has a single virtual `timestamp` field, so a query whose series map one table on two
+    different columns keeps only the mapping applied last. Every mapping also gets this alias, so a
+    series can read the column it declared.
+    """
+    return f"__timestamp_{timestamp_field}"
+
+
 class FieldTraverser(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
