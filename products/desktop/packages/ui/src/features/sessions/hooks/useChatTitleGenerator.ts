@@ -61,7 +61,7 @@ export function useChatTitleGenerator(task: Task): void {
     if (!taskRunId) return 0;
     const session = state.sessions[taskRunId];
     if (!session?.events) return 0;
-    return countUserPrompts(taskRunId, session.events);
+    return countUserPrompts(session.events);
   });
 
   useEffect(() => {

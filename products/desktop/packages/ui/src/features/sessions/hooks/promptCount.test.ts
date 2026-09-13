@@ -1,6 +1,21 @@
 import type { AcpMessage } from "@posthog/shared";
-import { beforeEach, describe, expect, it } from "vitest";
-import { countUserPrompts, resetPromptCountsForTests } from "./promptCount";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { countUserPrompts } from "./promptCount";
+
+const scanned = vi.hoisted(() => ({ count: 0 }));
+
+vi.mock("@posthog/core/sessions/sessionEvents", async () => {
+  const actual = await vi.importActual<
+    typeof import("@posthog/core/sessions/sessionEvents")
+  >("@posthog/core/sessions/sessionEvents");
+  return {
+    ...actual,
+    extractUserPromptsFromEvents: (events: AcpMessage[]) => {
+      scanned.count += events.length;
+      return actual.extractUserPromptsFromEvents(events);
+    },
+  };
+});
 
 function prompt(text: string): AcpMessage {
   return {
@@ -34,26 +49,49 @@ function chunk(text: string): AcpMessage {
 
 describe("countUserPrompts", () => {
   beforeEach(() => {
-    resetPromptCountsForTests();
+    scanned.count = 0;
   });
 
   it("counts appended prompts without rescanning and rescans a replaced transcript", () => {
     const first = [prompt("one"), chunk("a")];
-    expect(countUserPrompts("run", first)).toBe(1);
+    expect(countUserPrompts(first)).toBe(1);
 
+    scanned.count = 0;
     const appended = [...first, chunk("b"), prompt("two")];
-    expect(countUserPrompts("run", appended)).toBe(2);
+    expect(countUserPrompts(appended)).toBe(2);
+    expect(scanned.count).toBe(2);
 
     const replaced = [prompt("x"), prompt("y"), prompt("z")];
-    expect(countUserPrompts("run", replaced)).toBe(3);
+    expect(countUserPrompts(replaced)).toBe(3);
 
     const shortened = replaced.slice(0, 1);
-    expect(countUserPrompts("run", shortened)).toBe(1);
+    expect(countUserPrompts(shortened)).toBe(1);
   });
 
-  it("keeps runs apart", () => {
-    expect(countUserPrompts("a", [prompt("one")])).toBe(1);
-    expect(countUserPrompts("b", [])).toBe(0);
-    expect(countUserPrompts("a", [prompt("one"), prompt("two")])).toBe(2);
+  it("rebuilds when a middle segment is replaced between unchanged ends", () => {
+    const head = prompt("one");
+    const tail = chunk("tail");
+    expect(countUserPrompts([head, prompt("two"), chunk("a"), tail])).toBe(2);
+
+    const reconciled = [head, chunk("b"), chunk("c"), tail];
+    expect(countUserPrompts(reconciled)).toBe(1);
+  });
+
+  it("scans a transcript once when it arrives after an empty one", () => {
+    expect(countUserPrompts([])).toBe(0);
+
+    const loaded = [prompt("one"), chunk("a")];
+    expect(countUserPrompts(loaded)).toBe(1);
+    expect(scanned.count).toBe(2);
+
+    scanned.count = 0;
+    expect(countUserPrompts([...loaded, prompt("two")])).toBe(2);
+    expect(scanned.count).toBe(1);
+  });
+
+  it("keeps transcripts apart", () => {
+    expect(countUserPrompts([prompt("one")])).toBe(1);
+    expect(countUserPrompts(undefined)).toBe(0);
+    expect(countUserPrompts([prompt("a"), prompt("b")])).toBe(2);
   });
 });
