@@ -59,7 +59,6 @@ from . import (
     search,
     sharing,
     tagged_item,
-    team,
     uploaded_media,
     user,
     user_facet_settings,
@@ -77,6 +76,7 @@ from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
 from .organization_notification_locks import OrganizationNotificationLockViewSet
 from .session import SessionViewSet
+from .team import viewsets
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -94,7 +94,7 @@ routers.set_root(router)
 
 # Nested endpoints shared
 projects_router = routers.add("projects", router.register(r"projects", project.RootProjectViewSet, "projects"))
-projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
+projects_router.register(r"environments", viewsets.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
 
 projects_router.register(r"sdk_health", SdkHealthViewSet, "project_sdk_health", ["project_id"])
 projects_router.register(

@@ -1,6 +1,6 @@
 from typing import Any
 
-from posthog.api.team import CachingTeamSerializer
+from posthog.api.team.team_config import CachingTeamSerializer
 from posthog.models.team import Team
 from posthog.models.team.team_caching import get_team_in_cache, set_team_in_cache
 
