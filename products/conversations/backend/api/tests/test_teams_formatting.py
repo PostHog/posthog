@@ -2,6 +2,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.test.regex_timeout import assert_regex_completes
+
 from products.conversations.backend.teams_formatting import (
     append_teams_attribution,
     build_teams_reply_html,
@@ -11,6 +13,31 @@ from products.conversations.backend.teams_formatting import (
 
 
 class TestTeamsHtmlToContentAndRichContent(SimpleTestCase):
+    def test_preserves_isolated_surrogates(self):
+        plain, _ = teams_html_to_content_and_rich_content("<at>Bot</at><b>hello\ud800</b>")
+        self.assertEqual(plain, "hello\ud800")
+
+    @parameterized.expand([("unclosed_tag", "<"), ("unclosed_mention", "<at>")])
+    def test_unterminated_tags_finish(self, _name: str, fragment: str) -> None:
+        def check() -> None:
+            text, _ = teams_html_to_content_and_rich_content(fragment * 100_000)
+            assert text == (fragment * 100_000 if fragment == "<" else "")
+
+        assert_regex_completes(check)
+
+    @parameterized.expand(
+        [
+            ("upper_case_mention", "before <AT id='1'>Bot</AT> after", "before after"),
+            ("mention_newline", "<at>first\nsecond</at>", "first\nsecond"),
+            ("unicode_spaces", "one\u00a0\u2003two", "one two"),
+            ("unicode_between_tags", "🐗<b>café</b>🦔", "🐗café🦔"),
+            ("nested_opener", "before <<b>bold</b>", "before bold"),
+            ("empty_brackets", "before <> after", "before <> after"),
+        ]
+    )
+    def test_html_cleanup_compatibility(self, _name: str, html: str, expected: str) -> None:
+        assert teams_html_to_content_and_rich_content(html)[0] == expected
+
     def test_empty_string_returns_empty(self):
         text, rich = teams_html_to_content_and_rich_content("")
         assert text == ""

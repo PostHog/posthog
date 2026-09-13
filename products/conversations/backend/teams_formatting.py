@@ -4,25 +4,41 @@ import re
 import html as html_mod
 from typing import Any
 
+import re2
+
 JSON = dict[str, Any]
 
 # Teams sends HTML content -- strip <at> tags and common formatting
-_RE_AT_MENTION = re.compile(r"<at[^>]*>.*?</at>", re.IGNORECASE)
-_RE_HTML_TAG = re.compile(r"<[^>]+>")
+# External message HTML must not backtrack over unmatched tag openers.
+_RE_AT_MENTION = re2.compile(r"(?i)<at[^>]*>.*?</at>")
+_RE_HTML_TAG = re2.compile(r"<[^>]+>")
 _RE_MULTI_NEWLINES = re.compile(r"\n{2,}")
 _RE_HORIZONTAL_WHITESPACE = re.compile(r"[^\S\n]+")
 
 
+def _remove_html_matches(pattern: Any, source: str) -> str:
+    # RE2 cannot encode isolated surrogates. A same-length substitute has the
+    # same role in these HTML patterns; slice the original to preserve content.
+    matching_source = source.encode("utf-8", errors="replace").decode("utf-8")
+    parts = []
+    start = 0
+    for match in pattern.finditer(matching_source):
+        parts.append(source[start : match.start()])
+        start = match.end()
+    parts.append(source[start:])
+    return "".join(parts)
+
+
 def _strip_at_mentions(html_text: str) -> str:
     """Remove <at>...</at> mention tags from Teams HTML, leaving plain text."""
-    return _RE_AT_MENTION.sub("", html_text)
+    return _remove_html_matches(_RE_AT_MENTION, html_text)
 
 
 def _html_to_plain(html_text: str) -> str:
     """Basic HTML -> plain text: strip tags, unescape entities, normalize whitespace."""
     text = html_text.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
     text = text.replace("</p>", "\n").replace("</div>", "\n")
-    text = _RE_HTML_TAG.sub("", text)
+    text = _remove_html_matches(_RE_HTML_TAG, text)
     text = html_mod.unescape(text)
     text = _RE_HORIZONTAL_WHITESPACE.sub(" ", text)
     text = _RE_MULTI_NEWLINES.sub("\n", text)
