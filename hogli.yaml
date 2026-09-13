@@ -586,17 +586,17 @@ build:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
     build:skills:
-        cmd: python products/posthog_ai/scripts/build_skills.py
+        cmd: python -m products.posthog_ai.scripts.build_skills
         description: Build agent skills from products/*/skills/ into dist/skills/ and
             dist/skills.zip
     init:skill:
-        cmd: python products/posthog_ai/scripts/build_skills.py --init
+        cmd: python -m products.posthog_ai.scripts.build_skills --init
         description: Scaffold a new agent skill directory with SKILL.md boilerplate
     sync:skill:
-        cmd: python products/posthog_ai/scripts/build_skills.py --sync
+        cmd: python -m products.posthog_ai.scripts.build_skills --sync
         description: Build a product skill and sync to .agents/skills/ for local testing
     unsync:skill:
-        cmd: python products/posthog_ai/scripts/build_skills.py --sync --clean
+        cmd: python -m products.posthog_ai.scripts.build_skills --sync --clean
         description: Remove a previously synced skill from .agents/skills/
 docker:
     docker:services:up:
@@ -837,7 +837,7 @@ quality:
         cmd: ./bin/ruff.sh format
         description: Format Python files
     lint:skills:
-        cmd: python products/posthog_ai/scripts/build_skills.py --lint
+        cmd: python -m products.posthog_ai.scripts.build_skills --lint
         description: Validate agent skill sources (syntax, frontmatter, depth constraints)
     lint:python:fix:
         cmd: ./bin/ruff.sh check --fix

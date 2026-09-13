@@ -347,7 +347,7 @@ To add a new template function:
 ## Build pipeline
 
 The pipeline discovers, renders, and packages skills.
-Source of truth: [`products/posthog_ai/scripts/build_skills.py`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/scripts/build_skills.py).
+Source of truth: [`products/posthog_ai/scripts/build_skills/`](https://github.com/PostHog/posthog/tree/master/products/posthog_ai/scripts/build_skills/).
 
 ### Pipeline steps
 
@@ -411,7 +411,7 @@ This repo is not the only source of shipped skills.
 [`PostHog/context-mill`](https://github.com/PostHog/context-mill) assembles the "omnibus" skills
 from posthog.com docs and publishes them as `skills-mcp-resources.zip`:
 `instrument-integration`, `instrument-product-analytics`, `instrument-feature-flags`,
-`instrument-error-tracking`, `instrument-llm-analytics`, and `instrument-logs`.
+`instrument-error-tracking`, `instrument-llm-analytics`, `instrument-logs`, and `instrument-metrics`.
 These are the skills behind PostHog Desktop's setup buttons and the wizard.
 
 Every consumer below unzips `dist/skills.zip` first and then unzips context-mill on top,
