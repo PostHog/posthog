@@ -307,6 +307,7 @@ def test_build_dependent_resource_threads_resume_state(mock_rest_api_resources) 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 def test_build_dependent_resource_rejects_params_in_endpoint_extras(mock_rest_api_resources, extra_kwarg) -> None:
     mock_rest_api_resources.return_value = [_stub_child_resource()]
+    endpoint_extra: dict[str, Any] = {extra_kwarg: {"params": {"limit": 1}}}
 
     with pytest.raises(ValueError, match=f"Do not pass 'params' in {extra_kwarg}"):
         build_dependent_resource(
@@ -323,7 +324,7 @@ def test_build_dependent_resource_rejects_params_in_endpoint_extras(mock_rest_ap
             team_id=1,
             job_id="job-1",
             db_incremental_field_last_value=None,
-            **{extra_kwarg: {"params": {"limit": 1}}},
+            **endpoint_extra,
         )
 
 
