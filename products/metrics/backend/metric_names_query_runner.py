@@ -24,22 +24,13 @@ from collections.abc import Sequence
 from typing import Any
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
-from products.metrics.backend.search import ilike_pattern
-
-# Autocomplete tolerates partial results, so reads break at the budget instead
-# of erroring the way the chart queries do. Mirrors MetricAttributeKeysQueryRunner.
-_QUERY_SETTINGS = HogQLGlobalSettings(
-    max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
-    read_overflow_mode="break",
-)
+from products.metrics.backend.search import AUTOCOMPLETE_QUERY_SETTINGS, ilike_pattern
 
 # Both `metric_series` and `metrics` expire at the same `original_expiry_timestamp`,
 # which ingest sets to the team's retention (90 days by default).
@@ -166,7 +157,7 @@ class MetricNamesQueryRunner:
             query=self._build_query(),
             team=self.team,
             workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
-            settings=_QUERY_SETTINGS,
+            settings=AUTOCOMPLETE_QUERY_SETTINGS,
         )
 
         return [
@@ -178,6 +169,7 @@ class MetricNamesQueryRunner:
             }
             for row in response.results
         ]
+
 
 def metric_names(
     team: Team, *, search: str = "", limit: int = 100, services: Sequence[str] = ()

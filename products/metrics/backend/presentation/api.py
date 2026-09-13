@@ -474,6 +474,8 @@ class _MetricNameSerializer(serializers.Serializer):
     last_seen = serializers.DateTimeField(
         required=False, allow_null=True, help_text="When the newest datapoint for this metric arrived, ISO 8601."
     )
+
+
 class _MetricNamesResponseSerializer(serializers.Serializer):
     results = _MetricNameSerializer(many=True, help_text="Distinct metric names ordered by recent activity.")
 

@@ -11,15 +11,13 @@ import datetime as dt
 from typing import Any
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
-from products.metrics.backend.search import ilike_pattern
+from products.metrics.backend.search import AUTOCOMPLETE_QUERY_SETTINGS, ilike_pattern
 
 # The OTel service name is a first-class column on `metric_attributes` (extracted
 # at ingest), never an attribute row — both spellings resolve to it, mirroring
@@ -34,13 +32,6 @@ _TIME_BUCKET_INTERVAL = dt.timedelta(hours=1)
 # Without an explicit window, suggest from recent data only — same lookback the
 # metric names picker uses.
 _DEFAULT_LOOKBACK = dt.timedelta(days=7)
-
-# Autocomplete tolerates partial results, so reads break at the budget instead
-# of erroring the way the chart queries do.
-_QUERY_SETTINGS = HogQLGlobalSettings(
-    max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
-    read_overflow_mode="break",
-)
 
 
 def _resolve_window(date_from: dt.datetime | None, date_to: dt.datetime | None) -> tuple[dt.datetime, dt.datetime]:
@@ -107,7 +98,7 @@ class MetricAttributeKeysQueryRunner:
             query=query,
             team=self.team,
             workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
-            settings=_QUERY_SETTINGS,
+            settings=AUTOCOMPLETE_QUERY_SETTINGS,
         )
 
         keys = [row[0] for row in response.results]
@@ -189,7 +180,7 @@ class MetricAttributeValuesQueryRunner:
             query=query,
             team=self.team,
             workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
-            settings=_QUERY_SETTINGS,
+            settings=AUTOCOMPLETE_QUERY_SETTINGS,
         )
 
         return [{"id": row[0], "name": row[0], "count": int(row[1])} for row in response.results]
