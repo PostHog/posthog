@@ -55,7 +55,7 @@ from posthog.api.team import (
     validate_secret_token_generation,
     validate_team_attrs,
 )
-from posthog.api.utils import validate_authorized_url_wildcards
+from posthog.api.utils import set_user_current_team, validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -1149,9 +1149,7 @@ class ProjectBackwardCompatSerializer(
             team_fields=team_fields,
         )
 
-        request.user.current_team = team
-        request.user.team = request.user.current_team  # Update cached property
-        request.user.save()
+        set_user_current_team(request.user, team)
 
         log_activity(
             organization_id=project.organization_id,

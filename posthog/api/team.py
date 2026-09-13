@@ -43,7 +43,7 @@ from posthog.schema import (
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
-from posthog.api.utils import action, validate_authorized_url_wildcards
+from posthog.api.utils import action, set_user_current_team, validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
 from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS, AvailableFeature
 from posthog.decorators import disallow_if_impersonated
@@ -1965,9 +1965,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             **validated_data,
         )
 
-        request.user.current_team = team
-        request.user.team = request.user.current_team  # Update cached property
-        request.user.save()
+        set_user_current_team(request.user, team)
 
         log_activity(
             organization_id=team.organization_id,

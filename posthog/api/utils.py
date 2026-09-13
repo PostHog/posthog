@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 from django.core.exceptions import RequestDataTooBig
+from django.db import DatabaseError
 from django.db.models import QuerySet
 from django.http import HttpRequest
 
@@ -36,7 +37,7 @@ from posthog.exceptions import (
 )
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_property
-from posthog.models import Entity, User
+from posthog.models import Entity, Team, User
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
@@ -182,6 +183,24 @@ def format_paginated_url(request: request.Request, offset: int, page_size: int, 
     else:
         result = request.build_absolute_uri("{}{}offset={}".format(result, "&" if "?" in result else "?", new_offset))
     return result
+
+
+def set_user_current_team(user: User, team: Team) -> None:
+    """Point a user at a team that was just created for them.
+
+    The write is narrowed to the one column that changes. A full ``User.save()`` reads the
+    before-state row and rewrites every column to move one foreign key.
+
+    The team is already committed when this runs, so a failure here must not turn a successful
+    creation into an error response. The caller would then hold a resource it never heard about.
+    """
+    user.current_team = team
+    user.team = team  # Update cached property
+    try:
+        user.save(update_fields=["current_team"])
+    except DatabaseError:
+        capture_exception()
+        logger.warning("failed_to_set_user_current_team", user_id=user.pk, team_id=team.pk)
 
 
 def is_csp_report(request) -> bool:
