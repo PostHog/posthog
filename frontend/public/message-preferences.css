@@ -331,6 +331,15 @@
     [hidden]:where(:not([hidden='until-found'])) {
         display: none !important;
     }
+    *,
+    :after,
+    :before,
+    ::backdrop {
+        border-color: var(--color-gray-200, currentcolor);
+    }
+    ::file-selector-button {
+        border-color: var(--color-gray-200, currentcolor);
+    }
 }
 @layer components;
 @layer utilities {

@@ -24,3 +24,16 @@
  * satisfy classes these templates never reference. */
 @import 'tailwindcss' source(none);
 @source '../../../posthog/templates/message_preferences';
+
+/* The toggle knobs in preferences.html set `border-4` with no border color. Tailwind 4 draws an
+ * uncolored border in currentColor, which is black on these pages, so this sets gray-200 as the
+ * default border color that the templates are designed around. */
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-gray-200, currentcolor);
+    }
+}
