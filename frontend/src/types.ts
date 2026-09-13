@@ -772,6 +772,11 @@ export interface ConversationsSettings {
     slack_notify_on_leave?: boolean
     slack_alert_channel_id?: string | null
     slack_nudge_enabled?: boolean
+    pattern_detection_enabled?: boolean
+    pattern_min_requesters?: number
+    pattern_min_tickets?: number
+    pattern_window_minutes?: number
+    pattern_notify_role_id?: string | null
     /** Bot scopes Slack granted at install. Absent for installs authorized before we recorded them. */
     slack_scopes?: string[] | null
     email_enabled?: boolean

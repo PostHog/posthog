@@ -61538,6 +61538,53 @@ export namespace Schemas {
     }
 
     /**
+     * * `mute` - Mute
+     * * `watch` - Watch
+     */
+    export type TicketTopicOverrideKindEnum = typeof TicketTopicOverrideKindEnum[keyof typeof TicketTopicOverrideKindEnum];
+
+
+    export const TicketTopicOverrideKindEnum = {
+      Mute: 'mute',
+      Watch: 'watch',
+    } as const;
+
+    export interface TicketTopicOverride {
+      /** Override UUID. */
+      readonly id: string;
+      /** mute: never open a pattern for this topic. watch: open one at the lowest bar.
+       *
+       * * `mute` - Mute
+       * * `watch` - Watch */
+      kind: TicketTopicOverrideKindEnum;
+      /**
+         * One or two words, matched after the same normalization detection applies to ticket text: lowercase, stemmed, stopwords removed. 'Login failures' and 'login failure' are the same topic.
+         * @maxLength 200
+         */
+      topic: string;
+      /**
+         * Why this override exists, for the next person who sees it.
+         * @maxLength 500
+         */
+      notes?: string;
+      /** A disabled override is kept but has no effect. */
+      enabled?: boolean;
+      /** Who added the override. */
+      readonly created_by: UserBasic | null;
+      /** When the override was added. */
+      readonly created_at: string;
+    }
+
+    export interface PaginatedTicketTopicOverrideList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TicketTopicOverride[];
+    }
+
+    /**
      * * `widget` - widget
      * * `email` - email
      * * `slack` - slack
@@ -70832,6 +70879,32 @@ export namespace Schemas {
       message?: string;
       /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
       rich_content?: unknown;
+    }
+
+    export interface PatchedTicketTopicOverride {
+      /** Override UUID. */
+      readonly id?: string;
+      /** mute: never open a pattern for this topic. watch: open one at the lowest bar.
+       *
+       * * `mute` - Mute
+       * * `watch` - Watch */
+      kind?: TicketTopicOverrideKindEnum;
+      /**
+         * One or two words, matched after the same normalization detection applies to ticket text: lowercase, stemmed, stopwords removed. 'Login failures' and 'login failure' are the same topic.
+         * @maxLength 200
+         */
+      topic?: string;
+      /**
+         * Why this override exists, for the next person who sees it.
+         * @maxLength 500
+         */
+      notes?: string;
+      /** A disabled override is kept but has no effect. */
+      enabled?: boolean;
+      /** Who added the override. */
+      readonly created_by?: UserBasic | null;
+      /** When the override was added. */
+      readonly created_at?: string;
     }
 
     /**
@@ -96072,6 +96145,17 @@ export namespace Schemas {
     };
 
     export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ConversationsPatternOverridesListParams = {
     /**
      * Number of results to return per page.
      */

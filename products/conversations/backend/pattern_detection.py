@@ -33,6 +33,8 @@ from products.conversations.backend.models import (
     TicketPatternSource,
     TicketPatternStatus,
     TicketTopicBaseline,
+    TicketTopicOverride,
+    TicketTopicOverrideKind,
 )
 
 DEFAULT_MIN_REQUESTERS = 5
@@ -301,18 +303,34 @@ def find_candidates(
     texts: Iterable[TicketText],
     settings: PatternSettings,
     baselines: Mapping[str, TicketTopicBaseline],
+    overrides: Mapping[str, str] | None = None,
 ) -> list[TopicCandidate]:
+    overrides = overrides or {}
+    muted = {topic for topic, kind in overrides.items() if kind == TicketTopicOverrideKind.MUTE}
     by_topic: dict[str, list[TicketText]] = defaultdict(list)
     for item in texts:
-        for topic in topics_for(item.text):
+        topics = topics_for(item.text)
+        # A mute means "this kind of ticket is not an incident", so the whole ticket leaves the
+        # pool. Dropping only the muted term would let the same burst open under its other words.
+        if topics & muted:
+            continue
+        for topic in topics:
             by_topic[topic].append(item)
 
     qualifying: list[TopicCandidate] = []
     for topic, items in by_topic.items():
+        override = overrides.get(topic)
         if len(items) < settings.min_tickets:
             continue
         requesters = {i.requester for i in items if i.requester is not None}
-        if len(requesters) < required_requesters(settings, baselines.get(topic), len(items)):
+        # A watched topic skips the learned bar and opens at the floor; the person has already said
+        # this is worth a look at the first credible sign.
+        bar = (
+            MIN_REQUESTERS_FLOOR
+            if override == TicketTopicOverrideKind.WATCH
+            else required_requesters(settings, baselines.get(topic), len(items))
+        )
+        if len(requesters) < bar:
             continue
         qualifying.append(
             TopicCandidate(
@@ -471,11 +489,16 @@ def auto_resolve_quiet_patterns(
     return resolved
 
 
+def load_overrides(team: Team) -> dict[str, str]:
+    return dict(TicketTopicOverride.objects.for_team(team.id).filter(enabled=True).values_list("topic", "kind"))
+
+
 def run_detection(team: Team, *, now: datetime) -> DetectionOutcome:
     settings = PatternSettings.from_team(team)
     texts = load_ticket_texts(team, since=now - timedelta(minutes=settings.window_minutes), until=now)
     baselines = {b.topic: b for b in TicketTopicBaseline.objects.for_team(team.id)} if texts else {}
-    candidates = find_candidates(texts, settings, baselines)
+    overrides = load_overrides(team) if texts else {}
+    candidates = find_candidates(texts, settings, baselines, overrides)
 
     opened: list[UUID] = []
     updated: list[UUID] = []

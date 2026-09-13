@@ -22,6 +22,7 @@ from products.conversations.backend.models import (
     TicketPatternEvidence,
     TicketPatternStatus,
     TicketTopicBaseline,
+    TicketTopicOverride,
 )
 from products.conversations.backend.pattern_detection import (
     DEFAULT_MIN_REQUESTERS,
@@ -467,6 +468,28 @@ class TestRunDetection(BaseTest):
 
         assert outcome.opened == ()
         assert load_ticket_texts(self.team, since=self.now - timedelta(hours=1), until=self.now) == []
+
+    @parameterized.expand(
+        [
+            # Five requesters clears the default bar; a mute must still open nothing.
+            ("mute_suppresses_a_real_burst", "mute", 5, 0),
+            # Three requesters is under the default bar of five; a watch opens at the floor of three.
+            ("watch_opens_below_the_default_bar", "watch", 3, 1),
+            ("a_disabled_override_changes_nothing", None, 3, 0),
+        ]
+    )
+    def test_overrides_steer_the_bar(self, _name, kind, requesters, expected):
+        if kind:
+            TicketTopicOverride.objects.for_team(self.team.id).create(team=self.team, kind=kind, topic="login")
+        else:
+            TicketTopicOverride.objects.for_team(self.team.id).create(
+                team=self.team, kind="watch", topic="login", enabled=False
+            )
+        self._burst("Cannot login to the dashboard", requesters=requesters, tickets=5)
+
+        outcome = run_detection(self.team, now=self.now)
+
+        assert len(outcome.opened) == expected
 
     @parameterized.expand(
         [

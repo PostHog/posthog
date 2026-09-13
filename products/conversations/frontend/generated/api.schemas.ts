@@ -8,44 +8,15 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `terms` - Term match
- * * `embeddings` - Embeddings
+ * * `mute` - Mute
+ * * `watch` - Watch
  */
-export type TicketPatternSourceEnumApi = (typeof TicketPatternSourceEnumApi)[keyof typeof TicketPatternSourceEnumApi]
+export type TicketTopicOverrideKindEnumApi =
+    (typeof TicketTopicOverrideKindEnumApi)[keyof typeof TicketTopicOverrideKindEnumApi]
 
-export const TicketPatternSourceEnumApi = {
-    Terms: 'terms',
-    Embeddings: 'embeddings',
-} as const
-
-/**
- * * `open` - Open
- * * `confirmed` - Confirmed
- * * `dismissed` - Dismissed
- * * `resolved` - Resolved
- */
-export type TicketPatternStatusEnumApi = (typeof TicketPatternStatusEnumApi)[keyof typeof TicketPatternStatusEnumApi]
-
-export const TicketPatternStatusEnumApi = {
-    Open: 'open',
-    Confirmed: 'confirmed',
-    Dismissed: 'dismissed',
-    Resolved: 'resolved',
-} as const
-
-/**
- * * `low` - Low
- * * `medium` - Medium
- * * `high` - High
- * * `critical` - Critical
- */
-export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
-
-export const TicketPriorityEnumApi = {
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Critical: 'critical',
+export const TicketTopicOverrideKindEnumApi = {
+    Mute: 'mute',
+    Watch: 'watch',
 } as const
 
 /**
@@ -104,6 +75,108 @@ export interface UserBasicApi {
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
+
+export interface TicketTopicOverrideApi {
+    /** Override UUID. */
+    readonly id: string
+    /** mute: never open a pattern for this topic. watch: open one at the lowest bar.
+     *
+     * * `mute` - Mute
+     * * `watch` - Watch */
+    kind: TicketTopicOverrideKindEnumApi
+    /**
+     * One or two words, matched after the same normalization detection applies to ticket text: lowercase, stemmed, stopwords removed. 'Login failures' and 'login failure' are the same topic.
+     * @maxLength 200
+     */
+    topic: string
+    /**
+     * Why this override exists, for the next person who sees it.
+     * @maxLength 500
+     */
+    notes?: string
+    /** A disabled override is kept but has no effect. */
+    enabled?: boolean
+    /** Who added the override. */
+    readonly created_by: UserBasicApi | null
+    /** When the override was added. */
+    readonly created_at: string
+}
+
+export interface PaginatedTicketTopicOverrideListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TicketTopicOverrideApi[]
+}
+
+export interface PatchedTicketTopicOverrideApi {
+    /** Override UUID. */
+    readonly id?: string
+    /** mute: never open a pattern for this topic. watch: open one at the lowest bar.
+     *
+     * * `mute` - Mute
+     * * `watch` - Watch */
+    kind?: TicketTopicOverrideKindEnumApi
+    /**
+     * One or two words, matched after the same normalization detection applies to ticket text: lowercase, stemmed, stopwords removed. 'Login failures' and 'login failure' are the same topic.
+     * @maxLength 200
+     */
+    topic?: string
+    /**
+     * Why this override exists, for the next person who sees it.
+     * @maxLength 500
+     */
+    notes?: string
+    /** A disabled override is kept but has no effect. */
+    enabled?: boolean
+    /** Who added the override. */
+    readonly created_by?: UserBasicApi | null
+    /** When the override was added. */
+    readonly created_at?: string
+}
+
+/**
+ * * `terms` - Term match
+ * * `embeddings` - Embeddings
+ */
+export type TicketPatternSourceEnumApi = (typeof TicketPatternSourceEnumApi)[keyof typeof TicketPatternSourceEnumApi]
+
+export const TicketPatternSourceEnumApi = {
+    Terms: 'terms',
+    Embeddings: 'embeddings',
+} as const
+
+/**
+ * * `open` - Open
+ * * `confirmed` - Confirmed
+ * * `dismissed` - Dismissed
+ * * `resolved` - Resolved
+ */
+export type TicketPatternStatusEnumApi = (typeof TicketPatternStatusEnumApi)[keyof typeof TicketPatternStatusEnumApi]
+
+export const TicketPatternStatusEnumApi = {
+    Open: 'open',
+    Confirmed: 'confirmed',
+    Dismissed: 'dismissed',
+    Resolved: 'resolved',
+} as const
+
+/**
+ * * `low` - Low
+ * * `medium` - Medium
+ * * `high` - High
+ * * `critical` - Critical
+ */
+export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
+
+export const TicketPriorityEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
 
 /**
  * * `widget` - Widget
@@ -1055,6 +1128,17 @@ export interface ZendeskImportJobApi {
 export interface ZendeskImportErrorApi {
     /** Human-readable error message. */
     detail: string
+}
+
+export type ConversationsPatternOverridesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type ConversationsPatternsListParams = {
