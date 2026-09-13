@@ -10,6 +10,7 @@ from structlog import get_logger
 from posthog.celery_queues import CeleryQueue
 from posthog.scoping_audit import skip_team_scope_audit
 
+from products.data_modeling.backend.facade.api import HasDependentsError, delete_node_from_dag
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus
 from products.endpoints.backend.logic.ducklake_shadow import run_ducklake_shadow_comparison
 from products.endpoints.backend.logic.materialization import EndpointMaterializationService
@@ -182,6 +183,20 @@ def _deactivate_version_materialization(version: EndpointVersion) -> None:
     # materialization before this version's turn. Re-read the link first: pausing a version
     # the customer just disabled would mark it for a wake they never asked for.
     if not EndpointVersion.objects.filter(pk=version.pk, saved_query_id=saved_query.pk).exists():
+        return
+
+    # Pausing soft-deletes the backing view, so leave a version another model reads alone —
+    # the user-facing delete refuses for the same reason. Dropping the node here also stops a
+    # later wake from adding a second one beside it.
+    try:
+        delete_node_from_dag(saved_query)
+    except HasDependentsError:
+        logger.info(
+            "hibernate_skipped_materialization_with_dependents",
+            endpoint_name=version.endpoint.name,
+            version=version.version,
+            team_id=version.endpoint.team_id,
+        )
         return
 
     logger.info(

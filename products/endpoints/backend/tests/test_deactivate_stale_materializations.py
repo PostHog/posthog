@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Edge, Node
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tasks.tasks import (
     STALE_THRESHOLD_DAYS,
@@ -198,6 +198,32 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         assert version.saved_query is None
         assert version.materialization_hibernated_at is None
         notify.assert_not_called()
+
+    def test_keeps_materialization_another_model_reads(self):
+        now = timezone.now()
+        endpoint, version = self._create_materialized_endpoint(
+            "feeds_a_model",
+            last_run_at=now - timedelta(hours=1),
+            last_executed_at=None,
+            materialization_created_at=now - timedelta(days=45),
+        )
+        EndpointVersion.objects.filter(pk=version.pk).update(created_at=now - timedelta(days=45))
+
+        dag = DAG.get_or_create_default(self.team)
+        source = Node.objects.create(team=self.team, dag=dag, saved_query=version.saved_query)
+        dependent = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="downstream_model",
+            query=self.sample_hogql_query,
+        )
+        target = Node.objects.create(team=self.team, dag=dag, saved_query=dependent)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=target)
+
+        deactivate_stale_materializations()
+
+        version.refresh_from_db()
+        assert version.saved_query is not None
+        assert version.materialization_hibernated_at is None
 
     def test_skips_endpoints_not_materialized_recently(self):
         now = timezone.now()
