@@ -87,7 +87,7 @@ export function MaterializationRunActions({
                                   unique_key: incrementalDraft.uniqueKey,
                                   lookback_seconds: incrementalDraft.lookbackSeconds,
                               }
-                            : undefined
+                            : null
                     )
                 }
             >

@@ -195,9 +195,9 @@ export interface dataWarehouseViewsLogicActions {
     materializeDataWarehouseSavedQuery: (
         viewId: string,
         syncFrequency?: DataModelingSyncInterval,
-        incremental?: DataWarehouseSavedQueryIncremental
+        incremental?: DataWarehouseSavedQueryIncremental | null
     ) => {
-        incremental: DataWarehouseSavedQueryIncremental | undefined
+        incremental: DataWarehouseSavedQueryIncremental | null | undefined
         syncFrequency: DataModelingSyncInterval | undefined
         viewId: string
     }
@@ -399,7 +399,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         materializeDataWarehouseSavedQuery: (
             viewId: string,
             syncFrequency?: DataModelingSyncInterval,
-            incremental?: DataWarehouseSavedQueryIncremental
+            incremental?: DataWarehouseSavedQueryIncremental | null
         ) => ({
             viewId,
             syncFrequency,
@@ -415,9 +415,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             {
                 materializeDataWarehouseSavedQuery: async ({ viewId, syncFrequency, incremental }) => {
                     const requestedFrequency = syncFrequency ?? DEFAULT_MATERIALIZE_SYNC_FREQUENCY
-                    if (incremental) {
-                        // Persist the config first so the materialization run picks it up. Same shape as the
+                    if (incremental !== undefined) {
+                        // Write the config first so the materialization run picks it up. Same shape as the
                         // save-as-view flow, which creates the view with the config before materializing.
+                        // Null clears a config left behind by an earlier materialization, so choosing
+                        // full refresh is not overridden by the stored settings at the next run.
                         try {
                             await api.dataWarehouseSavedQueries.update(viewId, { incremental })
                         } catch (error: any) {
