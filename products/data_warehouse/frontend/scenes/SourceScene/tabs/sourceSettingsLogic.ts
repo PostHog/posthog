@@ -1200,7 +1200,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             // Only the jobs poll loop reaches here, so this marks the loop as live — a resume must
             // not start jobs polling on a tab that never asked for jobs.
             cache.jobsPollActive = true
-            if (values.pollPauseCount > 0 || values.jobsLoading) {
+            // No `jobsLoading` guard here: `loadMoreJobs` shares that flag and schedules nothing
+            // when it finishes, so skipping on it would end the jobs poll for the rest of the visit.
+            if (values.pollPauseCount > 0) {
                 return
             }
             cache.disposables.add(() => {
