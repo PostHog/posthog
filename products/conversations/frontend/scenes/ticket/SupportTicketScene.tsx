@@ -43,6 +43,7 @@ import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { useDiscussionTimelineExtras } from './ThreadDiscussions'
 import { reportTimelineExtras } from './ThreadReports'
 import { TicketActivityPanel } from './TicketActivityPanel'
+import { TicketPatternPanel } from './TicketPatternPanel'
 
 // The list's filters / saved view ride along in the ticket page's query string
 // (the ticket row carries them through on navigation). Rebuild the list URL from
@@ -579,6 +580,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </AccessControlAction>
                         </div>
                     </LemonCard>
+
+                    {ticket && <TicketPatternPanel ticketId={ticket.id} />}
 
                     {/* Related Groups Panel */}
                     {(person?.uuid || ticket?.organization_id) && (

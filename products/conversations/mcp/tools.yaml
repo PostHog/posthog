@@ -9,6 +9,18 @@ feature: conversations
 url_prefix: /support/tickets
 ui_apps: {}
 tools:
+    conversations-patterns-confirm-create:
+        operation: conversations_patterns_confirm_create
+        enabled: false
+    conversations-patterns-dismiss-create:
+        operation: conversations_patterns_dismiss_create
+        enabled: false
+    conversations-patterns-list:
+        operation: conversations_patterns_list
+        enabled: false
+    conversations-patterns-retrieve:
+        operation: conversations_patterns_retrieve
+        enabled: false
     conversations-tickets-ai-feedback-create:
         operation: conversations_tickets_ai_feedback_create
         enabled: false
