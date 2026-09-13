@@ -13,6 +13,7 @@ from posthog.sync import database_sync_to_async
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
 from ee.hogai.chat_agent.slash_commands.commands.usage.queries import (
     format_usage_message,
+    get_ai_credits_by_product,
     get_ai_credits_for_conversation,
     get_ai_credits_for_team,
     get_ai_free_tier_credits,
@@ -63,6 +64,16 @@ class UsageCommand(SlashCommand):
                 else 0
             )
 
+            period_credits_by_product = (
+                await sync_to_async(get_ai_credits_by_product, thread_sensitive=False)(
+                    team_id=self._team.id,
+                    begin=usage_period.query_start,
+                    end=usage_period.end,
+                )
+                if period_credits
+                else []
+            )
+
             free_tier_credits = get_ai_free_tier_credits(self._team.id)
 
             usage_message = format_usage_message(
@@ -71,6 +82,7 @@ class UsageCommand(SlashCommand):
                 free_tier_credits=free_tier_credits,
                 conversation_start=conversation_start,
                 usage_period=usage_period,
+                period_credits_by_product=period_credits_by_product,
             )
 
             return PartialAssistantState(messages=[AssistantMessage(content=usage_message, id=str(uuid4()))])
