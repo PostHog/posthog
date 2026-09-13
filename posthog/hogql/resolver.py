@@ -90,6 +90,9 @@ _UUID_GUARDED_COMPARE_OPS = (
     ast.CompareOperationOp.GlobalNotIn,
 )
 
+_PERSON_UPDATE_PROPERTY_KEYS = frozenset({"$set", "$set_once"})
+_RAW_PERSON_UPDATE_PROPERTY_KEYS = _PERSON_UPDATE_PROPERTY_KEYS | {"$unset"}
+
 
 def _canonical_uuid(value: str) -> str | None:
     """The canonical dashed-hex form ClickHouse can parse, or None if the value isn't a UUID at all.
@@ -255,7 +258,11 @@ def resolve_types(
         resolver = Resolver(scopes=scopes, context=context, dialect=dialect)
     else:
         resolver = resolver_factory(context, dialect, scopes)
-    return resolver.visit(node)
+    resolved = resolver.visit(node)
+    if dialect == "clickhouse":
+        # Validate completed paths so an intermediate $set in bracket access can still be rewritten.
+        PersonUpdatePayloadValidator(context).visit(resolved)
+    return resolved
 
 
 def _select_type_columns(
@@ -366,6 +373,103 @@ class FieldCollector(TraversingVisitor):
     def visit_field(self, node: ast.Field):
         self.fields.append(node)
         return node
+
+
+class PersonUpdatePayloadValidator(TraversingVisitor):
+    def __init__(self, context: HogQLContext) -> None:
+        self.context = context
+        self.aliases: list[dict[str, ast.Expr]] = []
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        aliases = {name: cte.expr for name, cte in (node.ctes or {}).items() if cte.cte_type == "column"}
+        aliases.update({expr.alias: expr.expr for expr in node.select or [] if isinstance(expr, ast.Alias)})
+        self.aliases.append(aliases)
+        super().visit_select_query(node)
+        self.aliases.pop()
+
+    def _is_event_properties(self, field_type: ast.Type | None) -> bool:
+        if isinstance(field_type, ast.FieldAliasType):
+            return self._is_event_properties(field_type.type)
+        if not isinstance(field_type, ast.FieldType):
+            return False
+        table_type = field_type.table_type
+        if isinstance(table_type, (ast.SelectQueryAliasType, ast.SelectViewType, ast.CTETableType)):
+            table_type = table_type.select_query_type
+        elif isinstance(table_type, ast.CTETableAliasType):
+            table_type = table_type.cte_table_type.select_query_type
+        if isinstance(table_type, ast.SelectQueryType):
+            return self._is_event_properties(table_type.columns.get(field_type.name))
+        if isinstance(table_type, ast.SelectSetQueryType):
+            names = list(table_type.columns) or [name for name, _ in _select_type_columns(table_type)]
+            index = names.index(field_type.name)
+            return any(
+                self._is_event_properties(ast.FieldType(name=_select_type_columns(branch)[index][0], table_type=branch))
+                for branch in table_type.types
+            )
+        database_field = field_type.resolve_database_field(self.context)
+        return (
+            isinstance(table_type, ast.BaseTableType)
+            and isinstance(table_type.resolve_database_table(self.context), EventsTable)
+            and isinstance(database_field, StringJSONDatabaseField)
+            and database_field.name == "properties"
+        )
+
+    def _reject(self, key: str) -> None:
+        raise QueryError(
+            f"Reading the raw {key} event payload is not supported. "
+            "Read a nested $set or $set_once property directly on events, or use poe.properties for the person snapshot. "
+            "The snapshot cannot reconstruct update objects or which properties an event removed."
+        )
+
+    def visit_field(self, node: ast.Field) -> None:
+        field_type = node.type
+        while isinstance(field_type, ast.FieldAliasType):
+            field_type = field_type.type
+        if (
+            isinstance(field_type, ast.PropertyType)
+            and field_type.chain
+            and field_type.chain[0] in _RAW_PERSON_UPDATE_PROPERTY_KEYS
+            and self._is_event_properties(field_type.field_type)
+        ):
+            self._reject(str(field_type.chain[0]))
+
+    def _alias_expression(self, expr: ast.Expr) -> ast.Expr:
+        seen: set[int] = set()
+        while isinstance(expr, ast.Alias) or (
+            isinstance(expr, ast.Field) and isinstance(expr.type, ast.FieldAliasType)
+        ):
+            if id(expr) in seen:
+                raise QueryError("Cannot resolve a recursive expression alias.")
+            seen.add(id(expr))
+            if isinstance(expr, ast.Alias):
+                expr = expr.expr
+            else:
+                assert isinstance(expr.type, ast.FieldAliasType)
+                alias = expr.type.alias
+                target = next((aliases[alias] for aliases in reversed(self.aliases) if alias in aliases), None)
+                if target is None:
+                    break
+                expr = target
+        return expr
+
+    def visit_call(self, node: ast.Call) -> None:
+        super().visit_call(node)
+        if not node.name.startswith("JSON") or len(node.args) < 2:
+            return
+        source = self._alias_expression(node.args[0])
+        while isinstance(source, ast.TypeCast) or (
+            isinstance(source, ast.Call) and source.name in {"toString", "assumeNotNull", "materialize"}
+        ):
+            source = self._alias_expression(source.args[0] if isinstance(source, ast.Call) else source.expr)
+        path = self._alias_expression(node.args[1])
+        if self._is_event_properties(source.type) and isinstance(path, ast.Constant):
+            key = path.value
+            if isinstance(key, str):
+                if node.name == "JSON_VALUE":
+                    root_key = re2.match(r'^\$\.(?:"([^"]+)"|([^\.\[]+))', key)
+                    key = (root_key.group(1) or root_key.group(2)) if root_key else ""
+                if key in _RAW_PERSON_UPDATE_PROPERTY_KEYS:
+                    self._reject(key)
 
 
 class Resolver(CloningVisitor):
@@ -2471,6 +2575,7 @@ class Resolver(CloningVisitor):
             )
         elif isinstance(node.type, ast.PropertyType):
             property_alias = "__".join(str(s) for s in node.type.chain)
+            self._rewrite_event_person_update_property(node)
             return ast.Alias(
                 alias=property_alias,
                 expr=node,
@@ -2479,6 +2584,31 @@ class Resolver(CloningVisitor):
             )
 
         return node
+
+    def _rewrite_event_person_update_property(self, node: ast.Field) -> None:
+        if self.dialect != "clickhouse" or not isinstance(node.type, ast.PropertyType):
+            return
+
+        property_type = node.type
+        database_field = property_type.field_type.resolve_database_field(self.context)
+        if (
+            not self._is_events_table(node)
+            or not isinstance(database_field, StringJSONDatabaseField)
+            or database_field.name != "properties"
+            or len(property_type.chain) < 2
+            or property_type.chain[0] not in _PERSON_UPDATE_PROPERTY_KEYS
+        ):
+            return
+
+        table_type = property_type.field_type.table_type
+        if isinstance(table_type, ast.ColumnAliasedTableType):
+            table_type = ast.TableAliasType(alias=table_type.alias, table_type=table_type.table_type)
+        snapshot_field = table_type.get_child("poe", self.context).get_child("properties", self.context)
+        assert isinstance(snapshot_field, ast.FieldType)
+        node.type = ast.PropertyType(
+            chain=property_type.chain[1:],
+            field_type=snapshot_field,
+        )
 
     def visit_array_access(self, node: ast.ArrayAccess):
         node = super().visit_array_access(node)
@@ -2489,24 +2619,28 @@ class Resolver(CloningVisitor):
         array = node.array
         while isinstance(array, ast.Alias):
             array = array.expr
+        array_type = array.type
+        while isinstance(array_type, ast.FieldAliasType):
+            array_type = array_type.type
 
         if (
             isinstance(array, ast.Field)
             and isinstance(node.property, ast.Constant)
             and (isinstance(node.property.value, str) or isinstance(node.property.value, int))
             and (
-                (isinstance(array.type, ast.PropertyType))
+                (isinstance(array_type, ast.PropertyType))
                 or (
-                    isinstance(array.type, ast.FieldType)
+                    isinstance(array_type, ast.FieldType)
                     and isinstance(
-                        array.type.resolve_database_field(self.context),
+                        array_type.resolve_database_field(self.context),
                         StringJSONDatabaseField,
                     )
                 )
             )
         ):
             array.chain.append(node.property.value)
-            array.type = array.type.get_child(node.property.value, self.context)
+            array.type = array_type.get_child(node.property.value, self.context)
+            self._rewrite_event_person_update_property(array)
             return array
 
         node.type = infer_array_access_constant_type(
@@ -2523,16 +2657,20 @@ class Resolver(CloningVisitor):
         tuple = node.tuple
         while isinstance(tuple, ast.Alias):
             tuple = tuple.expr
+        tuple_type = tuple.type
+        while isinstance(tuple_type, ast.FieldAliasType):
+            tuple_type = tuple_type.type
 
         if isinstance(tuple, ast.Field) and (
-            (isinstance(tuple.type, ast.PropertyType))
+            (isinstance(tuple_type, ast.PropertyType))
             or (
-                isinstance(tuple.type, ast.FieldType)
-                and isinstance(tuple.type.resolve_database_field(self.context), StringJSONDatabaseField)
+                isinstance(tuple_type, ast.FieldType)
+                and isinstance(tuple_type.resolve_database_field(self.context), StringJSONDatabaseField)
             )
         ):
             tuple.chain.append(node.index)
-            tuple.type = tuple.type.get_child(node.index, self.context)
+            tuple.type = tuple_type.get_child(node.index, self.context)
+            self._rewrite_event_person_update_property(tuple)
             return tuple
 
         node.type = infer_tuple_access_constant_type(
