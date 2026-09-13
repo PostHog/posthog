@@ -406,7 +406,7 @@ function InsightCardInternal(
         }
 
         if (timedOut) {
-            return <InsightTimeoutState />
+            return <InsightTimeoutState query={insight.query} queryId={queryId} placement={placement} />
         }
 
         return null
