@@ -1,7 +1,9 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 
-@dataclass
+@frozen
 class BluetallyEndpointConfig:
     path: str
     # BlueTally IDs are globally unique integers per resource, so `id` alone is a safe key.
