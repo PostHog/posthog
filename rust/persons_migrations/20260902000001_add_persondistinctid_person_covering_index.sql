@@ -1,0 +1,48 @@
+-- no-transaction
+--
+-- Add a covering index on posthog_persondistinctid for the person to distinct
+-- id expansion. The validation shadow table gets the same index in
+-- 20260902000002.
+--
+-- get_distinct_ids_for_person(s) expands person ids into their live distinct
+-- ids. Per person it filters team_id and is_deleted, caps the scan at 2500
+-- rows, then orders and keeps the caller's limit. The only index that serves
+-- that filter is posthog_persondistinctid_person_id_5d655bba, which carries no
+-- payload, so every candidate row costs a random heap fetch.
+--
+-- (person_id, team_id, id) INCLUDE (distinct_id, version) holds every column
+-- the capped scan reads, so it runs as an index-only scan. The visibility map
+-- caveat in 20260901000003 applies here too: the heap-free win holds only
+-- while autovacuum keeps the touched pages all-visible.
+--
+-- Partial on is_deleted = false. Both the single and the batch lookup filter
+-- on it, so the planner proves the predicate from the query's own qual and
+-- needs no recheck, and tombstoned rows stay out of the index. The total
+-- posthog_persondistinctid_person_id_5d655bba index stays: a partial index
+-- cannot serve a reader that wants tombstones too.
+--
+-- CONCURRENTLY, alone in its own no-transaction file: a plain CREATE INDEX
+-- takes SHARE on the table, which conflicts with the ROW EXCLUSIVE every
+-- distinct id write needs, and the runner would hold it until the whole file
+-- commits.
+--
+-- Recovery note: an interrupted CONCURRENTLY build leaves the index INVALID
+-- and a rerun's IF NOT EXISTS will NOT rebuild it. The Django path repairs
+-- that state on every apply (posthog/migration_helpers/concurrent_index.py
+-- reads pg_index.indisvalid, then drops and rebuilds), and this file cannot.
+-- Both runners send a no-transaction file as one statement, which puts a
+-- guard and the build in the same implicit transaction, and CONCURRENTLY
+-- rejects that. A guard in an earlier file does not help either, because a
+-- runner records each file once and never re-runs it. Dropping IF NOT EXISTS
+-- would at least fail loudly, but it also fails on an index built out of band,
+-- which posthog_person shows happening on these tables. So the check stays
+-- manual:
+--   SELECT indisvalid FROM pg_index
+--    WHERE indexrelid = to_regclass('posthog_persondistinctid_person_live_covering_idx');
+-- On `f`, drop it first:
+--   DROP INDEX CONCURRENTLY posthog_persondistinctid_person_live_covering_idx;
+-- Then re-run migrations if this file is not yet recorded as applied, or run
+-- the statement below by hand if it is. 20260901000003 explains why.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS posthog_persondistinctid_person_live_covering_idx
+    ON posthog_persondistinctid (person_id, team_id, id) INCLUDE (distinct_id, version)
+    WHERE is_deleted = false;
