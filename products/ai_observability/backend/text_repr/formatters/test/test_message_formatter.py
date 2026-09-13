@@ -514,6 +514,29 @@ class TestEdgeCases:
         # Empty string should be treated as no input
         assert len(lines) == 0
 
+    @parameterized.expand(
+        [
+            ("dict", {"nested": "dict"}),
+            ("list", ["nested"]),
+        ]
+    )
+    def test_unhashable_block_type_does_not_stop_the_render(self, _name, block_type):
+        messages = [
+            {"role": "user", "content": [{"type": block_type, "text": "first"}]},
+            {"role": "assistant", "content": "second"},
+        ]
+        result = "\n".join(format_input_messages(messages))
+        assert "first" in result
+        assert "second" in result
+
+    def test_unhashable_item_type_does_not_stop_the_render(self):
+        messages = [
+            {"type": {"nested": "dict"}, "name": "search"},
+            {"role": "assistant", "content": "second"},
+        ]
+        result = "\n".join(format_input_messages(messages))
+        assert "second" in result
+
 
 class TestResponsesApiItems:
     @parameterized.expand(
