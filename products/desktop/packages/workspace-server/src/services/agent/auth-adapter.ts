@@ -14,7 +14,10 @@ import { inject, injectable } from "inversify";
 import type { AuthProxyService } from "../auth-proxy/auth-proxy";
 import { AUTH_PROXY_SERVICE } from "../auth-proxy/identifiers";
 import { MCP_PROXY_SERVICE } from "../mcp-proxy/identifiers";
-import type { McpProxyService } from "../mcp-proxy/mcp-proxy";
+import {
+  MCP_PROXY_TOKEN_HEADER,
+  type McpProxyService,
+} from "../mcp-proxy/mcp-proxy";
 import { AGENT_AUTH, AGENT_LOGGER } from "./identifiers";
 import type { AgentAuth, AgentLogger, AgentScopedLogger } from "./ports";
 import type { Credentials } from "./schemas";
@@ -152,13 +155,17 @@ export class AgentAuthAdapter {
 
     await this.mcpProxy.start();
 
+    const identity = `${credentials.apiHost}#${credentials.projectId}`;
+
     if (mcpUrl) {
-      const proxiedPosthogUrl = this.mcpProxy.register("posthog", mcpUrl);
+      const proxiedPosthog = this.mcpProxy.register("posthog", mcpUrl, {
+        identity,
+      });
 
       const posthogServer: McpServerConnection = {
         name: "posthog",
         type: "http",
-        url: proxiedPosthogUrl,
+        url: proxiedPosthog.url,
         headers: [
           {
             name: POSTHOG_PROJECT_ID_HEADER,
@@ -166,6 +173,7 @@ export class AgentAuthAdapter {
           },
           { name: "x-posthog-mcp-version", value: "2" },
           { name: "x-posthog-mcp-consumer", value: "posthog-code" },
+          { name: MCP_PROXY_TOKEN_HEADER, value: proxiedPosthog.token },
         ],
       };
       servers.push(posthogServer);
@@ -180,16 +188,18 @@ export class AgentAuthAdapter {
       const name =
         installation.name || installation.display_name || installation.url;
 
-      const proxiedUrl = this.mcpProxy.register(
+      const proxiedInstallation = this.mcpProxy.register(
         `installation-${installation.id}`,
         installation.proxy_url,
-        { credentialOwner: "installation" },
+        { credentialOwner: "installation", identity },
       );
       const server: McpServerConnection = {
         name,
         type: "http",
-        url: proxiedUrl,
-        headers: [],
+        url: proxiedInstallation.url,
+        headers: [
+          { name: MCP_PROXY_TOKEN_HEADER, value: proxiedInstallation.token },
+        ],
       };
       servers.push(server);
       serverInstallationIds.set(server, installation.id);
