@@ -35,7 +35,7 @@ PAGE_LIMIT = 50
 INCREMENTAL_LOOKBACK = timedelta(hours=24)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BitriseResumeConfig:
     # Fan-out bookmark: retained only so pre-migration saved state still parses via
     # `dataclass(**saved)`. New runs never populate it; fan-out resume now lives in `fanout_state`.
@@ -43,8 +43,8 @@ class BitriseResumeConfig:
     # `next` paging anchor for the flat apps listing. None means "start at the first page".
     next: str | None = None
     # Framework fan-out resume snapshot ({"completed": [...], "current": ..., "child_state": ...})
-    # for the single-hop parent -> child dependent resources (builds, pipelines, workflows,
-    # branches, organization members).
+    # for the single-hop parent-app -> child-endpoint dependent resources (builds, pipelines,
+    # workflows, branches).
     fanout_state: dict[str, Any] | None = None
 
 
@@ -194,18 +194,16 @@ def _single_hop_fanout_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[BitriseResumeConfig],
     child_resource: EndpointResource,
-    parent_resource: Optional[EndpointResource] = None,
 ) -> Resource:
-    """Drive a parent -> child single-hop fan-out with framework resume.
+    """Drive an apps -> child single-hop fan-out with framework resume.
 
-    The parent list is re-fetched each run; already-completed parents are skipped and the parent in
-    progress resumes from its saved page anchor. A stale bookmark (parent deleted between runs)
-    simply isn't in the re-fetched list, so the fan-out restarts from the remaining parents and
-    merge dedupes.
+    The parent app list is re-fetched each run; already-completed apps are skipped and the app in
+    progress resumes from its saved page anchor. A stale bookmark (app deleted between runs) simply
+    isn't in the re-fetched list, so the fan-out restarts from the remaining apps and merge dedupes.
     """
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_token),
-        "resources": [parent_resource or _apps_resource(), child_resource],
+        "resources": [_apps_resource(), child_resource],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -339,8 +337,12 @@ def _organization_members_source(
     api_token: str,
     team_id: int,
     job_id: str,
-    resumable_source_manager: ResumableSourceManager[BitriseResumeConfig],
 ) -> Resource:
+    """Fan out over organizations without resume.
+
+    An account belongs to a handful of organizations and each membership listing is one page, so a
+    retry re-fetches the whole table cheaply and merge dedupes it.
+    """
     child_resource: EndpointResource = {
         "name": "organization_members",
         "include_from_parent": ["slug"],
@@ -354,14 +356,12 @@ def _organization_members_source(
         },
         "data_map": rename_parent_fields("organizations", {"slug": "org_slug"}),
     }
-    return _single_hop_fanout_source(
-        api_token,
-        team_id,
-        job_id,
-        resumable_source_manager,
-        child_resource,
-        parent_resource=_organizations_resource(),
-    )
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_token),
+        "resources": [_organizations_resource(), child_resource],
+    }
+    resources = rest_api_resources(rest_config, team_id, job_id, None)
+    return next(resource for resource in resources if getattr(resource, "name", None) == "organization_members")
 
 
 def _workflows_source(
@@ -480,7 +480,7 @@ def bitrise_source(
     elif endpoint == "organizations":
         resource = _organizations_source(api_token, team_id, job_id)
     elif endpoint == "organization_members":
-        resource = _organization_members_source(api_token, team_id, job_id, resumable_source_manager)
+        resource = _organization_members_source(api_token, team_id, job_id)
     elif endpoint == "artifacts":
         resource = _artifacts_source(api_token, team_id, job_id, after)
     else:
