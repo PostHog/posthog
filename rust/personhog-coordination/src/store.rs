@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::str::from_utf8;
 use std::sync::{Arc, Mutex as StdMutex};
+use std::time::{Duration, Instant};
 
 use assignment_coordination::store::EtcdStore;
 use etcd_client::{Compare, CompareOp, DeleteOptions, PutOptions, Txn, TxnOp, WatchStream};
@@ -88,10 +89,15 @@ pub struct PersonhogStore {
     /// names one immutable value (a chunked plan re-puts it only
     /// byte-identically), so a recorded membership cannot go stale; a
     /// plan's handoffs share one id, so this turns a few hundred reads
-    /// per reconcile pass into one. Absence is never cached — the
-    /// sweep can delete a record a later chunk re-creates.
+    /// per reconcile pass into one.
     freeze_quorums: Arc<StdMutex<HashMap<String, Vec<String>>>>,
+    /// When each id was last read and found missing.
+    absent_freeze_quorums: Arc<StdMutex<HashMap<String, Instant>>>,
+    absent_freeze_quorum_ttl: Duration,
 }
+
+/// How long a remembered absence answers without a re-read.
+const DEFAULT_ABSENT_FREEZE_QUORUM_TTL: Duration = Duration::from_secs(4);
 
 /// Counts store calls by the method that made them. The shared etcd
 /// layer labels by primitive — `get`, `list_with_revision` — which is
@@ -199,7 +205,16 @@ impl PersonhogStore {
         Self {
             inner,
             freeze_quorums: Arc::new(StdMutex::new(HashMap::new())),
+            absent_freeze_quorums: Arc::new(StdMutex::new(HashMap::new())),
+            absent_freeze_quorum_ttl: DEFAULT_ABSENT_FREEZE_QUORUM_TTL,
         }
+    }
+
+    /// Test hook
+    #[doc(hidden)]
+    pub fn with_absent_freeze_quorum_ttl(mut self, ttl: Duration) -> Self {
+        self.absent_freeze_quorum_ttl = ttl;
+        self
     }
 
     pub fn inner(&self) -> &EtcdStore {
@@ -846,49 +861,61 @@ impl PersonhogStore {
         let ranges = plan_chunk_ranges(&costs, max_txn_ops, reserve_ops);
         metrics::histogram!("personhog_coordination_plan_chunks").record(ranges.len() as f64);
 
-        let mut application = PlanApplication::default();
-        for range in ranges {
-            let chunk = &units[range];
-            match self.apply_units(chunk, &quorum).await {
-                Ok(true) => {
-                    application
-                        .applied
-                        .extend(chunk.iter().map(|u| u.partition));
-                    continue;
-                }
-                Ok(false) => {}
-                // The server's effective --max-txn-ops can sit below the
-                // configured budget (values drift, a member not yet
-                // restarted with a raised flag). Degrade to the per-unit
-                // path — under any workable server limit — instead of
-                // handing back a rejection the planner retries forever.
-                Err(e) if chunk.len() > 1 && is_txn_too_large(&e) => {
-                    application.over_budget_chunks += 1;
-                    metrics::counter!("personhog_coordination_plan_chunk_over_server_budget_total")
+        let result = async {
+            let mut application = PlanApplication::default();
+            for range in ranges {
+                let chunk = &units[range];
+                match self.apply_units(chunk, &quorum).await {
+                    Ok(true) => {
+                        application
+                            .applied
+                            .extend(chunk.iter().map(|u| u.partition));
+                        continue;
+                    }
+                    Ok(false) => {}
+                    // The server's effective --max-txn-ops can sit below the
+                    // configured budget (values drift, a member not yet
+                    // restarted with a raised flag). Degrade to the per-unit
+                    // path — under any workable server limit — instead of
+                    // handing back a rejection the planner retries forever.
+                    Err(e) if chunk.len() > 1 && is_txn_too_large(&e) => {
+                        application.over_budget_chunks += 1;
+                        metrics::counter!(
+                            "personhog_coordination_plan_chunk_over_server_budget_total"
+                        )
                         .increment(1);
-                    tracing::warn!(
-                        units = chunk.len(),
-                        max_txn_ops,
-                        error = %e,
-                        "plan chunk exceeds the server txn budget; applying per unit"
-                    );
+                        tracing::warn!(
+                            units = chunk.len(),
+                            max_txn_ops,
+                            error = %e,
+                            "plan chunk exceeds the server txn budget; applying per unit"
+                        );
+                    }
+                    Err(e) => return Err(e),
                 }
-                Err(e) => return Err(e),
-            }
-            // A failed guard names no key, so retry the chunk one
-            // partition at a time: the concurrent write that broke the
-            // chunk stands down only the units it actually touched.
-            for u in chunk {
-                if self.apply_units(std::slice::from_ref(u), &quorum).await? {
-                    application.applied.push(u.partition);
-                } else {
-                    metrics::counter!("personhog_coordination_plan_units_conflicted_total")
-                        .increment(1);
-                    application.conflicted.push(u.partition);
+                // A failed guard names no key, so retry the chunk one
+                // partition at a time: the concurrent write that broke the
+                // chunk stands down only the units it actually touched.
+                for u in chunk {
+                    if self.apply_units(std::slice::from_ref(u), &quorum).await? {
+                        application.applied.push(u.partition);
+                    } else {
+                        metrics::counter!("personhog_coordination_plan_units_conflicted_total")
+                            .increment(1);
+                        application.conflicted.push(u.partition);
+                    }
                 }
             }
+            Ok(application)
         }
-        Ok(application)
+        .await;
+        if let Some((id, _)) = freeze_quorum {
+            self.absent_freeze_quorums
+                .lock()
+                .expect("freeze quorum absence cache lock poisoned")
+                .remove(id);
+        }
+        result
     }
 
     /// One plan chunk as one transaction: the units' guards and ops,
@@ -1039,9 +1066,23 @@ impl PersonhogStore {
                 if let Some(members) = cached {
                     return Ok(Some(members));
                 }
+                let recently_absent = self
+                    .absent_freeze_quorums
+                    .lock()
+                    .expect("freeze quorum absence cache lock poisoned")
+                    .get(id)
+                    .is_some_and(|at| at.elapsed() < self.absent_freeze_quorum_ttl);
+                if recently_absent {
+                    crate::util::record_unresolved_freeze_quorum();
+                    return Ok(None);
+                }
                 let members = self.get_freeze_quorum(id).await?;
                 match &members {
                     Some(recorded) => {
+                        self.absent_freeze_quorums
+                            .lock()
+                            .expect("freeze quorum absence cache lock poisoned")
+                            .remove(id);
                         let mut cache = self
                             .freeze_quorums
                             .lock()
@@ -1057,10 +1098,6 @@ impl PersonhogStore {
                         }
                         cache.insert(id.clone(), recorded.clone());
                     }
-                    // Never cached: a chunked plan's re-puts can
-                    // re-create a swept record, so absence is not
-                    // permanent — and pinning it would hold every later
-                    // resolution on the every-live-router fallback.
                     None => {
                         crate::util::record_unresolved_freeze_quorum();
                         tracing::warn!(
@@ -1068,6 +1105,20 @@ impl PersonhogStore {
                             quorum_id = %id,
                             "freeze quorum record is missing; requiring every live router"
                         );
+                        let mut absent = self
+                            .absent_freeze_quorums
+                            .lock()
+                            .expect("freeze quorum absence cache lock poisoned");
+                        if absent.len() >= 32 && !absent.contains_key(id) {
+                            if let Some(stalest) = absent
+                                .iter()
+                                .min_by_key(|(_, at)| **at)
+                                .map(|(k, _)| k.clone())
+                            {
+                                absent.remove(&stalest);
+                            }
+                        }
+                        absent.insert(id.clone(), Instant::now());
                     }
                 }
                 Ok(members)

@@ -5852,14 +5852,19 @@ async fn a_swept_quorum_delete_loses_to_a_concurrent_re_put() {
     );
 }
 
-/// A missing membership record is not remembered as missing: a chunked
-/// plan can re-create a swept record, and a pinned absence would hold
-/// every later resolution on the every-live-router fallback.
+/// A missing membership record is remembered as missing, so the
+/// reconcile pass costs one read per expiry window instead of one per
+/// Freezing handoff, and a plan's re-put drops the remembered absence
+/// so the record it re-creates resolves on the next look. A pinned
+/// absence would hold every later resolution on the every-live-router
+/// fallback.
 #[tokio::test]
 async fn a_missing_membership_is_resolved_again_once_written() {
     use personhog_coordination::types::AssignmentPrecondition;
 
-    let store = test_store("quorum-absence-not-cached").await;
+    let store = (*test_store("quorum-absence-remembered").await)
+        .clone()
+        .with_absent_freeze_quorum_ttl(Duration::from_secs(3600));
     let quorum_id = "late-written";
     let quorum = vec!["router-0".to_string()];
     let handoff = HandoffState {
@@ -5883,6 +5888,24 @@ async fn a_missing_membership_is_resolved_again_once_written() {
         .is_none());
 
     store
+        .inner()
+        .put(
+            &format!("{}freeze_quorums/{quorum_id}", store.inner().prefix()),
+            &quorum,
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(
+        store
+            .resolve_freeze_quorum(&handoff)
+            .await
+            .unwrap()
+            .is_none(),
+        "a fresh absence must answer from memory, not from a re-read"
+    );
+
+    store
         .apply_plan(
             &[],
             std::slice::from_ref(&handoff),
@@ -5898,6 +5921,57 @@ async fn a_missing_membership_is_resolved_again_once_written() {
         store.resolve_freeze_quorum(&handoff).await.unwrap(),
         Some(quorum),
         "a record written after a miss must resolve on the next look"
+    );
+}
+
+/// A remembered absence expires. A record written by another
+/// coordinator process gets no local apply_plan invalidation, so the
+/// expiry is what bounds how long that record goes unseen: a stale
+/// absence delays a handoff by at most one window, and never wedges
+/// it. A zero TTL stands in for an elapsed window because the expiry
+/// runs on real time.
+#[tokio::test]
+async fn a_remembered_absence_expires() {
+    let store = test_store("quorum-absence-expires").await;
+    let store = (*store)
+        .clone()
+        .with_absent_freeze_quorum_ttl(Duration::ZERO);
+    let quorum_id = "written-elsewhere";
+    let quorum = vec!["router-0".to_string()];
+    let handoff = HandoffState {
+        partition: 0,
+        old_owner: None,
+        new_owner: "pod-new".to_string(),
+        new_owner_address: None,
+        phase: HandoffPhase::Freezing,
+        started_at: 0,
+        handoff_id: "handoff-elsewhere".to_string(),
+        freeze_quorum: None,
+        freeze_quorum_ref: Some(quorum_id.to_string()),
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
+    };
+
+    assert!(store
+        .resolve_freeze_quorum(&handoff)
+        .await
+        .unwrap()
+        .is_none());
+
+    store
+        .inner()
+        .put(
+            &format!("{}freeze_quorums/{quorum_id}", store.inner().prefix()),
+            &quorum,
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store.resolve_freeze_quorum(&handoff).await.unwrap(),
+        Some(quorum),
+        "an expired absence must re-read and see the record"
     );
 }
 
