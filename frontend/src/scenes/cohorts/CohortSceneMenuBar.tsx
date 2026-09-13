@@ -1,14 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconClock, IconCopy, IconRefresh, IconTrash } from '@posthog/icons'
+import { IconClock, IconCopy, IconRefresh, IconSend, IconTrash } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { cohortWorkflowDisabledReason, workflowTriggerPrefillForCohort } from 'scenes/cohorts/cohortUtils'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
@@ -20,7 +22,10 @@ import {
     SceneMenuBarSeparator,
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
-import { CohortType } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, CohortType } from '~/types'
+
+import { newWorkflowLogic } from 'products/workflows/frontend/Workflows/newWorkflowLogic'
 
 const RESOURCE_TYPE = 'cohort'
 
@@ -36,6 +41,7 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
     const logic = cohortEditLogic({ id })
     const { cohort, cohortLoading } = useValues(logic)
     const { duplicateCohort, deleteCohort, restoreCohort } = useActions(logic)
+    const { showNewWorkflowModalForPrefill } = useActions(newWorkflowLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
 
     if (!cohort) {
@@ -43,6 +49,10 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
     }
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+    // Same gate as the workflows page's own "New workflow" button: creating a workflow needs editor access.
+    const workflowDisabledReason =
+        cohortWorkflowDisabledReason(cohort) ??
+        getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor)
     const isDeleted = cohort.deleted
 
     const cohortIdNumber = typeof cohort.id === 'number' ? cohort.id : undefined
@@ -53,6 +63,21 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                 {!isNewCohort && cohortIdNumber !== undefined && (
                     <>
                         <SceneMenuBarSubMenu label="Create">
+                            <SceneMenuBarItem
+                                onClick={() =>
+                                    showNewWorkflowModalForPrefill(
+                                        workflowTriggerPrefillForCohort(cohort),
+                                        ProductKey.COHORTS,
+                                        'email'
+                                    )
+                                }
+                                disabled={!!workflowDisabledReason}
+                                tooltip={workflowDisabledReason ?? undefined}
+                                data-attr={`${RESOURCE_TYPE}-menubar-message-with-workflow`}
+                            >
+                                <IconSend />
+                                Message this cohort
+                            </SceneMenuBarItem>
                             <SceneMenuBarAddToNotebook
                                 dataAttrKey={RESOURCE_TYPE}
                                 notebookSelectButtonProps={{

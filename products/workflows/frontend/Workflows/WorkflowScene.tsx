@@ -34,6 +34,7 @@ import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
+import { SCAFFOLD_PREFILL_PARAM, TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
@@ -55,10 +56,12 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
+    const triggerPrefill = searchParams[TRIGGER_PREFILL_PARAM] as string | undefined
+    const scaffold = searchParams[SCAFFOLD_PREFILL_PARAM] as string | undefined
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 
-    const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
+    const logic = workflowLogic({ id: props.id, templateId, editTemplateId, triggerPrefill, scaffold })
     // The save/auto-save indicators moved into the WorkflowStatusBar; the scene only needs the
     // workflow itself (for the agent context) and the load state.
     const { workflow, workflowLoading, originalWorkflow, hogFunctionTemplatesById } = useValues(logic)
@@ -164,7 +167,10 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     return (
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
-            <BindLogic logic={workflowLogic} props={{ id: props.id, templateId, editTemplateId }}>
+            <BindLogic
+                logic={workflowLogic}
+                props={{ id: props.id, templateId, editTemplateId, triggerPrefill, scaffold }}
+            >
                 <WorkflowSceneHeader {...props} />
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (

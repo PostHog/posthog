@@ -1,8 +1,18 @@
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { Suspense } from 'react'
 
-import { IconClock, IconCopy, IconInfo, IconRefresh, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
+import {
+    IconClock,
+    IconCopy,
+    IconInfo,
+    IconRefresh,
+    IconSend,
+    IconTrash,
+    IconUpload,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -13,6 +23,7 @@ import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch
 import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
+import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -20,7 +31,9 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { StaticCohortMode, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
@@ -40,17 +53,36 @@ import {
 } from '~/layout/scenes/SceneLayout'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
-import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    CohortType,
+    InsightShortId,
+    SidePanelTab,
+} from '~/types'
 
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+import { newWorkflowLogic } from 'products/workflows/frontend/Workflows/newWorkflowLogic'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
-import { createCohortDataNodeLogicKey } from './cohortUtils'
+import {
+    cohortWorkflowDisabledReason,
+    createCohortDataNodeLogicKey,
+    workflowTriggerPrefillForCohort,
+} from './cohortUtils'
 import { PersonSelectList } from './PersonSelectList'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
+
+// The chooser loads the whole workflow template catalog as it mounts, and most people open a
+// cohort without messaging it, so keep both the code and the request behind the open state.
+const NewWorkflowModal = lazyWithRetry(() =>
+    import('products/workflows/frontend/Workflows/NewWorkflowModal').then((m) => ({ default: m.NewWorkflowModal }))
+)
 
 const RESOURCE_TYPE = 'cohort'
 
@@ -190,8 +222,22 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { showNewWorkflowModalForPrefill } = useActions(newWorkflowLogic)
+    const { newWorkflowModalVisible } = useValues(newWorkflowLogic)
+    const shouldRenderNewWorkflowModal = useKeepMountedWhileOpen(newWorkflowModalVisible)
+    const newWorkflowModal = shouldRenderNewWorkflowModal ? (
+        <Suspense fallback={null}>
+            <NewWorkflowModal />
+        </Suspense>
+    ) : null
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+    const workflowDisabledReason = cohortWorkflowDisabledReason(cohort)
+    // Same gate as the workflows page's own "New workflow" button: creating a workflow needs editor access.
+    const workflowAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Workflow,
+        AccessControlLevel.Editor
+    )
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
     const warningLogic = cohortCountWarningLogic({ cohort, query: effectiveQuery, dataNodeLogicKey })
     const { shouldShowCountWarning } = useValues(warningLogic)
@@ -211,6 +257,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     if (cohort.deleted) {
         return (
             <div>
+                {newWorkflowModal}
                 <CohortSceneMenuBar id={id} />
                 <LemonBanner type="error">The cohort '{cohort.name}' has been soft deleted.</LemonBanner>
                 <ScenePanel>
@@ -232,6 +279,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         <BindLogic logic={cohortEditLogic} props={logicProps}>
             <div className="cohort">
                 <AddPersonToCohortModal id={id} />
+                {newWorkflowModal}
                 <CohortSceneMenuBar id={id} />
 
                 <ScenePanel>
@@ -242,6 +290,26 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                     <ScenePanelDivider />
 
                     <ScenePanelActionsSection>
+                        <ButtonPrimitive
+                            onClick={() =>
+                                showNewWorkflowModalForPrefill(
+                                    workflowTriggerPrefillForCohort(cohort),
+                                    ProductKey.COHORTS,
+                                    'email'
+                                )
+                            }
+                            disabledReasons={{
+                                'Save the cohort first': isNewCohort,
+                                ...(workflowDisabledReason ? { [workflowDisabledReason]: true } : {}),
+                                ...(workflowAccessDisabledReason ? { [workflowAccessDisabledReason]: true } : {}),
+                            }}
+                            data-attr={`${RESOURCE_TYPE}-message-with-workflow`}
+                            tooltip="Start a workflow that emails everyone in this cohort"
+                            menuItem
+                        >
+                            <IconSend /> Message this cohort
+                        </ButtonPrimitive>
+
                         <SceneAddToNotebookDropdownMenu
                             dataAttrKey={RESOURCE_TYPE}
                             disabledReasons={{
@@ -791,6 +859,29 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                         fileNameForExport: cohort.name,
                                                         cohortId: cohortId,
                                                         dataNodeLogicKey: dataNodeLogicKey,
+                                                        customActionsEnd: (
+                                                            <LemonButton
+                                                                key="message-cohort"
+                                                                type="secondary"
+                                                                size="small"
+                                                                icon={<IconSend />}
+                                                                onClick={() =>
+                                                                    showNewWorkflowModalForPrefill(
+                                                                        workflowTriggerPrefillForCohort(cohort),
+                                                                        ProductKey.COHORTS,
+                                                                        'email'
+                                                                    )
+                                                                }
+                                                                disabledReason={
+                                                                    workflowDisabledReason ??
+                                                                    workflowAccessDisabledReason ??
+                                                                    undefined
+                                                                }
+                                                                data-attr="cohort-message-with-workflow-table"
+                                                            >
+                                                                Message cohort
+                                                            </LemonButton>
+                                                        ),
                                                         columns: canRemovePersonFromCohort
                                                             ? {
                                                                   'person.$delete': {
