@@ -2524,7 +2524,7 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
     branch: zod.string().nullish().describe('Git branch name to associate with the task'),
     stage: zod.string().nullish().describe('Current stage of the run (e.g. research, plan, build)'),
     output: zod.unknown().optional().describe('Output from the run'),
-    state: zod.unknown().optional().describe('State of the run'),
+    state: zod.record(zod.string(), zod.unknown()).optional().describe('Object of run state values to merge.'),
     state_remove_keys: zod
         .array(zod.string())
         .optional()

@@ -91,6 +91,8 @@ function upstreamPath(upstream: URL, requestUrl: string): string {
   return `${prefix}${requestUrl}`;
 }
 
+// SDK subprocesses make their own HTTP calls. This exposes gateway response IDs
+// without modifying the SDKs or the gateway.
 export class GatewayAccountingProxy {
   private readonly localBearer = randomBytes(32).toString("hex");
   private readonly upstream: URL;

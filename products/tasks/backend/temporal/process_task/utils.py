@@ -28,7 +28,6 @@ from products.tasks.backend.constants import (
     INITIAL_PERMISSION_MODE_CHOICES,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
-    TASK_RUN_GATEWAY_ACCOUNTING_ENV_VAR,
     InitialPermissionMode,
     SnapshotKind,
     filter_user_sandbox_env_vars,
@@ -1378,9 +1377,8 @@ def ai_gateway_env_vars(
                 env_vars["AI_GATEWAY_PRODUCT"] = ai_product
                 if ai_stage:
                     env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
-                if settings.TASKS_GATEWAY_ACCOUNTING_ENABLED and run_id is not None and task_runtime != "pi":
+                if run_id is not None and task_runtime != "pi":
                     enable_gateway_usage(run_id=UUID(run_id), team_id=team_id)
-                    env_vars[TASK_RUN_GATEWAY_ACCOUNTING_ENV_VAR] = "1"
     return env_vars
 
 

@@ -3262,6 +3262,11 @@ export interface TaskRunBootstrapCreateRequestApi {
 }
 
 /**
+ * Object of run state values to merge.
+ */
+export type PatchedTaskRunUpdateApiState = { [key: string]: unknown }
+
+/**
  * State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.
  */
 export type PatchedTaskRunUpdateApiStateAppend = { [key: string]: unknown }
@@ -3307,8 +3312,8 @@ export interface PatchedTaskRunUpdateApi {
     stage?: string | null
     /** Output from the run */
     output?: unknown
-    /** State of the run */
-    state?: unknown
+    /** Object of run state values to merge. */
+    state?: PatchedTaskRunUpdateApiState
     /** State keys to remove atomically before applying any state updates. */
     state_remove_keys?: string[]
     /** State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race. */

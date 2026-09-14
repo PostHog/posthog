@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -349,54 +350,30 @@ class TestAiGatewayEnvVars:
         assert "AI_GATEWAY_PRODUCT" not in env
         assert env["AI_GATEWAY_URL"] == "https://ai-gateway.dev.posthog.dev"
 
-    def test_gateway_accounting_stays_off_by_default(self, mint_settings):
-        mint_settings.TASKS_GATEWAY_ACCOUNTING_ENABLED = False
+    @pytest.mark.parametrize(
+        "task_runtime,token,initializes_spend",
+        [("acp", "phe_abc", True), ("pi", "phe_abc", False), ("acp", None, False)],
+    )
+    def test_gateway_spend_initializes_automatically_for_go_runs(
+        self, mint_settings, task_runtime, token, initializes_spend
+    ):
+        run_id = UUID("00000000-0000-4000-8000-000000000001")
         with (
-            patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"),
-            patch("products.tasks.backend.temporal.process_task.utils.enable_gateway_usage") as enable_usage,
+            patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value=token),
+            patch("products.tasks.backend.temporal.process_task.utils.enable_gateway_usage") as initialize_spend,
         ):
             env = ai_gateway_env_vars(
-                run_id="00000000-0000-4000-8000-000000000001",
-                task_runtime="acp",
+                run_id=str(run_id),
+                task_runtime=task_runtime,
                 team_id=123,
                 origin_product="signals_scout",
                 ai_stage="scout:logs",
             )
-        assert "TASK_RUN_GATEWAY_ACCOUNTING" not in env
-        enable_usage.assert_not_called()
-
-    def test_gateway_accounting_enables_non_pi_runs(self, mint_settings):
-        mint_settings.TASKS_GATEWAY_ACCOUNTING_ENABLED = True
-        with (
-            patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"),
-            patch("products.tasks.backend.temporal.process_task.utils.enable_gateway_usage") as enable_usage,
-        ):
-            env = ai_gateway_env_vars(
-                run_id="00000000-0000-4000-8000-000000000001",
-                task_runtime="acp",
-                team_id=123,
-                origin_product="signals_scout",
-                ai_stage="scout:logs",
-            )
-        assert env["TASK_RUN_GATEWAY_ACCOUNTING"] == "1"
-        assert enable_usage.call_args.kwargs["team_id"] == 123
-        assert "bearer" not in enable_usage.call_args.kwargs
-
-    def test_pi_run_does_not_enable_or_mark_gateway_accounting(self, mint_settings):
-        mint_settings.TASKS_GATEWAY_ACCOUNTING_ENABLED = True
-        with (
-            patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"),
-            patch("products.tasks.backend.temporal.process_task.utils.enable_gateway_usage") as enable_usage,
-        ):
-            env = ai_gateway_env_vars(
-                run_id="00000000-0000-4000-8000-000000000001",
-                task_runtime="pi",
-                team_id=123,
-                origin_product="signals_scout",
-                ai_stage="scout:logs",
-            )
-        assert "TASK_RUN_GATEWAY_ACCOUNTING" not in env
-        enable_usage.assert_not_called()
+        assert env.get("AI_GATEWAY_TOKEN") == token
+        if initializes_spend:
+            initialize_spend.assert_called_once_with(run_id=run_id, team_id=123)
+        else:
+            initialize_spend.assert_not_called()
 
     def test_no_run_context_still_sets_routing_pair(self, mint_settings):
         env = ai_gateway_env_vars()

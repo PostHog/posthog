@@ -94,19 +94,6 @@ Run `/migrating-llm-gateway-callers` to inventory and convert a caller.
 4. Test success, streaming if used, provider errors, attribution, and billing.
 5. Keep the Python fallback only for staged rollout or a named blocker. Record the rollout plan or blocker in the PR.
 
-## Task-run accounting
-
-Go-routed cloud runs can use the Tasks request-accounting path described in [task-run spend](../../docs/internal/task-run-spend.md).
-The agent appends request IDs through the existing Tasks API.
-Temporal activities retrieve the existing `cost_usd` response from standard-credential `GET /v1/usage/{request_id}` and group spend by model and provider.
-Processed IDs leave `unprocessed_request_ids`; missing responses stay queued.
-No gateway changes, additional sandbox permissions, or spend-finality fields are required.
-Task attribution trusts the task-bound agent; zero-spend calls without a ledger debit can remain queued.
-
-The Python gateway has no equivalent per-request receipt API.
-Python-routed runs, including Pi's existing route, skip this mechanism and retain unavailable token spend.
-This is not a caller migration or a customer billing-policy change.
-
 ## Refreshing this document
 
 Run `/auditing-llm-gateway-parity` after either gateway changes auth, attribution, billing, endpoints, providers, models, routing, or event metadata. The skill audits implementation sources in both repositories and updates this file without migrating callers.

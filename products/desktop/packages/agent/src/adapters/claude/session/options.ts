@@ -83,7 +83,6 @@ export type GatewayEnv = {
   openaiCustomHeaders?: Record<string, string>;
   /** PostHog project ID used to build the gateway project-scope header. */
   posthogProjectId?: string;
-  /** True only when this session routes through the Go gateway. */
   isAiGateway?: boolean;
 };
 

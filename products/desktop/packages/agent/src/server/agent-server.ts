@@ -2019,10 +2019,7 @@ export class AgentServer {
       }).catch(() => {});
     }
 
-    if (this.config.gatewayAccountingEnabled) {
-      if (!gatewayEnv.isAiGateway) {
-        throw new Error("Gateway accounting requires the Go gateway");
-      }
+    if (gatewayEnv.isAiGateway) {
       const upstreamBearer = gatewayEnv.anthropicAuthToken;
       this.gatewayAccounting = new GatewayAccountingProxy({
         api: this.posthogAPI,

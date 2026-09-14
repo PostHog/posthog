@@ -120,7 +120,7 @@ def process_pending_gateway_usage(*, run_id: UUID, team_id: int, limit: int = 20
             processed = processed_gateway_request_ids(state)
             if request_id not in processed:
                 if request_spend is None:
-                    # Retry missing responses after the other queued IDs.
+                    # A missing response must not block the rest of the queue.
                     remaining.append(request_id)
                 else:
                     models = dict(state["token_spend"])

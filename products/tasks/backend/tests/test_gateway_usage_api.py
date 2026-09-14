@@ -3,8 +3,10 @@ from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.test import APIClient
@@ -15,6 +17,30 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.tasks.backend.logic.services.gateway_usage import enable_gateway_usage
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.presentation.serializers import TaskRunUpdateSerializer
+
+
+class TestTaskRunStateShape(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_list", []),
+            ("nonempty_list", ["item"]),
+            ("string", "state"),
+            ("number", 1),
+            ("boolean", True),
+            ("null", None),
+        ]
+    )
+    def test_state_must_be_an_object(self, _name: str, value: object) -> None:
+        serializer = TaskRunUpdateSerializer(data={"state": value})
+        assert not serializer.is_valid()
+        assert "state" in serializer.errors
+
+    def test_nested_json_values_remain_valid(self) -> None:
+        state = {"items": [1, {"nested": True}], "optional": None}
+        serializer = TaskRunUpdateSerializer(data={"state": state})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["state"] == state
 
 
 class TestTaskRunGatewayUsageAPI(APIBaseTest):
@@ -66,6 +92,19 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
             {"state_append": {"unprocessed_request_ids": request_id}},
             format="json",
         )
+
+    def test_non_object_state_cannot_erase_recorded_spend(self) -> None:
+        task, run = self._task_and_run()
+        self._enable_gateway_usage(run)
+        run.state["token_spend"] = {"model-a": {"provider-a": {"spend_microusd": 15_000, "request_ids": ["request_1"]}}}
+        run.save(update_fields=["state"])
+        expected_state = run.state
+
+        response = self.client.patch(self._url(task, run), {"state": []}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        run.refresh_from_db()
+        assert run.state == expected_state
 
     def test_enable_initializes_the_gateway_usage_queue_and_spend_map(self) -> None:
         _task, run = self._task_and_run()
