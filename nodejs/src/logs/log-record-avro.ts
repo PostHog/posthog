@@ -205,12 +205,12 @@ export function flattenJson(obj: unknown, prefix = '', result: Record<string, an
     return result
 }
 
-function jsonAttributesFromBodyParse(bodyParse: LogBodyParseResult): Record<string, string> {
+function jsonAttributesFromBodyParse(bodyParse: LogBodyParseResult, prefix = ''): Record<string, string> {
     if (bodyParse.kind !== 'json_object_or_array') {
         return {}
     }
 
-    const flattened = flattenJson(bodyParse.value)
+    const flattened = flattenJson(bodyParse.value, prefix)
     const newAttributes: Record<string, string> = {}
     let count = 0
 
@@ -302,6 +302,23 @@ export async function transformDecodedLogRecordsInPlace(
     } else if (piiScrub) {
         pii = await scrubBatch(records)
     }
+    const attributeKey = settings.json_parse_logs_attribute_key
+    if (typeof attributeKey === 'string' && attributeKey) {
+        for (const record of records) {
+            const attribute = record.attributes?.[attributeKey]
+            if (typeof attribute !== 'string') {
+                continue
+            }
+            let parsed = parseLogBodyForIngestion(attribute)
+            if (parsed.kind === 'json_string') {
+                parsed = parseLogBodyForIngestion(parsed.value)
+            }
+            const extracted = jsonAttributesFromBodyParse(parsed, attributeKey)
+            if (Object.keys(extracted).length > 0) {
+                record.attributes = { ...extracted, ...record.attributes }
+            }
+        }
+    }
     return pii
 }
 
@@ -339,7 +356,10 @@ export function bufferProcessingMode(
     stageCount: number,
     hasVisitor: boolean
 ): BufferProcessingMode {
-    const normalizeActive = (settings.json_parse_logs ?? false) || (settings.pii_scrub_logs ?? false)
+    const normalizeActive =
+        (settings.json_parse_logs ?? false) ||
+        (settings.pii_scrub_logs ?? false) ||
+        !!settings.json_parse_logs_attribute_key
     if (normalizeActive || stageCount > 0) {
         return 'decode_and_reencode'
     }
