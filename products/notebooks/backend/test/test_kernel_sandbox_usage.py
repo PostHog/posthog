@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -39,8 +39,7 @@ class TestEstimatedRuntimeSeconds(SimpleTestCase):
 
 
 class TestRecordSandboxEnded(BaseTest):
-    @patch("products.notebooks.backend.kernel_sandbox_usage.report_user_or_team_action")
-    def test_an_end_noticed_twice_is_reported_once(self, mock_report) -> None:
+    def _modal_runtime_with_an_hour_ttl(self) -> KernelRuntime:
         runtime = KernelRuntime.objects.create(
             team=self.team,
             user=self.user,
@@ -52,6 +51,11 @@ class TestRecordSandboxEnded(BaseTest):
         )
         KernelRuntime.objects.filter(pk=runtime.pk).update(ttl_expires_at=runtime.created_at + timedelta(hours=1))
         runtime.refresh_from_db()
+        return runtime
+
+    @patch("products.notebooks.backend.kernel_sandbox_usage.report_user_or_team_action")
+    def test_an_end_noticed_twice_is_reported_once(self, mock_report: MagicMock) -> None:
+        runtime = self._modal_runtime_with_an_hour_ttl()
         copy_in_another_process = KernelRuntime.objects.get(pk=runtime.pk)
 
         with time_machine.travel(runtime.created_at + timedelta(minutes=30), tick=False):
@@ -67,3 +71,18 @@ class TestRecordSandboxEnded(BaseTest):
         self.assertEqual(properties["estimated_runtime_seconds"], 1800)
         hourly_price = get_compute_rates().hourly_price(cpu_cores=1, memory_gb=2)
         self.assertEqual(properties["estimated_price_usd"], round(0.5 * hourly_price, 4))
+
+    @patch("products.notebooks.backend.kernel_sandbox_usage.report_user_or_team_action")
+    def test_an_end_whose_event_fails_is_reported_by_the_next_path(self, mock_report: MagicMock) -> None:
+        mock_report.side_effect = [RuntimeError("capture queue unavailable"), None]
+        runtime = self._modal_runtime_with_an_hour_ttl()
+
+        record_sandbox_ended(runtime, reason=KernelRuntime.Status.STOPPED, sandbox_still_running=False)
+        record_sandbox_ended(
+            KernelRuntime.objects.get(pk=runtime.pk), reason=KernelRuntime.Status.TIMED_OUT, sandbox_still_running=False
+        )
+
+        self.assertEqual(mock_report.call_count, 2)
+        self.assertEqual(mock_report.call_args[0][1]["ended_reason"], KernelRuntime.Status.TIMED_OUT)
+        runtime.refresh_from_db()
+        self.assertIsNotNone(runtime.ended_at)

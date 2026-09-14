@@ -701,11 +701,13 @@ class KernelRuntimeService:
             status__in=active_statuses,
             backend=backend,
         )
-        discarded = list(active_runtimes)
-        active_runtimes.update(status=KernelRuntime.Status.DISCARDED, last_used_at=timezone.now())
-        # Discarding a row does not destroy its sandbox, so the sandbox keeps running until its TTL.
-        for runtime in discarded:
-            record_sandbox_ended(runtime, reason=KernelRuntime.Status.DISCARDED, sandbox_still_running=True)
+        for runtime in list(active_runtimes):
+            moved = KernelRuntime.objects.filter(pk=runtime.pk, status__in=active_statuses).update(
+                status=KernelRuntime.Status.DISCARDED, last_used_at=timezone.now()
+            )
+            if moved:
+                # Discarding a row does not destroy its sandbox, so the sandbox keeps running until its TTL.
+                record_sandbox_ended(runtime, reason=KernelRuntime.Status.DISCARDED, sandbox_still_running=True)
 
     def _get_backend(self, *, require_credentials: bool = False) -> str | None:
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
@@ -731,6 +733,7 @@ class KernelRuntimeService:
         runtime.provisioned_memory_gb = sandbox_config.memory_gb
         runtime.save(update_fields=["provisioned_cpu_cores", "provisioned_memory_gb"])
         sandbox_class = self._get_sandbox_class(backend)
+        provision_requested_at = timezone.now()
         try:
             sandbox = sandbox_class.create(sandbox_config)
         except Exception as err:
@@ -738,7 +741,7 @@ class KernelRuntimeService:
             self._mark_runtime_error(runtime, f"Failed to provision sandbox: {detail}")
             raise
 
-        runtime.ttl_expires_at = timezone.now() + timedelta(seconds=sandbox_config.ttl_seconds)
+        runtime.ttl_expires_at = provision_requested_at + timedelta(seconds=sandbox_config.ttl_seconds)
         runtime.save(update_fields=["ttl_expires_at"])
         record_sandbox_started(runtime, sandbox_id=sandbox.id, ttl_seconds=sandbox_config.ttl_seconds)
 

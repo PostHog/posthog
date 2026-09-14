@@ -70,44 +70,59 @@ def record_sandbox_ended(runtime: KernelRuntime, *, reason: str, sandbox_still_r
     sandbox is never counted twice. Rows without `ttl_expires_at` started before this
     instrumentation existed and have no start event, so they are skipped. Never raises.
     """
-    # The status poll calls this on every poll of a stopped kernel, so skip the UPDATE when this
-    # copy of the row already carries the end.
+    # The status poll calls this on every poll of a stopped kernel, so skip the database work when
+    # this copy of the row already carries the end.
     if runtime.ended_at is not None:
         return
     try:
-        ended_at = timezone.now()
-        claimed = KernelRuntime.objects.filter(
-            pk=runtime.pk, ended_at__isnull=True, ttl_expires_at__isnull=False
-        ).update(ended_at=ended_at)
-        if not claimed:
-            return
         runtime.refresh_from_db(fields=["created_at", "ended_at", "ttl_expires_at"])
-        if runtime.ttl_expires_at is None:
+        if runtime.ended_at is not None or runtime.ttl_expires_at is None:
             return
 
-        runtime_seconds = estimated_runtime_seconds(
-            created_at=runtime.created_at,
-            ended_at=ended_at,
-            ttl_expires_at=runtime.ttl_expires_at,
-            sandbox_still_running=sandbox_still_running,
-        )
-        shape = _shape_properties(runtime)
-        hourly_price = shape["hourly_price_usd"]
-        properties: dict[str, Any] = {
-            **shape,
-            "kernel_runtime_id": str(runtime.id),
-            "notebook_short_id": runtime.notebook_short_id,
-            "ended_reason": reason,
-            "sandbox_still_running": sandbox_still_running,
-            "tracked_seconds": round(max((ended_at - runtime.created_at).total_seconds(), 0.0), 3),
-            "estimated_runtime_seconds": round(runtime_seconds, 3),
-            "estimated_price_usd": (
-                round(runtime_seconds / 3600 * hourly_price, 4) if hourly_price is not None else None
-            ),
-        }
-        _report(runtime, KERNEL_SANDBOX_ENDED_EVENT, properties)
+        # Build the event before the claim, so that a failure here leaves the end unclaimed for the
+        # next path that notices it.
+        ended_at = timezone.now()
+        properties = _ended_properties(runtime, ended_at, reason=reason, sandbox_still_running=sandbox_still_running)
+        team = Team.objects.filter(pk=runtime.team_id).first()
+        user = runtime.user
+
+        claimed = KernelRuntime.objects.filter(pk=runtime.pk, ended_at__isnull=True).update(ended_at=ended_at)
+        if not claimed:
+            return
+        runtime.ended_at = ended_at
+        try:
+            report_user_or_team_action(KERNEL_SANDBOX_ENDED_EVENT, properties, user=user, team=team)
+        except Exception:
+            # Release the claim, so that the next path that notices this end reports it.
+            KernelRuntime.objects.filter(pk=runtime.pk, ended_at=ended_at).update(ended_at=None)
+            runtime.ended_at = None
+            raise
     except Exception:
         logger.exception("notebook_kernel_sandbox_ended_report_failed", kernel_runtime_id=str(runtime.id))
+
+
+def _ended_properties(
+    runtime: KernelRuntime, ended_at: datetime, *, reason: str, sandbox_still_running: bool
+) -> dict[str, Any]:
+    assert runtime.ttl_expires_at is not None
+    runtime_seconds = estimated_runtime_seconds(
+        created_at=runtime.created_at,
+        ended_at=ended_at,
+        ttl_expires_at=runtime.ttl_expires_at,
+        sandbox_still_running=sandbox_still_running,
+    )
+    shape = _shape_properties(runtime)
+    hourly_price = shape["hourly_price_usd"]
+    return {
+        **shape,
+        "kernel_runtime_id": str(runtime.id),
+        "notebook_short_id": runtime.notebook_short_id,
+        "ended_reason": reason,
+        "sandbox_still_running": sandbox_still_running,
+        "tracked_seconds": round(max((ended_at - runtime.created_at).total_seconds(), 0.0), 3),
+        "estimated_runtime_seconds": round(runtime_seconds, 3),
+        "estimated_price_usd": (round(runtime_seconds / 3600 * hourly_price, 4) if hourly_price is not None else None),
+    }
 
 
 def _shape_properties(runtime: KernelRuntime) -> dict[str, Any]:
