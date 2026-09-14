@@ -8,7 +8,7 @@ import structlog
 
 from posthog.egress.github.transport import GitHubRateLimitError
 
-from ..db import READER_DB, WRITER_DB
+from ..db import WRITER_DB
 from ..facade.enums import ReviewDecision, RunPurpose
 from ..models import Repo, Run
 from . import comment_markdown, github_api, run_queries
@@ -220,10 +220,15 @@ def _post_approval_comment(run: Run, repo: Repo, add_images: bool = False) -> No
 
 
 def post_approval_comment_for_run(run_id: UUID, team_id: int | None = None, add_images: bool = False) -> None:
-    """Public entrypoint for the Celery task to update a PR comment after approval."""
+    """Public entrypoint for the Celery task to update a PR comment after approval.
+
+    Reads the writer: ``finalize_run`` queues this task on commit, so a replica that
+    still reports the pre-approval ``review_decision`` makes the post silently skip,
+    and nothing retries it.
+    """
     run = (
         Run.objects.select_related("repo")
-        .using(READER_DB)
+        .using(WRITER_DB)
         .filter(id=run_id, **({"team_id": team_id} if team_id is not None else {}))
         .first()
     )
