@@ -195,26 +195,29 @@ describe('sceneLogic', () => {
         }
     })
 
-    it('renders the project access denied scene while the address names the refused project', async () => {
-        const priorAppContext = window.POSTHOG_APP_CONTEXT
-        try {
-            window.POSTHOG_APP_CONTEXT = {
-                ...window.POSTHOG_APP_CONTEXT,
-                project_access_denied: 12345,
-            } as AppContext
+    test.each(['12345', 'phc_12345'])(
+        'renders the project access denied scene while the address names the refused project %s',
+        async (refusedProject) => {
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            try {
+                window.POSTHOG_APP_CONTEXT = {
+                    ...window.POSTHOG_APP_CONTEXT,
+                    project_access_denied: refusedProject,
+                } as AppContext
 
-            router.actions.push('/project/12345/settings/user')
-            await expectLogic(logic).delay(1)
-            expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+                router.actions.push(`/project/${refusedProject}/settings/user`)
+                await expectLogic(logic).delay(1)
+                expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
 
-            // Later navigations run against the project we do serve.
-            router.actions.push(urls.settings('user'))
-            await expectLogic(logic).delay(1)
-            expect(logic.values.activeSceneId).toEqual(Scene.Settings)
-        } finally {
-            window.POSTHOG_APP_CONTEXT = priorAppContext
+                // Later navigations run against the project we do serve.
+                router.actions.push(urls.settings('user'))
+                await expectLogic(logic).delay(1)
+                expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+            } finally {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
+            }
         }
-    })
+    )
 
     describe('/home honors the configured homepage', () => {
         const dashboardHomepage = {

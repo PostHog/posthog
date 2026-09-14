@@ -250,25 +250,21 @@ class AutoProjectMiddleware:
                 and (path_parts[1].startswith("phc_") or path_parts[1] in self.token_allowlist)
             ):
 
-                def do_redirect():
-                    new_path = "/".join(path_parts)
-                    search_params = request.GET.urlencode()
-
-                    return redirect(f"/{new_path}?{search_params}" if search_params else f"/{new_path}")
-
                 try:
                     new_team = Team.objects.get(api_token=path_parts[1])
-
-                    if not self.can_switch_to_team(new_team, request):
-                        raise Team.DoesNotExist
+                    # The address moves to the project id even when the switch is refused, so the
+                    # branch below speaks for the refusal on the request that the redirect makes.
+                    self.switch_team_if_allowed(new_team, request)
 
                     path_parts[1] = str(new_team.pk)
-                    return do_redirect()
+                    new_path = "/".join(path_parts)
+                    search_params = request.GET.urlencode()
+                    return redirect(f"/{new_path}?{search_params}" if search_params else f"/{new_path}")
 
                 except Team.DoesNotExist:
+                    # No project has this token, so there is no id to move the address to.
                     if user.team:
-                        path_parts[1] = str(user.team.pk)
-                        return do_redirect()
+                        request.project_access_denied = path_parts[1]  # type: ignore
 
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].isdigit():
                 project_id_in_url = int(path_parts[1])
@@ -291,7 +287,7 @@ class AutoProjectMiddleware:
                 if not switched and path_parts[0] == "project":
                     # We keep serving the user's own team here, so the app must say so instead of
                     # rendering that team under another project's address.
-                    request.project_access_denied = project_id_in_url  # type: ignore
+                    request.project_access_denied = path_parts[1]  # type: ignore
                 return self.get_response(request)
 
             target_queryset = self.get_target_queryset(request)

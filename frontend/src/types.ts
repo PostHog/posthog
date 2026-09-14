@@ -5217,8 +5217,8 @@ export interface AppContext {
     switched_team: TeamType['id'] | null
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
-    /** The project id the URL asked for, when the server refused to switch to it and served the user's own project. */
-    project_access_denied?: TeamType['id'] | null
+    /** The project the URL asked for, as an id or a token, when the server refused to switch to it. */
+    project_access_denied?: string | null
     livestream_host?: string
     oauth_application?: OAuthApplicationPublicMetadata
     /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */

@@ -26,7 +26,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import {
     addProjectIdIfMissing,
-    getProjectIdInPath,
+    getProjectIdentifierInPath,
     removeProjectIdIfPresent,
     stripTrailingSlash,
 } from 'lib/utils/kea-router'
@@ -526,7 +526,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     appContext?.project_access_denied &&
                     sceneId &&
                     sceneConfigurations[sceneId]?.projectBased &&
-                    getProjectIdInPath(location.pathname) === appContext.project_access_denied
+                    getProjectIdentifierInPath(location.pathname) === appContext.project_access_denied
                 ) {
                     return Scene.ErrorProjectAccessDenied
                 }

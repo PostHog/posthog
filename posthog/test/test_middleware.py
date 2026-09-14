@@ -410,7 +410,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
-        assert self.app_context(project_2_request)["project_access_denied"] == self.no_access_team.pk
+        assert self.app_context(project_2_request)["project_access_denied"] == str(self.no_access_team.pk)
 
     def test_project_unchanged_when_accessing_missing_project_by_id(self):
         project_1_request = self.client.get(f"/project/{self.team.pk}/home")
@@ -422,7 +422,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
-        assert self.app_context(project_2_request)["project_access_denied"] == 999999
+        assert self.app_context(project_2_request)["project_access_denied"] == "999999"
 
     def test_project_redirects_to_new_team_when_accessing_project_by_token(self):
         res = self.client.get(f"/project/{self.second_team.api_token}/home")
@@ -439,28 +439,32 @@ class TestAutoProjectMiddleware(APIBaseTest):
             == f"/project/{self.third_team.pk}/replay/018f5c3e-1a17-7f2b-ac83-32d06be3269b?t=2601"
         )
 
-    def test_project_redirects_to_current_team_when_accessing_missing_project_by_token(
+    def test_project_access_denied_when_accessing_missing_project_by_token(
         self,
     ):
         res = self.client.get(f"/project/phc_123/home")
-        assert res.status_code == 302
-        assert res.headers["Location"] == f"/project/{self.team.pk}/home"
+        assert res.status_code == 200
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
+        assert self.app_context(res)["project_access_denied"] == "phc_123"
 
-    def test_project_redirects_to_current_team_when_accessing_inaccessible_project_by_token(
+    def test_project_access_denied_when_accessing_inaccessible_project_by_token(
         self,
     ):
-        res = self.client.get(f"/project/{self.no_access_team.api_token}/home")
-        assert res.status_code == 302
-        assert res.headers["Location"] == f"/project/{self.team.pk}/home"
+        res = self.client.get(f"/project/{self.no_access_team.api_token}/home", follow=True)
+        assert res.redirect_chain == [(f"/project/{self.no_access_team.pk}/home", 302)]
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
+        assert self.app_context(res)["project_access_denied"] == str(self.no_access_team.pk)
 
     def test_project_redirects_including_query_params(self):
-        res = self.client.get(f"/project/phc_123?t=1")
+        res = self.client.get(f"/project/{self.second_team.api_token}?t=1")
         assert res.status_code == 302
-        assert res.headers["Location"] == f"/project/{self.team.pk}?t=1"
+        assert res.headers["Location"] == f"/project/{self.second_team.pk}?t=1"
 
-        res = self.client.get(f"/project/phc_123/home?t=1")
+        res = self.client.get(f"/project/{self.second_team.api_token}/home?t=1")
         assert res.status_code == 302
-        assert res.headers["Location"] == f"/project/{self.team.pk}/home?t=1"
+        assert res.headers["Location"] == f"/project/{self.second_team.pk}/home?t=1"
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
