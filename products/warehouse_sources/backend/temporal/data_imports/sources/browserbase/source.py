@@ -98,8 +98,9 @@ You can find your project API key in your [Browserbase dashboard](https://www.br
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every Browserbase list endpoint is full refresh: there is no server-side timestamp filter,
-        # so nothing can be synced incrementally (see settings.py).
+        # Every Browserbase endpoint is full refresh: either no server-side timestamp filter exists,
+        # or the only one on offer filters on creation time over rows that keep changing after they
+        # are created (see settings.py).
         return build_endpoint_schemas(
             ENDPOINTS,
             INCREMENTAL_FIELDS,
