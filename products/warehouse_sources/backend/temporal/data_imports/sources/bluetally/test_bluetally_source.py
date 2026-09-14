@@ -9,7 +9,10 @@ from posthog.schema import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.settings import (
+    BLUETALLY_ENDPOINTS,
+    ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.source import BluetallySource
 
 
@@ -44,7 +47,7 @@ class TestGetSchemas:
         # BlueTally has no server-side timestamp filter, so nothing is incremental/append.
         assert all(not s.supports_incremental and not s.supports_append for s in schemas)
         assert all(s.incremental_fields == [] for s in schemas)
-        assert all(s.detected_primary_keys == ["id"] for s in schemas)
+        assert all(s.detected_primary_keys == BLUETALLY_ENDPOINTS[s.name].primary_keys for s in schemas)
 
     def test_names_filter(self) -> None:
         schemas = BluetallySource().get_schemas(_config(), team_id=1, names=["assets", "employees"])
@@ -69,7 +72,7 @@ class TestValidateCredentials:
             ok, error = BluetallySource().validate_credentials(_config(tenant_id="7"), team_id=1)
         assert ok is True
         assert error is None
-        mocked.assert_called_once_with("key", "7", "/assets")
+        mocked.assert_called_once_with("key", "7", "assets")
 
     def test_failure(self) -> None:
         with patch(
@@ -86,7 +89,7 @@ class TestValidateCredentials:
             return_value=True,
         ) as mocked:
             BluetallySource().validate_credentials(_config(), team_id=1, schema_name="employees")
-        mocked.assert_called_once_with("key", None, "/employees")
+        mocked.assert_called_once_with("key", None, "employees")
 
 
 class TestNonRetryableErrors:

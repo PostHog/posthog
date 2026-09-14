@@ -40,6 +40,19 @@ PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 # `last_used` writes over the same window for the same reason.
 LAST_USED_UPLOAD_REFRESH_INTERVAL = datetime.timedelta(hours=12)
 
+# The ID tiebreak keeps LIMIT/OFFSET paging stable when rows share a timestamp.
+# The reference is unique within a team, so it does not need a tiebreak.
+SYMBOL_SET_ORDERINGS: dict[str, tuple[str, ...]] = {
+    "created_at": ("created_at", "id"),
+    "-created_at": ("-created_at", "-id"),
+    "last_used": ("last_used", "id"),
+    "-last_used": ("-last_used", "-id"),
+    "ref": ("ref",),
+    "-ref": ("-ref",),
+}
+
+DEFAULT_SYMBOL_SET_ORDERING = SYMBOL_SET_ORDERINGS["-created_at"]
+
 
 class SymbolSetNotFoundError(Exception):
     pass
@@ -382,20 +395,21 @@ def list_symbol_sets(
         queryset = queryset.filter(ref=ref)
 
     if search:
-        queryset = queryset.filter(
-            Q(ref__icontains=search)
-            | Q(release__version__icontains=search)
-            | Q(release__project__icontains=search)
-            | Q(release__metadata__git__commit_id__icontains=search)
-        )
+        # Two single-table filters rather than one OR across the join: the release side collapses
+        # to a membership test against the much smaller release table, so Postgres no longer has
+        # to join every symbol set the team owns just to evaluate the OR.
+        matching_releases = ErrorTrackingRelease.objects.filter(
+            Q(version__icontains=search) | Q(project__icontains=search) | Q(metadata__git__commit_id__icontains=search),
+            team_id=team_id,
+        ).values("id")
+        queryset = queryset.filter(Q(ref__icontains=search) | Q(release_id__in=matching_releases))
 
     if symbol_set_status == "valid":
         queryset = queryset.filter(storage_ptr__isnull=False)
     elif symbol_set_status == "invalid":
         queryset = queryset.filter(storage_ptr__isnull=True)
 
-    if order_by:
-        queryset = queryset.order_by(order_by)
+    queryset = queryset.order_by(*SYMBOL_SET_ORDERINGS.get(order_by or "", DEFAULT_SYMBOL_SET_ORDERING))
 
     total = queryset.count()
     rows = queryset if limit is None else queryset[offset : offset + limit]

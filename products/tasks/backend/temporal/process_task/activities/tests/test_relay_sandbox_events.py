@@ -1,4 +1,5 @@
 import json
+import time
 import asyncio
 import importlib
 from types import SimpleNamespace
@@ -9,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, call
 
 import httpx
 import httpx_sse
+import temporalio.client
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
@@ -22,6 +24,7 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     FinalMessageTracker,
     RelaySandboxEventsInput,
     TaskRunRedisStream,
+    _background_heartbeat,
     _flush_pending_text,
     _is_active_agent_update,
     _is_end_of_turn,
@@ -33,6 +36,7 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     _relay_loop,
     _sanitize_httpx_error,
     _should_signal_workflow_heartbeat,
+    _track_tool_call,
     relay_sandbox_events,
 )
 from products.tasks.backend.temporal.process_task.workflow import (
@@ -179,6 +183,104 @@ class TestIsActiveAgentUpdate:
         assert (
             _is_active_agent_update({"type": "notification", "notification": {"method": "_posthog/console"}}) is False
         )
+
+
+def _pi(event_type: str, tool_call: object) -> dict:
+    return {"type": "pi_event", "event": {"type": event_type, "toolCall": tool_call}}
+
+
+def _acp(sub_type: str, update: dict) -> dict:
+    return {
+        "type": "notification",
+        "notification": {"method": "session/update", "params": {"update": {"sessionUpdate": sub_type, **update}}},
+    }
+
+
+class TestTrackToolCall:
+    @parameterized.expand(
+        [
+            ("pi_started_opens", [_pi("tool_call_started", {"id": "c1", "status": "pending"})], {"c1"}),
+            (
+                "pi_completed_closes",
+                [
+                    _pi("tool_call_started", {"id": "c1", "status": "pending"}),
+                    _pi("tool_call_updated", {"id": "c1", "status": "completed"}),
+                ],
+                set(),
+            ),
+            (
+                "pi_failed_closes",
+                [
+                    _pi("tool_call_started", {"id": "c1", "status": "pending"}),
+                    _pi("tool_call_updated", {"id": "c1", "status": "failed"}),
+                ],
+                set(),
+            ),
+            (
+                "pi_non_terminal_update_keeps_open",
+                [
+                    _pi("tool_call_started", {"id": "c1", "status": "pending"}),
+                    _pi("tool_call_updated", {"id": "c1", "status": "in_progress"}),
+                ],
+                {"c1"},
+            ),
+            (
+                "pi_repeated_start_is_one_entry",
+                [
+                    _pi("tool_call_started", {"id": "c1", "status": "pending"}),
+                    _pi("tool_call_started", {"id": "c1", "status": "pending"}),
+                ],
+                {"c1"},
+            ),
+            (
+                "pi_sibling_call_stays_open",
+                [
+                    _pi("tool_call_started", {"id": "c1", "status": "pending"}),
+                    _pi("tool_call_started", {"id": "c2", "status": "pending"}),
+                    _pi("tool_call_updated", {"id": "c1", "status": "completed"}),
+                ],
+                {"c2"},
+            ),
+            ("acp_started_opens", [_acp("tool_call", {"toolCallId": "c1"})], {"c1"}),
+            (
+                "acp_completed_closes",
+                [
+                    _acp("tool_call", {"toolCallId": "c1"}),
+                    _acp("tool_call_update", {"toolCallId": "c1", "status": "completed"}),
+                ],
+                set(),
+            ),
+            (
+                "acp_non_terminal_update_keeps_open",
+                [
+                    _acp("tool_call", {"toolCallId": "c1"}),
+                    _acp("tool_call_update", {"toolCallId": "c1", "status": "in_progress"}),
+                ],
+                {"c1"},
+            ),
+            # History replay and memory recall emit a start that is already terminal, with no
+            # update to follow. Opening it would keep the run alive for the rest of the turn.
+            (
+                "acp_start_already_terminal_never_opens",
+                [_acp("tool_call", {"toolCallId": "c1", "status": "completed"})],
+                set(),
+            ),
+            (
+                "pi_start_already_terminal_never_opens",
+                [_pi("tool_call_started", {"id": "c1", "status": "failed"})],
+                set(),
+            ),
+            ("pi_missing_tool_call", [_pi("tool_call_started", None)], set()),
+            ("pi_non_string_id", [_pi("tool_call_started", {"id": 7})], set()),
+            ("acp_missing_id", [_acp("tool_call", {})], set()),
+            ("unrelated_event", [{"type": "notification", "notification": {"method": "_posthog/console"}}], set()),
+        ],
+    )
+    def test_open_tool_calls(self, _name: str, events: list[dict], expected: set[str]) -> None:
+        open_tool_calls: set[str] = set()
+        for event in events:
+            _track_tool_call(event, open_tool_calls)
+        assert open_tool_calls == expected
 
 
 class TestIsKeepaliveEvent:
@@ -721,6 +823,84 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream.release_first_agent_command.assert_not_awaited()
         redis_stream.release_first_agent_activity.assert_not_awaited()
         assert redis_stream.claim_first_agent_activity.await_count == 2
+
+    @parameterized.expand(
+        [
+            ("unfinished_tool_call_stays_open", [_acp("tool_call", {"toolCallId": "c1"})], {"c1"}),
+            (
+                "terminal_status_closes",
+                [
+                    _acp("tool_call", {"toolCallId": "c1"}),
+                    _acp("tool_call_update", {"toolCallId": "c1", "status": "completed"}),
+                ],
+                set(),
+            ),
+            (
+                "end_of_turn_closes",
+                [
+                    _acp("tool_call", {"toolCallId": "c1"}),
+                    {"type": "notification", "notification": {"result": {"stopReason": "end_turn"}}},
+                ],
+                set(),
+            ),
+        ],
+    )
+    async def test_relay_loop_shares_open_tool_calls_with_the_heartbeat(
+        self,
+        _name: str,
+        events: list[dict],
+        expected: set[str],
+    ) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+            claim_first_agent_command=AsyncMock(return_value=False),
+            release_first_agent_command=AsyncMock(),
+            claim_first_agent_activity=AsyncMock(return_value=False),
+            release_first_agent_activity=AsyncMock(),
+        )
+        stream_events = [*events, {"type": "notification", "notification": {"method": "_posthog/task_complete"}}]
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                for event in stream_events:
+                    yield SimpleNamespace(data=json.dumps(event))
+
+        handle = SimpleNamespace(signal=AsyncMock())
+        client = SimpleNamespace(get_workflow_handle=MagicMock(return_value=handle))
+        background_heartbeat = AsyncMock()
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(
+                relay_sandbox_events_module.httpx_sse,
+                "aconnect_sse",
+                lambda *_args, **_kwargs: SuccessfulEventSource(),
+            )
+            monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", background_heartbeat)
+            monkeypatch.setattr(
+                relay_sandbox_events_module.activity, "info", lambda: SimpleNamespace(workflow_id="workflow-1")
+            )
+            monkeypatch.setattr("posthog.temporal.common.client.async_connect", AsyncMock(return_value=client))
+
+            await _relay_loop(
+                events_url="https://sandbox.example/events",
+                headers={"Authorization": "Bearer token"},
+                params={},
+                redis_stream=cast(TaskRunRedisStream, redis_stream),
+                run_id="run-id",
+                task_id="task-id",
+            )
+
+        assert background_heartbeat.call_args.kwargs["open_tool_calls"] == expected
 
     async def test_permission_request_dispatches_to_broker(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream = SimpleNamespace(
@@ -1297,7 +1477,7 @@ class TestShouldSignalWorkflowHeartbeat:
         [
             # Loop runs carry a 2-minute idle window; a quiet in-flight turn past that
             # window must still keep the workflow alive (the mid-turn teardown bug).
-            ("mid_turn_quiet_past_short_run_window", True, 300.0, 120.0, True),
+            ("mid_turn_quiet_past_short_run_window", True, 300.0, 120.0, set(), True),
             # Leave the workflow's short inactivity timer enough time to expire at
             # the background default instead of after another full short window.
             (
@@ -1305,15 +1485,20 @@ class TestShouldSignalWorkflowHeartbeat:
                 True,
                 float(INACTIVITY_TIMEOUT_DEFAULT_SECONDS) - 60.0,
                 120.0,
+                set(),
                 False,
             ),
             # Idle after end_of_turn: the short loop window applies and the run winds down.
-            ("idle_agent_stale_events", False, 300.0, 120.0, False),
-            ("mid_turn_fresh_events", True, 30.0, 120.0, True),
-            # Default and longer windows rely on the event-driven heartbeat, then
-            # let their own inactivity timer measure the full silence window.
-            ("mid_turn_default_window_uses_event_heartbeat", True, 30.0, 1800.0, False),
-            ("mid_turn_long_window_uses_event_heartbeat", True, 30.0, 3600.0, False),
+            ("idle_agent_stale_events", False, 300.0, 120.0, set(), False),
+            ("mid_turn_fresh_events", True, 30.0, 120.0, set(), True),
+            # With no tool call in flight, the default and longer windows rely on the
+            # event-driven heartbeat, then let their own inactivity timer measure the
+            # full silence window.
+            ("mid_turn_default_window_uses_event_heartbeat", True, 30.0, 1800.0, set(), False),
+            ("mid_turn_long_window_uses_event_heartbeat", True, 30.0, 3600.0, set(), False),
+            # An unfinished tool call is evidence of work, so it keeps the run alive past
+            # the silence budget that reaped runs mid-subagent, whatever the window.
+            ("tool_call_in_flight_bypasses_budget", False, 1_500.0, 3600.0, {"call-1"}, True),
         ]
     )
     def test_freshness_gating(
@@ -1322,6 +1507,7 @@ class TestShouldSignalWorkflowHeartbeat:
         agent_active: bool,
         event_age_seconds: float,
         inactivity_timeout_seconds: float,
+        open_tool_calls: set[str],
         expected: bool,
     ) -> None:
         now = 100_000.0
@@ -1332,6 +1518,7 @@ class TestShouldSignalWorkflowHeartbeat:
                 last_workflow_signal=[now - HEARTBEAT_INTERVAL_SECONDS - 1.0],
                 agent_active=[agent_active],
                 inactivity_timeout_seconds=inactivity_timeout_seconds,
+                open_tool_calls=open_tool_calls,
             )
             is expected
         )
@@ -1360,3 +1547,36 @@ class TestShouldSignalWorkflowHeartbeat:
             )
             is expected
         )
+
+
+class TestBackgroundHeartbeat:
+    async def test_signals_for_a_tool_call_opened_after_it_started(self) -> None:
+        # The relay hands over an empty set and fills it later, so the coroutine has to keep
+        # the caller's object. Rebinding it leaves the heartbeat blind for the whole run.
+        open_tool_calls: set[str] = set()
+        handle = SimpleNamespace(signal=AsyncMock())
+        stop_event = asyncio.Event()
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(relay_sandbox_events_module, "HEARTBEAT_INTERVAL_SECONDS", 0.01)
+            monkeypatch.setattr(relay_sandbox_events_module.activity, "heartbeat", lambda *_args: None)
+            heartbeat = asyncio.create_task(
+                _background_heartbeat(
+                    stop_event,
+                    cast(temporalio.client.WorkflowHandle, handle),
+                    [time.monotonic() - 100.0],
+                    [0.0],
+                    [False],
+                    inactivity_timeout_seconds=3600.0,
+                    open_tool_calls=open_tool_calls,
+                )
+            )
+            # Let the coroutine reach its first await, so the set is still empty when it
+            # normalises its arguments. That is the moment a falsy check detaches it.
+            await asyncio.sleep(0)
+            open_tool_calls.add("call-1")
+            await asyncio.sleep(0.05)
+            stop_event.set()
+            await heartbeat
+
+        assert call("heartbeat", arg=True) in handle.signal.await_args_list

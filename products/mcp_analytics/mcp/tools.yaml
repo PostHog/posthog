@@ -116,23 +116,7 @@ tools:
         enabled: false
     mcp-feedback-submit:
         operation: mcp_analytics_feedback_create
-        enabled: true
-        scopes:
-            - mcp_analytics:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Submit MCP feedback
-        description: >
-            Submit qualitative feedback about the current MCP workflow, tool result, or product experience. Use this
-            when the available tools worked but the experience was confusing, incomplete, or could be improved.
-        include_params:
-            - goal
-            - feedback
-            - category
-            - attempted_tool
-        feature_flag: mcp-analytics
+        enabled: false
     mcp-missing-capability-list:
         operation: mcp_analytics_missing_capabilities_list
         enabled: false
