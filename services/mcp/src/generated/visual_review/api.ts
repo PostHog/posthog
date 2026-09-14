@@ -231,7 +231,7 @@ export const VisualReviewRunsFinalizeCreateBody = () => zod.object({
         .boolean()
         .default(visualReviewRunsFinalizeCreateBodyAddImagesToCommentOnPrDefault)
         .describe(
-            'Whether to embed the before\/after snapshot images in the post-approval PR comment. The comment itself is always posted (when the run was initiated from a GitHub review prompt and the repo has PR comments enabled); this flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots.'
+            "Whether to embed the before\/after snapshot images in the post-approval PR comment. The comment itself is always posted when the repo has PR comments enabled: it updates the run's review prompt when the run has one, and posts a new comment when it does not. This flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots."
         ),
 })
 
