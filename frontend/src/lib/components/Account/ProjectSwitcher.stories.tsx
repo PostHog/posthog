@@ -5,10 +5,12 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { dayjs } from 'lib/dayjs'
 
 import { useStorybookMocks } from '~/mocks/browser'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { AvailableFeature } from '~/types'
 
 import { ProjectSwitcher } from './ProjectSwitcher'
 
-type StoryProps = { hasPendingInvite: boolean; hasDataFreshness?: boolean }
+type StoryProps = { hasPendingInvite: boolean; hasDataFreshness?: boolean; atProjectLimit?: boolean }
 
 const PENDING_INVITE = {
     id: '018f0000-0000-0000-0000-000000000001',
@@ -73,19 +75,25 @@ const DATA_FRESHNESS = {
     ],
 }
 
+const ONE_PROJECT_PLAN = [{ key: AvailableFeature.ORGANIZATIONS_PROJECTS, name: 'Projects', limit: 1, unit: 'project' }]
+
 const meta: Meta<(props: StoryProps) => JSX.Element> = {
     title: 'Components/Account/Project Switcher',
     parameters: {
         layout: 'centered',
         viewMode: 'story',
     },
-    render: ({ hasPendingInvite, hasDataFreshness }: StoryProps) => {
-        const organization = hasDataFreshness
-            ? { ...MOCK_DEFAULT_ORGANIZATION, teams: [MOCK_DEFAULT_TEAM, ...FRESHNESS_TEAMS] }
-            : MOCK_DEFAULT_ORGANIZATION
+    render: ({ hasPendingInvite, hasDataFreshness, atProjectLimit }: StoryProps) => {
+        const organization = {
+            ...MOCK_DEFAULT_ORGANIZATION,
+            teams: hasDataFreshness ? [MOCK_DEFAULT_TEAM, ...FRESHNESS_TEAMS] : MOCK_DEFAULT_ORGANIZATION.teams,
+            available_product_features: atProjectLimit ? ONE_PROJECT_PLAN : [],
+        }
 
         useStorybookMocks({
             get: {
+                // The stock fixture forbids project creation outright, which hides the plan-limit hint.
+                '/_preflight': { ...preflightJson, can_create_org: !!atProjectLimit },
                 '/api/users/@me/': () => [
                     200,
                     {
@@ -125,4 +133,8 @@ export const WithPendingInvite: Story = {
 
 export const WithDataFreshness: Story = {
     args: { hasPendingInvite: false, hasDataFreshness: true },
+}
+
+export const AtProjectLimit: Story = {
+    args: { hasPendingInvite: false, atProjectLimit: true },
 }
