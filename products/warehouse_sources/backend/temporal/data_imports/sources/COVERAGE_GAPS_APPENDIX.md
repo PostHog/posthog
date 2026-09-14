@@ -809,14 +809,14 @@ Note: BigMailer's public API exposes no per-recipient engagement or event endpoi
 
 ## Bitbucket — gaps
 
-Today (6): `commits`, `deployments`, `pipelines`, `pull_requests`, `repositories`, `workspace_members`
+Today (10): `commits`, `deployments`, `environments`, `pipelines`, `projects`, `pull_request_activity`, `pull_request_comments`, `pull_requests`, `repositories`, `workspace_members`
 
 Diffed against: <https://api.bitbucket.org/swagger.json>
 
-- [ ] `repositories/{workspace}/{repo}/pullrequests/{id}/activity` — approval, review and update transition history — the backbone of PR cycle-time analysis (high)
-- [ ] `repositories/{workspace}/{repo}/pullrequests/{id}/comments` — code review comment volume and latency (high)
-- [ ] `repositories/{workspace}/{repo}/environments` — lookup resolving the environment referenced by the deployments we already sync (high)
-- [ ] `workspaces/{workspace}/projects` — lookup grouping the repositories we already sync under a project key (high)
+- [x] `repositories/{workspace}/{repo}/pullrequests/{id}/activity` — approval, review and update transition history — the backbone of PR cycle-time analysis (high)
+- [x] `repositories/{workspace}/{repo}/pullrequests/{id}/comments` — code review comment volume and latency (high)
+- [x] `repositories/{workspace}/{repo}/environments` — lookup resolving the environment referenced by the deployments we already sync (high)
+- [x] `workspaces/{workspace}/projects` — lookup grouping the repositories we already sync under a project key (high)
 - [ ] `repositories/{workspace}/{repo}/pipelines/{uuid}/steps` — per-step CI durations and outcomes; the pipelines row alone gives no breakdown (high)
 - [ ] `repositories/{workspace}/{repo}/issues` — repo issue tracker records (medium)
 - [ ] `repositories/{workspace}/{repo}/commit/{commit}/statuses` — external build/check status per commit we already sync (medium)
@@ -825,6 +825,10 @@ Diffed against: <https://api.bitbucket.org/swagger.json>
 - [ ] `repositories/{workspace}/{repo}/pipelines/{uuid}/steps/{uuid}/test_reports/test_cases` — per-test-case CI results for flakiness analysis (medium)
 - [ ] `repositories/{workspace}/{repo}/issues/{id}/comments` — issue discussion volume (medium)
 - [ ] `repositories/{workspace}/{repo}/issues/{id}/changes` — issue state transition history (low)
+
+Note: `pull_request_activity` syncs the repo-level `pullrequests/activity` feed rather than the
+per-pull-request path listed above. Both return the same entries; the repo-level feed covers every
+pull request in one walk, so it costs one request per page instead of one per pull request.
 
 ## Bitrise — gaps
 
