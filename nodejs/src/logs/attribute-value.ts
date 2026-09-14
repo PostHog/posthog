@@ -12,6 +12,15 @@
  */
 export function decodeLogAttributeValue(value: string): string {
     if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+        // Fast path: a quoted string whose interior has no backslash and no quote is
+        // escape-free valid JSON, so the decode is a plain slice and JSON.parse would
+        // return the identical string. Anything else ('"a"b"', escapes) falls through
+        // to JSON.parse to preserve its exact accept/reject behavior. This runs per
+        // attribute per record at 100k+ records/s.
+        const interior = value.slice(1, -1)
+        if (!interior.includes('\\') && !interior.includes('"')) {
+            return interior
+        }
         try {
             // oxlint-disable-next-line eslint-js/no-restricted-syntax
             const parsed = JSON.parse(value)
