@@ -67,7 +67,7 @@ def exclude_archived_unless_requested(queryset: QuerySet, *, requested: bool) ->
     return queryset
 
 
-def filter_stale_flags(queryset: QuerySet) -> QuerySet:
+def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None = None) -> QuerySet:
     """
     Narrow a FeatureFlag queryset to the flags that count as stale.
 
@@ -87,6 +87,10 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
 
     The caller supplies the scope, so pass a queryset already narrowed to the team.
 
+    Pass `stale_threshold` to hold one detection run to one cutoff, the same way
+    `filter_effectively_full_rollout_flags` takes it. Without it the function reads the clock
+    itself, which is what the `active=STALE` filter wants.
+
     The config branch's raw SQL rides on `.extra(where=...)`, and that clause stays on that
     branch when the two querysets are OR-combined below. Applied to the combined query, it
     would narrow the usage-based branch too and drop flags that are stale only by usage.
@@ -105,7 +109,8 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
     # Get stale flags using the best available signal:
     # 1. If last_called_at exists: flag hasn't been called in 30+ days
     # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
-    stale_threshold = stale_flag_threshold()
+    if stale_threshold is None:
+        stale_threshold = stale_flag_threshold()
     usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
     config_based_queryset = queryset.filter(

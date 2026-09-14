@@ -137,12 +137,12 @@ class StaleFeatureFlagsCheck(HealthCheck):
             active=True,
         ).exclude(is_remote_configuration=True)
 
-        # One cutoff for the whole run. Reading the clock again after the query would let a flag
-        # whose last call sits on the boundary be selected as still called and then reported as
-        # not called recently.
+        # One cutoff for the whole run: both candidate queries and the evidence classification
+        # compare against it. A second clock read would let a flag whose last call sits on the
+        # boundary be selected by one of them and then classified against the other.
         stale_threshold = stale_flag_threshold()
 
-        stale_candidates = list(filter_stale_flags(reportable_flags))
+        stale_candidates = list(filter_stale_flags(reportable_flags, stale_threshold=stale_threshold))
         stale_ids = {flag.id for flag in stale_candidates}
         # The prefilter returns a superset, so the checker settles each row. A flag the stale
         # filter already returned is dropped here instead of reported twice, because
