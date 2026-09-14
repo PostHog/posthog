@@ -483,6 +483,7 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
 
 def test_drops_clickhouse_global_distribution_modifiers() -> None:
     membership_query = parse_select("SELECT user_id FROM users WHERE user_id IN ['a']")
+    assert isinstance(membership_query, ast.SelectQuery)
     assert isinstance(membership_query.where, ast.CompareOperation)
     membership_query.where.op = ast.CompareOperationOp.GlobalIn
     membership_sql, _ = prepare_and_print_ast(
@@ -494,6 +495,7 @@ def test_drops_clickhouse_global_distribution_modifiers() -> None:
     assert '"users"."user_id" IN (%(hogql_val_0)s)' in membership_sql
 
     query = parse_select("SELECT users.user_id FROM users LEFT JOIN users AS other ON users.user_id = other.user_id")
+    assert isinstance(query, ast.SelectQuery)
     assert isinstance(query.select_from, ast.JoinExpr)
     assert query.select_from.next_join is not None
     query.select_from.next_join.join_type = "GLOBAL LEFT JOIN"
