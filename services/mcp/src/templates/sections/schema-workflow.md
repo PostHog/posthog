@@ -1,6 +1,7 @@
 #### Schema-first workflow
 
-Verify the data schema before constructing any insight query. Canonical-looking events
+After the metric-discovery check, verify the data schema before constructing any insight
+query. Canonical-looking events
 (`$pageview`, `$identify`, `$autocapture`, …) still need confirmation — they can be absent,
 renamed, or filtered per team.
 
