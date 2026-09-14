@@ -107,8 +107,8 @@ describe('BusinessKnowledgeScene', () => {
             '/project/1/support/tickets/42'
         )
         expect(screen.getByText('Learned')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Edit')).toBeInTheDocument()
+        expect(screen.getByLabelText('Delete')).toBeInTheDocument()
 
         fireEvent.click(screen.getByText('Refund policy'))
 
