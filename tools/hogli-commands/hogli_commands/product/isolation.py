@@ -39,10 +39,18 @@ from .ast_helpers import (
     lazy_reexport_prefixes,
     module_dunder_all,
     module_has_prefix,
-    module_level_import_froms,
     module_level_import_nodes,
     module_type_aliases,
     tree_has_top_level_functions,
+)
+from .import_resolution import (
+    PRODUCT_BACKEND_RE,
+    backend_rel_path,
+    iter_imported_names,
+    iter_module_imported_names,
+    module_package_parts,
+    resolve_absolute_module,
+    source_file,
 )
 from .paths import REPO_ROOT, TACH_TOML, get_tach_block
 
@@ -558,70 +566,6 @@ class FacadeClassImport:
     source_path: str  # backend-relative, e.g. "backend/metrics_query_runner.py"
 
 
-def _product_backend_root(backend_dir: Path) -> str:
-    """The product's own backend package as a dotted prefix, e.g. 'products.metrics.backend'."""
-    return f"products.{backend_dir.parent.name}.backend"
-
-
-def _module_package_parts(source_path: str) -> list[str]:
-    """The package a module belongs to, as backend-relative parts, for resolving relative imports.
-
-    'backend/facade/queries.py' -> ['facade'] (its container); 'backend/logic/matrix/' (a package,
-    trailing slash) -> ['logic', 'matrix'] (a package's relative imports are rooted at itself)."""
-    trimmed = source_path.removeprefix("backend/")
-    if trimmed.endswith("/"):
-        return [p for p in trimmed.strip("/").split("/") if p]
-    return trimmed.rsplit("/", 1)[0].split("/") if "/" in trimmed else []
-
-
-def _resolve_relative(package_parts: list[str], level: int, module: str | None) -> str | None:
-    """A relative import from a package -> its module path relative to backend, or None if it climbs
-    above backend/ (nothing there is product-internal to this backend). level 1 is the package
-    itself, level 2 its parent, etc."""
-    climb = level - 1
-    if climb > len(package_parts):
-        return None
-    remaining = package_parts[: len(package_parts) - climb]
-    if module:
-        remaining = remaining + module.split(".")
-    return "/".join(remaining)
-
-
-def _resolve_absolute_module(module: str, backend_dir: Path) -> str | None:
-    """An absolute import -> its module path relative to backend_dir, or None if it's not this
-    product's backend (third-party, core, or another product all return None)."""
-    root = _product_backend_root(backend_dir)
-    if module == root:
-        return ""
-    if module.startswith(root + "."):
-        return module[len(root) + 1 :].replace(".", "/")
-    return None
-
-
-def _backend_rel_path(module_rel: str, backend_dir: Path) -> str | None:
-    """A module path relative to backend_dir -> a backend-relative on-disk path, or None.
-
-    Resolves to the file that actually holds definitions: 'models' -> 'backend/models.py' if that
-    file exists, else 'backend/models/' for a package. The trailing slash on a package lets the
-    result be prefix-tested against GARAGE_PREFIXES the same way an input glob is."""
-    if module_rel == "":
-        return "backend/"
-    file_path = backend_dir / f"{module_rel}.py"
-    if file_path.is_file():
-        return f"backend/{module_rel}.py"
-    dir_path = backend_dir / module_rel
-    if dir_path.is_dir():
-        return f"backend/{module_rel}/"
-    return None
-
-
-def _source_file(source_path: str, backend_dir: Path) -> Path:
-    """The on-disk file for a backend-relative module path (a package resolves to its __init__.py)."""
-    if source_path.endswith("/"):
-        return backend_dir.parent / source_path.rstrip("/") / "__init__.py"
-    return backend_dir.parent / source_path
-
-
 def _name_is_class(
     source_path: str,
     name: str,
@@ -631,15 +575,18 @@ def _name_is_class(
 ) -> bool:
     """True if `name` resolves to a class in the module at source_path.
 
-    Follows relative re-exports one hop by default, so a class defined in a submodule and surfaced
-    through the package __init__ (the common `from .thing import Thing` shape) still counts. Never
-    leaves this product's backend — an absolute or third-party re-export ends the chain.
+    Follows a relative re-export one hop by default, so a class defined in a submodule and surfaced
+    through the package __init__ (the common `from .thing import Thing` shape) still counts. An
+    absolute re-export ends the chain: it commonly reaches back into facade/contracts.py, where the
+    class already sits at its sanctioned home, and following it would report the module that passes
+    the contract through as the leak. A name from another product or a library resolves to no path
+    and ends the chain too.
 
     `cache` memoizes parses per source file for the duration of one facade traversal, so a
     multi-name import doesn't re-parse the same module once per alias."""
     if cache is None:
         cache = {}
-    file_path = _source_file(source_path, backend_dir)
+    file_path = source_file(source_path, backend_dir)
     if file_path not in cache:
         cache[file_path] = ast_parse_safe(file_path)
     tree = cache[file_path]
@@ -649,18 +596,14 @@ def _name_is_class(
         return True
     if hops <= 0:
         return False
-    package_parts = _module_package_parts(source_path)
-    for level, module, aliases in module_level_import_froms(tree):
-        if level == 0:
+    package_parts = module_package_parts(source_path)
+    for node in module_level_import_nodes(tree):
+        if not isinstance(node, ast.ImportFrom) or node.level == 0:
             continue
-        for orig, asname in aliases:
-            if (asname or orig) != name:
+        for imported in iter_imported_names(node, package_parts, backend_dir):
+            if imported.bound != name or imported.source_path is None:
                 continue
-            module_rel = _resolve_relative(package_parts, level, module)
-            if module_rel is None:
-                continue
-            nested = _backend_rel_path(module_rel, backend_dir)
-            if nested is not None and _name_is_class(nested, orig, backend_dir, hops - 1, cache):
+            if _name_is_class(imported.source_path, imported.original, backend_dir, hops - 1, cache):
                 return True
     return False
 
@@ -671,11 +614,11 @@ def _resolve_dotted_source(dotted: str, backend_dir: Path, prefixes: Sequence[st
     A map may also store its values relative to a module-level prefix constant, so every prefix the
     module defines is tried after the bare value. The first candidate that names a real module wins."""
     for candidate in (dotted, *(prefix + dotted for prefix in prefixes)):
-        module_rel = _resolve_absolute_module(candidate, backend_dir)
+        module_rel = resolve_absolute_module(candidate, backend_dir)
         if module_rel is None:
             # Lazy maps commonly store the value relative to the product's backend package.
             module_rel = candidate.replace(".", "/")
-        source_path = _backend_rel_path(module_rel, backend_dir)
+        source_path = backend_rel_path(module_rel, backend_dir)
         if source_path is not None:
             return source_path
     return None
@@ -722,25 +665,22 @@ def _iter_handed_out_names(tree: ast.Module, backend_dir: Path) -> Iterator[_Han
         imported with the explicit self-alias idiom (`from ..x import Foo as Foo` — the shape that
         also suppresses ruff's F401, so it would otherwise be invisible to every lint).
       - a PEP 562 `_LAZY`/`_MODULES` map hands out every name it maps, read regardless of shape.
+
+    An alias may name a submodule rather than a symbol (`from .. import tasks`), and then the
+    module it hands out is that submodule, which is what decides whether a facade module is wiring.
     """
     is_pure_reexport = not tree_has_top_level_functions(tree)
     allowed = None if is_pure_reexport else module_dunder_all(tree)
-    for level, module, aliases in module_level_import_froms(tree):
-        module_rel = (
-            _resolve_relative(["facade"], level, module)
-            if level > 0
-            else _resolve_absolute_module(module or "", backend_dir)
+    for imported in iter_module_imported_names(tree, ("facade",), backend_dir):
+        if imported.source_path is None:
+            continue
+        handed_out = (
+            is_pure_reexport
+            or (allowed is not None and imported.bound in allowed)
+            or imported.asname == imported.original
         )
-        if module_rel is None:
-            continue
-        source_path = _backend_rel_path(module_rel, backend_dir)
-        if source_path is None:
-            continue
-        for orig, asname in aliases:
-            bound = asname or orig
-            handed_out = is_pure_reexport or (allowed is not None and bound in allowed) or asname == orig
-            if handed_out:
-                yield _HandedOutName(bound, orig, source_path)
+        if handed_out:
+            yield _HandedOutName(imported.bound, imported.original, imported.source_path)
     prefixes = lazy_reexport_prefixes(tree)
     for name, dotted in lazy_reexport_map(tree).items():
         source_path = _resolve_dotted_source(dotted, backend_dir, prefixes)
@@ -1030,12 +970,14 @@ def _reaches_model_surface(backend_module: str) -> bool:
 
 
 def _product_model_owner(module: str) -> str | None:
-    """The product whose model surface an absolute import reaches, else None."""
-    match = _PRODUCT_BACKEND_RE.match(module)
+    """The product whose model surface an absolute import reaches, else None.
+
+    The backend package itself carries no module, and holds no model of its own."""
+    match = PRODUCT_BACKEND_RE.match(module)
     if match is None:
         return None
     product, backend_module = match.groups()
-    return product if _reaches_model_surface(backend_module) else None
+    return product if _reaches_model_surface(backend_module or "") else None
 
 
 def _import_source(module: str) -> str | None:
@@ -1046,15 +988,6 @@ def _import_source(module: str) -> str | None:
         if module_has_prefix(module, prefixes):
             return source
     return _product_model_owner(module)
-
-
-def _relative_import_source(level: int, module: str | None, product: str, package_parts: Sequence[str]) -> str | None:
-    """The same, for a relative import inside the scanned module's own package: the module's own
-    product when the import reaches its model surface, else None."""
-    backend_module = _resolve_relative(list(package_parts), level, module)
-    if backend_module is None:
-        return None
-    return product if _reaches_model_surface(backend_module.replace("/", ".")) else None
 
 
 def _forbidden(source: str, name: str, model_names: _ModelNames) -> _ForbiddenType | None:
@@ -1069,52 +1002,8 @@ def _forbidden(source: str, name: str, model_names: _ModelNames) -> _ForbiddenTy
     return _ForbiddenType(source, name) if name in model_names.for_product(source) else None
 
 
-def _submodule_of(module: str | None, name: str) -> str:
-    """The module a `from <module> import <name>` names when `name` is a submodule.
-
-    `from . import models` carries no module of its own, so the imported name is the whole path."""
-    return f"{module}.{name}" if module else name
-
-
-def _package_dir(level: int, module: str | None, backend_dir: Path, package_parts: Sequence[str]) -> Path | None:
-    """The directory a `from <package> import ...` reads, for a package that is on disk here.
-
-    That is this product's backend for a relative import and another product's backend for an
-    absolute one. A library package is not in this tree, so it has no directory."""
-    if level > 0:
-        module_rel = _resolve_relative(list(package_parts), level, module)
-        return None if module_rel is None else backend_dir / module_rel
-    match = _PRODUCT_BACKEND_RE.match(module or "")
-    if match is None:
-        return None
-    product, backend_module = match.groups()
-    products_dir = backend_dir.parent.parent
-    return products_dir / product / "backend" / backend_module.replace(".", "/")
-
-
-def _binds_submodule(package_dir: Path | None, source: str, name: str) -> bool:
-    """True when a `from <package> import <name>` binds a submodule rather than a type.
-
-    A product package is in this tree, so the file or the directory on disk decides. A library
-    package is not, so the PEP 8 spelling decides instead: `from rest_framework import request`
-    binds a module and `from rest_framework.request import Request` binds a type.
-
-    The on-disk test reads the directory rather than asking for the path, because a case-insensitive
-    filesystem answers `Account.py` with `account.py` and would turn every model class into a
-    module alias."""
-    if package_dir is None:
-        return source in _LIBRARY_NAMES and name[:1].islower()
-    if not package_dir.is_dir():
-        return False
-    return any(
-        (entry.name == f"{name}.py" and entry.is_file()) or (entry.name == name and entry.is_dir())
-        for entry in package_dir.iterdir()
-    )
-
-
 def _facade_import_env(
     tree: ast.Module,
-    product: str,
     model_names: _ModelNames,
     backend_dir: Path,
     package_parts: Sequence[str] = ("facade",),
@@ -1129,36 +1018,26 @@ def _facade_import_env(
                 if source is not None:
                     modules[alias.asname or alias.name.split(".")[0]] = source
             continue
-        module = node.module or ""
-        if node.level == 0 and module in _SPECIAL_FORM_MODULES:
+        if node.level == 0 and (node.module or "") in _SPECIAL_FORM_MODULES:
             for alias in node.names:
                 if alias.name in _SPECIAL_FORMS:
                     special_forms[alias.asname or alias.name] = alias.name
-        source = (
-            _relative_import_source(node.level, node.module, product, package_parts)
-            if node.level > 0
-            else _import_source(module)
-        )
-        for alias in node.names:
-            bound = alias.asname or alias.name
+        for imported in iter_imported_names(node, package_parts, backend_dir):
+            source = _import_source(imported.package)
             if source is None:
                 # `from django.db import models` and `from . import models` both bind the namespace
-                # and not a type, so the annotation spells `models.QuerySet`.
-                submodule = _submodule_of(node.module, alias.name)
-                submodule_source = (
-                    _relative_import_source(node.level, submodule, product, package_parts)
-                    if node.level > 0
-                    else _import_source(submodule)
-                )
+                # and not a type, so the annotation spells `models.QuerySet`. Neither package is off
+                # limits itself, so the submodule the alias names decides.
+                submodule_source = _import_source(imported.submodule)
                 if submodule_source is not None:
-                    modules[bound] = submodule_source
+                    modules[imported.bound] = submodule_source
                 continue
-            if _binds_submodule(_package_dir(node.level, node.module, backend_dir, package_parts), source, alias.name):
-                modules[bound] = source
+            if imported.binds_submodule:
+                modules[imported.bound] = source
                 continue
-            forbidden = _forbidden(source, alias.name, model_names)
+            forbidden = _forbidden(source, imported.original, model_names)
             if forbidden is not None:
-                types[bound] = forbidden
+                types[imported.bound] = forbidden
     return _FacadeImportEnv(
         types=types,
         modules=modules,
@@ -1437,7 +1316,7 @@ def _top_level_function(tree: ast.Module, name: str) -> ast.FunctionDef | ast.As
 
 def _cached_parse(cache: dict[str, ast.Module | None], source_path: str, backend_dir: Path) -> ast.Module | None:
     if source_path not in cache:
-        cache[source_path] = ast_parse_safe(_source_file(source_path, backend_dir))
+        cache[source_path] = ast_parse_safe(source_file(source_path, backend_dir))
     return cache[source_path]
 
 
@@ -1454,21 +1333,9 @@ def _import_hop(tree: ast.Module, source_path: str, name: str, backend_dir: Path
 
     None when nothing binds it, or when what binds it is outside this product's backend: a chain
     that leaves the product ends there, the same way the class walk ends."""
-    package_parts = _module_package_parts(source_path)
-    for level, module, aliases in module_level_import_froms(tree):
-        for original, asname in aliases:
-            if (asname or original) != name:
-                continue
-            module_rel = (
-                _resolve_relative(package_parts, level, module)
-                if level > 0
-                else _resolve_absolute_module(module or "", backend_dir)
-            )
-            if module_rel is None:
-                continue
-            nested = _backend_rel_path(module_rel, backend_dir)
-            if nested is not None:
-                return _ImportHop(nested, original)
+    for imported in iter_module_imported_names(tree, module_package_parts(source_path), backend_dir):
+        if imported.bound == name and imported.source_path is not None:
+            return _ImportHop(imported.source_path, imported.original)
     return None
 
 
@@ -1557,7 +1424,7 @@ def _iter_reexport_signature_findings(
             continue
         if resolved.source_path not in env_cache:
             env_cache[resolved.source_path] = _facade_import_env(
-                source_tree, product, model_names, backend_dir, _module_package_parts(resolved.source_path)
+                source_tree, model_names, backend_dir, module_package_parts(resolved.source_path)
             )
         yield from _iter_signature_findings(
             resolved.node, env_cache[resolved.source_path], product, facade_module, dotted_module, handed.bound
@@ -1659,7 +1526,7 @@ def facade_shape_findings(backend_dir: Path, name: str) -> list[FacadeShapeFindi
         if tree is None:
             continue
         dotted_module = _facade_module_dotted(name, path.name)
-        env = _facade_import_env(tree, name, model_names, backend_dir)
+        env = _facade_import_env(tree, model_names, backend_dir)
         findings.extend(_iter_module_signature_findings(tree, env, name, path.name, dotted_module))
         findings.extend(
             _iter_reexport_signature_findings(tree, backend_dir, name, path.name, dotted_module, model_names)

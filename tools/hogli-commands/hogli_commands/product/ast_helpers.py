@@ -260,9 +260,10 @@ def _is_type_alias_annotation(node: ast.expr) -> bool:
 def module_type_aliases(tree: ast.Module) -> dict[str, ast.expr]:
     """Module-level type aliases: {the name a module binds -> the expression it stands for}.
 
-    Both spellings count: a plain `Handler = Callable[[Thing], None]` and the explicit
-    `Handler: TypeAlias = ...`. An annotated assignment with any other annotation binds an ordinary
-    module variable (`_handlers: dict[str, Handler] = {}`), which is data and not a type."""
+    All three spellings count: a plain `Handler = Callable[[Thing], None]`, the explicit
+    `Handler: TypeAlias = ...`, and the PEP 695 statement `type Handler = ...`. An annotated
+    assignment with any other annotation binds an ordinary module variable
+    (`_handlers: dict[str, Handler] = {}`), which is data and not a type."""
     aliases: dict[str, ast.expr] = {}
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
@@ -273,6 +274,8 @@ def module_type_aliases(tree: ast.Module) -> dict[str, ast.expr]:
             and _is_type_alias_annotation(node.annotation)
         ):
             bound = node.target.id
+        elif isinstance(node, ast.TypeAlias) and isinstance(node.name, ast.Name):
+            bound = node.name.id
         else:
             continue
         if isinstance(node.value, _TYPE_ALIAS_VALUES):
@@ -293,19 +296,6 @@ def module_level_import_nodes(tree: ast.Module, *, type_checking: bool = False) 
         elif type_checking and isinstance(node, ast.If) and _is_type_checking_guard(node):
             nodes.extend(child for child in node.body if isinstance(child, (ast.Import, ast.ImportFrom)))
     return nodes
-
-
-def module_level_import_froms(tree: ast.Module) -> list[tuple[int, str | None, list[tuple[str, str | None]]]]:
-    """Every module-level `from ... import ...` as (level, module, [(name, asname)]).
-
-    asname is None when no alias is given; `import Foo as Foo` yields ("Foo", "Foo") so callers
-    can tell the explicit self-alias re-export idiom apart from a plain import. Type-only imports
-    are out: nothing crosses at runtime."""
-    return [
-        (node.level, node.module, [(alias.name, alias.asname) for alias in node.names])
-        for node in module_level_import_nodes(tree)
-        if isinstance(node, ast.ImportFrom)
-    ]
 
 
 def lazy_reexport_map(tree: ast.Module) -> dict[str, str]:

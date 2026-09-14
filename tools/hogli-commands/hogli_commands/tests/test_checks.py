@@ -2153,6 +2153,11 @@ class TestFacadeShape:
                 },
                 {("load", "", "returns", "Thing")},
             ),
+            # ...and the PEP 695 statement, which facades already write
+            (
+                {"api.py": "from ..models import Thing\n\ntype Rows = list[Thing]\n\n\ndef load() -> Rows:\n    ...\n"},
+                {("load", "", "returns", "Thing")},
+            ),
             # a dataclass field is a keyword of the constructor the decorator generates, so a model
             # on one is a model the caller hands the class
             (
@@ -2410,24 +2415,30 @@ class TestFacadeShape:
         assert [f.count for f in logic] == ([len(expected)] if expected else [])
 
     @pytest.mark.parametrize(
-        "reexport_from, expected",
+        "reexport, expected",
         [
             # a module that hands out a Temporal definition is wiring whatever it is called, and
             # products already name such a module workflow_tasks.py or tools.py
-            ("..temporal.flows", ("helper",)),
+            ("from ..temporal.flows import run_it\n\n__all__ = ['run_it']\n", ("helper",)),
             # a module that hands out logic is an ordinary facade module, where a body is allowed
-            ("..logic.crud", None),
+            ("from ..logic.crud import run_it\n\n__all__ = ['run_it']\n", None),
+            # an alias may name the wiring package itself rather than a name inside it, and then the
+            # module the facade hands out is that package. Both spellings reach the same directory.
+            ("from products.my_product.backend import tasks as tasks\n", ("helper",)),
+            ("from .. import tasks\n\n__all__ = ['tasks']\n", ("helper",)),
         ],
     )
     def test_a_capability_module_is_recognized_by_what_it_hands_out(
-        self, tmp_path: Path, reexport_from: str, expected: tuple[str, ...] | None
+        self, tmp_path: Path, reexport: str, expected: tuple[str, ...] | None
     ) -> None:
         backend = _write_shape_product(
             tmp_path,
-            {
-                "wiring.py": f"from {reexport_from} import run_it\n\n__all__ = ['run_it']\n\n\ndef helper():\n    return 1\n"
+            {"wiring.py": f"{reexport}\n\ndef helper():\n    return 1\n"},
+            sources={
+                "temporal/flows.py": "def run_it():\n    ...\n",
+                "logic/crud.py": "def run_it():\n    ...\n",
+                "tasks/__init__.py": "def run_it():\n    ...\n",
             },
-            sources={"temporal/flows.py": "def run_it():\n    ...\n", "logic/crud.py": "def run_it():\n    ...\n"},
         )
         logic = [f for f in facade_shape_findings(backend, "my_product") if f.kind == "logic"]
         assert [f.bodies for f in logic] == ([expected] if expected else [])

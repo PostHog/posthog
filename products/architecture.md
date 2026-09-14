@@ -362,7 +362,7 @@ The names the doctrine spells out (`queries.py`, `temporal.py`, `max_tools.py`, 
 `api*.py` never counts, because it holds the data capabilities, and neither do `contracts.py`, `enums.py` and `testing.py`.
 
 A model reaches another facade through the owner's `facade/models` shim as often as through its models module, so both spellings count.
-A module-level type alias (`Handler = Callable[[Thing], None]`, or the explicit `TypeAlias` spelling) is read as the expression it stands for, so giving a type a name does not take it off the boundary.
+A module-level type alias (`Handler = Callable[[Thing], None]`, the explicit `TypeAlias` spelling, or the PEP 695 statement `type Handler = ...`) is read as the expression it stands for, so giving a type a name does not take it off the boundary.
 The signature rules read the functions a facade hands out that another module defines, under the facade name a consumer imports, because a re-export is part of the same call surface.
 Both spellings count: a plain import the facade re-exports, and a PEP 562 lazy map.
 The chain is followed through the product's own modules, because a facade reaches its logic through a package (`from ..logic import fn`) whose `__init__` commonly re-exports the function rather than defining it.
