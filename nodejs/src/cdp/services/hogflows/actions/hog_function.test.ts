@@ -391,6 +391,71 @@ describe('HogFunctionHandler', () => {
         expect(calledConfig.mappings).toEqual([{ name: 'input mapping field' }])
     })
 
+    describe('push subscription freshness', () => {
+        const pushTemplate = {
+            key: 'device',
+            type: 'push_subscription',
+            required: true,
+        }
+
+        it('re-reads the person before resolving a push subscription so an opt-out during a wait is seen', async () => {
+            const buildHogFunctionInvocationSpy = jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation')
+            jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunction').mockReturnValue({
+                ...template,
+                inputs_schema: [pushTemplate],
+            } as any)
+
+            const optedOutPerson = { id: 'p1', name: 'p1', url: '', properties: {} }
+            invocation.refreshPerson = jest.fn().mockResolvedValue({
+                person: optedOutPerson,
+                filterGlobals: {} as any,
+            })
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+            expect(invocation.refreshPerson).toHaveBeenCalled()
+            expect(buildHogFunctionInvocationSpy.mock.calls[0][2].person).toEqual(optedOutPerson)
+        })
+
+        it('keeps the dequeue read when the refresh finds no person, so a transient miss is not read as an opt-out', async () => {
+            const buildHogFunctionInvocationSpy = jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation')
+            jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunction').mockReturnValue({
+                ...template,
+                inputs_schema: [pushTemplate],
+            } as any)
+
+            const dequeuedPerson = invocation.person
+            invocation.refreshPerson = jest.fn().mockResolvedValue({ person: undefined, filterGlobals: {} as any })
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+            expect(buildHogFunctionInvocationSpy.mock.calls[0][2].person).toEqual(dequeuedPerson)
+        })
+
+        it('does not re-read the person for a function with no push subscription input', async () => {
+            invocation.refreshPerson = jest.fn()
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+            expect(invocation.refreshPerson).not.toHaveBeenCalled()
+        })
+    })
+
     it('should skip execution and log an opt-out message when recipient preferences returns opted_out', async () => {
         ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('opted_out')
 

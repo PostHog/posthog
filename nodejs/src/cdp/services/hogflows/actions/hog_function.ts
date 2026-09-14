@@ -312,6 +312,19 @@ export class HogFunctionHandler implements ActionHandler {
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config)
         )
+        // A push subscription is resolved from person properties, and a delivered notification cannot
+        // be recalled. The person read at dequeue can predate an opt-out that landed while the flow
+        // waited, so re-read before resolving the token rather than sending to a revoked device.
+        if (hogFunction.inputs_schema?.some((schema) => schema.type === 'push_subscription')) {
+            const refreshed = await invocation.refreshPerson?.()
+            // An empty refresh keeps the dequeue's read: a transient miss must not be read as an
+            // opt-out, which would drop a send the recipient still wants.
+            if (refreshed?.person) {
+                invocation.person = refreshed.person
+                invocation.filterGlobals = refreshed.filterGlobals
+            }
+        }
+
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },
             () =>
