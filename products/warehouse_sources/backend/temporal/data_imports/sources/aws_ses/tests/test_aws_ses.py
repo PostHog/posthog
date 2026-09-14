@@ -474,12 +474,11 @@ class TestGetRows:
 
         assert [row["identity_name"] for batch in batches for row in batch] == ["kept.example.com"]
 
-    def test_an_item_aws_refuses_to_describe_is_reported_from_the_list_response_alone(self) -> None:
-        # AWS lists the shared pool and the default dedicated pool, then rejects a describe on
-        # either, so the pool the account really owns must still reach the table.
+    @pytest.mark.parametrize("pool_name", ["ses-shared-pool", "ses-default-dedicated-pool"])
+    def test_an_item_aws_refuses_to_describe_is_reported_from_the_list_response_alone(self, pool_name: str) -> None:
         batches, _, _ = self._run(
             [
-                {"DedicatedIpPools": ["ses-shared-pool", "marketing-pool"]},
+                {"DedicatedIpPools": [pool_name, "marketing-pool"]},
                 AwsSesError("BadRequestException", "shared or default pool", "dedicated_ip_pools", "/path"),
                 {"DedicatedIpPool": {"PoolName": "marketing-pool", "ScalingMode": "MANAGED"}},
             ],
@@ -488,7 +487,7 @@ class TestGetRows:
 
         assert batches == [
             [
-                {"pool_name": "ses-shared-pool"},
+                {"pool_name": pool_name},
                 {
                     "pool_name": "marketing-pool",
                     "dedicated_ip_pool_pool_name": "marketing-pool",
@@ -497,19 +496,49 @@ class TestGetRows:
             ]
         ]
 
+    @pytest.mark.parametrize("pool_name", ["ses-shared-pool", "ses-default-dedicated-pool"])
+    def test_reserved_pool_details_are_kept_when_aws_returns_them(self, pool_name: str) -> None:
+        batches, _, _ = self._run(
+            [
+                {"DedicatedIpPools": [pool_name]},
+                {"DedicatedIpPool": {"PoolName": pool_name, "ScalingMode": "STANDARD"}},
+            ],
+            endpoint="dedicated_ip_pools",
+        )
+
+        assert batches == [
+            [
+                {
+                    "pool_name": pool_name,
+                    "dedicated_ip_pool_pool_name": pool_name,
+                    "dedicated_ip_pool_scaling_mode": "STANDARD",
+                }
+            ]
+        ]
+
     @pytest.mark.parametrize(
         "endpoint,page,code",
         [
             ("dedicated_ip_pools", {"DedicatedIpPools": ["marketing-pool"]}, "TooManyRequestsException"),
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["marketing-pool"]}, "BadRequestException"),
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["ses-shared-pool-custom"]}, "BadRequestException"),
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["ses-shared-pool"]}, "AccessDeniedException"),
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["ses-default-dedicated-pool"]}, "TooManyRequestsException"),
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["ses-shared-pool"]}, "HTTP 503"),
+            ("configuration_sets", {"ConfigurationSets": ["ses-shared-pool"]}, "BadRequestException"),
+            ("contact_lists", {"ContactLists": [{"ContactListName": "ses-shared-pool"}]}, "BadRequestException"),
+            (
+                "custom_verification_email_templates",
+                {"CustomVerificationEmailTemplates": [{"TemplateName": "ses-shared-pool"}]},
+                "BadRequestException",
+            ),
             ("email_identities", {"EmailIdentities": [{"IdentityName": "example.com"}]}, "BadRequestException"),
+            ("email_templates", {"TemplatesMetadata": [{"TemplateName": "ses-shared-pool"}]}, "BadRequestException"),
         ],
     )
     def test_a_detail_failure_the_table_cannot_absorb_still_fails_the_job(
         self, endpoint: str, page: dict[str, Any], code: str
     ) -> None:
-        # A list-only row needs both a rejected describe and a table whose list response carries
-        # the row. GetEmailIdentity holds the DKIM and verification columns, so a name-only
-        # identity row would replace a complete one on the next full refresh.
         with pytest.raises(AwsSesError, match=code):
             self._run([page, AwsSesError(code, "rejected", endpoint, "/path")], endpoint=endpoint)
 
@@ -815,15 +844,50 @@ class TestEndpointPermissions:
 
         assert reasons == {"multi_region_endpoints": aws_ses._BAD_REQUEST_EXPLANATION}
 
-    def test_a_rejected_detail_call_keeps_a_loadable_table_selectable(self) -> None:
-        # A sync reports an item AWS refuses to describe from the list response alone, so this
-        # table loads. Only the list call answering 400 means the region cannot serve it.
-        responses = [
-            {"DedicatedIpPools": ["ses-shared-pool"]},
-            AwsSesError("BadRequestException", "shared or default pool", "dedicated_ip_pools", "/path"),
-        ]
+    @pytest.mark.parametrize(
+        "pool_name,code,status_code,expected_reason",
+        [
+            ("ses-shared-pool", "BadRequestException", 400, None),
+            ("ses-default-dedicated-pool", "BadRequestException", 400, None),
+            ("marketing-pool", "BadRequestException", 400, aws_ses._BAD_REQUEST_EXPLANATION),
+            ("ses-shared-pool-custom", "BadRequestException", 400, aws_ses._BAD_REQUEST_EXPLANATION),
+            (
+                "ses-shared-pool",
+                "AccessDeniedException",
+                403,
+                "The connected IAM user or role is not allowed to read this table",
+            ),
+        ],
+    )
+    def test_pool_discovery_and_validation_only_allow_known_detail_rejections(
+        self, requests_mock: Any, pool_name: str, code: str, status_code: int, expected_reason: Optional[str]
+    ) -> None:
+        pool_url = "https://email.us-east-1.amazonaws.com/v2/email/dedicated-ip-pools"
+        requests_mock.get(pool_url, json={"DedicatedIpPools": [pool_name]})
+        requests_mock.get(
+            f"{pool_url}/{pool_name}", status_code=status_code, headers={"x-amzn-ErrorType": code}, json={}
+        )
 
-        with mock.patch.object(aws_ses, "send_request", side_effect=responses):
-            reasons = probe_endpoint_permissions("key", "secret", None, "us-east-1", ["dedicated_ip_pools"])
+        assert probe_endpoint_permissions("key", "secret", None, "us-east-1", ["dedicated_ip_pools"]) == {
+            "dedicated_ip_pools": expected_reason
+        }
+        assert validate_credentials("key", "secret", None, "us-east-1", schema_name="dedicated_ip_pools") == (
+            expected_reason is None,
+            expected_reason,
+        )
 
-        assert reasons == {"dedicated_ip_pools": None}
+    def test_a_rejected_pool_list_still_blocks_discovery_and_validation(self, requests_mock: Any) -> None:
+        requests_mock.get(
+            "https://email.us-east-1.amazonaws.com/v2/email/dedicated-ip-pools",
+            status_code=400,
+            headers={"x-amzn-ErrorType": "BadRequestException"},
+            json={},
+        )
+
+        assert probe_endpoint_permissions("key", "secret", None, "us-east-1", ["dedicated_ip_pools"]) == {
+            "dedicated_ip_pools": aws_ses._BAD_REQUEST_EXPLANATION
+        }
+        assert validate_credentials("key", "secret", None, "us-east-1", schema_name="dedicated_ip_pools") == (
+            False,
+            aws_ses._BAD_REQUEST_EXPLANATION,
+        )

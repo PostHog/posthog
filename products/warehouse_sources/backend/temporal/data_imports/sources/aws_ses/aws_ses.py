@@ -221,6 +221,28 @@ def resolve_start_date(
     return watermark - INCREMENTAL_OVERLAP
 
 
+def _get_item_detail(
+    session: requests.Session,
+    credentials: Credentials,
+    region: str,
+    endpoint_config: AwsSesEndpointConfig,
+    name: str,
+) -> dict[str, Any]:
+    assert endpoint_config.detail_path is not None
+    try:
+        return send_request(
+            session,
+            credentials,
+            region,
+            endpoint_config.name,
+            endpoint_config.detail_path.format(name=quote(name, safe="")),
+        )
+    except AwsSesError as error:
+        if error.code == "BadRequestException" and name in endpoint_config.list_only_on_bad_request:
+            return {}
+        raise
+
+
 def _fanout_page_rows(
     session: requests.Session,
     credentials: Credentials,
@@ -229,7 +251,7 @@ def _fanout_page_rows(
     body: dict[str, Any],
     logger: FilteringBoundLogger,
 ) -> list[dict[str, Any]]:
-    """One full row per listed item, fetched via the endpoint's detail operation."""
+    """Combine each listed item with its available details."""
     assert endpoint_config.detail_path is not None and endpoint_config.name_column is not None
 
     rows: list[dict[str, Any]] = []
@@ -238,22 +260,13 @@ def _fanout_page_rows(
         if not isinstance(name, str) or not name:
             continue
 
-        detail: dict[str, Any] = {}
         try:
-            detail = send_request(
-                session,
-                credentials,
-                region,
-                endpoint_config.name,
-                endpoint_config.detail_path.format(name=quote(name, safe="")),
-            )
+            detail = _get_item_detail(session, credentials, region, endpoint_config, name)
         except AwsSesError as error:
             if error.code == "NotFoundException":
                 logger.debug(f"Skipping {endpoint_config.name} item deleted mid-sync. name={name}")
                 continue
-            if not endpoint_config.tolerate_rejected_detail or error.code != "BadRequestException":
-                raise
-            logger.debug(f"Reporting {endpoint_config.name} item from the list response alone. name={name}")
+            raise
 
         row = normalize_row(endpoint_config, item) if isinstance(item, dict) else {}
         row.update(normalize_row(endpoint_config, detail))
@@ -391,19 +404,7 @@ def endpoint_permission_reason(
             for item in (body.get(endpoint_config.result_key or "") or [])[:1]:
                 name = item.get(endpoint_config.item_name_key) if isinstance(item, dict) else item
                 if isinstance(name, str) and name:
-                    try:
-                        send_request(
-                            session,
-                            credentials,
-                            region,
-                            endpoint_config.name,
-                            endpoint_config.detail_path.format(name=quote(name, safe="")),
-                        )
-                    except AwsSesError as error:
-                        # A sync reports an item AWS refuses to describe from the list response
-                        # alone, so a rejected detail call leaves this table loadable.
-                        if not endpoint_config.tolerate_rejected_detail or error.code != "BadRequestException":
-                            raise
+                    _get_item_detail(session, credentials, region, endpoint_config, name)
     except AwsSesError as error:
         return _permission_reason(error)
     except Exception:
