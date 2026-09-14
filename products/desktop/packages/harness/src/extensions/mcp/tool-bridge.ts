@@ -173,6 +173,16 @@ export interface ToolMeta {
   serverName: string;
   mcpName: string;
   description: string;
+  /** Top-level required parameter names, for call-shape hints. */
+  requiredParams?: string[];
+}
+
+/** Top-level `required` names of a tool's input schema, filtered to strings. */
+function readRequiredParams(inputSchema: Record<string, unknown>): string[] {
+  const required = inputSchema.required;
+  return Array.isArray(required)
+    ? required.filter((name): name is string => typeof name === "string")
+    : [];
 }
 
 export interface SearchableTool extends ToolMeta {
@@ -422,6 +432,7 @@ export class ToolBridge {
         serverName,
         tool.name,
       );
+      const requiredParams = readRequiredParams(tool.inputSchema);
       const claimant = firstClaimant.get(piName);
       if (claimant !== undefined) {
         // Two MCP tools sanitize to the same pi name (e.g. "a-b" vs "a_b").
@@ -455,6 +466,7 @@ export class ToolBridge {
         serverName,
         mcpName: tool.name,
         description,
+        ...(requiredParams.length > 0 ? { requiredParams } : {}),
       });
       const isDirect =
         directConfig === true ||
@@ -486,11 +498,19 @@ export class ToolBridge {
         ...(serverConfig.description !== undefined
           ? { description: serverConfig.description }
           : {}),
-        tools: tools.map((tool) => ({
-          name: buildToolName(this.settings.toolPrefix, serverName, tool.name),
-          mcpName: tool.name,
-          description: buildDescription(tool),
-        })),
+        tools: tools.map((tool) => {
+          const requiredParams = readRequiredParams(tool.inputSchema);
+          return {
+            name: buildToolName(
+              this.settings.toolPrefix,
+              serverName,
+              tool.name,
+            ),
+            mcpName: tool.name,
+            description: buildDescription(tool),
+            ...(requiredParams.length > 0 ? { requiredParams } : {}),
+          };
+        }),
       };
       void this.toolCache.set(serverName, entry).catch(() => {
         // Best effort — a failed cache write only degrades pre-connection search.

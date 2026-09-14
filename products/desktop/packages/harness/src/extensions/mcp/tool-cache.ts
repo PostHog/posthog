@@ -25,6 +25,8 @@ export interface CachedToolInfo {
   /** Original MCP tool name. */
   mcpName: string;
   description: string;
+  /** Top-level required parameter names, for call-shape hints. */
+  requiredParams?: string[];
 }
 
 export interface ToolCacheEntry {

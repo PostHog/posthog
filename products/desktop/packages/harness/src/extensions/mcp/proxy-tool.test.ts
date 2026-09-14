@@ -201,6 +201,82 @@ describe("mcp proxy tool", () => {
     await mock.close();
   });
 
+  it("names the tool when a call passes a live tool's arguments without the tool name (regression)", async () => {
+    const mock = createMockMcpServer([
+      {
+        name: "exec",
+        description: "Run a PostHog tool",
+        inputSchema: {
+          type: "object",
+          properties: { command: { type: "string" } },
+          required: ["command"],
+        },
+        handler: () => ({ content: [{ type: "text", text: "ok" }] }),
+      },
+    ]);
+    const { manager, tool } = await setup({
+      servers: { demo: { command: "unused", directTools: false } },
+      mock,
+      cacheDir,
+    });
+    await manager.startServer("demo", "/workspace");
+
+    const result = await text(tool, { command: "call query-trends" });
+    expect(result).toContain('the "tool" name is missing');
+    expect(result).toContain('Call { "tool": "mcp_demo_exec"');
+    await mock.close();
+  });
+
+  it("names a cached tool when a call passes its arguments without the tool name (regression)", async () => {
+    const mock = createMockMcpServer([
+      {
+        name: "exec",
+        description: "Run a PostHog tool",
+        inputSchema: {
+          type: "object",
+          properties: { command: { type: "string" } },
+          required: ["command"],
+        },
+        handler: () => ({ content: [{ type: "text", text: "ok" }] }),
+      },
+    ]);
+    const { tool, toolCache } = await setup({
+      servers: { demo: { command: "unused", lifecycle: "lazy" } },
+      mock,
+      cacheDir,
+    });
+    await toolCache.set("demo", {
+      configHash: "irrelevant-for-lookup",
+      tools: [
+        {
+          name: "mcp_demo_exec",
+          mcpName: "exec",
+          description: "Run a PostHog tool",
+          requiredParams: ["command"],
+        },
+      ],
+    });
+
+    const result = await text(tool, {
+      command: "call query-trends",
+      input: { series: [] },
+    });
+    expect(result).toContain('the "tool" name is missing');
+    expect(result).toContain('Call { "tool": "mcp_demo_exec"');
+    await mock.close();
+  });
+
+  it("keeps the generic usage line when no tool matches the stray arguments", async () => {
+    const { tool } = await setup({
+      servers: { demo: { command: "unused", lifecycle: "lazy" } },
+      mock: createMockMcpServer([ECHO_TOOL]),
+      cacheDir,
+    });
+
+    const result = await text(tool, { unrelated: "value" });
+    expect(result).toContain('pass { "search": "..." }');
+  });
+
   it("truncates a very long tool description in search results", async () => {
     const longDescription = `Echo text back. ${"x".repeat(2_000)}`;
     const mock = createMockMcpServer([
