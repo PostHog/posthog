@@ -369,11 +369,11 @@ jobs:
                           exit 1
                         fi
 
-                  - name: Run dependency detection script tests
+                  - name: Run bin/ script tests
                     shell: bash
                     run: |
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
-                        pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
+                        pytest bin/test/ -v --junitxml=junit-bin-scripts.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -389,13 +389,13 @@ jobs:
                       junit-query-performance-ai.xml
                       junit-pr-approval-agent-*.xml
 
-            - name: Upload test results for dependency detection
+            - name: Upload test results for bin/ script tests
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
               with:
-                  name: junit-results-dependency-detection
+                  name: junit-results-bin-scripts
                   if-no-files-found: ignore
-                  path: junit-dependency-detection.xml
+                  path: junit-bin-scripts.xml
 
     # Collate job - single required status check for branch protection.
     # The code-quality job skips when no Python changes, but this job always

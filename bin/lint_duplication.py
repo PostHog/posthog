@@ -45,6 +45,45 @@ TEST_PATH = re.compile(
     r"|\.stories\.tsx?$"
 )
 
+# A branch that moves a file repoints every import that names it. Where such
+# an import sits inside an already-duplicated block, the block's text changes
+# and the gate would read a pre-existing clone as new. Hashing the text with
+# the module paths blanked out keeps a repoint from spending the gate's
+# budget. The imported names stay in the hash, so a real edit still counts.
+# The pattern for each language matches only that language's import syntax,
+# and the lookbehind keeps method calls such as `db.from('events')` out.
+TS_MODULE_SPECIFIER = re.compile(
+    r"""(?P<lead>(?<![.\w])(?:from|import)\s+|(?<![.\w])(?:require|import)\s*\(\s*)(?P<q>['"])[^'"\n]*(?P=q)"""
+)
+PY_IMPORT_MODULE = re.compile(r"^(?P<lead>\s*(?:from|import)\s+)[.\w]+", re.MULTILINE)
+
+FRAGMENT_NORMALIZERS = {
+    "python": (PY_IMPORT_MODULE, r"\g<lead><module>"),
+    "typescript": (TS_MODULE_SPECIFIER, r"\g<lead>\g<q><module>\g<q>"),
+}
+
+# Two files that import the same modules are not copy-paste that a shared
+# helper can absorb, so the gate's advice does not apply to a clone that
+# spans nothing else. IMPORT_STATEMENT_START finds the statements, and
+# IMPORT_LINE also accepts the lines an import wraps onto: its bindings,
+# its braces, and the tail that carries the module path.
+IMPORT_STATEMENT_START = {
+    "python": re.compile(r"^\s*(?:from|import)\s"),
+    "typescript": re.compile(r"^\s*(?:import\b(?!\s*\.)|export\s+(?:\*|type\s|\{))"),
+}
+IMPORT_LINE = {
+    "python": re.compile(r"^\s*(?:(?:from|import)\s.*|[\w.,\s*()]+)\s*$"),
+    "typescript": re.compile(
+        r"^\s*(?:"
+        r"import\b(?!\s*\.).*"
+        r"|export\s+(?:\*|type\s|\{).*"
+        r"""|\}?\s*from\s*['"][^'"]*['"];?"""
+        r"|[\w$,*\s]+(?:\bas\b[\w$,\s]+)?"
+        r"|[{}]"
+        r")\s*$"
+    ),
+}
+
 LIMITS_PATH = Path(__file__).with_name("lint-duplication.limits.json")
 SCAN_TIMEOUT_SECONDS = 240
 
@@ -75,6 +114,15 @@ def clone_language(clone: dict) -> str:
     return "python" if clone.get("format") == "python" else "typescript"
 
 
+def is_import_only(clone: dict) -> bool:
+    """True when the clone spans import statements and nothing else."""
+    language = clone_language(clone)
+    lines = [line for line in clone["fragment"].splitlines() if line.strip()]
+    if not any(IMPORT_STATEMENT_START[language].match(line) for line in lines):
+        return False
+    return all(IMPORT_LINE[language].match(line) for line in lines)
+
+
 def find_gate_failures(clones: list[dict]) -> list[tuple[dict, bool]]:
     """Keep the new clones that fail the gate, worst first.
 
@@ -83,7 +131,7 @@ def find_gate_failures(clones: list[dict]) -> list[tuple[dict, bool]]:
     """
     failures = []
     for clone in clones:
-        if not clone.get("isNew"):
+        if not clone.get("isNew") or is_import_only(clone):
             continue
         both_tests = is_test_file(clone["firstFile"]["name"]) and is_test_file(clone["secondFile"]["name"])
         bar = TEST_MAX_NEW_CLONE_TOKENS if both_tests else APP_MAX_NEW_CLONE_TOKENS
@@ -152,19 +200,107 @@ def run_jscpd(scan_root: Path, out_dir: Path) -> list[dict]:
     return json.loads(report_path.read_text())["duplicates"]
 
 
-def clone_key(clone: dict) -> tuple[frozenset, str]:
+def normalize_fragment(text: str, language: str) -> str:
+    """Return the text with the module path of every import blanked out."""
+    pattern, replacement = FRAGMENT_NORMALIZERS[language]
+    return pattern.sub(replacement, text)
+
+
+def attach_fragment_hashes(clones: list[dict], tree: Path) -> None:
+    """Record a hash of both copies of every clone, while the tree is on disk.
+
+    jscpd reports the text of one side only, and which side that is follows
+    the order it walked the files, so a branch that adds, removes or moves a
+    file can flip it. The two copies are not always identical, because jscpd
+    matches on token shape rather than on characters, so a flip rewrites the
+    clone's text and the gate reads a pre-existing clone as new. Hashing both
+    copies and sorting the pair gives the clone an identity that survives the
+    walk order.
+    """
+    lines_by_path: dict[str, list[str] | None] = {}
+
+    def lines_of(name: str) -> list[str] | None:
+        if name not in lines_by_path:
+            try:
+                lines_by_path[name] = (tree / name).read_text().splitlines()
+            except OSError:
+                lines_by_path[name] = None
+        return lines_by_path[name]
+
+    for clone in clones:
+        language = clone_language(clone)
+        hashes = []
+        for side in ("firstFile", "secondFile"):
+            info = clone[side]
+            lines = lines_of(info["name"])
+            # jscpd's own text is the first side's, and it is the only copy
+            # available for a file the scan has since lost.
+            text = "\n".join(lines[info["start"] - 1 : info["end"]]) if lines else clone["fragment"]
+            hashes.append(hashlib.sha256(normalize_fragment(text, language).encode()).hexdigest())
+        clone["fragmentHashes"] = sorted(hashes)
+
+
+def parse_renames(name_status_z: str) -> dict[str, str]:
+    """Read `git diff --name-status -z` output into a new path -> old path map.
+
+    Each record is a status field and then one path, except a rename or a
+    copy, which carries the source and the destination. Walking the fields
+    keeps the two shapes apart; reading a fixed number of fields per record
+    would misalign every record after the first rename.
+    """
+    fields = [field for field in name_status_z.split("\0") if field]
+    renames: dict[str, str] = {}
+    index = 0
+    while index < len(fields):
+        status = fields[index]
+        if status.startswith(("R", "C")) and index + 2 < len(fields):
+            renames[fields[index + 2]] = fields[index + 1]
+            index += 3
+        else:
+            index += 2
+    return renames
+
+
+def find_renames(baseline: str, repo: Path) -> dict[str, str]:
+    """Map each path the branch moved to where it sat at the baseline.
+
+    jscpd identifies a clone by the two files it spans, so a file the branch
+    moved takes every clone it was already part of with it, and all of them
+    read as new. Git's own rename detection gives the translation back. It
+    compares the baseline against the working tree, which is the tree jscpd
+    scans. A move git does not detect, because the file also changed too
+    much to pair up, leaves those clones flagged, which is the safe
+    direction for a gate.
+    """
+    proc = subprocess.run(
+        ["git", "diff", "--name-status", "--find-renames", "-z", baseline],
+        capture_output=True,
+        text=True,
+        cwd=repo,
+    )
+    if proc.returncode != 0:
+        print(f"Could not list renames against {baseline}; moved files will read as new duplication.")
+        return {}
+    return parse_renames(proc.stdout)
+
+
+def clone_key(clone: dict, renames: dict[str, str] | None = None) -> tuple[frozenset, tuple[str, ...]]:
     """Pair key, insensitive to which side jscpd calls first and to where in
     the files the fragment sits.
 
     Keying on the fragment text (not the span) means edits elsewhere in the
     files do not re-flag an old clone as new; editing the duplicated block
-    itself does, which is what the gate is for.
+    itself does, which is what the gate is for. Both halves of the key read
+    at their baseline spelling: `renames` translates a moved file back to
+    where it sat, and the hashes ignore import module paths, so moving a
+    file does not spend the budget.
     """
-    pair = frozenset((clone["firstFile"]["name"], clone["secondFile"]["name"]))
-    return pair, hashlib.sha256(clone["fragment"].encode()).hexdigest()
+    renames = renames or {}
+    pair = frozenset(renames.get(side["name"], side["name"]) for side in (clone["firstFile"], clone["secondFile"]))
+    return pair, tuple(clone["fragmentHashes"])
 
 
-def mark_new_clones(current: list[dict], baseline: list[dict]) -> None:
+def mark_new_clones(current: list[dict], baseline: list[dict], renames: dict[str, str] | None = None) -> None:
     """Flag clones the baseline cannot account for, counting occurrences.
 
     A fragment already copied once between two files is grandfathered only
@@ -173,7 +309,7 @@ def mark_new_clones(current: list[dict], baseline: list[dict]) -> None:
     """
     available = collections.Counter(clone_key(clone) for clone in baseline)
     for clone in current:
-        key = clone_key(clone)
+        key = clone_key(clone, renames)
         if available[key] > 0:
             available[key] -= 1
             clone["isNew"] = False
@@ -229,6 +365,10 @@ def main() -> int:
     baseline = resolve_baseline(args.base, repo)
     print(f"Comparing clones against {baseline}")
 
+    renames = find_renames(baseline, repo)
+    if renames:
+        print(f"{len(renames)} moved file(s) read at their baseline paths")
+
     # jscpd's own --baseline-from-ref mismatches clones whose files moved on
     # the base since the branch forked, and some stable pairs it re-flags
     # with no visible cause. Scan both trees with identical flags and diff
@@ -257,6 +397,10 @@ def main() -> int:
         try:
             current_clones = run_jscpd(repo, tmp_path / "current-report")
             baseline_clones = run_jscpd(baseline_worktree, tmp_path / "baseline-report")
+            # Both trees are still on disk here, and only here: the baseline
+            # worktree goes away as soon as this block leaves.
+            attach_fragment_hashes(current_clones, repo)
+            attach_fragment_hashes(baseline_clones, baseline_worktree)
         except SystemExit:
             scan_failed = True
             current_clones = []
@@ -268,7 +412,7 @@ def main() -> int:
     if scan_failed:
         return 2
 
-    mark_new_clones(current_clones, baseline_clones)
+    mark_new_clones(current_clones, baseline_clones, renames)
     print(
         f"{len(current_clones)} clones in this tree, {sum(1 for c in current_clones if c['isNew'])} not in the baseline"
     )

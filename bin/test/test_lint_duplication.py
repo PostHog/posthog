@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+import hashlib
+import tempfile
+from pathlib import Path
+
 import unittest
 
 from parameterized import parameterized
@@ -7,16 +11,29 @@ from parameterized import parameterized
 from bin.lint_duplication import (
     APP_MAX_NEW_CLONE_TOKENS,
     TEST_MAX_NEW_CLONE_TOKENS,
+    attach_fragment_hashes,
     build_findings,
     clone_key,
     clone_language,
     find_gate_failures,
+    is_import_only,
     is_test_file,
     mark_new_clones,
+    normalize_fragment,
+    parse_renames,
 )
 
 
-def make_clone(first: str, second: str, tokens: int, is_new: bool = True, fmt: str = "python") -> dict:
+def make_clone(
+    first: str,
+    second: str,
+    tokens: int,
+    is_new: bool = True,
+    fmt: str = "python",
+    fragment: str = "x = 1\n" * 10,
+) -> dict:
+    language = "python" if fmt == "python" else "typescript"
+    digest = hashlib.sha256(normalize_fragment(fragment, language).encode()).hexdigest()
     return {
         "firstFile": {"name": first, "start": 1, "end": 10},
         "secondFile": {"name": second, "start": 1, "end": 10},
@@ -24,7 +41,9 @@ def make_clone(first: str, second: str, tokens: int, is_new: bool = True, fmt: s
         "lines": 10,
         "isNew": is_new,
         "format": fmt,
-        "fragment": "x = 1\n" * 10,
+        "fragment": fragment,
+        # Both sides carry the same text unless a test says otherwise.
+        "fragmentHashes": [digest, digest],
     }
 
 
@@ -135,15 +154,22 @@ class TestBuildFindings(unittest.TestCase):
 class TestCloneKey(unittest.TestCase):
     @parameterized.expand(
         [
-            ("same_pair_same_key", None, None, True),
-            ("swapped_sides_same_key", "swap", None, True),
-            ("moved_in_file_same_key", "shift", None, True),
-            ("edited_fragment_differs", None, "fragment", False),
-            ("different_pair_differs", None, "rename", False),
+            ("same_pair_same_key", None, None, None, True),
+            ("swapped_sides_same_key", "swap", None, None, True),
+            ("moved_in_file_same_key", "shift", None, None, True),
+            ("edited_fragment_differs", None, "fragment", None, False),
+            ("different_pair_differs", None, "rename", None, False),
+            ("moved_file_reads_at_its_baseline_path", None, "rename", {"c.py": "b.py"}, True),
+            ("an_unrelated_rename_map_changes_nothing", None, "rename", {"z.py": "y.py"}, False),
         ]
     )
     def test_key(
-        self, _name: str, first_mutation: str | None, second_mutation: str | None, expected_equal: bool
+        self,
+        _name: str,
+        first_mutation: str | None,
+        second_mutation: str | None,
+        renames: dict[str, str] | None,
+        expected_equal: bool,
     ) -> None:
         first = make_clone("a.py", "b.py", 100)
         second = make_clone("a.py", "b.py", 100)
@@ -153,10 +179,154 @@ class TestCloneKey(unittest.TestCase):
             first["firstFile"]["start"] = 42
             first["secondFile"]["start"] = 99
         if second_mutation == "fragment":
-            second["fragment"] = "y = 2\n" * 10
+            second = make_clone("a.py", "b.py", 100, fragment="y = 2\n" * 10)
         if second_mutation == "rename":
             second["secondFile"]["name"] = "c.py"
-        self.assertEqual(clone_key(first) == clone_key(second), expected_equal)
+        self.assertEqual(clone_key(first) == clone_key(second, renames), expected_equal)
+
+
+class TestNormalizeFragment(unittest.TestCase):
+    @parameterized.expand(
+        [
+            (
+                "ts_repointed_specifier",
+                "typescript",
+                "import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'\n",
+                "import { trendsDataLogic } from 'products/product_analytics/frontend/trends/trendsDataLogic'\n",
+                True,
+            ),
+            (
+                "ts_renamed_binding",
+                "typescript",
+                "import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'\n",
+                "import { funnelDataLogic } from 'scenes/trends/trendsDataLogic'\n",
+                False,
+            ),
+            (
+                "ts_require_and_dynamic_import",
+                "typescript",
+                "const a = require('lib/old')\nconst b = await import('./old')\n",
+                "const a = require('lib/new')\nconst b = await import('./new')\n",
+                True,
+            ),
+            (
+                "ts_method_call_argument_is_not_an_import",
+                "typescript",
+                "const rows = db.from('events')\n",
+                "const rows = db.from('persons')\n",
+                False,
+            ),
+            (
+                "python_repointed_module",
+                "python",
+                "from posthog.models import Team\n",
+                "from products.core.models import Team\n",
+                True,
+            ),
+            (
+                "python_renamed_import",
+                "python",
+                "from posthog.models import Team\n",
+                "from posthog.models import Organization\n",
+                False,
+            ),
+            (
+                "python_assignment_is_not_an_import",
+                "python",
+                "import_path = 'a'\n",
+                "import_path = 'b'\n",
+                False,
+            ),
+        ]
+    )
+    def test_only_module_paths_drop_out(
+        self, _name: str, language: str, before: str, after: str, expected_equal: bool
+    ) -> None:
+        self.assertEqual(normalize_fragment(before, language) == normalize_fragment(after, language), expected_equal)
+
+
+class TestIsImportOnly(unittest.TestCase):
+    @parameterized.expand(
+        [
+            (
+                "ts_import_header",
+                "typescript",
+                "import { useValues } from 'kea'\n\nimport { teamLogic } from 'scenes/teamLogic'\n",
+                True,
+            ),
+            (
+                "ts_wrapped_import",
+                "typescript",
+                "import {\n    ChartDisplayType,\n    TrendResult,\n} from '~/types'\n",
+                True,
+            ),
+            (
+                "ts_re_export",
+                "typescript",
+                "export * from './shared'\nexport { Trends } from './Trends'\n",
+                True,
+            ),
+            (
+                "ts_imports_followed_by_code",
+                "typescript",
+                "import { useValues } from 'kea'\n\nexport function render(): null {\n    return null\n}\n",
+                False,
+            ),
+            (
+                "ts_code_with_no_import",
+                "typescript",
+                "const a = 1\nconst b = 2\n",
+                False,
+            ),
+            (
+                "python_import_header",
+                "python",
+                "import os\n\nfrom posthog.models import Team\n",
+                True,
+            ),
+            (
+                "python_wrapped_import",
+                "python",
+                "from posthog.models import (\n    Team,\n    Organization,\n)\n",
+                True,
+            ),
+            (
+                "python_imports_followed_by_code",
+                "python",
+                "from posthog.models import Team\n\nteam = Team.objects.first()\n",
+                False,
+            ),
+        ]
+    )
+    def test_classification(self, _name: str, fmt: str, fragment: str, expected: bool) -> None:
+        self.assertEqual(is_import_only(make_clone("a", "b", 100, fmt=fmt, fragment=fragment)), expected)
+
+    def test_an_import_only_clone_never_fails_the_gate(self) -> None:
+        header = "import { useValues } from 'kea'\nimport { teamLogic } from 'scenes/teamLogic'\n"
+        clone = make_clone("a.tsx", "b.tsx", 900, fmt="typescript", fragment=header)
+        self.assertEqual(find_gate_failures([clone]), [])
+
+
+class TestAttachFragmentHashes(unittest.TestCase):
+    def test_the_key_does_not_depend_on_which_side_jscpd_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = Path(tmp)
+            (tree / "trends.py").write_text("pad\nvalue = trend_key(dataset)\n")
+            (tree / "funnels.py").write_text("value = funnel_key(dataset)\n")
+            reported_from_trends = make_clone("trends.py", "funnels.py", 100)
+            reported_from_trends["firstFile"] = {"name": "trends.py", "start": 2, "end": 2}
+            reported_from_trends["secondFile"] = {"name": "funnels.py", "start": 1, "end": 1}
+            reported_from_funnels = make_clone("funnels.py", "trends.py", 100)
+            reported_from_funnels["firstFile"] = {"name": "funnels.py", "start": 1, "end": 1}
+            reported_from_funnels["secondFile"] = {"name": "trends.py", "start": 2, "end": 2}
+            attach_fragment_hashes([reported_from_trends, reported_from_funnels], tree)
+            self.assertEqual(clone_key(reported_from_trends), clone_key(reported_from_funnels))
+
+
+class TestParseRenames(unittest.TestCase):
+    def test_a_rename_does_not_misalign_the_records_after_it(self) -> None:
+        output = "M\0a.py\0R100\0old/b.py\0new/b.py\0A\0c.py\0R096\0old/d.ts\0new/d.ts\0"
+        self.assertEqual(parse_renames(output), {"new/b.py": "old/b.py", "new/d.ts": "old/d.ts"})
 
 
 class TestMarkNewClones(unittest.TestCase):
@@ -176,10 +346,15 @@ class TestMarkNewClones(unittest.TestCase):
         mark_new_clones(current, baseline)
         self.assertEqual([clone["isNew"] for clone in current], expected_is_new)
 
+    def test_a_moved_file_keeps_the_clones_it_had_at_the_baseline(self) -> None:
+        baseline = [make_clone("a.py", "b.py", 100)]
+        moved = make_clone("a.py", "moved/b.py", 100)
+        mark_new_clones([moved], baseline, {"moved/b.py": "b.py"})
+        self.assertEqual(moved["isNew"], False)
+
     def test_an_edited_fragment_is_new_even_when_the_pair_has_a_baseline_clone(self) -> None:
         baseline = [make_clone("a.py", "b.py", 100)]
-        edited = make_clone("a.py", "b.py", 100)
-        edited["fragment"] = "y = 2\n" * 10
+        edited = make_clone("a.py", "b.py", 100, fragment="y = 2\n" * 10)
         current = [make_clone("a.py", "b.py", 100), edited]
         mark_new_clones(current, baseline)
         self.assertEqual([clone["isNew"] for clone in current], [False, True])
