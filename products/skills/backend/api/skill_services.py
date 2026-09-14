@@ -25,6 +25,11 @@ MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
 MAX_SKILL_FILE_COUNT = 200
+# A digest backfill page holds the full content of every row in it, because a digest cannot be
+# computed without the content. One body or bundled file is allowed to reach MAX_SKILL_BODY_BYTES /
+# MAX_SKILL_FILE_BYTES, so the page is sized against those caps rather than against a row count:
+# 100 rows bounds a page at about 100 MB of content. Raise it with --batch-size for small rows.
+DIGEST_BACKFILL_BATCH_SIZE = 100
 # Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
 # form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
 # products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
@@ -921,7 +926,9 @@ class SkillDigestBackfillCounts:
     files: int
 
 
-def backfill_skill_digests(*, batch_size: int = 500, recompute: bool = False) -> SkillDigestBackfillCounts:
+def backfill_skill_digests(
+    *, batch_size: int = DIGEST_BACKFILL_BATCH_SIZE, recompute: bool = False
+) -> SkillDigestBackfillCounts:
     """Stamp `sha256`/`size` on rows written before digests existed. Safe to re-run.
 
     Every write path stamps its own digest, so this only has to reach the history. It walks in
