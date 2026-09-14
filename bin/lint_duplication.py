@@ -271,7 +271,9 @@ def main() -> int:
         return 2
 
     changed_files = set(
-        subprocess.check_output(["git", "diff", "--name-only", "-z", baseline], cwd=repo, text=True).split("\0")
+        subprocess.check_output(["git", "diff", "--name-only", "-z", baseline, "HEAD"], cwd=repo, text=True).split(
+            "\0"
+        )
     )
     changed_files.update(
         subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=repo, text=True).split(
