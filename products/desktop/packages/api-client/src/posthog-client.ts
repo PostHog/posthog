@@ -630,6 +630,8 @@ export interface ScoutConfig {
    * absent entirely on backends predating the field.
    */
   run_cron_schedule?: string | null;
+  /** GitHub repository this scout can inspect during its runs. */
+  repository?: string | null;
   last_run_at: string | null;
   created_at: string;
 }
@@ -2559,6 +2561,7 @@ export class PostHogAPIClient {
       run_interval_minutes?: number;
       /** A cron expression puts the scout on a calendar; null returns it to the rolling cadence. */
       run_cron_schedule?: string | null;
+      repository?: string | null;
       auto_pause_exempt?: boolean;
     },
   ): Promise<ScoutConfig> {

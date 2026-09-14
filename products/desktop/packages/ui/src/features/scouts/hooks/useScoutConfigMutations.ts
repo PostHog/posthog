@@ -14,6 +14,7 @@ export interface ScoutConfigUpdate {
   emit?: boolean;
   run_interval_minutes?: number;
   run_cron_schedule?: string | null;
+  repository?: string | null;
   auto_pause_exempt?: boolean;
 }
 
@@ -22,6 +23,7 @@ const CONFIG_SETTINGS = [
   "emit",
   "run_interval_minutes",
   "run_cron_schedule",
+  "repository",
   "auto_pause_exempt",
 ] as const;
 
@@ -34,15 +36,19 @@ function trackConfigChange(
   for (const setting of CONFIG_SETTINGS) {
     const newValue = updates[setting];
     if (newValue === undefined) continue;
+    const oldValue = previousConfig[setting];
     track(ANALYTICS_EVENTS.SCOUT_CONFIG_CHANGED, {
       skill_name: previousConfig.skill_name,
       scout_origin: getScoutOrigin(previousConfig),
       setting,
-      new_value: newValue,
+      new_value: setting === "repository" ? Boolean(newValue) : newValue,
       // Explicit null, not undefined: `auto_pause_exempt` is optional, and the
       // cloud client normalizes an unknown prior value to null. Undefined would
       // drop the key on serialization and split the two clients' event shape.
-      old_value: previousConfig[setting] ?? null,
+      old_value:
+        setting === "repository"
+          ? Boolean(oldValue)
+          : oldValue ?? null,
       success,
     });
   }

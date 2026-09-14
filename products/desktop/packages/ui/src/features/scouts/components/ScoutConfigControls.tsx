@@ -169,6 +169,26 @@ export function ScoutConfigForm({
       </SettingBlock>
 
       <SettingBlock
+        title="Code access"
+        help="Set a repository to give this agent a clone and GitHub access on its next run. Clear it to keep the agent in the project-only sandbox."
+      >
+        <SettingRow label="Repository" help="Use owner/repository.">
+          <Input
+            key={config.repository ?? "unset"}
+            defaultValue={config.repository ?? ""}
+            placeholder="posthog/posthog"
+            aria-label={`${config.skill_name} repository`}
+            onBlur={(event) => {
+              const repository = event.currentTarget.value.trim().toLowerCase();
+              if (repository !== (config.repository ?? "")) {
+                onUpdate(config.id, { repository: repository || null });
+              }
+            }}
+          />
+        </SettingRow>
+      </SettingBlock>
+
+      <SettingBlock
         title="Schedule"
         help={
           next
