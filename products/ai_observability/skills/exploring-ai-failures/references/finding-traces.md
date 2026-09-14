@@ -45,6 +45,10 @@ WHERE event = '$ai_generation' AND timestamp >= now() - INTERVAL 7 DAY
 Each count reads an empty tag as unset, so a property the app sets to `''` does not look covered. Use the
 same expression for any other candidate you add.
 
+These percentages count generations, not traces. One agentic trace emits many generations, so it
+outweighs many single-shot traces, and a trace whose generations carry several agent names lands in
+several buckets. Use the split to rank the candidates, not to size the use cases.
+
 Group by the best-covered one, and keep the unset rows visible so you see how much traffic it misses:
 
 ```sql
@@ -61,14 +65,17 @@ A few apps namespace trace ids like `support:` or `summarize:`. Most SDKs genera
 trace instead, so count the prefixes before you split on them:
 
 ```sql
-SELECT count() AS generations,
-       countIf(position(toString(properties.$ai_trace_id), ':') > 0) AS with_prefix
+SELECT countDistinctIf(toString(properties.$ai_trace_id),
+                       notEmpty(toString(properties.$ai_trace_id))) AS traces,
+       countDistinctIf(toString(properties.$ai_trace_id),
+                       position(toString(properties.$ai_trace_id), ':') > 0) AS with_prefix
 FROM events
 WHERE event = '$ai_generation' AND timestamp >= now() - INTERVAL 7 DAY
 ```
 
-Split on `splitByChar(':', toString(properties.$ai_trace_id))[1]` only when `with_prefix` covers most of
-the traffic.
+A trace id is one value per trace, so count traces here rather than generation rows. Generations carrying
+no trace id fall out of both counts, because they cannot carry a prefix either. Split on
+`splitByChar(':', toString(properties.$ai_trace_id))[1]` only when `with_prefix` covers most of `traces`.
 
 ### 4. Read and name
 
