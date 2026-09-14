@@ -113,4 +113,32 @@ describe('PlayerFrame', () => {
             jest.useRealTimers()
         }
     })
+
+    // A frame cannot load while the browser is offline, and the app-document fallback needs no network,
+    // so the player falls back at once instead of waiting for a connection that may not come back.
+    it('falls back to the app document without a retry while the browser is offline', () => {
+        const onLine = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+        jest.useFakeTimers()
+        try {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException')
+            const { container, iframe } = renderPlayerFrame()
+
+            fireEvent.load(iframe)
+            act(() => {
+                jest.advanceTimersByTime(10000)
+            })
+
+            expect(container.querySelector('iframe')).toBeNull()
+            const fallback = container.querySelector('div.PlayerFrame__content')
+            expect(fallback).not.toBeNull()
+            expect(sessionRecordingPlayerLogic(logicProps).values.rootFrame).toBe(fallback)
+            expect(captureSpy).not.toHaveBeenCalledWith('replay player frame load retried', expect.anything())
+            expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
+            expect(captureExceptionSpy.mock.calls[0][1]).toMatchObject({ attempt: 1, browserOnline: false })
+        } finally {
+            jest.useRealTimers()
+            onLine.mockRestore()
+        }
+    })
 })

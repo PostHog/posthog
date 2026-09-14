@@ -648,6 +648,7 @@ export interface sessionRecordingPlayerLogicValues {
     playerFrameDocumentFailed: boolean
     playerFrameLoadFailures: number
     playerFrameLoadRetries: number
+    playerFrameLoadStopped: boolean
     playerSpeed: number
     playingState: SessionPlayerState.PLAY | SessionPlayerState.PAUSE
     playingTimeTracking: PlayerTimeTracking
@@ -1028,6 +1029,9 @@ export interface sessionRecordingPlayerLogicActions {
     stopAnimation: () => {
         value: true
     }
+    stopRetryingPlayerFrameLoad: () => {
+        value: true
+    }
     syncPlayerSpeed: () => {
         value: true
     }
@@ -1060,7 +1064,7 @@ export interface sessionRecordingPlayerLogicActions {
 export interface sessionRecordingPlayerLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        playerFrameDocumentFailed: (playerFrameLoadFailures: any) => boolean
+        playerFrameDocumentFailed: (playerFrameLoadFailures: any, playerFrameLoadStopped: any) => boolean
         sessionRecordingId: (sessionRecordingId: string) => string
         logicProps: (arg: any) => SessionRecordingPlayerLogicProps
         playNextRecording: (arg: any) => ((automatic: boolean) => void) | undefined
@@ -1317,6 +1321,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         playerErrorSeen: (error: any) => ({ error }),
         playerFrameDocumentLoadFailed: (iframe: HTMLIFrameElement | null) => ({ iframe }),
         retryPlayerFrameLoad: true,
+        stopRetryingPlayerFrameLoad: true,
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
         setDebugSnapshotTypes: (types: EventType[]) => ({ types }),
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
@@ -1515,6 +1520,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         playerFrameLoadFailures: [0, { playerFrameDocumentLoadFailed: (failures) => failures + 1 }],
         // PlayerFrame adds this to the frame's src, because a frame loads again only when its src changes.
         playerFrameLoadRetries: [0, { retryPlayerFrameLoad: (retries) => retries + 1 }],
+        playerFrameLoadStopped: [false, { stopRetryingPlayerFrameLoad: () => true }],
         playerError: [
             null as string | null,
             {
@@ -1591,8 +1597,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     selectors({
         // Nothing resets this, because the frame's src stops changing once the retries run out.
         playerFrameDocumentFailed: [
-            (s) => [s.playerFrameLoadFailures],
-            (playerFrameLoadFailures: number): boolean => playerFrameLoadFailures > MAX_PLAYER_FRAME_LOAD_RETRIES,
+            (s) => [s.playerFrameLoadFailures, s.playerFrameLoadStopped],
+            (playerFrameLoadFailures: number, playerFrameLoadStopped: boolean): boolean =>
+                playerFrameLoadStopped || playerFrameLoadFailures > MAX_PLAYER_FRAME_LOAD_RETRIES,
         ],
         // Prop references for use by other logics
         sessionRecordingId: [(_, p) => [p.sessionRecordingId], (sessionRecordingId: string) => sessionRecordingId],
@@ -2305,7 +2312,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 attempt: values.playerFrameLoadFailures,
                 ...getPlayerFrameLoadDiagnostics(iframe),
             }
-            if (values.playerFrameDocumentFailed) {
+            // A load retried while offline fails again, and the app-document fallback needs no network, so
+            // an offline browser gets that fallback now. A connection can stay away for the rest of the
+            // session, and a viewer whose snapshots are loaded already must not wait for it.
+            if (values.playerFrameDocumentFailed || !navigator.onLine) {
+                actions.stopRetryingPlayerFrameLoad()
                 // The app-document fallback hides the failure from the viewer, so the only sign of it is the report.
                 posthog.captureException(new Error('Replay player frame loaded without its mount node'), {
                     feature: 'session-recording-player-frame',
@@ -2317,17 +2328,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const delayMs = PLAYER_FRAME_RETRY_DELAY_MS * values.playerFrameLoadFailures
             cache.disposables.add(
                 () => {
-                    const retry = (): void => actions.retryPlayerFrameLoad()
-                    // A load retried while offline fails again, so wait for the connection instead.
-                    if (!navigator.onLine) {
-                        window.addEventListener('online', retry, { once: true })
-                        return () => window.removeEventListener('online', retry)
-                    }
-                    const timer = setTimeout(retry, delayMs)
+                    const timer = setTimeout(() => actions.retryPlayerFrameLoad(), delayMs)
                     return () => clearTimeout(timer)
                 },
                 'playerFrameLoadRetry',
-                // `online` fires while the tab is hidden too.
+                // The default pause clears this timer when the tab hides and starts the full delay again on
+                // show, so a frame that failed in a hidden tab would never get its retry.
                 { pauseOnPageHidden: false }
             )
         },
