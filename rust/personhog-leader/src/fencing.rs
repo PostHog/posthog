@@ -62,14 +62,8 @@ use crate::config::{FENCING_ABORT_ATTEMPTS, FENCING_COMMIT_ATTEMPTS};
 use crate::inflight::InflightTracker;
 use crate::kafka::changelog_message_key;
 
-/// Transactional ids per partition a takeover claims. Every id a pod may
-/// produce with must be fenced by its successor whatever lane count
-/// either side runs, so the bound is fixed here rather than configured.
-pub const MAX_LANES: usize = 4;
-
 /// The fencing scope is the partition: every owner of partition `p`
-/// shares its ids, so a new owner's init fences the old one. Lane 0
-/// keeps the single-producer id.
+/// shares its ids, so a new owner's init fences the old one.
 fn transactional_id(topic: &str, partition: u32, lane: usize) -> String {
     if lane == 0 {
         format!("personhog-changelog-{topic}-p{partition}")
@@ -200,15 +194,13 @@ fn drop_off_worker<T: Send + 'static>(value: T) {
     tokio::task::spawn_blocking(move || drop(value));
 }
 
-/// Stamps a lane when its commit finishes, so lane selection can order
-/// lanes by how long ago each last committed.
+/// Stamps a lane when its commit finishes, so selection can order lanes.
 static COMMIT_CLOCK: AtomicU64 = AtomicU64::new(0);
 
 struct PartitionFence {
     producer: FencedProducer,
     lane: usize,
-    /// The commit clock at this lane's last finished commit; zero until
-    /// then.
+    /// The commit clock at this lane's last finished commit; zero until then.
     last_commit_end: AtomicU64,
     /// Makes the next commit task panic, so tests can reach the arm that
     /// handles a committer which never reports. Scoped to the fence
@@ -275,18 +267,16 @@ impl PartitionFence {
     }
 }
 
-/// A partition's lanes: independent transactional producers on one
-/// partition. The coordinator refuses a producer's next transaction for a
-/// while after it commits, so a write takes the lane least likely to be
-/// held instead of waiting on the previous commit's wrap-up.
+/// A partition's transactional producers. The coordinator refuses a
+/// producer's next transaction for a while after it commits, so a write
+/// takes the lane least likely to be held.
 struct PartitionLanes {
     lanes: Vec<Arc<PartitionFence>>,
 }
 
 impl PartitionLanes {
-    /// One condemned lane makes the partition unusable: the repair path
-    /// re-acquires whole partitions, and a fenced lane means a newer
-    /// owner claimed every id.
+    /// One condemned lane condemns the partition: repair re-acquires
+    /// whole partitions.
     fn is_usable(&self) -> bool {
         self.lanes.iter().all(|lane| lane.is_usable())
     }
@@ -320,9 +310,8 @@ struct LaneState {
     last_commit_end: u64,
 }
 
-/// The lane a write takes, with the reason for the metric: among lanes
-/// not mid-commit, the one whose last commit is oldest, joined if its
-/// window is open; when every lane is committing, the oldest is parked on.
+/// The lane a write takes, and why: among lanes not mid-commit, the one
+/// whose last commit is oldest; when every lane is committing, the oldest.
 fn pick_lane(states: &[LaneState]) -> (usize, &'static str) {
     let oldest = |committing: bool| {
         states
@@ -592,8 +581,10 @@ pub struct FencedChangelogProducers {
     /// drain, so a shutdown with an open window does not truncate here
     /// and report a failed drain.
     settle_budget: Duration,
-    /// Transactional producers per partition, at most [`MAX_LANES`].
+    /// Transactional producers per partition.
     lanes: usize,
+    /// Ids a takeover claims, at least `lanes`.
+    fenced_lanes: usize,
     partitions: DashMap<u32, Arc<PartitionLanes>>,
     /// Nudged on condemnation, so the coordination loop can run a
     /// repair pass now instead of on its next reconcile tick. Carries no
@@ -641,6 +632,7 @@ pub struct FencedProducerConfig {
     pub window_max_writes: usize,
     pub settle_budget: Duration,
     pub lanes: usize,
+    pub fenced_lanes: usize,
 }
 
 impl FencedChangelogProducers {
@@ -655,10 +647,11 @@ impl FencedChangelogProducers {
             window_max_writes,
             settle_budget,
             lanes,
+            fenced_lanes,
         } = config;
         assert!(
-            (1..=MAX_LANES).contains(&lanes),
-            "fencing lanes must be between 1 and {MAX_LANES}, got {lanes}"
+            lanes >= 1 && fenced_lanes >= lanes,
+            "fenced lanes ({fenced_lanes}) must cover the lanes ({lanes}), both at least 1"
         );
         Self {
             kafka,
@@ -670,6 +663,7 @@ impl FencedChangelogProducers {
             window_max_writes,
             settle_budget,
             lanes,
+            fenced_lanes,
             partitions: DashMap::new(),
             repair_nudge: None,
             prepared: DashMap::new(),
@@ -690,12 +684,9 @@ impl FencedChangelogProducers {
         self
     }
 
-    /// Take the partition's fence: claim every one of its transactional
-    /// ids, which fences every previous owner, and keep the configured
-    /// lanes' producers. The ids beyond the lane count are claimed for
-    /// the fence alone, since a predecessor may have produced on any of
-    /// them; their producers are dropped once initialized. Lane 0 may
-    /// consume a parked connection; the rest connect cold.
+    /// Take the partition's fence: claim the configured ids, which fences
+    /// every previous owner of them, and keep the lanes' producers. Ids
+    /// beyond the lane count are claimed for the fence alone.
     async fn acquire_installed(&self, partition: u32) -> Result<Arc<PartitionLanes>, String> {
         let start = Instant::now();
         // The removal also clears a Connecting claim: acquisition is
@@ -707,13 +698,13 @@ impl FencedChangelogProducers {
             _ => None,
         };
         let path = if parked.is_some() { "prepared" } else { "cold" };
-        let claims: Vec<_> = (0..MAX_LANES)
+        let claims: Vec<_> = (0..self.fenced_lanes)
             .map(|lane| {
                 let parked = if lane == 0 { parked.take() } else { None };
                 self.claim_lane(partition, lane, parked)
             })
             .collect();
-        let mut producers = Vec::with_capacity(MAX_LANES);
+        let mut producers = Vec::with_capacity(self.fenced_lanes);
         let mut failure = None;
         for result in futures::future::join_all(claims).await {
             match result {
@@ -771,10 +762,8 @@ impl FencedChangelogProducers {
         Ok(installed)
     }
 
-    /// Claim one lane's id: init the parked connection when given one,
-    /// otherwise connect cold and init. A parked connection whose init
-    /// fails (it may simply have gone stale) gets one fresh
-    /// connect-and-init rather than failing the acquisition.
+    /// Claim one lane's id. A parked connection whose init fails gets one
+    /// fresh connect-and-init rather than failing the acquisition.
     async fn claim_lane(
         &self,
         partition: u32,
@@ -1492,9 +1481,8 @@ impl FencedChangelogProducers {
         self.evict(partition, |installed| Arc::ptr_eq(installed, lanes));
     }
 
-    /// [`Self::forget_fence`] for the lane that reported the fence. One
-    /// fenced lane means a newer owner claimed every id, so the whole
-    /// partition is stale.
+    /// [`Self::forget_fence`] for the lane that reported the fence: a
+    /// newer owner claimed the partition's ids, so the whole set is stale.
     fn forget_lane(&self, partition: u32, fence: &Arc<PartitionFence>) {
         self.evict(partition, |installed| installed.contains(fence));
     }

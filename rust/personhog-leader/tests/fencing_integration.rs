@@ -73,10 +73,11 @@ async fn read_committed_count(topic: &str) -> usize {
 /// librdkafka requires the broker bound to cover.
 const BROKER_TXN_TIMEOUT: Duration = Duration::from_secs(30);
 
-fn fenced_producers_with_window_and_fill(
+fn fenced_producers_with(
     topic: &str,
     window: Duration,
     window_max_writes: usize,
+    lanes: usize,
 ) -> FencedChangelogProducers {
     let mut kafka = test_kafka_config();
     kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
@@ -88,45 +89,14 @@ fn fenced_producers_with_window_and_fill(
         broker_txn_timeout: BROKER_TXN_TIMEOUT,
         window,
         window_max_writes,
-        lanes: 1,
         settle_budget: window + Duration::from_secs(5),
-    })
-}
-
-fn fenced_producers_with_window(topic: &str, window: Duration) -> FencedChangelogProducers {
-    fenced_producers_with_window_and_fill(topic, window, 32)
-}
-
-fn fenced_producers_with_lanes(topic: &str, lanes: usize) -> FencedChangelogProducers {
-    let mut kafka = test_kafka_config();
-    kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
-    FencedChangelogProducers::new(FencedProducerConfig {
-        kafka,
-        topic: topic.to_string(),
-        init_timeout: Duration::from_secs(10),
-        commit_timeout: Duration::from_secs(10),
-        broker_txn_timeout: BROKER_TXN_TIMEOUT,
-        window: Duration::from_millis(5),
-        window_max_writes: 32,
         lanes,
-        settle_budget: Duration::from_secs(5),
+        fenced_lanes: lanes,
     })
 }
 
-fn fenced_producers(topic: &str) -> FencedChangelogProducers {
-    let mut kafka = test_kafka_config();
-    kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
-    FencedChangelogProducers::new(FencedProducerConfig {
-        kafka,
-        topic: topic.to_string(),
-        init_timeout: Duration::from_secs(10),
-        commit_timeout: Duration::from_secs(10),
-        broker_txn_timeout: BROKER_TXN_TIMEOUT,
-        window: Duration::from_millis(5),
-        window_max_writes: 32,
-        lanes: 1,
-        settle_budget: Duration::from_secs(5),
-    })
+fn fenced_producers(topic: &str, lanes: usize) -> FencedChangelogProducers {
+    fenced_producers_with(topic, Duration::from_millis(5), 32, lanes)
 }
 
 /// The prepared path must fence exactly as the cold path does: a
@@ -137,14 +107,14 @@ fn fenced_producers(topic: &str) -> FencedChangelogProducers {
 async fn a_prepared_connection_still_fences_the_previous_owner() {
     let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
 
-    let first = fenced_producers(&topic);
+    let first = fenced_producers(&topic, 1);
     first.acquire(0).await.expect("first owner acquires");
     first
         .produce(0, &test_person(1))
         .await
         .expect("first owner produces while unfenced");
 
-    let second = fenced_producers(&topic);
+    let second = fenced_producers(&topic, 1);
     second.preconnect(0).await;
     assert!(second.has_prepared(0), "preconnect parks a connection");
     // The property the phase split exists for: the parked connection has
@@ -176,7 +146,7 @@ async fn a_prepared_connection_still_fences_the_previous_owner() {
 #[tokio::test]
 async fn the_sweep_discards_parked_connections() {
     let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
-    let producers = fenced_producers(&topic);
+    let producers = fenced_producers(&topic, 1);
     producers.preconnect(6).await;
     assert!(producers.has_prepared(6), "preconnect parks a connection");
 
@@ -194,7 +164,7 @@ async fn the_sweep_discards_parked_connections() {
 #[tokio::test]
 async fn a_released_partition_discards_its_prepared_connection() {
     let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
-    let producers = fenced_producers(&topic);
+    let producers = fenced_producers(&topic, 1);
     producers.preconnect(5).await;
     assert!(producers.has_prepared(5), "preconnect parks a connection");
     producers.release(5);
@@ -212,7 +182,7 @@ async fn a_released_partition_discards_its_prepared_connection() {
 #[tokio::test]
 async fn concurrent_preconnects_collapse_to_one_dial() {
     let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
 
     let calls: Vec<_> = (0..20)
         .map(|_| {
@@ -252,6 +222,7 @@ async fn a_failed_preconnect_releases_its_claim() {
         window: Duration::from_millis(5),
         window_max_writes: 32,
         lanes: 1,
+        fenced_lanes: 1,
         settle_budget: Duration::from_secs(5),
     });
 
@@ -285,6 +256,7 @@ async fn a_stale_dials_failure_leaves_the_replacements_claim() {
         window: Duration::from_millis(5),
         window_max_writes: 32,
         lanes: 1,
+        fenced_lanes: 1,
         settle_budget: Duration::from_secs(5),
     }));
 
@@ -315,7 +287,7 @@ async fn a_stale_dials_failure_leaves_the_replacements_claim() {
 #[tokio::test]
 async fn the_sweep_clears_orphaned_claims_but_not_live_ones() {
     let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
-    let producers = fenced_producers(&topic);
+    let producers = fenced_producers(&topic, 1);
 
     producers.stage_connecting_for_test(1, Duration::from_secs(60));
     producers.stage_connecting_for_test(2, Duration::from_secs(0));
@@ -346,14 +318,14 @@ async fn second_acquisition_fences_the_first_producer() {
     tokio::time::timeout(Duration::from_secs(60), async {
         let topic = format!("fence_test_{}", uuid::Uuid::new_v4().simple());
 
-        let first = fenced_producers(&topic);
+        let first = fenced_producers(&topic, 1);
         first.acquire(0).await.expect("first owner acquires");
         first
             .produce(0, &test_person(1))
             .await
             .expect("first owner produces while unfenced");
 
-        let second = fenced_producers(&topic);
+        let second = fenced_producers(&topic, 1);
         second.acquire(0).await.expect("second owner acquires");
         second
             .produce(0, &test_person(2))
@@ -376,7 +348,7 @@ async fn second_acquisition_fences_the_first_producer() {
 async fn successive_writes_rotate_across_lanes() {
     tokio::time::timeout(Duration::from_secs(60), async {
         let topic = format!("fence_test_{}", uuid::Uuid::new_v4().simple());
-        let producers = fenced_producers_with_lanes(&topic, 2);
+        let producers = fenced_producers(&topic, 2);
         producers.acquire(0).await.expect("acquires");
         producers
             .produce(0, &test_person(1))
@@ -397,22 +369,34 @@ async fn successive_writes_rotate_across_lanes() {
     .expect("writes parked forever — a window_closed wakeup was lost");
 }
 
-/// A successor claims every lane's id whatever lane count it runs, so a
-/// predecessor's producer on a lane the successor never uses is fenced
-/// too.
+/// A successor fences every id it is configured to, beyond the lanes it
+/// runs itself, so a predecessor's producer on a higher lane is fenced.
 #[tokio::test]
-async fn a_successor_fences_every_lane_of_the_predecessor() {
+async fn a_successor_fences_the_lane_ids_it_is_configured_to() {
     tokio::time::timeout(Duration::from_secs(60), async {
         let topic = format!("fence_test_{}", uuid::Uuid::new_v4().simple());
 
-        let first = fenced_producers_with_lanes(&topic, 2);
+        let first = fenced_producers(&topic, 2);
         first.acquire(0).await.expect("first owner acquires");
         first
             .produce_on_lane_for_test(0, 1, &test_person(1))
             .await
             .expect("first owner produces on lane 1 while unfenced");
 
-        let second = fenced_producers_with_lanes(&topic, 1);
+        let mut kafka = test_kafka_config();
+        kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
+        let second = FencedChangelogProducers::new(FencedProducerConfig {
+            kafka,
+            topic: topic.to_string(),
+            init_timeout: Duration::from_secs(10),
+            commit_timeout: Duration::from_secs(10),
+            broker_txn_timeout: BROKER_TXN_TIMEOUT,
+            window: Duration::from_millis(5),
+            window_max_writes: 32,
+            settle_budget: Duration::from_secs(5),
+            lanes: 1,
+            fenced_lanes: 2,
+        });
         second.acquire(0).await.expect("second owner acquires");
 
         match first.produce_on_lane_for_test(0, 1, &test_person(2)).await {
@@ -432,7 +416,7 @@ async fn a_successor_fences_every_lane_of_the_predecessor() {
 #[tokio::test]
 async fn concurrent_writes_share_a_window() {
     let topic = format!("fence_test_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
     producers.acquire(0).await.expect("acquire");
 
     let a = {
@@ -454,11 +438,7 @@ async fn concurrent_writes_share_a_window() {
 #[tokio::test]
 async fn a_filled_window_commits_before_its_timer() {
     let topic = format!("fence_test_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers_with_window_and_fill(
-        &topic,
-        Duration::from_secs(60),
-        3,
-    ));
+    let producers = Arc::new(fenced_producers_with(&topic, Duration::from_secs(60), 3, 1));
     producers.acquire(0).await.expect("acquire");
 
     let writes: Vec<_> = (1..=3i64)
@@ -489,7 +469,7 @@ async fn sustained_writes_across_window_boundaries() {
     // failure.
     tokio::time::timeout(Duration::from_secs(60), async {
         let topic = format!("fence_test_{}", uuid::Uuid::new_v4().simple());
-        let producers = Arc::new(fenced_producers(&topic));
+        let producers = Arc::new(fenced_producers(&topic, 1));
         producers.acquire(0).await.expect("acquire");
 
         let writes: Vec<_> = (0..200i64)
@@ -526,9 +506,11 @@ async fn a_committer_that_vanishes_leaves_the_outcome_in_doubt() {
     let topic = format!("fence_orphan_{}", uuid::Uuid::new_v4().simple());
     // A long window keeps the committer asleep, so the write is parked on
     // an outcome that is still nobody's to report.
-    let producers = Arc::new(fenced_producers_with_window(
+    let producers = Arc::new(fenced_producers_with(
         &topic,
         Duration::from_secs(30),
+        32,
+        1,
     ));
     producers.acquire(0).await.expect("acquire the fence");
 
@@ -556,7 +538,7 @@ async fn a_committer_that_vanishes_leaves_the_outcome_in_doubt() {
 #[tokio::test]
 async fn a_cancelled_produce_does_not_wedge_the_partition() {
     let topic = format!("fence_cancel_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
     producers.acquire(0).await.expect("acquire");
 
     {
@@ -598,7 +580,7 @@ async fn a_successors_init_aborts_the_predecessors_open_window() {
     // has taken the epoch, because "invisible while uncommitted" proves
     // nothing. What has to be shown is that the record can never become
     // visible once the successor owns the partition.
-    let first = Arc::new(fenced_producers_with_window(&topic, Duration::from_secs(1)));
+    let first = Arc::new(fenced_producers_with(&topic, Duration::from_secs(1), 32, 1));
     first.acquire(0).await.expect("first owner acquires");
     {
         let p = Arc::clone(&first);
@@ -612,7 +594,7 @@ async fn a_successors_init_aborts_the_predecessors_open_window() {
 
     // Successor takes the partition before that window closes, as a
     // warming new owner does.
-    let second = fenced_producers(&topic);
+    let second = fenced_producers(&topic, 1);
     second.acquire(0).await.expect("successor acquires");
 
     // Now let the predecessor's committer run. This is the moment the
@@ -633,9 +615,11 @@ async fn a_successors_init_aborts_the_predecessors_open_window() {
     // record arriving. Otherwise this test passes just as well when the
     // send never left the client.
     let control_topic = format!("fence_abort_control_{}", uuid::Uuid::new_v4().simple());
-    let lone = Arc::new(fenced_producers_with_window(
+    let lone = Arc::new(fenced_producers_with(
         &control_topic,
         Duration::from_secs(1),
+        32,
+        1,
     ));
     lone.acquire(0).await.expect("control owner acquires");
     {
@@ -665,7 +649,7 @@ async fn a_successors_init_aborts_the_predecessors_open_window() {
 #[tokio::test]
 async fn a_fence_taken_for_an_unfinished_warm_is_given_back() {
     let topic = format!("fence_guard_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
 
     {
         producers.acquire(0).await.expect("acquire");
@@ -684,7 +668,7 @@ async fn a_fence_taken_for_an_unfinished_warm_is_given_back() {
 #[tokio::test]
 async fn a_completed_warm_keeps_its_fence() {
     let topic = format!("fence_guard_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
 
     producers.acquire(0).await.expect("acquire");
     FenceGuard::new(Arc::clone(&producers), 0, "warm").keep();
@@ -704,7 +688,7 @@ async fn a_completed_warm_keeps_its_fence() {
 async fn a_condemnation_nudges_repair_once() {
     let topic = format!("fence_repair_{}", uuid::Uuid::new_v4().simple());
     let nudge = Arc::new(Notify::new());
-    let producers = fenced_producers(&topic).with_repair_nudge(Arc::clone(&nudge));
+    let producers = fenced_producers(&topic, 1).with_repair_nudge(Arc::clone(&nudge));
     producers.acquire(3).await.expect("acquire the fence");
 
     producers.condemn_for_test(3);
@@ -736,7 +720,7 @@ async fn a_condemnation_nudges_repair_once() {
 #[tokio::test]
 async fn a_condemned_producer_stops_claiming_the_partition() {
     let topic = format!("fence_condemned_{}", uuid::Uuid::new_v4().simple());
-    let producers = fenced_producers(&topic);
+    let producers = fenced_producers(&topic, 1);
     producers.acquire(0).await.expect("acquire the fence");
     producers
         .produce(0, &test_person(1))
@@ -769,7 +753,7 @@ async fn a_condemned_producer_stops_claiming_the_partition() {
 #[tokio::test]
 async fn an_abandoned_guard_does_not_evict_its_replacement() {
     let topic = format!("fence_guard_id_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
     producers.acquire(0).await.expect("first acquire");
 
     // A warm takes the fence, then never finishes.
@@ -796,7 +780,7 @@ async fn an_abandoned_guard_does_not_evict_its_replacement() {
 #[tokio::test]
 async fn healing_retakes_a_fence_for_a_served_partition() {
     let topic = format!("fence_heal_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
     let inflight = InflightTracker::new();
     let clock = AuthorityClock::unclaimed();
     clock.begin_session(Duration::from_secs(30), std::time::Instant::now());
@@ -830,7 +814,7 @@ async fn healing_without_standing_does_not_steal_the_epoch() {
     let inflight = InflightTracker::new();
 
     // The partition's real owner, holding a working fence.
-    let owner = Arc::new(fenced_producers(&topic));
+    let owner = Arc::new(fenced_producers(&topic, 1));
     owner.acquire(0).await.expect("the owner takes its fence");
     owner
         .produce(0, &test_person(1))
@@ -838,7 +822,7 @@ async fn healing_without_standing_does_not_steal_the_epoch() {
         .expect("the owner can write");
 
     // A pod whose claim is gone tries to heal the same partition.
-    let zombie = Arc::new(fenced_producers(&topic));
+    let zombie = Arc::new(fenced_producers(&topic, 1));
     let lapsed = AuthorityClock::unclaimed();
     lapsed.begin_session(Duration::from_secs(30), std::time::Instant::now());
     lapsed.surrender();
@@ -858,10 +842,10 @@ async fn healing_skips_a_partition_under_handoff() {
     let topic = format!("fence_heal_{}", uuid::Uuid::new_v4().simple());
     let inflight = InflightTracker::new();
 
-    let owner = Arc::new(fenced_producers(&topic));
+    let owner = Arc::new(fenced_producers(&topic, 1));
     owner.acquire(0).await.expect("the owner takes its fence");
 
-    let other = Arc::new(fenced_producers(&topic));
+    let other = Arc::new(fenced_producers(&topic, 1));
     let valid = AuthorityClock::unclaimed();
     valid.begin_session(Duration::from_secs(30), std::time::Instant::now());
     inflight.fence(0);
@@ -882,7 +866,7 @@ async fn healing_skips_a_partition_under_handoff() {
 #[tokio::test]
 async fn healing_gives_back_a_fence_it_lost_standing_for() {
     let topic = format!("fence_heal_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
     let inflight = InflightTracker::new();
 
     let clock = Arc::new(AuthorityClock::unclaimed());
@@ -916,7 +900,7 @@ async fn healing_gives_back_a_fence_it_lost_standing_for() {
 #[tokio::test]
 async fn a_writer_woken_onto_a_condemned_producer_is_bounced() {
     let topic = format!("fence_woken_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
     producers.acquire(0).await.expect("acquire the fence");
 
     // Stage the gate exactly as a commit in flight leaves it, so the
@@ -952,9 +936,11 @@ async fn a_writer_woken_onto_a_condemned_producer_is_bounced() {
 #[tokio::test]
 async fn healing_leaves_a_fence_it_already_holds_alone() {
     let topic = format!("fence_heal_noop_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers_with_window(
+    let producers = Arc::new(fenced_producers_with(
         &topic,
         Duration::from_millis(600),
+        32,
+        1,
     ));
     let inflight = InflightTracker::new();
     let clock = AuthorityClock::unclaimed();
@@ -992,7 +978,7 @@ async fn healing_leaves_a_fence_it_already_holds_alone() {
 #[tokio::test]
 async fn a_committer_that_never_reports_condemns_its_producer() {
     let topic = format!("fence_lost_commit_{}", uuid::Uuid::new_v4().simple());
-    let producers = fenced_producers(&topic);
+    let producers = fenced_producers(&topic, 1);
     producers.acquire(0).await.expect("acquire the fence");
 
     producers.panic_next_commit_for_test(0);
@@ -1029,9 +1015,11 @@ async fn a_committer_that_never_reports_condemns_its_producer() {
 async fn settling_commits_an_abandoned_record_before_the_handoff_advances() {
     let topic = format!("fence_settle_{}", uuid::Uuid::new_v4().simple());
 
-    let first = Arc::new(fenced_producers_with_window(
+    let first = Arc::new(fenced_producers_with(
         &topic,
         Duration::from_secs(15),
+        32,
+        1,
     ));
     first.acquire(0).await.expect("first owner acquires");
     {
@@ -1067,7 +1055,7 @@ async fn settling_commits_an_abandoned_record_before_the_handoff_advances() {
 
     // And it settled before the successor existed, which is what makes
     // the ack a boundary rather than the start of a race.
-    let second = fenced_producers(&topic);
+    let second = fenced_producers(&topic, 1);
     second.acquire(0).await.expect("successor acquires");
     assert_eq!(
         read_committed_count(&topic).await,
@@ -1096,9 +1084,11 @@ async fn a_resume_does_not_fence_the_window_its_own_warm_admitted() {
     // Long enough that the write is still sitting in an open window when
     // the resume runs — a window that closed first would be committed
     // already and could not be fenced.
-    let producers = Arc::new(fenced_producers_with_window(
+    let producers = Arc::new(fenced_producers_with(
         &topic,
         Duration::from_secs(10),
+        32,
+        1,
     ));
     let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
 
@@ -1143,7 +1133,7 @@ async fn a_resume_does_not_fence_the_window_its_own_warm_admitted() {
 #[tokio::test]
 async fn a_poisoned_window_is_aborted_rather_than_committed() {
     let topic = format!("fence_poison_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers_with_window(&topic, Duration::from_secs(1)));
+    let producers = Arc::new(fenced_producers_with(&topic, Duration::from_secs(1), 32, 1));
     producers.acquire(0).await.expect("acquire the fence");
 
     let writing = {
@@ -1187,7 +1177,7 @@ async fn a_poisoned_window_is_aborted_rather_than_committed() {
 #[tokio::test]
 async fn a_window_that_cannot_settle_still_lets_the_handoff_proceed() {
     let topic = format!("fence_unsettled_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
     producers.acquire(0).await.expect("acquire the fence");
     producers
         .produce(0, &test_person(1))
@@ -1215,9 +1205,11 @@ async fn a_window_that_cannot_settle_still_lets_the_handoff_proceed() {
 #[tokio::test]
 async fn a_repeated_resume_does_not_fence_the_window_the_first_one_admitted() {
     let topic = format!("fence_resume_twice_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers_with_window(
+    let producers = Arc::new(fenced_producers_with(
         &topic,
         Duration::from_secs(10),
+        32,
+        1,
     ));
     let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
 
@@ -1258,7 +1250,7 @@ async fn a_repeated_resume_does_not_fence_the_window_the_first_one_admitted() {
 #[tokio::test]
 async fn a_drain_waits_for_a_commit_that_is_already_running() {
     let topic = format!("fence_settle_mid_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
     producers.acquire(0).await.expect("acquire the fence");
 
     // The gate a commit in flight leaves behind.
@@ -1291,9 +1283,11 @@ async fn a_drain_waits_for_a_commit_that_is_already_running() {
 #[tokio::test]
 async fn a_resume_that_took_the_fence_itself_does_not_take_it_again() {
     let topic = format!("fence_resume_own_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers_with_window(
+    let producers = Arc::new(fenced_producers_with(
         &topic,
         Duration::from_secs(10),
+        32,
+        1,
     ));
     let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
 
@@ -1330,7 +1324,7 @@ async fn a_resume_that_took_the_fence_itself_does_not_take_it_again() {
 #[tokio::test]
 async fn warming_without_a_confirmed_lease_does_not_take_the_epoch() {
     let topic = format!("fence_warm_auth_{}", uuid::Uuid::new_v4().simple());
-    let owner = Arc::new(fenced_producers(&topic));
+    let owner = Arc::new(fenced_producers(&topic, 1));
     owner.acquire(0).await.expect("the owner takes its fence");
     owner
         .produce(0, &test_person(1))
@@ -1339,7 +1333,7 @@ async fn warming_without_a_confirmed_lease_does_not_take_the_epoch() {
 
     let lapsed = common::live_authority();
     lapsed.surrender();
-    let zombie = Arc::new(fenced_producers(&topic));
+    let zombie = Arc::new(fenced_producers(&topic, 1));
     let handler = common::test_handoff_handler_with_authority(&topic, Arc::clone(&zombie), lapsed);
     handler
         .warm_partition(0)
@@ -1357,7 +1351,7 @@ async fn warming_without_a_confirmed_lease_does_not_take_the_epoch() {
 #[tokio::test]
 async fn a_resume_without_a_confirmed_lease_does_not_take_the_epoch() {
     let topic = format!("fence_resume_auth_{}", uuid::Uuid::new_v4().simple());
-    let owner = Arc::new(fenced_producers(&topic));
+    let owner = Arc::new(fenced_producers(&topic, 1));
     owner.acquire(0).await.expect("the owner takes its fence");
     owner
         .produce(0, &test_person(1))
@@ -1366,7 +1360,7 @@ async fn a_resume_without_a_confirmed_lease_does_not_take_the_epoch() {
 
     let lapsed = common::live_authority();
     lapsed.surrender();
-    let zombie = Arc::new(fenced_producers(&topic));
+    let zombie = Arc::new(fenced_producers(&topic, 1));
     let handler = common::test_handoff_handler_with_authority(&topic, Arc::clone(&zombie), lapsed);
     handler
         .resume_partition(0)
@@ -1390,11 +1384,11 @@ async fn a_warm_that_loses_its_claim_mid_acquire_gives_the_fence_back() {
     // Seeded through a separate owner so the warm below is a real one: a
     // warm that fails for want of a topic would leave the fence behind
     // through its guard and prove nothing about this branch.
-    let seed = fenced_producers(&topic);
+    let seed = fenced_producers(&topic, 1);
     seed.acquire(0).await.expect("seed the topic");
     seed.produce(0, &test_person(1)).await.expect("seed record");
 
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
     let clock = common::live_authority();
     let handler = common::test_handoff_handler_with_authority(
         &topic,
@@ -1438,7 +1432,7 @@ async fn a_warm_that_loses_its_claim_mid_acquire_gives_the_fence_back() {
 #[tokio::test]
 async fn a_resume_that_loses_its_claim_mid_acquire_gives_the_fence_back() {
     let topic = format!("fence_resume_midauth_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
     let clock = common::live_authority();
     let handler = common::test_handoff_handler_with_authority(
         &topic,
@@ -1483,7 +1477,7 @@ async fn a_resume_that_loses_its_claim_mid_acquire_gives_the_fence_back() {
 #[tokio::test]
 async fn the_drain_refuses_new_writes_while_it_is_still_waiting() {
     let topic = format!("fence_drain_order_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
     let inflight = Arc::new(InflightTracker::new());
     producers.acquire(0).await.expect("acquire the fence");
 
@@ -1519,7 +1513,7 @@ async fn the_drain_refuses_new_writes_while_it_is_still_waiting() {
 #[tokio::test]
 async fn releasing_a_partition_retires_its_fresh_fence_mark() {
     let topic = format!("fence_release_mark_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
     let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
 
     producers.acquire(0).await.expect("seed the topic");
@@ -1549,7 +1543,7 @@ async fn releasing_a_partition_retires_its_fresh_fence_mark() {
 #[tokio::test]
 async fn verifying_a_served_partition_retakes_a_condemned_fence() {
     let topic = format!("fence_verify_heal_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
     let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
     producers.acquire(0).await.expect("acquire the fence");
 
@@ -1596,6 +1590,7 @@ async fn a_heal_that_cannot_acquire_does_not_fail_the_run() {
         window: Duration::from_millis(5),
         window_max_writes: 32,
         lanes: 1,
+        fenced_lanes: 1,
         settle_budget: Duration::from_secs(1),
     }));
     let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
@@ -1618,9 +1613,11 @@ async fn a_heal_that_cannot_acquire_does_not_fail_the_run() {
 #[tokio::test]
 async fn a_healed_fence_is_not_reacquired_by_the_same_convergences_resume() {
     let topic = format!("fence_heal_mark_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers_with_window(
+    let producers = Arc::new(fenced_producers_with(
         &topic,
         Duration::from_millis(600),
+        32,
+        1,
     ));
     let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
 
@@ -1662,7 +1659,7 @@ async fn a_healed_fence_is_not_reacquired_by_the_same_convergences_resume() {
 #[tokio::test]
 async fn an_unwound_committer_condemns_rather_than_stranding_its_waiters() {
     let topic = format!("fence_orphan_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic, 1));
     producers.acquire(0).await.expect("acquire the fence");
     producers
         .produce(0, &test_person(1))
@@ -1718,6 +1715,7 @@ async fn the_derived_production_timescales_compose_against_a_real_broker() {
         window_max_writes: config.fencing_window_max_writes,
         settle_budget: config.fencing_settle_budget(),
         lanes: config.fencing_lanes,
+        fenced_lanes: config.fencing_fenced_lanes,
     }));
     producers
         .acquire(0)
