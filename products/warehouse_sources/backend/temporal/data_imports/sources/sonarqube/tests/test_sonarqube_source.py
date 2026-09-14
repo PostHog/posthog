@@ -49,11 +49,30 @@ class TestSonarqubeSource:
             "429 Client Error: Too Many Requests for url: https://sonar.example.com/api/issues/search",
             "500 Server Error: Internal Server Error for url: https://sonar.example.com/api/issues/search",
             "HTTPSConnectionPool(host='sonar.example.com', port=443): Read timed out.",
+            # A self-hosted domain that merely contains the SonarQube Cloud hostname as a substring
+            # must not be caught by the host-misconfiguration match below.
+            "400 Client Error: Bad Request for url: https://sonarcloud.io.example.com/api/issues/search",
+            "400 Client Error: Bad Request for url: https://sonarqube.us-backup.mycompany.com/api/issues/search",
         ],
     )
     def test_non_retryable_errors_do_not_match_transient(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "400 Client Error:  for url: https://sonarcloud.io/api/issues/search?s=CREATION_DATE&asc=true&p=1&ps=500",
+            "400 Client Error: Bad Request for url: https://sonarqube.us/api/issues/search?p=1&ps=500",
+        ],
+    )
+    def test_non_retryable_errors_match_sonarcloud_host_misconfiguration(self, observed_error):
+        # This source only supports self-hosted SonarQube Server; a request landing on a SonarQube
+        # Cloud host means the configured server URL points at the hosted product instead, which
+        # always fails identically (SonarQube Cloud's API requires an `organization` parameter this
+        # source never sends).
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
 
     def test_get_schemas_match_endpoints_with_correct_sync_modes(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}

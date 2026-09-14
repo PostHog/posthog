@@ -14,13 +14,15 @@ from products.engineering_analytics.backend.logic.sources import (
     list_github_sources,
     resolve_trunk_merge_queue_table,
 )
-from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
+from products.engineering_analytics.backend.logic.views import pull_requests, trunk_quarantined_tests, workflow_runs
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
+    TRUNK_QUARANTINED_TESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
+    _quarantined_row,
     _run_row,
     create_github_source,
     create_github_warehouse_table,
@@ -412,3 +414,40 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             f"FROM ({workflow_runs.build_query(table_name)}) AS r"
         )
         assert rows[0] == ("completed", None, None, "", "", 0, None)
+
+    def test_trunk_quarantined_tests_view_labels_runners_and_reconstructs_paths(self) -> None:
+        # Trunk overloads `parent` per uploader, and ownership is resolved from the source_path and
+        # crate this view reads out of it, so getting either wrong unattributes the whole board.
+        table_name = self._create_table(
+            "trunkio_quarantinedtests",
+            TRUNK_QUARANTINED_TESTS_COLUMNS,
+            [
+                _quarantined_row(
+                    file="posthog/api/test/test_person.py",
+                    name="test_merge",
+                    classname="posthog.api.test.test_person.TestPerson",
+                    parent="pytest",
+                ),
+                _quarantined_row(
+                    file="",
+                    name="k3s_integration",
+                    classname="personhog-coordination",
+                    parent="personhog-coordination::k3s_integration",
+                ),
+                _quarantined_row(file="src/cdp/cdp.test.ts", name="routes", classname="", parent="src/cdp/cdp.test.ts"),
+            ],
+        )
+        rows = self._select(
+            f"SELECT runner, nodeid, source_path, crate FROM ({trunk_quarantined_tests.build_query(table_name)}) AS q "
+            "ORDER BY runner"
+        )
+        assert rows == [
+            ("jest", "src/cdp/cdp.test.ts::routes", "src/cdp/cdp.test.ts", ""),
+            (
+                "pytest",
+                "posthog/api/test/test_person.py::TestPerson::test_merge",
+                "posthog/api/test/test_person.py",
+                "",
+            ),
+            ("rust", "personhog-coordination::k3s_integration", "", "personhog-coordination"),
+        ]

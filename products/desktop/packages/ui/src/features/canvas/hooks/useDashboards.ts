@@ -21,13 +21,8 @@ import {
 } from "./spaceQueryPolicy";
 
 const log = logger.scope("dashboards");
-
 // The naming helpers moved to @posthog/core (CanvasApplicationService uses them
 // for auto-naming); re-exported here for the UI surfaces that import them.
-export {
-  isPlaceholderCanvasName,
-  UNTITLED_CANVAS_NAME,
-} from "@posthog/core/canvas/canvasNaming";
 
 /** Saved canvases for a channel. */
 export function useDashboards(
@@ -74,26 +69,73 @@ export function useAllCanvases(): {
   return { dashboards: data ?? [], isLoading };
 }
 
+// How long a primed view payload counts as fresh. Comfortably above the
+// hover→click gap it exists to bridge; re-primes revalidate by ETag anyway.
+const CANVAS_VIEW_PRIME_STALE_MS = 15_000;
+
 /**
- * Warm the dashboards-list cache for a channel ahead of opening it (e.g. on
- * hover), so expanding the channel shows its canvases without a cold fetch.
- * Respects the same staleTime, so it no-ops when the data is already fresh.
+ * Warm a canvas's open-path caches from the combined `view` endpoint — one
+ * round trip carrying the record, the live build (signed artifact URL
+ * included), and the head source when nothing is built yet. Seeds the
+ * record/builds/source caches only where they are empty, so any in-flight or
+ * fresher query stays authoritative. Call on row hover (open-on-click becomes
+ * cache-hot) and on canvas mount (a cold open loses the sequential source hop).
  */
-export function usePrefetchDashboards(): (channelId: string) => void {
+export function usePrimeCanvasView(): (id: string) => void {
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   return useCallback(
-    (channelId: string) => {
-      void queryClient.prefetchQuery(
-        trpc.dashboards.list.queryOptions(
-          { channelId },
-          {
-            gcTime: SPACE_QUERY_GC_TIME_MS,
-            meta: AUTH_SCOPED_QUERY_META,
-            staleTime: SPACE_QUERY_STALE_TIME_MS,
-          },
-        ),
-      );
+    (id: string) => {
+      if (!id) return;
+      const seed = (queryKey: readonly unknown[], value: unknown): void => {
+        if (queryClient.getQueryState(queryKey)?.data === undefined) {
+          queryClient.setQueryData(queryKey, value);
+        }
+      };
+      void (async () => {
+        try {
+          const view = await queryClient.fetchQuery(
+            trpc.dashboards.view.queryOptions(
+              { id },
+              { staleTime: CANVAS_VIEW_PRIME_STALE_MS },
+            ),
+          );
+          seed(trpc.dashboards.get.queryKey({ id }), view.record);
+          // Only a settled, head-is-live lifecycle is seedable. With a build
+          // in flight the real fetch must run or the poller that watches it
+          // never starts; with a head that ISN'T the published build (its
+          // build failed, or nothing built yet) the seed would hide the
+          // failed-build banner the real fetch surfaces.
+          const headIsLive =
+            view.currentVersionId == null ||
+            view.publishedBuild?.sourceVersionId === view.currentVersionId;
+          if (!view.hasActiveBuild && headIsLive) {
+            seed(trpc.dashboards.builds.queryKey({ id }), {
+              publishedBuildId: view.record.publishedBuildId,
+              currentVersionId: view.currentVersionId,
+              builds: view.publishedBuild ? [view.publishedBuild] : [],
+            });
+          }
+          if (view.source) {
+            seed(trpc.dashboards.source.queryKey({ id }), {
+              project: view.source,
+              currentVersionId: view.currentVersionId,
+            });
+          }
+          // Grids: the layout (with its component lifecycles) is the whole
+          // open path; useGridLayout's seeding effect fans the lifecycles out
+          // to the per-component builds caches.
+          if (view.layout) {
+            seed(trpc.dashboards.layout.queryKey({ id }), {
+              layout: view.layout,
+              currentVersionId: view.currentVersionId,
+              componentLifecycles: view.componentLifecycles,
+            });
+          }
+        } catch {
+          // Priming is best-effort: the per-endpoint queries still load the canvas.
+        }
+      })();
     },
     [trpc, queryClient],
   );
@@ -179,9 +221,6 @@ export function useDashboardMutations() {
   const remove = useMutation(
     trpc.dashboards.delete.mutationOptions({ onSuccess: invalidate }),
   );
-  const saveContext = useMutation(
-    trpc.dashboards.saveContext.mutationOptions({ onSuccess: invalidate }),
-  );
   const revertToVersion = useMutation(
     trpc.dashboards.revertToVersion.mutationOptions({
       // A revert moves the head and queues a rebuild; refresh the reverted
@@ -224,9 +263,6 @@ export function useDashboardMutations() {
     createDashboard: (channelId: string, name: string, templateId?: string) =>
       create.mutateAsync({ channelId, name, templateId }),
     deleteDashboard: (id: string) => remove.mutateAsync({ id }),
-    // Persist the author-written context (markdown) passed to generation tasks.
-    saveContext: (id: string, context: string) =>
-      saveContext.mutateAsync({ id, context }),
     // Move the canvas's head back to an existing version (and rebuild it).
     revertToVersion: (
       id: string,
@@ -256,7 +292,6 @@ export function useDashboardMutations() {
       file.mutateAsync({ id, channelId }),
     isCreating: create.isPending,
     isDeleting: remove.isPending,
-    isSavingContext: saveContext.isPending,
     isReverting: revertToVersion.isPending,
     isPromoting: promoteDraft.isPending,
   };

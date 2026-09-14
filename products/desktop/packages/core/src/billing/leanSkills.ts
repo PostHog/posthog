@@ -9,9 +9,10 @@
  *
  * Deliberately absent: JetBrains/benjamin-plus-skill. Its ruleset measured
  * -17.9% cost, the best of any of these, but it only works injected into the
- * system prompt. Its authors measured the same text as a skill folder at
- * -0.5%, so no one-click install can deliver it. Adopting it means shipping
- * the rules in the prompt every harness appends, which is its own change.
+ * system prompt (its authors measured the same text as a skill folder at
+ * -0.5%), so no one-click install can deliver it. Cloud agent sessions inject
+ * it instead when POSTHOG_BENJAMIN is set - see
+ * packages/agent/src/adapters/benjamin-guidance.ts.
  */
 
 export interface LeanSkill {

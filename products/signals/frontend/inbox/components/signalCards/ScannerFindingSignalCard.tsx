@@ -1,9 +1,6 @@
-import { LemonTag } from '@posthog/lemon-ui'
-
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils/durations'
-import { identifierToHuman } from 'lib/utils/strings'
 
 import type { ReplayVisionScannerFindingSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -37,8 +34,6 @@ function findingSeekTime(recordingStartTime: string | null | undefined, offsetSe
 export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Element {
     const extra = signal.extra as Record<string, unknown> & ReplayVisionScannerFindingSignalExtraApi
 
-    const confidencePct = Math.round(extra.confidence * 100)
-
     const activeDuration =
         extra.recording_active_seconds != null ? humanFriendlyDuration(extra.recording_active_seconds) : undefined
     const totalDuration = extra.recording_duration != null ? humanFriendlyDuration(extra.recording_duration) : undefined
@@ -46,20 +41,7 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
     const findingWindow = `${colonDelimitedDuration(extra.start_time, 2)} to ${colonDelimitedDuration(extra.end_time, 2)}`
 
     return (
-        <SignalCardShell
-            signal={signal}
-            label={extra.scanner_name}
-            rightSlot={
-                <div className="flex items-center gap-1 shrink-0">
-                    <LemonTag type="caution" size="small">
-                        {identifierToHuman(extra.problem_type)}
-                    </LemonTag>
-                    <LemonTag type="muted" size="small">
-                        {confidencePct}% confidence
-                    </LemonTag>
-                </div>
-            }
-        >
+        <SignalCardShell signal={signal} label={extra.scanner_name}>
             {signal.content && (
                 <LemonMarkdown className="text-sm text-secondary mb-2" disableImages>
                     {signal.content}

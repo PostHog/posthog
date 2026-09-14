@@ -4,6 +4,7 @@ import {
   DEFAULT_CHANNEL_ITEM_GROUPING,
   DEFAULT_CHANNEL_ITEM_SORT,
 } from "@posthog/core/canvas/channelItems";
+import { useAuthStore } from "@posthog/ui/features/auth/store";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { Theme } from "@radix-ui/themes";
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -57,6 +58,18 @@ vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
 // the same reason.
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [] }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
+  useFileTaskToChannel: () => vi.fn(),
+}));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => vi.fn(),
+}));
+vi.mock("@posthog/ui/shell/analytics", () => ({
+  track: vi.fn(),
+}));
+vi.mock("@posthog/ui/features/auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => null,
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   useCurrentUser: () => ({ data: { id: 1, email: "u@posthog.com" } }),
@@ -140,11 +153,48 @@ describe("ChannelSidebar", () => {
   });
 
   it.each([
+    ["task", "Sessions", "/code/channel/channel-1/tasks/item-1"],
+    ["canvas", "Canvases", "/code/canvas/channel-1/item-1"],
+  ] as const)(
+    "copies the %s link from its context menu",
+    async (kind, tab, path) => {
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      const writeText = vi
+        .spyOn(navigator.clipboard, "writeText")
+        .mockResolvedValue();
+      const previousAuth = useAuthStore.getState().authState;
+      useAuthStore.setState({
+        authState: { ...previousAuth, cloudRegion: "us" },
+      });
+      mocks.items = [
+        item({
+          key: `${kind}:item-1`,
+          kind,
+          id: "item-1",
+          title: "Example item",
+        }),
+      ];
+      try {
+        renderSidebar();
+        await user.click(screen.getByRole("tab", { name: tab }));
+        fireEvent.contextMenu(screen.getByText("Example item"));
+        await user.click(
+          await screen.findByRole("menuitem", { name: "Copy link" }),
+        );
+        expect(writeText).toHaveBeenCalledWith(`https://us.posthog.com${path}`);
+      } finally {
+        useAuthStore.setState({ authState: previousAuth });
+        writeText.mockRestore();
+      }
+    },
+  );
+
+  it.each([
     {
       what: "nothing has arrived yet",
       state: { items: [], isLoading: true },
-      shown: [] as string[],
-      hidden: ["Sessions", "No matches", "No sessions yet"],
+      shown: ["Sessions"],
+      hidden: ["No matches", "No sessions yet"],
     },
     {
       what: "the space is settled and genuinely empty",
@@ -269,7 +319,10 @@ describe("ChannelSidebar", () => {
     mocks.items = [item()];
     const { rerender } = renderSidebar();
 
-    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Search sessions" }),
+      "no such session",
+    );
     mocks.items = [];
     rerender(sidebar());
 

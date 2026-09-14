@@ -539,6 +539,13 @@ def _has_leading_http_method(url: str) -> bool:
     return bool(rest) and head.upper() in _HTTP_METHODS
 
 
+def _has_wrapping_quote(url: str) -> bool:
+    """True when a URL keeps a quote character from a copied code sample or JSON snippet, e.g.
+    '"https://api.example.com'. urlparse then reads no host, same as the leading-method case."""
+    stripped = url.strip()
+    return bool(stripped) and (stripped[0] in "\"'" or stripped[-1] in "\"'")
+
+
 def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
     # `_url_hostname` mirrors the real connect host (backslash/whitespace-normalized) so the
     # validator can't be fooled into vetting a different host than the request reaches.
@@ -549,9 +556,14 @@ def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
                 False,
                 "Remove the HTTP method from the URL and enter just the address (for example, https://api.example.com).",
             )
-        return False, f"URL {url!r} is missing a hostname"
+        if _has_wrapping_quote(url):
+            return (
+                False,
+                "Remove the quote marks from the URL and enter just the address (for example, https://api.example.com).",
+            )
+        return False, "Enter a full URL that includes the host, for example https://api.example.com."
     if is_cloud() and urlparse(url).scheme != "https":
-        return False, f"URL {url!r} must use https:// on PostHog Cloud"
+        return False, "Enter a URL that starts with https://. PostHog Cloud does not connect over plain http."
     return _is_host_safe(hostname, team_id)
 
 
@@ -1032,17 +1044,8 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             except CustomOAuth2Integration.DoesNotExist:
                 return False, OAUTH2_CREDENTIALS_GONE_MESSAGE
             except OAuth2AuthRequestError as exc:
-                auth_config = manifest.get("client", {}).get("auth", {})
-                injected_secrets = tuple(
-                    str(auth_config[key])
-                    for key in ("client_secret", "refresh_token", "access_token")
-                    if auth_config.get(key)
-                )
                 if exc.is_permanent:
-                    return False, _redact_secrets(
-                        f"The OAuth2 token endpoint rejected the request: {strip_oauth2_permanent_marker(str(exc))}",
-                        injected_secrets,
-                    )
+                    return False, _oauth2_token_error_message(exc)
                 # Transient (429 / 5xx): don't block creation — the first real sync retries the mint.
                 return True, None
 
@@ -1065,10 +1068,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             return False, f"Invalid auth configuration: {exc}"
 
         # OAuth2 mints its access token lazily on the first request, so pre-mint it now —
-        # a bad client_secret / token_url then fails with a pointed "the OAuth2 token
-        # endpoint rejected the request: …" instead of a misleading "resource unreachable"
-        # on the first data probe. Minting before the probe session is built also lets the
-        # freshly-minted access token join that session's redaction set. A transient
+        # a bad client_secret / token_url then fails with a pointed credential message instead
+        # of a misleading "resource unreachable" on the first data probe. Minting before the
+        # probe session is built also lets the freshly-minted access token join that session's
+        # redaction set. A transient
         # (429 / 5xx) token error must not block creation — the first real sync retries —
         # so only a permanent error (invalid_client / invalid_grant / other 4xx) is surfaced.
         #
@@ -1085,11 +1088,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 probe_auth._obtain_token(timeout=(PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT))
             except OAuth2AuthRequestError as exc:
                 if exc.is_permanent:
-                    # Strip the internal sync-time classifier marker — it's not user-facing copy.
-                    return False, _redact_secrets(
-                        f"The OAuth2 token endpoint rejected the request: {strip_oauth2_permanent_marker(str(exc))}",
-                        auth_secret_values(probe_auth),
-                    )
+                    return False, _oauth2_token_error_message(exc)
                 # Transient (429 / 5xx): don't block creation — the first real sync retries the
                 # token exchange. Skip the data probe too: it has no minted token to authenticate
                 # with, so requests would re-invoke the auth (re-running the failing mint) and turn
@@ -1721,6 +1720,44 @@ OAUTH2_CREDENTIALS_GONE_MESSAGE = (
     "This source's stored OAuth2 credentials are no longer available. "
     "Re-enter the client secret and refresh token in the source settings to reconnect."
 )
+
+
+# A permanent token rejection carries the provider's own wording — an HTTP status, the OAuth2
+# error code, and a vendor description. None of that tells someone which field to change, so the
+# standard codes are mapped to the field they point at and everything else falls back to the whole
+# credential set. The raw text stays on the exception for the sync-time classifier.
+_OAUTH2_TOKEN_ERROR_MESSAGES: dict[str, str] = {
+    "invalid_client": (
+        "Your provider rejected the OAuth2 client ID or secret. "
+        "Check both values in your provider's app settings, then try again."
+    ),
+    "invalid_grant": (
+        "Your provider rejected the OAuth2 grant for this source. "
+        "Issue a new refresh token, or reconnect the source, then try again."
+    ),
+    "unauthorized_client": (
+        "Your provider does not let this OAuth2 app use the configured grant type. "
+        "Enable that grant type for the app, then try again."
+    ),
+    "invalid_scope": (
+        "Your provider rejected the OAuth2 scopes for this source. "
+        "Check the scopes match the ones your provider's app allows, then try again."
+    ),
+    "invalid_request": (
+        "Your provider rejected the OAuth2 token request. "
+        "Check the token URL, grant type, and any extra token parameters, then try again."
+    ),
+}
+
+_OAUTH2_TOKEN_ERROR_FALLBACK = (
+    "Your provider rejected the OAuth2 credentials for this source. "
+    "Check the client ID, secret, token URL, and grant type, then try again."
+)
+
+
+def _oauth2_token_error_message(exc: OAuth2AuthRequestError) -> str:
+    """User-facing copy for a permanent token-endpoint rejection."""
+    return _OAUTH2_TOKEN_ERROR_MESSAGES.get(exc.error_code or "", _OAUTH2_TOKEN_ERROR_FALLBACK)
 
 
 def _oauth2_row_config(auth: dict[str, Any]) -> dict[str, Any]:

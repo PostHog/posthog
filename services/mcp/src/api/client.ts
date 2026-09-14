@@ -44,9 +44,8 @@ const RATE_LIMIT_TOTAL_WAIT_BUDGET_MS = 30_000
 const SSE_DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
 
 // Per-read inactivity timeout: if no chunk (not even a keepalive comment) arrives
-// within this window, the server is assumed dead. Must comfortably exceed the
-// server-side keepalive interval — kept in sync with `SSE_KEEPALIVE_INTERVAL = 15s`
-// in `ee/api/session_summaries.py`. If you change one, check the other.
+// within this window, the server is assumed dead. It must comfortably exceed
+// expected server keepalive intervals.
 const SSE_READ_TIMEOUT_MS = 30_000
 
 // Page size for the `query-*-actors` tools. The ceiling bounds how much of a caller's context
@@ -688,6 +687,28 @@ export class ApiClient {
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
+            },
+
+            createEventDefinition: async ({
+                projectId,
+                eventName,
+                data,
+            }: {
+                projectId: string
+                eventName: string
+                data?: {
+                    description?: string
+                    tags?: string[]
+                    verified?: boolean
+                    hidden?: boolean
+                }
+            }): Promise<Result<ApiEventDefinition>> => {
+                const createUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/`
+
+                return this.fetchJson<ApiEventDefinition>(createUrl, {
+                    method: 'POST',
+                    body: JSON.stringify({ name: eventName, ...data }),
+                })
             },
 
             updateEventDefinition: async ({

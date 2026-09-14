@@ -57,6 +57,7 @@ from posthog.temporal.usage_report.metrics import (
     USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS,
 )
 
+from products.alerts.backend.facade.temporal import AlertsProductTelemetryInterceptor
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 from products.experiments.backend.temporal.recalculation_metrics import (
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
@@ -81,6 +82,8 @@ from products.tasks.backend.facade.temporal import (
     TASKS_LATENCY_HISTOGRAM_METRICS,
     TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS,
     TASKS_RUN_TOKENS_HISTOGRAM_METRICS,
+    TASKS_RUN_TURNS_HISTOGRAM_BUCKETS,
+    TASKS_RUN_TURNS_HISTOGRAM_METRICS,
 )
 
 logger = get_write_only_logger()
@@ -166,6 +169,7 @@ ALL_INTERCEPTOR_CLASSES = [
     LivenessInterceptor,
     PostHogClientInterceptor,
     SloInterceptor,
+    AlertsProductTelemetryInterceptor,
     BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
     SurfacingScoringMetricsInterceptor,
@@ -294,6 +298,7 @@ async def create_worker(
         )
         | dict(zip(TASKS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(TASKS_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(TASKS_RUN_TOKENS_HISTOGRAM_METRICS, itertools.repeat(TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS)))
+        | dict(zip(TASKS_RUN_TURNS_HISTOGRAM_METRICS, itertools.repeat(TASKS_RUN_TURNS_HISTOGRAM_BUCKETS)))
         | dict(
             zip(
                 EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,

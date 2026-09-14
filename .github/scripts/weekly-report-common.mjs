@@ -105,6 +105,7 @@ export function repoPathResolver(trackedPaths = trackedTestPaths()) {
 }
 
 // Ambiguous suffix matches only count when every candidate agrees on the owner.
+// `slack` is the owning team's notifications channel, only set when the owner is unambiguous.
 export function resolveOwners(items, toRepoPaths = repoPathResolver()) {
     const candidates = new Map()
     for (const item of items) {
@@ -117,7 +118,7 @@ export function resolveOwners(items, toRepoPaths = repoPathResolver()) {
     let resolved = {}
     if (allPaths.length > 0) {
         try {
-            const out = execFileSync('python3', ['-m', 'posthog_owners'], {
+            const out = execFileSync('python3', ['-m', 'posthog_owners', '--purpose', 'notifications'], {
                 encoding: 'utf8',
                 input: allPaths.join('\n'),
                 env: { ...process.env, PYTHONPATH: 'tools/owners' },
@@ -133,7 +134,8 @@ export function resolveOwners(items, toRepoPaths = repoPathResolver()) {
         const paths = candidates.get(selectorPath) || []
         const owners = new Set(paths.map((p) => (resolved[p]?.owners || [])[0] || 'unowned'))
         const owner = owners.size === 1 ? [...owners][0] : 'unowned'
-        return { owner, repoPath: paths.length === 1 ? paths[0] : null }
+        const slack = owner === 'unowned' ? null : (resolved[paths[0]]?.slack ?? null)
+        return { owner, repoPath: paths.length === 1 ? paths[0] : null, slack }
     }
 }
 
@@ -164,15 +166,16 @@ export function editWorkflowBlock() {
     return { type: 'context', elements: [{ type: 'mrkdwn', text: `<${editUrl}|edit this workflow>` }] }
 }
 
-export async function postToSlack(blocks, text) {
+export async function postToSlack(blocks, text, { threadTs, channel = SLACK_CHANNEL } = {}) {
     const res = await fetch('https://slack.com/api/chat.postMessage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
         body: JSON.stringify({
-            channel: SLACK_CHANNEL,
+            channel,
             blocks,
             text, // notification fallback
             unfurl_links: false,
+            thread_ts: threadTs || undefined,
         }),
     })
     const data = await res.json()
@@ -182,4 +185,5 @@ export async function postToSlack(blocks, text) {
             : ''
         throw new Error(`Slack chat.postMessage failed: ${data.error}${validationDetails}`)
     }
+    return data.ts
 }

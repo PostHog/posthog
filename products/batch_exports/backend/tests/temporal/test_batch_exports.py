@@ -9,12 +9,7 @@ from django.test import override_settings
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.temporal.batch_exports import (
-    DataInterval,
-    generate_query_ranges,
-    get_data_interval,
-    iter_records,
-)
+from products.batch_exports.backend.temporal.batch_exports import DataInterval, get_data_interval, iter_records
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -382,122 +377,6 @@ def test_get_data_interval_dst_transition(interval, data_interval_end, expected_
     assert actual_duration_hours == expected_duration_hours, (
         f"Expected {expected_duration_hours}h interval for DST transition day, got {actual_duration_hours}h"
     )
-
-
-@pytest.mark.parametrize(
-    "remaining_range,done_ranges,expected",
-    [
-        # Case 1: One done range at the beginning
-        (
-            (dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC)),
-            [(dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC))],
-            [
-                (
-                    dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC),
-                )
-            ],
-        ),
-        # Case 2: Single done range equal to full range.
-        (
-            (dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC)),
-            [(dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC))],
-            [],
-        ),
-        # Case 3: Disconnected done ranges cover full range.
-        (
-            (dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC)),
-            [
-                (dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC)),
-                (
-                    dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 7, 31, 12, 45, 0, tzinfo=dt.UTC),
-                ),
-                (
-                    dt.datetime(2023, 7, 31, 12, 45, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC),
-                ),
-            ],
-            [],
-        ),
-        # Case 4: Disconnect done ranges within full range.
-        (
-            (dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC)),
-            [
-                (
-                    dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 7, 31, 12, 45, 0, tzinfo=dt.UTC),
-                ),
-                (
-                    dt.datetime(2023, 7, 31, 12, 50, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 7, 31, 12, 55, 0, tzinfo=dt.UTC),
-                ),
-            ],
-            [
-                (
-                    dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC),
-                ),
-                (
-                    dt.datetime(2023, 7, 31, 12, 45, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 7, 31, 12, 50, 0, tzinfo=dt.UTC),
-                ),
-                (
-                    dt.datetime(2023, 7, 31, 12, 55, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC),
-                ),
-            ],
-        ),
-        # Case 5: Empty done ranges.
-        (
-            (dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC)),
-            [],
-            [
-                (
-                    dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC),
-                ),
-            ],
-        ),
-        # Case 6: Disconnect done ranges within full range and one last done range connected to the end.
-        (
-            (dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC), dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC)),
-            [
-                (
-                    dt.datetime(2023, 7, 31, 12, 15, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 7, 31, 12, 25, 0, tzinfo=dt.UTC),
-                ),
-                (
-                    dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 7, 31, 12, 45, 0, tzinfo=dt.UTC),
-                ),
-                (
-                    dt.datetime(2023, 7, 31, 12, 50, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 7, 31, 13, 0, 0, tzinfo=dt.UTC),
-                ),
-            ],
-            [
-                (
-                    dt.datetime(2023, 7, 31, 12, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 7, 31, 12, 15, 0, tzinfo=dt.UTC),
-                ),
-                (
-                    dt.datetime(2023, 7, 31, 12, 25, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 7, 31, 12, 30, 0, tzinfo=dt.UTC),
-                ),
-                (
-                    dt.datetime(2023, 7, 31, 12, 45, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 7, 31, 12, 50, 0, tzinfo=dt.UTC),
-                ),
-            ],
-        ),
-    ],
-    ids=["1", "2", "3", "4", "5", "6"],
-)
-def test_generate_query_ranges(remaining_range, done_ranges, expected):
-    """Test generate_query_ranges returns the expected query ranges."""
-    result = list(generate_query_ranges(remaining_range, done_ranges))
-    assert result == expected
 
 
 @pytest.mark.parametrize("delta", [dt.timedelta(0), dt.timedelta(hours=1)])

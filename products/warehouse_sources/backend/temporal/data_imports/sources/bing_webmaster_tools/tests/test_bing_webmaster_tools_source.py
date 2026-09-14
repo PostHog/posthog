@@ -48,7 +48,7 @@ class TestBingWebmasterToolsSource:
 
         assert config.name.value == "BingWebmasterTools"
         assert config.label == "Bing Webmaster Tools"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         # `unreleasedSource` hides the connector from users entirely; a finished source must not
         # carry it.
         assert not config.unreleasedSource

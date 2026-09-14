@@ -43,6 +43,15 @@ describe("buildCostChecklist", () => {
     ).toEqual([]);
   });
 
+  it("reflects the Simplified Technical English setting", () => {
+    expect(
+      buildCostChecklist({ ...base, ste100Enabled: false }),
+    ).toContainEqual({ kind: "ste100", done: false });
+    expect(buildCostChecklist({ ...base, ste100Enabled: true })).toContainEqual(
+      { kind: "ste100", done: true },
+    );
+  });
+
   it("keeps a completed item as a checked record and sinks it below active work", () => {
     const items = buildCostChecklist({
       ...base,
@@ -114,8 +123,8 @@ describe("modelNotchSuggestion", () => {
       { fromModelId: "claude-opus-5", toModelId: "claude-sonnet-5" },
     ],
     [
-      "claude-fable-5",
-      { fromModelId: "claude-fable-5", toModelId: "claude-opus-5" },
+      "claude-fable-5-1",
+      { fromModelId: "claude-fable-5-1", toModelId: "claude-opus-5" },
     ],
     // Already at the cheapest priced rung on its ladder.
     ["claude-sonnet-5", null],

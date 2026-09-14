@@ -4,14 +4,18 @@ import {
   AskAboutSelection,
   quoteSelection,
 } from "@posthog/ui/features/inbox/components/AskAboutSelection";
+import { ReportActivitySection } from "@posthog/ui/features/inbox/components/detail/ReportActivitySection";
 import { ReportFeedbackFooter } from "@posthog/ui/features/inbox/components/detail/ReportFeedbackFooter";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { ReportChatSidebar } from "@posthog/ui/features/inbox/components/ReportChatSidebar";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
+import { ReportReviewersSection } from "@posthog/ui/features/inbox/components/ReportReviewersSection";
+import { ReportRunsSection } from "@posthog/ui/features/inbox/components/ReportRunsSection";
 import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/ReportVerdictBanner";
+import { ReportTrackerIssueLink } from "@posthog/ui/features/inbox/components/utils/ReportTrackerIssueLink";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
-import { useCallback, useEffect, useRef } from "react";
+import { type ReactNode, useCallback, useEffect, useRef } from "react";
 
 interface ReportDetailProps {
   reportId: string;
@@ -21,6 +25,7 @@ interface ReportDetailProps {
   backLabel?: string;
   /** Off when hosted on the in-space route, which has no per-status URLs. */
   statusRedirect?: boolean;
+  headerTrailingAction?: ReactNode;
 }
 
 export function ReportDetail({
@@ -29,6 +34,7 @@ export function ReportDetail({
   backTo = "/inbox/reports",
   backLabel = "Back to reports",
   statusRedirect = true,
+  headerTrailingAction,
 }: ReportDetailProps) {
   return (
     <InboxReportDetailGate
@@ -38,12 +44,12 @@ export function ReportDetail({
       backLabel={backLabel}
       statusRedirect={statusRedirect}
       missingCopy="This report couldn't be found. It may have been deleted."
+      fallbackAction={headerTrailingAction}
     >
       {(report) => (
         <ReportDetailContent
           report={report}
-          backTo={backTo}
-          backLabel={backLabel}
+          headerTrailingAction={headerTrailingAction}
         />
       )}
     </InboxReportDetailGate>
@@ -53,22 +59,61 @@ export function ReportDetail({
 /**
  * A report reads story-first: the summary and charts, then the evidence.
  * The document stays pure content while its conversation owns follow-up
- * actions. Pipeline machinery (runs, activity logs, reviewer reasoning)
- * deliberately doesn't render.
+ * actions. Activity stays available but collapsed so someone can tell whether
+ * work already started without letting the implementation log dominate.
  *
  * The report owns its own scroll so the chat dock can sit full-height beside
  * it: reading and asking share one screen, and highlighting a passage quotes
  * it into the chat.
  */
-function ReportDetailContent({
+export function ReportDetailContent({
   report,
-  backTo,
-  backLabel,
+  headerTrailingAction,
 }: {
   report: SignalReport;
-  backTo: string;
-  backLabel: string;
+  headerTrailingAction?: ReactNode;
 }) {
+  return (
+    <ReportChatLayout report={report}>
+      <InboxDetailFrame
+        report={report}
+        fallbackTitle="Untitled report"
+        primaryAction={
+          <>
+            <ReportDetailActions report={report} placement="header" />
+            {headerTrailingAction}
+          </>
+        }
+        belowSummary={
+          <>
+            <ReportVerdictBanner
+              key={report.id}
+              report={report}
+              initialEngagementOnly
+            />
+            <ReportTrackerIssueLink report={report} />
+          </>
+        }
+        summarySection={{ Icon: FileTextIcon, title: "Summary" }}
+        footer={<ReportFeedbackFooter report={report} />}
+        evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
+        showDismiss={false}
+      >
+        <ReportReviewersSection report={report} />
+        <ReportRunsSection report={report} />
+        <ReportActivitySection reportId={report.id} />
+      </InboxDetailFrame>
+    </ReportChatLayout>
+  );
+}
+
+export function ReportChatLayout({
+  report,
+  children,
+}: {
+  report: SignalReport;
+  children: ReactNode;
+}): React.JSX.Element {
   const chatOpen = useReportChatPanelStore((s) => s.open);
   const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
   const setPendingQuote = useReportChatPanelStore((s) => s.setPendingQuote);
@@ -91,25 +136,7 @@ function ReportDetailContent({
   return (
     <div className="flex h-full min-h-0">
       <div ref={contentRef} className="min-w-0 flex-1 overflow-y-auto">
-        <InboxDetailFrame
-          report={report}
-          backTo={backTo}
-          backLabel={backLabel}
-          fallbackTitle="Untitled report"
-          primaryAction={
-            <ReportDetailActions report={report} placement="header" />
-          }
-          aboveSummary={
-            <ReportVerdictBanner
-              key={report.id}
-              report={report}
-              initialEngagementOnly
-            />
-          }
-          summarySection={{ Icon: FileTextIcon, title: "Summary" }}
-          footer={<ReportFeedbackFooter report={report} />}
-          evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
-        />
+        {children}
       </div>
       <AskAboutSelection containerRef={contentRef} onAsk={handleAsk} />
       {chatOpen && <ReportChatSidebar report={report} />}

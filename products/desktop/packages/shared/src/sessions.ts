@@ -6,7 +6,7 @@ import type {
   SessionConfigSelectOption,
   SessionConfigSelectOptions,
 } from "@agentclientprotocol/sdk";
-import type { Adapter } from "./adapter";
+import type { Adapter, ModelAccess } from "./adapter";
 import type { SkillButtonId } from "./analytics-events";
 import type { TaskRunArtifact, TaskRunStatus } from "./domain-types";
 import type { ExecutionMode } from "./exec-types";
@@ -71,12 +71,14 @@ export interface AgentSession {
   /** Absolute chain index of the first hydrated entry; >0 while older history is not loaded. */
   transcriptWindowStart?: number;
   isLoadingOlderTranscript?: boolean;
-  /** True while the terminal transcript is being fetched, so an empty thread shows as loading. */
+  /** True while the terminal transcript is being fetched. */
   isHydratingTranscript?: boolean;
   /** Leaf-run cursor used to reconcile live cloud log updates. */
   processedLineCount?: number;
   framework?: "claude";
   adapter?: Adapter;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   model?: string;
   executionMode?: ExecutionMode;
   reasoningLevel?: string;
@@ -128,6 +130,9 @@ export interface AgentSession {
   conversationSummary?: string;
   idleKilled?: boolean;
   agentVersion?: string;
+  /** Monotonic for one session: the run that emitted its first non-steer prompt. */
+  firstPromptForRunId?: string;
+  resumeAncestorRunIds?: string[];
   agentIdleForRunId?: string;
 }
 

@@ -27,6 +27,7 @@
 //! epoch's load short and runs the normal close-out (verify what was
 //! acked, record, clean up) inside the termination grace window.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -47,6 +48,7 @@ use uuid::Uuid;
 use crate::cli::TrafficArgs;
 use crate::client::HarnessClient;
 use crate::client::{IdentityClient, LifecycleClient};
+use crate::pool::TargetPool;
 use crate::report::ConsistencyViolation;
 use crate::scenarios::chaos::{self, ChaosConfig, TargetKind, TargetSpec};
 use crate::scenarios::{blast, consistency};
@@ -261,9 +263,10 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             let collector = Arc::new(StatsCollector::new());
             let state = PersonState::new();
 
+            let pool = Arc::new(TargetPool::new(person_ids.as_ref().clone()));
             let traffic = {
                 let client = client.clone();
-                let person_ids = person_ids.clone();
+                let person_ids = pool.clone();
                 let collector = collector.clone();
                 let state = state.clone();
                 let (duration, concurrency) = (args.epoch, args.concurrency);
@@ -291,7 +294,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             };
             let probers = {
                 let client = client.clone();
-                let person_ids = person_ids.clone();
+                let person_ids = pool.clone();
                 let collector = collector.clone();
                 let state = state.clone();
                 let duration = args.epoch;
@@ -357,7 +360,9 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
                         blast::verify_strong(client, &lane.collector, &lane.state, team_id).await?,
                     );
                     let journal = lane.state.snapshot().await;
-                    lane_violations.extend(verify_postgres(pool, table, team_id, &journal).await?);
+                    lane_violations.extend(
+                        verify_postgres(pool, table, team_id, &journal, &HashMap::new()).await?,
+                    );
                     anyhow::Ok((team_id, lane_violations, lane.collector.writes.snapshot()))
                 };
                 close

@@ -36,7 +36,7 @@ type RuntimeTypeFamily = Literal[
     "enum",
     "aggregate_state",
 ]
-type RuntimeTypeDialect = Literal["common", "clickhouse", "postgres", "duckdb", "mysql"]
+type RuntimeTypeDialect = Literal["common", "clickhouse", "postgres", "duckdb", "mysql", "trino"]
 
 
 class ComparisonCompatibility(StrEnum):

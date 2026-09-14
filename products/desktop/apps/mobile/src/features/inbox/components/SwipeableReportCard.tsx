@@ -1,5 +1,9 @@
 import { Text } from "@components/text";
-import { inboxStatusLabel } from "@posthog/core/inbox/reportPresentation";
+import {
+  humanizeReportTitle,
+  inboxStatusLabel,
+  parseConventionalCommitTitle,
+} from "@posthog/core/inbox/reportPresentation";
 import type {
   SignalReport,
   SignalReportPriority,
@@ -13,6 +17,7 @@ import { Animated, PanResponder, Pressable, View } from "react-native";
 import { MarkdownText } from "@/features/chat/components/MarkdownText";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
 import { useThemeColors } from "@/lib/theme";
+import { ConventionalCommitTag } from "./ConventionalCommitTag";
 
 const SWIPE_THRESHOLD = 120;
 const TAP_THRESHOLD = 10;
@@ -249,6 +254,8 @@ function CardContent({
   themeColors,
   repo,
 }: CardContentProps) {
+  const conventionalTitle = parseConventionalCommitTitle(report.title);
+  const displayTitle = humanizeReportTitle(report.title, "Untitled report");
   return (
     <View className="flex-1 p-4">
       {/* Title */}
@@ -256,13 +263,19 @@ function CardContent({
         className="font-bold text-[16px] text-gray-12 leading-snug"
         numberOfLines={2}
       >
-        {report.title ?? "Untitled report"}
+        {displayTitle}
       </Text>
 
       {/* Badges row */}
       <View className="mt-2 flex-row flex-wrap items-center gap-1.5">
         <StatusBadge status={report.status} />
         {report.priority && <PriorityBadge priority={report.priority} />}
+        {conventionalTitle ? (
+          <ConventionalCommitTag
+            type={conventionalTitle.type}
+            scope={conventionalTitle.scope}
+          />
+        ) : null}
       </View>
 
       {/* Summary — fills remaining space so footer sticks to the bottom */}

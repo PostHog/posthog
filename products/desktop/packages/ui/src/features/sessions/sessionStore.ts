@@ -1,7 +1,3 @@
-import type {
-  ContentBlock,
-  SessionConfigOption,
-} from "@agentclientprotocol/sdk";
 import {
   type SessionState,
   sessionStore,
@@ -11,42 +7,22 @@ import {
   type Adapter,
   type AgentSession,
   cycleModeOption,
-  type ExecutionMode,
   flattenSelectOptions,
   getConfigOptionByCategory,
   getCurrentModeFromConfigOptions,
-  isSelectGroup,
-  mergeConfigOptions,
   type OptimisticItem,
-  type PermissionRequest,
   type QueuedMessage,
-  type SessionStatus,
-  type TaskRunStatus,
 } from "@posthog/shared";
 import { useStore } from "zustand";
 
 // --- Type re-exports ---
 
-export type {
-  Adapter,
-  AgentSession,
-  ExecutionMode,
-  OptimisticItem,
-  PermissionRequest,
-  QueuedMessage,
-  SessionConfigOption,
-  SessionStatus,
-  TaskRunStatus,
-};
-export type { ContentBlock };
-export type { SessionState };
+export type { Adapter, AgentSession, OptimisticItem, QueuedMessage };
 export {
   cycleModeOption,
   flattenSelectOptions,
   getConfigOptionByCategory,
   getCurrentModeFromConfigOptions,
-  isSelectGroup,
-  mergeConfigOptions,
 };
 
 // --- Setter re-export ---
@@ -76,8 +52,6 @@ export const useSessionStore: typeof useSessionStoreHook & {
 
 export {
   getAvailableCommandsForTask,
-  getPendingPermissionsForTask,
-  getUserPromptsForTask,
   useAdapterForTask,
   useConfigOptionForTask,
   useModeConfigOptionForTask,
@@ -88,6 +62,5 @@ export {
   useSessionForTask,
   useSessionIsCloud,
   useSessionSelector,
-  useSessions,
   useThoughtLevelConfigOptionForTask,
 } from "./useSession";

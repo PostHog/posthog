@@ -594,7 +594,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     def refresh_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         table: DataWarehouseTable = self.get_object()
 
-        table.columns = table.get_columns()
+        # get_columns surfaces read failures as a plain Exception carrying a user-facing message.
+        # Without this it reaches the handler as a 500, the same way TableSerializer.create avoids.
+        try:
+            table.columns = table.get_columns()
+        except Exception as err:
+            raise serializers.ValidationError(str(err))
         table.save()
 
         return response.Response(status=status.HTTP_200_OK)

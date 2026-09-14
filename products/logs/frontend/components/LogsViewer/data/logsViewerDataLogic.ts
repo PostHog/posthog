@@ -23,6 +23,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
+import {
+    NEW_QUERY_STARTED_ERROR_MESSAGE,
+    UNMOUNTING_ERROR_MESSAGE,
+    isUserInitiatedError,
+} from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { LogMessage, LogsQuery, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -47,8 +52,6 @@ import type { LogsColumnConfig } from '../config/columns'
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LOGS_PAGE_SIZE: number = 250
 export const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
-const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
-const UNMOUNTING_ERROR_MESSAGE = 'unmounting component' as const
 
 // Parse cache keyed on log object identity — leak-free by construction (entries die with their
 // logs) and shared across logic instances. Parsing is pure per object, so cached entries are
@@ -78,15 +81,6 @@ function classifyQueryError(error: unknown): { error_type: string; status_code: 
         return { error_type: 'server_error', status_code: statusCode }
     }
     return { error_type: 'unknown', status_code: statusCode }
-}
-
-// kea-loaders reduces a rejection to its message, so an aborted request arrives here as the reason
-// text we passed to `abort()`. Neither of our reasons contains "abort", so both need matching by
-// name: an unmatched one is treated as a genuine failure, which toasts the user and fires a
-// `logs query failed` capture for a request that was cancelled on purpose.
-function isUserInitiatedError(error: unknown): boolean {
-    const errorStr = String(error).toLowerCase()
-    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || error === UNMOUNTING_ERROR_MESSAGE || errorStr.includes('abort')
 }
 
 const stringifyLogAttributes = (attributes: Record<string, any>): Record<string, string> => {
@@ -146,6 +140,7 @@ export interface logsViewerDataLogicValues {
     filters: LogsViewerFilters // logsViewerFiltersLogic
     personId: string | undefined // logsViewerFiltersLogic
     queryFilterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
+    sessionId: string | undefined // logsViewerFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
         date_to: string | null | undefined
@@ -202,6 +197,9 @@ export interface logsViewerDataLogicActions {
         orderBy: LogsOrderBy
         source: 'header' | 'toolbar'
     } // logsViewerConfigLogic
+    bumpFacetRefresh: () => {
+        value: true
+    } // logsViewerFiltersLogic
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
     } // logsViewerFiltersLogic
@@ -314,6 +312,9 @@ export interface logsViewerDataLogicActions {
         filterType: string
     }
     pollForNewLogs: () => {
+        value: true
+    }
+    refreshQuery: () => {
         value: true
     }
     runQuery: (debounce?: integer) => {
@@ -475,13 +476,13 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             teamLogic,
             ['addProductIntent'],
             logsViewerFiltersLogic({ id }),
-            ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm'],
+            ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm', 'bumpFacetRefresh'],
             logsViewerConfigLogic({ id }),
             ['setOrderBy', 'setColumns', 'addColumn', 'removeColumn'],
         ],
         values: [
             logsViewerFiltersLogic({ id }),
-            ['filters', 'utcDateRange', 'filterGroup', 'queryFilterGroup', 'personId'],
+            ['filters', 'utcDateRange', 'filterGroup', 'queryFilterGroup', 'personId', 'sessionId'],
             logsViewerConfigLogic({ id }),
             ['orderBy', 'customColumns'],
         ],
@@ -493,6 +494,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             extraProps,
         }),
         runQuery: (debounce?: integer) => ({ debounce }),
+        refreshQuery: true,
         fetchNextLogsPage: (limit?: number) => ({ limit }),
         truncateLogs: (limit: number) => ({ limit }),
         clearLogs: true,
@@ -673,6 +675,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             ...unsetColumnQueryFields(),
                             personId: values.personId,
+                            sessionId: values.sessionId,
                             customColumns: sentCustomColumns,
                         },
                         signal,
@@ -724,6 +727,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             ...unsetColumnQueryFields(),
                             personId: values.personId,
+                            sessionId: values.sessionId,
                             customColumns: values.customColumns,
                             after: values.nextCursor,
                         },
@@ -760,6 +764,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             // severity breakdown, so state it rather than lean on the server default.
                             sparklineBreakdownBy: 'severity',
                             personId: values.personId,
+                            sessionId: values.sessionId,
                         },
                         signal,
                     })
@@ -1093,6 +1098,10 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             actions.fetchSparkline()
             actions.cancelInProgressLiveTail(null)
         },
+        refreshQuery: () => {
+            actions.runQuery()
+            actions.bumpFacetRefresh()
+        },
         cancelInProgressLogs: ({ logsAbortController }) => {
             if (values.logsAbortController !== null) {
                 values.logsAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
@@ -1140,6 +1149,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                         ...unsetColumnQueryFields(),
                         personId: values.personId,
+                        sessionId: values.sessionId,
                         customColumns: values.customColumns,
                         liveLogsCheckpoint: values.liveLogsCheckpoint ?? undefined,
                     },

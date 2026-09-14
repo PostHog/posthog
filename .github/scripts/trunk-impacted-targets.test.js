@@ -444,7 +444,7 @@ test('single-language root configuration claims that language', () => {
         assert.deepEqual(computeTargets([file], CONTEXT), javascript, file)
     }
     const python = computeTargets(['mypy.ini'], CONTEXT)
-    for (const file of ['manage.py', 'pytest_boot_gc.py', 'dagster_cloud.yaml', 'unit.json.tpl']) {
+    for (const file of ['manage.py', 'pytest_boot_gc.py', 'dagster_cloud.yaml']) {
         assert.deepEqual(computeTargets([file], CONTEXT), python, file)
     }
 })
@@ -1039,6 +1039,7 @@ test('editor and agent configuration shares one lane', () => {
         '.trunk/trunk.yaml',
         '.trunk/.gitignore',
         // The same class of file, one per root path rather than one per tree.
+        '.coderabbit.yaml',
         '.cursorignore',
         '.editorconfig',
         '.gitattributes',

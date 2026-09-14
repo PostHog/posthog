@@ -16,13 +16,12 @@ import {
     EventBuilder,
     createKafkaMessages,
     createTestWithTeamIngester,
+    ensureIngestionE2EInfraReady,
     fetchEvents,
     fetchFlagEvaluations,
-    waitForClickHouseKafkaConsumer,
     waitForKafkaMessages,
 } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
 jest.mock('~/common/utils/logger')
 
@@ -44,8 +43,7 @@ describe('Flag evaluations shadow-routing E2E', () => {
 
     beforeAll(async () => {
         clickhouse = Clickhouse.create()
-        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
-        await waitForClickHouseKafkaConsumer(clickhouse)
+        await ensureIngestionE2EInfraReady()
     })
 
     afterAll(() => {

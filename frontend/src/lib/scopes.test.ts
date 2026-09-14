@@ -24,6 +24,13 @@ describe('getScopeDescription', () => {
         expect(getScopeDescription('user:read')).toBe('Read access to users')
     })
 
+    it('uses customer task labels in the scope picker', () => {
+        expect(API_SCOPES.find(({ key }) => key === 'customer_task')).toMatchObject({
+            objectName: 'Customer task',
+            objectPlural: 'customer tasks',
+        })
+    })
+
     it('derives a readable label for OAuth-hidden scopes absent from API_SCOPES', () => {
         expect(getScopeDescription('wizard_session:write')).toBe('Write access to wizard session')
     })

@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -58,6 +58,63 @@ describe('DisplayTab', () => {
         expect(screen.getAllByText('Show tick labels')).toHaveLength(2)
         expect(screen.queryByText('Show X-axis labels')).not.toBeInTheDocument()
         expect(screen.queryByText('Show labels')).not.toBeInTheDocument()
+    })
+
+    it('keeps annotations off by default and persists the toggle', async () => {
+        initKeaTests()
+
+        const key = 'display-tab-annotations-test'
+        let query: DataVisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select day, accounts from numbers(2)',
+            },
+            display: ChartDisplayType.ActionsLineGraph,
+            chartSettings: { xAxis: { column: 'day' } },
+        }
+
+        const props: DataVisualizationLogicProps = {
+            key,
+            query,
+            dataNodeCollectionId: key,
+            cachedResults: {
+                columns: ['day', 'accounts'],
+                types: [
+                    ['day', 'Date'],
+                    ['accounts', 'UInt64'],
+                ],
+                results: [
+                    ['2026-01-01', 1],
+                    ['2026-01-02', 2],
+                ],
+                hogql: '',
+                hasMore: false,
+            } as HogQLQueryResponse,
+            setQuery: (setter) => {
+                query = setter(query)
+            },
+        }
+
+        dataVisualizationLogic(props).mount()
+        displayLogic({ key }).mount()
+
+        render(
+            <BindLogic logic={dataVisualizationLogic} props={props}>
+                <BindLogic logic={displayLogic} props={{ key }}>
+                    <DisplayTab />
+                </BindLogic>
+            </BindLogic>
+        )
+
+        const annotationsToggle = await screen.findByLabelText('Show annotations')
+        expect(annotationsToggle).not.toBeChecked()
+
+        await userEvent.click(annotationsToggle)
+
+        await waitFor(() => {
+            expect(query.chartSettings?.showAnnotations).toBe(true)
+        })
     })
 
     it('persists chart axis labels without dropping existing axis settings', async () => {
@@ -170,12 +227,59 @@ describe('DisplayTab', () => {
         expect(screen.queryByText('Right Y-axis')).not.toBeInTheDocument()
         expect(screen.queryByText('Goals')).not.toBeInTheDocument()
         expect(screen.queryByText('Show total row')).not.toBeInTheDocument()
+        expect(screen.queryByText('Show annotations')).not.toBeInTheDocument()
 
         await user.click(screen.getByText('Exclude outliers'))
         await user.click(screen.getByText('Y-axis'))
         expect(screen.queryByText('Begin at zero')).not.toBeInTheDocument()
 
         await waitFor(() => expect(query.chartSettings?.boxPlot?.excludeOutliers).toBe(false))
+    })
+
+    it('offers only the metric settings for a metric and persists them', async () => {
+        initKeaTests()
+
+        const key = 'display-tab-metric-test'
+        let query: DataVisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select day, revenue from summaries',
+            },
+            display: ChartDisplayType.Metric,
+            chartSettings: { metric: { summary: 'average' } },
+        }
+
+        const props: DataVisualizationLogicProps = {
+            key,
+            query,
+            dataNodeCollectionId: key,
+            setQuery: (setter) => {
+                query = setter(query)
+            },
+        }
+
+        dataVisualizationLogic(props).mount()
+        displayLogic({ key }).mount()
+
+        render(
+            <BindLogic logic={dataVisualizationLogic} props={props}>
+                <BindLogic logic={displayLogic} props={{ key }}>
+                    <DisplayTab />
+                </BindLogic>
+            </BindLogic>
+        )
+
+        const user = userEvent.setup()
+
+        expect(await screen.findByText('Headline value')).toBeInTheDocument()
+        expect(screen.queryByText('Show legend')).not.toBeInTheDocument()
+        expect(screen.queryByText('Left Y-axis')).not.toBeInTheDocument()
+        expect(screen.queryByText('Goals')).not.toBeInTheDocument()
+
+        await user.click(screen.getByText('Show change'))
+
+        await waitFor(() => expect(query.chartSettings?.metric).toEqual({ summary: 'average', showChange: false }))
     })
 
     it('offers scatter axis settings and drops the panels a scatter has no support for', async () => {

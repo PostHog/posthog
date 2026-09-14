@@ -13,7 +13,9 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 
-from .. import logic, weekly_digest
+from products.access_control.backend.models.role import RoleMembership
+
+from .. import logic, weekly_digest, weekly_digest_delivery
 from ..logic import external_references, rules
 from ..models import (
     ErrorTrackingIssue,
@@ -106,7 +108,11 @@ def _to_issue(issue) -> contracts.ErrorTrackingIssue:
 def _to_issue_assignment_notification(assignment) -> contracts.ErrorTrackingIssueAssignmentNotification:
     role_member_user_ids: list[int] = []
     if assignment.role_id:
-        role_member_user_ids = list(assignment.role.members.values_list("id", flat=True))
+        role_member_user_ids = list(
+            RoleMembership.objects.filter(role=assignment.role)
+            .valid_for_authorization()
+            .values_list("user_id", flat=True)
+        )
 
     issue = assignment.issue
     return contracts.ErrorTrackingIssueAssignmentNotification(
@@ -768,8 +774,8 @@ def build_team_digest_data(team: Any) -> dict[str, Any] | None:
 
 
 def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
-    return weekly_digest.build_team_section_payload(data)
+    return weekly_digest_delivery.build_team_section_payload(data)
 
 
 def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
-    weekly_digest.send_digest_to_workflow(digest, distinct_id)
+    weekly_digest_delivery.send_digest_to_workflow(digest, distinct_id)

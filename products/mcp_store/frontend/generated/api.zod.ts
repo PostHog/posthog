@@ -513,17 +513,18 @@ export const McpServerInstallationsInstallCustomCreateBody = /* @__PURE__ */ zod
         .describe('\* `personal` - personal\n\* `shared` - shared')
         .default(mcpServerInstallationsInstallCustomCreateBodyScopeDefault)
         .describe(
-            "'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.\n\n\* `personal` - personal\n\* `shared` - shared"
+            "'personal' is per-user; 'shared' makes the credential available to project members. PostHog agents get access to the connection automatically; see agent_scope.\n\n\* `personal` - personal\n\* `shared` - shared"
         ),
     team_enabled: zod
         .boolean()
         .default(mcpServerInstallationsInstallCustomCreateBodyTeamEnabledDefault)
         .describe('Whether the server starts enabled for the whole team. Non-default values are admin-only.'),
-    agent_ids: zod
-        .array(zod.uuid())
+    agent_scope: zod
+        .enum(['personal', 'team'])
+        .describe('\* `personal` - Personal\n\* `team` - Team')
         .optional()
         .describe(
-            'Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access.'
+            "How far the automatic agent grants for this connection reach. 'personal' (the default) lets PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. Grants are created when the caller may manage agent access: project admins always, members when team settings allow it. Sending a value without that permission is rejected.\n\n\* `personal` - Personal\n\* `team` - Team"
         ),
     return_path: zod
         .string()
@@ -553,17 +554,18 @@ export const McpServerInstallationsInstallTemplateCreateBody = /* @__PURE__ */ z
         .describe('\* `personal` - personal\n\* `shared` - shared')
         .default(mcpServerInstallationsInstallTemplateCreateBodyScopeDefault)
         .describe(
-            "'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.\n\n\* `personal` - personal\n\* `shared` - shared"
+            "'personal' is per-user; 'shared' makes the credential available to project members. PostHog agents get access to the connection automatically; see agent_scope.\n\n\* `personal` - personal\n\* `shared` - shared"
         ),
     team_enabled: zod
         .boolean()
         .default(mcpServerInstallationsInstallTemplateCreateBodyTeamEnabledDefault)
         .describe('Whether the server starts enabled for the whole team. Non-default values are admin-only.'),
-    agent_ids: zod
-        .array(zod.uuid())
+    agent_scope: zod
+        .enum(['personal', 'team'])
+        .describe('\* `personal` - Personal\n\* `team` - Team')
         .optional()
         .describe(
-            'Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access.'
+            "How far the automatic agent grants for this connection reach. 'personal' (the default) lets PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. Grants are created when the caller may manage agent access: project admins always, members when team settings allow it. Sending a value without that permission is rejected.\n\n\* `personal` - Personal\n\* `team` - Team"
         ),
     return_path: zod
         .string()

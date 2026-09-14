@@ -39,8 +39,6 @@ DESTINATION_INPUTS = {
         bucket_name="bucket",
         region="us-east-1",
         prefix="prefix/",
-        aws_access_key_id="key",
-        aws_secret_access_key="secret",
         use_virtual_style_addressing="true",  # type: ignore
         max_file_size_mb="100",  # type: ignore
     ),
@@ -132,8 +130,6 @@ class TestTypeCoercionInBatchExportInputs:
             bucket_name="bucket",
             region="us-east-1",
             prefix="prefix/",
-            aws_access_key_id="key",
-            aws_secret_access_key="secret",
             max_file_size_mb=None,
         )
         assert inputs.max_file_size_mb is None

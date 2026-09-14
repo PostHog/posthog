@@ -1,13 +1,9 @@
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
 
 import {
     type AITriage,
-    type KnowledgeGapSuggestion,
     aiTriageResultLabel,
     aiTriageResultTagType,
     aiTriageTicketTypeDescription,
@@ -16,9 +12,6 @@ import {
 
 interface AIPanelProps {
     aiTriage?: AITriage
-    knowledgeGaps?: KnowledgeGapSuggestion[]
-    knowledgeGapsLoading?: boolean
-    onDismissGap?: (suggestionId: string) => void
 }
 
 function AITriageHeaderTag({ aiTriage }: { aiTriage?: AITriage }): JSX.Element | null {
@@ -38,9 +31,8 @@ function AITriageHeaderTag({ aiTriage }: { aiTriage?: AITriage }): JSX.Element |
     return null
 }
 
-export function AIPanel({ aiTriage, knowledgeGaps, knowledgeGapsLoading, onDismissGap }: AIPanelProps): JSX.Element {
+export function AIPanel({ aiTriage }: AIPanelProps): JSX.Element {
     const hasData = aiTriage && aiTriage.status
-    const pendingGaps = knowledgeGaps?.filter((g) => g.status === 'pending') ?? []
 
     return (
         <LemonCollapse
@@ -123,50 +115,6 @@ export function AIPanel({ aiTriage, knowledgeGaps, knowledgeGapsLoading, onDismi
                         <div className="text-muted-alt text-xs">AI has not processed this ticket yet.</div>
                     ),
                 },
-                ...(pendingGaps.length > 0 || knowledgeGapsLoading
-                    ? [
-                          {
-                              key: 'knowledge_gaps',
-                              header: (
-                                  <span className="flex items-center gap-1">
-                                      Knowledge gaps
-                                      {pendingGaps.length > 0 && (
-                                          <LemonTag type="highlight" size="small">
-                                              {pendingGaps.length}
-                                          </LemonTag>
-                                      )}
-                                  </span>
-                              ),
-                              content: knowledgeGapsLoading ? (
-                                  <Spinner className="text-sm" />
-                              ) : (
-                                  <div className="space-y-2 text-xs">
-                                      <p className="text-muted-alt">
-                                          Topics the AI couldn't cover from{' '}
-                                          <Link to={urls.businessKnowledge()}>Business knowledge</Link>.
-                                      </p>
-                                      {pendingGaps.map((gap) => (
-                                          <div key={gap.id} className="flex items-start justify-between gap-1 py-0.5">
-                                              <span className="flex-1 break-words">{gap.topic}</span>
-                                              {onDismissGap && (
-                                                  <LemonButton
-                                                      size="xsmall"
-                                                      icon={<IconX />}
-                                                      tooltip="Dismiss"
-                                                      noPadding
-                                                      onClick={() => onDismissGap(gap.id)}
-                                                  />
-                                              )}
-                                          </div>
-                                      ))}
-                                      <Link to={urls.businessKnowledge()} className="text-xs">
-                                          Manage in Business knowledge
-                                      </Link>
-                                  </div>
-                              ),
-                          },
-                      ]
-                    : []),
             ]}
         />
     )

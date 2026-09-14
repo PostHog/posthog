@@ -29,7 +29,7 @@ import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend
 import type { SignalSourceTypeApi } from '../generated/api.schemas'
 import type { AgentRosterSource } from './components/config/agentRosterMeta'
 import { captureSignalSourceConnected, captureSignalSourceDisabled } from './inboxAnalytics'
-import { SignalSourceConfig, ToggleSignalSourceParams } from './types'
+import { SOURCE_STEERING_KEY, SignalSourceConfig, ToggleSignalSourceParams } from './types'
 
 /** product_enablement recipe names for tools that back a signal source. */
 export type SourceToolEnablement = 'session_replay' | 'error_tracking' | 'conversations'
@@ -58,6 +58,18 @@ export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
     SignalSourceType.IssueReopened,
     SignalSourceType.IssueSpiking,
 ]
+
+/**
+ * The guidance written on the Error tracking card is stored on each of its signal-type rows, so a
+ * row created later starts from what its siblings already carry. Without this, turning a type on
+ * after writing guidance leaves that one trigger emitting unsteered while the card reads as set.
+ */
+function inheritedErrorTrackingConfig(configs: SignalSourceConfig[]): Record<string, any> {
+    const steering = configs
+        .map((config) => config.config[SOURCE_STEERING_KEY])
+        .find((value) => typeof value === 'string' && value.trim())
+    return steering ? { [SOURCE_STEERING_KEY]: steering } : {}
+}
 
 /** Warehouse-backed signal sources, keyed by roster source id. */
 export type WarehouseBackedSource = 'github' | 'linear' | 'zendesk' | 'pganalyze' | 'engineering_analytics'
@@ -212,6 +224,7 @@ export interface signalSourcesLogicValues {
     dataSourceSetupSource: WarehouseBackedSource | null
     enabledSourcesCount: number
     enablingTool: SourceToolEnablement | null
+    errorTrackingConfigs: SignalSourceConfig[]
     errorTrackingIsFullyEnabled: boolean
     errorTrackingTypeStates: {
         enabled: boolean
@@ -461,6 +474,7 @@ export interface signalSourcesLogicMeta {
         ciSignalsIsFullyEnabled: (ciSignalsConfig: CISignalsConfigApi | null) => boolean
         isCiSignalsToggling: (togglingSourceKeys: Set<string>) => boolean
         hasEmittingScanner: (visionScanners: ReplayScannerApi[] | null) => boolean | null
+        errorTrackingConfigs: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig[]
         errorTrackingTypeStates: (sourceConfigs: SignalSourceConfig[] | null) => {
             enabled: boolean
             sourceType: SignalSourceType
@@ -921,6 +935,18 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (visionScanners: ReplayScannerApi[] | null): boolean | null =>
                 visionScanners === null ? null : visionScanners.some((scanner) => scanner.emits_signals),
         ],
+        // The rows behind the one Error tracking card. Guidance written on the card is saved to all
+        // of them, since a reader steering "error tracking" means the source, not one trigger.
+        errorTrackingConfigs: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig[] =>
+                ERROR_TRACKING_SIGNAL_SOURCE_TYPES.map((sourceType) =>
+                    sourceConfigs?.find(
+                        (row) =>
+                            row.source_product === SignalSourceProduct.ErrorTracking && row.source_type === sourceType
+                    )
+                ).filter((row): row is SignalSourceConfig => !!row),
+        ],
         // Each error tracking signal type is its own config row, so each can be armed on its own.
         errorTrackingTypeStates: [
             (s) => [s.sourceConfigs],
@@ -1137,6 +1163,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // stand every type down rather than arm the remaining ones.
                 const desiredEnabled = !values.errorTrackingTypeStates.some(({ enabled }) => enabled)
                 const configs = values.sourceConfigs ?? []
+                const inheritedConfig = inheritedErrorTrackingConfig(values.errorTrackingConfigs)
                 // First connection when no persisted error-tracking config existed before this enable.
                 const wasConnected = configs.some(
                     (c) => c.source_product === SignalSourceProduct.ErrorTracking && !c.id.startsWith('new_')
@@ -1154,7 +1181,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                                 source_product: SignalSourceProduct.ErrorTracking,
                                 source_type: sourceType,
                                 enabled: true,
-                                config: {},
+                                config: inheritedConfig,
                             })
                         }
                     }
@@ -1184,6 +1211,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             },
             toggleErrorTrackingType: async ({ sourceType }, breakpoint) => {
                 const configs = values.sourceConfigs ?? []
+                const inheritedConfig = inheritedErrorTrackingConfig(values.errorTrackingConfigs)
                 const existing = configs.find(
                     (c) => c.source_product === SignalSourceProduct.ErrorTracking && c.source_type === sourceType
                 )
@@ -1196,7 +1224,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             source_product: SignalSourceProduct.ErrorTracking,
                             source_type: sourceType,
                             enabled: true,
-                            config: {},
+                            config: inheritedConfig,
                         })
                     }
                     breakpoint()

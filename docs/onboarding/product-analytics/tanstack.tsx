@@ -36,6 +36,13 @@ export const getTanStackInstallSteps = (ctx: OnboardingComponentsContext): StepD
                                     pnpm add posthog-js
                                 `,
                             },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add posthog-js
+                                `,
+                            },
                         ]}
                     />
                 </>

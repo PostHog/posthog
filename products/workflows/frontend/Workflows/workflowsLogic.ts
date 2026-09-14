@@ -11,10 +11,33 @@ import { urls } from 'scenes/urls'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
 import type { HogFlow } from './hogflows/types'
+import { prepareWorkflowDuplicate } from './workflowDuplication'
 
 export type WorkflowStatusFilter = 'all' | 'active' | 'draft' | 'archived'
 
 const WORKFLOW_STATUS_FILTERS: WorkflowStatusFilter[] = ['all', 'active', 'draft', 'archived']
+
+export type WorkflowTypeFilter = 'all' | 'messaging' | 'automation'
+
+const WORKFLOW_TYPE_FILTERS: WorkflowTypeFilter[] = ['all', 'messaging', 'automation']
+
+export type WorkflowTriggerTypeFilter = 'all' | (NonNullable<HogFlow['trigger']> extends { type: infer T } ? T : never)
+
+// Keep in sync with TRIGGER_TYPES in products/workflows/backend/models/hog_flow/hog_flow.py.
+export const WORKFLOW_TRIGGER_TYPE_OPTIONS: { value: WorkflowTriggerTypeFilter; label: string }[] = [
+    { value: 'all', label: 'All' },
+    { value: 'event', label: 'Event' },
+    { value: 'schedule', label: 'Schedule' },
+    { value: 'manual', label: 'Manual' },
+    { value: 'batch', label: 'Batch' },
+    { value: 'webhook', label: 'Webhook' },
+    { value: 'tracking_pixel', label: 'Tracking pixel' },
+    { value: 'data-warehouse-table', label: 'Data warehouse table' },
+    { value: 'data-warehouse-view', label: 'Data warehouse view' },
+    { value: 'internal-event', label: 'Internal event' },
+]
+
+const WORKFLOW_TRIGGER_TYPE_FILTERS = WORKFLOW_TRIGGER_TYPE_OPTIONS.map((option) => option.value)
 
 export const WORKFLOWS_PER_PAGE = 30
 
@@ -22,10 +45,19 @@ export interface WorkflowsFilters {
     search: string
     createdBy: string | null
     status: WorkflowStatusFilter
+    type: WorkflowTypeFilter
+    triggerType: WorkflowTriggerTypeFilter
     page: number
 }
 
-const DEFAULT_FILTERS: WorkflowsFilters = { search: '', createdBy: null, status: 'all', page: 1 }
+const DEFAULT_FILTERS: WorkflowsFilters = {
+    search: '',
+    createdBy: null,
+    status: 'all',
+    type: 'all',
+    triggerType: 'all',
+    page: 1,
+}
 
 type WorkflowsResult = CountedPaginatedResponse<HogFlow>
 
@@ -33,6 +65,8 @@ interface WorkflowsListParams {
     search?: string
     status?: HogFlow['status']
     created_by?: string
+    type?: Exclude<WorkflowTypeFilter, 'all'>
+    trigger?: string
     limit: number
     offset: number
 }
@@ -270,8 +304,12 @@ export const workflowsLogic = kea<workflowsLogicType>([
         workflows: [
             { results: [], count: 0 } as WorkflowsResult,
             {
-                loadWorkflows: async () => {
-                    return await api.hogFlows.getHogFlows(values.paramsFromFilters)
+                loadWorkflows: async (_, breakpoint) => {
+                    const response = await api.hogFlows.getHogFlows(values.paramsFromFilters)
+                    // Drop a response a newer filter change has already superseded, so a slow request
+                    // returning after a faster later one can't leave the table showing the wrong filters.
+                    breakpoint()
+                    return response
                 },
                 toggleWorkflowStatus: async ({ workflow }) => {
                     await api.hogFlows.updateHogFlow(workflow.id, {
@@ -283,11 +321,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     return values.workflows
                 },
                 duplicateWorkflow: async ({ workflow }) => {
-                    await api.hogFlows.createHogFlow({
-                        ...workflow,
-                        status: 'draft',
-                        name: `${workflow.name} (copy)`,
-                    })
+                    await api.hogFlows.createHogFlow(prepareWorkflowDuplicate(workflow))
                     // The copy is a draft; reload so it only shows when it matches the current filter
                     // and lands in the right spot under the server-side sort and pagination.
                     actions.loadWorkflows()
@@ -383,6 +417,9 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 search: filters.search || undefined,
                 status: filters.status !== 'all' ? filters.status : undefined,
                 created_by: filters.createdBy || undefined,
+                type: filters.type !== 'all' ? filters.type : undefined,
+                // The API filters triggers by JSON containment, so the type goes over as a JSON object.
+                trigger: filters.triggerType !== 'all' ? JSON.stringify({ type: filters.triggerType }) : undefined,
                 limit: WORKFLOWS_PER_PAGE,
                 offset: filters.page ? (filters.page - 1) * WORKFLOWS_PER_PAGE : 0,
             }),
@@ -474,6 +511,8 @@ export const workflowsLogic = kea<workflowsLogicType>([
             setOrDelete('search', values.filters.search)
             setOrDelete('created_by', values.filters.createdBy)
             setOrDelete('status', values.filters.status !== 'all' ? values.filters.status : null)
+            setOrDelete('type', values.filters.type !== 'all' ? values.filters.type : null)
+            setOrDelete('trigger_type', values.filters.triggerType !== 'all' ? values.filters.triggerType : null)
             setOrDelete('page', values.filters.page > 1 ? values.filters.page : null)
 
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
@@ -486,10 +525,14 @@ export const workflowsLogic = kea<workflowsLogicType>([
     urlToAction(({ actions, values }) => ({
         [urls.workflows()]: (_, searchParams) => {
             const status = searchParams['status']
+            const type = searchParams['type']
+            const triggerType = searchParams['trigger_type']
             const parsed: WorkflowsFilters = {
                 search: searchParams['search'] ? String(searchParams['search']) : '',
                 createdBy: searchParams['created_by'] ? String(searchParams['created_by']) : null,
                 status: WORKFLOW_STATUS_FILTERS.includes(status) ? status : 'all',
+                type: WORKFLOW_TYPE_FILTERS.includes(type) ? type : 'all',
+                triggerType: WORKFLOW_TRIGGER_TYPE_FILTERS.includes(triggerType) ? triggerType : 'all',
                 // Anything unparseable, zero, or negative falls back to page 1 rather than reaching
                 // the offset maths as NaN or a negative number.
                 page: Math.max(1, parseInt(String(searchParams['page'])) || 1),

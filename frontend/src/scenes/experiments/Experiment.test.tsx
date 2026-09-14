@@ -10,8 +10,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { ExperimentStatus, type Experiment as ExperimentType } from '~/types'
 
+import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
+
 import { experimentsLogic } from '../../../../products/experiments/frontend/scenes/experimentsLogic'
-import { NEW_EXPERIMENT } from './constants'
 import { Experiment } from './Experiment'
 import { FORM_MODES } from './experimentLogic'
 import { experimentSceneLogic } from './experimentSceneLogic'

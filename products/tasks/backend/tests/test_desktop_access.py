@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -29,6 +30,15 @@ class TestDesktopAccessPolicy(APIBaseTest):
     def tearDown(self) -> None:
         self.feature_flag_patcher.stop()
         super().tearDown()
+
+    @override_settings(DEBUG=True)
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_debug_mode_allows_access_without_external_resolution(self, mock_funding) -> None:
+        decision = get_desktop_access_decision(self.user, self.organization)
+
+        self.assertTrue(decision.allowed)
+        self.mock_feature_flag.assert_not_called()
+        mock_funding.assert_not_called()
 
     @parameterized.expand(
         [

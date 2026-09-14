@@ -1,4 +1,3 @@
-import type { PendingPromptInterruptReason } from "@posthog/core/tasks/pendingPrompts";
 import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMessageTypes";
 import { electronStorage } from "@posthog/ui/shell/rendererStorage";
 import { create } from "zustand";
@@ -14,22 +13,17 @@ export interface PendingTaskPrompt {
    */
   contentXml?: string;
   /**
-   * Set when task setup failed and left the prompt unsent. Presence flips the
-   * pending view from "starting" to the recoverable interrupted state. Cleared
-   * only by delivery (success) or the user discarding the prompt.
-   */
-  interruptReason?: PendingPromptInterruptReason;
-  /**
    * Space the prompt was submitted in, so recovery reopens it there instead of
    * whatever space is current. Absent means it was submitted unscoped.
    */
   channelId?: string;
+  submitted?: boolean;
   createdAt: number;
 }
 
-export type PendingTaskPromptInput = Omit<
+type PendingTaskPromptInput = Omit<
   PendingTaskPrompt,
-  "createdAt" | "interruptReason"
+  "createdAt" | "submitted"
 >;
 
 interface PendingTaskPromptStore {
@@ -39,7 +33,7 @@ interface PendingTaskPromptStore {
   set: (key: string, prompt: PendingTaskPromptInput) => void;
   get: (key: string) => PendingTaskPrompt | undefined;
   move: (fromKey: string, toKey: string) => void;
-  markInterrupted: (key: string, reason: PendingPromptInterruptReason) => void;
+  markSubmitted: (key: string) => void;
   clear: (key: string) => void;
 }
 
@@ -70,17 +64,12 @@ export const usePendingTaskPromptStore = create<PendingTaskPromptStore>()(
           return { byKey: { ...rest, [toKey]: entry } };
         });
       },
-      markInterrupted: (key, reason) =>
+      markSubmitted: (key) =>
         set((state) => {
           const entry = state.byKey[key];
-          if (!entry) {
-            return state;
-          }
+          if (!entry || entry.submitted) return state;
           return {
-            byKey: {
-              ...state.byKey,
-              [key]: { ...entry, interruptReason: reason },
-            },
+            byKey: { ...state.byKey, [key]: { ...entry, submitted: true } },
           };
         }),
       clear: (key) =>
@@ -107,7 +96,7 @@ export const usePendingTaskPromptStore = create<PendingTaskPromptStore>()(
   ),
 );
 
-export interface RecoverablePendingPrompt {
+interface RecoverablePendingPrompt {
   key: string;
   prompt: PendingTaskPrompt;
 }
@@ -118,11 +107,13 @@ export const pendingTaskPromptStoreApi = {
   get: (key: string) => usePendingTaskPromptStore.getState().get(key),
   move: (fromKey: string, toKey: string) =>
     usePendingTaskPromptStore.getState().move(fromKey, toKey),
-  markInterrupted: (key: string, reason: PendingPromptInterruptReason) =>
-    usePendingTaskPromptStore.getState().markInterrupted(key, reason),
+  markSubmitted: (key: string) =>
+    usePendingTaskPromptStore.getState().markSubmitted(key),
   clear: (key: string) => usePendingTaskPromptStore.getState().clear(key),
-  getAllNewestFirst: (): RecoverablePendingPrompt[] =>
-    listPendingPromptsNewestFirst(usePendingTaskPromptStore.getState().byKey),
+  getRecoverableNewestFirst: (): RecoverablePendingPrompt[] =>
+    listPendingPromptsNewestFirst(
+      usePendingTaskPromptStore.getState().byKey,
+    ).filter(({ prompt }) => !prompt.submitted),
   whenHydrated: (): Promise<void> => {
     if (usePendingTaskPromptStore.getState()._hasHydrated) {
       return Promise.resolve();

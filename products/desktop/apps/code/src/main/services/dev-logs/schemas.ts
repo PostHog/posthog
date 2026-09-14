@@ -15,8 +15,6 @@ export const logsSnapshotSchema = z.object({
   entries: z.array(logEntrySchema),
 });
 
-export type LogsSnapshot = z.infer<typeof logsSnapshotSchema>;
-
 export const DevLogsEvent = {
   Entry: "entry",
 } as const;

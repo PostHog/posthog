@@ -8,12 +8,12 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
-import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
 import { urls } from 'scenes/urls'
 
 import { type ExperimentConclusion, type ExperimentStatus } from '~/types'
 
 import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
 
 import {
     WIDGET_LIST_COUNT_EXPERIMENTS,

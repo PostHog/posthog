@@ -154,6 +154,10 @@ import {
   type HostTrpcClient,
 } from "@posthog/host-router/client";
 import {
+  DISK_CACHE_IMAGES,
+  type IDiskCacheImages,
+} from "@posthog/platform/disk-cache";
+import {
   HOST_CAPABILITIES,
   type HostCapabilities,
 } from "@posthog/platform/host-capabilities";
@@ -237,6 +241,10 @@ import {
   MCP_TOOL_BLOCK_COMPONENT,
   type McpToolBlockComponent,
 } from "@posthog/ui/features/sessions/components/session-update/identifiers";
+import {
+  CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
+  type ClaudeSubscriptionTokenSettings,
+} from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
 import {
   DEV_MODE_CLIENT,
   type DevModeClient,
@@ -370,11 +378,13 @@ export interface RendererBindings {
   [SPEECH_USER_NAME_PROVIDER]: UserNameProvider;
   [SPEECH_NOTIFY_SETTINGS]: ISpeechNotifySettings;
   [SPEECH_KEY_STORE]: ISpeechKeyStore;
+  [CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS]: ClaudeSubscriptionTokenSettings;
   [FILE_WATCHER_CLIENT]: FileWatcherClient;
   [FEATURE_FLAGS]: FeatureFlags;
   [AUTH_SIDE_EFFECTS]: IAuthSideEffects;
   [SETUP_STORE]: ISetupStore;
   [HOST_CAPABILITIES]: HostCapabilities;
+  [DISK_CACHE_IMAGES]: IDiskCacheImages;
 
   // --- desktop-contributions.ts ---
   [CONTRIBUTION]: Contribution;

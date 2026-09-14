@@ -1,10 +1,9 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { execGh } from "@posthog/git/gh";
 import { z } from "zod";
 import { resolveGithubToken } from "../../../utils/github-token";
 import { defineLocalTool, type LocalToolResult } from "../registry";
 
-const execFileAsync = promisify(execFile);
+const GH_TIMEOUT_MS = 30_000;
 
 const listReposSchema = {
   owner: z
@@ -64,15 +63,23 @@ export const listReposTool = defineLocalTool({
       // vars so gh cannot fall back to the previous actor's frozen process-env
       // token and enumerate their private repos. Only an undefined token (an
       // unmanaged local/desktop sandbox) inherits the process env unchanged.
+      // execGh merges these overrides onto process.env, so the rest of the env
+      // still passes through.
       const env =
         token === undefined
-          ? process.env
-          : { ...process.env, GH_TOKEN: token, GITHUB_TOKEN: token };
-      const { stdout } = await execFileAsync("gh", cmdArgs, {
+          ? undefined
+          : { GH_TOKEN: token, GITHUB_TOKEN: token };
+      // Bound the subprocess. Without a timeout a stalled gh network call keeps
+      // the tool call, and the agent turn awaiting it, pending with no recovery.
+      const res = await execGh(cmdArgs, {
         env,
+        timeoutMs: GH_TIMEOUT_MS,
         maxBuffer: 1024 * 1024 * 8,
       });
-      const parsed = ghRepoSchema.safeParse(JSON.parse(stdout));
+      if (res.exitCode !== 0) {
+        throw new Error(res.error || res.stderr.trim() || "gh failed");
+      }
+      const parsed = ghRepoSchema.safeParse(JSON.parse(res.stdout));
       if (!parsed.success) {
         return {
           content: [

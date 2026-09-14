@@ -35,6 +35,7 @@ import type {
 } from "./schemas";
 import { bundleLocalSkill } from "./skill-bundler";
 import {
+  DISABLED_SKILL_MD,
   getMarketplaceInstallPaths,
   getUserSkillsDir,
   isProbablyText,
@@ -84,6 +85,17 @@ export class SkillsService {
     const skills = results.flat();
     const mirrorState = await readCodexMirrorState(getCodexSkillsDir());
     return dedupeCodexSkills(skills, new Set(mirrorState.mirrored));
+  }
+
+  async setSkillEnabled(skillPath: string, enabled: boolean): Promise<void> {
+    const skillDir = await this.resolveWritableSkillDir(skillPath);
+    const activePath = path.join(skillDir, "SKILL.md");
+    const disabledPath = path.join(skillDir, DISABLED_SKILL_MD);
+    if (enabled && fs.existsSync(disabledPath)) {
+      await fs.promises.rename(disabledPath, activePath);
+    } else if (!enabled && fs.existsSync(activePath)) {
+      await fs.promises.rename(activePath, disabledPath);
+    }
   }
 
   async getSkillContents(skillPath: string): Promise<SkillContents> {
@@ -521,7 +533,10 @@ export class SkillsService {
     if (!roots.some((root) => path.resolve(root) === parent)) {
       throw new Error("Access denied: skill is not in a writable location");
     }
-    if (!fs.existsSync(path.join(resolved, "SKILL.md"))) {
+    if (
+      !fs.existsSync(path.join(resolved, "SKILL.md")) &&
+      !fs.existsSync(path.join(resolved, DISABLED_SKILL_MD))
+    ) {
       throw new Error("Access denied: not a known skill directory");
     }
     return resolved;

@@ -246,6 +246,7 @@ class OauthIntegration:
         "meta-ads",
         "instagram",
         "intercom",
+        "helpscout",
         "linear",
         "clickup",
         "jira",
@@ -565,6 +566,23 @@ class OauthIntegration:
                 id_path="id",
                 name_path="email",
             )
+        elif kind == "helpscout":
+            if not settings.HELPSCOUT_APP_CLIENT_ID or not settings.HELPSCOUT_APP_CLIENT_SECRET:
+                raise NotImplementedError("Help Scout app not configured")
+
+            return OauthConfig(
+                authorize_url="https://secure.helpscout.net/authentication/authorizeClientApplication",
+                token_url="https://api.helpscout.net/v2/oauth2/token",
+                token_info_url="https://api.helpscout.net/v2/users/me",
+                client_id=settings.HELPSCOUT_APP_CLIENT_ID,
+                client_secret=settings.HELPSCOUT_APP_CLIENT_SECRET,
+                # Help Scout grants the authorizing user's full Mailbox API access and takes no
+                # scope parameter on the authorize URL.
+                scope="",
+                id_path="id",
+                name_path="email",
+                token_info_config_fields=["id", "email"],
+            )
         elif kind == "linear":
             if not settings.LINEAR_APP_CLIENT_ID or not settings.LINEAR_APP_CLIENT_SECRET:
                 raise NotImplementedError("Linear app not configured")
@@ -727,8 +745,13 @@ class OauthIntegration:
             # to read the warehouse resources (emails/audiences/contacts/domains/broadcasts).
             # The token response carries no account identifier, so id/name are derived from the
             # access-token JWT below (see the resend branch in integration_from_oauth_response).
+            # Every OAuth endpoint lives on api.resend.com, including the authorize endpoint that
+            # the user's browser opens. This is what Resend publishes at
+            # https://api.resend.com/.well-known/oauth-authorization-server. The dashboard host
+            # resend.com has no /oauth/authorize route and answers with its own 404 page, so do
+            # not move the authorize URL there to match the address users see in the dashboard.
             return OauthConfig(
-                authorize_url="https://resend.com/oauth/authorize",
+                authorize_url="https://api.resend.com/oauth/authorize",
                 token_url="https://api.resend.com/oauth/token",
                 token_revoke_url="https://api.resend.com/oauth/revoke",
                 client_id=settings.RESEND_APP_CLIENT_ID,

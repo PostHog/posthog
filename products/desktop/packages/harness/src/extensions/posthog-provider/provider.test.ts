@@ -1,4 +1,5 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
+import type { CloudRegion } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getLlmGatewayUrl } from "./gateway";
 import {
@@ -255,7 +256,7 @@ describe("resolvePosthogProvider", () => {
 });
 
 describe("model classification", () => {
-  const byId = (region: "us" | "eu" | "dev") =>
+  const byId = (region: CloudRegion) =>
     new Map(fallbackModelConfigs(region).map((model) => [model.id, model]));
 
   it("routes Claude models through anthropic-messages on the product base", () => {

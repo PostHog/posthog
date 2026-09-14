@@ -523,6 +523,32 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.currentTimestamp).toBeGreaterThanOrEqual(start)
             expect(logic.values.isBuffering).toBe(false)
         })
+
+        it('re-seeks a deep link only when the linked time changes or the same URL is pushed again', async () => {
+            logic.unmount()
+            router.actions.push('/replay/2', { t: 5 })
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['initializePlayerFromStart']).toFinishAllListeners()
+
+            const start = logic.values.sessionPlayerData.start?.valueOf() ?? 0
+            logic.actions.setCurrentTimestamp(start + 8000)
+
+            await expectLogic(logic, () => {
+                router.actions.push('/replay/2', { t: 5, inspectorSideBar: true })
+            }).toFinishAllListeners()
+            expect(logic.values.currentTimestamp).toBe(start + 8000)
+
+            await expectLogic(logic, () => {
+                router.actions.push('/replay/2', { t: 5, inspectorSideBar: true })
+            }).toFinishAllListeners()
+            expect(logic.values.currentTimestamp).toBe(start + 5000)
+        })
     })
 
     describe('seek renderability clamping', () => {
@@ -555,13 +581,33 @@ describe('sessionRecordingPlayerLogic', () => {
 
         const inc = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.IncrementalSnapshot)
         const fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot)
+        const meta = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.Meta)
+        const idle = (timestamp: number): RecordingSnapshot =>
+            makeSnapshot(timestamp, EventType.Custom, 1, { tag: 'sessionIdle', payload: {} })
         // second-window events for the multi-window cases
         const w2inc = (timestamp: number): RecordingSnapshot =>
             makeSnapshot(timestamp, EventType.IncrementalSnapshot, 2)
         const w2fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot, 2)
+        const w2move = (timestamp: number): RecordingSnapshot =>
+            makeSnapshot(timestamp, EventType.IncrementalSnapshot, 2, { source: IncrementalSource.MouseMove })
+        // a continuously active second window, the shape that animates a cursor over a blank document
+        const w2moves = (fromTimestamp: number, toTimestamp: number): RecordingSnapshot[] => {
+            const moves: RecordingSnapshot[] = []
+            for (let timestamp = fromTimestamp; timestamp <= toTimestamp; timestamp += 5000) {
+                moves.push(w2move(timestamp))
+            }
+            return moves
+        }
         // an ACTIVE first-window event, so the segmenter splits a real window-1 segment before it
         const w1move = (timestamp: number): RecordingSnapshot =>
             makeSnapshot(timestamp, EventType.IncrementalSnapshot, 1, { source: IncrementalSource.MouseMove })
+        const w1moves = (fromTimestamp: number, toTimestamp: number): RecordingSnapshot[] => {
+            const moves: RecordingSnapshot[] = []
+            for (let timestamp = fromTimestamp; timestamp <= toTimestamp; timestamp += 5000) {
+                moves.push(w1move(timestamp))
+            }
+            return moves
+        }
 
         // one-minute-per-source blob fixtures matching the store test helpers
         const makeBlobSources = (
@@ -943,6 +989,34 @@ describe('sessionRecordingPlayerLogic', () => {
                 expectedLeadingUnplayableMs: 0,
                 expectedHasLate: false,
             },
+            {
+                description:
+                    'does not flag an idle gap where only a backdated sessionIdle event precedes the full snapshot',
+                firstSourceSnapshots: [idle(START)],
+                secondSourceSnapshots: [fs(LATE_FS_TS), inc(LATE_FS_TS + 1000)],
+                expectedLeadingUnplayableMs: 0,
+                expectedHasLate: false,
+            },
+            {
+                // rrweb emits Meta and FullSnapshot together, so Meta alone means the FullSnapshot was dropped
+                description: 'flags a lost leading snapshot when only its Meta event survives',
+                firstSourceSnapshots: [meta(START)],
+                secondSourceSnapshots: [fs(LATE_FS_TS), inc(LATE_FS_TS + 1000)],
+                expectedLeadingUnplayableMs: LATE_FS_TS - START,
+                expectedHasLate: true,
+            },
+            {
+                description: 'flags a lost leading snapshot when the missing content is in a later window',
+                firstSourceSnapshots: [idle(START)],
+                secondSourceSnapshots: [
+                    w2inc(START + 61000),
+                    w2inc(START + 62000),
+                    w2fs(LATE_FS_TS),
+                    w2inc(LATE_FS_TS + 1000),
+                ],
+                expectedLeadingUnplayableMs: LATE_FS_TS - START,
+                expectedHasLate: true,
+            },
         ])(
             '$description',
             ({ firstSourceSnapshots, secondSourceSnapshots, expectedLeadingUnplayableMs, expectedHasLate }) => {
@@ -952,6 +1026,144 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect(logic.values.hasLateFullSnapshot).toBe(expectedHasLate)
             }
         )
+
+        it.each([
+            {
+                // the reported symptom: window 2 opens and only sends mouse moves, so it animates a
+                // cursor over a document rrweb never built
+                description: 'reports the span of a later window that never sent a full snapshot',
+                secondSourceSnapshots: [w1move(START + 61000), ...w2moves(START + 62000, START + 122000)],
+                expectedUnrenderableWindowMs: 60000,
+                expectedHasUnrenderable: true,
+            },
+            {
+                description: 'stops the span at the full snapshot a later window eventually sends',
+                secondSourceSnapshots: [
+                    w1move(START + 61000),
+                    ...w2moves(START + 62000, START + 117000),
+                    w2fs(START + 122000),
+                    w2inc(START + 123000),
+                ],
+                expectedUnrenderableWindowMs: 60000,
+                expectedHasUnrenderable: true,
+            },
+            {
+                description: 'reports nothing when a later window opens with its own full snapshot',
+                secondSourceSnapshots: [
+                    w1move(START + 61000),
+                    w2fs(START + 62000),
+                    ...w2moves(START + 67000, START + 122000),
+                ],
+                expectedUnrenderableWindowMs: 0,
+                expectedHasUnrenderable: false,
+            },
+            {
+                // a viewer moving between tabs interleaves the windows, and window 1 still plays
+                description: 'leaves out the window that plays normally between two spans of a damaged one',
+                secondSourceSnapshots: [
+                    w1move(START + 61000),
+                    ...w2moves(START + 62000, START + 82000),
+                    w1move(START + 87000),
+                    w1move(START + 92000),
+                    ...w2moves(START + 97000, START + 117000),
+                ],
+                expectedUnrenderableWindowMs: 50000,
+                expectedHasUnrenderable: true,
+            },
+            {
+                description: 'does not flag a later window whose span is only a backdated idle event',
+                secondSourceSnapshots: [
+                    w1move(START + 61000),
+                    makeSnapshot(START + 62000, EventType.Custom, 2, { tag: 'sessionIdle', payload: {} }),
+                ],
+                expectedUnrenderableWindowMs: 0,
+                expectedHasUnrenderable: false,
+            },
+        ])('$description', ({ secondSourceSnapshots, expectedUnrenderableWindowMs, expectedHasUnrenderable }) => {
+            seedRecording([fs(START), inc(START + 1000)], secondSourceSnapshots)
+
+            expect(logic.values.unrenderableWindowMs).toBe(expectedUnrenderableWindowMs)
+            expect(logic.values.hasUnrenderableWindow).toBe(expectedHasUnrenderable)
+            // the leading span selector still owns the recording's first window
+            expect(logic.values.leadingUnplayableMs).toBe(0)
+        })
+
+        it('reports the first window when it goes blank again after the leading span', () => {
+            // window 1 never sends a full snapshot, so the leading span recovers on window 2's
+            // instead, and playback back in window 1 has nothing to clamp to
+            seedRecording(
+                [w1move(START), w2fs(START + 5000), ...w2moves(START + 10000, START + 55000)],
+                w1moves(START + 61000, START + 91000)
+            )
+
+            expect(logic.values.leadingUnplayableMs).toBe(5000)
+            expect(logic.values.hasLateFullSnapshot).toBe(false)
+            expect(logic.values.unrenderableWindowSpans).toEqual([
+                { startTimestamp: START + 61000, endTimestamp: START + 91000 },
+            ])
+            expect(logic.values.hasUnrenderableWindow).toBe(true)
+        })
+
+        it('leaves a recording with no full snapshot at all to the unplayable takeover', () => {
+            // the full-screen error replaces the player here, so a banner behind it would count
+            // recordings this warning never helped
+            seedRecording(
+                [w1move(START), w1move(START + 5000)],
+                [w1move(START + 61000), ...w2moves(START + 66000, START + 126000)]
+            )
+
+            expect(logic.values.unrenderableWindowSpans).toEqual([])
+            expect(logic.values.hasUnrenderableWindow).toBe(false)
+        })
+
+        it('holds the unrenderable-window warning back while earlier data is still loading', () => {
+            seedRecording(null, [w1move(START + 61000), ...w2moves(START + 62000, START + 122000)])
+
+            expect(logic.values.unrenderableWindowSpans).toEqual([])
+            expect(logic.values.hasUnrenderableWindow).toBe(false)
+        })
+
+        // Builds a stand-in replayer whose iframe document has (or lacks) a <head>. rrweb throws
+        // synchronously when it rebuilds a full snapshot on a document without a head, which is the
+        // WebKit failure this recovery path guards against.
+        const fakeReplayer = (head: HTMLElement | null): any => {
+            const throwWhenHeadless = (): void => {
+                if (!head) {
+                    throw new TypeError("null is not an object (evaluating 'doc.head.appendChild')")
+                }
+            }
+            return {
+                iframe: { contentDocument: { head } },
+                play: jest.fn(throwWhenHeadless),
+                pause: jest.fn(throwWhenHeadless),
+                getCurrentTime: jest.fn(() => 0),
+                setConfig: jest.fn(),
+                on: jest.fn(),
+                destroy: jest.fn(),
+                service: { state: { context: { events: [] } } },
+            }
+        }
+
+        it('re-inits the replayer instead of reporting a playback failure when the iframe has no head', async () => {
+            seedRecording([fs(START), inc(START + 1000), inc(START + 11000)], [])
+            logic.actions.setPause()
+
+            const captureSpy = jest.spyOn(posthog, 'captureException')
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+            captureSpy.mockClear()
+            tryInitReplayerSpy.mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.setPlayer({ replayer: fakeReplayer(null), windowId: 1 })
+            }).toFinishAllListeners()
+
+            expect(tryInitReplayerSpy).toHaveBeenCalled()
+            expect(captureSpy).not.toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({ feature: 'session-recording-replayer-playback' })
+            )
+            expect(logic.values.playerError).not.toBe('replayerPlaybackFailure')
+        })
     })
 
     describe('delete session recording', () => {

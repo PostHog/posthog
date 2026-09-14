@@ -1303,6 +1303,13 @@ class TestLLMPromptListQuerySerializerValidationNoDB(SimpleTestCase):
         assert not serializer.is_valid()
         assert "order_by" in serializer.errors
 
+    def test_rejects_invalid_label(self) -> None:
+        # An invalid label must fail here rather than fall through to a latest-version
+        # response; the naming rules themselves are covered by the shared validator's tests.
+        serializer = LLMPromptListQuerySerializer(data={"label": "latest"})
+        assert not serializer.is_valid()
+        assert "label" in serializer.errors
+
 
 class TestLLMPromptLabelsAPI(APIBaseTest):
     def create_prompt_version(
@@ -1432,6 +1439,53 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         # One batched all_labels query + one prefetch_related("labels") query — must not scale with prompt count.
         label_queries = [q for q in queries.captured_queries if "llmpromptlabel" in q["sql"].lower()]
         assert len(label_queries) == 2
+
+    def test_list_with_label_returns_labeled_versions_and_omits_unlabeled_prompts(self) -> None:
+        self.create_prompt_version(name="prompt-a", version=1, is_latest=False)
+        self.create_prompt_version(name="prompt-a", version=2)
+        self.create_prompt_version(name="prompt-b", version=1)
+        self.create_prompt_version(name="prompt-c", version=1)
+        assert self._set_label("prompt-a", "production", 1).status_code == status.HTTP_201_CREATED
+        assert self._set_label("prompt-b", "production", 1).status_code == status.HTTP_201_CREATED
+        assert self._set_label("prompt-c", "staging", 1).status_code == status.HTTP_201_CREATED
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=production&order_by=name")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [(entry["name"], entry["version"]) for entry in results] == [("prompt-a", 1), ("prompt-b", 1)]
+        # The labeled row keeps its version-history metadata even though it is not latest.
+        assert results[0]["is_latest"] is False
+        assert results[0]["latest_version"] == 2
+        assert results[0]["prompt"] == "Prompt content"
+
+    @patch("posthog.api.llm_prompt.report_team_action")
+    def test_list_with_label_reports_one_fetch_per_returned_prompt(self, mock_report: Any) -> None:
+        self.create_prompt_version(name="prompt-a", version=1, is_latest=False)
+        self.create_prompt_version(name="prompt-a", version=2)
+        self.create_prompt_version(name="prompt-b", version=1)
+        assert self._set_label("prompt-a", "production", 1).status_code == status.HTTP_201_CREATED
+        assert self._set_label("prompt-b", "production", 1).status_code == status.HTTP_201_CREATED
+        mock_report.reset_mock()
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=production")
+
+        assert response.status_code == status.HTTP_200_OK
+        fetch_properties = [
+            call.args[2] for call in mock_report.call_args_list if call.args[1] == "llma prompt fetched"
+        ]
+        assert sorted(
+            (p["prompt_name"], p["prompt_version"], p["prompt_label"], p["prompt_is_latest"], p["prompt_fetch_path"])
+            for p in fetch_properties
+        ) == [
+            ("prompt-a", 1, "production", False, "list"),
+            ("prompt-b", 1, "production", True, "list"),
+        ]
+
+        # The unlabeled list backs the prompts UI page and must not count as fetches.
+        mock_report.reset_mock()
+        assert self.client.get(f"/api/environments/{self.team.id}/llm_prompts/").status_code == status.HTTP_200_OK
+        assert not any(call.args[1] == "llma prompt fetched" for call in mock_report.call_args_list)
 
     def test_archive_prompt_deletes_its_labels(self):
         self.create_prompt_version(version=1)

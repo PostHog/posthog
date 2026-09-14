@@ -1,9 +1,11 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { formatRelativeDateValue } from 'lib/utils/dateFilters'
 import { isKeyOf } from 'lib/utils/guards'
 import {
     allOperatorsMapping,
     cohortOperatorMap,
     isOperatorCohort,
+    isOperatorDate,
     isOperatorFlag,
     isOperatorMulti,
 } from 'lib/utils/operators'
@@ -15,6 +17,7 @@ import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     AccountCustomPropertyFilter,
+    AccountRelationshipPropertyFilter,
     ActionType,
     AnyFilterLike,
     AnyPropertyFilter,
@@ -122,6 +125,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.Account]: TaxonomicFilterGroupType.AccountFields,
+        [PropertyFilterType.AccountRelationship]: TaxonomicFilterGroupType.AccountRelationships,
         [PropertyFilterType.AccountCustomProperty]: TaxonomicFilterGroupType.AccountCustomProperties,
         [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
         [PropertyFilterType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
@@ -172,11 +176,19 @@ export function formatPropertyLabel(
     const label = 'label' in item ? item.label : undefined
     const operator = 'operator' in item ? item.operator : undefined
     const cohortName = 'cohort_name' in item ? item.cohort_name : undefined
-    const resolvedType = type ?? PropertyFilterType.Event
+    const resolvedType = (type ?? PropertyFilterType.Event) as PropertyFilterType
     const resolvedOperator = operator ?? PropertyOperator.Exact
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[resolvedType]
 
     const isSingleEmptyString = Array.isArray(value) && value.length === 1 && value[0] === ''
+    const relativeDateValue =
+        typeof value === 'string' ? value : Array.isArray(value) && value.length === 1 ? value[0] : undefined
+    const formattedValue =
+        (resolvedType === PropertyFilterType.Account || resolvedType === PropertyFilterType.AccountCustomProperty) &&
+        isOperatorDate(resolvedOperator) &&
+        typeof relativeDateValue === 'string'
+            ? formatRelativeDateValue(relativeDateValue)
+            : undefined
 
     if (resolvedType === PropertyFilterType.Cohort) {
         return (
@@ -194,7 +206,7 @@ export function formatPropertyLabel(
         (isOperatorFlag(resolvedOperator)
             ? ` ${allOperatorsMapping[resolvedOperator]}`
             : ` ${(allOperatorsMapping[resolvedOperator] || '?').split(' ')[0]} ${
-                  isSingleEmptyString ? '(empty string)' : valueFormatter(value) || ''
+                  formattedValue ?? (isSingleEmptyString ? '(empty string)' : valueFormatter(value) || '')
               } `)
     )
 }
@@ -324,6 +336,12 @@ export function isRevenueAnalyticsPropertyFilter(
 ): filter is RevenueAnalyticsPropertyFilter {
     return filter?.type === PropertyFilterType.RevenueAnalytics
 }
+export function isAccountRelationshipPropertyFilter(
+    filter?: { type?: string } | null
+): filter is AccountRelationshipPropertyFilter {
+    return filter?.type === PropertyFilterType.AccountRelationship
+}
+
 export function isAccountCustomPropertyFilter(filter?: AnyFilterLike | null): filter is AccountCustomPropertyFilter {
     return filter?.type === PropertyFilterType.AccountCustomProperty
 }
@@ -417,6 +435,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isPersonMetadataPropertyFilter(filter) ||
         isEventMetadataPropertyFilter(filter) ||
         isRevenueAnalyticsPropertyFilter(filter) ||
+        isAccountRelationshipPropertyFilter(filter) ||
         isAccountCustomPropertyFilter(filter) ||
         isElementPropertyFilter(filter) ||
         isSessionPropertyFilter(filter) ||
@@ -462,6 +481,7 @@ export function isPropertyFilterWithOperator(
             isPersonMetadataPropertyFilter(filter) ||
             isEventMetadataPropertyFilter(filter) ||
             isRevenueAnalyticsPropertyFilter(filter) ||
+            isAccountRelationshipPropertyFilter(filter) ||
             isAccountCustomPropertyFilter(filter) ||
             isElementPropertyFilter(filter) ||
             isSessionPropertyFilter(filter) ||
@@ -514,6 +534,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
     [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
     [PropertyFilterType.Account]: TaxonomicFilterGroupType.AccountFields,
+    [PropertyFilterType.AccountRelationship]: TaxonomicFilterGroupType.AccountRelationships,
     [PropertyFilterType.AccountCustomProperty]: TaxonomicFilterGroupType.AccountCustomProperties,
     [PropertyFilterType.Flag]: TaxonomicFilterGroupType.FeatureFlags,
     [PropertyFilterType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
@@ -572,6 +593,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.SpanResourceAttribute]: PropertyDefinitionType.SpanResourceAttribute,
         [PropertyFilterType.RevenueAnalytics]: PropertyDefinitionType.RevenueAnalytics,
         [PropertyFilterType.Account]: PropertyDefinitionType.Account,
+        [PropertyFilterType.AccountRelationship]: PropertyDefinitionType.AccountRelationship,
         [PropertyFilterType.AccountCustomProperty]: PropertyDefinitionType.AccountCustomProperty,
         [PropertyFilterType.Flag]: PropertyDefinitionType.FlagValue,
         [PropertyFilterType.WorkflowVariable]: PropertyDefinitionType.WorkflowVariable,

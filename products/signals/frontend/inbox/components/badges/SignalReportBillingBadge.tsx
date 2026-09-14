@@ -1,15 +1,15 @@
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { BillingExemptReasonEnumApi } from 'products/signals/frontend/generated/api.schemas'
+import { SignalReportBillingExemptReasonEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReport } from '../../types'
 
-const EXEMPT_TOOLTIPS: Record<BillingExemptReasonEnumApi, string> = {
-    [BillingExemptReasonEnumApi.PosthogHealthCheck]:
+const EXEMPT_TOOLTIPS: Record<SignalReportBillingExemptReasonEnumApi, string> = {
+    [SignalReportBillingExemptReasonEnumApi.PosthogHealthCheck]:
         'This report came from a PostHog health check, so creating a pull request for it is free.',
-    [BillingExemptReasonEnumApi.PosthogOnboarding]:
+    [SignalReportBillingExemptReasonEnumApi.PosthogOnboarding]:
         'This report was created during onboarding, so creating a pull request for it is free.',
-    [BillingExemptReasonEnumApi.PosthogSystem]:
+    [SignalReportBillingExemptReasonEnumApi.PosthogSystem]:
         'This report came from a PostHog-managed signal, so creating a pull request for it is free.',
 }
 
@@ -43,7 +43,8 @@ export function SignalReportBillingBadge({ report }: { report: SignalReport }): 
     }
     if (report.billing_exempt_reason) {
         const tooltip =
-            EXEMPT_TOOLTIPS[report.billing_exempt_reason as BillingExemptReasonEnumApi] ?? EXEMPT_TOOLTIP_DEFAULT
+            EXEMPT_TOOLTIPS[report.billing_exempt_reason as SignalReportBillingExemptReasonEnumApi] ??
+            EXEMPT_TOOLTIP_DEFAULT
         return (
             <Tooltip title={tooltip}>
                 <LemonTag size="small" type="success">

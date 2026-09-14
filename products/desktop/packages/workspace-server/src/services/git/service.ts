@@ -215,7 +215,7 @@ export function mapPrState(
   return null;
 }
 
-export const GitCloneEvent = { CloneProgress: "cloneProgress" } as const;
+const GitCloneEvent = { CloneProgress: "cloneProgress" } as const;
 export interface GitCloneEvents {
   [GitCloneEvent.CloneProgress]: CloneProgressPayload;
 }

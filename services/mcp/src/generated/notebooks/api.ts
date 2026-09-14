@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 14 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export const NotebooksListParams = /* @__PURE__ */ zod.object({
+export const NotebooksListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -19,7 +19,7 @@ export const NotebooksListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const NotebooksListQueryParams = /* @__PURE__ */ zod.object({
+export const NotebooksListQueryParams = () => zod.object({
     contains: zod
         .string()
         .optional()
@@ -46,7 +46,7 @@ export const NotebooksListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export const NotebooksCreateParams = /* @__PURE__ */ zod.object({
+export const NotebooksCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -61,7 +61,7 @@ export const notebooksCreateBodyVersionMax = 2147483647
 
 export const notebooksCreateBodyVariablesItemNameMax = 200
 
-export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
+export const NotebooksCreateBody = () => zod.object({
     title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
     content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
@@ -93,7 +93,7 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
                         .unknown()
                         .optional()
                         .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
                         ),
                 })
                 .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
@@ -107,7 +107,7 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export const NotebooksRetrieveParams = /* @__PURE__ */ zod.object({
+export const NotebooksRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -119,7 +119,7 @@ export const NotebooksRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export const NotebooksPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const NotebooksPartialUpdateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -135,7 +135,7 @@ export const notebooksPartialUpdateBodyVersionMax = 2147483647
 
 export const notebooksPartialUpdateBodyVariablesItemNameMax = 200
 
-export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const NotebooksPartialUpdateBody = () => zod.object({
     title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
     content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
@@ -167,7 +167,7 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
                         .unknown()
                         .optional()
                         .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
                         ),
                 })
                 .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
@@ -181,7 +181,7 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const NotebooksDestroyParams = /* @__PURE__ */ zod.object({
+export const NotebooksDestroyParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -193,7 +193,7 @@ export const NotebooksDestroyParams = /* @__PURE__ */ zod.object({
 /**
  * Set the notebook's kernel compute configuration. Applies at sandbox provision time: a currently running kernel keeps its resources until restarted.
  */
-export const NotebooksKernelConfigCreateParams = /* @__PURE__ */ zod.object({
+export const NotebooksKernelConfigCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -202,7 +202,7 @@ export const NotebooksKernelConfigCreateParams = /* @__PURE__ */ zod.object({
     short_id: zod.string(),
 })
 
-export const NotebooksKernelConfigCreateBody = /* @__PURE__ */ zod.object({
+export const NotebooksKernelConfigCreateBody = () => zod.object({
     cpu_cores: zod
         .number()
         .optional()
@@ -220,7 +220,7 @@ export const NotebooksKernelConfigCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Live-checked kernel runtime state for this notebook, its compute configuration, and the catalog of dataframes/tables a cell can currently reference (with column schemas).
  */
-export const NotebooksKernelStatusRetrieveParams = /* @__PURE__ */ zod.object({
+export const NotebooksKernelStatusRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -232,7 +232,7 @@ export const NotebooksKernelStatusRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Read a run's durable state: its status, and — once done or interrupted — the result envelope (columns, first rows, stdout/stderr, media, error). Poll until terminal. Flag-gated (revamped-py-notebooks).
  */
-export const NotebooksSqlV2RunsRetrieveParams = /* @__PURE__ */ zod.object({
+export const NotebooksSqlV2RunsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -245,7 +245,7 @@ export const NotebooksSqlV2RunsRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome unchanged. Flag-gated (revamped-py-notebooks).
  */
-export const NotebooksSqlV2RunsInterruptCreateParams = /* @__PURE__ */ zod.object({
+export const NotebooksSqlV2RunsInterruptCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -256,13 +256,102 @@ export const NotebooksSqlV2RunsInterruptCreateParams = /* @__PURE__ */ zod.objec
 })
 
 /**
- * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
+ * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), the notebook's declared variables, every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
  */
-export const NotebooksSqlV2StateRetrieveParams = /* @__PURE__ */ zod.object({
+export const NotebooksSqlV2StateRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     short_id: zod.string(),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const NotebooksWidgetCancelParams = () => zod.object({
+    node_id: zod.string().describe('Stable identifier of the generated widget node.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+export const NotebooksWidgetCancelBody = () => zod.object({
+    generation_id: zod.string().describe('Generation job to cancel.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const NotebooksWidgetGenerateParams = () => zod.object({
+    node_id: zod.string().describe('Stable identifier of the generated widget node.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+export const notebooksWidgetGenerateBodyPromptMax = 50000
+
+export const notebooksWidgetGenerateBodyModelDefault = `claude-sonnet-4-6`
+export const notebooksWidgetGenerateBodyGenerationOperationDefault = `regenerate`
+
+export const NotebooksWidgetGenerateBody = () => zod.object({
+    prompt: zod
+        .string()
+        .max(notebooksWidgetGenerateBodyPromptMax)
+        .describe(
+            'Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 characters; regeneration accepts complete instructions up to 50,000 characters.'
+        ),
+    generation_id: zod.string().describe('Idempotency key for this generation job.'),
+    model: zod
+        .enum(['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-sonnet-5', 'claude-opus-5'])
+        .describe(
+            '\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
+        )
+        .default(notebooksWidgetGenerateBodyModelDefault)
+        .describe(
+            'AI model used to generate the widget.\n\n\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
+        ),
+    generation_operation: zod
+        .enum(['initial', 'regenerate', 'improve'])
+        .describe('\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve')
+        .default(notebooksWidgetGenerateBodyGenerationOperationDefault)
+        .describe(
+            'Whether to generate from scratch or improve the current source.\n\n\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve'
+        ),
+    expected_current_version_id: zod
+        .string()
+        .optional()
+        .describe('Current widget version the improvement is based on. Required for improve operations.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const NotebooksWidgetStatusParams = () => zod.object({
+    node_id: zod.string().describe('Stable identifier of the generated widget node.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+/**
+ * Compute rates, presets, and the sizes the kernel config endpoint accepts. Static per region, so a client can fetch it once and price any shape a user picks.
+ */
+export const NotebooksKernelComputeOptionsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })

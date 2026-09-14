@@ -21,13 +21,11 @@ import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFil
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { AggregationType } from 'scenes/insights/views/InsightsTable/insightsTableDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
-import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import {
@@ -117,6 +115,9 @@ import {
     SlowQueryPossibilities,
 } from '~/types'
 
+import { getClampedFunnelStepRange } from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
+import { BASE_MATH_DEFINITIONS } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
+
 import type { DataColorTheme } from '../../lib/colors'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type {
@@ -154,9 +155,12 @@ import type {
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
 import type { PathsV2Query } from '../../queries/schema/schema-general'
-import type { AnyPropertyFilter, GroupTypeIndex, PropertyGroupFilter } from '../../types'
+import type { ActionType, AnyPropertyFilter, GroupTypeIndex, PropertyGroupFilter } from '../../types'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
+
+// Stable empty list so the allEventNames selector does not recompute while actionsModel is unmounted
+const NO_ACTIONS: ActionType[] = []
 
 // Trends/stickiness displays whose chart renders the in-chart quill legend (line/area/cumulative,
 // bar layouts, and pie). Lifecycle always renders it regardless of display.
@@ -1217,7 +1221,7 @@ export interface insightVizDataLogicMeta {
                 | WebOverviewQuery
                 | WebStatsTableQuery
                 | null,
-            actions: import('~/types').ActionType[]
+            arg: ActionType[]
         ) => string[]
         theme: (
             getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // dataThemeLogic
@@ -2448,7 +2452,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // all events used in the insight (useful for fetching only relevant property definitions)
         allEventNames: [
-            (s) => [s.querySource, actionsModel.selectors.actions],
+            // actionsModel is only mounted by the surfaces that read this value. Reading it through
+            // findMounted keeps the shared insight logic from fetching every action on mount.
+            (s) => [s.querySource, () => actionsModel.findMounted()?.values.actions ?? NO_ACTIONS],
             (
                 querySource:
                     | FunnelsQuery

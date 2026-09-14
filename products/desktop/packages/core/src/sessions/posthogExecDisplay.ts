@@ -19,8 +19,8 @@ export function isPostHogExecTool(toolName: string): boolean {
 export function getPostHogExecDisplay(
   toolInput: unknown,
 ): PostHogExecDisplay | null {
-  if (!toolInput || typeof toolInput !== "object") return null;
-  const input = toolInput as { command?: unknown; input?: unknown };
+  const input = readExecToolInput(toolInput);
+  if (!input) return null;
   if (typeof input.command !== "string") return null;
   const match = input.command.match(POSTHOG_VERB_RE);
   if (!match) return null;
@@ -58,6 +58,44 @@ export function getPostHogExecDisplay(
       };
     }
   }
+}
+
+// Pi names use single underscores, and result metadata is unavailable while a call runs.
+const PI_POSTHOG_EXEC_RE =
+  /^(?:[a-zA-Z0-9]+_)?(?:plugin_)?posthog(?:_[^_]+)*_exec$/;
+
+function isPostHogExecProxyTool(tool: unknown): boolean {
+  if (typeof tool !== "string") return false;
+  return (
+    tool === "exec" || PI_POSTHOG_EXEC_RE.test(tool) || isPostHogExecTool(tool)
+  );
+}
+
+function readExecToolInput(
+  toolInput: unknown,
+): { command?: unknown; input?: unknown } | null {
+  if (!toolInput || typeof toolInput !== "object") return null;
+  const candidate = toolInput as {
+    command?: unknown;
+    input?: unknown;
+    tool?: unknown;
+    args?: unknown;
+  };
+  if (typeof candidate.command === "string") return candidate;
+  if (
+    isPostHogExecProxyTool(candidate.tool) &&
+    typeof candidate.args === "string"
+  ) {
+    try {
+      const parsed: unknown = JSON.parse(candidate.args);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as { command?: unknown; input?: unknown };
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 function readExplicitInput(value: unknown): string | undefined {

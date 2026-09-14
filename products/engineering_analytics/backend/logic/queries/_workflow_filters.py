@@ -22,11 +22,25 @@ def merge_queue_branch_predicate(branch_sql: str) -> str:
     return f"startsWith({branch_sql}, '{MERGE_QUEUE_BRANCH_PREFIX}')"
 
 
-# The base duration-percentile population, for runs and jobs alike: successful instances
-# only. Cancelled/skipped (superseded) and failed instances end early, so including them
-# answers "how long until CI stopped", not "how long does CI take to pass". Jobs use this
-# as-is — a seconds-long job (the gate job itself) is a legitimate duration sample.
-DURATION_PERCENTILE_CONDITION = "status = 'completed' AND conclusion = 'success'"
+# Mirrors DECISIVE_FAILURE_CONCLUSIONS in frontend/lib/lifecycle.ts (keep the two in sync).
+DECISIVE_FAILURE_CONCLUSIONS = ("failure", "timed_out", "startup_failure", "stale")
+DECISIVE_FAILURE_CONCLUSIONS_SQL = ", ".join(f"'{conclusion}'" for conclusion in DECISIVE_FAILURE_CONCLUSIONS)
+SUCCESSFUL_RUN_CONDITION = "status = 'completed' AND conclusion = 'success'"
+CONCLUSIVE_RUN_CONDITION = f"status = 'completed' AND conclusion IN ('success', {DECISIVE_FAILURE_CONCLUSIONS_SQL})"
+
+# Duration percentiles use successful instances because cancelled, skipped, and failed instances
+# end early. Including them answers "how long until CI stopped", not "how long does CI take to pass".
+# Jobs use this as-is because a seconds-long job can be a legitimate duration sample.
+DURATION_PERCENTILE_CONDITION = SUCCESSFUL_RUN_CONDITION
+
+
+def success_rate_expr(scope: str | None = None) -> str:
+    """Bare (unaliased) pass rate per aggregate group: successful runs over conclusive runs.
+    Division through nullIf yields NULL when no run reached a verdict, so consumers read a gap,
+    never a false 0%. ``scope`` ANDs an extra predicate into both counts (e.g. a window split)."""
+    guard = f" AND {scope}" if scope else ""
+    return f"countIf({SUCCESSFUL_RUN_CONDITION}{guard}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}{guard}), 0)"
+
 
 # A run that settled in under this many seconds with a benign conclusion did no real CI work — the
 # common shape is a gate job deciding the rest of the workflow should be skipped (path filters,
@@ -68,7 +82,7 @@ def run_duration_percentile_expr(quantile: float) -> str:
 # later-created run. argMaxIf defaults to 0 (false) over zero matching rows, so consumers must
 # pair it with a completed-run count to tell "latest run passed" apart from "no completed run yet".
 LATEST_COMPLETED_RUN_FAILED = (
-    "argMaxIf(conclusion IN ('failure', 'timed_out'), (run_started_at, id), status = 'completed')"
+    f"argMaxIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}), (run_started_at, id), status = 'completed')"
 )
 
 
@@ -170,12 +184,11 @@ def window_pair_predicates(column: str, *, date_to: datetime | None) -> WindowPr
     )
 
 
-def non_default_branch_predicate(branch_column: str = "r.head_branch") -> str:
-    """True when the branch expression names a branch other than the repo's default. The source
-    doesn't record which branch that is, so this excludes the common default names — the same
-    approximation ``repo_overview.query_default_branch`` resolves per-repo, not reused here
-    because it costs an extra query."""
-    return f"{branch_column} NOT IN ('master', 'main')"
+def default_branch_predicate(branch_column: str = "r.head_branch") -> str:
+    """True when the branch expression names the repo's default branch. The source does not record
+    which branch that is, so the common default names stand in. ``repo_overview.query_default_branch``
+    resolves it per repo, but that costs an extra query."""
+    return f"{branch_column} IN ('master', 'main')"
 
 
 def run_scope_filter_clause(
@@ -183,16 +196,35 @@ def run_scope_filter_clause(
     *,
     branch_column: str = "r.head_branch",
     attributed_predicate: str = "r.pr_number > 0",
+    merge_queue_predicate: str = "r.is_merge_queue",
 ) -> str:
+    """The WHERE fragment that narrows a run population to one ``WorkflowHealthRunScope`` (see that
+    enum for what each group covers), or '' for ``all``.
+
+    ``pull_request`` needs all three predicates. A default-branch run can still carry a PR
+    association (its SHA matches an open PR), so attribution alone (pr_number > 0 — see the
+    workflow_runs builder docstring) does not keep trunk runs out, and gate runs belong to
+    ``merge_queue`` instead.
+    """
+    if run_scope == WorkflowHealthRunScope.DEFAULT_BRANCH:
+        return f"AND {default_branch_predicate(branch_column)}"
     if run_scope == WorkflowHealthRunScope.PULL_REQUEST:
-        # A default-branch run can still carry a PR association (its SHA matches an open PR), so
-        # attribution alone (pr_number > 0 — see the workflow_runs builder docstring) doesn't keep
-        # trunk runs out; the scope needs both predicates.
-        # The cost queries pass the cost source's columns; there pr_number is 0→NULL normalized, so
-        # "attributed" becomes ``c.pr_number IS NOT NULL`` rather than ``> 0``.
-        # Merge-queue gate runs stay in this scope on purpose: a gate run is CI the PR paid for on
-        # its way to landing, and the runs builder already credits it to that PR rather than to the
-        # throwaway PR the queue opened. ``is_merge_queue`` splits the two populations, on the cost
-        # view and the job-history view alike.
-        return f"AND {non_default_branch_predicate(branch_column)} AND {attributed_predicate}"
+        return (
+            f"AND NOT {default_branch_predicate(branch_column)} AND {attributed_predicate} "
+            f"AND NOT {merge_queue_predicate}"
+        )
+    if run_scope == WorkflowHealthRunScope.MERGE_QUEUE:
+        return f"AND {merge_queue_predicate}"
     return ""
+
+
+def cost_run_scope_filter_clause(run_scope: WorkflowHealthRunScope, *, alias: str = "c") -> str:
+    """``run_scope_filter_clause`` against the job cost source. That source keeps the run's branch as
+    ``run_head_branch`` (distinct from the per-job ``head_branch``) and NULL-normalizes ``pr_number``,
+    so the run predicates need these column names."""
+    return run_scope_filter_clause(
+        run_scope,
+        branch_column=f"{alias}.run_head_branch",
+        attributed_predicate=f"{alias}.pr_number IS NOT NULL",
+        merge_queue_predicate=f"{alias}.is_merge_queue",
+    )

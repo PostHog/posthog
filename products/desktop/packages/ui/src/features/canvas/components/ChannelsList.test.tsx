@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   channels: [] as {
     id: string;
     name: string;
-    channelType: "public" | "personal";
+    channelType: "public" | "personal" | "private";
     starred: boolean;
     repositories: string[];
     createdBy: null;
@@ -39,7 +39,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: mocks.channels, isLoading: false }),
-  useChannelMutations: () => ({ deleteChannel: vi.fn(), isDeleting: false }),
+  useChannelMutations: () => ({
+    deleteChannel: vi.fn(),
+    isDeleting: false,
+    updateAutoArchive: vi.fn(),
+    isUpdatingAutoArchive: false,
+  }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
   useChannelStarToggle: () => ({
@@ -76,6 +81,9 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
   useFileTaskToChannel: () => ({ fileTask: vi.fn() }),
 }));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => vi.fn(),
+}));
 vi.mock(
   "@posthog/ui/features/task-detail/components/HandoffTaskDialog",
   () => ({
@@ -85,6 +93,7 @@ vi.mock(
 vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
   NO_TASKS: { items: [], total: 0 },
   usePrefetchSpaceTasks: () => () => undefined,
+  useSpacePresence: () => new Map(),
   useRecentSpaceTasks: (spaceIds: string[]) =>
     new Map(
       spaceIds.map((spaceId) => {
@@ -142,7 +151,11 @@ vi.mock("@posthog/ui/features/canvas/components/RenameChannelModal", () => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mocks.navigate,
-  useRouterState: () => "/spaces",
+  useRouterState: ({
+    select,
+  }: {
+    select: (s: { location: { pathname: string } }) => unknown;
+  }) => select({ location: { pathname: "/spaces" } }),
 }));
 
 import {
@@ -157,6 +170,7 @@ import {
   useSidebarSearchStore,
 } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelsList } from "./ChannelsList";
 
@@ -210,6 +224,10 @@ describe("ChannelsList", () => {
       expandedSpaceIds: new Set(),
       highlightedValue: undefined,
     });
+    useArchivingTasksStore.setState({
+      archivingTaskIds: new Set(),
+      hiddenArchivingTaskIds: new Set(),
+    });
     useSidebarSearchStore.setState({
       focusRequest: 0,
     });
@@ -253,6 +271,22 @@ describe("ChannelsList", () => {
     // advertised now that the switcher popover is gone.
     expect(me.parentElement?.textContent).toMatch(/personal(⌘|Ctrl)/);
   });
+
+  it.each(["personal", "engineering"])(
+    "offers automatic archiving for the %s space",
+    async (spaceName) => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(
+        screen.getByRole("button", { name: `Options for ${spaceName}` }),
+      );
+
+      expect(
+        await screen.findByRole("menuitem", { name: "Auto-archive: off…" }),
+      ).toBeVisible();
+    },
+  );
 
   describe("group headings", () => {
     beforeEach(() => {
@@ -523,6 +557,26 @@ describe("ChannelsList", () => {
       // Still scoped, so whatever asks for the channel pane next opens on the
       // space the session came from.
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+    });
+
+    it("shows inert archive progress for a session in the expanded tree", async () => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(screen.getByLabelText("Expand engineering"));
+      act(() => useArchivingTasksStore.getState().startArchiving("task-new"));
+
+      const row = screen.getByText("Ship the tree").closest("button");
+      expect(row).toHaveAttribute("aria-busy", "true");
+      expect(row).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByText("Archiving")).toHaveClass("sr-only");
+
+      if (row) {
+        fireEvent.click(row);
+        fireEvent.contextMenu(row);
+      }
+      expect(mocks.navigate).not.toHaveBeenCalled();
+      expect(screen.queryByRole("menu")).toBeNull();
     });
 
     // The row after the last session: the keyboard has to know about it, or the

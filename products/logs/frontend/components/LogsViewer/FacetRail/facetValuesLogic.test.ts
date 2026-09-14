@@ -133,6 +133,32 @@ describe('facetValuesLogic', () => {
         expect(mockFacetValues).not.toHaveBeenCalled()
     })
 
+    it('a manual refresh refetches an expanded facet even when the scope is unchanged', async () => {
+        const logic = mountFacet(SERVICE)
+        await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
+        mockFacetValues.mockClear()
+
+        filtersLogic.actions.bumpFacetRefresh()
+        await expectLogic(logic).toDispatchActions(['loadFacetValues', 'loadFacetValuesSuccess'])
+        expect(mockFacetValues).toHaveBeenCalledTimes(1)
+    })
+
+    it('a manual refresh leaves a collapsed facet unfetched until it is expanded', async () => {
+        railLogic.actions.toggleFacetCollapsed(SERVICE.key)
+        const logic = mountFacet(SERVICE)
+        const other = mountFacet(LEVEL)
+        await expectLogic(other).toDispatchActions(['loadFacetValuesSuccess'])
+        mockFacetValues.mockClear()
+
+        filtersLogic.actions.bumpFacetRefresh()
+        await expectLogic(other).toDispatchActions(['loadFacetValuesSuccess'])
+        expect(logic.values.facetValues).toEqual([])
+
+        railLogic.actions.toggleFacetCollapsed(SERVICE.key)
+        await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
+        expect(mockFacetValues).toHaveBeenCalledTimes(2)
+    })
+
     it('collapsing while a fetch is still debouncing drops it, and expanding fetches again', async () => {
         // The request is debounced, so a facet collapsed within that window would otherwise still
         // hit the endpoint — and, having recorded the signature, look fresh enough to skip the

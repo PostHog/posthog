@@ -21,6 +21,11 @@
             "description": "The initial index from which to return the results.",
             "type": "number"
         },
+        "origin_product": {
+            "description": "Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
+            "enum": ["loops"],
+            "type": "string"
+        },
         "search": {
             "description": "Case-insensitive search across workflow name and description.",
             "type": "string"
@@ -28,6 +33,15 @@
         "status": {
             "description": "* `draft` - Draft\n* `active` - Active\n* `archived` - Archived",
             "enum": ["active", "archived", "draft"],
+            "type": "string"
+        },
+        "trigger": {
+            "description": "Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {\"type\": \"event\"}.",
+            "type": "string"
+        },
+        "type": {
+            "description": "Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.",
+            "enum": ["automation", "messaging"],
             "type": "string"
         },
         "updated_at": {

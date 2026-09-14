@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const RemindersListQueryParams = /* @__PURE__ */ zod.object({
+export const RemindersListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -23,7 +23,7 @@ export const remindersCreateBodyCronExpressionMax = 100
 
 export const remindersCreateBodyTimezoneMax = 64
 
-export const RemindersCreateBody = /* @__PURE__ */ zod.object({
+export const RemindersCreateBody = () => zod.object({
     organization: zod.string().describe('ID of the organization this reminder belongs to. You must be a member of it.'),
     team: zod
         .number()
@@ -84,11 +84,11 @@ export const RemindersCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional: recurring reminders stop (status=completed) after this time.'),
 })
 
-export const RemindersRetrieveParams = /* @__PURE__ */ zod.object({
+export const RemindersRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this reminder.'),
 })
 
-export const RemindersPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const RemindersPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this reminder.'),
 })
 
@@ -102,7 +102,7 @@ export const remindersPartialUpdateBodyCronExpressionMax = 100
 
 export const remindersPartialUpdateBodyTimezoneMax = 64
 
-export const RemindersPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const RemindersPartialUpdateBody = () => zod.object({
     organization: zod
         .string()
         .optional()
@@ -167,6 +167,6 @@ export const RemindersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Optional: recurring reminders stop (status=completed) after this time.'),
 })
 
-export const RemindersDestroyParams = /* @__PURE__ */ zod.object({
+export const RemindersDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this reminder.'),
 })

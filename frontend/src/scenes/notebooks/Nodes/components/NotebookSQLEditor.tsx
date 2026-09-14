@@ -22,6 +22,9 @@ export const EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT = 333
 export const EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT = 150
 export const EMBEDDED_SQL_EDITOR_MIN_HEIGHT = 200
 export const EMBEDDED_SQL_EDITOR_EDIT_MIN_HEIGHT = 150
+// Floor for a dragged editor, so a cell that holds one line of SQL can shrink to about two
+// lines. The SQL editor scene keeps its own, taller floor.
+export const EMBEDDED_SQL_EDITOR_QUERY_PANE_MIN_HEIGHT = 44
 
 export const getNotebookSqlEditorTabId = (nodeId: string | null | undefined, suffix: string | null = null): string =>
     `notebook-sql-${suffix ? `${suffix}-` : ''}${nodeId ?? 'new'}`
@@ -40,7 +43,12 @@ function useNotebookDataframeTreeSections(): TreeDataItem[] {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { notebookLogic } = useValues(nodeLogic)
     const { frameNodeSummaries } = useValues(notebookLogic)
-    const { localFrames } = useValues(notebookKernelInfoLogic({ shortId: notebookLogic.props.shortId }))
+    const { localFrames } = useValues(
+        notebookKernelInfoLogic({
+            shortId: notebookLogic.props.shortId,
+            isShared: !!notebookLogic.props.cachedNotebook,
+        })
+    )
     return useMemo(() => buildDataframeTreeSection(frameNodeSummaries, localFrames), [frameNodeSummaries, localFrames])
 }
 
@@ -497,6 +505,7 @@ export function NotebookSQLEditorSettings<T extends { query: QuerySchema }>({
                 panel={SQLEditorPanel.Query}
                 defaultShowDatabaseTree={false}
                 queryPaneDefaultHeight={EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT}
+                queryPaneMinHeight={EMBEDDED_SQL_EDITOR_QUERY_PANE_MIN_HEIGHT}
                 autoFocusQueryPane={autoFocusQueryPane}
             />
         </div>
@@ -587,6 +596,7 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string } & Noteb
                 cancelQueryLoading={cancelQueryLoading}
                 hideRunButton={hideRunButton}
                 queryPaneDefaultHeight={EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT}
+                queryPaneMinHeight={EMBEDDED_SQL_EDITOR_QUERY_PANE_MIN_HEIGHT}
             />
         </div>
     )

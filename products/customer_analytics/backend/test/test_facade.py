@@ -12,12 +12,13 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
@@ -28,6 +29,7 @@ from products.customer_analytics.backend.models import (
     Account,
     AccountRelationship,
     AccountRelationshipDefinition,
+    CustomerTask,
     CustomPropertyDefinition,
     CustomPropertySource,
     CustomPropertyValue,
@@ -138,16 +140,58 @@ class TestCustomerAnalyticsFacade(BaseTest):
             facade.get_account_context_data(self.team.id, account_id=str(account.id), user_access_control=uac) is None
         )
 
-    def test_search_accounts_matches_name_and_external_id(self):
-        create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123")
+    @parameterized.expand(
+        [
+            ("name", "acme", ["Acme Corp"]),
+            ("external id", "globex-9", ["Globex"]),
+            ("known email", "AP@Billing-Provider.example", ["Acme Corp"]),
+            ("email domain of an address", "someone@acme.example", ["Acme Corp"]),
+            ("bare email domain", "acme.example", ["Acme Corp"]),
+            ("address nobody owns", "someone@elsewhere.example", []),
+        ]
+    )
+    def test_search_accounts_matches(self, _name: str, query: str, expected_names: list[str]):
+        create_account(
+            team_id=self.team.id,
+            name="Acme Corp",
+            external_id="acme-123",
+            properties={"email_domains": ["acme.example"], "known_emails": ["ap@billing-provider.example"]},
+        )
         create_account(team_id=self.team.id, name="Globex", external_id="globex-9")
 
-        rows, count = facade.search_accounts(self.team.id, "acme", self._uac(), limit=10)
+        rows, count = facade.search_accounts(self.team.id, query, self._uac(), limit=10)
+
+        assert count == len(expected_names)
+        assert [r.name for r in rows] == expected_names
+        assert all(isinstance(row, contracts.AccountRef) and isinstance(row.id, str) for row in rows)
+
+    @patch(
+        "products.customer_analytics.backend.logic.account_member_search.posthog_feature_flag_enabled",
+        return_value=True,
+    )
+    @patch("products.customer_analytics.backend.logic.account_member_search.execute_hogql_query")
+    def test_search_accounts_matches_eu_organization_member_email(
+        self, mock_execute_hogql_query: MagicMock, _mock_feature_enabled: MagicMock
+    ) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        eu_organization_id = str(uuid4())
+        account = create_account(
+            team_id=self.team.id,
+            name="EU member account",
+            external_id=eu_organization_id,
+        )
+        mock_execute_hogql_query.return_value = MagicMock(results=[[eu_organization_id]])
+
+        rows, count = facade.search_accounts(
+            self.team.id,
+            "member@eu.example",
+            self._uac(),
+            limit=10,
+        )
 
         assert count == 1
-        assert [r.name for r in rows] == ["Acme Corp"]
-        assert isinstance(rows[0], contracts.AccountRef)
-        assert isinstance(rows[0].id, str)
+        assert [row.id for row in rows] == [str(account.id)]
 
     def test_search_accounts_excludes_ignored_by_default(self):
         create_account(team_id=self.team.id, name="Acme Tracked")
@@ -450,6 +494,21 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
 
     def test_delete_account_removes_row(self):
         view = self._create(name="Doomed")
+        task = CustomerTask.objects.for_team(self.team.id).create(
+            team=self.team,
+            account_id=view.id,
+            name="Delete with account",
+            assigned_to=self.user,
+            created_by=self.user,
+        )
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_task",
+            resource_id=str(task.id),
+            access_level="editor",
+            organization_member=membership,
+        )
         facade.delete_account_for_view(
             team_id=self.team.id,
             account_id=str(view.id),
@@ -460,6 +519,7 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
             was_impersonated=False,
         )
         assert not Account.objects.unscoped().filter(id=str(view.id)).exists()
+        assert not AccessControl.objects.filter(resource="customer_task", resource_id=str(task.id)).exists()
 
     def test_get_account_for_view_unknown_raises(self):
         with self.assertRaises(facade.Account_DoesNotExist):
@@ -470,11 +530,12 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
                 required_level="viewer",
             )
 
-    def test_list_accounts_for_view_filters_by_search(self):
-        self._create(name="Acme Corp", external_id="acme-1")
+    @parameterized.expand([("name", "acme"), ("email domain", "someone@acme.example")])
+    def test_list_accounts_for_view_filters_by_search(self, _name: str, search: str):
+        self._create(name="Acme Corp", external_id="acme-1", properties={"email_domains": ["acme.example"]})
         self._create(name="Globex", external_id="glx-9")
         page, count = facade.list_accounts_for_view(
-            team_id=self.team.id, user_access_control=self._uac(), offset=0, limit=10, search="acme"
+            team_id=self.team.id, user_access_control=self._uac(), offset=0, limit=10, search=search
         )
         assert count == 1
         assert [a.name for a in page] == ["Acme Corp"]
@@ -762,7 +823,7 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
         assert not CustomPropertySource.objects.for_team(self.team.id).filter(id=source.id).exists()
 
     @parameterized.expand([("enabled", True, True), ("disabled", False, False)])
-    def test_create_enqueues_initial_sync_only_when_enabled(self, _name, is_enabled, expect_enqueued):
+    def test_create_enqueues_initial_account_property_sync(self, _name, is_enabled, expect_enqueued):
         with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
             self._create(is_enabled=is_enabled)
 
@@ -774,7 +835,7 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
         else:
             mock_app.send_task.assert_not_called()
 
-    def test_reenabling_a_source_enqueues_a_sync(self):
+    def test_reenabling_a_source_enqueues_an_initial_account_property_sync(self):
         source = self._create(is_enabled=False)
 
         with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
@@ -792,7 +853,7 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
             ("column_change", {"source_column": "org_id"}, True),
         ]
     )
-    def test_update_enqueues_only_on_meaningful_change(self, _name, fields, expect_enqueued):
+    def test_update_enqueues_initial_sync_only_after_a_meaningful_change(self, _name, fields, expect_enqueued):
         source = self._create()
 
         with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):

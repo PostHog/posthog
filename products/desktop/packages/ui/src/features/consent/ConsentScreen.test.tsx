@@ -35,13 +35,14 @@ vi.mock("./useOrgConsent", () => ({
     needsAiConsent: false,
     needsBetaTerms: true,
     satisfied: false,
+    retry: vi.fn(),
   }),
 }));
 
 import { ConsentScreen } from "./ConsentScreen";
 
 describe("ConsentScreen", () => {
-  it("keeps the selected project switcher available while consent blocks the app", () => {
+  it("keeps the project switcher visible for a blocked non-admin", () => {
     render(<ConsentScreen />);
 
     expect(

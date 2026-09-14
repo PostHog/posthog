@@ -56,7 +56,13 @@ _JOB_ID = "01960000-0000-0000-0000-000000000000"
 
 
 def _stub_activities(
-    executed: list[str], *, is_v3: bool, consumer_manages_job_status: bool, skip_post_import_activities: bool = False
+    executed: list[str],
+    *,
+    is_v3: bool,
+    consumer_manages_job_status: bool,
+    skip_post_import_activities: bool = False,
+    fast_return_eligible: bool = False,
+    source_has_new_data: bool = True,
 ) -> list:
     @activity.defn(name="check_pipeline_version_activity")
     async def check_pipeline_version(inputs: CheckPipelineVersionActivityInputs) -> CheckPipelineVersionActivityOutputs:
@@ -85,6 +91,7 @@ def _stub_activities(
             enrichment_needed=True,
             statistics_needed=True,
             person_property_sync_enabled=True,
+            fast_return_eligible=fast_return_eligible,
         )
 
     @activity.defn(name="check_billing_limits_activity")
@@ -99,6 +106,12 @@ def _stub_activities(
     @activity.defn(name="import_data_activity_sync")
     async def import_data(inputs: ImportDataActivityInputs) -> PipelineResult:
         executed.append("import_data_activity_sync")
+        if inputs.fast_return_eligible and not source_has_new_data:
+            return PipelineResult(
+                should_trigger_cdp_producer=False,
+                skip_post_import_activities=True,
+                fast_returned=True,
+            )
         return PipelineResult(
             should_trigger_cdp_producer=False,
             consumer_manages_job_status=consumer_manages_job_status,
@@ -132,7 +145,12 @@ def _stub_activities(
 
 
 async def _run_workflow(
-    *, is_v3: bool, consumer_manages_job_status: bool, skip_post_import_activities: bool = False
+    *,
+    is_v3: bool,
+    consumer_manages_job_status: bool,
+    skip_post_import_activities: bool = False,
+    fast_return_eligible: bool = False,
+    source_has_new_data: bool = True,
 ) -> tuple[list[str], list[str]]:
     """Run the workflow with stubbed activities; return (executed activities + child starts in
     order, started child ids)."""
@@ -161,6 +179,8 @@ async def _run_workflow(
                     is_v3=is_v3,
                     consumer_manages_job_status=consumer_manages_job_status,
                     skip_post_import_activities=skip_post_import_activities,
+                    fast_return_eligible=fast_return_eligible,
+                    source_has_new_data=source_has_new_data,
                 ),
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -237,6 +257,34 @@ async def test_post_import_fork(
         # table, so it must keep starting from the workflow on every path.
         assert any(c.startswith("sync-warehouse-person-properties-") for c in child_ids)
         # Steps that don't read the loaded table stay inline.
+        assert "create_source_templates" in executed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fast_return_eligible,source_has_new_data,expect_fast_return",
+    [
+        pytest.param(True, False, True, id="eligible_and_source_unchanged_fast_returns"),
+        pytest.param(True, True, False, id="eligible_but_source_changed_syncs"),
+        pytest.param(False, False, False, id="not_eligible_runs_the_full_path"),
+    ],
+)
+async def test_fast_return_skips_post_import_only_when_the_source_is_unchanged(
+    fast_return_eligible: bool, source_has_new_data: bool, expect_fast_return: bool
+):
+    executed, child_ids = await _run_workflow(
+        is_v3=False,
+        consumer_manages_job_status=False,
+        fast_return_eligible=fast_return_eligible,
+        source_has_new_data=source_has_new_data,
+    )
+
+    assert "import_data_activity_sync" in executed
+    assert "update_external_data_job_model" in executed
+    if expect_fast_return:
+        assert "create_source_templates" not in executed
+        assert child_ids == []
+    else:
         assert "create_source_templates" in executed
 
 

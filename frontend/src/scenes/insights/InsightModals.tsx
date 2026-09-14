@@ -3,10 +3,12 @@ import { router } from 'kea-router'
 
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { INSIGHT_SCREENSHOT_KEY } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
@@ -41,6 +43,7 @@ export function InsightModals({ insightLogicProps }: { insightLogicProps: Insigh
             )}
 
             <InsightTerraformModalWrapper insightLogicProps={insightLogicProps} />
+            <ScreenShotEditor screenshotKey={INSIGHT_SCREENSHOT_KEY} />
         </>
     )
 }

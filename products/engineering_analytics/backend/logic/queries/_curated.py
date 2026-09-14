@@ -28,10 +28,13 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
+from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
+    TrunkQuarantineSource,
     resolve_github_tables,
     resolve_trunk_merge_queue_table,
+    resolve_trunk_quarantined_tests_source,
 )
 from products.engineering_analytics.backend.logic.views import (
     deployments,
@@ -40,6 +43,7 @@ from products.engineering_analytics.backend.logic.views import (
     pull_requests,
     team_members,
     trunk_merge_queue,
+    trunk_quarantined_tests,
     workflow_jobs,
     workflow_runs,
 )
@@ -141,6 +145,8 @@ class CuratedGitHubSource:
         self._user_access_control = user_access_control
         self._trunk_table: str | None = None
         self._trunk_table_resolved = False
+        self._trunk_quarantine_source: TrunkQuarantineSource | None = None
+        self._trunk_quarantine_resolved = False
 
     @property
     def team(self) -> Team:
@@ -189,7 +195,7 @@ class CuratedGitHubSource:
 
         ``created_floor`` adds the raw-string scan floor inside the builder — callers must register
         {job_created_floor} (see run_started_floor_constant). A windowed caller needs it: the builder's
-        ``is_rerun_copy`` window blocks an outer ``created_at_raw`` predicate from pruning the scan."""
+        ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it."""
         if not self._tables.workflow_jobs:
             return None
         return f"({workflow_jobs.build_query(self._tables.workflow_jobs, created_floor=created_floor)})"
@@ -205,6 +211,28 @@ class CuratedGitHubSource:
         if self._trunk_table is None:
             return None
         return f"({trunk_merge_queue.build_query(self._trunk_table)})"
+
+    def _trunk_quarantine(self) -> "TrunkQuarantineSource | None":
+        if not self._trunk_quarantine_resolved:
+            self._trunk_quarantine_source = resolve_trunk_quarantined_tests_source(
+                self._team, self.repository, self._user_access_control
+            )
+            self._trunk_quarantine_resolved = True
+        return self._trunk_quarantine_source
+
+    def trunk_quarantined_tests_source(self) -> str | None:
+        """Curated Trunk quarantined-tests ``SELECT`` subquery, or None when no TrunkIo source has
+        the QuarantinedTests endpoint synced or the requesting user can't access one; consumers
+        degrade to ``available: false``. Lazily resolved and cached like the merge-queue sibling."""
+        source = self._trunk_quarantine()
+        if source is None:
+            return None
+        return f"({trunk_quarantined_tests.build_query(source.table)})"
+
+    def trunk_org_url_slug(self) -> str | None:
+        """The TrunkIo source's org slug, for links into the Trunk app; None when unsynced or unset."""
+        source = self._trunk_quarantine()
+        return source.org_url_slug if source else None
 
     def members_source(self) -> str | None:
         """Curated team-membership ``SELECT`` subquery, or None when the optional table isn't synced."""
@@ -289,8 +317,8 @@ class CuratedGitHubSource:
         ``created_floor`` adds the raw-string scan floor inside the jobs builder — callers must
         register {job_created_floor} (see run_windowed_job_created_floor_constant, the right slack for
         the run-windowed predicates every cost query uses). Every windowed caller wants it: the cost
-        source's window predicates read the RUN's columns and so can never prune the jobs scan, which
-        the ``is_rerun_copy`` window would otherwise sort in full on every call.
+        source's window predicates read the RUN's columns and so can never prune the jobs scan, and
+        the ``is_rerun_copy`` duplicate scan would otherwise aggregate the full history on every call.
         """
         if not self._tables.workflow_jobs:
             return None
@@ -311,12 +339,25 @@ class CuratedGitHubSource:
         """
         return f"runs AS {self.run_source()}"
 
+    def _pr_scope_cte(self, pr_scope_where: str) -> str:
+        """CTE: the number and head SHA of PRs matching ``pr_scope_where`` (a predicate over
+        unqualified curated PR columns), read once and shared by both runs rollups below —
+        the same one-scan-per-query reasoning as ``runs_cte``, applied to the PR source.
+
+        The runs rollups only ever join back to PRs the consuming query keeps, so they
+        prefilter the runs scan to this set. Unscoped, they aggregate the team's whole
+        run history — millions of ``(head_sha, workflow)`` groups on a busy repo — and
+        the query runs out of memory before the join discards almost all of it.
+        """
+        return f"pr_scope AS (SELECT number, head_sha FROM {self.pr_source()} AS scope_pr WHERE {pr_scope_where})"
+
     def ci_rollup_cte(self) -> str:
         """CTE collapsing each head SHA's workflow runs into pass/fail/pending counts.
 
         Takes the latest run per ``(head_sha, workflow_name)`` via ``argMax`` (a PR's CI status
         is its newest run per workflow), then aggregates per SHA. Reads the shared ``runs`` CTE
-        (see ``runs_cte``); ``head_sha`` is the only link between a PR and its CI.
+        (see ``runs_cte``); ``head_sha`` is the only link between a PR and its CI. Scoped to the
+        ``pr_scope`` CTE the composing query adds (see ``_pr_scope_cte``).
         """
         return f"""
             ci_rollup AS (
@@ -324,13 +365,13 @@ class CuratedGitHubSource:
                     head_sha,
                     count() AS runs,
                     countIf(s = 'completed' AND c = 'success') AS passing,
-                    countIf(s = 'completed' AND c IN ('failure', 'timed_out')) AS failing,
+                    countIf(s = 'completed' AND c IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) AS failing,
                     -- s IS NULL: run_started_at parses to NULL on a bad/missing timestamp, and argMax
                     -- over an all-NULL group returns NULL — count those as pending, not vanished.
                     countIf(s IS NULL OR s != 'completed') AS pending,
                     -- The names behind `failing`, sorted for a stable order — the UI shows what is
                     -- failing under the CI tag instead of a bare count.
-                    arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ('failure', 'timed_out'))) AS failing_workflows
+                    arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}))) AS failing_workflows
                 FROM (
                     SELECT
                         head_sha,
@@ -338,23 +379,30 @@ class CuratedGitHubSource:
                         argMax(status, run_started_at) AS s,
                         argMax(conclusion, run_started_at) AS c
                     FROM runs AS r
+                    WHERE head_sha IN (SELECT head_sha FROM pr_scope)
                     GROUP BY head_sha, workflow_name
                 )
                 GROUP BY head_sha
             )
         """
 
-    def pr_rollup_query(self, select: str) -> str:
+    def pr_rollup_query(self, select: str, *, pr_scope_where: str) -> str:
         """Compose a pull-requests query that reads ``FROM __PR_SOURCE__ AS pr LEFT JOIN ci_rollup``.
 
-        Prefixes ``select`` with the CI rollup CTE and fills its ``__PR_SOURCE__`` placeholder
-        with the curated pull-requests source — the two steps the cards and PR-list queries always
-        do together.
+        Prefixes ``select`` with the ``pr_scope`` and CI rollup CTEs and fills its
+        ``__PR_SOURCE__`` placeholder with the curated pull-requests source — the steps the
+        cards and PR-list queries always do together. ``pr_scope_where`` must keep every PR the
+        ``select`` reads CI for (it prunes the rollup scan, see ``_pr_scope_cte``); a PR outside
+        it joins as if it had no runs.
         """
-        return self._compose_pr_query([self.runs_cte(), self.ci_rollup_cte()], select)
+        return self._compose_pr_query(
+            [self.runs_cte(), self._pr_scope_cte(pr_scope_where), self.ci_rollup_cte()], select
+        )
 
     def runs_by_pr_cte(self) -> str:
-        """CTE: per-PR activity from the workflow runs attributed to each PR.
+        """CTE: per-PR activity from the workflow runs attributed to each PR. Scoped to the
+        ``pr_scope`` CTE the composing query adds (see ``_pr_scope_cte``); the scope is a
+        prefilter — the repo-qualified join below still decides correctness.
 
         A run records the PR(s) it ran for in ``pull_requests``; the curated run source surfaces
         the first as ``pr_number``. ``pushes`` counts the distinct head SHAs that triggered CI
@@ -384,14 +432,21 @@ class CuratedGitHubSource:
                     countIf(run_attempt > 1) AS rerun_cycles
                 FROM runs AS r
                 WHERE pr_number > 0 AND NOT is_merge_queue
+                    AND pr_number IN (SELECT number FROM pr_scope)
                 GROUP BY repo_owner, repo_name, pr_number
             )
         """
 
-    def pr_list_rollup_query(self, select: str) -> str:
+    def pr_list_rollup_query(self, select: str, *, pr_scope_where: str) -> str:
         """``pr_rollup_query`` plus the per-PR runs rollup and, when it is observable, the
-        ``ready_by_pr`` rollup ``ready_to_merge_sql`` reads."""
-        ctes = [self.runs_cte(), self.ci_rollup_cte(), self.runs_by_pr_cte()]
+        ``ready_by_pr`` rollup ``ready_to_merge_sql`` reads. ``pr_scope_where`` scopes both
+        runs rollups via the shared ``pr_scope`` CTE (see ``pr_rollup_query``)."""
+        ctes = [
+            self.runs_cte(),
+            self._pr_scope_cte(pr_scope_where),
+            self.ci_rollup_cte(),
+            self.runs_by_pr_cte(),
+        ]
         ready_cte = self.ready_to_merge_sql().cte
         if ready_cte:
             ctes.append(ready_cte)

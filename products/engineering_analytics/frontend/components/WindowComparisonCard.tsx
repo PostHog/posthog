@@ -9,7 +9,17 @@ import { ReactNode } from 'react'
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import { DeltaBadge, percentChange, pointChange } from './MetricTile'
+import { cn } from 'lib/utils/css-classes'
+
+import { percent } from '../lib/format'
+import { DeltaBadge, percentChange, pointChange, type TileBenchmark } from './MetricTile'
+
+const BENCHMARK_EDGE_CLASS: Record<TileBenchmark['band'], string> = {
+    elite: 'border-l-success',
+    high: 'border-l-purple',
+    medium: 'border-l-warning',
+    low: 'border-l-danger',
+}
 
 function MagnitudeBar({
     fraction,
@@ -41,9 +51,8 @@ function MagnitudeBar({
 }
 
 function SplitBar({ rate }: { rate: number }): JSX.Element {
-    const passedPercent = Math.round(rate * 100)
     return (
-        <Tooltip title={`${passedPercent}% passed, ${100 - passedPercent}% failed`}>
+        <Tooltip title={`${percent(rate, 1)} passed, ${percent(1 - rate, 1)} failed`}>
             <div className="flex h-2.5 flex-1 overflow-hidden rounded-sm">
                 <div className="h-full bg-success" style={{ width: `${rate * 100}%` }} />
                 <div className="h-full flex-1 bg-danger" />
@@ -98,7 +107,9 @@ export function WindowComparisonCard({
     goodWhenDown = false,
     share = false,
     deltaUnit,
+    deltaPrecision,
     tooltip,
+    benchmark,
     marker,
     markerPrevious,
     markerLabel,
@@ -116,8 +127,11 @@ export function WindowComparisonCard({
     share?: boolean
     /** 'pt' renders the delta as percentage points; default is relative percent. */
     deltaUnit?: 'pt'
+    /** Decimal places shown in the delta badge. */
+    deltaPrecision?: number
     /** Definition or methodology, shown on title hover. */
     tooltip?: ReactNode
+    benchmark?: TileBenchmark | null
     /** A companion figure (e.g. p90) pinned as a tick on each magnitude bar, on the same scale as
      *  the value. Ignored in `share` mode, which has no scale to pin against. */
     marker?: number | null
@@ -126,14 +140,27 @@ export function WindowComparisonCard({
     loading?: boolean
     emptyText: string
 }): JSX.Element {
-    const max = Math.max(value ?? 0, previousValue ?? 0, marker ?? 0, markerPrevious ?? 0)
+    const max = Math.max(...[value, previousValue, marker, markerPrevious].map((number) => number ?? 0))
     const delta = deltaUnit === 'pt' ? pointChange(value, previousValue) : percentChange(value, previousValue)
+    const tooltipContent = benchmark ? (
+        <div className="flex flex-col gap-1">
+            {tooltip}
+            <div>
+                DORA band: {benchmark.label.toLowerCase()}. {benchmark.tooltip}
+            </div>
+        </div>
+    ) : (
+        tooltip
+    )
 
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col p-4">
+        <LemonCard
+            hoverEffect={false}
+            className={cn('flex flex-col p-4', benchmark && `border-l-4 ${BENCHMARK_EDGE_CLASS[benchmark.band]}`)}
+        >
             <h3 className="mb-1 text-xs font-semibold text-secondary">
-                {tooltip ? (
-                    <Tooltip title={tooltip}>
+                {tooltipContent ? (
+                    <Tooltip title={tooltipContent}>
                         <span className="cursor-default">{title}</span>
                     </Tooltip>
                 ) : (
@@ -150,7 +177,7 @@ export function WindowComparisonCard({
                             value={delta}
                             unit={deltaUnit ?? '%'}
                             goodWhenDown={goodWhenDown}
-                            vs="vs the previous window"
+                            precision={deltaPrecision}
                         />
                     </div>
                     <div className="flex flex-col gap-1.5">

@@ -76,6 +76,10 @@ class TestBugsnagSource:
             ("pivots", False),
             ("event_fields", False),
             ("trace_fields", False),
+            ("stability_trend", True),
+            ("trend", True),
+            ("release_groups", True),
+            ("pivot_values", False),
         ]
     )
     def test_should_sync_default(self, endpoint: str, expected_default: bool) -> None:
@@ -113,6 +117,10 @@ class TestBugsnagSource:
             ("collaborators", ["id", "organization_id"]),
             ("errors", ["id", "project_id"]),
             ("event_fields", ["display_id", "project_id"]),
+            ("stability_trend", ["project_id", "bucket_start"]),
+            ("trend", ["project_id", "from"]),
+            ("release_groups", ["id", "project_id"]),
+            ("pivot_values", ["project_id", "event_field_display_id", "event_field_value"]),
         ]
     )
     def test_source_response_primary_keys(self, endpoint: str, expected_keys: list[str]) -> None:
@@ -126,10 +134,15 @@ class TestBugsnagSource:
         # Fan-out children aggregate rows from every parent, so the parent id injected into each row
         # must be part of the primary key — otherwise per-parent-unique ids collide table-wide and
         # seed duplicate rows that slow every subsequent merge.
+        project_scopes = {
+            BugsnagScope.PER_PROJECT,
+            BugsnagScope.PER_PROJECT_RELEASE_STAGE,
+            BugsnagScope.PER_PROJECT_PIVOT,
+        }
         for config in BUGSNAG_ENDPOINTS.values():
             if config.scope is BugsnagScope.PER_ORG:
                 assert "organization_id" in config.primary_keys, config.name
-            elif config.scope is BugsnagScope.PER_PROJECT:
+            elif config.scope in project_scopes:
                 assert "project_id" in config.primary_keys, config.name
 
     @parameterized.expand(

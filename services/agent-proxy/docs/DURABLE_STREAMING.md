@@ -60,11 +60,14 @@ Ranked by how much it matters for the current use case (watching a live agent ru
    comment in `src/lib/types.ts` and `DESIGN.md`). Closing it means either a
    client-visible "you missed events from A to B" signal, a backfill from durable storage,
    or both.
-2. **Bounded retention.** "Durable" here means roughly a 6h TTL plus a ~20k event
-   `MAXLEN` (`STREAM_TTL_SECONDS`, `STREAM_MAX_LENGTH` in `src/lib/constants.ts`), after
-   which data is gone. That bound is the cause of gap awareness above. It is fine for
-   watching a run live, but not for replaying a run's stream much later. If long replay
-   becomes a goal, this is the lever.
+2. **Bounded retention.** "Durable" here means a sliding 6h TTL while the run is live,
+   a 30 minute drain window after the terminal sentinel, and a 5,000 event `MAXLEN`
+   (`STREAM_TTL_SECONDS`, `STREAM_COMPLETED_TTL_SECONDS`, `STREAM_MAX_LENGTH` in
+   `src/lib/constants.ts`), after which data is gone. A reader arriving after expiry gets
+   `Stream not available`; the durable transcript lives in the run's session logs
+   (`session_logs` on the task-run API). That bound is the cause of gap awareness above.
+   It is fine for watching a run live, but not for replaying a run's stream much later.
+   If long replay becomes a goal, this is the lever.
 3. **No "caught up to the tail" signal.** A reader cannot tell when it transitions from
    replaying history to being live at the tail. This is minor for a live UI, which just
    keeps tailing, but it is a real durable-streaming concept that is not exposed.
@@ -93,7 +96,7 @@ Ranked by how much it matters for the current use case (watching a live agent ru
 | Backpressure to slow readers                 | Have                                      |
 | Multi-reader fan-out                         | Have                                      |
 | Gap awareness on trimmed resume              | **Missing** (detected, not signalled)     |
-| Retention beyond ~6h / ~20k                  | **Partial** (bounded, then dropped)       |
+| Retention beyond 6h live / 30m terminal      | **Partial** (bounded, then dropped)       |
 | Caught-up-to-tail signal                     | Missing                                   |
 | Producer fencing across writers              | Partial (single-producer by construction) |
 | Forking / subscriptions / consumer groups    | Missing (not needed)                      |

@@ -1,9 +1,9 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 /**
- * Batch accounting shared by the HTTP and gRPC ingest transports. The
- * processor autoscaler reads these series, so a transport that skips them
- * makes its pods look idle to KEDA however much work they hold.
+ * Batch accounting for the ingest stream. The processor autoscaler reads
+ * these series, so a path that skips them makes its pods look idle to KEDA
+ * however much work they hold.
  */
 
 const batchesProcessed = new Counter({
@@ -25,11 +25,6 @@ const messagesProcessed = new Counter({
 const batchErrors = new Counter({
     name: 'ingestion_api_batch_errors_total',
     help: 'Total number of batch processing errors',
-})
-
-const batchCapacityRejections = new Counter({
-    name: 'ingestion_api_batch_capacity_rejections_total',
-    help: 'Total number of batches rejected because the pipeline was at concurrent batch capacity',
 })
 
 const batchesInFlight = new Gauge({
@@ -82,10 +77,6 @@ export function batchProcessed(batch: AcceptedBatch): void {
 
 export function batchFailed(): void {
     batchErrors.inc()
-}
-
-export function batchRejectedAtCapacity(): void {
-    batchCapacityRejections.inc()
 }
 
 /** The batch left the pipeline, acked or failed: free its slot and credit its event-seconds. */

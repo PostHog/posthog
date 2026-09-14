@@ -10,7 +10,10 @@ check must not take down the rest of its suite.
 import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from enum import Enum, auto
 from typing import TYPE_CHECKING, Any
+
+from django.db import transaction
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import execute_hogql_query
@@ -23,18 +26,26 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from ..facade.enums import CheckRunStatus, CheckSeverity, SubjectStatus, SuiteRunTrigger
-from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from ..facade.enums import CheckRunStatus, CheckSeverity, SubjectStatus, SubjectType, SuiteRunTrigger
+from ..models import DataQualityCheck, DataQualitySuiteRun
 from .compiler import compile_check, related_subject_ref
-from .contracts import CompiledCheck, Evaluation
+from .contracts import CompiledCheck, Evaluation, SubjectRef
 from .notifications import notify_check_started_failing
+from .run_records import record_check_run
 from .staged_audit import StagedSubjectOverride, build_staged_database
 from .subject_access import check_type_reads_beyond_subject, pin_referenced_subjects
 from .subjects import resolve_subject
+from .types.common import within_bounds
 
 QUERY_TYPE = "data_quality_check"
 
+FAILING_STATUSES = (CheckRunStatus.FAILED, CheckRunStatus.ERRORED)
+
 STAGED_FILES_UNREADABLE = "The staged files could not be read, so this data was not audited."
+
+
+class _ReferenceState(Enum):
+    NOT_SUPPLIED = auto()
 
 
 @dataclass(frozen=True)
@@ -47,6 +58,7 @@ class CheckOutcome:
     compiled_query: str = ""
     error: str = ""
     became_failing: bool = False
+    referenced_subjects: list[dict[str, str]] | None | _ReferenceState = _ReferenceState.NOT_SUPPLIED
 
 
 def run_check(
@@ -82,7 +94,13 @@ def run_check(
         _update_check(check, outcome)
 
     if became_failing:
-        notify_check_started_failing(check, outcome.failed_row_count)
+        notify_check_started_failing(
+            check,
+            outcome.failed_row_count,
+            executed_references=None
+            if outcome.referenced_subjects is _ReferenceState.NOT_SUPPLIED
+            else outcome.referenced_subjects,
+        )
     return replace(outcome, became_failing=became_failing)
 
 
@@ -142,6 +160,8 @@ def _authorize(check: DataQualityCheck, suite_run: DataQualitySuiteRun) -> _Auth
       authorize against, returning ``None`` errors the run rather than bypassing the ACL.
     """
     if suite_run.trigger == SuiteRunTrigger.MANUAL:
+        if suite_run.created_by is None and check_type_reads_beyond_subject(check.check_type):
+            return None
         return _Authorization(run_as=suite_run.created_by, bypass=suite_run.created_by is None)
     if not check_type_reads_beyond_subject(check.check_type):
         return _Authorization(run_as=None, bypass=True)
@@ -210,7 +230,7 @@ def _execute(
     if authorization is None:
         return CheckOutcome(
             status=CheckRunStatus.ERRORED,
-            error="An automated check that reads another subject needs an author to authorize its warehouse access.",
+            error="A check that reads another subject needs an initiator or author to authorize its warehouse access.",
         )
 
     related = related_subject_ref(check.check_type, check.config)
@@ -221,6 +241,29 @@ def _execute(
         config=check.config,
         related_subject=resolve_subject(team.id, *related) if related else None,
     )
+    if staged is not None and subject.subject_type == SubjectType.METRIC:
+        return CheckOutcome(status=CheckRunStatus.ERRORED, error="Metric checks cannot audit staged data.")
+    referenced_subjects = pin_referenced_subjects(team.id, check.check_type, check.config, subject=subject)
+    try:
+        outcome = _execute_compiled(check, subject, compiled, team, authorization, staged, staged_database_cache)
+    except Exception as err:
+        outcome = CheckOutcome(
+            status=CheckRunStatus.ERRORED,
+            error=str(err),
+            compiled_query=compiled.printed_failing_rows_query,
+        )
+    return replace(outcome, referenced_subjects=referenced_subjects)
+
+
+def _execute_compiled(
+    check: DataQualityCheck,
+    subject: SubjectRef,
+    compiled: CompiledCheck,
+    team: Team,
+    authorization: _Authorization,
+    staged: StagedSubjectOverride | None,
+    staged_database_cache: "dict[Any, Database | None] | None",
+) -> CheckOutcome:
     database = _staged_database(team, staged, authorization, staged_database_cache) if staged is not None else None
     if staged is not None and database is None:
         # Falling back to the unmodified database would read the live view and rule on data the
@@ -279,7 +322,11 @@ def _interpret(
     observed = _as_float(row.get("observed_value"))
 
     if compiled.evaluation is Evaluation.BOUNDS:
-        status = CheckRunStatus.PASSED if _within_bounds(observed, config) else CheckRunStatus.FAILED
+        status = (
+            CheckRunStatus.PASSED
+            if within_bounds(observed, config.get("min"), config.get("max"))
+            else CheckRunStatus.FAILED
+        )
         failed_row_count = None
     else:
         failed_row_count = int(row.get("failure_count") or 0)
@@ -291,15 +338,6 @@ def _interpret(
         observed_value=observed,
         compiled_query=compiled.printed_failing_rows_query,
     )
-
-
-def _within_bounds(observed: float | None, config: dict[str, Any]) -> bool:
-    if observed is None:
-        return False
-    minimum, maximum = config.get("min"), config.get("max")
-    if minimum is not None and observed < minimum:
-        return False
-    return not (maximum is not None and observed > maximum)
 
 
 def _as_float(value: Any) -> float | None:
@@ -318,8 +356,8 @@ def _record_run(
 ) -> None:
     if check.subject_uuid is None:
         return
-    DataQualityCheckRun.objects.for_team(check.team_id).create(
-        team_id=check.team_id,
+    record_check_run(
+        check.team_id,
         quality_check=check,
         suite_run=suite_run,
         subject_type=check.subject_type,
@@ -330,7 +368,16 @@ def _record_run(
         column_name=check.column_name,
         check_config=check.config,
         check_severity=check.severity,
-        referenced_subjects=pin_referenced_subjects(check.team_id, check.check_type, check.config),
+        referenced_subjects=(
+            outcome.referenced_subjects
+            if outcome.referenced_subjects is not _ReferenceState.NOT_SUPPLIED
+            else pin_referenced_subjects(
+                check.team_id,
+                check.check_type,
+                check.config,
+                subject=resolve_subject(check.team_id, check.subject_type, check.subject_uuid),
+            )
+        ),
         status=outcome.status,
         failed_row_count=outcome.failed_row_count,
         observed_value=outcome.observed_value,
@@ -343,13 +390,40 @@ def _record_run(
 
 
 def _update_check(check: DataQualityCheck, outcome: CheckOutcome) -> None:
+    ran_at = datetime.now(UTC)
     check.last_status = outcome.status
-    check.last_run_at = datetime.now(UTC)
+    check.last_run_at = ran_at
     updated = ["last_status", "last_run_at", "subject_name", "subject_status", "updated_at"]
     if outcome.status is CheckRunStatus.PASSED:
-        check.last_succeeded_at = check.last_run_at
+        check.last_succeeded_at = ran_at
         # Written only by the run that earned it. A failing run holds whatever this row said when its
         # batch loaded it, so listing the column unconditionally would let it overwrite a success a
         # concurrent run committed in between.
         updated.append("last_succeeded_at")
-    check.save(update_fields=updated)
+    if outcome.status not in FAILING_STATUSES:
+        # Any run that did not fail ends the streak: a pass clears it, and a skipped run (its subject
+        # deleted or unresolved) is not a failure to measure from. Cleared unconditionally, unlike the
+        # guarded claim below, because only a failing run holds whatever this row said when its batch
+        # loaded it -- so only it must defer to the conditional update rather than overwrite a state a
+        # concurrent run committed in between.
+        check.failing_since = None
+        updated.append("failing_since")
+    # One transaction, so the row lock the status write takes is held across the streak claim. Apart,
+    # the two commit separately and a concurrent pass can land in the gap: the claim then matches
+    # failing_since IS NULL and stamps a streak onto a row that already reads passed.
+    with transaction.atomic():
+        check.save(update_fields=updated)
+        if outcome.status in FAILING_STATUSES:
+            _claim_failing_streak(check, ran_at)
+
+
+def _claim_failing_streak(check: DataQualityCheck, failed_at: datetime) -> None:
+    claimed = (
+        DataQualityCheck.objects.for_team(check.team_id)
+        .filter(id=check.id, failing_since__isnull=True)
+        .update(failing_since=failed_at)
+    )
+    if claimed:
+        check.failing_since = failed_at
+        return
+    check.refresh_from_db(fields=["failing_since"])

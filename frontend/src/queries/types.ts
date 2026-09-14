@@ -1,4 +1,4 @@
-import { ComponentType, HTMLProps } from 'react'
+import { CSSProperties, ComponentType, HTMLProps } from 'react'
 
 import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 
@@ -20,6 +20,8 @@ import { DataTableRow } from './nodes/DataTable/dataTableLogic'
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
+    tableLayout?: 'auto' | 'fixed'
+    tableStyle?: CSSProperties
     /** used to override the value in the query */
     showOpenEditorButton?: boolean
     showQueryEditor?: boolean
@@ -49,6 +51,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     showLoadNextButton?: boolean
     /** Allow customization of file name when exporting */
     fileNameForExport?: string
+    dataTableExportExcludedColumns?: string[]
     /** Cohort ID to enable cohort-specific features like View Replays button */
     cohortId?: number | null
     /** Custom column features to pass down to the DataTable */
@@ -57,6 +60,14 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataNodeLogicKey?: string
     /** Override the maximum pagination limit for Data Tables. */
     dataTableMaxPaginationLimit?: number
+    /** Stop Data Table pagination after this many accumulated rows. */
+    dataTableMaxPaginationRows?: number
+    /** Keep the Data Table toolbar fixed while its table content scrolls. */
+    dataTableAllowContentScroll?: boolean
+    /** Override the nouns used by Data Table counts and pagination. */
+    dataTableNouns?: [string, string]
+    compactDataTableToolbar?: boolean
+    hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */
     expandable?: ExpandableConfig<DataTableRow>
     /** Ignore action/event names in series labels (show only breakdown/compare values) */
@@ -82,6 +93,13 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
      * (e.g. the Error tracking insights tab) and the suggestions would not be actionable.
      */
     suppressSlowQuerySuggestions?: boolean
+    /**
+     * Let this table's event pickers offer events whose data is moving out of the `events` table.
+     * Set it where the pick is thrown away with the page. A surface whose query gets saved (an
+     * insight, a dashboard tile, a notebook, a table view) leaves it unset, so it stops saving a
+     * filter that returns nothing once the data moves. See `TaxonomicFilterProps.includeHiddenEvents`.
+     */
+    includeHiddenEvents?: boolean
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{
@@ -104,7 +122,10 @@ export interface QueryContextColumn {
     renderTitle?: QueryContextColumnTitleComponent
     render?: QueryContextColumnComponent
     align?: 'left' | 'right' | 'center' // default is left
-    width?: string
+    width?: string | number
+    resizable?: boolean
+    onResize?: (width: number) => void
+    onResizeEnd?: () => void
     hidden?: boolean // don't show this column in the table
     isRowFillFraction?: boolean // if true, this row will be filled with a background color based on the value (from 0 to 1)
 }

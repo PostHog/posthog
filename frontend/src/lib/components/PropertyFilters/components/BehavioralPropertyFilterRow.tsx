@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconFilter } from '@posthog/icons'
@@ -121,6 +122,7 @@ export function BehavioralPropertyFilterRow({
     const countValue = filter.operator_value ?? 1
 
     const setCount = (operator: PropertyOperator, operatorValue: number): void => {
+        posthog.capture('behavioral filter count changed', { operator, operator_value: operatorValue })
         onChange(withBehavioralCount(filter, operator, operatorValue))
     }
 
@@ -131,7 +133,12 @@ export function BehavioralPropertyFilterRow({
                     <LemonSelect
                         size={size}
                         value={!!filter.negation}
-                        onChange={(negation) => onChange(withBehavioralNegation(filter, negation))}
+                        onChange={(negation) => {
+                            posthog.capture('behavioral filter behavior changed', {
+                                behavior: negation ? 'did_not_perform' : 'performed',
+                            })
+                            onChange(withBehavioralNegation(filter, negation))
+                        }}
                         options={[
                             { value: false, label: 'Performed' },
                             { value: true, label: 'Did not perform' },
@@ -149,14 +156,14 @@ export function BehavioralPropertyFilterRow({
                                 }
                                 groupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                                 value={filter.event_type === 'actions' ? Number(filter.key) : filter.key}
-                                onChange={(value, groupType) =>
-                                    onChange({
-                                        ...filter,
-                                        key: String(value),
-                                        event_type:
-                                            groupType === TaxonomicFilterGroupType.Actions ? 'actions' : 'events',
+                                onChange={(value, groupType) => {
+                                    const eventType =
+                                        groupType === TaxonomicFilterGroupType.Actions ? 'actions' : 'events'
+                                    posthog.capture('behavioral filter event or action changed', {
+                                        event_type: eventType,
                                     })
-                                }
+                                    onChange({ ...filter, key: String(value), event_type: eventType })
+                                }}
                                 renderValue={() => <span>{behavioralEntityLabel(filter, actionsById)}</span>}
                                 placeholder="Select an event or action"
                                 fullWidth
@@ -219,13 +226,26 @@ export function BehavioralPropertyFilterRow({
                         min={1}
                         className="w-14"
                         value={filter.time_value ?? 30}
-                        onChange={(timeValue) => onChange({ ...filter, time_value: positiveOr(timeValue, 30) })}
+                        onChange={(timeValue) => {
+                            const nextTimeValue = positiveOr(timeValue, 30)
+                            posthog.capture('behavioral filter time period changed', {
+                                time_value: nextTimeValue,
+                                time_interval: filter.time_interval ?? TimeUnitType.Day,
+                            })
+                            onChange({ ...filter, time_value: nextTimeValue })
+                        }}
                         data-attr="behavioral-filter-time-value"
                     />
                     <LemonSelect
                         size={size}
                         value={filter.time_interval ?? TimeUnitType.Day}
-                        onChange={(timeInterval) => onChange({ ...filter, time_interval: timeInterval })}
+                        onChange={(timeInterval) => {
+                            posthog.capture('behavioral filter time period changed', {
+                                time_value: filter.time_value ?? 30,
+                                time_interval: timeInterval,
+                            })
+                            onChange({ ...filter, time_interval: timeInterval })
+                        }}
                         options={TIME_INTERVAL_OPTIONS}
                         data-attr="behavioral-filter-time-interval"
                     />

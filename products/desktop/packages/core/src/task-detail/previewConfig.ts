@@ -1,4 +1,5 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import type { TaskRunDefaults } from "@posthog/api-client/posthog-client";
 import { flattenConfigValues } from "@posthog/core/task-detail/configOptions";
 import type { Adapter } from "@posthog/shared";
 import { EFFORT_LEVELS } from "@posthog/shared/domain-types";
@@ -15,7 +16,7 @@ export interface PreviewSettingsSnapshot {
   lastUsedFastMode?: boolean | null;
 }
 
-export interface EffortOption {
+interface EffortOption {
   value: string;
 }
 
@@ -129,6 +130,90 @@ export function deriveInitialConfig(
     }
     return opt;
   });
+}
+
+/** The subset of the tasks backend's resolved AI run defaults the composer acts on. */
+export type PreferredRunDefaults = Pick<
+  TaskRunDefaults,
+  "runtime_adapter" | "model" | "reasoning_effort"
+>;
+
+export interface PreferredRunSelection {
+  model: string;
+  reasoningEffort: string | null;
+}
+
+/**
+ * The model and effort the composer should open on, taken from the project or
+ * user preference stored server-side. Returns null when the preference doesn't
+ * apply, leaving the caller on its built-in fallback:
+ *
+ * - `lastUsedModel` or `lastUsedReasoningEffort` is set — an explicit pick on
+ *   this device outranks a preference, which must never silently move a model
+ *   or effort someone chose.
+ * - no default is stored.
+ * - the preference names a different harness, so its model is meaningless here.
+ * - this adapter no longer offers the model (a de-listed id would fail the run
+ *   at the gateway rather than launching on something usable).
+ */
+export function pickPreferredRunSelection(
+  defaults: PreferredRunDefaults | null | undefined,
+  adapter: Adapter,
+  modelOption: SessionConfigOption | undefined,
+  lastUsedModel: string | null | undefined,
+  lastUsedReasoningEffort: string | null | undefined,
+): PreferredRunSelection | null {
+  if (lastUsedModel || lastUsedReasoningEffort) return null;
+  const model = defaults?.model;
+  if (!model) return null;
+  if (defaults?.runtime_adapter && defaults.runtime_adapter !== adapter) {
+    return null;
+  }
+  if (
+    modelOption?.type !== "select" ||
+    !flattenConfigValues(modelOption).includes(model)
+  ) {
+    return null;
+  }
+  return { model, reasoningEffort: defaults?.reasoning_effort || null };
+}
+
+/**
+ * The harness the configured default (user's, else the team's) runs on, when
+ * both a model and a known adapter are stored. The composer's harness is a
+ * separate local setting, so a caller adopting the default must move it too —
+ * a Claude default is unreachable from a composer left on Codex.
+ */
+export function preferredRunAdapter(
+  defaults: PreferredRunDefaults | null | undefined,
+): Adapter | null {
+  if (!defaults?.model) return null;
+  return defaults.runtime_adapter === "claude" ||
+    defaults.runtime_adapter === "codex"
+    ? defaults.runtime_adapter
+    : null;
+}
+
+/**
+ * Whether the composer's current selection sits exactly on the configured
+ * project/user default (as resolved by pickPreferredRunSelection) — the marker
+ * condition for "Default ·" and for greying out the reset. False whenever no
+ * preference applies to this surface: a fallback selection is not the default,
+ * it just is what's left. An explicit effort pick against an effort-less
+ * preference is a deviation, since a reset would put the effort back on the
+ * model's own default.
+ */
+export function matchesPreferredRunSelection(
+  preferred: PreferredRunSelection | null,
+  current: { model: string | undefined; reasoningEffort: string | undefined },
+  hasExplicitEffortPick: boolean,
+): boolean {
+  if (!preferred) return false;
+  if (current.model !== preferred.model) return false;
+  if (preferred.reasoningEffort) {
+    return current.reasoningEffort === preferred.reasoningEffort;
+  }
+  return !hasExplicitEffortPick;
 }
 
 export interface ApplyConfigChangeArgs {

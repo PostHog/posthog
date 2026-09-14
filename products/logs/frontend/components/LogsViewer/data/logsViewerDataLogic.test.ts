@@ -385,6 +385,18 @@ describe('logsViewerDataLogic', () => {
             }).toDispatchActions(['handleQueryChange', 'runQuery'])
         })
 
+        it('a manual refresh runs the query and bumps the facet refresh so the rail re-fetches its counts', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.refreshQuery()
+            }).toDispatchActions(['runQuery', filtersLogic.actionCreators.bumpFacetRefresh()])
+        })
+
+        it('an automatic query run does not bump the facet refresh', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.runQuery()
+            }).toNotHaveDispatchedActions([filtersLogic.actionCreators.bumpFacetRefresh()])
+        })
+
         it('setFilters triggers runQuery', async () => {
             await expectLogic(logic, () => {
                 filtersLogic.actions.setFilters({ searchTerm: 'new search' })

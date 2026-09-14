@@ -2,8 +2,7 @@
 name: signals-scout-observability-gaps
 description: >
   Signals scout for observability gaps — significant event volumes with no insight, dashboard,
-  or alert coverage. Files a report recommending new insights, dashboards, or alerts as the
-  team's product evolves.
+  or alert coverage. Recommends new insights, dashboards, or alerts as the product evolves.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the analytics and entity
@@ -162,7 +161,7 @@ The bar trades off:
 
 Then, for each candidate that clears the bar:
 
-- **Edit** when a still-live report already recommends this gap and its evidence has only moved (volume climbed further, reach widened) — `append_note` the fresh numbers rather than minting a near-duplicate.
+- **Edit** when a still-live report already recommends this gap and its evidence has only moved (volume climbed further, reach widened) — add the fresh numbers with `append_evidence` rather than minting a near-duplicate.
 - **Author** a fresh report only when nothing live covers the gap. Recommendations are investigations, not code fixes → `actionability=requires_human_input` + `repository=NO_REPO`. Priority is almost always **P3** (a suggestion); a critical failure-semantics event (family 3 — `payment_failed`, `*_error`, `*_blocked`) firing with zero alert coverage is **P2**.
 - **Remember / Park** a below-bar candidate via the watch lifecycle below.
 - **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report, already covers it.

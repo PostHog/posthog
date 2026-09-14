@@ -4,12 +4,12 @@ import { createContext, useContext, useState } from 'react'
 import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { Experiment, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
+
 import {
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
     EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS,
-} from '~/scenes/experiments/constants'
-import { Experiment, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
-
+} from 'products/experiments/frontend/constants'
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
     legacyCalculateDelta,

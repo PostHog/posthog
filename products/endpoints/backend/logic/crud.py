@@ -26,8 +26,7 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.types import InsightQueryNode
 
-from products.data_modeling.backend.facade.api import delete_node_from_dag
-from products.data_warehouse.backend.facade.api import trigger_saved_query_schedule
+from products.data_modeling.backend.facade.api import delete_node_from_dag, materialize_saved_query
 from products.endpoints.backend.constants import DEFAULT_DATA_FRESHNESS_SECONDS
 from products.endpoints.backend.logic.activity import EndpointContext
 from products.endpoints.backend.logic.materialization import EndpointMaterializationService
@@ -223,7 +222,7 @@ class EndpointCrudService:
             )
 
             step = "version_fields"
-            self._apply_version_field_updates(target_version, data, raw_data, version_targeted)
+            self._apply_version_field_updates(endpoint, target_version, data, raw_data, version_targeted)
 
             step = "materialization"
             materialization_error = self._reconcile_materialization(
@@ -307,6 +306,7 @@ class EndpointCrudService:
 
     def _apply_version_field_updates(
         self,
+        endpoint: Endpoint,
         target_version: EndpointVersion,
         data: EndpointRequest,
         raw_data: dict,
@@ -333,6 +333,9 @@ class EndpointCrudService:
         if update_fields:
             update_fields.append("updated_at")
             target_version.save(update_fields=update_fields)
+        if {"data_freshness_seconds", "optional_breakdown_properties"} & set(update_fields):
+            # Both fields are part of the cached serving snapshot the throttle classifies from.
+            clear_endpoint_materialization_cache(self.team.pk, endpoint.name, versions=[target_version.version])
 
     def _reconcile_materialization(
         self,
@@ -394,7 +397,7 @@ class EndpointCrudService:
                 # enable only triggers an immediate Temporal run when it creates the schedule;
                 # changed bucketing on an existing materialization needs an explicit refresh.
                 try:
-                    trigger_saved_query_schedule(target_version.saved_query)
+                    materialize_saved_query(target_version.saved_query)
                 except Exception:
                     logger.warning(
                         "failed_to_trigger_materialization_refresh",

@@ -63,10 +63,12 @@ from .send_permission_response_to_sandbox import (
 )
 from .slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .start_agent_server import (
+    CollectAgentShadowResultInput,
     MarkRepoReadyInput,
     StartAgentServerInput,
     StartAgentServerOutput,
     await_agent_server_ready,
+    collect_agent_shadow_result,
     launch_agent_server,
     mark_repo_ready,
     start_agent_server,
@@ -84,6 +86,7 @@ from .update_task_run_status import UpdateTaskRunStatusInput, update_task_run_st
 
 __all__ = [
     "CleanupSandboxInput",
+    "CollectAgentShadowResultInput",
     "CompleteRunStreamInput",
     "CreateResumeSnapshotInput",
     "CreateResumeSnapshotOutput",
@@ -158,6 +161,7 @@ __all__ = [
     "start_agent_server",
     "launch_agent_server",
     "await_agent_server_ready",
+    "collect_agent_shadow_result",
     "mark_repo_ready",
     "track_workflow_event",
     "update_task_run_status",

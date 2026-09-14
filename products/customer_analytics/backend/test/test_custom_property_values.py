@@ -273,6 +273,20 @@ class TestSetCustomPropertyValue(BaseTest):
         with pytest.raises(IntegrityError):
             self._set(definition=definition, value="enterprise")
 
+    @patch(f"{LOGIC_MODULE}.CustomPropertyValue")
+    def test_losing_the_active_value_clear_race_surfaces_as_a_conflict(self, mock_value_model):
+        definition = self._create_property_definition()
+        active_rows = mock_value_model.objects.for_team.return_value.filter.return_value
+        active_rows.first.return_value = MagicMock(id=uuid4())
+        active_rows.filter.return_value.update.return_value = 0
+
+        with pytest.raises(CustomPropertyValueConflict):
+            set_account_custom_properties_by_id(
+                team_id=self.team.id,
+                account_id=self.account.id,
+                properties={str(definition.id): None},
+            )
+
 
 class TestSetAccountCustomPropertiesById(BaseTest):
     def setUp(self):
@@ -625,6 +639,33 @@ class TestSetExternalAccountCustomProperties(BaseTest):
         assert result.values is not None
         assert {(v.value) for v in result.values} == {"enterprise", 42.0}
 
+    def test_batch_clears_an_active_value_and_returns_only_set_values(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)
+        seats = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER)
+        region = create_custom_property_definition(team_id=self.team.id, name="Region", display_type=DisplayType.TEXT)
+        facade.set_external_account_custom_properties(
+            self.team.id, "acme-1", properties={str(plan.id): "enterprise", str(region.id): "US"}
+        )
+
+        result = facade.set_external_account_custom_properties(
+            self.team.id, "acme-1", properties={str(plan.id): None, str(seats.id): 42}
+        )
+
+        assert result.error is None
+        assert result.values is not None
+        assert [(value.definition_id, value.value) for value in result.values] == [(seats.id, 42.0)]
+        assert (
+            not CustomPropertyValue.objects.for_team(self.team.id)
+            .filter(account=self.account, definition=plan, is_deleted=False)
+            .exists()
+        )
+        assert (
+            CustomPropertyValue.objects.for_team(self.team.id)
+            .get(account=self.account, definition=region, is_deleted=False)
+            .value_str
+            == "US"
+        )
+
     def test_unknown_external_id_returns_account_not_found(self):
         plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
         result = facade.set_external_account_custom_properties(self.team.id, "missing", properties={str(plan.id): "x"})
@@ -662,7 +703,9 @@ class TestSetExternalAccountCustomProperties(BaseTest):
 class TestCustomPropertyDefinitionReferences(BaseTest):
     def _uac(self, *, can_read_workflows: bool = True) -> MagicMock:
         uac = MagicMock()
-        uac.check_access_level_for_resource.return_value = can_read_workflows
+        uac.filter_queryset_by_access_level.side_effect = lambda queryset: (
+            queryset if can_read_workflows else queryset.none()
+        )
         return uac
 
     def _create_workflow_setting(self, definition_id: str, *, name: str = "Onboarding", status: str = "active"):
@@ -695,9 +738,10 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
         assert [(r.id, r.name, r.status, r.type) for r in by_id[plan.id].references] == [
             (str(workflow.id), "Onboarding", "active", "workflow")
         ]
-        # A definition no workflow references carries an empty list.
+        assert by_id[plan.id].has_workflow_reference is True
         unused = next(v for v in page if v.name == "Unused")
         assert unused.references == []
+        assert unused.has_workflow_reference is False
 
     def test_reference_matches_id_not_name(self):
         # A workflow keyed by a stale/foreign id must not attach to a same-named definition.
@@ -722,6 +766,28 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
         assert [(r.id, r.name, r.status, r.type) for r in view.references] == [
             (str(workflow.id), "Onboarding", "active", "workflow")
         ]
+        assert view.has_workflow_reference is True
+
+    def test_update_attaches_workflow_references_for_workflow_viewers(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        workflow = self._create_workflow_setting(str(plan.id))
+
+        with team_scope(self.team.id):
+            view = facade.update_custom_property_definition(
+                team_id=self.team.id,
+                definition_id=str(plan.id),
+                fields={"description": "Customer plan"},
+                organization_id=self.organization.id,
+                user=self.user,
+                was_impersonated=False,
+                user_access_control=self._uac(),
+            )
+
+        assert view is not None
+        assert [(r.id, r.name, r.status, r.type) for r in view.references] == [
+            (str(workflow.id), "Onboarding", "active", "workflow")
+        ]
+        assert view.has_workflow_reference is True
 
     def test_references_hidden_without_workflow_read_access(self):
         # references expose HogFlow metadata, so a caller without hog_flow read access sees none.
@@ -736,6 +802,28 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
                 self.team.id, str(plan.id), user_access_control=self._uac(can_read_workflows=False)
             )
 
-        assert next(v for v in page if v.id == plan.id).references == []
+        list_view = next(v for v in page if v.id == plan.id)
+        assert list_view.references == []
+        assert list_view.has_workflow_reference is True
         assert view is not None
         assert view.references == []
+        assert view.has_workflow_reference is True
+
+    def test_update_preserves_workflow_reference_presence_when_details_are_hidden(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        self._create_workflow_setting(str(plan.id))
+
+        with team_scope(self.team.id):
+            view = facade.update_custom_property_definition(
+                team_id=self.team.id,
+                definition_id=str(plan.id),
+                fields={"description": "Customer plan"},
+                organization_id=self.organization.id,
+                user=self.user,
+                was_impersonated=False,
+                user_access_control=self._uac(can_read_workflows=False),
+            )
+
+        assert view is not None
+        assert view.references == []
+        assert view.has_workflow_reference is True

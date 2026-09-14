@@ -13,6 +13,8 @@ rules:
       owners: team-product-analytics
     - match: '/mixins.py'
       owners: team-devex
+    - match: ['/test/test_project.py', '/test/test_team.py']
+      owners: team-platform-features
     - match: ['/person.py', '/test/test_person.py', '/test/test_person_personhog.py']
       owners: team-product-analytics
     - match: ['/proxy_record.py', '/proxy_record_diagnostics.py', '/resource_transfer.py']

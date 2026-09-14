@@ -2,7 +2,7 @@ import "reflect-metadata";
 import os from "node:os";
 import { TypedEventEmitter } from "@posthog/shared";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
-import { createReconnectingWorkspaceClient } from "@posthog/workspace-client/client";
+import { createLazyWorkspaceClient } from "@posthog/workspace-client/client";
 import type { FileWatcherEvent } from "@posthog/workspace-client/types";
 import { app, BrowserWindow, dialog, session } from "electron";
 import log from "electron-log/main";
@@ -15,6 +15,10 @@ import {
   FOCUS_WORKSPACE_CLIENT,
   FOCUS_WORKTREE_PATHS,
 } from "@posthog/core/focus/host-focus";
+import {
+  FOCUS_SERVICE,
+  type IFocusService,
+} from "@posthog/core/focus/identifiers";
 import { GIT_WORKSPACE_CLIENT } from "@posthog/core/git/identifiers";
 import type { GitHubIntegrationService } from "@posthog/core/integrations/github";
 import {
@@ -34,9 +38,9 @@ import type { NotificationService } from "@posthog/core/notification/notificatio
 import { OAUTH_SERVICE } from "@posthog/core/oauth/identifiers";
 import type { OAuthService } from "@posthog/core/oauth/oauth";
 import type { UpdatesService } from "@posthog/core/updates/updates";
-import { CONNECTIVITY_CLIENT } from "@posthog/host-router/ports/connectivity-client";
 import { ENVIRONMENT_CLIENT } from "@posthog/host-router/ports/environment-client";
 import { FILE_WATCHER_CONTROL } from "@posthog/host-router/ports/file-watcher-control";
+import { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { DatabaseService } from "@posthog/workspace-server/db/service";
 import type { ExternalAppsService } from "@posthog/workspace-server/services/external-apps/external-apps";
@@ -74,6 +78,7 @@ import {
 } from "./di/tokens";
 import { setupExternalLinkPermissionHandlers } from "./external-links";
 import { posthogNodeAnalytics } from "./platform-adapters/posthog-analytics";
+import { registerDiskCacheProtocol } from "./protocols/disk-cache";
 import { registerMcpSandboxProtocol } from "./protocols/mcp-sandbox";
 import { destroyQuickAskWindow, setupQuickAsk } from "./quick-ask";
 import type { AppLifecycleService } from "./services/app-lifecycle/service";
@@ -280,6 +285,7 @@ async function initializeServices(): Promise<void> {
   initDevToolbar();
 
   container.get<DatabaseService>(DATABASE_SERVICE);
+  container.get<WorkspaceService>(WORKSPACE_SERVICE).initBranchWatcher();
   container.get<OAuthService>(OAUTH_SERVICE);
   const authService = container.get<AuthService>(AUTH_SERVICE);
   container.get<NotificationService>(NOTIFICATION_SERVICE);
@@ -301,10 +307,6 @@ async function initializeServices(): Promise<void> {
   container.get<DiscordPresenceService>(DISCORD_PRESENCE_SERVICE);
 
   await authService.initialize();
-
-  // Initialize workspace branch watcher for live branch rename detection
-  const workspaceService = container.get<WorkspaceService>(WORKSPACE_SERVICE);
-  workspaceService.initBranchWatcher();
 
   const suspensionService =
     container.get<SuspensionService>(SUSPENSION_SERVICE);
@@ -329,7 +331,7 @@ posthogNodeAnalytics.initialize();
 // native fetch and silently drops network.log capture.
 installMainFetchLogging();
 
-app.whenReady().then(async () => {
+async function boot(): Promise<void> {
   if (
     process.platform === "darwin" &&
     app.isPackaged &&
@@ -375,30 +377,20 @@ app.whenReady().then(async () => {
   ensureClaudeConfigDir();
   setupExternalLinkPermissionHandlers(session.fromPartition("persist:main"));
   registerMcpSandboxProtocol();
+  registerDiskCacheProtocol(container.get(DISK_CACHE_SERVICE));
   installRendererNetworkLogging(
     session.fromPartition("persist:main").webRequest,
     container.get<DevNetworkService>(DEV_NETWORK_SERVICE),
   );
   installYoutubeEmbedReferrer(session.fromPartition("persist:main").webRequest);
-  createWindow();
-  setupQuickAsk();
-  // The hidden quick-ask panel must not keep the app alive after the main
-  // window closes.
-  onMainWindowClosed(destroyQuickAskWindow);
-
   const wsServer = container.get<WorkspaceServerService>(
     WORKSPACE_SERVER_SERVICE,
   );
-  await wsServer.start();
-  // The workspace-server child respawns on a new port/secret after a crash;
-  // a reconnecting client follows the current connection so main-process
-  // callers don't keep hitting the dead port for the rest of the session.
-  const workspaceClient = createReconnectingWorkspaceClient(() =>
-    wsServer.getConnection(),
+  const workspaceClient = createLazyWorkspaceClient(async () =>
+    wsServer.getOrStart(),
   );
   container.bind(WORKSPACE_CLIENT).toConstantValue(workspaceClient);
   container.bind(GIT_WORKSPACE_CLIENT).toConstantValue(workspaceClient);
-  container.bind(CONNECTIVITY_CLIENT).toConstantValue(workspaceClient);
   container.bind(ENVIRONMENT_CLIENT).toConstantValue(workspaceClient);
   const fileWatcherBridge = new FileWatcherBridge(workspaceClient);
   // Re-establish live watches after a workspace-server respawn — the old SSE
@@ -406,6 +398,7 @@ app.whenReady().then(async () => {
   wsServer.on(WorkspaceServerEvent.StatusChanged, ({ status }) => {
     if (status === WorkspaceServerStatus.Ready) {
       fileWatcherBridge.resubscribeAll();
+      container.get<IFocusService>(FOCUS_SERVICE).resubscribeEvents();
     }
   });
   container.bind(FILE_WATCHER_SERVICE).toConstantValue(fileWatcherBridge);
@@ -447,6 +440,12 @@ app.whenReady().then(async () => {
   };
   container.bind(MAIN_FS_SERVICE).toConstantValue(fsCapability);
   container.bind(FS_SERVICE).toService(MAIN_FS_SERVICE);
+  createWindow();
+  setupQuickAsk();
+  // The hidden quick-ask panel must not keep the app alive after the main
+  // window closes.
+  onMainWindowClosed(destroyQuickAskWindow);
+  if (shutdownStarted) return;
   await initializeServices();
   initializeDeepLinks();
 
@@ -463,7 +462,9 @@ app.whenReady().then(async () => {
     });
     log.info("E2E update hook installed on globalThis.__e2eUpdates");
   }
-});
+}
+
+app.whenReady().then(boot);
 
 app.on("window-all-closed", () => {
   app.quit();

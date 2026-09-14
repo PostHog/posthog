@@ -201,7 +201,7 @@ log "warming pnpm store"
 # store (under ~/.local/share/pnpm), which lives outside the checkout and survives the
 # cleanup below — the task-time `pnpm install` becomes mostly a linking pass. Bake and
 # task time run the same image's pnpm, so the store layout always matches.
-pnpm fetch --frozen-lockfile
+pnpm fetch
 # Link a full node_modules once: it backfills anything fetch skipped (git/tarball
 # resolutions) and provides the workspace-pinned playwright CLI for the browser
 # install below. --ignore-scripts keeps third-party postinstall hooks from failing
@@ -270,6 +270,11 @@ source .venv/bin/activate
 # migrations have created posthog_instancesetting (the same race bin/mprocs.yaml gates
 # with wait-for-postgres-tables).
 bin/migrate --scope=postgres --scope=persons
+log "cloning migrated Postgres database for pytest"
+PGPASSWORD="${POSTGRES_PASSWORD:-posthog}" psql -h db -U posthog -d postgres -v ON_ERROR_STOP=1 \
+    -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'posthog' AND pid <> pg_backend_pid()" \
+    -c "DROP DATABASE IF EXISTS test_posthog WITH (FORCE)" \
+    -c "CREATE DATABASE test_posthog TEMPLATE posthog"
 bin/migrate --scope=clickhouse
 
 log "running rust-driven migrations"

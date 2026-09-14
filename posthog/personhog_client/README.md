@@ -13,6 +13,17 @@ Routed helpers that handle the gRPC call and metrics already exist in
 When no existing helper covers your needs, follow the `_personhog_routed()` pattern in `posthog/models/person/util.py`.
 personhog is the sole read path — there is no ORM fallback.
 
+## Scope: identity questions only
+
+Personhog is for **identity resolution and point lookups**: resolving a distinct ID to a person, checking a person exists, fetching a single person (or a small known set) by id or UUID, and lifecycle writes (deletes, splits, cohort membership).
+
+It is **not** for property-shaped or bulk-shaped reads.
+Loading person properties, hydrating lists of persons, and searching or filtering persons all belong in ClickHouse (HogQL over the `persons` table, `ActorsQueryRunner`).
+Avoid reading the `properties` field from personhog where possible — the long-term direction is for the API to not surface it to users at all.
+Single-person point lookups that need properties are currently exempt where no ClickHouse primitive exists for them; do not extend that to bulk reads.
+
+See [docs/internal/person-data-access.md](/docs/internal/person-data-access.md) for the full guidelines and rationale.
+
 ## Database tables
 
 The following tables are managed by personhog.

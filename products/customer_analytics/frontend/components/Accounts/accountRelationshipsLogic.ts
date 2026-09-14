@@ -21,6 +21,7 @@ import type {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { ACCOUNTS_TABLE_DATA_NODE_KEY, ACCOUNTS_METRICS_DATA_NODE_KEY } from '../../constants'
+import { accountSidebarPropertiesLogic } from '../../scenes/CustomerAnalyticsAccountScene/accountSidebarPropertiesLogic'
 import { accountsColumnConfigLogic, ROLE_KEY_BY_NAME } from './accountsColumnConfigLogic'
 import { AccountsEvents } from './constants'
 
@@ -236,6 +237,16 @@ export const accountRelationshipsLogic = kea<accountRelationshipsLogicType>([
         ],
     }),
     listeners(({ actions, props, values }) => ({
+        loadRelationshipsSuccess: () => {
+            if (values.currentTeamId) {
+                accountSidebarPropertiesLogic
+                    .findMounted({
+                        projectId: values.currentTeamId,
+                        accountId: props.accountId,
+                    })
+                    ?.actions.loadPropertyData()
+            }
+        },
         loadRelationshipsFailure: ({ error }) => {
             // No toast: `relationships === null` renders the table's failure empty state.
             posthog.captureException(error, { scope: 'accountRelationshipsLogic.loadRelationships' })

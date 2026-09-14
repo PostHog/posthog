@@ -25,9 +25,15 @@ concurrency:
     group: desktop-update-e2e-${{ github.ref }}
     cancel-in-progress: true
 
+env:
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
+    SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
+
 jobs:
     update-e2e-macos:
-        runs-on: macos-15
+        runs-on: depot-macos-26
         timeout-minutes: 90
         defaults:
             run:
@@ -40,14 +46,15 @@ jobs:
             NODE_ENV: production
             npm_config_arch: arm64
             npm_config_platform: darwin
-            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_API_KEY: ${{ vars.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ vars.VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             # Sign both builds with the same identity so Squirrel.Mac accepts the swap.
             # Notarization is skipped: it is a Gatekeeper concern, not what the in-place
             # update verifies, and locally built bundles carry no quarantine attribute.
             CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
             CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
-            APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+            APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
             SKIP_NOTARIZE: '1'
         steps:
             - name: Checkout
@@ -91,13 +98,13 @@ jobs:
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
               with:
-                  role-to-assume: ${{ secrets.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
-                  aws-region: ${{ secrets.AWS_TWIG_APP_ASSETS_REGION }}
+                  role-to-assume: ${{ vars.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
+                  aws-region: ${{ vars.AWS_TWIG_APP_ASSETS_REGION }}
                   mask-aws-account-id: true
                   unset-current-credentials: true
 
             - name: Download BerkeleyMono fonts from S3
-              run: aws s3 cp s3://${{ secrets.AWS_TWIG_APP_ASSETS_BUCKET }}/fonts/BerkeleyMono/ apps/code/assets/fonts/BerkeleyMono/ --recursive
+              run: aws s3 cp s3://${{ vars.AWS_TWIG_APP_ASSETS_BUCKET }}/fonts/BerkeleyMono/ apps/code/assets/fonts/BerkeleyMono/ --recursive
 
             - name: Build workspace packages
               run: |
@@ -314,3 +321,34 @@ jobs:
                   compression-level: 0
                   if-no-files-found: warn
                   retention-days: 7
+
+            # This runs nightly, so nobody sees a red run unless it pages.
+            # A manual dispatch is somebody debugging, and they watch the run.
+            - name: Notify Slack on update e2e failure
+              if: failure() && github.event_name == 'schedule'
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: ":red_circle: Desktop update e2e failed. An auto-update path may be broken for users"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":red_circle: *Desktop update e2e failed*. The nightly macOS proof that a shipped app updates itself did not pass, so an update path may be broken for users on the current release."
+                        - type: "section"
+                          fields:
+                            - type: "mrkdwn"
+                              text: "*Trigger*\n${{ github.event_name }}"
+                            - type: "mrkdwn"
+                              text: "*Next step*\nCheck which leg failed and its proof summary"
+                        - type: "actions"
+                          elements:
+                            - type: "button"
+                              text:
+                                type: "plain_text"
+                                text: "View run"
+                              url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

@@ -45,6 +45,20 @@ def get_default_metric_title(metric_dict: dict) -> str:
 
 logger = logging.getLogger(__name__)
 
+# A legacy metric nests its query under a kind-specific key: ExperimentTrendsQuery under
+# `count_query`, ExperimentFunnelsQuery under `funnels_query`.
+LEGACY_METRIC_QUERY_KEYS = ("count_query", "funnels_query")
+
+
+def apply_metric_date_range(metric: dict[str, Any], date_range: dict[str, Any]) -> None:
+    """Overwrite a legacy metric's nested query date range in place.
+
+    Only a query that already carries a date range is rewritten, so the stored shape of a metric
+    without one is preserved."""
+    for key in LEGACY_METRIC_QUERY_KEYS:
+        if metric.get(key, {}).get("dateRange"):
+            metric[key]["dateRange"] = date_range
+
 
 def refresh_action_names_in_metric(
     query: dict[str, Any] | None,

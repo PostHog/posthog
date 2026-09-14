@@ -2,7 +2,7 @@ import json
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -284,7 +284,7 @@ class TestEventRows:
             rows.extend(page)
         return rows, request_bodies
 
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_first_sync_queries_the_90_day_retention_window(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         _, bodies = self._collect(manager, monkeypatch, [([{"id": "e1"}], None)])
@@ -297,7 +297,7 @@ class TestEventRows:
             }
         ]
 
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_incremental_sync_starts_at_the_watermark(self, monkeypatch: Any) -> None:
         from datetime import UTC, datetime
 

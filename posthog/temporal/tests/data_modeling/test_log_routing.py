@@ -91,7 +91,7 @@ async def configure_produce_capture(queue):
 @pytest.fixture
 def v2_activity_environment():
     env = temporalio.testing.ActivityEnvironment()
-    env.info = ActivityInfo(  # type: ignore[assignment]
+    env.info = ActivityInfo(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         activity_id=str(uuid.uuid4()),
         activity_type="test-activity",
         attempt=1,

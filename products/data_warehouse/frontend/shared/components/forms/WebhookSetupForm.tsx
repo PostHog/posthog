@@ -44,6 +44,13 @@ interface WebhookSetupFormProps {
     /** kea-forms logic and formKey for the manual webhook field inputs form */
     formLogic?: LogicWrapper | BuiltLogic<any>
     formKey?: string
+    /**
+     * Set from the new-source wizard only. The wizard's own Next button stays disabled on this step
+     * until the webhook is set up (tables using webhook sync won't receive data otherwise), so this
+     * shows a hint that leaving the wizard is fine and the webhook can be finished later from the
+     * source's settings — without claiming the in-wizard Next action itself skips the step.
+     */
+    isWizardStep?: boolean
 }
 
 /**
@@ -61,6 +68,7 @@ export function WebhookSetupForm({
     onCreateWebhook,
     formLogic,
     formKey,
+    isWizardStep = false,
 }: WebhookSetupFormProps): JSX.Element {
     const webhookFields = sourceConfig?.webhookFields ?? []
     // A blocked connection is manual-only in practice, so it takes the same path as a source that
@@ -114,10 +122,13 @@ export function WebhookSetupForm({
                 <LemonButton type="primary" onClick={onCreateWebhook}>
                     {manualOnly ? 'Generate webhook URL' : 'Create webhook'}
                 </LemonButton>
-                <p className="text-sm text-muted mb-0">
-                    This step is optional. Your source is already connected, so you can continue without a webhook and
-                    set one up later in the source settings.
-                </p>
+                {isWizardStep && (
+                    <p className="text-sm text-muted mb-0">
+                        Your source is already connected. If you'd rather not finish this now, you can leave the wizard
+                        and set up the webhook later from the source's settings — tables using webhook sync just won't
+                        receive data until then.
+                    </p>
+                )}
             </WebhookSetupCard>
         )
     }
@@ -189,10 +200,20 @@ export function WebhookSetupForm({
                     {autoCreationBlockedReason || webhookResult?.error || 'Could not create the webhook automatically.'}
                 </LemonBanner>
             )}
+            {!manualOnly && (
+                <div className="flex flex-col items-start gap-2">
+                    <p className="m-0">
+                        Automatic setup can fail for a temporary reason. Try again, or set the webhook up by hand below.
+                    </p>
+                    <LemonButton type="secondary" onClick={onCreateWebhook}>
+                        Try again
+                    </LemonButton>
+                </div>
+            )}
             <p>
                 {manualOnly
                     ? `Copy the URL below and register it as a webhook endpoint in your ${sourceName} app settings.`
-                    : `You'll need to manually configure the webhook in your ${sourceName} account. Copy the URL below and add it as a webhook endpoint in your ${sourceName} settings.`}
+                    : `Copy the URL below and add it as a webhook endpoint in your ${sourceName} settings.`}
             </p>
             {webhookResult?.webhook_url && <WebhookUrlDisplay url={webhookResult.webhook_url} />}
             {sourceConfig?.webhookSetupCaption && (

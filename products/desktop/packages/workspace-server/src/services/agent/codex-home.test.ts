@@ -20,6 +20,7 @@ vi.mock("node:os", async (importOriginal) => {
 });
 
 import {
+  cleanupAllCodexHomes,
   cleanupCodexHome,
   getCodexHomeDir,
   prepareCodexHome,
@@ -219,6 +220,26 @@ describe("prepareCodexHome", () => {
     expect(existsSync(path.join(codexHome, "skills"))).toBe(false);
     expect(existsSync(path.join(codexHome, "config.toml"))).toBe(false);
     expect(existsSync(rollout)).toBe(true);
+  });
+
+  it("cleanupAllCodexHomes cleans every run and keeps each thread rollout", async () => {
+    const codexHomesDir = path.join(appDataPath, "codex-home");
+    for (const runId of ["run-a", "run-b"]) {
+      const runDir = path.join(codexHomesDir, runId);
+      await mkdir(path.join(runDir, "sessions"), { recursive: true });
+      await writeFile(path.join(runDir, "state_5.sqlite"), "state");
+      await writeFile(path.join(runDir, "sessions", "rollout.jsonl"), "{}");
+    }
+
+    await cleanupAllCodexHomes(appDataPath);
+
+    for (const runId of ["run-a", "run-b"]) {
+      const runDir = path.join(codexHomesDir, runId);
+      expect(existsSync(path.join(runDir, "state_5.sqlite"))).toBe(false);
+      expect(existsSync(path.join(runDir, "sessions", "rollout.jsonl"))).toBe(
+        true,
+      );
+    }
   });
 
   // Windows needs elevated rights to create a directory symlink.

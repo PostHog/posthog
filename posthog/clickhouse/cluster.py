@@ -10,6 +10,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
 from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
 from copy import copy
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, ClassVar, Generic, Literal, NamedTuple, Optional, TypeVar
 
 from clickhouse_driver import Client
@@ -164,6 +165,7 @@ class ClickhouseCluster:
         satellite_clusters: Sequence[str] | None = None,
         retry_policy: RetryPolicy | None = None,
         connection_overrides: Mapping[str, Any] | None = None,
+        shard_role: NodeRole = NodeRole.DATA,
     ) -> None:
         if logger is None:
             logger = logging.getLogger(__name__)
@@ -172,10 +174,15 @@ class ClickhouseCluster:
         self.__extra_hosts: set[HostInfo] = set()
 
         migrations_cluster = cluster or settings.CLICKHOUSE_CLUSTER
-        # The cluster whose DATA nodes back `shards`, which is what every sharded mutation
+        # The cluster whose shard-bearing nodes back `shards`, which is what every sharded mutation
         # dispatches over. Callers holding a table that lives elsewhere have no way to reach it
         # through this instance, so they need to be able to ask.
         self.__data_cluster_name = data_cluster or migrations_cluster
+        # Which hostClusterRole owns a shard here. `data` on the main cluster, but a cluster can
+        # shard its tables across another role: the events cluster carries sharded_events_json on
+        # nodes whose role is `events`, and reading their shard numbers as absent would leave this
+        # handle with no shards to dispatch over at all.
+        self.__shard_role = shard_role
         cluster_hosts = self.__get_cluster_hosts(bootstrap_client, migrations_cluster, retry_policy)
 
         for row in cluster_hosts:
@@ -186,8 +193,8 @@ class ClickhouseCluster:
             resolved_host, resolved_port = _resolve_connection_target(host_name, effective_port)
             host_info = HostInfo(
                 ConnectionInfo(resolved_host, resolved_port),
-                shard_num if host_cluster_role == NodeRole.DATA else None,
-                replica_num if host_cluster_role == NodeRole.DATA else None,
+                shard_num if host_cluster_role == shard_role else None,
+                replica_num if host_cluster_role == shard_role else None,
                 host_cluster_type,
                 host_cluster_role,
             )
@@ -200,7 +207,7 @@ class ClickhouseCluster:
             data_hosts = self.__get_cluster_hosts(bootstrap_client, data_cluster, retry_policy)
             for row in data_hosts:
                 (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
-                if host_cluster_role == NodeRole.DATA:
+                if host_cluster_role == shard_role:
                     effective_port = port if (settings.E2E_TESTING or settings.DEBUG) else None
                     resolved_host, resolved_port = _resolve_connection_target(host_name, effective_port)
                     host_info = HostInfo(
@@ -258,9 +265,13 @@ class ClickhouseCluster:
         # Kept so `sibling` can build a handle for another cluster from the same connection.
         self.__bootstrap_client = bootstrap_client
         self.__extra_host_infos = list(extra_hosts) if extra_hosts else []
-        self.__siblings: dict[str, ClickhouseCluster] = {}
+        self.__siblings: dict[tuple[str, NodeRole], ClickhouseCluster] = {}
 
-    def sibling(self, cluster: str) -> ClickhouseCluster:
+    @property
+    def shard_role(self) -> NodeRole:
+        return self.__shard_role
+
+    def sibling(self, cluster: str, shard_role: NodeRole = NodeRole.DATA) -> ClickhouseCluster:
         """A handle addressing ``cluster``, carrying this one's connection settings.
 
         ``shards`` covers exactly one cluster, so a caller holding a table stored on another one
@@ -271,11 +282,11 @@ class ClickhouseCluster:
         Memoized, because discovery costs a query per cluster and callers resolve the same table
         once per op. Raises whatever the server says when no such cluster is defined here.
         """
-        if cluster == self.__data_cluster_name:
+        if cluster == self.__data_cluster_name and shard_role == self.__shard_role:
             return self
-        sibling = self.__siblings.get(cluster)
+        sibling = self.__siblings.get((cluster, shard_role))
         if sibling is None:
-            sibling = self.__siblings[cluster] = ClickhouseCluster(
+            sibling = self.__siblings[(cluster, shard_role)] = ClickhouseCluster(
                 self.__bootstrap_client,
                 extra_hosts=self.__extra_host_infos,
                 logger=self.__logger,
@@ -283,6 +294,7 @@ class ClickhouseCluster:
                 cluster=cluster,
                 retry_policy=self.__retry_policy,
                 connection_overrides=self.__connection_overrides,
+                shard_role=shard_role,
             )
         return sibling
 
@@ -439,6 +451,8 @@ class ClickhouseCluster:
         node_roles: list[NodeRole],
         concurrency: int | None = None,
         workload: Workload = Workload.DEFAULT,
+        *,
+        require_hosts: bool = False,
     ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster with the given node role.
@@ -446,13 +460,12 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        hosts = self.__hosts_by_roles(self.__hosts, node_roles, workload)
+        if require_hosts and not hosts:
+            raise ValueError(f"No hosts found with roles {node_roles}")
+
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap(
-                {
-                    host: executor.submit(self.__get_task_function(host, fn))
-                    for host in self.__hosts_by_roles(self.__hosts, node_roles, workload)
-                }
-            )
+            return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in hosts})
 
     def map_all_hosts_in_shard(
         self, shard_num: int, fn: Callable[[Client], T], concurrency: int | None = None
@@ -785,12 +798,28 @@ class MutationWaiters:
             waiter.wait(client)
 
 
-@dataclass
+class MutationCapacityTimeout(Exception):
+    """Raised when another mutation held the table past a runner's ``capacity_timeout``."""
+
+
+# Mutability is intentional: subclasses set fields in __post_init__ and callers build these
+# incrementally. Stated explicitly so the bare-dataclass ratchet has a declared choice.
+@dataclass(frozen=False)
 class MutationRunner(abc.ABC):
     table: str
     parameters: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
     settings: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
     force: bool = field(default=False, kw_only=True)  # whether to force the mutation to run even if it already exists
+    # How long to wait for the table to be free of other mutations before giving up. 0 waits
+    # forever, which is what a caller with no deadline of its own wants.
+    capacity_timeout: float = field(default=0.0, kw_only=True)
+    # Oldest ``create_time`` an existing mutation may have for this runner to adopt it instead of
+    # enqueueing its own. A command names the dictionaries it joins, never their contents, so a
+    # caller whose dictionaries are rebuilt each run produces the same command text over different
+    # data. Without a floor the match reaches back to whatever a previous run left in
+    # system.mutations, and adopting that finished mutation deletes nothing while reporting done.
+    # None keeps the unbounded match, which is right only where the command text pins the data.
+    reuse_since: datetime | None = field(default=None, kw_only=True)
 
     @abc.abstractmethod
     def get_all_commands(self) -> Set[str]:
@@ -821,7 +850,7 @@ class MutationRunner(abc.ABC):
             mutations_running: Mapping[str, str] = {}
         else:
             logger.info("Ensuring mutation for %r is running or has completed.", expected_commands)
-            mutations_running = self.find_existing_mutations(client, expected_commands)
+            mutations_running = self.find_existing_mutations(client, expected_commands, since=self.reuse_since)
 
         commands_to_enqueue = expected_commands - mutations_running.keys()
         if not commands_to_enqueue:
@@ -856,7 +885,12 @@ class MutationRunner(abc.ABC):
         Block until the target table has no unfinished mutations before enqueueing a new one, since tables can be
         configured with ``number_of_mutations_to_throw`` to reject new mutations while others (e.g. a long-running
         backfill) are still in flight.
+
+        This runs before the mutation exists, so a caller's own wait-for-completion deadline cannot cover it. A
+        mutation nobody here started can hold the table indefinitely, so ``capacity_timeout`` is what stops that
+        from holding the caller open forever.
         """
+        deadline = time.monotonic() + self.capacity_timeout if self.capacity_timeout else None
         while True:
             [[count]] = client.execute(
                 """
@@ -868,6 +902,11 @@ class MutationRunner(abc.ABC):
             )
             if count == 0:
                 return
+            if deadline is not None and time.monotonic() > deadline:
+                raise MutationCapacityTimeout(
+                    f"{self.table} still has {count} unfinished mutation(s)"
+                    f" after {self.capacity_timeout:.0f}s waiting for capacity"
+                )
             logger.info(
                 "Waiting for %s unfinished mutation(s) on %s before enqueueing new mutation (checking again in %ss)...",
                 count,
@@ -876,10 +915,17 @@ class MutationRunner(abc.ABC):
             )
             time.sleep(poll_interval)
 
-    def find_existing_mutations(self, client: Client, commands: Set[str] | None = None) -> Mapping[str, str]:
+    def find_existing_mutations(
+        self, client: Client, commands: Set[str] | None = None, since: datetime | None = None
+    ) -> Mapping[str, str]:
         """
         Find the mutation ID (if it exists) associated with each command provided (or all commands if no commands are
         specified.)
+
+        ``since`` drops mutations created before it, so a caller can refuse to adopt one an earlier
+        run enqueued. Pass it on the lookup that decides whether to enqueue, and leave it off the
+        one that confirms an enqueue: the second is looking for the mutation it just created, and a
+        clock reading taken on another host could exclude it.
         """
         if commands is None:
             commands = self.get_all_commands()
@@ -938,6 +984,7 @@ class MutationRunner(abc.ABC):
                     database = %(__database)s
                     AND table = %(__table)s
                     AND NOT is_killed  -- ok to restart a killed mutation
+                    AND (%(__since)s IS NULL OR create_time >= %(__since)s)
                 GROUP BY command
             ) mutations USING (command)
             ORDER BY position ASC
@@ -947,6 +994,7 @@ class MutationRunner(abc.ABC):
                 "__database": settings.CLICKHOUSE_DATABASE,
                 "__table": self.table,
                 "__alter_prefix": alter_prefix,
+                "__since": since,
                 # self.parameters are already rendered into __command_*; passing them again would
                 # reintroduce the substitution this avoids.
                 **{f"__command_{i}": text for i, text in enumerate(rendered_commands)},

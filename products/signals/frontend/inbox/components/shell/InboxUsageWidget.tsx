@@ -220,7 +220,8 @@ export function InboxUsageWidget(): JSX.Element | null {
                 </div>
                 {quotaLimited && (
                     <span className="text-xs font-medium text-danger">
-                        Agents are paused and won't open new pull requests until the limit is raised or usage resets.
+                        Agents are paused. They won't write new reports or open pull requests until the limit is raised
+                        or usage resets.
                     </span>
                 )}
                 {canAccessBilling ? (

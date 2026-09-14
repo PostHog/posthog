@@ -27,6 +27,7 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
@@ -234,6 +235,45 @@ def resolve_trunk_merge_queue_table(team: Team, user_access_control: "UserAccess
             if table is not None and not table.deleted and _IDENTIFIER.match(table.name):
                 return table.name
     return None
+
+
+TRUNK_QUARANTINED_TESTS_SCHEMA = "QuarantinedTests"
+
+
+@frozen
+class TrunkQuarantineSource:
+    """The synced Trunk quarantined-tests table plus the source's Trunk org slug (for app links)."""
+
+    table: str
+    org_url_slug: str | None
+
+
+def resolve_trunk_quarantined_tests_source(
+    team: Team, repository: str, user_access_control: "UserAccessControl | None" = None
+) -> TrunkQuarantineSource | None:
+    """The synced Trunk quarantined-tests table's warehouse name and org slug, or None.
+
+    A TrunkIo source is configured for one repository (``repo_owner``/``repo_name``), so prefer
+    the source matching ``repository`` and fall back to the oldest synced source only when none
+    declares a match (legacy sources without those keys). Per-user warehouse RBAC applies, and
+    None degrades the consumer to an honest ``available: false`` rather than an error.
+    """
+    fallback: TrunkQuarantineSource | None = None
+    for source in _accessible_sources(team, ExternalDataSourceType.TRUNKIO, user_access_control):
+        for schema in _synced_schemas(team=team, source=source):
+            if schema.name != TRUNK_QUARANTINED_TESTS_SCHEMA:
+                continue
+            table = schema.table
+            if table is None or table.deleted or not _IDENTIFIER.match(table.name):
+                continue
+            # job_inputs is an EncryptedJSONField and can hold any JSON shape.
+            inputs = source.job_inputs if isinstance(source.job_inputs, dict) else {}
+            resolved = TrunkQuarantineSource(table=table.name, org_url_slug=inputs.get("org_url_slug") or None)
+            source_repo = f"{inputs.get('repo_owner', '')}/{inputs.get('repo_name', '')}"
+            if source_repo.lower() == repository.lower():
+                return resolved
+            fallback = fallback or resolved
+    return fallback
 
 
 # Listing the team's connected sources is its own concern (no curated read handle): it threads the

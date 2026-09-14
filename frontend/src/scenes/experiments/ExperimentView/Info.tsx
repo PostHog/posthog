@@ -12,9 +12,9 @@ import { urls } from 'scenes/urls'
 import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
 import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
 import { getExperimentStatus, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
 
-import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { ExperimentDuration } from './ExperimentDuration'
