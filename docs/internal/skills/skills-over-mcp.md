@@ -11,20 +11,24 @@ So `allowed_tools` is a request for access, not a grant of it.
 
 ## The delivery paths
 
-| Path                                                | Skill reaches the harness as     | `allowed_tools` effect                      |
-| --------------------------------------------------- | -------------------------------- | ------------------------------------------- |
-| Zip export (`…/export`)                             | A file on disk                   | Pre-approved, as the Agent Skills spec says |
-| Git marketplace (`…/marketplace.git`)               | A file on disk after `git clone` | Pre-approved                                |
-| Skill bundle, `content=full` (`…/bundle`)           | A file on disk                   | Pre-approved                                |
-| Skill bundle, `content=stub`, and sandbox run state | A pointer file, then MCP         | Ignored until the user approves the grant   |
-| MCP `skill-get`, and `learn project:<skill>`        | An MCP response                  | Ignored until the user approves the grant   |
-| PostHog AI `get_llm_skill`                          | Text in the model's context      | No grant. The list is printed as text       |
+| Path                                                | Skill reaches the harness as     | `allowed_tools` effect                                      |
+| --------------------------------------------------- | -------------------------------- | ----------------------------------------------------------- |
+| Zip export (`…/export`)                             | A file on disk                   | Pre-approved, as the Agent Skills spec says                 |
+| Git marketplace (`…/marketplace.git`)               | A file on disk after `git clone` | Pre-approved                                                |
+| Skill bundle, `content=full` (`…/bundle`)           | A file on disk                   | Pre-approved                                                |
+| Skill bundle, `content=stub`, and sandbox run state | A pointer file, then MCP         | No grant. The stub omits the list, then `skill-get` sends it |
+| MCP `skill-get`                                     | An MCP response                  | No grant. The list arrives as data                          |
+| `learn project:<skill>`                             | An MCP response                  | No grant. The list never reaches the client                 |
+| PostHog AI `get_llm_skill`                          | Text in the model's context      | No grant. The list is printed as text                       |
 
 Watch the stub path.
 `render_skill_stub_md` writes only the name, the description, and `metadata`, so the pointer file never carries `allowed-tools`.
 The agent then fetches the real skill with `skill-get`, which makes the skill MCP-origin content.
 
-The PostHog AI path is a third case.
+`learn project:<skill>` carries less again.
+`formatLearnDocument` in `services/mcp/src/skills/skill-catalog.ts` strips the frontmatter and prints the description, the file manifest, and the body, so the list never reaches the client.
+
+The PostHog AI path is different again.
 `_format_skill_detail` in `products/skills/backend/tools/skills.py` prints `Allowed tools:` into the text the model reads.
 The tool description tells the model to treat the body as instructions, but nothing acts on the tool list.
 
@@ -36,7 +40,12 @@ The spec names `allowed-tools` directly: a host must ignore it for an MCP-origin
 A remote server that sets the field asks for access on the host.
 It does not describe its own environment.
 
-Two further rules matter for us:
+Our MCP server does not advertise the extension yet.
+`SERVER_CAPABILITIES` in `services/mcp/src/hono/dispatcher.ts` declares `tools`, `resources`, and `prompts`, and the server implements no `skills/list` or `skills/get`.
+A host reads a skill as an ordinary tool result, so it cannot bind an approval to it.
+The rule still sets the posture we hold: no MCP path grants a tool today, and the list stays a request on all of them.
+
+Two further rules matter once we expose the extension:
 
 - Approval is per skill. Approval of one skill never covers a skill nested in its file space.
 - Approval is content-bound. A host binds it to every file URI and digest it saw, so an edit to a file revokes it just as an added or removed file does.
