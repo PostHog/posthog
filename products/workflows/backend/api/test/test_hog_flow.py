@@ -248,6 +248,7 @@ class TestHogFlowAPI(APIBaseTest):
         [
             ("messaging", "messaging", {"Email drip", "Push blast"}),
             ("automation", "automation", {"Webhook sync"}),
+            ("loop", "loop", {"Loop with email action"}),
         ]
     )
     def test_list_filter_by_workflow_type(self, _name, workflow_type, expected_names):
@@ -268,6 +269,16 @@ class TestHogFlowAPI(APIBaseTest):
             name="Webhook sync",
             created_by=self.user,
             actions=[{"id": "a", "type": "function", "config": {}}],
+        )
+        # Loop-origin workflow with a messaging action - the frontend always tags this "Loop"
+        # (see WorkflowTypeTag), so it must be excluded from both the messaging and automation
+        # filters and returned only by the loop filter.
+        HogFlow.objects.create(
+            team=self.team,
+            name="Loop with email action",
+            created_by=self.user,
+            origin_product="loops",
+            actions=[{"id": "a", "type": "function_email", "config": {}}],
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type={workflow_type}")
