@@ -16,6 +16,7 @@ import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogic'
 import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/monaco/domUtils'
 import { trackFindWidgetVisibility } from 'lib/monaco/findWidgetBodyClass'
+import { applyJsonSchema, applyTypeScriptCompilerOptions } from 'lib/monaco/languageDefaults'
 import { initCodeownersLanguage } from 'lib/monaco/languages/codeowners'
 import { initHogLanguage } from 'lib/monaco/languages/hog'
 import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
@@ -356,35 +357,28 @@ export function CodeEditor({
         }
     })
 
-    useEffect(() => {
-        if (!monaco) {
-            return
-        }
-        monacoModule.typescript.typescriptDefaults.setCompilerOptions({
-            jsx: editorProps?.path?.endsWith('.tsx')
-                ? monacoModule.typescript.JsxEmit.React
-                : monacoModule.typescript.JsxEmit.Preserve,
-            esModuleInterop: true,
-        })
-    }, [monaco, editorProps.path])
+    // Both defaults objects below are global to the page, so only an editor whose language
+    // actually uses them may write to them. Otherwise a hog or liquid editor clears the schema
+    // a JSON editor next to it is validating against.
+    const language = editorProps.language
 
     useEffect(() => {
-        if (!monaco) {
+        if (!monaco || (language !== 'typescript' && language !== 'javascript')) {
             return
         }
-        monacoModule.json.jsonDefaults.setDiagnosticsOptions({
-            validate: true,
-            schemas: schema
-                ? [
-                      {
-                          uri: 'http://internal/node-schema.json',
-                          fileMatch: ['*'],
-                          schema: schema,
-                      },
-                  ]
-                : [],
-        })
-    }, [monaco, schema])
+        applyTypeScriptCompilerOptions(
+            editorProps?.path?.endsWith('.tsx')
+                ? monacoModule.typescript.JsxEmit.React
+                : monacoModule.typescript.JsxEmit.Preserve
+        )
+    }, [monaco, editorProps.path, language])
+
+    useEffect(() => {
+        if (!monaco || language !== 'json') {
+            return
+        }
+        applyJsonSchema(schema ?? null)
+    }, [monaco, schema, language])
 
     useEffect(() => {
         if (!editor) {
