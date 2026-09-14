@@ -174,14 +174,22 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.clientProfile.clientName).toBe('cursor')
     })
 
-    it('auto-selects tools mode from the ChatGPT user-agent', async () => {
-        // ChatGPT's clientInfo.name is generic; the surface only shows up in the
+    it('auto-selects tools mode from a name-less Cursor user-agent', async () => {
+        // Older Cursor builds omit clientInfo.name and identify only through the
         // User-Agent. Guards the `userAgent: props.clientUserAgent` profile plumbing.
-        const props = makeProps({ mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (ChatGPT)' })
+        const props = makeProps({ mcpClientName: undefined, clientUserAgent: 'Cursor/3.1.15 (darwin arm64)' })
         const result = await makeResolver().resolve(props)
 
         expect(result.useSingleExec).toBe(false)
         expect(props.mode).toBe('tools')
+    })
+
+    it('keeps the labeled ChatGPT user-agent on the cli default', async () => {
+        const props = makeProps({ mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (ChatGPT)' })
+        const result = await makeResolver().resolve(props)
+
+        expect(result.useSingleExec).toBe(true)
+        expect(props.mode).toBe('cli')
     })
 
     it('defaults to cli mode when no client hints are present', async () => {
