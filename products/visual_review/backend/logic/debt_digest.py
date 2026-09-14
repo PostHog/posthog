@@ -665,7 +665,10 @@ def _quarantine_part(repo: Repo, entry: ListedEntry) -> MessagePart:
     """
     if not entry.themes:
         return _item_part(repo, entry.items[0], "Extend or fix")
-    button = SlackButton(text="Extend or fix", url=_quarantined_story_url(repo, entry.identifier))
+    # The page searches identifiers by substring, and a webkit identifier puts the theme before the
+    # browser suffix, so only the bare story id matches every variant.
+    story_id = story_index.split_theme(entry.items[0].identifier).story_id
+    button = SlackButton(text="Extend or fix", url=_quarantined_story_url(repo, story_id))
     return MessagePart(
         block=section_block(_item_text(entry), button), line="\n".join(item.line for item in entry.items)
     )

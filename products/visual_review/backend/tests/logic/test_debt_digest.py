@@ -180,14 +180,24 @@ class TestThreadReplies:
         assert messages[-1].blocks[-1]["elements"][0]["text"] == "Next digest Monday, Sep 21."
 
     @pytest.mark.parametrize(
-        "dark_facts,titles,urls",
+        "browser_suffix,dark_facts,titles,urls",
         [
             (
+                "",
                 "Expires *Wednesday*",
                 [f"*{_STORY_ID}* storybook · light and dark"],
                 [f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness#preset=quarantined&q={_STORY_ID}"],
             ),
+            # A webkit identifier puts the theme before the browser suffix, so the search has to
+            # drop both to match the two variants.
             (
+                "--webkit",
+                "Expires *Wednesday*",
+                [f"*{_STORY_ID}--webkit* storybook · light and dark"],
+                [f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness#preset=quarantined&q={_STORY_ID}"],
+            ),
+            (
+                "",
                 "Expires *Thursday*",
                 [f"*{_STORY_ID}--light* storybook", f"*{_STORY_ID}--dark* storybook"],
                 [
@@ -198,16 +208,16 @@ class TestThreadReplies:
         ],
     )
     def test_theme_variants_of_a_story_expiring_together_list_once(
-        self, dark_facts: str, titles: list[str], urls: list[str]
+        self, browser_suffix: str, dark_facts: str, titles: list[str], urls: list[str]
     ) -> None:
-        light = _item(_PLACED, identifier=f"{_STORY_ID}--light", facts="Expires *Wednesday*")
-        dark = _item(_PLACED, identifier=f"{_STORY_ID}--dark", facts=dark_facts)
+        light = _item(_PLACED, identifier=f"{_STORY_ID}--light{browser_suffix}", facts="Expires *Wednesday*")
+        dark = _item(_PLACED, identifier=f"{_STORY_ID}--dark{browser_suffix}", facts=dark_facts)
         digest = debt_digest.TeamDigest(
             team_slug="team-devex",
             expiring_quarantines=[light, dark],
             variant_pileups=[
-                _item(_PLACED, identifier=f"{_STORY_ID}--light"),
-                _item(_PLACED, identifier=f"{_STORY_ID}--dark"),
+                _item(_PLACED, identifier=f"{_STORY_ID}--light{browser_suffix}"),
+                _item(_PLACED, identifier=f"{_STORY_ID}--dark{browser_suffix}"),
             ],
         )
 
@@ -244,7 +254,14 @@ class TestThreadReplies:
 class TestMaintainersMessage:
     def test_it_lists_each_unowned_reason_with_the_action_it_asks_for(self) -> None:
         digest = _maintainers_digest(
-            debt_digest.TriageGroup(kind=debt_digest.AttributionKind.PLACED, items=[_item(_PLACED)]),
+            debt_digest.TriageGroup(
+                kind=debt_digest.AttributionKind.PLACED,
+                # Both themes of one story share the file, so they list once with one file button.
+                items=[
+                    _item(_PLACED, identifier=f"{_STORY_ID}--light"),
+                    _item(_PLACED, identifier=f"{_STORY_ID}--dark"),
+                ],
+            ),
             debt_digest.TriageGroup(
                 kind=debt_digest.AttributionKind.STORY_ABSENT,
                 items=[_item(_STORY_ABSENT, identifier=_ABSENT_IDENTIFIER)],
@@ -264,6 +281,7 @@ class TestMaintainersMessage:
         ]
         # The path stays readable in the message, because it is what somebody types into owners.yaml.
         assert f"`{_SOURCE_PATH}`" in _section_texts(messages[0])[1]
+        assert _section_texts(messages[0])[1].split("\n")[0] == f"*{_STORY_ID}* storybook · light and dark"
 
     @pytest.mark.parametrize("kinds", [(), (debt_digest.AttributionKind.UNAVAILABLE,)])
     def test_nothing_is_sent_when_no_item_asks_anybody_to_act(self, kinds: tuple) -> None:
