@@ -78,11 +78,11 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
     They do not agree yet, on two shapes. First, the checker calls a flag with no release
     conditions fully rolled out, so `filters` of `{"groups": []}` (the model default) is STALE
     to the checker and not stale here; the config branch below matches an empty `filters` only
-    as `NULL` or `{}`. Second, the checker reads a group that omits the `properties` key, e.g.
-    `{"groups": [{"rollout_percentage": 100}]}`, as an empty targeting list and calls it STALE,
-    while the config branch requires a literal `[]` and Postgres `->` returns NULL for the
-    absent key, so no branch matches. The editor and the filters serializer now write
-    `properties: []`, so only unedited legacy rows hold the second shape.
+    as `NULL` or `{}`. Second, the checker reads a group whose `properties` key is absent or
+    stored as JSON null, e.g. `{"groups": [{"rollout_percentage": 100}]}`, as an empty targeting
+    list and calls it STALE, while the config branch requires a literal `[]` and matches neither
+    shape. The editor and the filters serializer now write `properties: []`, so only unedited
+    legacy rows hold the second shape.
     `test_stale_filter_agrees_with_status_checker` covers the shapes where the two do agree.
 
     The caller supplies the scope, so pass a queryset already narrowed to the team.
@@ -180,10 +180,12 @@ def filter_effectively_full_rollout_flags(queryset: QuerySet, *, stale_threshold
     variant override on that condition, which this does not test, so the caller must confirm each
     row with `is_flag_fully_rolled_out` before it treats the flag as fully rolled out.
 
-    A group that omits the `properties` key counts as having no properties, because
-    `is_group_fully_rolled_out` reads it that way. The `filter_stale_flags` configuration branch
-    requires a literal `[]` and therefore misses those legacy rows; matching them here lets the
-    confirmation step decide.
+    A group that omits the `properties` key, or stores it as JSON null, counts as having no
+    properties, because `is_group_fully_rolled_out` reads both that way. Postgres `->` returns
+    SQL NULL for the absent key and the jsonb scalar `null` for the stored null, so the predicate
+    tests for each separately. The `filter_stale_flags` configuration branch requires a literal
+    `[]` and therefore misses both legacy rows; matching them here lets the confirmation step
+    decide.
 
     Flags with no release conditions at all (`filters` NULL, `{}`, or `{"groups": []}`) stay out,
     although the checker calls them fully rolled out. `{"groups": []}` is the model default, so
@@ -212,7 +214,11 @@ def filter_effectively_full_rollout_flags(queryset: QuerySet, *, stale_threshold
             EXISTS (
                 SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
                 WHERE elem->>'rollout_percentage' = '100'
-                AND ((elem->'properties')::text = '[]'::text OR elem->'properties' IS NULL)
+                AND (
+                    (elem->'properties')::text = '[]'::text
+                    OR elem->'properties' IS NULL
+                    OR jsonb_typeof(elem->'properties') = 'null'
+                )
             )
             """
         ]
@@ -433,7 +439,10 @@ class FeatureFlagStatusChecker:
 
     def is_group_fully_rolled_out(self, group: dict) -> bool:
         rollout_percentage = group.get("rollout_percentage")
-        properties = group.get("properties", [])
+        # A `properties` key stored as JSON null means no targeting, the same as an absent key.
+        # The matcher's field is `Option<Vec<PropertyFilter>>` and the filters serializer
+        # normalizes null to `[]`, so only legacy rows still hold the null.
+        properties = group.get("properties") or []
         return rollout_percentage == 100 and len(properties) == 0
 
     def is_boolean_flag_fully_rolled_out(self, flag: FeatureFlag) -> bool:
@@ -449,7 +458,7 @@ class FeatureFlagStatusChecker:
         # The fully rolled out release condition must have no properties set.
         for release_condition in release_conditions:
             rollout_percentage = release_condition.get("rollout_percentage")
-            properties = release_condition.get("properties", [])
+            properties = release_condition.get("properties") or []
             if rollout_percentage == 100 and len(properties) == 0:
                 logger.debug(f"Boolean flag {flag.id} has a release conditions rolled out to 100%")
                 return True

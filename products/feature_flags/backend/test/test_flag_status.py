@@ -287,6 +287,14 @@ class TestRolloutSummary(BaseTest):
                 100,
                 False,
             ),
+            (
+                "null_group_properties",
+                {"groups": [{"properties": None, "rollout_percentage": 100}]},
+                True,
+                False,
+                100,
+                False,
+            ),
             # A missing rollout_percentage evaluates to 100% at runtime, so max_rollout_percentage
             # reflects that. effectively_full_rollout stays stricter (requires an explicit 100), to
             # match the staleness detection it shares logic with.

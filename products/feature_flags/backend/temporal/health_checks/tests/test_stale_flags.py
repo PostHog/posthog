@@ -164,6 +164,14 @@ class TestStaleFlagsDetect(BaseTest):
                 None,
                 True,
             ),
+            # Legacy shape: `properties` stored as JSON null is no targeting, which neither the
+            # `IS NULL` arm nor the literal `[]` arm of the prefilter matches on its own.
+            (
+                "constant_with_null_properties",
+                {**constant_and_called(), "filters": {"groups": [{"rollout_percentage": 100, "properties": None}]}},
+                None,
+                True,
+            ),
             (
                 "constant_but_targeted",
                 {
