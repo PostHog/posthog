@@ -990,6 +990,31 @@ describe('MenuFilterCombobox', () => {
         )
     })
 
+    it('offers Explore in a new tab for an empty pageview search', async () => {
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.PageviewUrls],
+            searchQuery: 'zzz_no_match',
+        })
+
+        const destination = await screen.findByTestId('taxonomic-empty-search-destination')
+
+        expect(destination).toHaveAttribute('target', '_blank')
+        expect(decodeURIComponent(destination.getAttribute('href') ?? '')).toContain('"event":"$pageview"')
+
+        await userEvent.click(destination)
+
+        expect(captureMock).toHaveBeenCalledWith(
+            'taxonomic filter empty search destination clicked',
+            expect.objectContaining({
+                surface: 'rebuild-menu',
+                groupType: undefined,
+                destination: 'Explore',
+            })
+        )
+    })
+
     it('fires `taxonomic filter empty result` exactly once per scope+query (dedup)', async () => {
         apiGet.mockResolvedValue({ results: [], count: 0 })
 

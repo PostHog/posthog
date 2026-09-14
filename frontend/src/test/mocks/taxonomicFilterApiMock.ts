@@ -33,6 +33,7 @@ export function buildTaxonomicFilterApiMock(overrides: Record<string, unknown> =
             // Returns a plain array, not a paginated envelope
             dataWarehouseSavedQueryFolders: { list: jest.fn().mockResolvedValue([]) },
             dataWarehouseViewLinks: { list: jest.fn().mockImplementation(emptyPaginated) },
+            eventDefinitions: { primaryProperties: jest.fn().mockResolvedValue({ primary_properties: {} }) },
             surveys: { questionLabels: jest.fn().mockResolvedValue({ labels: [] }) },
             ...overrides,
         },

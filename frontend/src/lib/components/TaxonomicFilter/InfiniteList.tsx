@@ -3,6 +3,7 @@ import './InfiniteList.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
@@ -17,9 +18,10 @@ import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
 import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { taxonomicExampleBrowserLogic } from 'lib/components/TaxonomicFilter/taxonomicExampleBrowserLogic'
+import { taxonomicEmptySearchDestination } from 'lib/components/TaxonomicFilter/taxonomicEmptySearchDestination'
 import { SelectItemMeta, taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
+import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomicFilterSurface'
 import {
     DataWarehousePopoverField,
     DefinitionPopoverRenderer,
@@ -33,6 +35,7 @@ import {
     TaxonomicFilterGroupValueMap,
 } from 'lib/components/TaxonomicFilter/types'
 import { hiddenEventMatchingSearch } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -709,16 +712,15 @@ function InfiniteListEmptyState(): JSX.Element {
         infiniteListCounts,
         infiniteListResultCounts,
         eventNames,
+        featureFlags,
     } = useValues(taxonomicFilterLogic)
     const { setIncludeStaleEvents, setActiveTab } = useActions(taxonomicFilterLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
-    const { isAvailable: canBrowseExamples } = useValues(taxonomicExampleBrowserLogic)
-    const { openExampleBrowser } = useActions(taxonomicExampleBrowserLogic)
-
     const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters, listGroupType } =
         useValues(infiniteListLogic)
 
     const emptySearchQuery = searchQuery.trim().length === 0
+    const emptySearchDestination = !emptySearchQuery ? taxonomicEmptySearchDestination(group, eventNames ?? []) : null
     const suggestedFiltersBeforeSearching = isSuggestedFilters && emptySearchQuery
     const canOfferStaleToggle =
         !emptySearchQuery &&
@@ -848,17 +850,27 @@ function InfiniteListEmptyState(): JSX.Element {
                             </LemonButton>
                         )
                     })}
+                    {emptySearchDestination && (
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            data-attr="taxonomic-empty-search-destination"
+                            to={emptySearchDestination.url}
+                            targetBlank
+                            onClick={() =>
+                                posthog.capture('taxonomic filter empty search destination clicked', {
+                                    surface: legacyTaxonomicSurface(
+                                        featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
+                                    ),
+                                    groupType: listGroupType,
+                                    destination: emptySearchDestination.label,
+                                })
+                            }
+                        >
+                            Search in {emptySearchDestination.label}
+                        </LemonButton>
+                    )}
                 </>
-            )}
-            {canBrowseExamples && (
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    data-attr="taxonomic-example-browser-open"
-                    onClick={openExampleBrowser}
-                >
-                    See properties on recent events
-                </LemonButton>
             )}
         </div>
     )
@@ -922,7 +934,6 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         showSuggestedFiltersEmptyState,
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, togglePinnedRow, expand, updateRemoteItem } = useActions(infiniteListLogic)
-    const { isOpen: isExampleBrowserOpen } = useValues(taxonomicExampleBrowserLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
     const listRef = useListRef(null)
 
@@ -1009,7 +1020,6 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                 />
             )}
             {isActiveTab &&
-            !isExampleBrowserOpen &&
             selectedItemGroup &&
             selectedItemHasPopover(selectedItem, selectedItemGroup, taxonomicGroups) &&
             showPopover &&

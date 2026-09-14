@@ -37,6 +37,7 @@ import {
 
 import type { SeriesRename } from 'lib/components/EntityFilterInfo'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { Link } from 'lib/lemon-ui/Link'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
@@ -44,6 +45,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { useTaxonomicFilterContext } from '../headless/context'
 import { useGroupList } from '../hooks/useGroupList'
+import { taxonomicEmptySearchDestination } from '../taxonomicEmptySearchDestination'
 import {
     OPEN_AS_SELF_ON_REOPEN,
     TaxonomicDefinitionTypes,
@@ -210,7 +212,7 @@ export function MenuFilterCombobox({
     // (Pageview URLs, Screens, etc.) actually fetch — `useGroupList` reads
     // `searchQuery` from the orchestrator's `getGroupListInput`, not from
     // us. Keeping a local mirror just for the controlled input ergonomics.
-    const { groups, searchQuery, setSearchQuery } = useTaxonomicFilterContext()
+    const { groups, metaGroupTypes, searchQuery, setSearchQuery, eventNames } = useTaxonomicFilterContext()
     // Open on the drill scope ("All" for the default surface). Reopening with a committed
     // selection used to jump to that item's category; we now lead with "All" so the user
     // lands on recents/pinned + a cross-category search (the selection still surfaces via
@@ -226,6 +228,10 @@ export function MenuFilterCombobox({
     // (drillTo='all'), otherwise the drilled-to category. Single source for the
     // telemetry group type, empty state, stale-toggle gating, and reset trigger.
     const activeScope: DrillCategory = drillTo === 'all' ? activeChip : drillTo
+    const emptySearchDestination = taxonomicEmptySearchDestination(
+        groups.find((group) => group.type === activeScope) ?? groups.find((group) => !metaGroupTypes.has(group.type)),
+        eventNames
+    )
     const [itemsByType, setItemsByType] = useState<Record<string, TaxonomicDefinitionTypes[]>>({})
     // Per-group loading flags reported up by `Fetcher`. We need this in the
     // parent so the empty-state vs. skeleton decision sees the freshest
@@ -1108,6 +1114,29 @@ export function MenuFilterCombobox({
                                                         onClick={handleCheckOtherCategories}
                                                     >
                                                         Check for results in other categories
+                                                    </Button>
+                                                )}
+                                                {!!searchQuery.trim() && emptySearchDestination && !emptyState.body && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        data-attr="taxonomic-empty-search-destination"
+                                                        nativeButton={false}
+                                                        onClick={() =>
+                                                            posthog.capture(
+                                                                'taxonomic filter empty search destination clicked',
+                                                                {
+                                                                    surface: TAXONOMIC_FILTER_SURFACE,
+                                                                    groupType: telemetryGroupType,
+                                                                    destination: emptySearchDestination.label,
+                                                                }
+                                                            )
+                                                        }
+                                                        render={
+                                                            <Link to={emptySearchDestination.url} target="_blank" />
+                                                        }
+                                                    >
+                                                        Search in {emptySearchDestination.label}
                                                     </Button>
                                                 )}
                                             </div>

@@ -135,8 +135,6 @@ const PROPERTY_TAXONOMIC_GROUP_TYPES = new Set(Object.values(PROPERTY_FILTER_TYP
 
 export interface SelectItemMeta {
     position?: number
-    /** The pick came from the example browser, not from a list row. */
-    wasFromExample?: boolean
 }
 
 function indexAfterLastMetaGroup(
@@ -2566,7 +2564,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     wasQuickFilter,
                     hadSearchInput,
                     position: meta?.position,
-                    wasFromExample: meta?.wasFromExample === true,
                     query: values.searchQuery || undefined,
                     wasStale,
                     ...(wasQuickFilter && {

@@ -466,6 +466,36 @@ describe('TaxonomicFilter', () => {
             expect(screen.queryByTestId('taxonomic-switch-to-all')).not.toBeInTheDocument()
         })
 
+        it('offers Explore in a new tab with the pageview context', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                eventNames: ['$pageview'],
+            })
+
+            await withoutDebounceDelay((user) => user.type(screen.getByTestId('taxonomic-filter-searchfield'), 'zzz'))
+
+            let destination: HTMLElement | undefined
+            await waitFor(() => {
+                destination = inVisibleTab(screen.getAllByTestId('taxonomic-empty-search-destination'))
+                expect(destination).toBeTruthy()
+            })
+
+            expect(destination).toHaveAttribute('target', '_blank')
+            expect(decodeURIComponent(destination?.getAttribute('href') ?? '')).toContain('"event":"$pageview"')
+
+            await userEvent.click(destination!)
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                'taxonomic filter empty search destination clicked',
+                expect.objectContaining({
+                    surface: 'legacy-control',
+                    groupType: TaxonomicFilterGroupType.EventProperties,
+                    destination: 'Explore',
+                })
+            )
+        })
+
         it('offers a per-category jump when matches live on another tab and there is no all section', async () => {
             // No SuggestedFilters group (control variant), so the aggregated "all" jump is unavailable —
             // the empty state must instead point at the specific tab that matched.

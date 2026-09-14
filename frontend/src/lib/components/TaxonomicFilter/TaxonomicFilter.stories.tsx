@@ -10,7 +10,6 @@ import { CategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/component
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
@@ -19,7 +18,6 @@ import { type AnyPropertyFilter, AvailableFeature, EntityTypes, PropertyFilterTy
 
 import { infiniteListLogic } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
-import { taxonomicExampleBrowserLogic } from './taxonomicExampleBrowserLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { TaxonomicFilterProps } from './types'
@@ -736,7 +734,7 @@ export const EmptyEventsWithStaleToggle: Story = {
     },
 }
 
-export const ExampleBrowserOffered: Story = {
+export const EmptySearchDestination: Story = {
     render: (args) => {
         useMountedLogic(actionsModel)
         const { setSearchQuery } = useActions(
@@ -752,7 +750,7 @@ export const ExampleBrowserOffered: Story = {
         )
     },
     args: {
-        taxonomicFilterLogicKey: 'example-browser-offered',
+        taxonomicFilterLogicKey: 'empty-search-destination',
         taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
         eventNames: ['$pageview'],
     },
@@ -764,77 +762,10 @@ export const ExampleBrowserOffered: Story = {
         }),
     ],
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EXAMPLE_BROWSER]: true },
-        testOptions: { waitForSelector: '[data-attr="taxonomic-example-browser-open"]:visible' },
+        testOptions: { waitForSelector: '[data-attr="taxonomic-empty-search-destination"]:visible' },
         docs: {
             description: {
-                story: 'When a search finds nothing and the picker knows which event is in context, the empty state offers to show the properties of recent events.',
-            },
-        },
-    },
-}
-
-export const ExampleBrowserOpen: Story = {
-    render: (args) => {
-        useMountedLogic(actionsModel)
-        const { openExampleBrowser } = useActions(
-            taxonomicExampleBrowserLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
-        )
-
-        useOnMountEffect(() => openExampleBrowser())
-
-        return (
-            <div className="w-fit border rounded p-2 bg-surface-primary">
-                <TaxonomicFilter {...args} />
-            </div>
-        )
-    },
-    args: {
-        taxonomicFilterLogicKey: 'example-browser',
-        taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
-        eventNames: ['$pageview'],
-        enableKeywordShortcuts: true,
-    },
-    decorators: [
-        mswDecorator({
-            post: {
-                '/api/environments/:team_id/query/EventsQuery/': {
-                    results: [
-                        [
-                            {
-                                uuid: 'example-1',
-                                event: '$pageview',
-                                timestamp: '2025-01-01T00:00:00Z',
-                                distinct_id: 'user-1',
-                                properties: {
-                                    $browser: 'Chrome',
-                                    $current_url: 'https://example.com/pricing',
-                                    plan: 'pro',
-                                    seats: 12,
-                                    cart: { items: 2 },
-                                },
-                            },
-                        ],
-                        [
-                            {
-                                uuid: 'example-2',
-                                event: '$pageview',
-                                timestamp: '2024-12-31T00:00:00Z',
-                                distinct_id: 'user-2',
-                                properties: { $browser: 'Firefox', plan: 'free' },
-                            },
-                        ],
-                    ],
-                },
-            },
-        }),
-    ],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EXAMPLE_BROWSER]: true },
-        testOptions: { waitForSelector: '[data-attr="taxonomic-example-browser-key"]' },
-        docs: {
-            description: {
-                story: 'The example browser lists the properties of a recent event for the event in context. PostHog properties are hidden until the user unticks the box. Clicking a key selects the property; clicking a value selects key = value.',
+                story: 'When a search finds nothing, the empty state offers a new tab that opens the relevant page with the event context applied.',
             },
         },
     },

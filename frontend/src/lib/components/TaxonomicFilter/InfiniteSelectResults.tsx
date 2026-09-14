@@ -18,8 +18,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
 
-import { ExampleBrowser } from './ExampleBrowser'
-import { taxonomicExampleBrowserLogic } from './taxonomicExampleBrowserLogic'
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
@@ -173,8 +171,6 @@ export function InfiniteSelectResults({
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
     const { totalListCount, isLocalDataLoading } = useValues(logic)
-    const { isOpen: isExampleBrowserOpen } = useValues(taxonomicExampleBrowserLogic(taxonomicFilterLogicProps))
-
     const RenderComponent = activeTaxonomicGroup?.render
 
     const hasMultipleGroups = taxonomicGroupTypes.length > 1
@@ -214,73 +210,65 @@ export function InfiniteSelectResults({
         taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
 
     return (
-        <BindLogic logic={taxonomicExampleBrowserLogic} props={taxonomicFilterLogicProps}>
-            <div ref={wrapperRef} className="flex flex-row h-full">
-                {showCategoryColumn && (
-                    <div className="border-r pr-2 mr-2 flex-shrink-0 border-primary">
-                        <div className="taxonomic-group-title">Categories</div>
-                        <div className="taxonomic-pills flex flex-col gap-1">
-                            {taxonomicGroupTypes.map((groupType) => {
-                                return (
-                                    <CategoryPill
-                                        key={groupType}
-                                        groupType={groupType}
-                                        taxonomicFilterLogicProps={taxonomicFilterLogicProps}
-                                        isActive={groupType === openTab}
-                                        onClick={() => {
-                                            setActiveTab(groupType)
-                                            focusInput()
-                                            reportTaxonomicFilterCategorySelected(
-                                                groupType,
-                                                taxonomicFilterLogicProps.eventNames?.[0]
-                                            )
-                                        }}
-                                    />
-                                )
-                            })}
-                        </div>
+        <div ref={wrapperRef} className="flex flex-row h-full">
+            {showCategoryColumn && (
+                <div className="border-r pr-2 mr-2 flex-shrink-0 border-primary">
+                    <div className="taxonomic-group-title">Categories</div>
+                    <div className="taxonomic-pills flex flex-col gap-1">
+                        {taxonomicGroupTypes.map((groupType) => {
+                            return (
+                                <CategoryPill
+                                    key={groupType}
+                                    groupType={groupType}
+                                    taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                                    isActive={groupType === openTab}
+                                    onClick={() => {
+                                        setActiveTab(groupType)
+                                        focusInput()
+                                        reportTaxonomicFilterCategorySelected(
+                                            groupType,
+                                            taxonomicFilterLogicProps.eventNames?.[0]
+                                        )
+                                    }}
+                                />
+                            )
+                        })}
                     </div>
-                )}
-
-                <div className={cn('flex-1 overflow-hidden min-h-0')}>
-                    {isExampleBrowserOpen && <ExampleBrowser />}
-                    {taxonomicGroupTypes.map((groupType) => {
-                        return (
-                            <div
-                                key={groupType}
-                                className={cn(
-                                    groupType === openTab && !isExampleBrowserOpen ? 'flex flex-col h-full' : 'hidden'
-                                )}
-                            >
-                                <BindLogic
-                                    logic={infiniteListLogic}
-                                    props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
-                                >
-                                    {(showDataWarehouseLoadingState || showEmptyState) && (
-                                        <TaxonomicFilterEmptyState
-                                            groupType={groupType}
-                                            isLoading={showDataWarehouseLoadingState}
-                                        />
-                                    )}
-                                    {!showDataWarehouseLoadingState && !showEmptyState && listComponent}
-                                    {!showDataWarehouseLoadingState &&
-                                        !showEmptyState &&
-                                        (() => {
-                                            const currentGroup = taxonomicGroups.find((g) => g.type === groupType)
-                                            return (
-                                                currentGroup?.footerMessage && (
-                                                    <div className="p-2 border-t border-border">
-                                                        {currentGroup.footerMessage}
-                                                    </div>
-                                                )
-                                            )
-                                        })()}
-                                </BindLogic>
-                            </div>
-                        )
-                    })}
                 </div>
+            )}
+
+            <div className={cn('flex-1 overflow-hidden min-h-0')}>
+                {taxonomicGroupTypes.map((groupType) => {
+                    return (
+                        <div key={groupType} className={cn(groupType === openTab ? 'flex flex-col h-full' : 'hidden')}>
+                            <BindLogic
+                                logic={infiniteListLogic}
+                                props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
+                            >
+                                {(showDataWarehouseLoadingState || showEmptyState) && (
+                                    <TaxonomicFilterEmptyState
+                                        groupType={groupType}
+                                        isLoading={showDataWarehouseLoadingState}
+                                    />
+                                )}
+                                {!showDataWarehouseLoadingState && !showEmptyState && listComponent}
+                                {!showDataWarehouseLoadingState &&
+                                    !showEmptyState &&
+                                    (() => {
+                                        const currentGroup = taxonomicGroups.find((g) => g.type === groupType)
+                                        return (
+                                            currentGroup?.footerMessage && (
+                                                <div className="p-2 border-t border-border">
+                                                    {currentGroup.footerMessage}
+                                                </div>
+                                            )
+                                        )
+                                    })()}
+                            </BindLogic>
+                        </div>
+                    )
+                })}
             </div>
-        </BindLogic>
+        </div>
     )
 }
