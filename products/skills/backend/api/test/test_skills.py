@@ -34,6 +34,7 @@ from ...api.skill_serializers import (
 from ...api.skill_services import (
     MAX_SKILL_FILE_COUNT,
     archive_skill,
+    compute_spec_problems,
     create_skill,
     publish_skill_version,
     resolve_skill_owners,
@@ -313,6 +314,36 @@ class TestLLMSkillAPI(APIBaseTest):
         assert all("body" not in r for r in results)
         # Body-paging metadata is meaningless without the body — it must not leak into the list.
         assert all("body_total_length" not in r and "body_next_offset" not in r for r in results)
+
+    def test_list_skills_reports_spec_problems_in_one_file_query(self):
+        # The list serializer drops the file manifest but still reports spec_problems, so the file
+        # paths must come from one query for the page, not one query per skill.
+        for index in range(3):
+            skill = self.create_skill(name=f"skill-{index}", description="Does things.")
+            LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="x")
+        broken = self.create_skill(name="broken", description="Does things.")
+        # Bypasses the serializer validation so the row looks like one that predates it.
+        LLMSkillFile.objects.create(skill=broken, path="references\\guide.md", content="x")
+
+        with CaptureQueriesContext(connection) as captured_queries:
+            response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        problems_by_name = {result["name"]: result["spec_problems"] for result in response.json()["results"]}
+        assert problems_by_name["skill-0"] == []
+        assert problems_by_name["broken"] == [
+            {
+                "code": "file_path_not_canonical",
+                "message": "Rename this file to 'references/guide.md'. The stored path does not unpack to that location.",
+                "file_path": "references\\guide.md",
+            }
+        ]
+        file_queries = [
+            query["sql"]
+            for query in captured_queries.captured_queries
+            if query["sql"].lstrip().startswith('SELECT "llm_analytics_llmskillfile".')
+        ]
+        assert len(file_queries) == 1, "\n---\n".join(file_queries)
 
     def test_list_skills_search_by_name(self):
         self.create_skill(name="pdf-processing", description="Handles PDFs.")
@@ -2330,3 +2361,34 @@ class TestLLMSkillDescriptionCapSplit(SimpleTestCase):
         assert create_description.max_length == SPEC_DESCRIPTION_MAX_LENGTH
         assert detail_description.max_length == 4096
         assert list_description.max_length == 4096
+
+
+class TestSpecProblems(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("clean", "my-skill", "Does things.", ["references/guide.md"], []),
+            # The exact sidecar path replaces the generated entry rather than colliding with it.
+            ("sidecar_exact_path", "my-skill", "Does things.", ["agents/openai.yaml"], []),
+            ("malformed_name", "Bad/Name", "Does things.", [], ["name_malformed"]),
+            ("empty_description", "my-skill", "   ", [], ["description_empty"]),
+            ("overlong_description", "my-skill", "x" * 1025, [], ["description_too_long"]),
+            ("invalid_path", "my-skill", "Does things.", ["../escape.md"], ["file_path_invalid"]),
+            ("not_canonical_path", "my-skill", "Does things.", ["refs\\guide.md"], ["file_path_not_canonical"]),
+            ("case_collision", "my-skill", "Does things.", ["a.md", "A.md"], ["file_path_collides"]),
+            ("sidecar_case_variant", "my-skill", "Does things.", ["Agents/OpenAI.yaml"], ["file_path_collides"]),
+            (
+                "file_where_a_directory_is_needed",
+                "my-skill",
+                "Does things.",
+                ["assets", "assets/logo.png"],
+                ["file_path_shadows_directory"],
+            ),
+        ]
+    )
+    def test_reports_a_stable_code_per_problem(
+        self, _label: str, name: str, description: str, paths: list[str], expected_codes: list[str]
+    ) -> None:
+        # The codes are the contract the bundle walk, the marketplace walk and the API field share.
+        problems = compute_spec_problems(name, description, paths)
+
+        assert [problem.code for problem in problems] == expected_codes
