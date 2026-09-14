@@ -14,7 +14,7 @@ CURSOR_PARAM = "cursor"
 MAX_PAGE_SIZE = 1000
 
 
-@dataclass
+@dataclass(frozen=True)
 class BrowserbaseEndpointConfig:
     name: str
     path: str
