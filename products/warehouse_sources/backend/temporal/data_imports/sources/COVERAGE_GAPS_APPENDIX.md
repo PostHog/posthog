@@ -1010,14 +1010,14 @@ Note: Fetched the v3 OpenAPI spec (linked from docs.browser-use.com/llms.txt); t
 
 ## Bugherd — gaps
 
-Today (4): `Organization`, `Projects`, `Tasks`, `Users`
+Today (8): `ArchivedTasks`, `Columns`, `FeedbackTasks`, `Organization`, `Projects`, `TaskComments`, `Tasks`, `Users`
 
 Diffed against: <https://docs.bugherd.com/api/openapi.yaml>
 
-- [ ] `GET /api_v2/projects/{project_id}/tasks/{task_id}/comments.json` — task discussion thread — the main activity signal on a bug, and the only per-task event grain available (high)
-- [ ] `GET /api_v2/projects/{project_id}/columns.json` — lookup resolving the board column/status a task sits in (high)
-- [ ] `GET /api_v2/projects/{project_id}/tasks/archive.json` — archived (closed-out) tasks live behind a separate endpoint, so completed work is entirely missing from the tasks table (high)
-- [ ] `GET /api_v2/projects/{project_id}/tasks/feedback.json` — the unsorted feedback inbox — tasks not yet promoted to the board (medium)
+- [x] `GET /api_v2/projects/{project_id}/tasks/{task_id}/comments.json` — task discussion thread — the main activity signal on a bug, and the only per-task event grain available (high)
+- [x] `GET /api_v2/projects/{project_id}/columns.json` — lookup resolving the board column/status a task sits in (high)
+- [x] `GET /api_v2/projects/{project_id}/tasks/archive.json` — archived (closed-out) tasks live behind a separate endpoint, so completed work is entirely missing from the tasks table (high)
+- [x] `GET /api_v2/projects/{project_id}/tasks/feedback.json` — the unsorted feedback inbox — tasks not yet promoted to the board (medium)
 - [ ] `GET /api_v2/projects/{project_id}/tasks/{task_id}/attachments.json` — screenshots and files attached to a task, joinable to tasks (medium)
 - [ ] `GET /api_v2/users/{user_id}/projects.json` — membership join between users and projects; neither existing table carries the relationship (medium)
 - [ ] `GET /api_v2/users/members.json and GET /api_v2/users/guests.json` — splits the flat users list into members vs guests, which is how BugHerd seats are licensed (medium)
