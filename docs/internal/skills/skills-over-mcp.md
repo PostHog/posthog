@@ -62,3 +62,4 @@ Keep these in step when the wording changes:
 - `products/skills/backend/tools/skills.py`: the `allowed_tools` field descriptions on `CreateSkillArgs` and `UpdateSkillArgs`.
 - `products/skills/mcp/tools.yaml`: the `skill-create` and `skill-update` descriptions. Run `hogli build:openapi` after an edit.
 - `products/skills/skills/skills-store/SKILL.md`: the store skill that tells an agent how to create a skill.
+- `products/skills/skills/working-with-skills/SKILL.md`: the playbook skill that pairs with `skills-store`.
