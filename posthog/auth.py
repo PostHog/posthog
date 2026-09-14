@@ -138,6 +138,16 @@ def apply_auth_brand_cookie(request: HttpRequest, response: JsonResponse | HttpR
     return response
 
 
+# zxcvbn's own suggestions are library copy, so we map its score onto ours instead.
+# The same mapping lives in frontend/src/lib/components/PasswordStrength.tsx.
+TOO_EASY_TO_GUESS = "This password is too easy to guess. Make it longer, or use a few unrelated words."
+WEAK_PASSWORD_FEEDBACK = {
+    0: TOO_EASY_TO_GUESS,
+    1: TOO_EASY_TO_GUESS,
+    2: "This password is still easy to guess. Add more words or characters.",
+}
+
+
 class ZxcvbnValidator:
     """
     Validate that the password satisfies zxcvbn
@@ -147,13 +157,11 @@ class ZxcvbnValidator:
         self.min_length = min_length
 
     def validate(self, password, user=None):
-        result = zxcvbn(password)
+        score = zxcvbn(password)["score"]
 
-        if result["score"] < 3:
-            joined_feedback = " ".join(result["feedback"]["suggestions"])
-
+        if score < 3:
             raise ValidationError(
-                joined_feedback or "This password is too weak.",
+                WEAK_PASSWORD_FEEDBACK[score],
                 code="password_too_weak",
             )
 
