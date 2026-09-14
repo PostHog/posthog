@@ -929,6 +929,25 @@ class TestImportAndCreateValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "body" in str(response.json()).lower()
 
+    @parameterized.expand(
+        [
+            ("malformed", "Bad_Name", "cannot be a skill directory name"),
+            ("reserved", "community", "is a reserved name"),
+        ]
+    )
+    def test_import_reports_one_message_per_name_problem(self, _label: str, name: str, expected: str):
+        # The shared spec rules cover the name shape and the import adds the reserved-name rule on
+        # top, so a name that breaks one rule must not be reported by both.
+        export = SkillExport(name=name, description="A skill.", body="# skill\n", version=1)
+        upload = SimpleUploadedFile("skill.zip", build_skill_zip(export), content_type="application/zip")
+
+        response = self.client.post(self._import_url(), {"file": upload}, format="multipart")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        problems = response.json()["problems"]
+        assert len(problems) == 1, problems
+        assert expected in problems[0]
+
     def test_create_rejects_whitespace_allowed_tool(self):
         # A tool name with a space would fracture the spec's space-delimited allowed-tools string.
         response = self.client.post(

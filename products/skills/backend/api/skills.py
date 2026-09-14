@@ -128,6 +128,7 @@ from .skill_services import (
     resolve_skill_owners_for_names,
     resolve_versions_page,
     set_skill_owners,
+    skill_name_is_well_formed,
     skill_names_owned_by,
 )
 
@@ -1184,10 +1185,13 @@ class LLMSkillViewSet(
         # (oversized body/files, whitespace-bearing tools) the rest of the system assumes is bounded.
         # _spec_problem_messages already covers the description, the name shape and the file paths.
         problems: list[str] = _spec_problem_messages(skill_export)
-        try:
-            validate_skill_name_value(skill_export.name)
-        except serializers.ValidationError as err:
-            problems.append(f"name: {self._first_error(err)}")
+        # The reserved-name rule is all this adds on top of the shape rules above, so calling it for
+        # a malformed name would report that defect twice.
+        if skill_name_is_well_formed(skill_export.name):
+            try:
+                validate_skill_name_value(skill_export.name)
+            except serializers.ValidationError as err:
+                problems.append(f"name: {self._first_error(err)}")
         try:
             validate_skill_body_size(skill_export.body)
         except serializers.ValidationError as err:
