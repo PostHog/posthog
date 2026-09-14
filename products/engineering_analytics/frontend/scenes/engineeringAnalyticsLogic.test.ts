@@ -206,8 +206,6 @@ describe('engineeringAnalyticsLogic', () => {
         mockTrunkQuarantine.mockResolvedValue({
             available: true,
             owners_resolved: true,
-            truncated: false,
-            limit: 5000,
             ttl_days: 15,
             truncated: false,
             limit: 5000,
@@ -693,8 +691,6 @@ describe('engineeringAnalyticsLogic', () => {
         mockTrunkQuarantine.mockResolvedValue({
             available: true,
             owners_resolved: true,
-            truncated: false,
-            limit: 5000,
             ttl_days: 15,
             truncated: false,
             limit: 5000,
