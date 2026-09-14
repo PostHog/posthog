@@ -80,6 +80,10 @@
     &__overlay {
         position: absolute;
         inset: 0;
+
+        // The pull request is lifted above the track, so the overlay has to clear it as well.
+        // Without this the pull request paints over the copy the overlay is there to show.
+        z-index: 2;
         display: flex;
         flex-direction: column;
         gap: 0.5rem;
