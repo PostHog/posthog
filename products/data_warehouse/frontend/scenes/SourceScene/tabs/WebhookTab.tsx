@@ -47,7 +47,7 @@ const WEBHOOK_METRICS_INFO: Record<string, { name: string; description: string; 
     },
     missing_credential: {
         name: 'Dropped',
-        description: 'Total number of webhook events dropped because this webhook has no signing key yet',
+        description: 'Total number of webhook events dropped because this webhook is missing a required credential',
         color: getColorVar('warning'),
     },
 }
