@@ -57,7 +57,7 @@ import type { RunStatus } from './runStreamLogic'
 import { taskDraftListeners } from './taskDraftListeners'
 import type { DraftRecovery } from './taskDraftPersistence'
 import { taskRunDefaultsLogic } from './taskRunDefaultsLogic'
-import { taskWarmLogic } from './taskWarmLogic'
+import { taskWarmLogic, type WarmSubmission } from './taskWarmLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 export interface RunInteractionLogicProps {
@@ -1053,6 +1053,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 !props.runId ||
                 !values.isTerminal ||
                 !values.dataProcessingAccepted ||
+                values.startingRun ||
                 values.draftRecovery ||
                 cache.restoringTaskDraft
             ) {
@@ -1391,7 +1392,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                             pending_user_message: wrapWithPosthogContext(content, pendingContext),
                         }
                     )
-                    getWarmLogic()?.actions.consumeWarm()
+                    const warmSubmission: WarmSubmission = { projectId, lease: null }
+                    getWarmLogic()?.actions.prepareSubmit(warmSubmission)
                     actions.beginTaskDraftDelivery(content)
                     actions.resetComposerForm()
                     actions.startOptimisticResume(content)
@@ -1403,6 +1405,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     if (!isCurrent()) {
                         return
                     }
+                    getWarmLogic()?.actions.consumeWarm(warmSubmission, result.latest_run?.id ?? null)
                     const run = result.latest_run
                     if (!run?.id) {
                         throw new Error('The run response did not include a run')
