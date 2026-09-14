@@ -22242,6 +22242,16 @@ export namespace Schemas {
       readonly non_portable_references: NonPortableReferences;
     }
 
+    export type ResultStatusEnum = typeof ResultStatusEnum[keyof typeof ResultStatusEnum];
+
+
+    export const ResultStatusEnum = {
+      Ok: 'ok',
+      CacheMiss: 'cache_miss',
+      QueryPending: 'query_pending',
+      Error: 'error',
+    } as const;
+
     /**
      * InsightSerializer restricted to identifiers + result only.
      */
@@ -22253,6 +22263,19 @@ export namespace Schemas {
       /** @nullable */
       readonly derived_name: string | null;
       readonly result: unknown;
+      /** Why `result` holds what it holds. `ok` - the result is the query's answer, so an empty one means there is no data. `cache_miss` - nothing was cached and the request did not ask for a recalculation; re-run with `refresh=blocking` to compute it. `query_pending` - an asynchronous recalculation is still running. `error` - the query failed. */
+      readonly result_status: ResultStatusEnum;
+      /**
+         *
+       *     The datetime this insight's results were generated.
+       *     If added to one or more dashboards the insight can be refreshed separately on each.
+       *     Returns the appropriate last_refresh datetime for the context the insight is viewed in
+       *     (see from_dashboard query parameter).
+       *
+         * @nullable
+         */
+      readonly last_refresh: string | null;
+      readonly is_cached: boolean;
     }
 
     /**
