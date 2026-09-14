@@ -1170,7 +1170,12 @@ fn emit_latest_processed_timestamp_metrics(
 }
 
 #[cfg(test)]
+#[path = "consumer_replay_test_support.rs"]
+mod replay_test_support;
+
+#[cfg(test)]
 mod tests {
+    use super::replay_test_support::ReplayHarness;
     use super::*;
     use common_kafka_consumer::Offset as MessageOffset;
 
@@ -1325,242 +1330,17 @@ mod tests {
 
     #[tokio::test]
     async fn historical_revoke_keeps_a_reassigned_poll_and_its_ledger_slice() {
-        use axum::{routing::get, Router};
-        use ingestion_worker_proto::ingestion::worker::v1::{
-            ingest_stream_request, ingest_stream_response,
-            worker_ingest_server::{WorkerIngest, WorkerIngestServer},
-            IngestStreamRequest, IngestStreamResponse, StreamReady, SubBatchAck, SubBatchStatus,
-        };
-        use lifecycle::{ComponentOptions, Manager};
-        use rdkafka::{
-            config::ClientConfig,
-            mocking::MockCluster,
-            producer::{FutureProducer, FutureRecord},
-        };
-        use tokio_stream::wrappers::{TcpListenerStream, UnboundedReceiverStream};
-        use tonic::{Request, Response, Status, Streaming};
+        let mut consumer = ReplayHarness::start_with_batch_size(2).await;
+        consumer.publish_one_record().await;
+        consumer.wait_until_consumed(0).await;
 
-        use crate::{
-            grpc_transport::GrpcPort,
-            routing::RoutingStrategy,
-            worker_registry::{WorkerRegistry, WorkerRegistryConfig},
-        };
+        consumer.revoke_partition().await;
+        consumer.reassign_partition();
 
-        // Keep the worker ACK under the test's control, but drive the real
-        // consumer, batcher, transport, rebalance callbacks, and Kafka commits.
-        struct WorkerConnection {
-            requests: Streaming<IngestStreamRequest>,
-            responses: mpsc::UnboundedSender<Result<IngestStreamResponse, Status>>,
-        }
-        struct Worker(mpsc::UnboundedSender<WorkerConnection>);
-
-        #[tonic::async_trait]
-        impl WorkerIngest for Worker {
-            type IngestStreamStream = UnboundedReceiverStream<Result<IngestStreamResponse, Status>>;
-
-            async fn ingest_stream(
-                &self,
-                request: Request<Streaming<IngestStreamRequest>>,
-            ) -> Result<Response<Self::IngestStreamStream>, Status> {
-                let (responses, rx) = mpsc::unbounded_channel();
-                responses
-                    .send(Ok(IngestStreamResponse {
-                        msg: Some(ingest_stream_response::Msg::Ready(StreamReady {})),
-                    }))
-                    .unwrap();
-                self.0
-                    .send(WorkerConnection {
-                        requests: request.into_inner(),
-                        responses,
-                    })
-                    .unwrap();
-                Ok(Response::new(UnboundedReceiverStream::new(rx)))
-            }
-        }
-
-        async fn wait_for(description: &str, mut ready: impl FnMut() -> bool) {
-            tokio::time::timeout(Duration::from_secs(15), async {
-                while !ready() {
-                    tokio::time::sleep(Duration::from_millis(20)).await;
-                }
-            })
-            .await
-            .unwrap_or_else(|_| panic!("timed out waiting for {description}"));
-        }
-
-        let cluster = MockCluster::new(1).unwrap();
-        let topic = "reassigned-poll";
-        cluster.create_topic(topic, 1, 1).unwrap();
-        let mut config = ClientConfig::new();
-        config
-            .set("bootstrap.servers", cluster.bootstrap_servers())
-            .set("group.id", "reassigned-poll-test")
-            .set("auto.offset.reset", "earliest")
-            .set("enable.auto.commit", "false")
-            .set("enable.auto.offset.store", "false")
-            .set("session.timeout.ms", "6000")
-            .set("heartbeat.interval.ms", "1000");
-        let transport_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let transport = Arc::new(GrpcTransport::new(
-            GrpcPort::Fixed(transport_listener.local_addr().unwrap().port()),
-            1,
-            Duration::from_secs(30),
-        ));
-        let mut context = SentinelContext::detached();
-        context.set_assignment_epoch(transport.assignment_epoch());
-        let kafka: StreamConsumer<SentinelContext> = config.create_with_context(context).unwrap();
-        kafka.subscribe(&[topic]).unwrap();
-
-        let ready_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let worker_urls = vec![format!("http://{}", ready_listener.local_addr().unwrap())];
-        let _ready_server = AbortOnDrop(tokio::spawn(async move {
-            axum::serve(
-                ready_listener,
-                Router::new().route("/_ready", get(|| async { axum::http::StatusCode::OK })),
-            )
-            .await
-            .unwrap();
-        }));
-        let (connections_tx, mut connections) = mpsc::unbounded_channel();
-        let _worker_server = AbortOnDrop(tokio::spawn(async move {
-            tonic::transport::Server::builder()
-                .add_service(
-                    WorkerIngestServer::new(Worker(connections_tx))
-                        .accept_compressed(tonic::codec::CompressionEncoding::Gzip)
-                        .send_compressed(tonic::codec::CompressionEncoding::Gzip),
-                )
-                .serve_with_incoming(TcpListenerStream::new(transport_listener))
-                .await
-                .unwrap();
-        }));
-        let dispatcher = Arc::new(Dispatcher::with_scheduler(
-            Arc::new(WorkerRegistry::new(
-                &worker_urls,
-                WorkerRegistryConfig {
-                    probe_interval: Duration::from_millis(50),
-                    dead_declaration: Duration::from_millis(200),
-                    passive_window: Duration::from_secs(30),
-                    passive_error_threshold: 0.5,
-                    passive_min_samples: 1,
-                    degraded_hold: Duration::from_millis(100),
-                    min_state_duration: Duration::ZERO,
-                    probe_failure_threshold: 2,
-                    drain_timeout: Duration::from_secs(5),
-                },
-            )),
-            RoutingStrategy::default(),
-            SchedulerKind::KeyTable,
-        ));
-        let mut manager = Manager::builder("reassigned-poll-test")
-            .with_trap_signals(false)
-            .build();
-        let handle = manager.register("consumer", ComponentOptions::new());
-        let shutdown = handle.shutdown_token();
-        let _monitor = manager.monitor_background();
-        let consumer = IngestionConsumer::from_parts(
-            kafka,
-            dispatcher,
-            transport,
-            worker_urls,
-            IngestionConsumerOptions {
-                batch_size: 2,
-                batch_size_bytes: 0,
-                batch_timeout: Duration::from_secs(60),
-                max_in_flight_batches: 1,
-                group_id: "reassigned-poll-test".to_string(),
-                deferred_flush_timeout: Duration::from_secs(30),
-                parked_retry_interval: Duration::from_millis(20),
-                debug_recorder: None,
-            },
-            handle,
-        );
-        let kafka = Arc::clone(&consumer.consumer);
-        let mut process = AbortOnDrop(tokio::spawn(consumer.process()));
-        let producer: FutureProducer = ClientConfig::new()
-            .set("bootstrap.servers", cluster.bootstrap_servers())
-            .create()
-            .unwrap();
-        producer
-            .send(
-                FutureRecord::to(topic)
-                    .partition(0)
-                    .key("key")
-                    .payload("payload"),
-                Duration::from_secs(5),
-            )
-            .await
-            .unwrap();
-
-        // Hold collection open after the first delivery. Unsubscribe and
-        // resubscribe through librdkafka, not by invoking callbacks ourselves.
-        // The uncommitted record replays into that SAME two-message poll.
-        wait_for("the first delivery to enter batch collection", || {
-            kafka
-                .position()
-                .unwrap()
-                .find_partition(topic, 0)
-                .is_some_and(|p| p.offset() == rdkafka::Offset::Offset(1))
-        })
-        .await;
-        kafka.unsubscribe();
-        wait_for("the Kafka assignment to be revoked", || {
-            kafka.assignment().unwrap().count() == 0
-        })
-        .await;
-        kafka.subscribe(&[topic]).unwrap();
-
-        let mut worker = tokio::time::timeout(Duration::from_secs(15), connections.recv())
-            .await
-            .expect("reassigned poll reaches the worker")
-            .unwrap();
-        let batch = tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                let request = worker.requests.message().await.unwrap().unwrap();
-                if let Some(ingest_stream_request::Msg::SubBatch(batch)) = request.msg {
-                    break batch;
-                }
-            }
-        })
-        .await
-        .unwrap();
-        assert_eq!(
-            batch
-                .messages
-                .iter()
-                .map(|message| message.offset)
-                .collect::<Vec<_>>(),
-            [0, 0],
-            "the original delivery and its replay must share the poll"
-        );
-        worker
-            .responses
-            .send(Ok(IngestStreamResponse {
-                msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
-                    seq: batch.seq,
-                    status: SubBatchStatus::Ok as i32,
-                    accepted: 2,
-                    error: String::new(),
-                })),
-            }))
-            .unwrap();
-
-        wait_for("the accepted replay to be committed to Kafka", || {
-            let mut partitions = TopicPartitionList::new();
-            partitions.add_partition(topic, 0);
-            kafka
-                .committed_offsets(partitions, Duration::from_secs(2))
-                .unwrap()
-                .find_partition(topic, 0)
-                .unwrap()
-                .offset()
-                == rdkafka::Offset::Offset(1)
-        })
-        .await;
-        shutdown.cancel();
-        tokio::time::timeout(Duration::from_secs(5), &mut process.0)
-            .await
-            .expect("consumer drains and stops")
-            .unwrap();
+        let batch = consumer.expect_worker_batch(&[0, 0]).await;
+        batch.accept_all();
+        consumer.expect_committed_offset(1).await;
+        consumer.shutdown().await;
     }
 
     #[test]
