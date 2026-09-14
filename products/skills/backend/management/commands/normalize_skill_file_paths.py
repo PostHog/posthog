@@ -19,6 +19,12 @@ class SkillPathPlan:
     unfixable: list[tuple[str, str]]
 
 
+@frozen
+class SkillFileRows:
+    skill_id: UUID
+    rows: list[tuple[UUID, str]]
+
+
 def plan_skill_paths(rows: list[tuple[UUID, str]]) -> SkillPathPlan:
     """Decide what to do with one skill's file rows, given `(row id, stored path)` pairs.
 
@@ -64,17 +70,21 @@ class Command(BaseCommand):
         if not apply:
             self.stdout.write(self.style.WARNING("Dry run — pass --apply to write the rewrites."))
 
-        for skill_id, rows in self._rows_by_skill(options["team_id"]):
-            plan = plan_skill_paths(rows)
+        for skill_files in self._rows_by_skill(options["team_id"]):
+            plan = plan_skill_paths(skill_files.rows)
             for path, canonical in plan.collisions:
                 collided += 1
-                self.stdout.write(self.style.WARNING(f"skill {skill_id}: '{path}' would collide with '{canonical}'"))
+                self.stdout.write(
+                    self.style.WARNING(f"skill {skill_files.skill_id}: '{path}' would collide with '{canonical}'")
+                )
             for path, reason in plan.unfixable:
                 unfixable += 1
-                self.stdout.write(self.style.WARNING(f"skill {skill_id}: '{path}' has no canonical form — {reason}"))
+                self.stdout.write(
+                    self.style.WARNING(f"skill {skill_files.skill_id}: '{path}' has no canonical form — {reason}")
+                )
             for row_id, path, canonical in plan.rewrites:
                 rewritten += 1
-                self.stdout.write(f"skill {skill_id}: '{path}' -> '{canonical}'")
+                self.stdout.write(f"skill {skill_files.skill_id}: '{path}' -> '{canonical}'")
                 if apply:
                     # A queryset update rather than `save()`, so the skill row's `updated_at` stays
                     # put: the marketplace plugin version is Max(updated_at) over a team's skills,
@@ -86,7 +96,7 @@ class Command(BaseCommand):
             self.style.SUCCESS(f"{verb} {rewritten} path(s); {collided} collision(s); {unfixable} unfixable path(s).")
         )
 
-    def _rows_by_skill(self, team_id: int | None) -> Iterator[tuple[UUID, list[tuple[UUID, str]]]]:
+    def _rows_by_skill(self, team_id: int | None) -> Iterator[SkillFileRows]:
         """Stream `(skill id, rows)`, holding one skill's paths in memory at a time.
 
         Ordering by skill id makes the rows arrive grouped, so collision checking sees a whole
@@ -97,4 +107,4 @@ class Command(BaseCommand):
             files = files.filter(skill__team_id=team_id)
         rows = files.order_by("skill_id").values_list("id", "skill_id", "path").iterator(chunk_size=READ_CHUNK_SIZE)
         for skill_id, group in groupby(rows, key=lambda row: row[1]):
-            yield skill_id, [(row_id, path) for row_id, _, path in group]
+            yield SkillFileRows(skill_id=skill_id, rows=[(row_id, path) for row_id, _, path in group])
