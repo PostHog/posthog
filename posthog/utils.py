@@ -676,12 +676,11 @@ def _build_template_context(
                 posthog_app_context["has_screen"] = event_info["has_screen"]
                 posthog_app_context["has_person_email"] = get_has_person_email(user.team)
 
-                # Deliberately bootstrapped here rather than serialized onto the team: while enforcement is still
-                # rolling out, a retention window on the projects API reads as a policy a caller can act on, and
-                # the resulting support load was all callers — increasingly agents — trying to set or enable it.
-                # None means retention isn't enforced for this team, so presence is the whole signal and there is
-                # no "configured but not enforced" pair to misread. See posthog/api/team.py.
-                posthog_app_context["events_retention_months"] = events_retention_months_for_team(user.team, None)
+                # Bootstrapped here rather than serialized onto the team, where the window read as a setting callers
+                # could change (see TeamSerializer). Set only when enforced, so presence is the whole signal.
+                events_retention_months = events_retention_months_for_team(user.team, None)
+                if events_retention_months is not None:
+                    posthog_app_context["events_retention_months"] = events_retention_months
 
                 with tracer.start_as_current_span("template.user_product_list"):
                     user_product_list = UserProductListSerializer(

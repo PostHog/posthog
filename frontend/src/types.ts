@@ -5224,11 +5224,11 @@ export interface AppContext {
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
     /**
-     * Plan-derived events data retention window in months, or null when retention isn't enforced for this team.
+     * Plan-derived events data retention window in months. Absent when retention isn't enforced for this team.
      * Bootstrapped here rather than served on the team API, where the value read as a setting callers could
      * change. See https://github.com/PostHog/posthog/issues/17031
      */
-    events_retention_months?: number | null
+    events_retention_months?: number
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

@@ -72,10 +72,9 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
         snooze: true,
     }),
     reducers(() => ({
-        // Bootstrapped rather than fetched: the window is plan-derived and only changes with the plan, so the
-        // value baked into the page at load is as fresh as it needs to be for a banner. The server omits it
-        // unless retention is enforced for this team, which is why null is the common case. Read on build
-        // rather than on import, so a story or test that sets the app context first is honored.
+        // Bootstrapped rather than fetched: the window is plan-derived and only changes with the plan. The server
+        // omits it unless retention is enforced for this team. Read on build rather than on import, so a story or
+        // test that sets the app context first is honored.
         retentionMonths: [getAppContext()?.events_retention_months ?? null, {}],
         snoozedUntil: [
             null as string | null,

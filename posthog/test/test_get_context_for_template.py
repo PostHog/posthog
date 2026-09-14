@@ -91,7 +91,8 @@ class TestGetContextForTemplate(APIBaseTest):
             actual = get_context_for_template("layout", request)
 
         app_context = json.loads(actual["posthog_app_context"])
-        assert app_context["events_retention_months"] == expected
+        assert app_context.get("events_retention_months") == expected
+        assert ("events_retention_months" in app_context) is enforced
 
     def test_bootstraps_project_tags_into_app_context(self):
         # projectLogic reads currentProject from the app context and only calls the API when it is
