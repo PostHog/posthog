@@ -21,6 +21,11 @@ export type RestoreInlineSelectionRequest = {
     listItemIndex?: number
     listItemId?: string
     tableCell?: TableCellPosition
+    /** Set when a change the user did not make re-maps their caret: a collaborator's merge, or
+     * an external value update. The caret then follows the text without taking focus from
+     * another element or pulling the viewport, so a person who only reads keeps their scroll
+     * position. */
+    preserveViewport?: boolean
 }
 
 export type RestoreTextRange = NotebookTextSelectionRange & {
@@ -29,6 +34,8 @@ export type RestoreTextRange = NotebookTextSelectionRange & {
 
 export type RestoreTextSelectionRequest = {
     textRanges: RestoreTextRange[]
+    /** See `RestoreInlineSelectionRequest.preserveViewport`. */
+    preserveViewport?: boolean
 }
 
 export type RestoreSelectionRequest = RestoreInlineSelectionRequest | RestoreTextSelectionRequest

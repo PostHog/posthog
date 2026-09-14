@@ -131,6 +131,10 @@ export function restoreSelection(element: HTMLElement, start: number, end: numbe
     selection.addRange(range)
 }
 
+export function notebookOwnsFocus(rootElement: HTMLElement | null): boolean {
+    return !!rootElement && rootElement.contains(document.activeElement)
+}
+
 export function scrollNotebookElementIntoView(element: HTMLElement): void {
     if (typeof element.scrollIntoView !== 'function') {
         return

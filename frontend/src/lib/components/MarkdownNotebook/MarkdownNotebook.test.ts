@@ -2459,6 +2459,44 @@ Intro paragraph
         expect(container.querySelector('.MarkdownNotebook__text-block')?.textContent).toEqual('Remote text')
     })
 
+    it('leaves the scroll position alone when a collaborator save merges in', () => {
+        const scrollIntoView = jest.fn()
+        const scrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
+        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+            configurable: true,
+            value: scrollIntoView,
+        })
+
+        try {
+            const initialMarkdown = withNotebookTitle('First line\n\nSecond line')
+            const { container, rerender } = render(
+                createElement(MarkdownNotebook, {
+                    value: initialMarkdown,
+                    remoteValue: initialMarkdown,
+                    autoFocus: true,
+                })
+            )
+            scrollIntoView.mockClear()
+
+            rerender(
+                createElement(MarkdownNotebook, {
+                    value: initialMarkdown,
+                    remoteValue: withNotebookTitle('First line and a collaborator edit\n\nSecond line'),
+                    autoFocus: true,
+                })
+            )
+
+            expect(getBodyTextBlock(container).textContent).toEqual('First line and a collaborator edit')
+            expect(scrollIntoView).not.toHaveBeenCalled()
+        } finally {
+            if (scrollIntoViewDescriptor) {
+                Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', scrollIntoViewDescriptor)
+            } else {
+                delete (HTMLElement.prototype as { scrollIntoView?: Element['scrollIntoView'] }).scrollIntoView
+            }
+        }
+    })
+
     it('keeps the caret in place when an autosave echo arrives while editing a newly split row', () => {
         const onChange = jest.fn()
         const { container, rerender } = render(
