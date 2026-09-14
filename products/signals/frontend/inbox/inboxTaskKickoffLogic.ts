@@ -376,7 +376,8 @@ export type inboxTaskKickoffLogicType = MakeLogicType<
 export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     path(['scenes', 'inbox', 'inboxTaskKickoffLogic']),
 
-    connect({
+    // Lazy, so the keyed `runnerPanelLogic` is built when this logic mounts, not when the module loads.
+    connect(() => ({
         actions: [
             attachedContextLogic,
             ['markContextSent'],
@@ -395,7 +396,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-    }),
+    })),
 
     actions({
         openReportDiscussion: (report: SignalReport, reportUrl: string) => ({ report, reportUrl }),
