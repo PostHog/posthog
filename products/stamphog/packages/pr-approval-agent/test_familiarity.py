@@ -201,12 +201,6 @@ def test_capped_flag_set_when_file_exceeds_line_bound(tmp_path: Path, monkeypatc
 
 
 def test_failed_blame_counts_its_lines_as_not_owned(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A file whose blame fails must not lift the overlap by leaving the denominator.
-
-    Regression: the failed file was skipped entirely, so a PR touching code the author owns plus
-    code they do not could reach STRONG when blame of the second file failed — the evidence for
-    the band was never read. A blobless checkout makes that failure reachable in production.
-    """
     repo = tmp_path / "repo"
     _init_repo(repo)
     _commit(repo, "src/mine.py", _numbered_lines("mine", 4), "feat: mine (#1)", "authora")

@@ -24,7 +24,7 @@ import shlex
 import base64
 import random
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -38,6 +38,7 @@ import requests
 from prometheus_client import Counter
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import AIGatewayConfig, resolve_ai_gateway_config
 from posthog.models import OAuthAccessToken, User
 from posthog.ph_client import ph_scoped_capture
@@ -562,6 +563,9 @@ def _step_timeout(deadline: float, ceiling_seconds: int) -> int:
 @asyncify
 def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     """Provision a sandbox, clone the PR, run the full engine offline, stash its raw output."""
+    # Temporal starts RUN_REVIEW_TIMEOUT at activity entry, so the budget starts here too. The run
+    # load, the token fetch and the invocation build all draw on it before a sandbox exists.
+    deadline = time.monotonic() + RUN_REVIEW_TIMEOUT.total_seconds() - SANDBOX_PHASE_RESERVE_SECONDS
     run = _load_run(input)
 
     # A newer relevant delivery for the same PR may have superseded this run while it queued — even
@@ -675,11 +679,9 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         run.output = {**latest_output, "sandbox_started_at": timezone.now().isoformat()}
         run.save(update_fields=["output", "updated_at"])
 
-        # One budget across sandbox creation, the clone, the prefetch and the reviewer — the four
-        # steps that can run long — so they cannot over-commit the activity's own start-to-close
-        # timeout between them. Temporal kills the activity at that timeout with nothing recorded.
-        # The policy, engine and context writes in between keep their own fixed small timeouts.
-        deadline = time.monotonic() + RUN_REVIEW_TIMEOUT.total_seconds() - SANDBOX_PHASE_RESERVE_SECONDS
+        # Sandbox creation draws on the same budget as the steps below it, so a slow provision
+        # leaves the clone, the prefetch and the reviewer correspondingly less. The policy, engine
+        # and context writes in between keep their own fixed small timeouts.
         try:
             sandbox = sandbox_class.create(config)
             try:
@@ -1259,8 +1261,22 @@ def _scrub_credentials(text: str, *secrets: str) -> str:
     return text
 
 
-def _git_with_auth(token: str) -> tuple[str, str]:
-    """A ``git`` prefix carrying the installation token, and the raw credential to scrub with.
+@frozen
+class _GitCredential:
+    """The installation token in the two shapes a sandbox git command needs.
+
+    Both are strings, so they are named rather than returned as a pair — handing the secret to the
+    shell, or the command prefix to the scrubber, would be silent either way.
+    """
+
+    # The ``git`` prefix to run GitHub-facing commands with.
+    command: str
+    # The raw credential, for _scrub_credentials to strip from anything the command echoes back.
+    secret: str = field(repr=False)
+
+
+def _git_credential(token: str) -> _GitCredential:
+    """Build the git invocation that carries the installation token.
 
     The token rides in a per-invocation ``http.extraheader`` rather than in the remote URL, so git
     never writes it to ``.git/config`` inside the checkout the reviewer reads. Every command that
@@ -1268,7 +1284,10 @@ def _git_with_auth(token: str) -> tuple[str, str]:
     of them rather than for whichever one was written first.
     """
     basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
-    return f"git -c http.extraheader={shlex.quote(f'AUTHORIZATION: basic {basic}')}", basic
+    return _GitCredential(
+        command=f"git -c http.extraheader={shlex.quote(f'AUTHORIZATION: basic {basic}')}",
+        secret=basic,
+    )
 
 
 def _clone_pr(
@@ -1283,11 +1302,11 @@ def _clone_pr(
     signal — a one-way ratchet — but is still avoidable here).
 
     ``--filter=blob:none`` keeps every commit and tree, so history stays complete and blame
-    still walks it; only file contents stay on the remote until something reads them. The
-    unfiltered clone downloaded every blob of every commit, which on a monorepo ran past the
-    step timeout and failed the run with no verdict. The head checkout batches the blobs it
-    needs into one fetch; _prefetch_blame_blobs then batches the historical ones blame reads,
-    because left to itself blame fetches them one object at a time.
+    still walks it; only file contents stay on the remote until something reads them. An
+    unfiltered clone of a monorepo does not finish inside the step timeout, because it carries
+    every blob of every commit. The head checkout batches the blobs it needs into one fetch, and
+    _prefetch_blame_blobs batches the historical ones blame reads, because left to itself blame
+    fetches them one object at a time.
 
     The head is fetched through ``pull/<n>/head`` rather than the bare sha: a fork PR's
     head commit only exists in the base repo through that ref, so a bare-sha fetch fails
@@ -1299,7 +1318,8 @@ def _clone_pr(
 
     The remote stays a clean, tokenless URL — see _git_with_auth for how the token reaches git.
     """
-    auth, basic = _git_with_auth(token)
+    credential = _git_credential(token)
+    auth = credential.command
     repo_url = f"https://github.com/{repo}.git"
 
     def _execute_or_raise(command: str, failure_prefix: str) -> None:
@@ -1310,9 +1330,9 @@ def _clone_pr(
         try:
             result = sandbox.execute(command, timeout_seconds=_step_timeout(deadline, CLONE_STEP_TIMEOUT_SECONDS))
         except Exception as exc:
-            raise RuntimeError(_scrub_credentials(str(exc), token, basic)) from None
+            raise RuntimeError(_scrub_credentials(str(exc), token, credential.secret)) from None
         if result.exit_code != 0:
-            raise RuntimeError(f"{failure_prefix}: {_scrub_credentials(result.stderr, token, basic)[:500]}")
+            raise RuntimeError(f"{failure_prefix}: {_scrub_credentials(result.stderr, token, credential.secret)[:500]}")
 
     clone = (
         f"rm -rf {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
@@ -1366,10 +1386,10 @@ def _prefetch_blame_blobs(
     """Fetch the historical blobs the engine's git blame will read, in one request.
 
     On a blobless clone blame is the worst case git has: it reads the file's content at each
-    candidate commit, and each miss is its own round trip. Measured on this monorepo, one PR's
-    blame set cost ~400 sequential fetches and over three minutes. Enumerating the missing blobs
-    first costs nothing — the trees are already local — and one batched fetch then serves the whole
-    set, after which blame runs offline in seconds.
+    candidate commit, and each miss is its own round trip — for one PR's blame set, ~400 sequential
+    fetches and over three minutes. Enumerating the missing blobs first costs nothing, because the
+    trees are already local, and one batched fetch then serves the whole set, after which blame
+    runs offline in seconds.
 
     Best effort by design. Blame still works without it, just slowly, so a failure here degrades the
     review's speed rather than its verdict. Anything raised is swallowed; the reviewer's own share
@@ -1383,9 +1403,10 @@ def _prefetch_blame_blobs(
     if not paths or not base_sha:
         return
 
-    auth, basic = _git_with_auth(token)
+    credential = _git_credential(token)
     oid_file = "/tmp/stamphog-blame-oids"
     pathspec = " ".join(shlex.quote(path) for path in paths)
+    auth = credential.command
     command = (
         f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
         f"merge_base=$(git merge-base {shlex.quote(base_sha)} {shlex.quote(head_sha)}) && "
@@ -1407,7 +1428,7 @@ def _prefetch_blame_blobs(
         # failure can echo the argv back.
         activity.logger.warning(
             f"stamphog: blame blob prefetch exited {result.exit_code}; "
-            f"blame will fetch as it reads: {_scrub_credentials(result.stderr, token, basic)[:300]}"
+            f"blame will fetch as it reads: {_scrub_credentials(result.stderr, token, credential.secret)[:300]}"
         )
 
 

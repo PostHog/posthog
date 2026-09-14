@@ -127,12 +127,6 @@ def test_inject_policy_files_wipes_optional_paths_from_pr_head() -> None:
 
 
 def test_clone_is_blobless_and_blame_blobs_are_prefetched_in_one_fetch() -> None:
-    """The clone must stay filtered and the blame blobs must arrive in one batched fetch.
-
-    Regression: an unfiltered clone pulled every blob of every commit and ran past the step
-    timeout, failing the run with no verdict. Dropping the prefetch is the subtler revert — blame
-    still works, but fetches the same history one object at a time over hundreds of round trips.
-    """
     executed: list[str] = []
 
     class _RecordingSandbox:
@@ -159,11 +153,6 @@ def test_clone_is_blobless_and_blame_blobs_are_prefetched_in_one_fetch() -> None
 
 
 def test_blame_paths_uses_the_base_side_path_and_skips_binaries() -> None:
-    """Blame reads the OLD path, and a binary's history is the one not worth fetching.
-
-    Regression: naming the new path of a rename prefetches nothing blame will read, and naming a
-    binary pulls its every historical revision — on a monorepo that is the large-image history.
-    """
     paths = _blame_paths(
         [
             {"filename": "src/new_name.py", "previous_filename": "src/old_name.py", "patch": "@@ -1 +1 @@"},
