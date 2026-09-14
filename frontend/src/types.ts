@@ -828,14 +828,6 @@ export interface TeamType extends TeamBasicType {
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
-    /**
-     * Plan-derived events data retention window in months (synced from billing). Read-only: it follows the plan's
-     * data retention entitlement, so support cannot change it outside the enterprise plan.
-     * See https://github.com/PostHog/posthog/issues/17031
-     */
-    event_retention_months: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only. */
-    events_retention_enforced: boolean
     session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
     logs_settings?: LogsSettings | null
@@ -5231,6 +5223,12 @@ export interface AppContext {
     oauth_mcp_consent?: OAuthMcpConsentContext
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
+    /**
+     * Plan-derived events data retention window in months, or null when retention isn't enforced for this team.
+     * Bootstrapped here rather than served on the team API, where the value read as a setting callers could
+     * change. See https://github.com/PostHog/posthog/issues/17031
+     */
+    events_retention_months?: number | null
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
