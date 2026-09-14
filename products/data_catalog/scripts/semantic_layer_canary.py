@@ -343,7 +343,7 @@ class PostHogCanaryClient:
                 )
             except (httpx.TimeoutException, httpx.TransportError):
                 continue
-            if response.status_code >= 500:
+            if _is_retryable_status(response.status_code):
                 continue
             _raise_for_api_error(response)
             return
@@ -467,8 +467,12 @@ class TaskStreamEnded(CanaryError):
         super().__init__("task_stream_ended")
 
 
+def _is_retryable_status(status_code: int) -> bool:
+    return status_code == 429 or status_code >= 500
+
+
 def _raise_for_api_error(response: httpx.Response) -> None:
-    if response.status_code == 429 or response.status_code >= 500:
+    if _is_retryable_status(response.status_code):
         raise RetryableCanaryError(f"http_{response.status_code}")
     if response.is_error:
         raise PermanentCanaryError(f"http_{response.status_code}")

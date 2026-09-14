@@ -376,6 +376,7 @@ async def test_execute_canary_resumes_an_open_stream_without_resending_the_quest
     [
         (200, "cancelled", "completed", 1),
         (503, "cancelled", "completed", MAX_CANCEL_ATTEMPTS),
+        (429, "cancelled", "completed", MAX_CANCEL_ATTEMPTS),
         (503, "in_progress", "failed", MAX_CANCEL_ATTEMPTS),
     ],
 )
