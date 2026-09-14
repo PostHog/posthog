@@ -129,20 +129,23 @@ class TestDispatchGithubEvent(BaseTest):
 
     @parameterized.expand(
         [
-            ("pull_request_is_never_proxied", "pull_request", 99999, True, False, False),
-            ("installation_owned_here_stays_here", "issues", 12345, True, False, False),
-            ("secondary_region_reports_instead_of_forwarding", "issues", 99999, False, False, True),
-            ("unowned_installation_goes_to_the_other_region", "issues", 99999, True, True, False),
+            ("pull_request_is_never_proxied", "pull_request", {"id": 99999}, True, False, False),
+            ("installation_owned_here_stays_here", "issues", {"id": 12345}, True, False, False),
+            ("secondary_region_reports_instead_of_forwarding", "issues", {"id": 99999}, False, False, True),
+            ("unowned_installation_goes_to_the_other_region", "issues", {"id": 99999}, True, True, False),
+            # GitHub sends `"installation": null` outside an installation. This runs before the
+            # try/except, so an AttributeError here answers a 500 instead of the receipt.
+            ("null_installation_keeps_the_receipt", "issues", None, True, False, False),
         ]
     )
     @patch("products.conversations.backend.api.github_events.logger")
     @patch("products.conversations.backend.api.github_events.proxy_to_secondary_region")
     @patch("products.conversations.backend.api.github_events.is_primary_region")
     def test_regional_proxy(
-        self, _name, event_type, installation_id, primary, proxied, warned, mock_primary, mock_proxy, mock_logger
+        self, _name, event_type, installation, primary, proxied, warned, mock_primary, mock_proxy, mock_logger
     ):
         mock_primary.return_value = primary
-        payload = _issue_event(installation_id=installation_id)
+        payload = {**_issue_event(), "installation": installation}
 
         response = proxy_github_event_to_owning_region(self._request(payload, event_type), payload)
 

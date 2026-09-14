@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+from django.db import OperationalError
+
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
@@ -270,6 +272,25 @@ def test_properties_carry_what_a_filter_needs(produce, integration) -> None:
     assert properties["repository"] == "PostHog/posthog"
     assert properties["title"] == "The database is on fire"
     assert properties["github_event"] == ISSUE_EVENT
+
+
+def test_an_integration_lookup_timeout_emits_nothing_and_is_reported(produce, integration) -> None:
+    # The fan-out's per-delivery budget cannot interrupt a query already in flight, so the
+    # statement cap is what keeps a slow lookup from costing the whole delivery.
+    with (
+        patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True),
+        patch("products.workflows.backend.github_workflow_events.logger") as logger,
+        patch.object(
+            Integration.objects,
+            "filter",
+            side_effect=OperationalError("canceling statement due to statement timeout"),
+        ),
+    ):
+        emit_github_event("issues", ISSUE_EVENT, "delivery-1")
+
+    produce.assert_not_called()
+    assert logger.warning.call_args.args[0] == "github_workflow_event_integration_lookup_timed_out"
+    logger.exception.assert_not_called()
 
 
 def test_a_kafka_failure_does_not_reach_the_webhook(produce, integration) -> None:

@@ -8,6 +8,7 @@ delivery needs the signed bytes, which a consumer never sees.
 
 import json
 import hashlib
+from collections.abc import Mapping
 from typing import Any, cast
 
 from django.http import HttpRequest, HttpResponse
@@ -33,6 +34,19 @@ def _payload_delivery_id(data: dict[str, Any]) -> str:
     header-less delivery onto one key. GitHub always sends the header in practice.
     """
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32]
+
+
+def _installation_id(payload: Mapping[str, Any]) -> str:
+    """The delivery's installation id, or an empty string when it carries none.
+
+    A delivery sent outside an App installation carries `"installation": null`, so the key is
+    there and a `.get("installation", {})` default never applies.
+    """
+    installation = payload.get("installation")
+    if not isinstance(installation, Mapping):
+        return ""
+    installation_id = installation.get("id")
+    return str(installation_id) if installation_id is not None else ""
 
 
 def _team_for_github_installation(installation_id: str) -> tuple[int | None, bool]:
@@ -66,7 +80,7 @@ def _team_for_github_installation(installation_id: str) -> tuple[int | None, boo
 
 def dispatch_github_event(event_type: str, data: dict[str, Any], delivery_id: str | None) -> None:
     """Route a verified GitHub event to the conversations Celery pipeline."""
-    installation_id = str(data.get("installation", {}).get("id", ""))
+    installation_id = _installation_id(data)
     if not installation_id:
         logger.warning("github_issues_webhook_no_installation")
         return
@@ -101,7 +115,7 @@ def proxy_github_event_to_owning_region(request: HttpRequest, payload: Any) -> H
     if not isinstance(payload, dict):
         return None
 
-    installation_id = str(payload.get("installation", {}).get("id", ""))
+    installation_id = _installation_id(payload)
     if not installation_id:
         return None
 
