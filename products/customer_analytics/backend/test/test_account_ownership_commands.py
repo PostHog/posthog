@@ -15,6 +15,7 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
 from products.customer_analytics.backend.logic import ownership, relationships
 from products.customer_analytics.backend.logic.ownership_claims import DECISION_COLUMNS
@@ -61,6 +62,14 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
         self._configure("--unbind-ae")
 
         assert ownership.role_bindings(self.team.id).ae_definition_id is None
+
+    def test_a_config_row_this_command_creates_carries_the_product_default(self):
+        TeamCustomerAnalyticsConfig.objects.filter(team=self.team).delete()
+
+        self._configure("--bind-ae", str(self.ae_definition.id))
+
+        config = TeamCustomerAnalyticsConfig.objects.get(team=self.team)
+        assert config.activity_event == DEFAULT_ACTIVITY_EVENT
 
     def test_rejects_a_view_without_the_decision_columns(self):
         view = create_saved_query(team_id=self.team.id, name="partial", columns={"task_id": {}})

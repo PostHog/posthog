@@ -25,6 +25,7 @@ from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.utils import get_instance_region
 
+from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.enums import OwnershipRoleDiagnostic
 from products.customer_analytics.backend.models import (
@@ -99,7 +100,7 @@ def bind_role(team: Team, role: OwnershipRole, definition_id: UUID | None) -> Ro
     and every accepted claim under it, be deleted. The config row lock serializes this against
     enrollment and against a concurrent binding of the other role.
     """
-    get_or_create_team_extension(team, TeamCustomerAnalyticsConfig)
+    get_or_create_team_extension(team, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT})
     with transaction.atomic():
         config = TeamCustomerAnalyticsConfig.objects.select_for_update().get(team_id=team.id)
         return _bind_role_locked(config, role, definition_id)

@@ -39,6 +39,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.logic import relationships
 from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig
@@ -105,7 +106,9 @@ def reconcile_ownership_claims(team: Team, *, should_stop: Callable[[], bool] = 
     attempt per sweep, and ``should_stop``, which a timed-out activity sets so its thread stops
     between two pages or two decisions; at most the one decision already in flight can still commit
     beside the next sweep, and the tick after that repairs it."""
-    config = get_or_create_team_extension(team, TeamCustomerAnalyticsConfig)
+    config = get_or_create_team_extension(
+        team, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
+    )
     view = config.ownership_claim_saved_query
     if not config.ownership_claims_enabled or view is None or view.deleted:
         if view is not None and view.deleted:

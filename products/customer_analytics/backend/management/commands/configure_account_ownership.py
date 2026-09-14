@@ -15,6 +15,7 @@ from django.db import transaction
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.customer_analytics.backend.logic import ownership
 from products.customer_analytics.backend.logic.ownership_claims import ClaimSourceMisconfigured, check_decision_columns
 from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig
@@ -50,7 +51,9 @@ class Command(BaseCommand):
                 for role in ownership.OWNERSHIP_ROLES:
                     if options[f"bind_{role}"] is not None or options[f"unbind_{role}"]:
                         ownership.bind_role(team, role, options[f"bind_{role}"])
-                config = get_or_create_team_extension(team, TeamCustomerAnalyticsConfig)
+                config = get_or_create_team_extension(
+                    team, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
+                )
                 update_fields = []
                 if options["claims"] is not None:
                     config.ownership_claims_enabled = options["claims"] == "enabled"
