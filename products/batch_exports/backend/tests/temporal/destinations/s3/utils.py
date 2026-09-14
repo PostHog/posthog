@@ -32,6 +32,8 @@ from products.batch_exports.backend.service import (
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     COMPRESSION_EXTENSIONS,
+    FILE_FORMAT_EXTENSIONS,
+    SUPPORTED_COMPRESSIONS,
     S3BatchExportWorkflow,
     S3InsertInputs,
     insert_into_s3_activity_from_stage,
@@ -91,6 +93,31 @@ TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
         "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
     },
     None,
+]
+
+TEST_S3_MODELS_AFFECTED_BY_EXCLUDE_EVENTS: list[BatchExportModel | BatchExportSchema | None] = [
+    model
+    for model in TEST_S3_MODELS
+    if not (isinstance(model, BatchExportModel) and model.name in ("persons", "sessions"))
+]
+
+SUPPORTED_FILE_FORMAT_COMPRESSIONS: list[tuple[str, str | None]] = [
+    (file_format, compression)
+    for file_format, compressions in SUPPORTED_COMPRESSIONS.items()
+    for compression in compressions
+]
+
+UNCOMPRESSED_FILE_FORMATS: list[tuple[str, str | None]] = [
+    (file_format, None) for file_format in FILE_FORMAT_EXTENSIONS
+]
+
+SPLIT_FILE_FORMAT_COMPRESSIONS: list[tuple[str, str | None]] = [
+    *(
+        (file_format, compression)
+        for file_format, compression in SUPPORTED_FILE_FORMAT_COMPRESSIONS
+        if file_format == "Parquet"
+    ),
+    *UNCOMPRESSED_FILE_FORMATS,
 ]
 
 
