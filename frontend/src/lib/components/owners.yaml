@@ -1,6 +1,8 @@
 version: 1
 owners: []
 rules:
+    - match: '/MarkdownNotebook/'
+      owners: team-data-tools
     - match: '/ReverseProxyChecker/'
       owners: team-platform-features
     - match: '/RichContentEditor/'

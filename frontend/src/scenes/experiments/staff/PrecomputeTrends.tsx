@@ -56,7 +56,7 @@ export function PrecomputeTrends(): JSX.Element {
         : []
 
     const bytesPerReadSeries: Series[] = ts
-        ? [{ key: 'avg_bytes', label: 'Avg bytes read', data: ts.reads.precomputed_avg_read_bytes }]
+        ? [{ key: 'avg_bytes', label: 'Avg bytes read', data: ts.reads.fully_precomputed_avg_read_bytes }]
         : []
 
     // One stacked series per exit code, biggest offenders first so the legend leads with them.
@@ -129,7 +129,7 @@ export function PrecomputeTrends(): JSX.Element {
                             }}
                         />
                     </ChartCard>
-                    <ChartCard title="Bytes read per precomputed read (average; a rise means reads scan more than their own rows)">
+                    <ChartCard title="Bytes read per fully precomputed read (both sides from the cache; a rise means reads scan more than their own rows)">
                         <TimeSeriesLineChart
                             series={bytesPerReadSeries}
                             labels={ts.buckets}

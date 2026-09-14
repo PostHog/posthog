@@ -4209,7 +4209,8 @@
       INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
       INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-      INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
+      INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_series2', '{replica}-{shard}', last_seen)
   ORDER BY (team_id, metric_name, series_fingerprint)
@@ -11364,7 +11365,8 @@
       INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
       INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-      INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
+      INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_series2', '{replica}-{shard}', last_seen)
   ORDER BY (team_id, metric_name, series_fingerprint)

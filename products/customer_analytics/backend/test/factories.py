@@ -10,6 +10,7 @@ from products.customer_analytics.backend.models import (
     AccountChannelSummary,
     AccountRelationship,
     AccountRelationshipDefinition,
+    CustomerTask,
     CustomPropertyDefinition,
     CustomPropertyValue,
     DisplayType,
@@ -53,6 +54,10 @@ def create_account_relationship(
     return AccountRelationship.objects.for_team(team_id).create(
         team_id=team_id, account=account, definition=definition, user=user, **kwargs
     )
+
+
+def create_customer_task(*, team_id: int, name: str = "Review account", **kwargs: Any) -> CustomerTask:
+    return CustomerTask.objects.for_team(team_id).create(team_id=team_id, name=name, **kwargs)
 
 
 def create_feature_request(*, team_id: int, title: str = "Export reports", **kwargs: Any) -> FeatureRequest:

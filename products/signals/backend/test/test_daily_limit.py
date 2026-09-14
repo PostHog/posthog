@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -53,7 +53,7 @@ class TestDailyReportLimitGate(BaseTest):
 
     def test_only_reports_stamped_today_count(self):
         self._set_limit(1)
-        with freeze_time("2026-08-10T12:00:00Z"):
+        with time_machine.travel("2026-08-10T12:00:00Z", tick=False):
             self._visible_report(datetime(2026, 8, 9, 12, 0, tzinfo=UTC))
             # A pre-migration (or never-surfaced) row has no stamp and must never count.
             self._visible_report(None)
@@ -70,7 +70,7 @@ class TestDailyReportLimitGate(BaseTest):
         self._set_limit(1)
         self._visible_report(datetime(2026, 8, 9, 8, 0, tzinfo=UTC))
         self._visible_report(datetime(2026, 8, 9, 6, 0, tzinfo=UTC))
-        with freeze_time("2026-08-10T05:00:00Z"):
+        with time_machine.travel("2026-08-10T05:00:00Z", tick=False):
             # Fresh instance: timezone_info is a cached property on the pre-save one.
             gate = daily_report_limit_gate(Team.objects.get(pk=self.team.pk))
         assert gate.reports_today == 1
@@ -121,7 +121,7 @@ class TestFirstVisibleStamp(BaseTest):
         # once and must not consume the daily limit again.
         report.transition_to(SignalReport.Status.CANDIDATE)
         report.transition_to(SignalReport.Status.IN_PROGRESS, signals_at_run_increment=3)
-        with freeze_time(datetime.now(UTC) + timedelta(days=1)):
+        with time_machine.travel(datetime.now(UTC) + timedelta(days=1), tick=False):
             updated_fields = report.transition_to(SignalReport.Status.READY, title="t2", summary="s2")
         assert report.first_visible_at == original
         assert "first_visible_at" not in updated_fields

@@ -99,24 +99,37 @@ class ResolutionTimeoutError(BoundedResolverError):
         self.deadline_seconds = deadline_seconds
 
 
+# `source` separates the two jobs the resolver does, which fail differently and are read
+# differently: a `materialization` failure fails a customer's model on a scheduled run, while
+# `lineage` resolves a query's parents at save time to maintain DAG edges and view metadata.
+# Lineage runs orders of magnitude more often, so unlabelled they share one series and the
+# rarer, costlier one becomes unreadable. Anything under `other` is a caller added without
+# saying which of the two it is.
+RESOLUTION_SOURCE_MATERIALIZATION = "materialization"
+RESOLUTION_SOURCE_LINEAGE = "lineage"
+RESOLUTION_SOURCE_OTHER = "other"
+
 DAG_RESOLUTION_TOTAL = Counter(
     "data_modeling_dag_resolution_total",
-    "Total HogQL view-dependency resolutions performed, labelled by terminal status.",
-    labelnames=["status"],  # ok | cycle | depth_exceeded | timeout | error
+    "Total HogQL view-dependency resolutions performed, by calling path and terminal status.",
+    labelnames=["source", "status"],  # ok | cycle | depth_exceeded | timeout | error
 )
 DAG_RESOLUTION_DURATION_SECONDS = Histogram(
     "data_modeling_dag_resolution_duration_seconds",
-    "Wall-clock time spent resolving HogQL view dependencies.",
+    "Wall-clock time spent resolving HogQL view dependencies, by calling path.",
+    labelnames=["source"],
     buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
 )
 DAG_RESOLUTION_VIEW_DEPTH = Histogram(
     "data_modeling_dag_resolution_view_depth",
-    "Maximum nested view depth observed on successful HogQL dependency resolution.",
+    "Maximum nested view depth observed on successful HogQL dependency resolution, by calling path.",
+    labelnames=["source"],
     buckets=(1, 2, 4, 8, 16, 25, 50, 100),
 )
 DAG_RESOLUTION_DEADLINE_VIOLATIONS = Counter(
     "data_modeling_dag_resolution_deadline_violations_total",
     "Resolutions where the deadline elapsed; in soft mode this is observed without raising.",
+    labelnames=["source"],
 )
 
 
@@ -156,9 +169,11 @@ class BoundedResolver(Resolver):
         deadline_seconds: float | None = DEFAULT_RESOLUTION_DEADLINE_SECONDS,
         enforce_bounds: bool = True,
         deadline_anchor: float | None = None,
+        source: str = RESOLUTION_SOURCE_OTHER,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
+        self.source = source
         self.initial_view_name = initial_view_name
         # views whose bodies are currently being visited; seeded with the current view name so
         # it counts as "visited" for cycle detection
@@ -200,12 +215,12 @@ class BoundedResolver(Resolver):
             status = "error"
             raise
         finally:
-            DAG_RESOLUTION_TOTAL.labels(status=status).inc()
-            DAG_RESOLUTION_DURATION_SECONDS.observe(time.monotonic() - start_time)
+            DAG_RESOLUTION_TOTAL.labels(source=self.source, status=status).inc()
+            DAG_RESOLUTION_DURATION_SECONDS.labels(source=self.source).observe(time.monotonic() - start_time)
             if status == "ok":
-                DAG_RESOLUTION_VIEW_DEPTH.observe(self.max_view_depth_observed)
+                DAG_RESOLUTION_VIEW_DEPTH.labels(source=self.source).observe(self.max_view_depth_observed)
             if self.deadline_violated:
-                DAG_RESOLUTION_DEADLINE_VIOLATIONS.inc()
+                DAG_RESOLUTION_DEADLINE_VIOLATIONS.labels(source=self.source).inc()
 
     def _check_deadline(self) -> None:
         if self.deadline_seconds is None:
@@ -309,6 +324,7 @@ def bounded_resolver_factory_for_view(
     max_view_depth: int = DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
     deadline_seconds: float | None = DEFAULT_RESOLUTION_DEADLINE_SECONDS,
     enforce_bounds: bool = True,
+    source: str = RESOLUTION_SOURCE_MATERIALIZATION,
 ) -> ResolverFactory:
     """Build a ResolverFactory bound to a specific saved-query view.
 
@@ -341,6 +357,7 @@ def bounded_resolver_factory_for_view(
             deadline_seconds=deadline_seconds,
             enforce_bounds=enforce_bounds,
             deadline_anchor=anchor,
+            source=source,
         )
 
     return factory
@@ -497,7 +514,9 @@ def get_parents_from_model_query(
             allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
         )
 
-    resolver = BoundedResolver(context=context, dialect="hogql", initial_view_name=model_name)
+    resolver = BoundedResolver(
+        context=context, dialect="hogql", initial_view_name=model_name, source=RESOLUTION_SOURCE_LINEAGE
+    )
     prepared_ast = resolver.visit(hogql_query)
 
     if prepared_ast is None:

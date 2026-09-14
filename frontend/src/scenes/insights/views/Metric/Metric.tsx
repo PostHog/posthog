@@ -11,9 +11,7 @@ import {
     MetricValue,
 } from '@posthog/quill-components/metric'
 
-import { dayjs } from 'lib/dayjs'
 import { hexToRGBA } from 'lib/utils/colors'
-import { DATE_FORMAT_WITHOUT_YEAR, formatDate } from 'lib/utils/datetime'
 import {
     defaultAggregationAxisFormatForDisplay,
     formatAggregationAxisValue,
@@ -21,14 +19,16 @@ import {
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { ChartDisplayType, ChartParams, TrendResult } from '~/types'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import { insightLogic } from '../../insightLogic'
 import {
     computeMetricSummary,
     computeMetricSummaryChange,
+    formatMetricLabel,
     getMetricChangeTooltip,
     METRIC_COLOR_BY_DIRECTION_DEFAULT,
     METRIC_DEFAULT_DECREASE_COLOR,
@@ -84,9 +84,9 @@ export function MetricCard({ inCardView }: ChartParams): JSX.Element {
         decreaseColor: trendsFilter?.metricLineDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR,
     })
 
-    // Format the backend day labels the app's way, without the year ("June 16" rather than "16-Jun-2026").
-    const labels =
-        resultSeries.days?.map((day) => formatDate(dayjs(day), DATE_FORMAT_WITHOUT_YEAR)) ?? resultSeries.labels
+    // Raw bucket keys, not display text: the sparkline positions its points off these strings, and
+    // "June 16" repeats once a range spans a year. `formatMetricLabel` handles the display side.
+    const labels = resultSeries.days ?? resultSeries.labels
 
     // Dash the trailing in-progress period, matching the line chart. The offset is negative from the end.
     const dashedFromIndex =
@@ -108,6 +108,7 @@ export function MetricCard({ inCardView }: ChartParams): JSX.Element {
                 restingSubtitle={METRIC_SUMMARY_LABELS[summary]}
                 data={resultSeries.data}
                 labels={labels}
+                formatLabel={formatMetricLabel}
                 theme={theme}
                 color={lineColor}
                 showChange={showChange}

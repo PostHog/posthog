@@ -80,9 +80,9 @@ export const ExperimentRecordingsEmptyEndedPastRetention: Story = {
  * leaves testing-library's test id attribute at its default, unlike jest and Playwright, so a
  * `data-attr` has to be matched as a plain attribute.
  */
-async function clickWhenRendered(canvasElement: HTMLElement, dataAttr: string): Promise<void> {
+async function clickWhenRendered(root: ParentNode, dataAttr: string): Promise<void> {
     const control = await waitFor(() => {
-        const button = canvasElement.querySelector<HTMLElement>(`[data-attr="${dataAttr}"]`)
+        const button = root.querySelector<HTMLElement>(`[data-attr="${dataAttr}"]`)
         if (!button) {
             throw new Error(`${dataAttr} not yet rendered`)
         }
@@ -125,6 +125,9 @@ const pickFiredNone: Story['play'] = async ({ canvasElement }) => {
     await clickWhenRendered(canvasElement, 'experiment-recordings-metric-filter')
     // The menu content is a portal outside the canvas, so this searches the whole document.
     await userEvent.click(await screen.findByText('Fired none'))
+    // No mode narrows the list until a metric is ticked, so without this the two stories stop
+    // reaching their empty states.
+    await clickWhenRendered(document, 'experiment-recordings-metric-option')
 }
 
 export const ExperimentRecordingsEmptyMetricFilterMatchedNothing: Story = {
@@ -136,6 +139,10 @@ export const ExperimentRecordingsEmptyMetricFilterMatchedNothing: Story = {
                     truncated: false,
                     considered_metrics: [{ metric_uuid: 'funnel', metric_name: 'Checkout funnel' }],
                     excluded_metrics: [],
+                    // Later than the experiment's start, so the caption states the stretch of the
+                    // run the scan left out.
+                    date_from: '2025-05-25T00:00:00Z',
+                    date_to: '2025-06-01T00:00:00Z',
                     filter_test_accounts: true,
                 },
             },

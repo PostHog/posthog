@@ -209,3 +209,13 @@ export function scoutCadenceLabel(config: SignalScoutConfig): string {
     }
     return formatRunIntervalShort(config.run_interval_minutes)
 }
+
+const CLOCK_TIME_RE = /\d{1,2}:\d{2}/
+
+/**
+ * Whether the cadence states a clock time. Only a clock time is resolved in the project timezone,
+ * so only a cadence that names one needs the timezone said next to it; "every 30 minutes" has none.
+ */
+export function scoutCadenceNamesClockTime(config: SignalScoutConfig): boolean {
+    return CLOCK_TIME_RE.test(scoutCadenceLabel(config))
+}

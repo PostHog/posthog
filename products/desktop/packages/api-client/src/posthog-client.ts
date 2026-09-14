@@ -3050,15 +3050,22 @@ export class PostHogAPIClient {
 
   async getTaskSummaries(ids: string[]) {
     if (ids.length === 0) return [];
-    const TASK_SUMMARIES_MAX_PAGES = 50;
+    // The endpoint caps a page at 100 rows (TasksPagination.max_limit). Ask for
+    // the largest page, then pull any remaining pages in parallel by offset. The
+    // old code walked `next` one blocking request at a time, so a large sidebar
+    // turned into a chain of serial round-trips on every inbox open.
+    const PAGE_LIMIT = 100;
+    const MAX_PAGES = 50;
     const teamId = await this.getTeamId();
-    const all: Schemas.TaskSummaryDTO[] = [];
-    let urlPath: string = `/api/projects/${teamId}/tasks/summaries/`;
-    for (let i = 0; i < TASK_SUMMARIES_MAX_PAGES; i++) {
-      const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const basePath = `/api/projects/${teamId}/tasks/summaries/`;
+
+    const fetchPage = async (
+      offset: number,
+    ): Promise<Schemas.PaginatedTaskSummaryDTOList> => {
+      const urlPath = `${basePath}?limit=${PAGE_LIMIT}&offset=${offset}`;
       const response = await this.api.fetcher.fetch({
         method: "post",
-        url,
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
         path: urlPath,
         overrides: {
           body: JSON.stringify({ ids } satisfies Schemas.TaskSummariesRequest),
@@ -3069,17 +3076,31 @@ export class PostHogAPIClient {
           `Failed to fetch task summaries: ${response.statusText}`,
         );
       }
-      const page =
-        (await response.json()) as Schemas.PaginatedTaskSummaryDTOList;
-      all.push(...page.results);
-      if (!page.next) return all;
-      const nextUrl = new URL(page.next);
-      urlPath = `${nextUrl.pathname}${nextUrl.search}`;
+      return (await response.json()) as Schemas.PaginatedTaskSummaryDTOList;
+    };
+
+    const first = await fetchPage(0);
+    const all: Schemas.TaskSummaryDTO[] = [...first.results];
+    const capped = Math.min(first.count, PAGE_LIMIT * MAX_PAGES);
+    if (first.count > PAGE_LIMIT * MAX_PAGES) {
+      log.warn(
+        `getTaskSummaries capped at ${MAX_PAGES} pages; returning partial results`,
+        { ids: ids.length, count: first.count },
+      );
     }
-    log.warn(
-      `getTaskSummaries hit MAX_PAGES (${TASK_SUMMARIES_MAX_PAGES}); returning partial results`,
-      { ids: ids.length, returned: all.length },
-    );
+    const offsets: number[] = [];
+    for (let offset = PAGE_LIMIT; offset < capped; offset += PAGE_LIMIT) {
+      offsets.push(offset);
+    }
+    // Cap how many page POSTs are in flight at once. A large sidebar can span
+    // dozens of pages, and this runs on every poll; an unbounded fan-out would
+    // fire them all together (each re-sending the full id list).
+    const CONCURRENCY = 6;
+    for (let i = 0; i < offsets.length; i += CONCURRENCY) {
+      const batch = offsets.slice(i, i + CONCURRENCY);
+      const pages = await Promise.all(batch.map((offset) => fetchPage(offset)));
+      for (const page of pages) all.push(...page.results);
+    }
     return all;
   }
 

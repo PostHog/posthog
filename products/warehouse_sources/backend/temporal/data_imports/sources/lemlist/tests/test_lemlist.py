@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -104,18 +104,18 @@ class TestFormatIncrementalValue:
 
 
 class TestClampFutureValueToNow:
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_datetime_clamped(self) -> None:
         assert _clamp_future_value_to_now(datetime(2027, 2, 5, tzinfo=UTC)) == datetime(
             2026, 6, 15, 12, 0, 0, tzinfo=UTC
         )
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_past_datetime_unchanged(self) -> None:
         value = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
         assert _clamp_future_value_to_now(value) == value
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_date_clamped(self) -> None:
         assert _clamp_future_value_to_now(date(2027, 2, 5)) == date(2026, 6, 15)
 
@@ -163,7 +163,7 @@ class TestRequestParams:
         assert params[0]["minDate"] == "2026-05-11T00:00:00Z"
         assert params[0]["version"] == "v2"
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_activities_first_sync_uses_lookback_window(self, MockSession) -> None:
         # No stored watermark -> bound the first sync by the configured lookback instead of full history.
@@ -172,7 +172,7 @@ class TestRequestParams:
         _rows(_source("activities", should_use_incremental_field=True, db_incremental_field_last_value=None))
         assert params[0]["minDate"] == "2025-06-15T12:00:00Z"
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_activities_future_watermark_clamped(self, MockSession) -> None:
         session = MockSession.return_value

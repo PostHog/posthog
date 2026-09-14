@@ -52,9 +52,11 @@ let uniqueNode = 0
 export function AttributionTable({
     query,
     attachTo,
+    metric = 'conversions',
 }: {
     query: MarketingAnalyticsAttributionQuery
     attachTo?: LogicWrapper | BuiltLogic
+    metric?: 'conversions' | 'revenue'
 }): JSX.Element {
     const [key] = useState(() => `MarketingAttribution.${uniqueNode++}`)
     // Registered under the tab's shared collection so the filter bar's ReloadAll reaches this query.
@@ -222,7 +224,15 @@ export function AttributionTable({
         ]
     }
 
-    const columns = buildColumns()
+    const columns = buildColumns().map((group) => ({
+        ...group,
+        children:
+            metric === 'revenue'
+                ? group.children.filter(
+                      (column) => column.key === 'breakdown_value' || String(column.key).endsWith('_value')
+                  )
+                : group.children,
+    }))
 
     if (responseError) {
         return (
@@ -256,7 +266,13 @@ export function AttributionTable({
                     later in the journey, like signing up or paying, show how the models differ.
                 </LemonBanner>
             )}
-            <AttributionChart rows={rows} models={models} dimensionLabel={dimensionLabel} loading={responseLoading} />
+            <AttributionChart
+                metric={metric}
+                rows={rows}
+                models={models}
+                dimensionLabel={dimensionLabel}
+                loading={responseLoading}
+            />
             <LemonTable
                 className="AttributionTable"
                 columns={columns}

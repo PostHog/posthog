@@ -20,6 +20,7 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
 
 from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -28,7 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     FieldType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HOST_RESOLUTION_EXHAUSTED_MESSAGE,
+    HostNotAllowedError,
     SSHTunnelMixin,
+    TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -118,8 +122,17 @@ _INVALID_CREDENTIALS_VALIDATION_ERROR = (
     "The database rejected the username or password. Check the user and password for this source and try again."
 )
 
+_HOST_RESOLUTION_RETRY_MESSAGE = (
+    "PostHog couldn't resolve your database host right now. Check the host name, then try again in a moment."
+)
+
 PostgresErrors = {
     "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
+    # The bounded lookup in front of the connect reports a stalled resolver and a "try again"
+    # answer as psycopg errors. Neither is a verdict on the host, so validation asks for a retry
+    # rather than capturing a self-recovering failure.
+    HOST_RESOLUTION_TIMEOUT_ERROR: _HOST_RESOLUTION_RETRY_MESSAGE,
+    TEMPORARY_HOST_RESOLUTION_ERROR: _HOST_RESOLUTION_RETRY_MESSAGE,
     # libpq reports a bad password via SCRAM with a different wording than the line above.
     "error received from server in SCRAM exchange: Wrong password": _INVALID_CREDENTIALS_VALIDATION_ERROR,
     # Supabase/Supavisor poolers report a missing tenant/user during credential validation with
@@ -462,6 +475,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "require a pooler-specific username such as postgres.<project-ref>. Check your "
                 "credentials, then re-enable the sync."
             ),
+            # Supabase/Supavisor trips its circuit breaker after repeated bad credentials and refuses
+            # new connections with "FATAL: (ECIRCUITBREAKER) too many authentication failures, new
+            # connections are temporarily blocked". The block only clears once the failing attempts
+            # stop, so it's deterministic until the customer fixes the credentials — retrying just
+            # re-hits the block. Distinct from the transient credential-fetch variant of the same
+            # code, which postgres.py keeps retrying (see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`).
+            "too many authentication failures": (
+                "Your database connection pooler is blocking new connections after too many failed "
+                'sign-in attempts ("too many authentication failures"). This usually means the '
+                "username or password is wrong. Check your credentials, wait for the block to clear, "
+                "then re-enable the sync."
+            ),
             # A Postgres server configured with `pam` auth in pg_hba.conf rejects bad credentials with
             # "FATAL: PAM authentication failed for user <user>" instead of PostgreSQL's
             # "password authentication failed for user", so the password key above doesn't
@@ -474,21 +499,6 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '("PAM authentication failed"). Your PostgreSQL server authenticates this user '
                 "through PAM (for example against the system password database or LDAP), and it "
                 "rejected the username or password. Check your credentials, then re-enable the sync."
-            ),
-            # Supavisor trips its own circuit breaker after repeated authentication failures against
-            # a tenant and temporarily refuses new connects, reporting "FATAL:  (ECIRCUITBREAKER) too
-            # many authentication failures, new connections are temporarily blocked". Distinct from
-            # the pooler-bookkeeping "(ECIRCUITBREAKER) failed to retrieve database credentials"
-            # variant kept retryable in postgres.py's `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` — this one
-            # is tripped by the credentials themselves being rejected repeatedly, so it's the same
-            # deterministic class as "password authentication failed" and retrying with the same
-            # credentials just re-trips the breaker. Match the stable message, excluding the volatile
-            # host/port the raw driver text prefixes it with.
-            "too many authentication failures": (
-                "Your database's connection pooler has temporarily blocked new connections after "
-                'repeated authentication failures ("too many authentication failures"). This usually '
-                "means the configured username or password is wrong. Check your credentials, then "
-                "re-enable the sync."
             ),
             "could not translate host name": _DNS_RESOLUTION_ERROR,
             "timeout expired connection to server at": None,
@@ -1030,12 +1040,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # `using_read_replica` is False. The single-conflict message reaching here (as opposed to the
         # "kept canceling reads..."/"no key that can resume..." messages above, which are the
         # exhausted-retry abort and stay non-retryable) is the same self-recovering condition.
+        # The bounded lookup in front of every connect raises these two when the resolver does not
+        # answer in time or answers "try again". Neither is a verdict on the host, and a fresh
+        # attempt recovers, so they belong with the other self-recovering connect failures.
         return {
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
             "conflict with recovery",
+            HOST_RESOLUTION_TIMEOUT_ERROR,
+            TEMPORARY_HOST_RESOLUTION_ERROR,
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -1054,6 +1069,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             **dict.fromkeys(_SERVER_STARTING_UP_ERROR_SUBSTRINGS, _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE),
             **dict.fromkeys(_CONNECTION_LIMIT_ERROR_SUBSTRINGS, _CONNECTION_LIMIT_EXHAUSTED_MESSAGE),
             "conflict with recovery": _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE,
+            HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
+            TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
         }
 
     def reconcile_schema_metadata(
@@ -1120,6 +1137,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 schema=config.schema,
                 names=names,
                 require_ssl=require_ssl,
+                team_id=team_id,
             )
             # Foreign keys are advisory metadata (they pre-populate relationship hints in the
             # table picker). The discovery query joins three `information_schema` views, which
@@ -1136,6 +1154,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     schema=config.schema,
                     names=names,
                     require_ssl=require_ssl,
+                    team_id=team_id,
                 )
             except Exception as e:
                 structlog.get_logger().warning("Failed to detect foreign keys for Postgres schemas", exc_info=e)
@@ -1151,6 +1170,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     schema=config.schema,
                     names=names,
                     require_ssl=require_ssl,
+                    team_id=team_id,
                 )
             else:
                 row_counts = {}
@@ -1184,6 +1204,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     password=config.password,
                     database=config.database,
                     require_ssl=require_ssl,
+                    team_id=team_id,
                 ) as conn:
                     # PK lookup powers `supports_cdc`. Wrap in try/except so a permissions
                     # quirk on `pg_catalog` (rare) only disables CDC advertising for this
@@ -1371,6 +1392,10 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             if require_ssl:
                 return False, _SSL_UNSUPPORTED_ERROR
             return False, str(e)
+        except HostNotAllowedError as e:
+            return False, str(e)
+        except TemporaryHostResolutionError as e:
+            return False, str(e)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in PostgresErrors.items():
@@ -1418,6 +1443,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 password=config.password,
                 database=config.database,
                 require_ssl=require_ssl,
+                team_id=team_id,
             )
 
     def check_cdc_prerequisites(
@@ -1428,6 +1454,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         slot_name: str | None = None,
         publication_name: str | None = None,
         require_ssl: bool = True,
+        team_id: int | None = None,
     ) -> list[str]:
         """Validate Postgres CDC prerequisites against a live connection.
 
@@ -1441,7 +1468,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             _connect_to_postgres,
         )
 
-        with self.with_ssh_tunnel(config) as (host, port):
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
             conn = _connect_to_postgres(
                 host=host,
                 port=port,
@@ -1449,6 +1476,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 user=config.user,
                 password=config.password,
                 require_ssl=require_ssl,
+                team_id=team_id,
             )
             try:
                 schema = config.schema.strip() if isinstance(config.schema, str) and config.schema.strip() else "public"
@@ -1501,7 +1529,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 row_filters=inputs.row_filters,
             )
             require_ssl = source_requires_ssl(schema.source, config)
-            with self.get_implementation.connect(config, require_ssl=require_ssl) as conn:
+            with self.get_implementation.connect(config, require_ssl=require_ssl, team_id=inputs.team_id) as conn:
                 # Autocommit so a rejected SET (engines without statement_timeout support) is its
                 # own statement and cannot poison the probe query's transaction.
                 conn.autocommit = True

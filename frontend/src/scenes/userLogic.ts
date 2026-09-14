@@ -267,10 +267,10 @@ export interface userLogicActions {
         teamId: number
     }
     updateHasSeenProductIntroFor: (
-        productKey: ProductKey,
+        productKey: string | ProductKey,
         value?: boolean
     ) => {
-        productKey: ProductKey
+        productKey: string
         value: boolean
     }
     updateMemberJoinEmailForAllOrganizations: (
@@ -428,7 +428,12 @@ export const userLogic = kea<userLogicType>([
         }),
         cancelEmailChangeRequest: true,
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
-        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean = true) => ({ productKey, value }),
+        // Not only product keys: the map also holds keys composed per team, and keys for surfaces
+        // that are not products, which is what the endpoint accepts.
+        updateHasSeenProductIntroFor: (productKey: ProductKey | string, value: boolean = true) => ({
+            productKey,
+            value,
+        }),
         switchTeam: (teamId: string | number, destination?: string) => ({ teamId, destination }),
         deleteUser: true,
         updateWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),

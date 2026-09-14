@@ -16,12 +16,16 @@ interface LoopContextFieldsProps {
   value: LoopContextTargetDraft | null;
   onChange: (value: LoopContextTargetDraft | null) => void;
   disabled?: boolean;
+  /** Off for a workflow-backed loop, which posts its runs to the channel's
+   * feed but maintains no context.md and no canvas. */
+  showOutputs?: boolean;
 }
 
 export function LoopContextFields({
   value,
   onChange,
   disabled,
+  showOutputs = true,
 }: LoopContextFieldsProps) {
   const { channels } = useChannels();
   const { dashboards } = useDashboards(value?.folderId, { poll: false });
@@ -69,7 +73,7 @@ export function LoopContextFields({
         onValueChange={selectContext}
       />
 
-      {value ? (
+      {value && showOutputs ? (
         <Flex
           direction="column"
           gap="3"

@@ -2,8 +2,14 @@ import { stripInjectedBlocks } from "@posthog/core/editor/injectedBlocks";
 import type { SignalReport, Task } from "@posthog/shared/domain-types";
 import type { ChannelFeedSystemMessage } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 
+const incompleteContextBlock =
+  /<(?:channel_context|canvas_generation_instructions|posthog_trusted_context|posthog_untrusted_context|posthog_context|user_custom_instructions|onboarding_brief|slack_thread_context)\b[\s\S]*$/;
+
 export function stripContextBlocks(text: string): string {
-  return stripInjectedBlocks(text).replace(/\n{3,}/g, "\n\n");
+  return stripInjectedBlocks(text)
+    .replace(incompleteContextBlock, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 // A single feed entry — a task card, a report card, or a synthetic system row —

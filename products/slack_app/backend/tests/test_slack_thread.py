@@ -26,6 +26,11 @@ class TestSlackThreadHandler(SimpleTestCase):
             ("passthrough", "Internal error: something else", "Internal error: something else"),
             ("stripped_passthrough", "  Internal error: something else  ", "Internal error: something else"),
             ("rate_limit", "Internal error: API Error: 429 rate_limit_error", UPSTREAM_PROVIDER_FAILURE_MESSAGE),
+            (
+                "task_spend_limit",
+                "Internal error: API Error: 429 Rate limit exceeded: This agent run reached its spend limit. Try again in about 24 hours.",
+                "Internal error: API Error: 429 Rate limit exceeded: This agent run reached its spend limit. Try again in about 24 hours.",
+            ),
             ("overloaded", "Internal error: API Error: 529 overloaded_error", UPSTREAM_PROVIDER_FAILURE_MESSAGE),
             ("server_error", "Internal error: API Error: 500 internal_error", UPSTREAM_PROVIDER_FAILURE_MESSAGE),
         ]
@@ -655,8 +660,8 @@ class TestMarkdownAnswerBlocks(SimpleTestCase):
     def test_a_rejected_markdown_block_falls_back_to_plain_text_without_looping(
         self, error_code: str, mock_get_client, mock_get_integration
     ) -> None:
-        # Under the gate every answer carries a block, and the relay has already claimed the
-        # message, so a rejection code this branch does not know loses the answer for good.
+        # Every answer carries a block, and the relay has already claimed the message, so a
+        # rejection code this branch does not know loses the answer for good.
         # Recovering by calling post_thread_message again would rebuild the same markdown
         # block, so a rejection Slack repeats would recurse until the stack ran out.
         mock_client = MagicMock()
@@ -670,9 +675,3 @@ class TestMarkdownAnswerBlocks(SimpleTestCase):
         retry = mock_client.chat_postMessage.call_args_list[1].kwargs
         assert retry["text"] == "the answer"
         assert not retry.get("blocks")
-
-    @patch.object(SlackThreadHandler, "_get_integration", side_effect=Integration.DoesNotExist)
-    def test_the_gate_closes_rather_than_raising_when_the_integration_is_gone(self, _mock_get_integration) -> None:
-        # The relay reads this gate outside any try block of its own, so a raise here would fail
-        # the activity and make Temporal replay a relay that can never succeed.
-        assert self._handler().renders_markdown() is False

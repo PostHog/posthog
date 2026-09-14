@@ -13,6 +13,7 @@ export interface QueuedMessageListProps {
     onRemove: (id: string) => void
     onSteer?: () => void
     steerPending?: boolean
+    steerDisabledReason?: string
 }
 
 interface QueuedMessageItemProps {
@@ -116,6 +117,7 @@ export function QueuedMessageList({
     onRemove,
     onSteer,
     steerPending = false,
+    steerDisabledReason,
 }: QueuedMessageListProps): JSX.Element | null {
     const [editingId, setEditingId] = useState<string | null>(null)
 
@@ -134,7 +136,9 @@ export function QueuedMessageList({
                         data-attr="run-queue-steer"
                         onClick={onSteer}
                         loading={steerPending}
-                        disabledReason={editingId ? 'Save or cancel your edit first' : undefined}
+                        disabledReason={
+                            steerDisabledReason ?? (editingId ? 'Save or cancel your edit first' : undefined)
+                        }
                         tooltip="Send queued messages before the turn ends"
                         sideIcon={<KeyboardShortcut escape />}
                     >
