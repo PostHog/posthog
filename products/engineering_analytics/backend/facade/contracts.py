@@ -340,9 +340,7 @@ class WorkflowRunDetail:
     # This is the only PR attribution a default-branch push has, since its `pull_requests`
     # association is empty by then, so consumers read `pr_number` first and fall back to this (SPEC §6).
     commit_pr_number: int | None
-    # True when this run is a merge-queue gate attempt landing `pr_number`, not a push the author made.
-    # CI measurement counts these; anything measuring authoring activity (pushes, re-run cycles) must
-    # drop them, which is what the PR-list rollup does (SPEC §6).
+    # A merge-queue gate attempt landing `pr_number`. Counts as CI; not as a push the author made.
     is_merge_queue: bool
 
 
@@ -710,9 +708,7 @@ class TrunkQuarantineDebt:
     trunk_url: str | None
     teams: list[TrunkQuarantineTeamDebt]
     tests: list[TrunkQuarantinedTest]
-    # ``tests`` is capped at ``limit``, oldest quarantine first, and ``teams`` rolls up exactly the
-    # tests that survived that cap. When ``truncated`` is True the per-team counts are lower bounds,
-    # so a caller must not present them as the whole debt.
+    # ``teams`` rolls up only the returned ``tests``, so when ``truncated`` its counts are lower bounds.
     truncated: bool
     limit: int
 
@@ -835,10 +831,8 @@ class CIStatusRollup:
     passing: int
     failing: int
     pending: int
-    # Runs that completed without reaching a pass-or-fail verdict: cancelled, skipped, neutral,
-    # action_required. The same outcomes SPEC §6 keeps out of the pass rate. Counted here so
-    # `passing + failing + pending + inconclusive == runs`, which is what lets a caller tell "every
-    # run was cancelled" apart from "everything passed" rather than reading the gap as a pass.
+    # Completed without a verdict (cancelled, skipped, neutral, action_required). The four counts
+    # partition `runs`, so an all-cancelled PR is not mistaken for a passing one.
     inconclusive: int
     # The workflow names behind `failing`, sorted — what the UI names under the CI tag.
     failing_workflows: list[str] = field(default_factory=list)
@@ -1542,7 +1536,7 @@ class RunFailureLogs:
 class WorkflowJobAggregate:
     """Per-job aggregates for one workflow over a window, one row per de-sharded job name
     (matrix ``(G/N)`` suffix stripped; unexpanded ``${{ matrix.* }}`` templates collapsed).
-    ``failure_rate`` is over completed jobs; ``p50_seconds``/``p95_seconds`` are over
+    ``failure_rate`` is decisive failures over conclusive jobs; ``p50_seconds``/``p95_seconds`` are over
     successful jobs only (cancelled and failed instances end early and would bias a
     duration percentile low); cost is None when every instance ran on an unknown tier."""
 

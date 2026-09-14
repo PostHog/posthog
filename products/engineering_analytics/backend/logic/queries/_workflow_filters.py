@@ -7,21 +7,21 @@ source as ``FROM __RUNS_SOURCE__ AS r`` (or joins it as ``r``).
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 
 from posthog.dataclasses import frozen
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope
 
-# HogQL gives a query that names no LIMIT a default of 100 rows, so a read that never meant to page
-# silently returns a slice of itself. Reads whose row count is bounded by the org's shape (teams,
-# workflows, job names, a PR's runs) rather than by a caller's page size take this ceiling, so
-# truncation only ever happens where someone chose a smaller cap on purpose.
-UNPAGED_SCAN_LIMIT = 100000
+# HogQL caps a query that names no LIMIT at 100 rows and clamps any larger LIMIT to this ceiling. Reads
+# bounded by the repo's shape (workflows, job names, a PR's runs) rather than by a page size take it whole.
+UNPAGED_SCAN_LIMIT = MAX_SELECT_RETURNED_ROWS
 
 # Mirrors DECISIVE_FAILURE_CONCLUSIONS in frontend/lib/lifecycle.ts (keep the two in sync).
 DECISIVE_FAILURE_CONCLUSIONS = ("failure", "timed_out", "startup_failure", "stale")
 DECISIVE_FAILURE_CONCLUSIONS_SQL = ", ".join(f"'{conclusion}'" for conclusion in DECISIVE_FAILURE_CONCLUSIONS)
 SUCCESSFUL_RUN_CONDITION = "status = 'completed' AND conclusion = 'success'"
+FAILED_RUN_CONDITION = f"status = 'completed' AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})"
 CONCLUSIVE_RUN_CONDITION = f"status = 'completed' AND conclusion IN ('success', {DECISIVE_FAILURE_CONCLUSIONS_SQL})"
 
 # Duration percentiles use successful instances because cancelled, skipped, and failed instances
@@ -39,12 +39,9 @@ def success_rate_expr(scope: str | None = None) -> str:
 
 
 def failure_rate_expr(scope: str | None = None) -> str:
-    """The complement of ``success_rate_expr``, over the same denominator. Surfaces that report how
-    often something fails read this rather than rolling their own, so a fail rate and a pass rate on
-    one screen always partition the same population."""
+    """The complement of ``success_rate_expr`` over the same denominator."""
     guard = f" AND {scope}" if scope else ""
-    decisive = f"status = 'completed' AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})"
-    return f"countIf({decisive}{guard}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}{guard}), 0)"
+    return f"countIf({FAILED_RUN_CONDITION}{guard}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}{guard}), 0)"
 
 
 # A run that settled in under this many seconds with a benign conclusion did no real CI work — the

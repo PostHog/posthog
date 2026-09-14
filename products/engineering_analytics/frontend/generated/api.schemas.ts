@@ -448,7 +448,7 @@ export interface WorkflowJobAggregateApi {
      */
     p95_seconds: number | null
     /**
-     * Decisive failures ('failure', 'timed_out') over completed instances (0-1). Null if none completed.
+     * Decisive failures over job instances with a pass-or-fail verdict (0-1). Skipped, cancelled, neutral, and action-required instances are excluded. Null if none reached a verdict.
      * @nullable
      */
     failure_rate: number | null

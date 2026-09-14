@@ -25,7 +25,6 @@ _SELECT = f"""
         AND timestamp >= {{scan_from}}
         AND timestamp <= {{date_to}}
     GROUP BY owner_team
-    ORDER BY owner_team
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 

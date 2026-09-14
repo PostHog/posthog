@@ -22,7 +22,6 @@ _SELECT = f"""
         AND pr.merged_at <= {{date_to}}
         AND NOT pr.is_bot
     GROUP BY owner_team
-    ORDER BY owner_team
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 

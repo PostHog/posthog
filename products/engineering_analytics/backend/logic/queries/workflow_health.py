@@ -90,10 +90,8 @@ _SELECT = f"""
 
 # Success rate over the equal-length window before date_from, the delta baseline the UI renders as
 # an honest Δpp instead of a server-baked percentage. Kept as its own slim scan so the main query's
-# window (and its LIMIT semantics) stay untouched. It is a lookup keyed by workflow name with no rank
-# of its own, so it takes the wide ceiling rather than _LIMIT: capping it at _LIMIT would return an
-# arbitrary 100 workflows instead of the 100 _SELECT ranked, and every unmatched row would read as
-# "no previous window".
+# window (and its LIMIT semantics) stay untouched. It is an unranked lookup, so capping it at _LIMIT
+# would drop workflows _SELECT ranked and make them read as "no previous window".
 _PREV_SELECT = f"""
     SELECT
         repo_owner,

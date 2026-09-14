@@ -12,10 +12,8 @@ function Count({ count, icon, className }: { count: number; icon: JSX.Element; c
     )
 }
 
-// The run tallies as colored icon counts: passed, failed, still running, and settled without a verdict.
-// At row height the marks carry the state, so there is no word label; the tooltip has the detail.
-// Every run lands in exactly one count, so a PR whose runs were all cancelled shows a mark rather than
-// an empty cell that reads as green. "No CI" is the one case with no marks.
+// The run tallies as colored icon counts; the tooltip carries the words. Every run lands in exactly one
+// count, so an all-cancelled PR shows a mark instead of an empty cell. "No CI" is the one case with no marks.
 export function CIStatusTag({ rollup }: { rollup: CIRollup }): JSX.Element {
     if (rollup.runs === 0) {
         return <LemonTag type="muted">No CI</LemonTag>
