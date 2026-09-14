@@ -43,7 +43,9 @@ import {
 } from './accountsColumnConfigLogic'
 import { DEFAULT_ACCOUNT_TAB, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, customPropertySavingKey, savingRoleKey, SEARCH_DEBOUNCE_MS } from './accountsLogic'
-import { AccountsEvents } from './constants'
+import { accountsOverviewTilesLogic } from './accountsOverviewTilesLogic'
+import { readAccountsViewDraft } from './accountsViewState'
+import { AccountsEvents, DEFAULT_TILES } from './constants'
 
 const assignedToFilterOf = (query: AccountsTableQuery | null): number[] | undefined =>
     query?.filters?.find((filter) => filter.kind === 'assigned_to')?.userIds
@@ -882,17 +884,30 @@ describe('accountsLogic', () => {
             logic.actions.loadCustomPropertyDefinitionsSuccess([
                 buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID }),
             ])
-            accountsColumnConfigLogic.findMounted()!.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, 'csm'])
-            accountsColumnConfigLogic.findMounted()!.actions.setColumnDisplay(CSM_DEFINITION_ID, {
-                mode: 'sparkline',
-                window_days: 30,
-            })
+            const columnConfig = accountsColumnConfigLogic.findMounted()!
+            columnConfig.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, 'csm'])
+            columnConfig.actions.moveColumn(0, 1)
+            expect(readAccountsViewDraft(MOCK_DEFAULT_TEAM.id, MOCK_DEFAULT_USER.uuid)?.columns).toEqual([
+                'csm',
+                ACCOUNTS_NAME_COLUMN,
+            ])
+            columnConfig.actions.setColumnDisplay(CSM_DEFINITION_ID, { mode: 'sparkline', window_days: 30 })
             logic.actions.setSearchQuery('draft search')
             logic.actions.setTagsFilter(['enterprise'])
             logic.actions.setAssignedToFilter([7])
             logic.actions.updateAccountFilters(ACCOUNT_FILTERS)
             logic.actions.setSortOrder({ column: 'csm', direction: 'desc' })
-            logic.actions.setTiles(CUSTOM_TILES)
+            const overviewTiles = accountsOverviewTilesLogic.findMounted()!
+            overviewTiles.actions.addTile(CUSTOM_TILES[0])
+            expect(readAccountsViewDraft(MOCK_DEFAULT_TEAM.id, MOCK_DEFAULT_USER.uuid)?.tiles).toEqual([
+                ...DEFAULT_TILES,
+                CUSTOM_TILES[0],
+            ])
+            overviewTiles.actions.moveTile(0, 1)
+            expect(readAccountsViewDraft(MOCK_DEFAULT_TEAM.id, MOCK_DEFAULT_USER.uuid)?.tiles).toEqual([
+                CUSTOM_TILES[0],
+                ...DEFAULT_TILES,
+            ])
             logic.actions.setTileFilter(TILE_FILTER)
             await expectLogic(logic).toFinishAllListeners()
             const expectedViewState = logic.values.viewState
@@ -933,7 +948,7 @@ describe('accountsLogic', () => {
                     tags: ['renewal'],
                     assignedTo: [7],
                     sort: { column: 'csm', direction: 'desc' },
-                    columns: [ACCOUNTS_NAME_COLUMN, 'csm'],
+                    columns: ['csm', ACCOUNTS_NAME_COLUMN],
                     tileFilter: TILE_FILTER,
                     customProperties: ACCOUNT_FILTERS,
                 })
