@@ -101,6 +101,18 @@ PUSH_SUBSCRIPTION_PLATFORM_ABSENT_COUNTER = Counter(
     labelnames=["sdk_name"],
 )
 
+# The label comes from the user agent, which anyone can set, so bound it to the SDKs that exist and
+# fold the rest into one bucket rather than let a caller mint unbounded series.
+_KNOWN_SDK_NAMES = frozenset(
+    {"posthog-android", "posthog-ios", "posthog-flutter", "posthog-react-native", "posthog-kmp"}
+)
+
+
+def _sdk_name_label(request: Request) -> str:
+    name = _parse_user_agent_sdk(request).name
+    return name if name in _KNOWN_SDK_NAMES else "other"
+
+
 # A device registration payload is a handful of short string fields (distinct_id, device_token,
 # platform, app_id, api_key) — well under 1 KiB. Cap the raw request body far above that but far below
 # Django's global limit, so a compressed body can't inflate into a memory-exhaustion payload when
@@ -389,9 +401,7 @@ def push_subscriptions(request: Request):
 
     if not platform:
         platform = None
-        PUSH_SUBSCRIPTION_PLATFORM_ABSENT_COUNTER.labels(
-            sdk_name=_parse_user_agent_sdk(request).name or "unknown"
-        ).inc()
+        PUSH_SUBSCRIPTION_PLATFORM_ABSENT_COUNTER.labels(sdk_name=_sdk_name_label(request)).inc()
     elif not isinstance(platform, str) or platform not in VALID_PLATFORMS:
         return _rejection_response(
             request,

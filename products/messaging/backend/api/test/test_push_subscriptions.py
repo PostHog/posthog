@@ -22,6 +22,7 @@ from products.messaging.backend.api import push_subscriptions
 from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token, sign_push_identity_token_es256
 from products.messaging.backend.api.push_subscriptions import (
     PUSH_SUBSCRIPTION_DISCARD_COUNTER,
+    PUSH_SUBSCRIPTION_PLATFORM_ABSENT_COUNTER,
     PUSH_SUBSCRIPTION_REJECTION_COUNTER,
     _api_key_fingerprint,
     _parse_user_agent_sdk,
@@ -303,20 +304,48 @@ class TestPushSubscriptionsAPI(BaseTest):
             "api_key": self.team.api_token,
             **extra,
         }
-        headers = {"HTTP_USER_AGENT": user_agent} if user_agent else {}
+        headers = {"User-Agent": user_agent} if user_agent else None
 
         with patch("products.messaging.backend.api.push_subscriptions.capture_internal") as capture:
             response = self.client.post(
                 "/api/push_subscriptions/",
                 data=json.dumps(payload),
                 content_type="application/json",
-                **headers,
+                headers=headers,
             )
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["platform"] is None
         assert capture.call_count == 1
         assert "$device_push_subscription_my-firebase-project" in capture.call_args.kwargs["properties"]["$set"]
+
+    @parameterized.expand(
+        [
+            ("known_sdk", "posthog-android/3.58.0", "posthog-android"),
+            ("unknown_posthog_prefixed", "posthog-madeup-x9f2/1.0", "other"),
+            ("no_user_agent", None, "other"),
+        ]
+    )
+    def test_absent_platform_counter_label_is_bounded(self, _name: str, user_agent: str | None, expected: str):
+        counter = PUSH_SUBSCRIPTION_PLATFORM_ABSENT_COUNTER.labels(sdk_name=expected)
+        before = counter._value.get()
+        payload = {
+            "distinct_id": "user-1",
+            "device_token": "device-token",
+            "app_id": "my-firebase-project",
+            "api_key": self.team.api_token,
+        }
+
+        with patch("products.messaging.backend.api.push_subscriptions.capture_internal"):
+            response = self.client.post(
+                "/api/push_subscriptions/",
+                data=json.dumps(payload),
+                content_type="application/json",
+                headers={"User-Agent": user_agent} if user_agent else None,
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert counter._value.get() == before + 1
 
     def test_explicit_platform_is_echoed(self):
         response = self._post(

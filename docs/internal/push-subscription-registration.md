@@ -9,6 +9,12 @@ A mobile SDK with push capture enabled posts its device token to `/api/push_subs
 app starts. The server resolves the `app_id` to a Firebase or APNs integration on the team and stores
 the token as a `$device_push_subscription_<app_id>` person property.
 
+`distinct_id`, `device_token` and `app_id` are required. `platform` is optional: when present it must
+be `android` or `ios`, and it is echoed back in the response, but it is never stored and never selects
+the provider. Some shipped SDK builds omit it, and a device whose registration is rejected re-posts on
+every app open and never registers, so the server does not reject a registration for lacking a field
+it discards.
+
 Push is opt-in per project, and the SDK cannot see whether a project opted in. So an app that ships
 with push capture on registers against every project it reports to, configured or not.
 
@@ -91,3 +97,9 @@ SDK that implements rule 3.
 - Registration outcomes are observable through `push_subscription_rejection{code, method}`,
   `push_subscription_discarded{reason}`, and the `push_subscription_discarded` log line, which is
   emitted once per team per minute rather than once per request.
+- `push_subscription_platform_absent{sdk_name}` counts registrations accepted without a `platform`.
+  The label is bounded to known SDK names, with everything else under `other`, because it comes from
+  the user agent.
+- A `push_subscription_rejected` log line for an invalid project token carries the request's `app_id`
+  alongside the token fingerprint, so a burst of rejections from one shipped build can be traced to
+  the app rather than only to an opaque fingerprint.
