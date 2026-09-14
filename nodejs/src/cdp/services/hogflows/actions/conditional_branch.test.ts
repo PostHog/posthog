@@ -528,9 +528,8 @@ describe('action.conditional_branch', () => {
             expect(await pollOnlyAdvanceCount()).toBe(0)
         })
 
-        it('does not count a rekey wake as poll-only', async () => {
-            // A merge re-key wakes the job without eventMatched. Counting it would credit the poll for
-            // a wake the matcher performed, which is what made the metric unusable as a removal gate.
+        // A matcher wake reaches here without eventMatched, so before this both read as poll advances.
+        it.each(['rekeyWake', 'anchorWake'] as const)('does not count a %s matcher wake as poll-only', async (flag) => {
             waitAction.config.condition = {
                 filters: {
                     bytecode: ['_H', 1, 32, 'test', 32, 'event', 1, 1, 11],
@@ -538,7 +537,7 @@ describe('action.conditional_branch', () => {
                 },
             }
             waitInvocation.state.currentAction!.pollReparked = true
-            waitInvocation.state.currentAction!.rekeyWake = true
+            waitInvocation.state.currentAction![flag] = true
 
             const result = await handler.execute({
                 invocation: waitInvocation,
@@ -548,30 +547,7 @@ describe('action.conditional_branch', () => {
 
             expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
             expect(await pollOnlyAdvanceCount()).toBe(0)
-        })
-
-        it('does not count an anchor-fill wake as poll-only and consumes the one-shot flag', async () => {
-            // A distinct_id's first mapping filled this wait's missing person anchor and woke it. Like a
-            // re-key it carries no eventMatched, so before this was excluded every signup-shaped flow
-            // reported its matcher wakes as poll advances.
-            waitAction.config.condition = {
-                filters: {
-                    bytecode: ['_H', 1, 32, 'test', 32, 'event', 1, 1, 11],
-                    events: [{ id: 'test', name: 'test', type: 'events', order: 0 }],
-                },
-            }
-            waitInvocation.state.currentAction!.pollReparked = true
-            waitInvocation.state.currentAction!.anchorWake = true
-
-            const result = await handler.execute({
-                invocation: waitInvocation,
-                action: waitAction,
-                result: createInvocationResult(waitInvocation),
-            })
-
-            expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
-            expect(await pollOnlyAdvanceCount()).toBe(0)
-            expect(waitInvocation.state.currentAction!.anchorWake).toBe(false)
+            expect(waitInvocation.state.currentAction![flag]).toBe(false)
         })
 
         it('records a rekey wake as advanced and consumes the one-shot flag when the merge makes the condition match', async () => {
