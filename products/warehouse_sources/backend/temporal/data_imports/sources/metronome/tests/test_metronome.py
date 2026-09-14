@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     MetronomeCursorPaginator,
     MetronomeResumeConfig,
     _clamp_window_start,
+    _coalesced_pages,
     _format_rfc3339,
     _paginator_for,
     get_resource,
@@ -164,6 +165,20 @@ class TestMetronomeResources:
         assert resource["endpoint"]["params"] == {}
         assert isinstance(resource["endpoint"]["paginator"], MetronomeCursorPaginator)
 
+    @parameterized.expand([("usage",), ("usage_daily",), ("usage_hourly",)])
+    def test_usage_value_is_typed_as_a_float(self, endpoint) -> None:
+        # A batch of whole numbers infers an integer column, and the first fractional usage amount
+        # after that no longer fits it, which fails the sync and turns the schema off.
+        resource = cast(
+            dict[str, Any],
+            get_resource(endpoint, should_use_incremental_field=False, window_starting_on=EPOCH_RFC_3339),
+        )
+        data_map = resource["data_map"]
+
+        assert isinstance(data_map({"value": 7})["value"], float)
+        # No usage matched the period, which is not the same as none of it costing anything.
+        assert data_map({"value": None})["value"] is None
+
     @parameterized.expand([("invoices",), ("contracts",)])
     def test_get_resource_rejects_fanout_endpoints(self, endpoint) -> None:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
@@ -218,6 +233,43 @@ class TestMetronomeResources:
         assert body["starting_on"] == EPOCH_RFC_3339
         assert body["ending_before"] > EPOCH_RFC_3339
         assert body["ending_before"].endswith("T00:00:00Z")
+
+
+class TestMetronomeCoalescing:
+    @patch(f"{TRANSPORT}.USAGE_COALESCE_PAGES", 2)
+    def test_a_batch_is_checkpointed_only_once_it_has_been_yielded(self) -> None:
+        # The cursor may only move over rows that reached Delta. Checkpointing while the batch is
+        # still filling would let a worker rotation resume past pages the consumer never flushed.
+        events: list[str] = []
+
+        def pages():
+            for index in range(5):
+                events.append(f"page-{index}")
+                yield [{"n": index}]
+
+        for batch in _coalesced_pages(pages(), lambda: events.append("commit")):
+            events.append(f"flush-{len(batch)}")
+
+        assert events == [
+            "page-0",
+            "page-1",
+            "flush-2",
+            "commit",
+            "page-2",
+            "page-3",
+            "flush-2",
+            "commit",
+            "page-4",
+            "flush-1",
+            "commit",
+        ]
+
+    @patch(f"{TRANSPORT}.USAGE_COALESCE_ROWS", 3)
+    def test_the_row_cap_closes_a_batch_before_the_page_cap(self) -> None:
+        # Metronome sets the page size, so a batch is held to a row count as well as a page count.
+        pages = ([{"n": index}, {"n": index}] for index in range(3))
+
+        assert [len(batch) for batch in _coalesced_pages(pages, lambda: None)] == [4, 2]
 
 
 class TestMetronomeSourceResponse:
@@ -403,6 +455,38 @@ class TestMetronomeSourceResponse:
                 starting_on=synced_body["starting_on"],
             )
         )
+
+    @parameterized.expand(
+        [
+            # Upserts on the primary key, so re-reading a coalesced batch's last page is harmless.
+            ("incremental_holds_it", True, False),
+            # Resuming a full refresh appends onto the partial table, where a re-read duplicates.
+            ("full_refresh_checkpoints_each_page", False, True),
+        ]
+    )
+    @patch(f"{TRANSPORT}.rest_api_resource")
+    def test_only_an_upserting_walk_defers_its_checkpoint(
+        self, _name, should_use_incremental_field, saves_on_the_page, mock_rest_api_resource
+    ) -> None:
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+        mock_rest_api_resource.return_value = iter([[{"n": 1}]])
+
+        response = metronome_source(
+            api_key="tok",
+            endpoint="usage_daily",
+            team_id=1,
+            job_id="job-1",
+            resumable_source_manager=manager,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=datetime(2026, 3, 14, tzinfo=UTC),
+            history_start=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        mock_rest_api_resource.call_args.kwargs["resume_hook"]({"cursor": "cursor-3"})
+
+        assert manager.save_state.called is saves_on_the_page
+        list(cast(Any, response.items()))
+        assert manager.save_state.called is True
 
     @patch(f"{TRANSPORT}.build_dependent_resource")
     def test_invoices_fan_out_over_customers(self, mock_build) -> None:
