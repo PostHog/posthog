@@ -585,7 +585,6 @@ def _build_template_context(
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
         from posthog.models.file_system.user_product_list import UserProductList
-        from posthog.models.team.event_retention import events_retention_months_for_team
         from posthog.models.user_home_settings import UserHomeSettings
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
@@ -675,12 +674,6 @@ def _build_template_context(
                 posthog_app_context["has_pageview"] = event_info["has_pageview"]
                 posthog_app_context["has_screen"] = event_info["has_screen"]
                 posthog_app_context["has_person_email"] = get_has_person_email(user.team)
-
-                # Bootstrapped here rather than serialized onto the team, where the window read as a setting callers
-                # could change (see TeamSerializer). Set only when enforced, so presence is the whole signal.
-                events_retention_months = events_retention_months_for_team(user.team, None)
-                if events_retention_months is not None:
-                    posthog_app_context["events_retention_months"] = events_retention_months
 
                 with tracer.start_as_current_span("template.user_product_list"):
                     user_product_list = UserProductListSerializer(

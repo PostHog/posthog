@@ -73,27 +73,6 @@ class TestGetContextForTemplate(APIBaseTest):
         app_context = json.loads(actual["posthog_app_context"])
         assert app_context["homepage"] == (stored_homepage or None)
 
-    @parameterized.expand(
-        [
-            ("enforced_carries_the_window", True, 84),
-            ("not_enforced_carries_nothing", False, None),
-        ]
-    )
-    def test_bootstraps_events_retention_window_into_app_context(self, _name, enforced, expected):
-        # dataRetentionBannerLogic reads the window from here rather than from the team API, where a window
-        # sitting beside an "enforced: false" read as a setting callers could change. Absence is the signal
-        # that retention is not enforced, so there is no pair to misread.
-        request = RequestFactory().get("/")
-        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
-        request.user = self.user
-
-        with self.settings(EVENTS_DATA_RETENTION_ENFORCED=enforced):
-            actual = get_context_for_template("layout", request)
-
-        app_context = json.loads(actual["posthog_app_context"])
-        assert app_context.get("events_retention_months") == expected
-        assert ("events_retention_months" in app_context) is enforced
-
     def test_bootstraps_project_tags_into_app_context(self):
         # projectLogic reads currentProject from the app context and only calls the API when it is
         # absent, so tags missing here render an empty Tags field until something refetches.

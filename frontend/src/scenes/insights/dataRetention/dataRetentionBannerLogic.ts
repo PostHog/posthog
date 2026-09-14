@@ -1,7 +1,6 @@
 import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { OrganizationType } from '../../../types'
@@ -71,11 +70,11 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
     actions({
         snooze: true,
     }),
-    reducers(() => ({
-        // Bootstrapped rather than fetched: the window is plan-derived and only changes with the plan. The server
-        // omits it unless retention is enforced for this team. Read on build rather than on import, so a story or
-        // test that sets the app context first is honored.
-        retentionMonths: [getAppContext()?.events_retention_months ?? null, {}],
+    reducers({
+        // No source until events retention enforcement ships. The team API used to carry the window, but a
+        // read-only entitlement next to an "enforced: false" read as a setting callers could change, so it was
+        // removed until the value means something. See https://github.com/PostHog/posthog/issues/17031
+        retentionMonths: [null as number | null, {}],
         snoozedUntil: [
             null as string | null,
             { persist: true },
@@ -83,9 +82,8 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
                 snooze: () => dayjs().add(SNOOZE_DAYS, 'day').toISOString(),
             },
         ],
-    })),
+    }),
     selectors({
-        // The app context carries a window only when enforcement is on, so having one is the signal.
         retentionEnforced: [
             (s) => [s.retentionMonths],
             (retentionMonths: number | null): boolean => retentionMonths !== null,

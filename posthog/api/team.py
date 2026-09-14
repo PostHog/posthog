@@ -1211,11 +1211,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
-    # Team.event_retention_months and its enforcement gate are deliberately not serialized. The window is a plan
-    # entitlement synced from billing, but next to an "enforced: false" it read as a setting callers could change,
-    # which nobody can outside an enterprise request. The app reads the window from `events_retention_months` in
-    # the bootstrapped app context instead (posthog/utils.py), which is set only when enforcement is on.
-    # Reconsider once enforcement covers the fleet. See https://github.com/PostHog/posthog/issues/17031
+    # Team.event_retention_months and its enforcement gate are deliberately not serialized while enforcement is
+    # still gated to a test account: a read-only entitlement next to an "enforced: false" read as a setting callers
+    # could change. Add them back when the feature ships. See https://github.com/PostHog/posthog/issues/17031
 
     class Meta:
         model = Team
