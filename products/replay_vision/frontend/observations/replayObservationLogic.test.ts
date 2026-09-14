@@ -250,4 +250,23 @@ describe('replayObservationLogic', () => {
             logic.unmount()
         }
     })
+
+    // A pending or running observation reloads every few seconds. The reload re-enters the loading
+    // state, so prev/next must not fall back to a spinner that rejects clicks on every tick.
+    it('keeps prev/next clickable while a background reload runs', async () => {
+        router.actions.push('/replay-vision/observation/obs-1', { verdict: 'yes' })
+        const logic = replayObservationLogic({ id: 'obs-1' })
+        logic.mount()
+        try {
+            await expectLogic(logic).toDispatchActions(['loadObservationSuccess'])
+            logic.actions.loadObservation()
+            expect(logic.values.observationLoading).toBe(true)
+            expect(logic.values.neighborsPending).toBe(false)
+            expect(logic.values.previousObservationId).toBe('prev-from-retrieve')
+            expect(logic.values.nextObservationId).toBe('next-from-retrieve')
+            await waitFor(() => expect(logic.values.observationLoading).toBe(false))
+        } finally {
+            logic.unmount()
+        }
+    })
 })

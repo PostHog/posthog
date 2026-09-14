@@ -134,6 +134,7 @@ export function neighborsFromPage(
 export interface replayObservationLogicValues {
     handoffNeighbors: ObservationNeighbors | null
     neighborParams: VisionObservationsRetrieveParams
+    neighborsLoaded: boolean
     neighborsPending: boolean
     nextObservationId: string | null
     observation: ReplayObservationApi | null
@@ -182,7 +183,11 @@ export interface replayObservationLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         neighborParams: (searchParams: Record<string, any>) => VisionObservationsRetrieveParams
-        neighborsPending: (handoffNeighbors: ObservationNeighbors | null, observationLoading: boolean) => boolean
+        neighborsPending: (
+            handoffNeighbors: ObservationNeighbors | null,
+            neighborsLoaded: boolean,
+            observationLoading: boolean
+        ) => boolean
         previousObservationId: (
             handoffNeighbors: ObservationNeighbors | null,
             observation: ReplayObservationApi | null
@@ -239,6 +244,14 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                 seedObservation: (_, { neighbors }) => neighbors,
             },
         ],
+        // The first read resolves prev/next, and the row keeps those ids across later reads. Tracked
+        // apart from `observationLoading` so a background poll does not blank navigation every tick.
+        neighborsLoaded: [
+            false,
+            {
+                loadObservationSuccess: () => true,
+            },
+        ],
         observationLoading: [
             true,
             {
@@ -263,9 +276,12 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             (searchParams: Record<string, any>): VisionObservationsRetrieveParams => neighborFilterParams(searchParams),
         ],
         neighborsPending: [
-            (s) => [s.handoffNeighbors, s.observationLoading],
-            (handoffNeighbors: ObservationNeighbors | null, observationLoading: boolean): boolean =>
-                !handoffNeighbors && observationLoading,
+            (s) => [s.handoffNeighbors, s.neighborsLoaded, s.observationLoading],
+            (
+                handoffNeighbors: ObservationNeighbors | null,
+                neighborsLoaded: boolean,
+                observationLoading: boolean
+            ): boolean => !handoffNeighbors && !neighborsLoaded && observationLoading,
         ],
         previousObservationId: [
             (s) => [s.handoffNeighbors, s.observation],
