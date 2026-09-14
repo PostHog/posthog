@@ -105,7 +105,7 @@ WHERE timestamp > now() - INTERVAL 30 DAY
 GROUP BY 1 ORDER BY 2 DESC
 ```
 
-A currency that's never appeared before, or whose share suddenly jumped, usually means either (a) the team is selling into a new market — write a scratchpad entry, no report, or (b) currency property is misconfigured and revenue is being mis-tagged. The (b) case shows up as a single dominant currency on a non-USD team or vice versa. Cross-reference with `RevenueAnalyticsEventItem.currencyProperty` to tell them apart.
+A currency that's never appeared before, or whose share suddenly jumped, usually means either (a) the team is selling into a new market — write a scratchpad entry, no report, or (b) currency property is misconfigured and revenue is being mis-tagged. The (b) case shows up as a single dominant currency on a non-USD team or vice versa. Cross-reference with `RevenueAnalyticsEventItem.revenueCurrencyProperty` (which carries either a `static` currency code or a `property` name) to tell them apart.
 
 #### Stripe-customer ↔ PostHog-person join broken
 
