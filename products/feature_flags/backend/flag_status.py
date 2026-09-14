@@ -157,6 +157,58 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
     return queryset.filter(usage_based_stale) | config_based_queryset
 
 
+def filter_effectively_full_rollout_flags(queryset: QuerySet) -> QuerySet:
+    """
+    Narrow a FeatureFlag queryset to the flags whose configuration can only serve one result.
+
+    Rollout completeness is not staleness. `filter_stale_flags` keeps that job and nothing
+    user-visible reads this.
+
+    The predicate also filters on flag age and call recency. Both narrow the result to what the
+    only caller wants rather than to what the name says: a flag younger than the threshold is not
+    a cleanup candidate, and a flag that went cold is already a `filter_stale_flags` row. A caller
+    that wants rollout completeness on its own must not reuse this filter unchanged.
+
+    This is a prefilter, not a verdict. The SQL matches a release condition at an explicit 100%
+    with no properties, which every branch of `FeatureFlagStatusChecker.is_flag_fully_rolled_out`
+    needs, boolean and multivariate alike. A multivariate flag also needs a winning variant or a
+    variant override on that condition, which this does not test, so the caller must confirm each
+    row with `is_flag_fully_rolled_out` before it treats the flag as fully rolled out.
+
+    A group that omits the `properties` key counts as having no properties, because
+    `is_group_fully_rolled_out` reads it that way. The `filter_stale_flags` configuration branch
+    requires a literal `[]` and therefore misses those legacy rows; matching them here lets the
+    confirmation step decide.
+
+    Flags with no release conditions at all (`filters` NULL, `{}`, or `{"groups": []}`) stay out,
+    although the checker calls them fully rolled out. `{"groups": []}` is the model default, so
+    matching it would report every flag in a project that nobody has configured.
+
+    See `filter_stale_flags` for the `.extra(where=...)` composition trap, which applies here too.
+    """
+    stale_threshold = stale_flag_threshold()
+    # A flag that is fully rolled out and cold is already a `filter_stale_flags` candidate, so
+    # leave those rows to that query rather than fetch and discard them once per batch. Spelled
+    # as a positive filter because `exclude(last_called_at__lt=...)` on a nullable column is a
+    # known footgun, and a flag with no call data must stay in.
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
+    return queryset.filter(
+        Q(last_called_at__isnull=True) | Q(last_called_at__gte=stale_threshold),
+        active=True,
+        created_at__lt=stale_threshold,
+    ).extra(
+        where=[
+            """
+            EXISTS (
+                SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
+                WHERE elem->>'rollout_percentage' = '100'
+                AND ((elem->'properties')::text = '[]'::text OR elem->'properties' IS NULL)
+            )
+            """
+        ]
+    )
+
+
 def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> QuerySet:
     """
     Filter a FeatureFlag queryset by the `active` param (STALE / true / false).

@@ -20,7 +20,9 @@ from products.feature_flags.backend.flag_status import (
     ROLLOUT_NOT_ROLLED_OUT,
     ROLLOUT_PARTIAL,
     FeatureFlagStatusChecker,
+    filter_effectively_full_rollout_flags,
     filter_stale_flags,
+    stale_flag_threshold,
 )
 from products.feature_flags.backend.flag_version_sync import direct_flag_dependency_ids, flags_with_flag_dependencies
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -36,6 +38,10 @@ EVIDENCE_NOT_CALLED_RECENTLY = "not_called_recently"
 # No call evidence at all; the flag is old enough and its configuration serves a fixed
 # result. This says nothing about whether SDKs still evaluate the flag.
 EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA = "fully_rolled_out_without_usage_data"
+# The configuration serves one fixed result and PostHog received a call inside the stale window.
+# `filter_stale_flags` needs a call older than the threshold or no call data at all, so a flag at
+# 100% that SDKs evaluate every day falls outside both of its branches and only this class sees it.
+EVIDENCE_EFFECTIVELY_FULL_ROLLOUT = "effectively_full_rollout"
 
 _ROLLOUT_STATE_TEXT = {
     ROLLOUT_FULLY_ROLLED_OUT: "fully rolled out",
@@ -107,6 +113,8 @@ class StaleFeatureFlagsCheck(HealthCheck):
                 if isinstance(days, int)
                 else "PostHog has not received a call for this flag recently"
             )
+        elif payload.get("evidence_class") == EVIDENCE_EFFECTIVELY_FULL_ROLLOUT:
+            evidence_text = "PostHog still receives calls for this flag"
         else:
             evidence_text = "This flag has no usage data and its configuration serves a fixed result"
         rollout_text = _ROLLOUT_STATE_TEXT.get(payload.get("rollout_state"))
@@ -122,37 +130,60 @@ class StaleFeatureFlagsCheck(HealthCheck):
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        candidates = list(
-            filter_stale_flags(
-                FeatureFlag.objects.filter(
-                    team_id__in=team_ids,
-                    deleted=False,
-                    archived=False,
-                    active=True,
-                ).exclude(is_remote_configuration=True)
-            )
-        )
+        reportable_flags = FeatureFlag.objects.filter(
+            team_id__in=team_ids,
+            deleted=False,
+            archived=False,
+            active=True,
+        ).exclude(is_remote_configuration=True)
+
+        stale_candidates = list(filter_stale_flags(reportable_flags))
+        stale_ids = {flag.id for flag in stale_candidates}
+        # The prefilter returns a superset, so the checker settles each row. A flag the stale
+        # filter already returned is dropped here instead of reported twice, because
+        # `hash_keys=["flag_id"]` gives both rows the same issue identity.
+        full_rollout_candidates = [
+            flag
+            for flag in filter_effectively_full_rollout_flags(reportable_flags)
+            if flag.id not in stale_ids
+            and FeatureFlagStatusChecker(feature_flag=flag).get_rollout_summary(flag).effectively_full_rollout
+        ]
+        candidates = stale_candidates + full_rollout_candidates
         if not candidates:
             return {}
 
         excluded_ids = _excluded_flag_ids(candidates)
+        full_rollout_ids = {flag.id for flag in full_rollout_candidates}
 
         now = timezone.now()
+        # One cutoff for the whole batch. Reading the clock again per flag would classify a row
+        # sitting on the boundary against a later instant than the query that selected it.
+        stale_threshold = stale_flag_threshold()
         issues: dict[int, list[HealthCheckResult]] = {}
         for flag in candidates:
             if flag.id in excluded_ids:
                 continue
-            issues.setdefault(flag.team_id, []).append(_build_result(flag, now))
+            issues.setdefault(flag.team_id, []).append(_build_result(flag, now, stale_threshold))
 
         if issues:
             # Each issue fires its own alert once dry_run flips, so the flip decision needs the
             # worst single team, which the framework's batch-wide dry-run summary does not show.
+            # The last two numbers differ and both are wanted. The evidence class counts the
+            # alerts that will say the flag is still being called. The candidate count is how far
+            # the new query widened the report, which is larger: a never-called flag whose release
+            # condition omits `properties` reaches the report only through that query, and still
+            # reports under the no-usage-data class.
             issue_counts = [len(team_issues) for team_issues in issues.values()]
+            evidence_classes = [
+                result.payload["evidence_class"] for team_issues in issues.values() for result in team_issues
+            ]
             logger.info(
                 "stale_feature_flags_detected",
                 teams_with_issues=len(issues),
                 issue_count=sum(issue_counts),
                 max_issues_per_team=max(issue_counts),
+                effectively_full_rollout_count=evidence_classes.count(EVIDENCE_EFFECTIVELY_FULL_ROLLOUT),
+                full_rollout_candidate_count=len(full_rollout_ids - excluded_ids),
             )
         return issues
 
@@ -221,16 +252,24 @@ def _depended_on_flag_ids(project_ids: Collection[int]) -> set[int]:
     return depended_on
 
 
-def _build_result(flag: FeatureFlag, now: datetime) -> HealthCheckResult:
+def _build_result(flag: FeatureFlag, now: datetime, stale_threshold: datetime) -> HealthCheckResult:
     checker = FeatureFlagStatusChecker(feature_flag=flag)
     summary = checker.get_rollout_summary(flag)
     rollout_state, winning_variant = checker.rollout_state_and_variant(flag, summary)
 
-    if flag.last_called_at is not None:
+    # Read off the flag rather than off the query that found it, so the payload describes the row
+    # a reader opens. Every candidate is old enough and serves a fixed result or went cold, so the
+    # call column is what separates the three classes.
+    if flag.last_called_at is None:
+        evidence_class = EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA
+        evidence_date = flag.created_at
+    elif flag.last_called_at < stale_threshold:
         evidence_class = EVIDENCE_NOT_CALLED_RECENTLY
         evidence_date = flag.last_called_at
     else:
-        evidence_class = EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA
+        evidence_class = EVIDENCE_EFFECTIVELY_FULL_ROLLOUT
+        # No column records when the flag reached 100%, and `last_called_at` reads as about zero
+        # days on a flag that is called every day, which is the opposite of the point.
         evidence_date = flag.created_at
 
     return HealthCheckResult(
