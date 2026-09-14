@@ -15,7 +15,7 @@ use property_vals_rs::{
 use serve_metrics::setup_metrics_routes;
 use tokio::net::TcpListener;
 use tracing::level_filters::LevelFilter;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -95,7 +95,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "config loaded"
     );
 
+    let guard = manager.monitor_background();
+
+    // Serve the probes before connecting to Kafka: the connect below retries
+    // through a broker outage, and the pod has to answer probes while it does.
+    let app = Router::new()
+        .route("/", get(index))
+        .route(
+            "/_readiness",
+            get({
+                let r = readiness.clone();
+                move || {
+                    let r = r.clone();
+                    async move { r.check().await }
+                }
+            }),
+        )
+        .route(
+            "/_liveness",
+            get({
+                let l = liveness.clone();
+                move || {
+                    let l = l.clone();
+                    async move { l.check().into_response() }
+                }
+            }),
+        );
+    let app = setup_metrics_routes(app);
+
+    let bind = format!("{}:{}", config.host, config.port);
+    info!(address = %bind, "HTTP server starting");
+    let listener = TcpListener::bind(&bind).await?;
+    let server = tokio::spawn(async move {
+        let result = axum::serve(listener, app)
+            .with_graceful_shutdown(metrics_handle.shutdown_signal())
+            .await;
+        if let Err(e) = result {
+            error!(error = %e, "HTTP server stopped");
+        }
+        metrics_handle.work_completed();
+    });
+
     let produce_timeout = Duration::from_secs(config.kafka_produce_timeout_secs);
+    let connect_retry_budget = Duration::from_secs(config.kafka_connect_retry_budget_secs);
 
     let events_consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
     let events_producer = AggregatedProducer::new(
@@ -105,6 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         produce_timeout,
         config.intermediate_topic_encoding,
         config.intermediate_topic_format,
+        connect_retry_budget,
     )
     .await?;
 
@@ -119,6 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         produce_timeout,
         config.intermediate_topic_encoding,
         config.intermediate_topic_format,
+        connect_retry_budget,
     )
     .await?;
 
@@ -134,6 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         produce_timeout,
         EnvelopeEncoding::None,
         WireFormat::Json,
+        connect_retry_budget,
     )
     .await?;
 
@@ -148,8 +193,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Subscribed to topic: {}", config.intermediate_topic);
 
     let shared_config = Arc::new(config.clone());
-
-    let guard = manager.monitor_background();
 
     let excluded_events = shared_config.excluded_property_keys.clone();
     let excluded_groups = shared_config.excluded_property_keys.clone();
@@ -192,39 +235,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(groups_handle);
     drop(merger_handle);
 
-    let app = Router::new()
-        .route("/", get(index))
-        .route(
-            "/_readiness",
-            get({
-                let r = readiness.clone();
-                move || {
-                    let r = r.clone();
-                    async move { r.check().await }
-                }
-            }),
-        )
-        .route(
-            "/_liveness",
-            get({
-                let l = liveness.clone();
-                move || {
-                    let l = l.clone();
-                    async move { l.check().into_response() }
-                }
-            }),
-        );
-    let app = setup_metrics_routes(app);
-
-    let bind = format!("{}:{}", config.host, config.port);
-    info!(address = %bind, "HTTP server starting");
-    let listener = TcpListener::bind(&bind).await?;
-    axum::serve(listener, app)
-        .with_graceful_shutdown(metrics_handle.shutdown_signal())
-        .await?;
-    metrics_handle.work_completed();
-
     guard.wait().await?;
+    server.await?;
 
     info!("property-vals-rs stopped");
     Ok(())
