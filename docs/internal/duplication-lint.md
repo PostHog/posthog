@@ -1,8 +1,8 @@
 # Duplication lint
 
 Run `python3 bin/lint_duplication.py --base origin/master` to check for new Python and TypeScript duplication.
-The check compares the working tree with the branch's merge base.
-It includes uncommitted changes and untracked files that Git does not ignore.
+The check compares the branch's committed `HEAD` with its merge base.
+It ignores uncommitted and untracked files.
 
 A reported pair must include at least one changed file to count as new duplication.
 Removing a third copy can make the scanner pair two unchanged files differently, which must not fail the check.
