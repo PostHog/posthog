@@ -82,6 +82,7 @@ const DashboardRelationRow = ({
             <LemonButton
                 type="secondary"
                 status={isAlreadyOnDashboard ? 'danger' : 'default'}
+                aria-label={`${isAlreadyOnDashboard ? 'Remove from' : 'Add to'} ${dashboard.name || 'Untitled'} dashboard`}
                 loading={dashboardWithActiveAPICall === dashboard.id}
                 disabledReason={
                     !canEditInsight
