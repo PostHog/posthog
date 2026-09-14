@@ -38,16 +38,16 @@ export function RowDetailsModal({ isOpen, onClose, columns, values }: RowDetails
         const isStringifiedJson = typeof value === 'string' && isJsonString(value)
         const isJson = typeof value === 'object' || isStringifiedJson
         const jsonValue = isStringifiedJson ? JSON.parse(value) : value
+        // One raw text form for both the raw view and the copy button. An object needs stringifying,
+        // but a JSON string is already raw text, so stringifying it again would wrap it in quotes and
+        // escape every quote inside it.
+        const rawValue =
+            value === null ? 'null' : typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)
 
         return {
             column,
             isJson,
-            rawValue:
-                value === null
-                    ? 'null'
-                    : typeof value === 'object' || isStringifiedJson
-                      ? JSON.stringify(value, null, 2)
-                      : String(value),
+            rawValue,
             value:
                 value === null ? (
                     <span className="text-muted">null</span>
@@ -63,7 +63,7 @@ export function RowDetailsModal({ isOpen, onClose, columns, values }: RowDetails
                                             : 'overflow-x-auto hide-scrollbar'
                                     )}
                                 >
-                                    {String(value)}
+                                    {rawValue}
                                 </pre>
                             ) : (
                                 <div className="overflow-x-auto max-w-full">
