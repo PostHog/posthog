@@ -11,6 +11,10 @@ When the user isn't sure how their traffic splits, find the use cases before sco
 Apps label their traffic differently, and many label almost none of it.
 So measure what this project sets before you group by it.
 
+These queries count every event, including internal and test traffic, and `execute-sql` takes no
+test-account filter. The review batch below drops test accounts, so the two populations differ. Confirm
+a label you picked here with one filtered `query-llm-traces-list` call before you scope on it.
+
 ### 1. Trace names
 
 `$ai_span_name` on `$ai_trace` events names the whole trace, which is the closest thing to a use case.
