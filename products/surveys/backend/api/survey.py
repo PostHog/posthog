@@ -1,6 +1,6 @@
 import re
 import builtins
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
@@ -141,6 +141,9 @@ def resolve_allowed_link_schemes(survey_config: dict | None) -> list[str]:
     return [*DEFAULT_LINK_URL_SCHEMES, *sorted(extra - NEVER_REGISTRABLE_LINK_SCHEMES - set(DEFAULT_LINK_URL_SCHEMES))]
 
 
+LinkSchemeLookup = Callable[[], Sequence[str]]
+
+
 class TeamLinkSchemes:
     """
     Reads each team's allowed link schemes once, however many surveys a response serializes.
@@ -212,7 +215,7 @@ def _sanitize_survey_html(value: str) -> str:
     return nh3_clean_with_allow_list(value) if nh3.is_html(value) else value
 
 
-def _sanitize_survey_link(link: str, allowed_schemes: Sequence[str] = DEFAULT_LINK_URL_SCHEMES) -> str | None:
+def _sanitize_survey_link(link: str, allowed_schemes: LinkSchemeLookup | None = None) -> str | None:
     """
     The link to serve for this question, or None to serve no link at all.
 
@@ -220,6 +223,10 @@ def _sanitize_survey_link(link: str, allowed_schemes: Sequence[str] = DEFAULT_LI
     That is what makes revoking a scheme take effect: a link stored while the scheme was allowed
     stops being served the moment the project removes it, with no backfill and no revalidation of
     surveys already published.
+
+    The lookup is a callable rather than a list because resolving it reads the team, and almost
+    every survey links to https or mailto. Calling it only for the schemes that need it keeps that
+    read off responses that serve no app link, the feature flag list among them.
     """
     try:
         parsed_url = urlparse(link)
@@ -229,9 +236,10 @@ def _sanitize_survey_link(link: str, allowed_schemes: Sequence[str] = DEFAULT_LI
         return _sanitize_survey_html(link) if parsed_url.netloc else None
     if parsed_url.scheme == "mailto":
         return _sanitize_survey_html(link) if re.match(EMAIL_REGEX, link) else None
-    if parsed_url.scheme in allowed_schemes and _link_has_destination(parsed_url):
-        return _sanitize_survey_html(link)
-    return None
+    if not _link_has_destination(parsed_url):
+        return None
+    schemes = allowed_schemes() if allowed_schemes else DEFAULT_LINK_URL_SCHEMES
+    return _sanitize_survey_html(link) if parsed_url.scheme in schemes else None
 
 
 def _link_has_destination(parsed_url: ParseResult) -> bool:
@@ -242,7 +250,7 @@ def _link_has_destination(parsed_url: ParseResult) -> bool:
 
 
 def sanitize_survey_translations(
-    translations: dict[str, Any], allowed_schemes: Sequence[str] = DEFAULT_LINK_URL_SCHEMES
+    translations: dict[str, Any], allowed_schemes: LinkSchemeLookup | None = None
 ) -> dict[str, Any]:
     sanitized_translations = dict(translations)
     for language, translation in translations.items():
@@ -270,7 +278,7 @@ def sanitize_survey_translations(
 
 
 def sanitize_survey_question(
-    question: dict[str, Any], allowed_schemes: Sequence[str] = DEFAULT_LINK_URL_SCHEMES
+    question: dict[str, Any], allowed_schemes: LinkSchemeLookup | None = None
 ) -> dict[str, Any]:
     sanitized_question = dict(question)
     for field in SURVEY_QUESTION_HTML_FIELDS:
@@ -1066,7 +1074,10 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
         appearance = data.get("appearance")
         if isinstance(appearance, dict):
             data["appearance"] = sanitize_survey_appearance(appearance)
-        allowed_schemes = self._team_link_schemes.for_team(instance.team_id)
+
+        def allowed_schemes() -> list[str]:
+            return self._team_link_schemes.for_team(instance.team_id)
+
         questions = data.get("questions")
         if isinstance(questions, list):
             data["questions"] = [
@@ -3677,7 +3688,9 @@ class SurveyAPISerializer(serializers.ModelSerializer):
                     next_question["translations"] = filtered
                 else:
                     next_question.pop("translations", None)
-            cleaned.append(sanitize_survey_question(next_question, self._team_link_schemes.for_team(survey.team_id)))
+            cleaned.append(
+                sanitize_survey_question(next_question, lambda: self._team_link_schemes.for_team(survey.team_id))
+            )
         return cleaned
 
     def to_representation(self, instance: Survey) -> dict[str, Any]:

@@ -8258,6 +8258,17 @@ class TestSurveyQuestionLinkSanitization(SimpleTestCase):
     def test_link_is_served_only_when_its_scheme_is_allowed(
         self, _name: str, link: str, allowed_schemes: list[str], expected: str | None
     ):
-        sanitized = sanitize_survey_question({"type": "link", "id": "q1", "link": link}, allowed_schemes)
+        sanitized = sanitize_survey_question({"type": "link", "id": "q1", "link": link}, lambda: allowed_schemes)
 
         assert sanitized.get("link") == expected
+
+    @parameterized.expand([("https", "https://example.com/thanks"), ("mailto", "mailto:hi@example.com")])
+    def test_a_default_scheme_link_never_resolves_the_project_allowlist(self, _name: str, link: str):
+        # Resolving reads the team, so the feature flag list and every other response that serves
+        # no app link must not pay for it.
+        def fail_if_called() -> list[str]:
+            raise AssertionError("the allowlist was resolved for a link that did not need it")
+
+        sanitized = sanitize_survey_question({"type": "link", "id": "q1", "link": link}, fail_if_called)
+
+        assert sanitized["link"] == link
