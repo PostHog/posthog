@@ -9,6 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from products.metrics.backend.facade.api import list_metric_picker_names
 from products.metrics.backend.metric_names_query_runner import (
     MAX_PICKER_SERVICES,
     MetricNamesQueryRunner,
@@ -155,6 +156,13 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(cached_metric_names(self.team, services=["worker"]), run.return_value)
             self.assertEqual(run.call_count, 4)
 
+    def test_picker_names_do_not_cache(self):
+        with patch.object(MetricNamesQueryRunner, "run") as run:
+            run.return_value = [{"name": "m1", "metric_type": "gauge"}]
+            self.assertEqual(list_metric_picker_names(team=self.team), run.return_value)
+            self.assertEqual(list_metric_picker_names(team=self.team), run.return_value)
+            self.assertEqual(run.call_count, 2)
+
     def test_exact_match_floats_to_top(self):
         anchor = timezone.now().replace(microsecond=0)
         _seed_point(
@@ -251,6 +259,15 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         body = response.json()
         names = {row["name"] for row in body["results"]}
         self.assertEqual(names, {"m1", "m2"})
+        self.assertIn("sparkline", body["results"][0])
+
+    def test_names_returns_picker_fields_only(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/metrics/names/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": [{"name": "m1", "metric_type": "gauge"}]})
 
     def test_values_search_param(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)

@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
-import { metricsValuesRetrieve } from '../generated/api'
+import { metricsNamesRetrieve, metricsValuesRetrieve } from '../generated/api'
 import { metricsSceneLogic } from '../metricsSceneLogic'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { metricsCatalogLogic } from './metricsCatalogLogic'
@@ -11,6 +11,7 @@ import { metricsViewerLogic } from './metricsViewerLogic'
 
 jest.mock('../generated/api', () => ({
     ...jest.requireActual('../generated/api'),
+    metricsNamesRetrieve: jest.fn(),
     metricsValuesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
 }))
@@ -47,6 +48,7 @@ describe('metricsCatalogLogic', () => {
         initKeaTests()
         jest.mocked(metricsValuesRetrieve).mockReset()
         jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: CATALOG_ITEMS } as any)
+        jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: CATALOG_ITEMS } as any)
     })
 
     afterEach(() => {
