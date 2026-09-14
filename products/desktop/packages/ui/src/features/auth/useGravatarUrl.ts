@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 
 const DEFAULT_GRAVATAR_SIZE = 96;
 
-// Gravatar's own entry point, not a deep link into the signed-in dashboard: those bounce
-// through a WordPress.com OAuth chain with nowhere to land for a person who has no account.
-export const GRAVATAR_MANAGE_URL = "https://gravatar.com/";
+export const GRAVATAR_MANAGE_URL = "https://gravatar.com/profile/avatars";
+
+// The avatars page goes straight to a sign-in wall, which is a dead end for someone who has
+// no Gravatar account. The home page explains what Gravatar is and offers sign-up.
+export const GRAVATAR_GET_STARTED_URL = "https://gravatar.com/";
 
 // Gravatar accepts a SHA-256 hex hash of the lowercased, trimmed email, so we hash
 // with the built-in Web Crypto API rather than pulling in an md5 dependency. `d=404`

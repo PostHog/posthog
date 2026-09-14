@@ -7,6 +7,7 @@ import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import type { AvatarPerson } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import {
+  GRAVATAR_GET_STARTED_URL,
   GRAVATAR_MANAGE_URL,
   useGravatarUrl,
 } from "@posthog/ui/features/auth/useGravatarUrl";
@@ -48,7 +49,7 @@ function profilePictureDescription(
     case "found":
       return `Comes from Gravatar, matched to ${email}. Change it there, then refresh to see it here.`;
     case "missing":
-      return `No picture yet. Sign in to Gravatar with ${email} to add one, or create a free Gravatar account first.`;
+      return `No picture yet. Add ${email} to your Gravatar account, or create one, then set a picture there.`;
   }
 }
 
@@ -202,14 +203,17 @@ export function AccountSection() {
       ? `${gravatarUrl}&_=${refreshedAt}`
       : gravatarUrl;
   const probe = useImageProbe(candidateUrl);
+  const status = probeStatus(probe.result);
 
   const handleRefresh = useCallback(() => {
     setRefreshedAt(Date.now());
   }, []);
 
   const handleOpenGravatar = useCallback(() => {
-    window.open(GRAVATAR_MANAGE_URL, "_blank");
-  }, []);
+    const url =
+      status === "found" ? GRAVATAR_MANAGE_URL : GRAVATAR_GET_STARTED_URL;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, [status]);
 
   if (!user) return null;
 
@@ -217,7 +221,7 @@ export function AccountSection() {
     <AccountSettingsView
       user={user}
       imageUrl={probe.url}
-      status={probeStatus(probe.result)}
+      status={status}
       checking={probe.loading || !candidateUrl}
       onRefresh={handleRefresh}
       onOpenGravatar={handleOpenGravatar}

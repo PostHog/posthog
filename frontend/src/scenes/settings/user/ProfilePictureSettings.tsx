@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 
-import { GRAVATAR_MANAGE_URL } from 'lib/utils/gravatar'
+import { GRAVATAR_GET_STARTED_URL, GRAVATAR_MANAGE_URL } from 'lib/utils/gravatar'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -24,8 +24,7 @@ function gravatarDescription(status: GravatarStatus, email: string): JSX.Element
         case 'missing':
             return (
                 <>
-                    No picture yet. Sign in to Gravatar with {maskedEmail} to add one, or create a free Gravatar account
-                    first.
+                    No picture yet. Add {maskedEmail} to your Gravatar account, or create one, then set a picture there.
                 </>
             )
     }
@@ -69,7 +68,7 @@ export function ProfilePictureSettings(): JSX.Element {
                         <div className="flex flex-wrap gap-2">
                             <LemonButton
                                 type="secondary"
-                                to={GRAVATAR_MANAGE_URL}
+                                to={gravatarStatus === 'found' ? GRAVATAR_MANAGE_URL : GRAVATAR_GET_STARTED_URL}
                                 targetBlank
                                 data-attr="settings-profile-picture-gravatar"
                             >
