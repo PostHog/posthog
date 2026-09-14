@@ -432,21 +432,26 @@ async fn run_parked_retry_pump(
         ticker.tick().await;
 
         // Check the stall before this tick's retries. Acceptance or full
-        // idleness resets the clock; work sitting queued with nothing in
-        // flight past the deadline is a stall. An in-flight send neither
-        // resets nor trips: the clock runs, and the verdict waits for the
-        // send's outcome, like the flush driver observing its deadline only
-        // between rounds.
+        // idleness resets the clock. Once the deadline expires, stop starting
+        // parked retries so overlapping failures must converge to zero
+        // outstanding; then report the stall. An already in-flight send may
+        // still be healthy but slow, so let it settle: acceptance resets the
+        // deadline, while failure leaves queued work with nothing outstanding
+        // and trips the watchdog on the next tick.
         let accepted = inner.accepted_messages.load(Ordering::Relaxed);
         let (queued, outstanding) = inner.dispatcher.key_work().unwrap_or((0, 0));
+        let now = Instant::now();
         if accepted != seen_accepted || (queued == 0 && outstanding == 0) {
             seen_accepted = accepted;
-            stall_deadline = Instant::now() + stall_timeout;
-        } else if queued > 0 && outstanding == 0 && Instant::now() >= stall_deadline {
-            inner.report_error(
-                "key-table work made no progress within the stall timeout".to_string(),
-            );
-            return;
+            stall_deadline = now + stall_timeout;
+        } else if now >= stall_deadline {
+            if queued > 0 && outstanding == 0 {
+                inner.report_error(
+                    "key-table work made no progress within the stall timeout".to_string(),
+                );
+                return;
+            }
+            continue;
         }
 
         // A retried send may replay a failed run, so it goes on the wire
