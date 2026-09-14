@@ -482,7 +482,9 @@ class ImportSurfaceCheck(ProductCheck):
             for f in files:
                 importer = self._module_name(ctx, f)
                 for line, target in module_import_targets(f, ctx.backend_dir, prefix):
-                    if target.startswith(allowed_prefixes) or f"{importer} -> {target}" in ignored:
+                    # Segment boundary on purpose: `facade_legacy` must not pass as `facade`.
+                    under_surface = any(target == p or target.startswith(f"{p}.") for p in allowed_prefixes)
+                    if under_surface or f"{importer} -> {target}" in ignored:
                         continue
                     issues.append(
                         f"{f.relative_to(ctx.product_dir)}:{line} imports {target} — {source} may only import "

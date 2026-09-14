@@ -1111,6 +1111,14 @@ class TestImportSurfaceCheck:
                 1,
                 id="webhook_consumers_from_unmarked_package",
             ),
+            pytest.param(
+                {
+                    "webhook_consumers.py": "from products.p.backend.facade_legacy.handlers import h\n",
+                    "facade_legacy/handlers.py": "",
+                },
+                1,
+                id="webhook_consumers_from_facade_lookalike",
+            ),
         ],
     )
     def test_surface(

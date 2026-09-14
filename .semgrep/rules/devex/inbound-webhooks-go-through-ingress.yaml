@@ -42,6 +42,7 @@ rules:
                             - pattern: hmac.compare_digest(...)
                             - pattern: hmac.new(...)
                             - pattern: hmac.digest(...)
+                            - pattern: hmac.HMAC(...)
                       # Both header mappings, and both ways of reading one. The attribute
                       # names are spelled out rather than bound to a metavariable, because a
                       # generic `$REQ.$ATTR.get(...)` makes semgrep time out on a large
@@ -79,6 +80,7 @@ rules:
                             - pattern: hmac.compare_digest(...)
                             - pattern: hmac.new(...)
                             - pattern: hmac.digest(...)
+                            - pattern: hmac.HMAC(...)
                       - pattern-either:
                             - pattern-inside: |
                                   def $VERIFY(...):
