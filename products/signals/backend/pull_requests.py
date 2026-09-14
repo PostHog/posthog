@@ -186,6 +186,19 @@ def schedule_pull_request_verification(*, team_id: int, prs: Sequence["Implement
         )
 
 
+def _stored_merge_exists(*, team_id: int, repository: str, pr_number: int, confirmed: bool) -> bool:
+    return (
+        SignalReportPullRequest.objects.for_team(team_id)
+        .filter(
+            repository=repository,
+            number=pr_number,
+            state=SignalReportPullRequest.State.MERGED,
+            checked_at__isnull=not confirmed,
+        )
+        .exists()
+    )
+
+
 def verify_pull_request_state(
     *, team_id: int, pr_url: str, source: str | None = None, priority: Priority | None = None
 ) -> str | None:
@@ -206,18 +219,15 @@ def verify_pull_request_state(
     state = _pull_request_details(team_id, pr_url, source=source, priority=priority).state
     if state == SignalReportPullRequest.State.UNKNOWN:
         return None
-    claimed_merge = state not in TERMINAL_PR_STATES and (
-        SignalReportPullRequest.objects.for_team(team_id)
-        .filter(
-            repository=repository,
-            number=pr_number,
-            state=SignalReportPullRequest.State.MERGED,
-            checked_at__isnull=True,
-        )
-        .exists()
+    claimed_merge = state not in TERMINAL_PR_STATES and _stored_merge_exists(
+        team_id=team_id, repository=repository, pr_number=pr_number, confirmed=False
     )
     update_assignments_for_pull_request(team_ids=[team_id], repository=repository, pr_number=pr_number, pr_state=state)
-    if claimed_merge:
+    # A merge webhook can land between the read above and this write, where it wins the merge guard
+    # in `update_pull_request_state`. Reopening on the claim read earlier would then undo that merge.
+    if claimed_merge and not _stored_merge_exists(
+        team_id=team_id, repository=repository, pr_number=pr_number, confirmed=True
+    ):
         reopen_reports_resolved_without_merge(team_id=team_id, repository=repository, pr_number=pr_number)
     return state
 

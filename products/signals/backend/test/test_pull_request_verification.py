@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.egress.limiter.policies import Priority
@@ -78,6 +80,28 @@ class TestPullRequestVerification(BaseTest):
 
         report.refresh_from_db()
         assert report.status == SignalReport.Status.READY
+
+    @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository")
+    def test_a_merge_confirmed_during_the_read_is_not_reopened(self, integration):
+        integration.return_value.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
+        report = self._report()
+        self._merged_task_run(report)
+        report.save(update_fields=report.transition_to(SignalReport.Status.RESOLVED))
+
+        def confirm_merge(**_kwargs) -> None:
+            # Stands in for a merge webhook landing after this run read GitHub.
+            SignalReportPullRequest.objects.for_team(self.team.id).filter(
+                repository="posthog/posthog", number=42
+            ).update(state=SignalReportPullRequest.State.MERGED, checked_at=timezone.now())
+
+        with patch(
+            "products.signals.backend.report_assignments.update_assignments_for_pull_request",
+            side_effect=confirm_merge,
+        ):
+            verify_pull_request_state(team_id=self.team.id, pr_url=_PR_URL)
+
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.RESOLVED
 
     @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository")
     def test_a_confirmed_merge_survives_a_later_unverified_state(self, integration):
