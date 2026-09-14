@@ -54,6 +54,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxTemplate,
     get_sandbox_class_for_run_backend,
     get_sandbox_class_for_sandbox_id,
+    needs_full_history,
     sandbox_repo_path,
     workload_for_origin_product,
 )
@@ -317,7 +318,7 @@ def _prewarmed_resume_needs_fresh_agent(
 
 
 def _is_blobless_signals_clone_enabled(ctx: TaskProcessingContext) -> bool:
-    if ctx.origin_product != Task.OriginProduct.SIGNAL_REPORT:
+    if not needs_full_history(ctx.origin_product):
         return False
 
     try:
@@ -656,7 +657,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             emit_agent_log(ctx.run_id, "debug", "Creating environment without repository")
 
         task = _load_task(ctx)
-        shallow_clone = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
+        shallow_clone = not needs_full_history(task.origin_product)
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         credential_repository = repository or (ctx.repositories[0] if ctx.repositories else None)
