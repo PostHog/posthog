@@ -61,20 +61,42 @@ class StoryIndex:
     path_by_story_id: Mapping[str, str]
 
 
+@frozen
+class ThemeSplit:
+    """An identifier taken apart around its theme. The theme is empty when the identifier carries none."""
+
+    story_id: str
+    theme: str
+    browser_suffix: str
+
+    @property
+    def rest(self) -> str:
+        """Everything but the theme, so a chromium and a webkit snapshot of one story never share it."""
+        return f"{self.story_id}{self.browser_suffix}"
+
+
+def split_theme(identifier: str) -> ThemeSplit:
+    """Take an identifier apart into the story id, the theme and the browser suffix."""
+    rest = identifier
+    browser_suffix = ""
+    for browser in _SUFFIXED_BROWSERS:
+        if rest.endswith(f"--{browser}"):
+            browser_suffix = f"--{browser}"
+            rest = rest.removesuffix(browser_suffix)
+            break
+    for theme in _THEMES:
+        if rest.endswith(f"--{theme}"):
+            return ThemeSplit(story_id=rest.removesuffix(f"--{theme}"), theme=theme, browser_suffix=browser_suffix)
+    return ThemeSplit(story_id=identifier, theme="", browser_suffix="")
+
+
 def _strip_theme_and_browser(identifier: str) -> str | None:
     """The story id an identifier was built from, before any width suffix is considered.
 
     None when the identifier carries no theme, which means the test runner did not write it.
     """
-    rest = identifier
-    for browser in _SUFFIXED_BROWSERS:
-        if rest.endswith(f"--{browser}"):
-            rest = rest.removesuffix(f"--{browser}")
-            break
-    for theme in _THEMES:
-        if rest.endswith(f"--{theme}"):
-            return rest.removesuffix(f"--{theme}")
-    return None
+    split = split_theme(identifier)
+    return split.story_id if split.theme else None
 
 
 def story_path(index: StoryIndex, identifier: str) -> str | None:

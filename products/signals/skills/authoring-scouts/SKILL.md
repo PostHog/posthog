@@ -157,6 +157,12 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
 - `mcp_gateway_server_ids`: MCP store servers (by id) this scout's runs may mount, chosen from the connections members have shared with the whole team.
   Empty (the default) mounts none of the shared servers. The intent is that only team-shared connections back a scout run, so runs behave the same whoever edits the scout; where MCP gateway enforcement is not yet active on the project, the launch path may still mount the acting user's personal connections, so check the run's mounted servers in its transcript when that matters.
   Treat it like `network_access`: it hands the scout third-party tools with whatever access the shared connection carries, changes are activity-logged, and the body should name what the scout uses each server for.
+- `repositories` — defaults to `[]`: the scout's sandbox holds no checkout, which is right for a scout that only reads the project over MCP.
+  Set `["organization/repository", ...]` for a scout that reasons about code, and its sandbox clones each one before the run starts, so the scout can grep the tree, read the layout, and run the project's own build, type check, and tests instead of fetching files one `gh api` call at a time.
+  Up to 10 per scout, and each must be reachable through the project's GitHub connection — an unreachable name is refused on write rather than surfacing as a clone failure mid-run.
+  The scout's GitHub access stays read-only whether or not it clones, so a listed repository gives it a tree to read and never the ability to push, comment, or open a pull request. Write access for a scout is a separate opt-in that does not exist yet.
+  A multi-repository scout gets each tree on its default branch; there is no per-repository branch selection.
+  Applies from the scout's next run, and changes are activity-logged.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.
   Set them at create time: a scout that lands already grouped saves a follow-up edit, and the desktop app's scout list filters on them.
   Prefer a tag that already exists on the fleet (`-config-list` shows every scout's tags) over minting a near-duplicate — `revenue` and `revenue-analytics` fragment the same group.

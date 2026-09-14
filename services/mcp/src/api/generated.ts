@@ -19039,7 +19039,7 @@ export namespace Schemas {
       readonly license: string;
       /** Environment requirements declared by the skill. */
       readonly compatibility: string;
-      /** Tools the skill declares it may use. Surface these to the user before install. */
+      /** Tools the skill asks to use. Surface these to the user before install. The list is a request, not a grant: a harness that loads the installed skill over MCP ignores it until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata carried from the skill's frontmatter. */
       metadata?: CommunitySkillMetadata;
@@ -19109,7 +19109,7 @@ export namespace Schemas {
       readonly license: string;
       /** Environment requirements declared by the skill. */
       readonly compatibility: string;
-      /** Tools the skill declares it may use. Surface these to the user before install. */
+      /** Tools the skill asks to use. Surface these to the user before install. The list is a request, not a grant: a harness that loads the installed skill over MCP ignores it until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata carried from the skill's frontmatter. */
       metadata?: CommunitySkillListMetadata;
@@ -31648,7 +31648,7 @@ export namespace Schemas {
       evidence: ReportEvidence[];
       /** 2-3 sentence evidence-grounded justification for the actionability call below. */
       actionability_explanation: string;
-      /** The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless.
+      /** The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless. A root cause you have not found is not human input: a report that names the evidence, the code surface, or a reproducible failure path is `immediately_actionable`, because investigating it is the action. Reserve `requires_human_input` for a report blocked on a decision only a person can make.
        *
        * * `immediately_actionable` - immediately_actionable
        * * `requires_human_input` - requires_human_input
@@ -49361,7 +49361,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillMetadata;
@@ -49443,7 +49443,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillCreateMetadata;
@@ -49580,7 +49580,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillListMetadata;
@@ -66842,7 +66842,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: PatchedLLMSkillPublishMetadata;
@@ -69549,6 +69549,12 @@ export namespace Schemas {
          * @maxItems 100
          */
       mcp_gateway_server_ids?: string[];
+      /**
+         * GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      repositories?: string[];
       /**
          * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
          * @maxItems 7
@@ -79623,6 +79629,38 @@ export namespace Schemas {
      * Schedule, enablement, and delivery options accepted while creating a scout.
      */
     export interface SignalScoutConfigOptions {
+      /**
+         * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+         * @maxLength 200
+         * @nullable
+         */
+      model?: string | null;
+      /**
+         * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
+         * @maxItems 10
+         */
+      tags?: string[];
+      /**
+         * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+         * @nullable
+         */
+      structured_output_schema?: SignalScoutConfigOptionsStructuredOutputSchema;
+      /**
+         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
+         * @maxItems 100
+         */
+      mcp_gateway_server_ids?: string[];
+      /**
+         * GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      repositories?: string[];
+      /**
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 7
+         */
+      write_scopes?: string[];
       /** Whether this scout runs on its schedule. Defaults to true. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -79648,32 +79686,6 @@ export namespace Schemas {
          * @nullable
          */
       run_cron_schedule?: string | null;
-      /**
-         * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
-         * @maxLength 200
-         * @nullable
-         */
-      model?: string | null;
-      /**
-         * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
-         * @maxItems 10
-         */
-      tags?: string[];
-      /**
-         * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
-         * @nullable
-         */
-      structured_output_schema?: SignalScoutConfigOptionsStructuredOutputSchema;
-      /**
-         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
-         * @maxItems 100
-         */
-      mcp_gateway_server_ids?: string[];
-      /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 7
-         */
-      write_scopes?: string[];
     }
 
     /**
@@ -79819,6 +79831,12 @@ export namespace Schemas {
          * @maxItems 100
          */
       readonly mcp_gateway_server_ids: readonly string[];
+      /**
+         * GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      repositories?: string[];
       /**
          * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
          * @maxItems 7
@@ -81030,6 +81048,38 @@ export namespace Schemas {
      * registered the row, the provided tunables are applied to it instead.
      */
     export interface SignalScoutConfigCreate {
+      /**
+         * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+         * @maxLength 200
+         * @nullable
+         */
+      model?: string | null;
+      /**
+         * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
+         * @maxItems 10
+         */
+      tags?: string[];
+      /**
+         * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+         * @nullable
+         */
+      structured_output_schema?: SignalScoutConfigCreateStructuredOutputSchema;
+      /**
+         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
+         * @maxItems 100
+         */
+      mcp_gateway_server_ids?: string[];
+      /**
+         * GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      repositories?: string[];
+      /**
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 7
+         */
+      write_scopes?: string[];
       /** Whether this scout runs on its schedule. Defaults to true. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -81055,32 +81105,6 @@ export namespace Schemas {
          * @nullable
          */
       run_cron_schedule?: string | null;
-      /**
-         * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
-         * @maxLength 200
-         * @nullable
-         */
-      model?: string | null;
-      /**
-         * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
-         * @maxItems 10
-         */
-      tags?: string[];
-      /**
-         * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
-         * @nullable
-         */
-      structured_output_schema?: SignalScoutConfigCreateStructuredOutputSchema;
-      /**
-         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
-         * @maxItems 100
-         */
-      mcp_gateway_server_ids?: string[];
-      /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 7
-         */
-      write_scopes?: string[];
       /**
          * The skill to register a config for. Any valid skill name works — the config row is what makes a skill a scout. The skill must already exist on this project — author it via the skills store first.
          * @maxLength 200
@@ -86274,9 +86298,9 @@ export namespace Schemas {
     export interface StamphogInstallInfo {
       /** URL-friendly slug of the dedicated Stamphog GitHub App, or blank if unconfigured. */
       readonly app_slug: string;
-      /** GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the App, or blank if the App slug is unconfigured. Used for the genuinely-not-installed case; the primary 'Connect' button uses authorize_url instead. */
+      /** GitHub install URL (github.com/apps/<slug>/installations/new) the 'Connect' button opens. The user picks a GitHub account there and chooses which repositories the App can reach, including an account where the App is already installed. Blank if the App slug is unconfigured. */
       readonly install_url: string;
-      /** GitHub authorize URL (github.com/login/oauth/authorize) the 'Connect' button opens. Authorize-first: an already-installed user is redirected straight back with an OAuth code (no installation_id), and sync_installation then discovers their installations server-side. Blank if the App client id is unconfigured. */
+      /** GitHub authorize URL (github.com/login/oauth/authorize). GitHub's redirect after configuring an existing installation carries no OAuth code, so the client passes through this URL once: an installed App redirects straight back with a code, which sync_installation uses to prove ownership. Blank if the App client id is unconfigured. */
       readonly authorize_url: string;
     }
 
