@@ -103,8 +103,10 @@ class AppMetricsRequestSerializer(serializers.Serializer):
     version = serializers.IntegerField(
         required=False,
         help_text=(
-            "Read one workflow version's metrics instead of the workflow's whole history. Workflow "
-            "metrics only; ignored elsewhere. Use it to compare a change against the version before it."
+            "Read one workflow version's series: every run of that version, keyed on the workflow. "
+            "The unversioned read keys batch and broadcast runs on the run instead, so it is not the "
+            "sum of the versions; compare versions with each other, not with it. Workflow metrics "
+            "only: any other object answers 400, since nothing mirrors its metrics per version."
         ),
     )
 
@@ -535,11 +537,14 @@ class AppMetricsMixin(viewsets.GenericViewSet):
 
         Every hog flow metric is mirrored under `hog_flow_version` with the version appended to the
         id, which is what makes "before and after this change" answerable at all. Nothing mirrors
-        hog function metrics that way, so a version there would silently read an empty series.
+        hog function metrics that way, so a version there is refused rather than answered from an
+        empty series that would read as "no failures".
         """
-        if version is not None and self.app_source == "hog_flow":
-            return MetricSeries(app_source=HOG_FLOW_VERSION_APP_SOURCE, app_source_id=f"{obj.id}/{version}")
-        return MetricSeries(app_source=self.app_source, app_source_id=str(obj.id))
+        if version is None:
+            return MetricSeries(app_source=self.app_source, app_source_id=str(obj.id))
+        if self.app_source != "hog_flow":
+            raise serializers.ValidationError({"version": "Only workflow metrics are recorded per version."})
+        return MetricSeries(app_source=HOG_FLOW_VERSION_APP_SOURCE, app_source_id=f"{obj.id}/{version}")
 
     @extend_schema(parameters=[AppMetricsRequestSerializer], responses=AppMetricsTotalsResponseSerializer)
     @action(detail=True, methods=["GET"], url_path="metrics/totals")
