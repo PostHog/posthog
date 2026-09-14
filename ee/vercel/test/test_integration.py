@@ -968,6 +968,33 @@ class TestVercelIntegration(TestCase):
         sent_slugs = sorted(item["slug"] for batch in batches for item in batch)
         assert sent_slugs == sorted(f"flag_{index}" for index in range(flag_count))
 
+    @patch("ee.vercel.integration.VercelIntegration._setup_vercel_client_for_team")
+    def test_bulk_sync_resends_a_rejected_batch_one_flag_at_a_time(self, mock_setup):
+        team, _ = self.make_team_with_vercel(self.organization, self.user)
+        mock_client = Mock()
+        mock_setup.return_value = Mock(client=mock_client, integration_config_id="config_id", resource_id="resource_id")
+        for index in range(3):
+            self.make_feature_flag(team, f"flag_{index}", f"Flag {index}", False)
+        mock_setup.reset_mock()
+        mock_client.reset_mock()
+
+        def reject_the_batch_and_one_flag(**kwargs):
+            items = kwargs["items"]
+            rejected = len(items) > 1 or items[0]["slug"] == "flag_1"
+            return Mock(success=not rejected, error="invalid item")
+
+        mock_client.create_experimentation_items.side_effect = reject_the_batch_and_one_flag
+
+        VercelIntegration.bulk_sync_feature_flags_to_vercel(team)
+
+        sent = [call[1]["items"] for call in mock_client.create_experimentation_items.call_args_list]
+        assert [[item["slug"] for item in items] for items in sent] == [
+            ["flag_0", "flag_1", "flag_2"],
+            ["flag_0"],
+            ["flag_1"],
+            ["flag_2"],
+        ]
+
     @patch("ee.vercel.integration.VercelIntegration._delete_item_from_vercel")
     def test_delete_feature_flag_from_vercel(self, mock_delete):
         team, _ = self.make_team_with_vercel(self.organization, self.user)

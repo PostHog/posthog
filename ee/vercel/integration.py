@@ -37,7 +37,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims
 from ee.billing.billing_types import BillingProvider
-from ee.vercel.client import SSOTokenResponse, VercelAPIClient
+from ee.vercel.client import OperationResult, SSOTokenResponse, VercelAPIClient
 
 logger = structlog.get_logger(__name__)
 
@@ -797,19 +797,29 @@ class VercelIntegration:
 
         for start in range(0, len(items), BULK_FLAG_SYNC_BATCH_SIZE):
             batch = items[start : start + BULK_FLAG_SYNC_BATCH_SIZE]
-            result = setup_result.client.create_experimentation_items(
-                integration_config_id=setup_result.integration_config_id,
-                resource_id=setup_result.resource_id,
-                items=batch,
-            )
-            if not result.success:
-                logger.error(
-                    "Failed to bulk sync feature flags to Vercel",
-                    team_id=team.pk,
-                    item_count=len(batch),
-                    error=result.error,
-                    integration="vercel",
-                )
+            if VercelIntegration._create_flag_items(setup_result, batch).success:
+                continue
+
+            # Vercel rejects a batch as a whole, so send the items again one at a time.
+            # The valid flags still reach Vercel and the log names the flag that fails.
+            for item in batch:
+                result = VercelIntegration._create_flag_items(setup_result, [item])
+                if not result.success:
+                    logger.error(
+                        "Failed to sync feature flag to Vercel",
+                        item_id=item["id"],
+                        team_id=team.pk,
+                        error=result.error,
+                        integration="vercel",
+                    )
+
+    @staticmethod
+    def _create_flag_items(setup_result: VercelSetupResult, items: list[dict]) -> OperationResult:
+        return setup_result.client.create_experimentation_items(
+            integration_config_id=setup_result.integration_config_id,
+            resource_id=setup_result.resource_id,
+            items=items,
+        )
 
     @staticmethod
     def _delete_item_from_vercel(team: Team, item_type: VercelItemType, item_id: str) -> None:

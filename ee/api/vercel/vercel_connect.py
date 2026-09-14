@@ -20,8 +20,9 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used
-from ee.api.vercel.tasks import sync_vercel_connect_link
+from ee.api.vercel.tasks import sync_vercel_connect_feature_flags
 from ee.vercel.client import APIError, VercelAPIClient
+from ee.vercel.integration import VercelIntegration
 
 logger = structlog.get_logger(__name__)
 
@@ -242,7 +243,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 raise exceptions.ValidationError(f"Project '{teams_by_id[tid].name}' already has a Vercel integration.")
 
         with transaction.atomic():
-            org_integration = OrganizationIntegration.objects.create(
+            OrganizationIntegration.objects.create(
                 organization=organization,
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                 integration_id=installation_id,
@@ -269,8 +270,9 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 created_by=user,
             )
 
-            for team in teams_by_id.values():
-                Integration.objects.create(
+            resources: dict[int, Integration] = {}
+            for tid, team in teams_by_id.items():
+                resources[tid] = Integration.objects.create(
                     team=team,
                     kind=Integration.IntegrationKind.VERCEL,
                     integration_id=str(team.pk),
@@ -278,8 +280,28 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                     created_by=user,
                 )
 
-            # Vercel calls scale with the project's flag count, so they run after the response instead of inside it.
-            transaction.on_commit(lambda: sync_vercel_connect_link.delay(str(org_integration.pk)))
+            # The number of flag requests grows with the project, so they go out after the response.
+            transaction.on_commit(lambda: sync_vercel_connect_feature_flags.delay(production_team_id))
+
+        production_team = teams_by_id[production_team_id]
+        client = VercelAPIClient(bearer_token=cached_data["access_token"])
+        import_result = client.import_resource(
+            integration_config_id=installation_id,
+            resource_id=str(resources[production_team_id].pk),
+            product_id="posthog",
+            name=production_team.name,
+            secrets=VercelIntegration.build_connectable_secrets(
+                production_team, teams_by_id[preview_team_id], teams_by_id[development_team_id]
+            ),
+        )
+        if not import_result.success:
+            logger.error(
+                "Failed to import resource to Vercel",
+                error=import_result.error,
+                installation_id=installation_id,
+                resource_id=str(resources[production_team_id].pk),
+                integration="vercel",
+            )
 
         logger.info(
             "Vercel connectable account linked",
