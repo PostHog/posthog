@@ -380,6 +380,9 @@ export interface TrunkQuarantineData {
     trunkUrl: string | null
     teams: TrunkQuarantineTeamRow[]
     tests: TrunkQuarantinedTestRow[]
+    /** True when more tests are quarantined than `limit`; `tests` and the team counts are then lower bounds. */
+    truncated: boolean
+    limit: number
 }
 
 /**
@@ -826,6 +829,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             ttlDays: data.ttl_days,
                             repository: data.repository,
                             trunkUrl: data.trunk_url ?? null,
+                            truncated: data.truncated,
+                            limit: data.limit,
                             teams: data.teams.map(
                                 (it): TrunkQuarantineTeamRow => ({
                                     ownerTeam: it.owner_team,

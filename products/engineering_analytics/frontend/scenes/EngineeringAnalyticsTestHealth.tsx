@@ -97,8 +97,12 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
             <div className="grid grid-cols-1 gap-3 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-4">
                 <StatCard
                     label="Quarantined tests"
-                    value={trunkQuarantine ? humanFriendlyNumber(trunkQuarantine.tests.length) : '—'}
-                    caption="currently masked in CI"
+                    value={
+                        trunkQuarantine
+                            ? `${humanFriendlyNumber(trunkQuarantine.tests.length)}${trunkQuarantine.truncated ? '+' : ''}`
+                            : '—'
+                    }
+                    caption={trunkQuarantine?.truncated ? 'oldest quarantines shown' : 'currently masked in CI'}
                     loading={trunkQuarantineLoading}
                 />
                 <StatCard
@@ -120,6 +124,13 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
                     loading={trunkQuarantineLoading}
                 />
             </div>
+            {trunkQuarantine?.truncated && (
+                <LemonBanner type="info">
+                    More than {humanFriendlyNumber(trunkQuarantine.limit)} tests are quarantined. This board shows the
+                    oldest {humanFriendlyNumber(trunkQuarantine.limit)}, so the counts above are lower bounds. Open
+                    Trunk for the full list.
+                </LemonBanner>
+            )}
             {trunkQuarantine && !trunkQuarantine.ownersResolved && (
                 <LemonBanner type="warning">
                     We could not read {trunkQuarantine.repository}'s ownership files, so every test below is listed as
