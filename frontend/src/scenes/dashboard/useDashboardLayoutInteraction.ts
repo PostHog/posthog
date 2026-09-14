@@ -44,7 +44,8 @@ export function useDashboardLayoutInteraction({
     const interactionKind = useRef<DashboardInteractionKind | null>(null)
 
     const gridCompactor = useMemo<Compactor>(() => {
-        const compactor = getDashboardGridCompactor(layoutCompaction ?? DashboardGridCompaction.Vertical)
+        const selectedCompaction = layoutCompaction ?? DashboardGridCompaction.Vertical
+        const compactor = getDashboardGridCompactor(selectedCompaction)
 
         return {
             ...compactor,
@@ -58,11 +59,13 @@ export function useDashboardLayoutInteraction({
                 const kind = interactionKind.current ?? 'drag'
                 // A resize leaves react-grid-layout's push in place for the tiles it overlaps, because the row
                 // has to give way. A drag instead holds every other tile at its pre-drag position, so the tiles
-                // the drag passes over stay where the user put them.
-                const restoredLayout =
-                    kind === 'resize'
-                        ? restoreUnmovedItemPositions(layout, baseline, activeTileId, baselineById.current)
-                        : pinUnmovedItemsToBaseline(layout, baseline, activeTileId, baselineById.current)
+                // the drag passes over stay where the user put them. Horizontal compaction is the exception: it
+                // packs by column and gives a slot to the leftmost tile, so pinning a tile back onto the drop
+                // point sends the dragged tile away from the cursor.
+                const pinsToBaseline = kind === 'drag' && selectedCompaction !== DashboardGridCompaction.Horizontal
+                const restoredLayout = pinsToBaseline
+                    ? pinUnmovedItemsToBaseline(layout, baseline, activeTileId, baselineById.current)
+                    : restoreUnmovedItemPositions(layout, baseline, activeTileId, baselineById.current)
                 const resizedLayout =
                     kind === 'resize'
                         ? resizeNeighborToFitRow(restoredLayout, baseline, activeTileId, resizeNeighbors.current)

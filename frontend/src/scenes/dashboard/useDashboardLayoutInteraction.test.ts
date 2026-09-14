@@ -59,4 +59,39 @@ describe('useDashboardLayoutInteraction', () => {
             ])
         }
     )
+
+    // Horizontal compaction packs tiles by column and gives a slot to the leftmost tile, so a tile held
+    // on the drop point takes the slot away from the drag. The drag runs along x to show that.
+    test('drops a tile on the slot the cursor is over with horizontal compaction', () => {
+        const row: Layout = [
+            { i: 'first', x: 0, y: 0, w: 4, h: 4 },
+            { i: 'second', x: 4, y: 0, w: 4, h: 4 },
+            { i: 'third', x: 8, y: 0, w: 4, h: 4 },
+        ]
+        const { result } = renderHook(() =>
+            useDashboardLayoutInteraction({
+                layoutEditMode: true,
+                layoutCompaction: DashboardGridCompaction.Horizontal,
+                updateLayouts: jest.fn(),
+            })
+        )
+        const compactor = result.current.gridCompactor
+        let layout: Layout = row.map((item) => ({ ...item }))
+
+        act(() => result.current.startInteraction(layout, getLayoutItem(layout, 'third')!, 'drag'))
+        for (let x = 7; x >= 0; x--) {
+            const dragged = getLayoutItem(layout, 'third')!
+            layout = compactor.compact(
+                moveElement(layout, dragged, x, dragged.y, true, false, compactor.type, COLS, compactor.allowOverlap),
+                COLS
+            )
+        }
+        act(() => result.current.finishInteraction())
+
+        expect(compactor.compact(layout, COLS).map(({ i, x, y, w, h }) => ({ i, x, y, w, h }))).toEqual([
+            { i: 'first', x: 4, y: 0, w: 4, h: 4 },
+            { i: 'second', x: 8, y: 0, w: 4, h: 4 },
+            { i: 'third', x: 0, y: 0, w: 4, h: 4 },
+        ])
+    })
 })
