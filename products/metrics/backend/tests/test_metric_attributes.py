@@ -74,12 +74,22 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [r["name"] for r in response.json()["results"]] == expected
 
-    def test_attributes_window_excludes_out_of_range_buckets(self):
-        response = self._get("attributes", {"dateFrom": (self.now - dt.timedelta(hours=1)).isoformat()})
+    @parameterized.expand([("recent", 0), ("historical", 10)])
+    def test_attributes_use_recent_metadata_without_enforcing_end_time(self, _name: str, end_minutes_ago: int):
+        response = self._get(
+            "attributes",
+            {
+                "dateFrom": (self.now - dt.timedelta(hours=1)).isoformat(),
+                "dateTo": (self.now - dt.timedelta(minutes=end_minutes_ago)).isoformat(),
+            },
+        )
         assert response.status_code == status.HTTP_200_OK
-        names = [r["name"] for r in response.json()["results"]]
-        assert "stale_key" not in names
-        assert "env" in names
+        assert response.json()["results"] == [
+            {"name": "env", "series_count": 2},
+            {"name": "service_name", "series_count": 2},
+            {"name": "k8s.pod.name", "series_count": 1},
+            {"name": "region", "series_count": 1},
+        ]
 
     def test_attribute_values_returns_values_with_aggregated_counts(self):
         response = self._get("attribute_values", {"key": "env"})
