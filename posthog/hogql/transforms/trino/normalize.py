@@ -143,7 +143,6 @@ class TrinoSelectAliasLowerer(CloningVisitor):
         self.aliases: dict[str, ast.Expr] = {}
         self.alias_positions: dict[str, int] = {}
         self.expanding: set[str] = set()
-        self.in_group_by = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         outer_aliases = self.aliases
@@ -153,13 +152,6 @@ class TrinoSelectAliasLowerer(CloningVisitor):
             expr.alias: index for index, expr in enumerate(node.select, start=1) if isinstance(expr, ast.Alias)
         }
         lowered = super().visit_select_query(node)
-        if node.group_by is not None:
-            outer_in_group_by = self.in_group_by
-            self.in_group_by = True
-            try:
-                lowered.group_by = [self.visit(expr) for expr in node.group_by]
-            finally:
-                self.in_group_by = outer_in_group_by
         if node.group_by is not None and lowered.group_by is not None and lowered.group_by_mode is None:
             projections = [expression_key(expr) for expr in lowered.select]
             # Separate parameter occurrences are not identical grouping expressions in Trino.
@@ -235,14 +227,12 @@ class TrinoSelectAliasLowerer(CloningVisitor):
     def visit_field(self, node: ast.Field) -> ast.Expr:
         if (
             len(node.chain) == 1
+            and isinstance(node.type, ast.FieldAliasType)
             and isinstance(node.chain[0], str)
             and node.chain[0] in self.aliases
             and node.chain[0] not in self.expanding
-            and not isinstance(node.type, ast.BaseTableType)
         ):
             alias = node.chain[0]
-            if self.in_group_by:
-                return ast.PositionalRef(index=self.alias_positions[alias])
             self.expanding.add(alias)
             try:
                 return self.visit(self.aliases[alias])

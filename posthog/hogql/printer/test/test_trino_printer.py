@@ -1195,7 +1195,7 @@ def test_prints_additional_semantics_safe_trino_expressions(expression: str, exp
         ("e()", "e()"),
         ("toIntervalDay(2)", "(CAST(2 AS BIGINT) * INTERVAL '1' DAY)"),
         ("JSONExtractArrayRaw(properties, 'items')", "transform(CAST(json_extract("),
-        ("user_id IN ['a', 'b']", "contains(ARRAY["),
+        ("user_id IN ['a', 'b']", '"users"."user_id" IN ('),
         ("toDateTime(123)", "CAST(from_unixtime(CAST(123 AS DOUBLE)) AS TIMESTAMP)"),
         ("arrayMax([1, 2])", "array_max(ARRAY[1, 2])"),
         (
@@ -1417,7 +1417,7 @@ def test_unqualifies_order_by_when_output_alias_shadows_relation_name() -> None:
         "trino",
     )
 
-    assert "ORDER BY 1 DESC, count(*) DESC" in sql
+    assert "ORDER BY 1 DESC, 2 DESC" in sql
 
 
 def test_lowers_offset_in_frame_over_a_full_partition() -> None:

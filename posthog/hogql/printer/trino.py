@@ -253,6 +253,7 @@ class TrinoPrinter(PostgresPrinter):
         return sql.rstrip() + separator + separator.join(suffixes)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> str:
+        node = self._align_set_query_types(node)
         if not isinstance(node.initial_select_query, ast.SelectQuery) or not node.initial_select_query.ctes:
             return super().visit_select_set_query(node)
         ctes = node.initial_select_query.ctes
@@ -287,24 +288,8 @@ class TrinoPrinter(PostgresPrinter):
     def _invalid_function_arguments(self, node: ast.Call, detail: str) -> NoReturn:
         self._unsupported("TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED", detail, node)
 
-    def visit_select_set_query(self, node: ast.SelectSetQuery) -> str:
-        node = self._align_set_query_types(node)
-        first = node.initial_select_query
-        if isinstance(first, ast.SelectQuery) and first.ctes:
-            ctes = first.ctes
-            first.ctes = None
-            try:
-                prefix = ", ".join(self.visit(cte) for cte in ctes.values())
-                body = super().visit_select_set_query(node)
-                if len(self.stack) > 1:
-                    return f"(WITH {prefix} {body[1:-1]})"
-                return f"WITH {prefix} {body}"
-            finally:
-                first.ctes = ctes
-        return super().visit_select_set_query(node)
-
     def _align_set_query_types(self, node: ast.SelectSetQuery) -> ast.SelectSetQuery:
-        branches = node.select_queries()
+        branches = self._set_query_branches(node)
         if not branches:
             return node
         width = min(len(branch.select) for branch in branches)
@@ -330,7 +315,7 @@ class TrinoPrinter(PostgresPrinter):
         if not targets:
             return node
         lowered = clone_expr(node, clear_types=False)
-        for branch in lowered.select_queries():
+        for branch in self._set_query_branches(lowered):
             for index, target in targets.items():
                 projection = branch.select[index]
                 expression = projection.expr if isinstance(projection, ast.Alias) else projection
@@ -345,6 +330,15 @@ class TrinoPrinter(PostgresPrinter):
                 else:
                     branch.select[index] = cast_expression
         return lowered
+
+    def _set_query_branches(self, node: ast.SelectSetQuery) -> list[ast.SelectQuery]:
+        branches: list[ast.SelectQuery] = []
+        for branch in node.select_queries():
+            if isinstance(branch, ast.SelectSetQuery):
+                branches.extend(self._set_query_branches(branch))
+            else:
+                branches.append(branch)
+        return branches
 
     def visit_alias(self, node: ast.Alias) -> str:
         parent = self.stack[-2] if len(self.stack) > 1 else None
@@ -441,20 +435,6 @@ class TrinoPrinter(PostgresPrinter):
             return f"json_format(CAST({self.visit(node.args[0])} AS JSON))"
         if name in {"empty", "notempty"}:
             return self._visit_empty(node, negated=name == "notempty")
-        if name in {"in", "notin"} and len(node.args) == 2 and isinstance(node.args[1], ast.Array):
-            result = f"contains({self.visit(node.args[1])}, {self.visit(node.args[0])})"
-            return f"NOT ({result})" if name == "notin" else result
-        if name in {"in", "notin"} and len(node.args) == 2 and isinstance(node.args[1], ast.Tuple):
-            values = ", ".join(self.visit(value) for value in node.args[1].exprs)
-            return f"({self.visit(node.args[0])} {'NOT IN' if name == 'notin' else 'IN'} ({values}))"
-        if (
-            name in {"in", "notin"}
-            and len(node.args) == 2
-            and isinstance(node.args[1], ast.Call)
-            and node.args[1].name.lower() == "tuple"
-        ):
-            values = ", ".join(self.visit(value) for value in node.args[1].args)
-            return f"({self.visit(node.args[0])} {'NOT IN' if name == 'notin' else 'IN'} ({values}))"
         if name in {"in", "notin"}:
             if len(node.args) != 2:
                 self._invalid_function_arguments(node, f"{node.name} expects exactly 2 arguments in Trino mode.")
@@ -878,7 +858,9 @@ class TrinoPrinter(PostgresPrinter):
         return f"(NOT {self._visit_predicate(node.expr)})"
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> str:
-        if node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
+        if node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn) and not isinstance(
+            node.right, (ast.SelectQuery, ast.SelectSetQuery, ast.Tuple)
+        ):
             return self._visit_membership(node.left, node.right, negated=node.op == ast.CompareOperationOp.NotIn)
         if (
             isinstance(self._resolve_type(node.left), ast.ArrayType)
@@ -921,6 +903,8 @@ class TrinoPrinter(PostgresPrinter):
             target = "DATE" if isinstance(left_type, ast.DateType) else "TIMESTAMP"
             values = ", ".join(f"CAST({self.visit(value)} AS {target})" for value in node.right.exprs)
             return self._get_compare_op(node.op, self.visit(node.left), f"({values})")
+        if node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
+            return self._visit_membership(node.left, node.right, negated=node.op == ast.CompareOperationOp.NotIn)
         left_cast: str | None = None
         right_cast: str | None = None
 
@@ -976,11 +960,18 @@ class TrinoPrinter(PostgresPrinter):
     def _visit_membership(self, left: ast.Expr, right: ast.Expr, *, negated: bool) -> str:
         if isinstance(right, ast.Array) and not right.exprs:
             return "TRUE" if negated else "FALSE"
+        if not isinstance(right, (ast.Array, ast.Tuple, ast.SelectQuery, ast.SelectSetQuery)) and isinstance(
+            self._resolve_type(right), ast.ArrayType
+        ):
+            result = f"contains({self.visit(right)}, {self.visit(left)})"
+            return f"NOT ({result})" if negated else result
         return f"({self.visit(left)} {'NOT IN' if negated else 'IN'} {self._visit_in_values(right)})"
 
     def _visit_in_values(self, node: ast.Expr) -> str:
         if isinstance(node, ast.Array):
             return f"({', '.join(self.visit(value) for value in node.exprs)})"
+        if isinstance(node, ast.Call) and node.name.lower() == "tuple":
+            return f"({', '.join(self.visit(value) for value in node.args)})"
         return super()._visit_in_values(node)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> str:
