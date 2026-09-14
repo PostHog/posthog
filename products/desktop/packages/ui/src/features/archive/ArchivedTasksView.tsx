@@ -18,16 +18,22 @@ import {
   withRepoNames,
 } from "@posthog/core/archive/archiveListView";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { Button as QuillButton } from "@posthog/quill";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button as QuillButton,
+} from "@posthog/quill";
 import type { WorkspaceMode } from "@posthog/shared";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import {
-  AlertDialog,
   Box,
   Button,
-  Dialog,
   Flex,
   Popover,
   Table,
@@ -436,79 +442,71 @@ export function ArchivedTasksViewPresentation({
         )}
       </Box>
 
-      <Dialog.Root
+      <AlertDialog
         open={branchNotFound !== null}
-        onOpenChange={(open) => {
-          if (!open) onBranchNotFoundClose();
-        }}
+        onOpenChange={() => undefined}
       >
-        <Dialog.Content maxWidth="420px" size="1">
-          <Dialog.Title className="text-sm">
-            Unarchive to new branch?
-          </Dialog.Title>
-          <Dialog.Description className="text-[13px]">
-            <Text color="gray" className="text-[13px]">
+        <AlertDialogContent
+          className="max-w-[420px]"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") event.preventDefault();
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unarchive to new branch?</AlertDialogTitle>
+            <AlertDialogDescription>
               This workspace was last on{" "}
-              <Text className="font-medium text-[13px]">
-                {branchNotFound?.branchName}
-              </Text>
-              , but that branch has been deleted or renamed.
-            </Text>
-          </Dialog.Description>
-          <Flex justify="end" gap="3" mt="3">
-            <Dialog.Close>
-              <Button variant="soft" color="gray" size="1">
-                Cancel
-              </Button>
-            </Dialog.Close>
-            <Button size="1" onClick={onRecreateBranch}>
+              <span className="font-medium">{branchNotFound?.branchName}</span>,
+              but that branch has been deleted or renamed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <QuillButton variant="outline" onClick={onBranchNotFoundClose}>
+              Cancel
+            </QuillButton>
+            <QuillButton variant="primary" onClick={onRecreateBranch}>
               Unarchive to new branch
-            </Button>
-          </Flex>
-        </Dialog.Content>
-      </Dialog.Root>
+            </QuillButton>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-      <AlertDialog.Root
+      <AlertDialog
         open={deleteTargetId !== null}
-        onOpenChange={(open) => {
-          if (!open) setDeleteTargetId(null);
-        }}
+        onOpenChange={() => undefined}
       >
-        <AlertDialog.Content maxWidth="420px" size="1">
-          <AlertDialog.Title className="text-sm">
-            Delete archived task
-          </AlertDialog.Title>
-          <AlertDialog.Description className="text-[13px]">
-            <Text color="gray" className="text-[13px]">
+        <AlertDialogContent className="max-w-[420px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete archived task</AlertDialogTitle>
+            <AlertDialogDescription>
               Permanently delete{" "}
-              <Text className="font-medium text-[13px]">
+              <span className="font-medium">
                 {items.find((i) => i.archived.taskId === deleteTargetId)?.task
                   ?.title ?? "Unknown task"}
-              </Text>
+              </span>
               ? This cannot be undone.
-            </Text>
-          </AlertDialog.Description>
-          <Flex justify="end" gap="3" mt="3">
-            <AlertDialog.Cancel>
-              <Button variant="soft" color="gray" size="1">
-                Cancel
-              </Button>
-            </AlertDialog.Cancel>
-            <AlertDialog.Action>
-              <QuillButton
-                variant="destructive-outline"
-                size="sm"
-                onClick={() => {
-                  if (deleteTargetId) onDelete(deleteTargetId);
-                  setDeleteTargetId(null);
-                }}
-              >
-                Delete
-              </QuillButton>
-            </AlertDialog.Action>
-          </Flex>
-        </AlertDialog.Content>
-      </AlertDialog.Root>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <QuillButton
+              variant="outline"
+              onClick={() => setDeleteTargetId(null)}
+            >
+              Cancel
+            </QuillButton>
+            <QuillButton
+              variant="destructive-outline"
+              size="sm"
+              onClick={() => {
+                if (deleteTargetId) onDelete(deleteTargetId);
+                setDeleteTargetId(null);
+              }}
+            >
+              Delete
+            </QuillButton>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Flex>
   );
 }

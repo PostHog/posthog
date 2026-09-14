@@ -29,12 +29,7 @@ export function DisconnectIntegrationDialog({
   onCancel,
 }: DisconnectIntegrationDialogProps): ReactElement {
   return (
-    <AlertDialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!next && !isPending) onCancel();
-      }}
-    >
+    <AlertDialog open={open} onOpenChange={() => undefined}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>

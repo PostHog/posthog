@@ -1,4 +1,13 @@
 import { ArrowSquareOut, Check, Copy, Warning } from "@phosphor-icons/react";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button as QuillButton,
+} from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import {
   SettingsCard,
@@ -12,8 +21,6 @@ import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { track } from "@posthog/ui/shell/analytics";
 import {
-  AlertDialog,
-  Button,
   Callout,
   Flex,
   IconButton,
@@ -263,59 +270,54 @@ export function HarnessSettings() {
         )}
       </SettingsSection>
 
-      <AlertDialog.Root
-        open={showBypassWarning}
-        onOpenChange={setShowBypassWarning}
-      >
-        <AlertDialog.Content maxWidth="500px">
-          <AlertDialog.Title color="red">
-            <Flex align="center" gap="2">
-              <Warning size={20} weight="fill" color="var(--red-9)" />
-              <Text color="red" className="font-bold">
+      <AlertDialog open={showBypassWarning} onOpenChange={() => undefined}>
+        <AlertDialogContent className="max-w-[500px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              <span className="flex items-center gap-2 text-destructive">
+                <Warning size={20} weight="fill" color="var(--red-9)" />
                 Allow bypass permissions mode
-              </Text>
-            </Flex>
-          </AlertDialog.Title>
-          <AlertDialog.Description className="text-sm">
-            <Flex direction="column" gap="3">
-              <Text>
-                This makes bypass permissions selectable in the mode menu. It
-                does not turn it on for your tasks. Each session keeps its
-                current mode until you pick bypass for it.
-              </Text>
-              <Text color="red" className="font-medium">
-                A session running in bypass mode executes every action without
-                asking, including shell commands, file edits, web requests and
-                any installed MCP tools.
-              </Text>
-              <Text>
-                Pick it for sandboxed environments (containers or VMs) with
-                restricted network access that can be easily restored.
-              </Text>
-              <Text className="font-medium">
-                By proceeding, you accept all responsibility for actions taken
-                in sessions you run with bypass.
-              </Text>
-            </Flex>
-          </AlertDialog.Description>
-          <Flex gap="3" mt="4" justify="end">
-            <AlertDialog.Cancel>
-              <Button variant="soft" color="gray">
-                Cancel
-              </Button>
-            </AlertDialog.Cancel>
-            <AlertDialog.Action>
-              <Button
-                variant="solid"
-                color="red"
-                onClick={handleConfirmBypassPermissions}
-              >
-                Allow bypass mode
-              </Button>
-            </AlertDialog.Action>
-          </Flex>
-        </AlertDialog.Content>
-      </AlertDialog.Root>
+              </span>
+            </AlertDialogTitle>
+            <AlertDialogDescription render={<div />}>
+              <div className="flex flex-col gap-3">
+                <p>
+                  This makes bypass permissions selectable in the mode menu. It
+                  does not turn it on for your tasks. Each session keeps its
+                  current mode until you pick bypass for it.
+                </p>
+                <p className="font-medium text-destructive">
+                  A session running in bypass mode executes every action without
+                  asking, including shell commands, file edits, web requests and
+                  any installed MCP tools.
+                </p>
+                <p>
+                  Pick it for sandboxed environments (containers or VMs) with
+                  restricted network access that can be easily restored.
+                </p>
+                <p className="font-medium">
+                  By proceeding, you accept all responsibility for actions taken
+                  in sessions you run with bypass.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <QuillButton
+              variant="outline"
+              onClick={() => setShowBypassWarning(false)}
+            >
+              Cancel
+            </QuillButton>
+            <QuillButton
+              variant="destructive-outline"
+              onClick={handleConfirmBypassPermissions}
+            >
+              Allow bypass mode
+            </QuillButton>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

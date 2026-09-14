@@ -3,13 +3,17 @@ import {
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogTitle,
+} from "@posthog/quill";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
 import {
   useModeConfigOptionForTask,
   usePendingPermissionsForTask,
 } from "@posthog/ui/features/sessions/useSession";
 import { toast } from "@posthog/ui/primitives/toast";
-import { Dialog, VisuallyHidden } from "@radix-ui/themes";
 import { useCallback, useMemo } from "react";
 
 // Surfaces a generating canvas's pending permission request (e.g. an MCP tool
@@ -81,21 +85,19 @@ export function CanvasPermissionDialog({ taskId }: { taskId: string }) {
   const open = !!firstPendingPermission;
 
   return (
-    <Dialog.Root open={open}>
-      <Dialog.Content
-        maxWidth="560px"
-        // Require an explicit choice: outside clicks don't dismiss; Esc rejects
-        // the request (PermissionSelector's own Esc also routes to onCancel).
-        onPointerDownOutside={(e) => e.preventDefault()}
-        onInteractOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => {
-          e.preventDefault();
-          void handleCancel();
+    <AlertDialog open={open} onOpenChange={() => undefined}>
+      <AlertDialogContent
+        className="max-w-[560px]"
+        onKeyDownCapture={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+          }
         }}
       >
-        <VisuallyHidden>
-          <Dialog.Title>Canvas needs your approval</Dialog.Title>
-        </VisuallyHidden>
+        <AlertDialogTitle className="sr-only">
+          Canvas needs your approval
+        </AlertDialogTitle>
         {firstPendingPermission && (
           <PermissionSelector
             toolCall={firstPendingPermission.toolCall}
@@ -104,7 +106,7 @@ export function CanvasPermissionDialog({ taskId }: { taskId: string }) {
             onCancel={handleCancel}
           />
         )}
-      </Dialog.Content>
-    </Dialog.Root>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

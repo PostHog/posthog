@@ -1,14 +1,14 @@
 import type { RpcExtensionUIResponse } from "@posthog/agent/pi/types";
 import type { PiExtensionDialogRequest } from "@posthog/core/pi-runtime/piExtensionStore";
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Button,
-  Dialog,
   DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   Input,
   Label,
   Textarea,
@@ -77,17 +77,19 @@ export function PiExtensionDialog({
           : "Enter a response.";
 
   return (
-    <Dialog open onOpenChange={(open) => !open && void complete()}>
-      <DialogContent
-        showCloseButton={false}
+    <AlertDialog open onOpenChange={() => undefined}>
+      <AlertDialogContent
         className="sm:max-w-lg"
         aria-busy={submitting}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") event.preventDefault();
+        }}
       >
         <form aria-label={`${request.title} response`} onSubmit={submit}>
-          <DialogHeader>
-            <DialogTitle>{request.title}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
-          </DialogHeader>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{request.title}</AlertDialogTitle>
+            <AlertDialogDescription>{description}</AlertDialogDescription>
+          </AlertDialogHeader>
           <DialogBody viewportClassName="max-h-80">
             {request.method === "select" ? (
               <div className="flex flex-col gap-2">
@@ -130,7 +132,7 @@ export function PiExtensionDialog({
               </div>
             )}
           </DialogBody>
-          <DialogFooter>
+          <AlertDialogFooter>
             <Button
               disabled={submitting}
               type="button"
@@ -160,9 +162,9 @@ export function PiExtensionDialog({
                     : "Submit"}
               </Button>
             )}
-          </DialogFooter>
+          </AlertDialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

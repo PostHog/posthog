@@ -451,9 +451,7 @@ export function SkillDetailPanel({
 
       <AlertDialog
         open={deleteFileTarget !== null}
-        onOpenChange={(open: boolean) => {
-          if (!open) setDeleteFileTarget(null);
-        }}
+        onOpenChange={() => undefined}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -467,6 +465,7 @@ export function SkillDetailPanel({
             <Button
               type="button"
               variant="outline"
+              disabled={deleteFile.isPending}
               onClick={() => setDeleteFileTarget(null)}
             >
               Cancel
@@ -474,6 +473,8 @@ export function SkillDetailPanel({
             <Button
               type="button"
               variant="destructive-outline"
+              loading={deleteFile.isPending}
+              disabled={deleteFile.isPending}
               onClick={() => void handleDeleteFile()}
             >
               Delete
@@ -490,7 +491,7 @@ export function SkillDetailPanel({
         onConfirm={() => void handleImport(true)}
       />
 
-      <AlertDialog open={publishOpen} onOpenChange={setPublishOpen}>
+      <AlertDialog open={publishOpen} onOpenChange={() => undefined}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Publish to team</AlertDialogTitle>
@@ -503,6 +504,7 @@ export function SkillDetailPanel({
             <Button
               type="button"
               variant="outline"
+              disabled={publishSkill.isPending}
               onClick={() => setPublishOpen(false)}
             >
               Cancel
@@ -520,7 +522,7 @@ export function SkillDetailPanel({
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={deleteSkillOpen} onOpenChange={setDeleteSkillOpen}>
+      <AlertDialog open={deleteSkillOpen} onOpenChange={() => undefined}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete skill</AlertDialogTitle>
@@ -532,6 +534,7 @@ export function SkillDetailPanel({
             <Button
               type="button"
               variant="outline"
+              disabled={deleteSkill.isPending}
               onClick={() => setDeleteSkillOpen(false)}
             >
               Cancel

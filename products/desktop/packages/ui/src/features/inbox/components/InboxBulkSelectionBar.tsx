@@ -6,7 +6,15 @@ import {
   UserMinusIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { Button as QuillButton } from "@posthog/quill";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button as QuillButton,
+} from "@posthog/quill";
 import { isDismissalReasonSnooze } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
 import {
@@ -15,7 +23,7 @@ import {
 } from "@posthog/ui/features/inbox/components/DismissReportDialog";
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { Button } from "@posthog/ui/primitives/Button";
-import { AlertDialog, Flex, Text } from "@radix-ui/themes";
+import { Flex, Text } from "@radix-ui/themes";
 import { useCallback, useState } from "react";
 
 interface InboxBulkSelectionBarProps {
@@ -210,94 +218,94 @@ export function InboxBulkSelectionBar({
         </Flex>
       </Flex>
 
-      <AlertDialog.Root
-        open={showSnoozeConfirm}
-        onOpenChange={setShowSnoozeConfirm}
-      >
-        <AlertDialog.Content maxWidth="420px">
-          <AlertDialog.Title>Snooze reports</AlertDialog.Title>
-          <AlertDialog.Description size="2">
-            Selected reports will go back to gathering context. You can review
-            them again once they are ready.
-          </AlertDialog.Description>
-          <Flex gap="3" mt="4" justify="end">
-            <AlertDialog.Cancel>
-              <Button variant="soft" color="gray">
-                Cancel
-              </Button>
-            </AlertDialog.Cancel>
-            <AlertDialog.Action>
-              <Button
-                variant="solid"
-                color="gray"
-                loading={bulkActions.isSnoozing}
-                onClick={() => void handleConfirmSnooze()}
-              >
-                Snooze
-              </Button>
-            </AlertDialog.Action>
-          </Flex>
-        </AlertDialog.Content>
-      </AlertDialog.Root>
+      <AlertDialog open={showSnoozeConfirm} onOpenChange={() => undefined}>
+        <AlertDialogContent className="max-w-[420px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Snooze reports</AlertDialogTitle>
+            <AlertDialogDescription>
+              Selected reports will go back to gathering context. You can review
+              them again once they are ready.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <QuillButton
+              variant="outline"
+              disabled={bulkActions.isSnoozing}
+              onClick={() => setShowSnoozeConfirm(false)}
+            >
+              Cancel
+            </QuillButton>
+            <QuillButton
+              loading={bulkActions.isSnoozing}
+              onClick={() => {
+                void handleConfirmSnooze();
+              }}
+            >
+              Snooze
+            </QuillButton>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-      <AlertDialog.Root
-        open={showSuppressConfirm}
-        onOpenChange={setShowSuppressConfirm}
-      >
-        <AlertDialog.Content maxWidth="420px">
-          <AlertDialog.Title>Suppress reports</AlertDialog.Title>
-          <AlertDialog.Description size="2">
-            Suppressing a report causes all future signals matched to that
-            report to be ignored.
-          </AlertDialog.Description>
-          <Flex gap="3" mt="4" justify="end">
-            <AlertDialog.Cancel>
-              <Button variant="soft" color="gray">
-                Cancel
-              </Button>
-            </AlertDialog.Cancel>
-            <AlertDialog.Action>
-              <Button
-                variant="solid"
-                color="orange"
-                loading={bulkActions.isSuppressing}
-                onClick={() => void handleConfirmSuppress()}
-              >
-                Suppress
-              </Button>
-            </AlertDialog.Action>
-          </Flex>
-        </AlertDialog.Content>
-      </AlertDialog.Root>
+      <AlertDialog open={showSuppressConfirm} onOpenChange={() => undefined}>
+        <AlertDialogContent className="max-w-[420px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Suppress reports</AlertDialogTitle>
+            <AlertDialogDescription>
+              Suppressing a report causes all future signals matched to that
+              report to be ignored.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <QuillButton
+              variant="outline"
+              disabled={bulkActions.isSuppressing}
+              onClick={() => setShowSuppressConfirm(false)}
+            >
+              Cancel
+            </QuillButton>
+            <QuillButton
+              variant="destructive-outline"
+              loading={bulkActions.isSuppressing}
+              onClick={() => {
+                void handleConfirmSuppress();
+              }}
+            >
+              Suppress
+            </QuillButton>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-      <AlertDialog.Root
-        open={showDeleteConfirm}
-        onOpenChange={setShowDeleteConfirm}
-      >
-        <AlertDialog.Content maxWidth="420px">
-          <AlertDialog.Title>Delete reports</AlertDialog.Title>
-          <AlertDialog.Description size="2">
-            Permanently delete {selectedCount}{" "}
-            {selectedCount === 1 ? "report" : "reports"} and their signals?
-          </AlertDialog.Description>
-          <Flex gap="3" mt="4" justify="end">
-            <AlertDialog.Cancel>
-              <Button variant="soft" color="gray">
-                Cancel
-              </Button>
-            </AlertDialog.Cancel>
-            <AlertDialog.Action>
-              <QuillButton
-                variant="destructive-outline"
-                loading={bulkActions.isDeleting}
-                onClick={() => void handleConfirmDelete()}
-              >
-                Delete
-              </QuillButton>
-            </AlertDialog.Action>
-          </Flex>
-        </AlertDialog.Content>
-      </AlertDialog.Root>
+      <AlertDialog open={showDeleteConfirm} onOpenChange={() => undefined}>
+        <AlertDialogContent className="max-w-[420px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete reports</AlertDialogTitle>
+            <AlertDialogDescription>
+              Permanently delete {selectedCount}{" "}
+              {selectedCount === 1 ? "report" : "reports"} and their signals?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <QuillButton
+              variant="outline"
+              disabled={bulkActions.isDeleting}
+              onClick={() => setShowDeleteConfirm(false)}
+            >
+              Cancel
+            </QuillButton>
+            <QuillButton
+              variant="destructive-outline"
+              loading={bulkActions.isDeleting}
+              onClick={() => {
+                void handleConfirmDelete();
+              }}
+            >
+              Delete
+            </QuillButton>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {showDismissDialog && bulkActions.selectedReports[0] ? (
         <DismissReportDialog

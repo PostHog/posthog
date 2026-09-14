@@ -271,12 +271,7 @@ export function ImageDetailPage({
         </div>
       </div>
 
-      <AlertDialog
-        open={confirmOpen}
-        onOpenChange={(next) => {
-          if (!next && !deleteMutation.isPending) setConfirmOpen(false);
-        }}
-      >
+      <AlertDialog open={confirmOpen} onOpenChange={() => undefined}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this image?</AlertDialogTitle>

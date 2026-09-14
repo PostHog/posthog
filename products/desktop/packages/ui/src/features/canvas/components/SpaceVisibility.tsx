@@ -92,12 +92,7 @@ export function SpaceVisibility({
           )}
         </SettingsCardRow>
       </SettingsCard>
-      <AlertDialog
-        open={confirming}
-        onOpenChange={(next) => {
-          if (!next && !isUpdatingChannelType) setConfirming(false);
-        }}
-      >
+      <AlertDialog open={confirming} onOpenChange={() => undefined}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{current.confirmTitle}</AlertDialogTitle>

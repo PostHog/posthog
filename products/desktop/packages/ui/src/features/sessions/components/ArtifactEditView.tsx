@@ -1,6 +1,5 @@
 import {
   AlertDialog,
-  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -60,12 +59,7 @@ export function ArtifactEditView({
           onContentChange={onContentChange}
         />
       </div>
-      <AlertDialog
-        open={conflict !== null}
-        onOpenChange={(open) => {
-          if (!saving) onConflictOpenChange(open);
-        }}
-      >
+      <AlertDialog open={conflict !== null} onOpenChange={() => undefined}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -80,12 +74,13 @@ export function ArtifactEditView({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose
+            <Button
+              variant="outline"
               disabled={saving}
-              render={<Button variant="outline" disabled={saving} />}
+              onClick={() => onConflictOpenChange(false)}
             >
               Keep editing
-            </AlertDialogClose>
+            </Button>
             <Button
               variant={
                 conflict === "dismissed" ? "primary" : "destructive-outline"

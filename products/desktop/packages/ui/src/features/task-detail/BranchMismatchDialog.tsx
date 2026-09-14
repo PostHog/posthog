@@ -1,13 +1,13 @@
 import { GitBranch, Warning } from "@phosphor-icons/react";
-import { Spinner } from "@posthog/ui/primitives/Spinner";
 import {
   AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Button,
-  Callout,
-  Code,
-  Flex,
-  Text,
-} from "@radix-ui/themes";
+} from "@posthog/quill";
 
 interface BranchMismatchDialogProps {
   open: boolean;
@@ -23,21 +23,12 @@ interface BranchMismatchDialogProps {
 
 function BranchLabel({ name }: { name: string }) {
   return (
-    <Code
-      variant="ghost"
-      truncate
-      className="inline-flex max-w-[100%] items-center gap-[4px] text-sm"
-    >
+    <code className="inline-flex max-w-full items-center gap-1 overflow-hidden rounded bg-muted px-1.5 py-0.5 text-sm">
       <GitBranch size={12} className="shrink-0" />
-      <span
-        style={{
-          textOverflow: "ellipsis",
-        }}
-        className="overflow-hidden whitespace-nowrap"
-      >
+      <span className="overflow-hidden text-ellipsis whitespace-nowrap">
         {name}
       </span>
-    </Code>
+    </code>
   );
 }
 
@@ -53,81 +44,65 @@ export function BranchMismatchDialog({
   isSwitching,
 }: BranchMismatchDialogProps) {
   return (
-    <AlertDialog.Root
-      open={open}
-      onOpenChange={(isOpen) => {
-        if (!isOpen) onCancel();
-      }}
-    >
-      <AlertDialog.Content maxWidth="420px" size="2">
-        <AlertDialog.Title className="text-base">
-          <Flex align="center" gap="2">
-            <Warning size={18} weight="fill" color="var(--orange-9)" />
-            Wrong branch
-          </Flex>
-        </AlertDialog.Title>
-        <AlertDialog.Description className="text-sm">
-          This task is linked to a different branch than the one you're
-          currently on. The agent will make changes on the current branch.
-        </AlertDialog.Description>
-        <Flex direction="column" gap="1" mt="3" className="min-w-0">
-          <Flex align="center" gap="2" className="min-w-0">
-            <Text color="gray" className="w-[64px] shrink-0 text-[13px]">
+    <AlertDialog open={open} onOpenChange={() => undefined}>
+      <AlertDialogContent className="max-w-[420px]">
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            <span className="flex items-center gap-2">
+              <Warning size={18} weight="fill" color="var(--orange-9)" />
+              Wrong branch
+            </span>
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            This task is linked to a different branch than the one you're
+            currently on. The agent will make changes on the current branch.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="w-16 shrink-0 text-[13px] text-muted-foreground">
               Linked
-            </Text>
+            </span>
             <BranchLabel name={linkedBranch} />
-          </Flex>
-          <Flex align="center" gap="2" className="min-w-0">
-            <Text color="gray" className="w-[64px] shrink-0 text-[13px]">
+          </div>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="w-16 shrink-0 text-[13px] text-muted-foreground">
               Current
-            </Text>
+            </span>
             <BranchLabel name={currentBranch} />
-          </Flex>
-        </Flex>
+          </div>
+        </div>
 
-        {hasUncommittedChanges && !switchError && (
-          <Callout.Root size="1" color="gray" mt="3">
-            <Callout.Text size="1">
-              You have uncommitted changes on your current branch. If needed,
-              commit or stash them first.
-            </Callout.Text>
-          </Callout.Root>
-        )}
+        {hasUncommittedChanges && !switchError ? (
+          <p className="rounded-md border border-border bg-muted p-2 text-muted-foreground text-sm">
+            You have uncommitted changes on your current branch. If needed,
+            commit or stash them first.
+          </p>
+        ) : null}
 
-        {switchError && (
-          <Callout.Root size="1" color="red" mt="3">
-            <Callout.Text size="1">{switchError}</Callout.Text>
-          </Callout.Root>
-        )}
+        {switchError ? (
+          <p className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-destructive text-sm">
+            {switchError}
+          </p>
+        ) : null}
 
-        <Flex justify="end" gap="2" mt="4">
-          <AlertDialog.Cancel>
-            <Button variant="soft" color="gray" size="1" disabled={isSwitching}>
-              Cancel
-            </Button>
-          </AlertDialog.Cancel>
-
-          <Button
-            variant="soft"
-            color="orange"
-            size="1"
-            onClick={onContinue}
-            disabled={isSwitching}
-          >
+        <AlertDialogFooter>
+          <Button variant="outline" onClick={onCancel} disabled={isSwitching}>
+            Cancel
+          </Button>
+          <Button variant="outline" onClick={onContinue} disabled={isSwitching}>
             Continue anyway
           </Button>
-
           <Button
-            variant="solid"
-            size="1"
+            variant="primary"
             onClick={onSwitch}
+            loading={isSwitching}
             disabled={isSwitching}
           >
-            {isSwitching && <Spinner size="sm" />}
             Switch branch
           </Button>
-        </Flex>
-      </AlertDialog.Content>
-    </AlertDialog.Root>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

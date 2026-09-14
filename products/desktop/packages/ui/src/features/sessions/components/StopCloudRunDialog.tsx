@@ -4,8 +4,16 @@ import {
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
-import { GitDialog } from "@posthog/ui/features/git-interaction/components/GitInteractionDialogs";
-import { Text } from "@radix-ui/themes";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+  Text,
+} from "@posthog/quill";
 import { useState } from "react";
 
 interface StopCloudRunDialogProps {
@@ -55,21 +63,49 @@ export function StopCloudRunDialog({
   };
 
   return (
-    <GitDialog
-      open={open}
-      onOpenChange={handleOpenChange}
-      icon={<StopCircle size={14} />}
-      title={title}
-      error={error}
-      buttonLabel={buttonLabel}
-      isSubmitting={isStopping}
-      onSubmit={handleConfirm}
-    >
-      <Text color="gray" className="text-[13px]">
-        This ends the cloud session and shuts down its sandbox. You can pick the
-        conversation back up later by sending a new message. To stop only the
-        current response, press Esc instead.
-      </Text>
-    </GitDialog>
+    <AlertDialog open={open} onOpenChange={() => undefined}>
+      <AlertDialogContent
+        className="max-w-[400px]"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") event.preventDefault();
+        }}
+      >
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            <span className="flex items-center gap-2">
+              <StopCircle size={14} />
+              {title}
+            </span>
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            This ends the cloud session and shuts down its sandbox. You can pick
+            the conversation back up later by sending a new message. To stop
+            only the current response, press Esc instead.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {error && (
+          <Text size="sm" variant="destructive" role="alert">
+            {error}
+          </Text>
+        )}
+        <AlertDialogFooter>
+          <Button
+            variant="outline"
+            disabled={isStopping}
+            onClick={() => handleOpenChange(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive-outline"
+            loading={isStopping}
+            disabled={isStopping}
+            onClick={() => void handleConfirm()}
+          >
+            {buttonLabel}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

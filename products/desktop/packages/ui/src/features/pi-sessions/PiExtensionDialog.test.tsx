@@ -92,6 +92,7 @@ describe("Pi extension presenters", () => {
   });
 
   it("submits an explicit negative confirmation", async () => {
+    const user = userEvent.setup();
     const onRespond = vi.fn(async () => {});
 
     render(
@@ -108,7 +109,14 @@ describe("Pi extension presenters", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Decline" }));
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    expect(onRespond).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Decline" }));
     expect(onRespond).toHaveBeenCalledWith({
       type: "extension_ui_response",
       id: "confirm-1",
