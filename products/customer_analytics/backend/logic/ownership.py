@@ -11,7 +11,7 @@ import hashlib
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 from django.db import transaction
@@ -211,7 +211,7 @@ def _role_ownership(
     definition_id = bindings.definition_id_of(role)
     fence = controlled_at(account, role)
     active = active_by_account_and_definition.get((account.id, definition_id), []) if definition_id else []
-    diagnostics: list[str] = []
+    diagnostics: list[OwnershipRoleDiagnostic] = []
     if definition_id is None:
         diagnostics.append(OwnershipRoleDiagnostic.ROLE_UNBOUND)
     if len(active) > 1:
@@ -255,7 +255,7 @@ def _role_ownership(
         controlled_at=fence,
         relationship_id=relationship.id if relationship is not None else None,
         holder=holder,
-        diagnostics=[str(diagnostic) for diagnostic in diagnostics],
+        diagnostics=[cast(contracts.OwnershipRoleDiagnosticValue, str(diagnostic)) for diagnostic in diagnostics],
     )
 
 

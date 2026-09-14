@@ -5,7 +5,11 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.customer_analytics.backend.facade import contracts
-from products.customer_analytics.backend.facade.enums import AccountRelationshipSource, OwnershipRoleState
+from products.customer_analytics.backend.facade.enums import (
+    AccountRelationshipSource,
+    OwnershipRoleDiagnostic,
+    OwnershipRoleState,
+)
 
 
 class TestOwnershipVocabulary(SimpleTestCase):
@@ -13,6 +17,7 @@ class TestOwnershipVocabulary(SimpleTestCase):
         [
             (OwnershipRoleState, contracts.OwnershipRoleStateValue),
             (AccountRelationshipSource, contracts.RelationshipSourceValue),
+            (OwnershipRoleDiagnostic, contracts.OwnershipRoleDiagnosticValue),
         ]
     )
     def test_wire_enum_and_contract_literal_agree(self, choices, literal):

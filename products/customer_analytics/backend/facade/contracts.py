@@ -564,6 +564,13 @@ class ExternalAccountOwnershipHolder:
 
 
 OwnershipRoleStateValue = Literal["unmanaged", "assigned", "cleared", "blocked"]
+OwnershipRoleDiagnosticValue = Literal[
+    "role_unbound",
+    "holder_missing",
+    "holder_inactive",
+    "holder_not_in_organization",
+    "multiple_active_holders",
+]
 
 
 @dataclass(frozen=True)
@@ -581,7 +588,7 @@ class ExternalAccountRoleOwnership:
     controlled_at: datetime | None
     relationship_id: UUID | None
     holder: ExternalAccountOwnershipHolder | None
-    diagnostics: list[str] = field(default_factory=list)
+    diagnostics: list[OwnershipRoleDiagnosticValue] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
