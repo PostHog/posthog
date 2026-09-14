@@ -4,11 +4,11 @@ import { useState } from 'react'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { matchesConfirmationText } from 'lib/utils/confirmationText'
-import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 
 import { PersonType } from '~/types'
 
-import { asDisplay } from './person-utils'
+import { personDeleteModalLogic } from '../logics/personDeleteModalLogic'
+import { asDisplay } from '../person-utils'
 
 const DELETE_CONFIRMATION_TEXT = 'delete'
 

@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { CohortType } from '~/types'
 
-import { personsLogic } from './personsLogic'
+import { personsLogic } from '../logics/personsLogic'
 
 export function PersonCohorts(): JSX.Element {
     const { cohorts, cohortsLoading, person } = useValues(personsLogic)

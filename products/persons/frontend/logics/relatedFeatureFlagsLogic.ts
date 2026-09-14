@@ -2,6 +2,8 @@ import { MakeLogicType, actions, connect, events, kea, key, listeners, path, pro
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
+import type { PaginationManual } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { toParams } from 'lib/utils/url'
 import { FLAGS_PER_PAGE, type FeatureFlagsResult } from 'scenes/feature-flags/featureFlagsLogic'
@@ -10,8 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { FeatureFlagReleaseType, FeatureFlagType } from '~/types'
 
-import type { PaginationManual } from '../../../@posthog/lemon-ui/src/index'
-import { FeatureFlagMatchReason } from './RelatedFeatureFlags'
+import { FeatureFlagMatchReason } from '../components/RelatedFeatureFlags'
 
 export interface RelatedFeatureFlag extends FeatureFlagType {
     value: boolean | string
@@ -181,6 +182,8 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                         active: values.filters.active,
                         type,
                     }
+                    // This reads the feature flags API, whose generated client belongs to another product.
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/feature_flags/?${toParams(params)}`
                     )
@@ -195,6 +198,8 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             {
                 loadRelatedFeatureFlags: async () => {
                     actions.loadFeatureFlags()
+                    // This reads the feature flags API, whose generated client belongs to another product.
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/feature_flags/evaluation_reasons?${toParams({
                             ...(props.distinctId ? { distinct_id: props.distinctId } : {}),

@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'
+import type { Intervals } from 'lib/components/IntervalFilter/intervals'
 import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { isMultiSeriesFormula } from 'lib/utils/strings'
@@ -39,20 +40,6 @@ import {
     TrendsFilter,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { hasBreakdownFilter } from '~/queries/utils'
-import {
-    ChartDisplayType,
-    CountPerActorMathType,
-    HogQLMathType,
-    InsightLogicProps,
-    IntervalType,
-    LifecycleToggle,
-    PropertyMathType,
-    TrendAPIResponse,
-    TrendResult,
-} from '~/types'
-
-import type { Intervals } from '../../lib/components/IntervalFilter/intervals'
 import type {
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -88,8 +75,21 @@ import type {
     VizSpecificOptions,
     WebOverviewQuery,
     WebStatsTableQuery,
-} from '../../queries/schema/schema-general'
-import type { PathsV2Query } from '../../queries/schema/schema-general'
+} from '~/queries/schema/schema-general'
+import type { PathsV2Query } from '~/queries/schema/schema-general'
+import { hasBreakdownFilter } from '~/queries/utils'
+import {
+    ChartDisplayType,
+    CountPerActorMathType,
+    HogQLMathType,
+    InsightLogicProps,
+    IntervalType,
+    LifecycleToggle,
+    PropertyMathType,
+    TrendAPIResponse,
+    TrendResult,
+} from '~/types'
+
 import { IndexedTrendResult } from './types'
 
 export const RESULT_CUSTOMIZATION_DEFAULT = ResultCustomizationBy.Value

@@ -11,46 +11,45 @@ import { urls } from 'scenes/urls'
 import { EmailViewerModal } from 'products/workflows/frontend/Workflows/EmailViewerModal'
 import { MessageAsset } from 'products/workflows/frontend/Workflows/messageAssetsApi'
 
-import { personPushNotificationsLogic } from './personPushNotificationsLogic'
+import { personEmailsLogic } from '../logics/personEmailsLogic'
 
 const HedgehogGreek = pngHoggie(greekPng)
 
-interface PersonPushNotificationsTabProps {
+interface PersonEmailsTabProps {
     teamId: number
     personId: string
 }
 
-function EmptyPushNotifications(): JSX.Element {
+function EmptyEmails(): JSX.Element {
     return (
         <div className="flex flex-col bg-surface-primary rounded px-4 py-8 items-center text-center mx-auto">
             <HedgehogGreek width="100" height="100" className="mb-4" />
-            <h2 className="text-xl leading-tight">No push notifications sent to this person</h2>
+            <h2 className="text-xl leading-tight">No emails sent to this person</h2>
             <p className="text-sm text-balance text-tertiary">
-                Once a workflow sends this person a push notification, it will show up here. Notifications only appear
-                once a device took delivery.
+                Once a workflow sends this person an email, it will show up here.
             </p>
         </div>
     )
 }
 
-export function PersonPushNotificationsTab({ teamId, personId }: PersonPushNotificationsTabProps): JSX.Element {
-    const logic = personPushNotificationsLogic({ teamId, personId })
-    const { pushNotifications, pushNotificationsLoading } = useValues(logic)
+export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX.Element {
+    const logic = personEmailsLogic({ teamId, personId })
+    const { emails, emailsLoading } = useValues(logic)
     const [selected, setSelected] = useState<MessageAsset | null>(null)
 
     return (
         <>
             <LemonTable
-                loading={pushNotificationsLoading}
-                dataSource={pushNotifications}
+                loading={emailsLoading}
+                dataSource={emails}
                 onRow={(asset: MessageAsset) => ({
                     onClick: () => setSelected(asset),
                     className: 'cursor-pointer',
                 })}
-                emptyState={<EmptyPushNotifications />}
+                emptyState={<EmptyEmails />}
                 columns={[
                     {
-                        title: 'Title',
+                        title: 'Subject',
                         dataIndex: 'subject',
                         key: 'subject',
                     },
@@ -81,8 +80,8 @@ export function PersonPushNotificationsTab({ teamId, personId }: PersonPushNotif
                 actionId={selected?.action_id ?? ''}
                 isOpen={!!selected}
                 onClose={() => setSelected(null)}
-                title={selected?.subject || 'Push notification'}
-                description={undefined}
+                title={selected?.subject || 'Email'}
+                description={selected ? `Sent to ${selected.recipient}` : undefined}
             />
         </>
     )

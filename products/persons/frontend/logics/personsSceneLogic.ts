@@ -14,8 +14,7 @@ import { urls } from 'scenes/urls'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
-
-import type { TeamPublicType, TeamType } from '../../types'
+import type { TeamPublicType, TeamType } from '~/types'
 
 export const PEOPLE_LIST_CONTEXT_KEY = 'people-list'
 

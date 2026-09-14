@@ -27,8 +27,6 @@ import { pluralize } from 'lib/utils/strings'
 import { tryDecodeURIComponent } from 'lib/utils/url'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
-import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
-import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
@@ -54,15 +52,17 @@ import { ComposeTicketButton } from 'products/conversations/frontend/components/
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 import { RelatedGroups } from 'products/groups/frontend/components/RelatedGroups'
 
-import { MergeSplitPerson } from './MergeSplitPerson'
-import { asDisplay, pickBestPersonDistinctId } from './person-utils'
-import { PersonCohorts } from './PersonCohorts'
-import { PersonEmailsTab } from './PersonEmailsTab'
-import { PersonLogsTab } from './PersonLogsTab'
-import PersonProfileCanvas from './PersonProfileCanvas'
-import { PersonPushNotificationsTab } from './PersonPushNotificationsTab'
-import { PERSON_EVENTS_CONTEXT_KEY, PersonsLogicProps, personsLogic } from './personsLogic'
-import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { MergeSplitPerson } from '../components/MergeSplitPerson'
+import { PersonCohorts } from '../components/PersonCohorts'
+import { PersonDeleteModal } from '../components/PersonDeleteModal'
+import { PersonEmailsTab } from '../components/PersonEmailsTab'
+import { PersonLogsTab } from '../components/PersonLogsTab'
+import PersonProfileCanvas from '../components/PersonProfileCanvas'
+import { PersonPushNotificationsTab } from '../components/PersonPushNotificationsTab'
+import { RelatedFeatureFlags } from '../components/RelatedFeatureFlags'
+import { personDeleteModalLogic } from '../logics/personDeleteModalLogic'
+import { PERSON_EVENTS_CONTEXT_KEY, PersonsLogicProps, personsLogic } from '../logics/personsLogic'
+import { asDisplay, pickBestPersonDistinctId } from '../person-utils'
 
 export const scene: SceneExport<PersonsLogicProps> = {
     component: PersonScene,
@@ -161,6 +161,8 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
 
         try {
             // Prepare toolbar flags on backend and get cache key
+            // This posts to the user API, which has no generated function.
+            // nosemgrep: prefer-codegen-api
             const response = await api.create('api/user/prepare_toolbar_preloaded_flags', {
                 distinct_id: distinctId,
             })
