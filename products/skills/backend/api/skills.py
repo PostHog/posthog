@@ -56,7 +56,7 @@ from ..marketplace.credentials import (
     marketplace_credential_label,
     marketplace_repo_url,
 )
-from ..marketplace.packaging import SkillImportError, build_skill_zip, parse_skill_zip, validate_for_export
+from ..marketplace.packaging import SkillExport, SkillImportError, build_skill_zip, parse_skill_zip
 from ..models.skills import LLMSkill, LLMSkillFile
 from .community_publish_services import (
     CommunitySkillPublishError,
@@ -97,7 +97,6 @@ from .skill_serializers import (
     LLMSkillVersionSummarySerializer,
     validate_allowed_tool,
     validate_skill_body_size,
-    validate_skill_file_path,
     validate_skill_name_value,
 )
 from .skill_services import (
@@ -113,6 +112,7 @@ from .skill_services import (
     LLMSkillVersionConflictError,
     LLMSkillVersionLimitError,
     archive_skill,
+    compute_spec_problems,
     create_skill,
     create_skill_file,
     delete_skill_file,
@@ -368,6 +368,14 @@ class ZipRenderer(BaseRenderer):
         if renderer_context is not None:
             renderer_context["response"]["Content-Type"] = "application/json"
         return SafeJSONRenderer().render(data, "application/json", renderer_context)
+
+
+def _spec_problem_messages(export: SkillExport) -> list[str]:
+    """The shared packaging rules as plain messages, for the endpoints that report them as strings."""
+    return [
+        problem.message
+        for problem in compute_spec_problems(export.name, export.description, [f.path for f in export.files])
+    ]
 
 
 def _spec_problems_detail(lead: str, problems: list[str], next_step: str) -> str:
@@ -1017,7 +1025,7 @@ class LLMSkillViewSet(
             return self._skill_not_found_response(skill_name)
 
         export = load_skill_export(skill)
-        problems = validate_for_export(export)
+        problems = _spec_problem_messages(export)
         if problems:
             return Response(
                 {
@@ -1171,8 +1179,8 @@ class LLMSkillViewSet(
         # The import path calls create_skill directly, so it must re-apply the same size/shape limits
         # the create/edit serializers enforce — otherwise a spec-valid zip could persist content
         # (oversized body/files, whitespace-bearing tools) the rest of the system assumes is bounded.
-        # validate_for_export already covers the description (non-empty, ≤ spec limit).
-        problems: list[str] = list(validate_for_export(skill_export))
+        # _spec_problem_messages already covers the description, the name shape and the file paths.
+        problems: list[str] = _spec_problem_messages(skill_export)
         try:
             validate_skill_name_value(skill_export.name)
         except serializers.ValidationError as err:
@@ -1191,18 +1199,9 @@ class LLMSkillViewSet(
         if len(skill_export.compatibility) > 500:
             problems.append("compatibility must be 500 characters or fewer")
 
-        seen_lower: set[str] = set()
         for skill_file in skill_export.files:
-            try:
-                validate_skill_file_path(skill_file.path)
-            except serializers.ValidationError as err:
-                problems.append(f"file '{skill_file.path}': {self._first_error(err)}")
             if len(skill_file.content.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
                 problems.append(f"file '{skill_file.path}': content must be {MAX_SKILL_FILE_BYTES} bytes or fewer")
-            lowered = skill_file.path.lower()
-            if lowered in seen_lower:
-                problems.append(f"file '{skill_file.path}': collides with another file (case-insensitive)")
-            seen_lower.add(lowered)
         return problems
 
     @staticmethod
@@ -1835,9 +1834,20 @@ class LLMSkillViewSet(
     # `Sequence`, not `list[...]`: the viewset defines a `list` method that shadows the builtin in the
     # class body where this annotation is evaluated.
     def _list_context_with_owners(self, skills: Sequence[LLMSkill]) -> dict[str, Any]:
-        """Serializer context carrying a name→owners map, so the list serializes owners in one query."""
-        owners_by_skill_name = resolve_skill_owners_for_names(self.team, [skill.name for skill in skills])
-        return {**self.get_serializer_context(), "owners_by_skill_name": owners_by_skill_name}
+        """Serializer context carrying the per-page owners and bundled-file paths, one query each.
+
+        The list drops the file manifest but still reports `spec_problems`, which the paths decide.
+        """
+        file_paths_by_skill_id: dict[Any, list[str]] = {}
+        for skill_id, path in (
+            LLMSkillFile.objects.filter(skill__in=skills).order_by("path").values_list("skill_id", "path")
+        ):
+            file_paths_by_skill_id.setdefault(skill_id, []).append(path)
+        return {
+            **self.get_serializer_context(),
+            "owners_by_skill_name": resolve_skill_owners_for_names(self.team, [skill.name for skill in skills]),
+            "file_paths_by_skill_id": file_paths_by_skill_id,
+        }
 
     # Explicit response schema: the request serializer (`LLMSkillCreateSerializer`) exposes `owners`
     # write-only as a UUID list, but the view returns `_serialize_skill` (`LLMSkillSerializer`) with
