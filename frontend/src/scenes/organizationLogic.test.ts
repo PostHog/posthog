@@ -162,5 +162,26 @@ describe('organizationLogic', () => {
             // The router writes back a `/project/<id>` prefix, so compare on the route.
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(expected)
         })
+        it("keeps a link into another organization's project", async () => {
+            // The current organization's block does not reach a project it does not own. The
+            // middleware resolves the same path server-side on a full page load.
+            mountWith({ is_active: false, teams: [{ id: 1 }] } as unknown as Partial<OrganizationType>)
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+
+            router.actions.push('/project/424242/dashboard')
+
+            await expectLogic(router).toDispatchActions(['push'])
+            expect(router.values.location.pathname).toBe('/project/424242/dashboard')
+        })
+
+        it('still blocks a link into a project the organization owns', async () => {
+            mountWith({ is_active: false, teams: [{ id: 424242 }] } as unknown as Partial<OrganizationType>)
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+
+            router.actions.push('/project/424242/dashboard')
+
+            await expectLogic(router).toDispatchActions(['push'])
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.organizationDeactivated())
+        })
     })
 })

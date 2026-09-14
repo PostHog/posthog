@@ -46,6 +46,23 @@ function organizationBlock(organization: OrganizationType | null): OrganizationB
     return null
 }
 
+/**
+ * Whether the path names a project outside the current organization. Such a path carries its own
+ * organization, so the current one's block does not reach it. Returns false while the team list is
+ * unknown, which keeps the block on rather than opening the app on missing data.
+ */
+function pathLeavesCurrentOrganization(organization: OrganizationType | null, pathname: string): boolean {
+    const teams = organization?.teams
+    if (!teams) {
+        return false
+    }
+    const projectId = pathname.match(/^\/project\/([^/]+)/)?.[1]
+    if (projectId === undefined) {
+        return false
+    }
+    return !teams.some((team) => String(team.id) === projectId)
+}
+
 function pageIsAllowed(block: OrganizationBlock, pathname: string): boolean {
     return (
         pathname === blockPage(block) ||
@@ -381,10 +398,13 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         locationChanged: ({ pathname }) => {
             const block = organizationBlock(values.currentOrganization)
+            if (block === null || pathLeavesCurrentOrganization(values.currentOrganization, pathname)) {
+                return
+            }
             // The pathname can carry the router's `/project/<id>` prefix while the allowed pages
             // are routes, so compare on the route. Otherwise the replace below never matches its
             // own destination and the two keep redirecting to each other.
-            if (block === null || pageIsAllowed(block, removeProjectIdIfPresent(pathname))) {
+            if (pageIsAllowed(block, removeProjectIdIfPresent(pathname))) {
                 return
             }
             router.actions.replace(blockPage(block))

@@ -17,7 +17,7 @@ from django.urls.base import reverse
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import exceptions, status
 
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
@@ -2296,6 +2296,21 @@ class TestInviteSignupAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "organization_deactivated")
+        self.assertEqual(OrganizationMembership.objects.count(), membership_count)
+
+    def test_cant_claim_an_invite_blocked_after_validation(self):
+        # `validate()` runs before `use()` opens its transaction, so a deactivation landing in
+        # between used to reach `user.join()`. `prevalidated=True` is that window.
+        blocked_org = Organization.objects.create(name="Blocked Org", is_active=False)
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+blockedrace@posthog.com", organization=blocked_org
+        )
+        membership_count = OrganizationMembership.objects.count()
+
+        with self.assertRaises(exceptions.ValidationError) as refusal:
+            invite.use(self.user, prevalidated=True)
+
+        self.assertEqual(refusal.exception.get_codes(), ["organization_deactivated"])
         self.assertEqual(OrganizationMembership.objects.count(), membership_count)
 
     def test_api_invite_sign_up_prevalidate_expired_invite(self):

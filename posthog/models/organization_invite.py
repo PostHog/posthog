@@ -15,7 +15,7 @@ from posthog.email import is_email_available
 from posthog.helpers.email_utils import EmailNormalizer, EmailValidationHelper
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.onboarding_delegation import mark_delegators_accepted
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel, sane_repr
 from posthog.organization_access import block_invite_detail, organization_block
@@ -175,6 +175,15 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                 OrganizationInvite.objects.select_for_update().get(pk=self.pk)
             except OrganizationInvite.DoesNotExist:
                 raise InviteExpiredException("This invite has already been used.")
+
+            # Re-read the organization inside the transaction. `validate()` ran before this block
+            # opened, so a block applied in between would otherwise reach `user.join()` and create
+            # the membership anyway. Read without `select_for_update`: a lock on an `Organization`
+            # row blocks unrelated child writes through Postgres foreign-key `KEY SHARE` locks
+            # (see AGENTS.md, "Do not use Team or Organization rows as mutexes").
+            block = organization_block(Organization.objects.get(pk=self.organization_id))
+            if block is not None:
+                raise exceptions.ValidationError(block_invite_detail(block), code=block.value)
 
             membership = user.join(organization=self.organization, level=cast(OrganizationMembership.Level, self.level))
             if self.created_by_id is not None:
