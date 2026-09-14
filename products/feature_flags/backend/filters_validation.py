@@ -35,13 +35,11 @@ STRING_VALUE_OPERATORS: frozenset[str] = frozenset(
         "not_regex",
         "icontains",
         "not_icontains",
-        "gt",
-        "gte",
-        "lt",
-        "lte",
     }
     | set(STRING_PREFIX_SUFFIX_OPERATORS)
 )
+# Every evaluator parses either form to the same number, so both are accepted.
+NUMERIC_COMPARISON_OPERATORS: frozenset[str] = frozenset({"gt", "gte", "lt", "lte"})
 LIST_VALUE_OPERATORS: frozenset[str] = frozenset({"icontains_multi", "not_icontains_multi"})
 SEMVER_OPERATORS: frozenset[str] = frozenset(
     {
@@ -246,6 +244,16 @@ def check_operator_value_compatibility(filters: Mapping[str, Any]) -> list[Viola
                         rule_id="cross_field.operator_requires_string_value",
                         path=path,
                         message=f"Operator {operator} requires a string value.",
+                    )
+                )
+            if operator in NUMERIC_COMPARISON_OPERATORS and (
+                isinstance(value, bool) or not isinstance(value, str | int | float)
+            ):
+                violations.append(
+                    Violation(
+                        rule_id="cross_field.operator_requires_string_value",
+                        path=path,
+                        message=f"Operator {operator} requires a string or number value.",
                     )
                 )
             if operator in LIST_VALUE_OPERATORS and not isinstance(value, list):
