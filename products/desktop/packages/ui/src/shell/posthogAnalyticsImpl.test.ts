@@ -228,7 +228,10 @@ describe("networkMetricPath", () => {
     const { networkMetricPath } = await loadAnalytics();
 
     const path = networkMetricPath(
-      { url: "https://internal-c.posthog.com/api/projects/1/tasks/", method: "GET" },
+      {
+        url: "https://internal-c.posthog.com/api/projects/1/tasks/",
+        method: "GET",
+      },
       apiHost,
     );
 
@@ -252,7 +255,10 @@ describe("networkMetricPath", () => {
   it("collapses the path for an unparseable URL", async () => {
     const { networkMetricPath } = await loadAnalytics();
 
-    const path = networkMetricPath({ url: "not a url", method: "GET" }, apiHost);
+    const path = networkMetricPath(
+      { url: "not a url", method: "GET" },
+      apiHost,
+    );
 
     expect(path).toBe("external");
   });
@@ -264,8 +270,8 @@ describe("metrics.network.attributes callback", () => {
 
     initializePostHog();
 
-    const attributesCallback = mockPosthog.init.mock.calls[0][1].metrics.network
-      .attributes;
+    const attributesCallback =
+      mockPosthog.init.mock.calls[0][1].metrics.network.attributes;
     const result = attributesCallback({
       url: "https://internal-c.posthog.com/api/projects/1/tasks/",
       method: "GET",
@@ -279,8 +285,8 @@ describe("metrics.network.attributes callback", () => {
 
     initializePostHog();
 
-    const attributesCallback = mockPosthog.init.mock.calls[0][1].metrics.network
-      .attributes;
+    const attributesCallback =
+      mockPosthog.init.mock.calls[0][1].metrics.network.attributes;
     const result = attributesCallback({
       url: "https://s3.example.com/bucket/artifacts/secret_filename.pdf",
       method: "GET",
