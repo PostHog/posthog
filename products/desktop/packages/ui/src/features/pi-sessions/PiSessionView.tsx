@@ -30,6 +30,7 @@ import {
   Skeleton,
 } from "@posthog/quill";
 import { MCP_TOOL_PERMISSION_OPTIONS } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
@@ -51,6 +52,7 @@ import { useWorkspace } from "@posthog/ui/features/workspace/useWorkspace";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
 import { toast } from "@posthog/ui/primitives/toast";
 import { TaskDetailSkeleton } from "@posthog/ui/router/routeSkeletons";
+import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import {
   type ReactElement,
@@ -253,6 +255,26 @@ function usePiFailureNotice(failure: PiControllerSessionState["error"]): void {
       toast.error(failure.title, { description: failure.message });
     }
   }, [failure]);
+}
+
+// Module scope: the controller keeps a connection failure in the store after the
+// view closes, so a remount would otherwise capture the same one again.
+const capturedFailureIds = new Set<string>();
+
+function usePiConnectionFailureCapture(
+  taskId: string,
+  failure: PiControllerSessionState["error"],
+): void {
+  useEffect(() => {
+    if (failure?.scope !== "connection" || capturedFailureIds.has(failure.id)) {
+      return;
+    }
+    capturedFailureIds.add(failure.id);
+    track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+      task_id: taskId,
+      error_type: failure.kind,
+    });
+  }, [failure, taskId]);
 }
 
 function usePiFailureAcknowledgement(
@@ -543,6 +565,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
   usePiExtensionTitle(extensionState?.title);
   usePiRecoveryPrompt(taskId, session?.error);
   usePiFailureNotice(session?.error);
+  usePiConnectionFailureCapture(taskId, session?.error);
   usePiFailureAcknowledgement(taskId, session?.error);
 
   const mcpPermission = session?.mcpToolPermissionRequests
