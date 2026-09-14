@@ -2,7 +2,6 @@ import { match } from 'ts-pattern'
 
 import { ActivityLogItem, ActivityLogUserName, HumanizedChange } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
 import { ExperimentStatus } from '~/types'
 
@@ -15,27 +14,6 @@ import {
     nameOrLinkToExperiment,
     nameOrLinkToSharedMetric,
 } from './activity-descriptions'
-
-//exporting so the linter doesn't complain about this not being used
-export const ExperimentDetails = ({
-    logItem,
-    status,
-}: {
-    logItem: ActivityLogItem
-    status: ExperimentStatus
-}): JSX.Element => {
-    return (
-        <LemonCard className="flex items-center justify-between gap-3 p-4">
-            <div className="flex flex-col gap-1">
-                <strong className="text-sm font-semibold">
-                    {nameOrLinkToExperiment(logItem.detail.name, logItem.item_id)}
-                </strong>
-                <span className="text-xs text-muted">Experiment</span>
-            </div>
-            <StatusTag status={status} />
-        </LemonCard>
-    )
-}
 
 const UnknownAction = ({ logItem }: { logItem: ActivityLogItem }): JSX.Element => {
     return (

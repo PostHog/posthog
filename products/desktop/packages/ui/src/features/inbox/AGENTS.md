@@ -211,6 +211,11 @@ label, `size="icon-sm"` for an icon-only one. A row of buttons that each carry
 their own `h-7 px-2.5 text-[12px]` drifts apart the moment one of them is
 edited, and it sits a size away from every other toolbar in the app.
 
+An evidence card links to its source object, and it builds that link from the signal's own identity.
+A Conversations ticket resolves through `supportTicketUrl`, from `extra.ticket_number` when the emitter stored one and from the ticket uuid in `source_id` otherwise, so the destination carries the source project and region.
+A card that can identify neither says the source is unavailable instead of rendering a link.
+Never read a destination out of the excerpt.
+
 Shared primitives exist to keep the surfaces consistent:
 
 - `InboxDetailPageHeader` for detail headers.

@@ -69,9 +69,9 @@ import { BULK_ARCHIVE_MAX_FLAGS, flagSelectionLogic } from './flagSelectionLogic
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
 
-// "NPS - Feature Flags" in project 2: https://us.posthog.com/project/2/surveys/018bcec8-6cf5-0000-c724-a51a86a4e8b1
-// The survey also self-triggers as a popover on feature flag URLs; this is the on-demand path.
-const FEATURE_FLAGS_NPS_SURVEY_ID = '018bcec8-6cf5-0000-c724-a51a86a4e8b1'
+// "Feature Flags open feedback" in project 2: https://us.posthog.com/project/2/surveys/01a08364-0b1f-0000-5d00-170b29838bc5
+// Button-only: its URL condition never matches, so this button is the survey's sole entry point.
+const FEATURE_FLAGS_FEEDBACK_SURVEY_ID = '01a08364-0b1f-0000-5d00-170b29838bc5'
 
 function FlagDescription({ name }: { name: string }): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
@@ -789,7 +789,7 @@ export function FeatureFlags(): JSX.Element {
                 actions={
                     <>
                         <FeedbackSurveyButton
-                            surveyId={FEATURE_FLAGS_NPS_SURVEY_ID}
+                            surveyId={FEATURE_FLAGS_FEEDBACK_SURVEY_ID}
                             data-attr="feature-flags-feedback-button"
                         />
                         <AccessControlAction

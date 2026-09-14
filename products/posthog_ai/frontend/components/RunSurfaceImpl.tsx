@@ -7,7 +7,7 @@ import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
 import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
 import { type TurnTrailer } from '../utils/turnTrailers'
-import { ContextUsageBar } from './ContextUsageBar'
+import { ContextUsageChip } from './ContextUsageChip'
 import { FeedbackPromptTrailer } from './FeedbackPromptTrailer'
 import { PermissionInput } from './PermissionInput'
 import { QuestionInput } from './QuestionInput'
@@ -191,7 +191,14 @@ function RunSurfaceThread({
     className,
     listClassName,
     rowClassName,
-}: { className?: string; listClassName?: string; rowClassName?: string } = {}): JSX.Element {
+    showContextUsage = false,
+}: {
+    className?: string
+    listClassName?: string
+    rowClassName?: string
+    /** Composer-less live embeds keep the usage line in the thread footer; the runner shows it in its composer. */
+    showContextUsage?: boolean
+} = {}): JSX.Element {
     const { interaction, isScout, taskId, streamKey, runId } = useRunSurfaceContext()
     const { bootstrapLoading, hasThreadItems } = useValues(runStreamLogic)
     // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
@@ -224,15 +231,16 @@ function RunSurfaceThread({
     if (showSkeleton) {
         return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }
-    // Context usage rides the thread footer for live runs, but never for a
-    // scout run. An error surfaces as a `handleStreamError` item folded into the thread, so it renders here too.
-    // Turn feedback follows the same gate: only interactive, non-scout surfaces collect ratings.
+    // The runner shows context usage in its composer footer (`ContextUsageChip`); a surface with no
+    // composer opts back into the thread footer line. Never for a scout run.
+    // An error surfaces as a `handleStreamError` item folded into the thread, so it renders here too.
+    // Turn feedback: only interactive, non-scout surfaces collect ratings.
     return (
         <ThreadView
             className={className}
             listClassName={listClassName}
             rowClassName={rowClassName}
-            showContextUsage={interaction === 'live' && !isScout}
+            showContextUsage={showContextUsage && interaction === 'live' && !isScout}
             renderTurnTrailer={collectsFeedback ? renderTurnTrailer : undefined}
             footerExtra={feedbackPrompt}
         />
@@ -240,12 +248,11 @@ function RunSurfaceThread({
 }
 
 /**
- * Input-region slot: owns prompt-vs-composer precedence and the null-bootstrap gate. While a permission /
+ * Input-region slot: owns prompt-vs-composer precedence and the bootstrap gate. While a permission /
  * question request is pending (and the run isn't terminal) it renders the approval prompt; otherwise it
  * renders the consumer's composer `children`. Renders nothing outside live mode, during the `null` bootstrap
- * window, or when no composer children are supplied (e.g. `ReadonlyRunSurface`). The composer thus shows for
- * any settled run status (active runs take a follow-up, terminal runs start a fresh run from the typed
- * message), is hidden during bootstrap, and is replaced by the prompt while a request is pending.
+ * window without an optimistic start, or when no composer children are supplied (e.g. `ReadonlyRunSurface`).
+ * The composer also shows during optimistic startup so follow-ups can queue before the agent is ready.
  */
 function RunSurfaceComposer({
     children,
@@ -255,7 +262,7 @@ function RunSurfaceComposer({
     isStopping?: boolean
 }): JSX.Element | null {
     const { interaction, streamKey } = useRunSurfaceContext()
-    const { pendingPermissionRequest, respondingToPermission, currentRunStatus } = useValues(runStreamLogic)
+    const { pendingPermissionRequest, respondingToPermission, currentRunStatus, runOpening } = useValues(runStreamLogic)
     if (interaction !== 'live') {
         return null
     }
@@ -276,7 +283,7 @@ function RunSurfaceComposer({
                     </div>
                 </div>
             )}
-            {children && currentRunStatus !== null && (
+            {children && (currentRunStatus !== null || runOpening) && (
                 <div
                     hidden={showApproval}
                     data-attr="composer"
@@ -301,5 +308,5 @@ export const RunSurface = Object.assign(RunSurfaceRoot, {
     Root: RunSurfaceRoot,
     Thread: RunSurfaceThread,
     Composer: RunSurfaceComposer,
-    ContextUsage: ContextUsageBar,
+    ContextUsage: ContextUsageChip,
 })

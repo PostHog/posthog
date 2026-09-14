@@ -300,17 +300,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 })
 
                 await this.hogflowQueue.queueInvocations([hogFlowInvocation])
-
-                addMetric({
-                    metric_kind: 'billing',
-                    metric_name: 'billable_invocation',
-                    count: 1,
-                })
-
-                this.cdpUsageReporter.reportBillableInvocation({
-                    teamId: invocation.teamId,
-                    recordId: `webhook:${invocationId}`,
-                })
             } else {
                 addMetric({
                     metric_kind: 'failure',

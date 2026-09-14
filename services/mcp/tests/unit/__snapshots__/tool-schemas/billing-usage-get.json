@@ -16,13 +16,17 @@
         "breakdowns": {
             "anyOf": [
                 {
-                    "type": "string"
+                    "items": {
+                        "enum": ["type", "team"],
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are \"type\" (by usage type) and \"team\" (by project). Pass `[\"type\"]` for per-usage-type series, or `[\"type\",\"team\"]` for per-project series within each usage type. Team breakdowns require \"type\"; do not pass `[\"team\"]` by itself. Omit for a single aggregate series. Sending a bare string like \"type,team\" will fail with a 400 error."
+            "description": "Dimensions to break usage down by. Pass `[\"type\"]` for per-usage-type series or `[\"type\",\"team\"]` for per-project series within each usage type. Team breakdowns require `\"type\"`; do not pass `[\"team\"]` by itself. Omit for one aggregate series."
         },
         "end_date": {
             "anyOf": [
@@ -73,13 +77,18 @@
         "team_ids": {
             "anyOf": [
                 {
-                    "type": "string"
+                    "items": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                    },
+                    "type": "array"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for every project this request can see: all org teams for full billing-access callers, or the member's visible/project-scoped teams for member read-only callers."
+            "description": "Project IDs to filter by, e.g. `[1,2]`. Omit for every project this request can see: all organization projects for full billing access, or the member-visible and token-scoped projects for member read-only access."
         },
         "top_projects": {
             "anyOf": [
@@ -97,13 +106,17 @@
         "usage_types": {
             "anyOf": [
                 {
-                    "type": "string"
+                    "items": {
+                        "minLength": 1,
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `[\"event_count_in_period\"]` or `[\"event_count_in_period\",\"recording_count_in_period\"]`. Omit for all usage types."
+            "description": "Usage type identifiers to filter by, e.g. `[\"event_count_in_period\"]` or `[\"event_count_in_period\",\"recording_count_in_period\"]`. Omit for all usage types."
         }
     },
     "type": "object"

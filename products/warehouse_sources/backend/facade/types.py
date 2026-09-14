@@ -1410,6 +1410,8 @@ class ExternalDataSourceType(models.TextChoices):
     GOOGLEADSENSE = "GoogleAdSense", "GoogleAdSense"
     SEQUENZY = "Sequenzy", "Sequenzy"
     SKIO = "Skio", "Skio"
+    SMARTLEAD = "Smartlead", "Smartlead"
+    SUBSTACK = "Substack", "Substack"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:

@@ -14,7 +14,8 @@ class DataModelingJobStatus(models.TextChoices):
 
 class DataModelingJobEngine(models.TextChoices):
     CLICKHOUSE = "clickhouse", "ClickHouse"
-    DUCKGRES = "duckgres", "Duckgres"
+    LEGACY_DUCKGRES = "duckgres", "Duckgres"
+    MANAGED_WAREHOUSE = "managed_warehouse", "Managed warehouse"
 
 
 class DataModelingJobRunMode(models.TextChoices):
