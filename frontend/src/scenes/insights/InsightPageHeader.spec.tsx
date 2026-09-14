@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
+import { router } from 'kea-router'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -195,6 +196,50 @@ describe('InsightPageHeader', () => {
                 }
             }
         )
+    })
+
+    describe('edit button', () => {
+        it('opens edit mode when clicked', async () => {
+            const { sceneLogic } = renderHeader({
+                insightMode: ItemMode.View,
+                dashboardItemId: SAVED_INSIGHT_ID,
+            })
+
+            fireEvent.click(queryByAttr('insight-edit-button')!)
+
+            await waitFor(() => {
+                expect(sceneLogic.values.insightMode).toBe(ItemMode.Edit)
+            })
+        })
+
+        it('stays busy, retries, and recovers when the navigation does not take', () => {
+            jest.useFakeTimers()
+            const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation((() => {}) as never)
+            try {
+                renderHeader({ insightMode: ItemMode.View, dashboardItemId: SAVED_INSIGHT_ID })
+                const button = queryByAttr('insight-edit-button')!
+
+                fireEvent.click(button)
+                expect(pushSpy).toHaveBeenCalledTimes(1)
+                expect(button).toHaveClass('LemonButton--loading')
+
+                fireEvent.click(button)
+                expect(pushSpy).toHaveBeenCalledTimes(1)
+
+                act(() => {
+                    jest.advanceTimersByTime(1500)
+                })
+                expect(pushSpy).toHaveBeenCalledTimes(2)
+
+                act(() => {
+                    jest.advanceTimersByTime(5000)
+                })
+                expect(queryByAttr('insight-edit-button')).toHaveAttribute('aria-disabled', 'false')
+            } finally {
+                pushSpy.mockRestore()
+                jest.useRealTimers()
+            }
+        })
     })
 
     describe('alert tool', () => {
