@@ -201,6 +201,17 @@ def resolve_baseline(base: str, repo: Path) -> str:
     return base
 
 
+def changed_files_between(baseline: str, current: str, repo: Path) -> set[str]:
+    return set(
+        filter(
+            None,
+            subprocess.check_output(["git", "diff", "--name-only", "-z", baseline, current], cwd=repo, text=True).split(
+                "\0"
+            ),
+        )
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default="origin/master", help="git ref to compare clones against")
@@ -270,16 +281,7 @@ def main() -> int:
     if scan_failed:
         return 2
 
-    changed_files = set(
-        subprocess.check_output(["git", "diff", "--name-only", "-z", baseline, "HEAD"], cwd=repo, text=True).split(
-            "\0"
-        )
-    )
-    changed_files.update(
-        subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=repo, text=True).split(
-            "\0"
-        )
-    )
+    changed_files = changed_files_between(baseline, "HEAD", repo)
     mark_new_clones(current_clones, baseline_clones, changed_files)
     print(
         f"{len(current_clones)} clones in this tree, {sum(1 for c in current_clones if c['isNew'])} not in the baseline"

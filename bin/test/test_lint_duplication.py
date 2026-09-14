@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+import tempfile
+import subprocess
+from pathlib import Path
+
 import unittest
 
 from parameterized import parameterized
@@ -8,6 +12,7 @@ from bin.lint_duplication import (
     APP_MAX_NEW_CLONE_TOKENS,
     TEST_MAX_NEW_CLONE_TOKENS,
     build_findings,
+    changed_files_between,
     clone_key,
     clone_language,
     find_gate_failures,
@@ -198,6 +203,24 @@ class TestMarkNewClones(unittest.TestCase):
         current = [make_clone("a.py", "b.py", 100)]
         mark_new_clones(current, baseline, changed_files)
         self.assertEqual(current[0]["isNew"], expected_is_new)
+
+
+class TestChangedFilesBetween(unittest.TestCase):
+    def test_ignores_untracked_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            subprocess.run(["git", "init", "--quiet"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True, cwd=repo)
+            (repo / "tracked.py").write_text("before\n")
+            subprocess.run(["git", "add", "tracked.py"], check=True, cwd=repo)
+            subprocess.run(["git", "commit", "--quiet", "-m", "base"], check=True, cwd=repo)
+            baseline = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, cwd=repo).strip()
+            (repo / "tracked.py").write_text("after\n")
+            subprocess.run(["git", "commit", "--quiet", "-am", "change tracked file"], check=True, cwd=repo)
+            (repo / "untracked.py").write_text("generated\n")
+
+            self.assertEqual(changed_files_between(baseline, "HEAD", repo), {"tracked.py"})
 
 
 if __name__ == "__main__":
