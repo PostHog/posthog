@@ -490,7 +490,7 @@ describe('log-record-avro', () => {
             const attribute = JSON.stringify(
                 Object.fromEntries(Array.from({ length: 60 }, (_, index) => [`field${index}`, index]))
             )
-            const records = [{ body: null, attributes: { context: attribute } } as LogRecord]
+            const records = [{ body: null, attributes: { context: attribute } } as unknown as LogRecord]
             await transformDecodedLogRecordsInPlace(records, { json_parse_logs_attribute_key: 'context' })
             expect(Object.keys(records[0].attributes!)).toHaveLength(51)
             expect(records[0].attributes!.context).toBe(attribute)
