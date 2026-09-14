@@ -176,14 +176,14 @@ export interface accountsViewsLogicActions {
     reportColumnResize: () => {
         value: true
     }
-    restoreSavedView: () => {
-        value: true
-    }
     resetViewForm: (values?: { name: string; visibility: ViewVisibility }) => {
         values?: {
             name: string
             visibility: ViewVisibility
         }
+    }
+    restoreSavedView: () => {
+        value: true
     }
     selectView: (id: string) => {
         id: string
