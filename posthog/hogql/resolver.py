@@ -212,6 +212,41 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
 
 
+# ClickHouse's and/or/not accept numbers and booleans only. An expression of one of these types
+# reaches the database as "Illegal type ... of argument of function and", which tells the caller
+# nothing about which part of their query is wrong.
+CONDITION_INCOMPATIBLE_TYPES = (
+    ast.StringType,
+    ast.DateType,
+    ast.DateTimeType,
+    ast.ArrayType,
+    ast.TupleType,
+    ast.UUIDType,
+)
+
+
+def resolve_condition_operand_type(expr: ast.Expr, context: HogQLContext) -> ConstantType:
+    constant_type = (expr.type or ast.UnknownType()).resolve_constant_type(context)
+    if isinstance(constant_type, CONDITION_INCOMPATIBLE_TYPES):
+        printed_type = constant_type.print_type()
+        # The resolver rewrites a column reference into a field or, for property and lazy-join
+        # access, an alias over the expression that reads it.
+        name = None
+        if isinstance(expr, ast.Field):
+            name = ".".join(str(part) for part in expr.chain)
+        elif isinstance(expr, ast.Alias):
+            name = expr.alias
+        if name is not None:
+            raise QueryError(
+                f"'{name}' is of type {printed_type}, so it can't be used as a condition. "
+                f"Compare it to something, for example: {name} = 'some value'"
+            )
+        raise QueryError(
+            f"An expression of type {printed_type} can't be used as a condition. Compare it to something instead."
+        )
+    return constant_type
+
+
 def resolve_table_scope(table_chain: list[str], context: HogQLContext, dialect: HogQLDialect) -> ast.SelectQueryType:
     """Resolve `SELECT * FROM <table_chain>` and return its query scope — the type other expressions
     resolve against to reference the table's columns. Raises `QueryError` if the database/table is
@@ -2561,27 +2596,19 @@ class Resolver(CloningVisitor):
 
     def visit_and(self, node: ast.And):
         node = super().visit_and(node)
-        node.type = ast.BooleanType(
-            nullable=any(
-                (expr.type or ast.UnknownType()).resolve_constant_type(self.context).nullable for expr in node.exprs
-            )
-        )
+        operand_types = [resolve_condition_operand_type(expr, self.context) for expr in node.exprs]
+        node.type = ast.BooleanType(nullable=any(operand_type.nullable for operand_type in operand_types))
         return node
 
     def visit_or(self, node: ast.Or):
         node = super().visit_or(node)
-        node.type = ast.BooleanType(
-            nullable=any(
-                (expr.type or ast.UnknownType()).resolve_constant_type(self.context).nullable for expr in node.exprs
-            )
-        )
+        operand_types = [resolve_condition_operand_type(expr, self.context) for expr in node.exprs]
+        node.type = ast.BooleanType(nullable=any(operand_type.nullable for operand_type in operand_types))
         return node
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
-        node.type = ast.BooleanType(
-            nullable=(node.expr.type or ast.UnknownType()).resolve_constant_type(self.context).nullable
-        )
+        node.type = ast.BooleanType(nullable=resolve_condition_operand_type(node.expr, self.context).nullable)
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):

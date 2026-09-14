@@ -1995,29 +1995,31 @@ class TestPrinter(BaseTest):
         )
 
     def test_logic(self):
+        # Every operand is a condition, not a bare column: ClickHouse's and/or/not take numbers
+        # and booleans only, so the resolver rejects a value of any other type in this position.
         self.assertEqual(
-            self._expr("event or timestamp"),
-            "or(events.event, toTimeZone(events.timestamp, %(hogql_val_0)s))",
+            self._expr("notEmpty(event) or isNotNull(timestamp)"),
+            "or(notEmpty(events.event), isNotNull(toTimeZone(events.timestamp, %(hogql_val_0)s)))",
         )
         self.assertEqual(
-            self._expr("properties.bla and properties.bla2"),
+            self._expr("notEmpty(properties.bla) and notEmpty(properties.bla2)"),
             (
-                f"and({self._json_dynamic_property_expr('bla')}, {self._json_dynamic_property_expr('bla2')})"
+                f"and(notEmpty({self._json_dynamic_property_expr('bla')}), notEmpty({self._json_dynamic_property_expr('bla2')}))"
                 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-                else "and(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))"
+                else "and(notEmpty(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')), notEmpty(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')))"
             ),
         )
         self.assertEqual(
-            self._expr("event or timestamp or count()"),
-            "or(events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), count())",
+            self._expr("notEmpty(event) or isNotNull(timestamp) or count()"),
+            "or(notEmpty(events.event), isNotNull(toTimeZone(events.timestamp, %(hogql_val_0)s)), count())",
         )
         self.assertEqual(
-            self._expr("event or timestamp or true or count()"),
+            self._expr("notEmpty(event) or isNotNull(timestamp) or true or count()"),
             "1",
         )
         self.assertEqual(
-            self._expr("event or not timestamp"),
-            "or(events.event, not(toTimeZone(events.timestamp, %(hogql_val_0)s)))",
+            self._expr("notEmpty(event) or not isNotNull(timestamp)"),
+            "or(notEmpty(events.event), not(isNotNull(toTimeZone(events.timestamp, %(hogql_val_0)s))))",
         )
 
     def test_comparisons(self):
