@@ -47,17 +47,14 @@ export interface RecordEventUsageInput {
 }
 
 /**
- * The timestamp is UTC-normalized upstream, so its first ten characters are the same day
- * `toDate` resolves in the billing table's sorting key.
- *
- * Hashed rather than joined, because event names and distinct IDs are client-supplied and
- * together exceed the 512-byte identifier the service accepts. One oversized record makes the
- * service reject the whole request, which would drop every record batched with it.
+ * Hashed rather than joined: event names and distinct IDs are client-supplied and together
+ * exceed the 512-byte identifier the service accepts, and one oversized record makes the
+ * service reject the whole request. The timestamp is UTC-normalized upstream, so its first
+ * ten characters are the day `toDate` resolves in the billing table's sorting key.
  */
 function hashedRecordId(timestamp: string, identity: string[]): string {
     const day = timestamp.slice(0, 10)
-    // JSON rather than a separator: an event name and a distinct ID can both contain any
-    // character, so `a\nb` with `c` and `a` with `b\nc` would hash the same and bill once.
+    // JSON rather than a separator, so `a\nb` + `c` and `a` + `b\nc` hash differently.
     return `${day}:${createHash('sha256').update(JSON.stringify(identity)).digest('hex').slice(0, 32)}`
 }
 
@@ -76,11 +73,9 @@ function analyticsRecordId(preparedEvent: RecordEventUsageInput['preparedEvent']
 }
 
 /**
- * A multi-question survey emits one `survey sent` event per answered step, all sharing a
- * `$survey_submission_id`, and the nightly report bills that submission once by keeping one
- * row per `($survey_id, $survey_submission_id)`. Giving those events one record ID lets the
- * billing table's ReplacingMergeTree collapse them the same way. Events without a submission
- * ID fall back to the per-event identity, which is also what the report does.
+ * Each answered step of a multi-question survey emits its own `survey sent` event. The nightly
+ * report bills one row per `($survey_id, $survey_submission_id)`, so sharing that identity lets
+ * the billing table's ReplacingMergeTree collapse the steps the same way.
  */
 function surveyResponseRecordId(preparedEvent: RecordEventUsageInput['preparedEvent']): string {
     const surveyId = preparedEvent.properties.$survey_id
