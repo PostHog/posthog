@@ -1,0 +1,7 @@
+version: 1
+owners: []
+rules:
+    # Org SSO: verified domains, SAML/SCIM/OIDC config. Backend counterpart:
+    # posthog/api/organization_domain.py, ee/api/authentication.py.
+    - match: ['/IdentityProviderConfig/', '/VerifiedDomains/']
+      owners: team-platform-features
