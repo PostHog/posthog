@@ -1,9 +1,11 @@
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.db import OperationalError
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from structlog.testing import capture_logs
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -12,6 +14,7 @@ from posthog.models.user import User
 
 from products.tasks.backend.models import Loop, Task, TaskRun
 from products.tasks.backend.temporal.client import (
+    _capture_run_feature_flags,
     execute_task_processing_workflow,
     execute_task_processing_workflow_async,
     redispatch_orphaned_task_run,
@@ -285,6 +288,30 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.state["pending_user_message_ids"], ["message-1"])
         self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
+
+
+@override_settings(DEBUG=False)
+class TestCaptureRunFeatureFlags(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing_run", TaskRun.DoesNotExist(), "run_feature_flag_capture_run_missing"),
+            ("dead_connection", OperationalError("the connection is closed"), "run_feature_flag_capture_failed"),
+        ]
+    )
+    def test_lookup_failure_names_its_cause_and_keeps_the_run_id(
+        self, _name: str, error: Exception, expected_event: str
+    ) -> None:
+        run_id = "0198f0ac-0000-7000-8000-000000000000"
+
+        with (
+            patch("products.tasks.backend.temporal.client.TaskRun.objects") as objects,
+            capture_logs() as logs,
+        ):
+            objects.select_related.return_value.get.side_effect = error
+            _capture_run_feature_flags(run_id)
+
+        self.assertEqual([entry["event"] for entry in logs], [expected_event])
+        self.assertEqual(logs[0]["run_id"], run_id)
 
 
 @override_settings(DEBUG=False)

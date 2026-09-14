@@ -5,8 +5,8 @@ from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.conf import settings
-from django.db import transaction
-from django.test import SimpleTestCase, TestCase
+from django.db import DatabaseError, transaction
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -448,3 +448,26 @@ class TestDispatcherCompletionCallback(SimpleTestCase):
         self.assertEqual(failed_total() - before, expected_delta)
         self.assertNotIn(task, in_flight)
         self.assertNotIn(dispatch.id, in_flight_ids)
+
+
+class TestDispatcherPollConnectionRecovery(SimpleTestCase):
+    @override_settings(TASKS_DISPATCHER_POLL_INTERVAL_SECONDS=0)
+    def test_failed_poll_discards_the_connection_before_polling_again(self) -> None:
+        class StopDispatcher(Exception):
+            pass
+
+        module = "products.tasks.backend.management.commands.run_task_workflow_dispatcher"
+        polls = [DatabaseError("server closed the connection unexpectedly"), StopDispatcher()]
+
+        with (
+            patch(f"{module}.async_connect", AsyncMock()),
+            patch(f"{module}.sample_dispatch_metrics"),
+            patch(f"{module}.release_claims"),
+            patch(f"{module}.claim_dispatches", side_effect=polls) as claim,
+            patch(f"{module}.close_old_connections") as close,
+        ):
+            with self.assertRaises(StopDispatcher):
+                asyncio.run(Command()._run())
+
+        self.assertEqual(claim.call_count, 2)
+        self.assertEqual(close.call_count, 1)
