@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -750,9 +750,14 @@ async fn a_busy_status_fences_as_retriable_with_messages() {
     assert!(matches!(err.error, TransportError::WorkerStreamBusy(_)));
 }
 
+enum ControlledReply {
+    Busy,
+    Ok,
+}
+
 struct BusyAttempt {
     worker: usize,
-    reply: oneshot::Sender<()>,
+    reply: oneshot::Sender<ControlledReply>,
 }
 
 struct ControlledBusyWorker {
@@ -781,17 +786,30 @@ impl WorkerIngest for ControlledBusyWorker {
                     continue;
                 };
                 let (reply, wait_for_reply) = oneshot::channel();
-                if attempts.send(BusyAttempt { worker, reply }).is_err()
-                    || wait_for_reply.await.is_err()
-                {
-                    return;
+                let Some(reply) = async {
+                    attempts.send(BusyAttempt { worker, reply }).ok()?;
+                    wait_for_reply.await.ok()
                 }
+                .await
+                else {
+                    return;
+                };
+                let (status, accepted, error) = match reply {
+                    ControlledReply::Busy => {
+                        (SubBatchStatus::Busy as i32, 0, "at capacity".to_string())
+                    }
+                    ControlledReply::Ok => (
+                        SubBatchStatus::Ok as i32,
+                        sub_batch.messages.len() as u32,
+                        String::new(),
+                    ),
+                };
                 let _ = tx.send(Ok(IngestStreamResponse {
                     msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
                         seq: sub_batch.seq,
-                        status: SubBatchStatus::Busy as i32,
-                        accepted: 0,
-                        error: "at capacity".to_string(),
+                        status,
+                        accepted,
+                        error,
                     })),
                 }));
             }
@@ -888,11 +906,13 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
     // then diagnose the scheduler-wide lack of acceptance.
     let busy_replies = Arc::new(AtomicUsize::new(0));
     let replies = Arc::clone(&busy_replies);
+    let final_attempt_released = Arc::new(AtomicBool::new(false));
+    let released = Arc::clone(&final_attempt_released);
     let controller = tokio::spawn(async move {
         let mut reject = first;
         let mut held = second;
         loop {
-            let _ = reject.reply.send(());
+            let _ = reject.reply.send(ControlledReply::Busy);
             replies.fetch_add(1, Ordering::Relaxed);
             match tokio::time::timeout(Duration::from_millis(750), attempts_rx.recv()).await {
                 Ok(Some(next)) => {
@@ -900,8 +920,9 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
                     held = next;
                 }
                 _ => {
-                    let _ = held.reply.send(());
+                    let _ = held.reply.send(ControlledReply::Busy);
                     replies.fetch_add(1, Ordering::Relaxed);
+                    released.store(true, Ordering::Relaxed);
                     return;
                 }
             }
@@ -917,8 +938,68 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
         "key-table work made no progress within the stall timeout"
     );
     assert!(
+        final_attempt_released.load(Ordering::Relaxed),
+        "an in-flight attempt may settle after the deadline before the watchdog fails"
+    );
+    assert!(
         busy_replies.load(Ordering::Relaxed) >= 2,
         "the reproduction must overlap busy retry rounds"
     );
     controller.await.unwrap();
+}
+
+#[tokio::test]
+async fn key_table_parked_retry_can_recover_before_the_watchdog_deadline() {
+    let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
+    let addr = start_controlled_busy_worker(0, attempts_tx).await;
+    let worker_urls = vec![format!("http://{addr}")];
+    let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
+    let dispatcher = Arc::new(Dispatcher::with_scheduler(
+        registry,
+        RoutingStrategy::BinPack,
+        SchedulerKind::KeyTable,
+    ));
+    let transport = Arc::new(GrpcTransport::new(
+        GrpcPort::OffsetFromHttp(0),
+        1,
+        Duration::from_secs(30),
+    ));
+    let mut manager = Manager::builder("key-table-retry-recovery-test")
+        .with_trap_signals(false)
+        .build();
+    let handle = manager.register("batcher", ComponentOptions::new());
+    let _monitor = manager.monitor_background();
+    let (batcher, mut outputs) = Batcher::new(
+        dispatcher,
+        transport,
+        handle,
+        Duration::from_millis(500),
+        Duration::from_millis(20),
+    );
+
+    let mut accumulator = Accumulator::default();
+    accumulator.push(Partition(0), msg("a", 1).into());
+    batcher.submit(accumulator);
+
+    let first = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
+        .await
+        .expect("initial send reaches the worker")
+        .expect("attempt channel stays open");
+    assert!(first.reply.send(ControlledReply::Busy).is_ok());
+    let retry = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
+        .await
+        .expect("parked retry reaches the worker")
+        .expect("attempt channel stays open");
+    assert!(retry.reply.send(ControlledReply::Ok).is_ok());
+
+    let completion = tokio::time::timeout(Duration::from_secs(1), outputs.completions.recv())
+        .await
+        .expect("successful retry completes")
+        .expect("completion channel stays open");
+    assert_eq!(completion.accepted, 1);
+    tokio::time::sleep(Duration::from_millis(550)).await;
+    assert!(
+        outputs.errors.try_recv().is_err(),
+        "accepted retry resets the watchdog and idle work stays healthy"
+    );
 }
