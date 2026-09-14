@@ -36,7 +36,6 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import BaseHogQLError
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team.team import Team
@@ -271,23 +270,15 @@ def resolve_metric_events(experiment: Experiment) -> list[MetricEventSource]:
 
 
 def build_source_condition(node: MetricSourceNode, team: Team) -> ast.Expr:
-    """Match expression for one source node, built on `event_or_action_to_filter` — the same
-    matcher the experiment analysis uses, so what counts as "this metric's event" cannot
-    diverge between the analysis and this surface. `fixedProperties` are ANDed on top: the
-    shared helper only reads `properties`, and layering the extra filter here keeps the scan
-    strictly narrower than (never contradicting) the analysis. Sources this project can't
-    resolve (a cohort filter whose cohort doesn't exist here, a filter HogQL can't compile)
-    match nothing instead of failing the whole scan; the shared helper already maps a missing
-    action to a match-nothing expression."""
+    """Match expression for one source node, using the same matcher as experiment analysis.
+
+    Sources this project can't resolve match nothing instead of failing the whole scan.
+    """
     try:
-        condition = event_or_action_to_filter(team, node)
-        fixed = [property_to_expr(prop, team) for prop in node.fixedProperties or []]
+        return event_or_action_to_filter(team, node)
     except (Cohort.DoesNotExist, BaseHogQLError):
         logger.warning("Unresolvable metric source filter for team %s; source matches nothing.", team.pk)
         return ast.Constant(value=False)
-    if fixed:
-        return ast.And(exprs=[condition, *fixed])
-    return condition
 
 
 def scan_sessions_for_metric_events(

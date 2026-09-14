@@ -293,8 +293,6 @@ class TestScanSessionForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin)
 
     @parameterized.expand(["properties", "fixedProperties"])
     def test_honors_source_node_property_filters(self, properties_field: str) -> None:
-        # `properties` flows through the shared `event_or_action_to_filter`; `fixedProperties`
-        # are ANDed on top by `build_source_condition` — both must narrow the match.
         filtered = _metric(
             "mean",
             name="Premium purchases",
