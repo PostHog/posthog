@@ -42,11 +42,12 @@ The root `$ai_trace` event is emitted last, so a run still going or one that cra
 events but no root. This counts every trace and falls back to a child event's name, the way the traces
 list does. Group on `$ai_trace` alone and those runs vanish, which hides the failures you came to find.
 
-### 2. App-set tags on generations
+### 2. App-set tags
 
-Many apps tag the generation instead, with `$ai_product`, `feature`, `agent_mode`, `$ai_agent_name`, or a
-team-specific property. Run `read-data-schema` on `$ai_generation` to see what this project has, then
-measure coverage of the candidates together:
+Many apps tag the traffic themselves, with `$ai_product`, `feature`, `agent_mode`, `$ai_agent_name`, or a
+team-specific property. The tag can sit on the generation, on the root `$ai_trace` event, or on both. Run
+`read-data-schema` on both events to see what this project has, then measure coverage of the
+generation-level candidates together:
 
 ```sql
 SELECT count() AS generations,
@@ -67,6 +68,22 @@ These percentages count generations, not traces. One agentic trace emits many ge
 outweighs many single-shot traces, and a trace whose generations carry several agent names lands in
 several buckets. Use the split to rank the candidates, not to size the use cases.
 
+A candidate you found on `$ai_trace` needs the trace-level measure instead. Count the traces that carry
+it against every trace, so a run whose root event never arrived stays in the denominator:
+
+```sql
+SELECT countDistinct(toString(properties.$ai_trace_id)) AS traces,
+       countDistinctIf(toString(properties.$ai_trace_id),
+                       notEmpty(toString(properties.<candidate>))) AS with_tag
+FROM events
+WHERE event IN ('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding',
+                '$ai_metric', '$ai_feedback')
+    AND timestamp >= now() - INTERVAL 7 DAY
+    AND notEmpty(toString(properties.$ai_trace_id))
+```
+
+At equal coverage, prefer the trace-level tag, because it already gives one value per trace.
+
 Group by the best-covered one, and keep the unset rows visible so you see how much traffic it misses:
 
 ```sql
@@ -76,6 +93,9 @@ FROM events
 WHERE event = '$ai_generation' AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY kind ORDER BY n DESC
 ```
+
+Group a trace-level tag the way rung 1 groups the name: resolve one value per trace first, then count
+the traces.
 
 ### 3. Trace-id prefix
 
