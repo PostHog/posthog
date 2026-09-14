@@ -17,7 +17,7 @@ import {
 } from "@posthog/ui/features/inbox/filterOptions";
 import {
   useInboxAvailableSuggestedReviewers,
-  useInboxReportArtefacts,
+  useInboxReportSuggestedReviewerArtefacts,
   useUpdateSuggestedReviewers,
 } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import {
@@ -57,7 +57,7 @@ export function ReviewerSearchList({
     isLoading: artefactsLoading,
     isError: artefactsError,
     refetch: refetchArtefacts,
-  } = useInboxReportArtefacts(report.id, { enabled });
+  } = useInboxReportSuggestedReviewerArtefacts(report.id, { enabled });
   const artefact = selectSuggestedReviewersArtefact(data?.results ?? []);
   const reviewers = useMemo(() => artefact?.content ?? [], [artefact]);
   const [query, setQuery] = useState("");
