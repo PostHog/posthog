@@ -31,7 +31,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.settings import EE_AVAILABLE
 from posthog.sync import database_sync_to_async
-from posthog.taxonomy.property_access import restricted_property_names
+from posthog.taxonomy.property_access import excluded_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
 from products.actions.backend.models.action import Action
@@ -188,8 +188,8 @@ class TaxonomyAgentToolkit:
         return entities
 
     @database_sync_to_async(thread_sensitive=False)
-    def _restricted_property_names(self, property_type: PropertyDefinition.Type) -> set[str]:
-        return restricted_property_names(self._team, self._user, property_type)
+    def _excluded_property_names(self, property_type: PropertyDefinition.Type) -> set[str]:
+        return excluded_property_names(self._team, self._user, property_type)
 
     @database_sync_to_async(thread_sensitive=False)
     def _get_groups(self) -> list[dict]:
@@ -407,13 +407,13 @@ class TaxonomyAgentToolkit:
                 results.append(self._retrieve_session_properties(property_name))
             return results
 
-        # Restricted properties are indistinguishable from non-existent ones, so we don't leak their values.
+        # Restricted and hidden properties are indistinguishable from non-existent ones, so we do not leak their values.
         prop_type = PropertyDefinition.Type.PERSON if entity == "person" else PropertyDefinition.Type.GROUP
-        restricted = await self._restricted_property_names(prop_type)
-        if restricted:
+        excluded = await self._excluded_property_names(prop_type)
+        if excluded:
             allowed_names = []
             for property_name in property_names:
-                if property_name in restricted:
+                if property_name in excluded:
                     results.append(TaxonomyErrorMessages.property_values_not_found(property_name, entity))
                 else:
                     allowed_names.append(property_name)
@@ -542,7 +542,7 @@ class TaxonomyAgentToolkit:
                 status=TaskExecutionStatus.FAILED,
             )
 
-        restricted = await self._restricted_property_names(PropertyDefinition.Type.EVENT)
+        excluded = await self._excluded_property_names(PropertyDefinition.Type.EVENT)
         qs = PropertyDefinition.objects.filter(
             team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
         )
@@ -550,7 +550,7 @@ class TaxonomyAgentToolkit:
         property_to_type = {
             property_definition.name: property_definition.property_type
             for property_definition in property_definitions
-            if property_definition.name not in restricted
+            if property_definition.name not in excluded
         }
         props: list[tuple[str, str | None]] = [
             (item.property, property_to_type.get(item.property))
@@ -559,7 +559,7 @@ class TaxonomyAgentToolkit:
             if item.property in property_to_type
         ]
         # Virtual properties are computed at query time, so they never appear in stored event data.
-        props += list_virtual_properties("event_properties", exclude=property_to_type.keys() | restricted)
+        props += list_virtual_properties("event_properties", exclude=property_to_type.keys() | excluded)
 
         if not props:
             result = TaxonomyErrorMessages.event_properties_not_found(verbose_name)
@@ -606,7 +606,7 @@ class TaxonomyAgentToolkit:
                 continue
 
         if entity_to_group_index.values():
-            restricted = await self._restricted_property_names(PropertyDefinition.Type.GROUP)
+            excluded = await self._excluded_property_names(PropertyDefinition.Type.GROUP)
             # Single query for all group types
             group_qs = PropertyDefinition.objects.filter(
                 team=self._team,
@@ -621,11 +621,9 @@ class TaxonomyAgentToolkit:
                     properties = [
                         (name, prop_type)
                         for name, prop_type, gti in group_qs_definitions
-                        if gti == group_index and name not in restricted
+                        if gti == group_index and name not in excluded
                     ]
-                    properties += list_virtual_properties(
-                        "groups", exclude={name for name, _ in properties} | restricted
-                    )
+                    properties += list_virtual_properties("groups", exclude={name for name, _ in properties} | excluded)
                     stored_descriptions = await self._get_stored_property_descriptions(
                         PropertyDefinition.Type.GROUP,
                         [name for name, _ in properties],
@@ -657,13 +655,13 @@ class TaxonomyAgentToolkit:
         task = cast(AssistantToolCall, input_dict["task"])
         entity = task.args["entity"]
         if entity == "person":
-            restricted = await self._restricted_property_names(PropertyDefinition.Type.PERSON)
+            excluded = await self._excluded_property_names(PropertyDefinition.Type.PERSON)
             person_qs = PropertyDefinition.objects.filter(
                 team=self._team, type=PropertyDefinition.Type.PERSON
             ).values_list("name", "property_type")
-            person_definitions = [prop async for prop in person_qs if prop[0] not in restricted]
+            person_definitions = [prop async for prop in person_qs if prop[0] not in excluded]
             person_definitions += list_virtual_properties(
-                "person_properties", exclude={name for name, _ in person_definitions} | restricted
+                "person_properties", exclude={name for name, _ in person_definitions} | excluded
             )
             if person_definitions:
                 stored_descriptions = await self._get_stored_property_descriptions(
@@ -828,10 +826,10 @@ class TaxonomyAgentToolkit:
         except PropertyDefinition.DoesNotExist:
             definitions_map = {}
 
-        # Restricted properties are indistinguishable from non-existent ones, so we don't leak their values.
+        # Restricted and hidden properties are indistinguishable from non-existent ones, so we do not leak their values.
         # Dropping them from the definitions map makes _process_property_values report them as not found.
-        restricted = await self._restricted_property_names(PropertyDefinition.Type.EVENT)
-        definitions_map = {name: definition for name, definition in definitions_map.items() if name not in restricted}
+        excluded = await self._excluded_property_names(PropertyDefinition.Type.EVENT)
+        definitions_map = {name: definition for name, definition in definitions_map.items() if name not in excluded}
 
         response, verbose_name = await self._retrieve_event_or_action_taxonomy(event_name_or_action_id, property_names)
 
