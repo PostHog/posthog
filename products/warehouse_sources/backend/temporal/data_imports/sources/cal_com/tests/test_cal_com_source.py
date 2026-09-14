@@ -103,8 +103,7 @@ class TestCalComSource:
     def test_source_for_pipeline_resolves_the_org_only_where_a_path_needs_it(
         self, schema_name: str, needs_org: bool, mock_resolve: mock.MagicMock, mock_source: mock.MagicMock
     ) -> None:
-        # Every org lookup is an extra request per sync, and a table whose path has no {orgId}
-        # must not pay for it.
+        # An org lookup is an extra request per sync; a path with no {orgId} must not pay it.
         inputs = mock.MagicMock()
         inputs.schema_name = schema_name
 

@@ -393,8 +393,7 @@ class TestCalComSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_every_endpoint_builds_a_response_named_after_its_schema(self, endpoint: str, MockSession) -> None:
-        # The response name is the Delta subdirectory: a wrong one writes where nothing reads.
-        # Building also exercises each endpoint's paginator and fan-out wiring.
+        # The name is the Delta subdirectory: a wrong one writes where nothing reads.
         MockSession.return_value.headers = {}
         response = _source(endpoint, organization_id=ORG_ID)
         assert response.name == endpoint
@@ -414,8 +413,7 @@ class TestCalComSourceResponse:
         assert [key for key in keys if "updated" in key.lower()] == []
 
     def test_fanned_out_endpoints_key_on_their_parent_too(self) -> None:
-        # A fan-out child aggregates rows from every parent, so a key that is only unique within
-        # one parent seeds duplicates that every later merge multi-matches.
+        # A key unique only within one parent seeds duplicates every later merge multi-matches.
         children = [name for name, config in CAL_COM_ENDPOINTS.items() if config.fanout] + [BOOKING_ATTENDEES_ENDPOINT]
         assert [name for name in children if len(CAL_COM_ENDPOINTS[name].primary_keys) < 2] == []
 
@@ -472,8 +470,7 @@ class TestOrganizationEndpoints:
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_routing_forms_sort_matches_the_chosen_cursor(self, MockSession) -> None:
-        # Offset pagination over an unsorted listing skips and repeats rows across page
-        # boundaries, and a sort that disagrees with the cursor corrupts the watermark.
+        # A sort that disagrees with the cursor corrupts the watermark.
         session = MockSession.return_value
         params = _wire(session, [_response({"data": [{"id": "f1"}]})])
 
@@ -580,8 +577,7 @@ class TestBookingAttendees:
     @mock.patch(CLIENT_SESSION_PATCH)
     @mock.patch(CAL_COM_SESSION_PATCH)
     def test_attendee_rows_carry_the_booking_they_belong_to(self, MockCalSession, MockClientSession) -> None:
-        # An attendee carries no booking reference and no timestamp of its own, so without these
-        # the table cannot be joined to bookings or synced incrementally.
+        # Without these the table cannot be joined to bookings or synced incrementally.
         _wire(MockClientSession.return_value, [_page([self.BOOKING])])
         MockCalSession.return_value = self._attendee_session(
             _response({"data": [{"id": 5, "email": "guest@example.com", "absent": True}]})
@@ -603,8 +599,7 @@ class TestBookingAttendees:
     @mock.patch(CLIENT_SESSION_PATCH)
     @mock.patch(CAL_COM_SESSION_PATCH)
     def test_each_hop_sends_the_version_that_endpoint_requires(self, MockCalSession, MockClientSession) -> None:
-        # Cal.com 404s the attendees endpoint without cal-api-version 2024-08-13, and the bookings
-        # listing needs 2026-05-01 — one shared header value would break one of the two.
+        # Attendees 404 without 2024-08-13; the bookings listing needs 2026-05-01.
         client_session = MockClientSession.return_value
         _wire(client_session, [_page([self.BOOKING])])
         attendee_session = self._attendee_session(_response({"data": []}))
@@ -630,8 +625,7 @@ class TestBookingAttendees:
     @mock.patch(CLIENT_SESSION_PATCH)
     @mock.patch(CAL_COM_SESSION_PATCH)
     def test_incremental_sync_bounds_the_bookings_walk(self, MockCalSession, MockClientSession) -> None:
-        # Without the window every sync re-reads the attendees of every booking ever made — one
-        # request per booking, forever.
+        # Without the window every sync re-reads every booking's attendees, one request each.
         params = _wire(MockClientSession.return_value, [_page([self.BOOKING])])
         MockCalSession.return_value = self._attendee_session(_response({"data": [{"id": 5}]}))
 

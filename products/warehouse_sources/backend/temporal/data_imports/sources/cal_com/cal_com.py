@@ -1,9 +1,10 @@
-import dataclasses
 from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from functools import partial
 from typing import Any, Optional, cast
 from urllib.parse import quote
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.settings import (
     BOOKING_ATTENDEES_ENDPOINT,
@@ -43,8 +44,7 @@ DEFAULT_PROBE_PATH = "/me"
 DEFAULT_REGION = "us"
 REQUEST_TIMEOUT_SECONDS = 30
 
-# Earliest value Cal.com's afterCreatedAt/afterUpdatedAt filters are seeded with before a table
-# has a watermark, matching the format `_format_incremental_value` produces.
+# Seed for the afterCreatedAt/afterUpdatedAt filters before a table has a watermark.
 EPOCH_INCREMENTAL_VALUE = "1970-01-01T00:00:00.000Z"
 
 ORGANIZATION_REQUIRED_ERROR = (
@@ -54,15 +54,14 @@ ORGANIZATION_REQUIRED_ERROR = (
 )
 
 
-@dataclasses.dataclass
+@frozen
 class CalComResumeConfig:
     # Opaque `pagination.nextCursor` for cursor-paginated endpoints (bookings). A crashed sync
     # resumes from the page after the last one yielded; merge dedupes the re-pulled page on `id`.
     cursor: str | None = None
     # `skip` offset for offset-paginated endpoints (webhooks).
     skip: int | None = None
-    # Fan-out endpoints resume per parent: the child paths already fully synced, the one in
-    # progress, and its paginator state — see
+    # Fan-out endpoints resume per parent — see
     # `common.rest_source.__init__._make_paginate_dependent_resource`.
     completed: list[str] | None = None
     current: str | None = None
@@ -91,6 +90,8 @@ def _client_config(region: str, api_key: str, config: CalComEndpointConfig) -> C
         "base_url": _host(region),
         "headers": _headers(config),
         "auth": {"type": "bearer", "token": api_key},
+        # Rows carry contact details and free text the name-based sample scrubbers can't spot.
+        "capture": False,
     }
 
 
@@ -291,8 +292,7 @@ def _fanout_items(
                 )
             )
 
-    # Every v2 endpoint wraps its payload as {"status": "success", "data": ...}; a 200 without
-    # `data` means the shape changed, on either hop.
+    # A 200 without the `data` envelope means the shape changed, on either hop.
     parent_endpoint: Endpoint = {
         "paginator": _make_paginator(parent_config),
         "data_selector": "data",
@@ -318,8 +318,7 @@ def _fanout_items(
             should_use_incremental_field=should_use_incremental_field,
             incremental_field=incremental_field,
             incremental_config_factory=lambda cursor_path: _incremental_window(config, cursor_path),
-            # The offset paginators inject their own `take`/`skip`, and the parent listings take
-            # no page-size param at all.
+            # The offset paginators inject their own `take`/`skip`.
             page_size_param=None,
             parent_endpoint_extra=parent_endpoint,
             child_endpoint_extra=child_endpoint,
@@ -348,8 +347,7 @@ def _booking_attendees_items(
     """
     parent_config = CAL_COM_ENDPOINTS[BOOKING_ATTENDEES_PARENT]
 
-    # The watermark bounds the bookings walk, so an incremental sync only re-reads the attendees of
-    # bookings touched since the last one instead of every booking ever made.
+    # Bounding the bookings walk is what keeps an incremental sync off every booking ever made.
     parent_params: dict[str, Any] = _build_incremental_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
@@ -380,8 +378,7 @@ def _booking_attendees_items(
             initial_paginator_state = {"cursor": resume.cursor}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # The hook runs when this generator asks for the next bookings page, which is after the
-        # current page's attendees have been yielded — so a crash resumes at the next page.
+        # The hook runs when this generator asks for the next page, so after its rows are out.
         if state and state.get("cursor") is not None:
             resumable_source_manager.save_state(CalComResumeConfig(cursor=state["cursor"]))
 
@@ -394,7 +391,8 @@ def _booking_attendees_items(
         initial_paginator_state=initial_paginator_state,
     )
 
-    session = make_tracked_session(redact_values=(api_key,))
+    # capture=False for the same reason as `_client_config`: attendee rows are contact details.
+    session = make_tracked_session(redact_values=(api_key,), capture=False)
     headers = {**_headers(config), "Authorization": f"Bearer {api_key}"}
     base_url = _host(region)
 
@@ -414,9 +412,10 @@ def _booking_attendees_items(
                 continue
             response.raise_for_status()
             body = response.json()
-            if not isinstance(body, dict) or "data" not in body:
+            attendees = body.get("data") if isinstance(body, dict) else None
+            if not isinstance(attendees, list):
                 raise ValueError(f"Cal.com attendees response for booking '{uid}' matched nothing for `data`")
-            for attendee in body["data"]:
+            for attendee in attendees:
                 rows.append(
                     {
                         **attendee,
@@ -484,8 +483,7 @@ def cal_com_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # "desc" makes the pipeline commit the incremental watermark only after a complete sync,
-        # which stays correct for the endpoints whose newest-first order we cannot change.
+        # "desc" holds the watermark until a sync completes, for the newest-first endpoints.
         sort_mode=config.sort_mode,
     )
 

@@ -124,8 +124,7 @@ Pick the region your Cal.com account lives in. Choose EU if you sign in at cal.e
     def get_endpoint_permissions(
         self, config: CalComSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
-        # Cal.com's organization tables need an organization the key's account admins. Report that
-        # in the table picker rather than letting the user pick a table that can only fail.
+        # Report a table that can only fail here, rather than letting the user pick it.
         org_endpoints = {
             name for name in endpoints if name in CAL_COM_ENDPOINTS and endpoint_requires_organization(name)
         }
@@ -166,8 +165,7 @@ Pick the region your Cal.com account lives in. Choose EU if you sign in at cal.e
         if inputs.schema_name not in CAL_COM_ENDPOINTS:
             raise ValueError(f"Unknown Cal.com schema '{inputs.schema_name}'")
 
-        # Resolved here, in sync source-build context, rather than from inside the pipeline's
-        # iterator threads.
+        # Resolved in sync source-build context, not from the pipeline's iterator threads.
         organization_id = (
             resolve_organization_id(config.api_key, config.region)
             if endpoint_requires_organization(inputs.schema_name)

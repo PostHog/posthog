@@ -36,8 +36,7 @@ _BOOKING_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-# Placeholder Cal.com's organization-scoped paths carry. The id is resolved from the API key's
-# own profile (`/me`) rather than asked for on the connection form.
+# Bound from the API key's own profile (`/me`), not from a connection-form field.
 ORG_PATH_PLACEHOLDER = "{orgId}"
 
 
@@ -62,18 +61,15 @@ class CalComEndpointConfig:
     # Maps an incremental field name to the server-side query param that filters on it.
     incremental_param_by_field: dict[str, str] = field(default_factory=dict)
     default_incremental_field: Optional[str] = None
-    # Maps an incremental field name to the query param that sorts on it. Requesting the sort that
-    # matches the cursor is what makes the watermark advance correctly.
+    # Sorting on the cursor field is what makes the watermark advance correctly.
     sort_param_by_field: dict[str, str] = field(default_factory=dict)
-    # Sort requested when no incremental field is in play. An explicit sort keeps offset
-    # pagination stable while rows are inserted mid-sync.
+    # Keeps offset pagination stable while rows are inserted mid-sync.
     default_sort_param: Optional[str] = None
     # Order rows actually arrive in, which the pipeline trusts to checkpoint the watermark.
     sort_mode: Literal["asc", "desc"] = "asc"
     # Max items per page. Cal.com caps this per endpoint and rejects larger values with 400: the
     # bookings `limit` maxes at 100, while the webhooks `take` allows up to 250.
     page_size: int = 100
-    # Set when the endpoint is reached by iterating a parent endpoint's rows.
     fanout: Optional[DependentEndpointConfig] = None
 
     @property
@@ -98,8 +94,7 @@ CAL_COM_ENDPOINTS: dict[str, CalComEndpointConfig] = {
             "createdAt": "afterCreatedAt",
         },
         default_incremental_field="updatedAt",
-        # Bookings walk `Booking.uuid DESC` (newest-created first) when no status filter is
-        # passed, and the opaque cursor does not honor sortUpdatedAt/sortCreated.
+        # Bookings walk `Booking.uuid DESC`, and the cursor ignores sortUpdatedAt/sortCreated.
         sort_mode="desc",
     ),
     "event_types": CalComEndpointConfig(
@@ -140,9 +135,7 @@ CAL_COM_ENDPOINTS: dict[str, CalComEndpointConfig] = {
         page_size=ORG_PAGE_SIZE,
         partition_key="createdDate",
     ),
-    # `id` is the membership row id, which the docs do not state is unique beyond its team, so the
-    # team stays in the key. The row carries `teamId` natively, so nothing is projected from the
-    # parent.
+    # The docs never call the membership id unique beyond its team, so `teamId` stays in the key.
     "team_memberships": CalComEndpointConfig(
         name="team_memberships",
         path="/teams/{teamId}/memberships",
@@ -192,10 +185,8 @@ CAL_COM_ENDPOINTS: dict[str, CalComEndpointConfig] = {
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),
-    # Fans out over bookings. An attendee row carries no timestamp of its own, so the booking's
-    # `createdAt`/`updatedAt` are projected onto it: that is what lets an incremental sync bound
-    # the bookings walk with `afterUpdatedAt` instead of re-fetching every booking's attendees
-    # every time. `incremental_param_by_field` therefore names params on the PARENT request.
+    # An attendee row has no timestamp of its own, so the booking's are projected onto it and
+    # `incremental_param_by_field` names params on the PARENT request, bounding the bookings walk.
     "booking_attendees": CalComEndpointConfig(
         name="booking_attendees",
         path="/bookings/{bookingUid}/attendees",
@@ -212,9 +203,9 @@ CAL_COM_ENDPOINTS: dict[str, CalComEndpointConfig] = {
     ),
 }
 
-# Attendees are the one fan-out that cannot go through the shared dependent-resource helper: the
-# child requires `cal-api-version: 2024-08-13` while its bookings parent requires 2026-05-01, and
-# a dependent resource sends one set of client headers for both hops.
+# The one fan-out the shared dependent-resource helper cannot serve: the child requires
+# `cal-api-version: 2024-08-13`, its bookings parent 2026-05-01, and a dependent resource sends
+# one set of client headers for both hops.
 BOOKING_ATTENDEES_ENDPOINT = "booking_attendees"
 BOOKING_ATTENDEES_PARENT = "bookings"
 
