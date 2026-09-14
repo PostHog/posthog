@@ -27,12 +27,15 @@ describe('inboxTaskKickoffLogic', () => {
         let logic: ReturnType<typeof inboxTaskKickoffLogic.build>
         let createdTasks: Record<string, unknown>[]
         let startedRuns: Record<string, unknown>[]
+        // Runs while the kickoff awaits its run response, so a test can act as the reader does mid-flight.
+        let onRunRequest: (() => void) | null
         const report = makeReport({ id: 'report-sidebar', status: SignalReportStatus.READY })
 
         beforeEach(() => {
             localStorage.clear()
             createdTasks = []
             startedRuns = []
+            onRunRequest = null
             useMocks({
                 get: {
                     '/api/projects/:team/signals/reports/:id/': report,
@@ -44,6 +47,7 @@ describe('inboxTaskKickoffLogic', () => {
                     },
                     '/api/projects/:team/tasks/:id/run/': async ({ request }) => {
                         startedRuns.push((await request.json()) as Record<string, unknown>)
+                        onRunRequest?.()
                         return [200, { id: 'report-task', latest_run: { id: 'report-run' } }]
                     },
                 },
@@ -90,6 +94,32 @@ describe('inboxTaskKickoffLogic', () => {
                 logic.actions.openReportTask(report, 'report-task', 'report-run')
                 expect(createdTasks).toHaveLength(1)
                 expect(startedRuns).toHaveLength(1)
+            }
+        )
+
+        // A kickoff is two round trips, and a report's View task button stays live throughout, so the
+        // reader can open another report's run before this one lands. The panel is shared, so opening
+        // the finished task regardless would pull the sidebar off whatever they picked last.
+        it.each(['implementation', 'discussion'] as const)(
+            'leaves a newer pick in the sidebar when the %s kickoff lands after it',
+            async (relationship) => {
+                const otherReport = makeReport({ id: 'report-other', status: SignalReportStatus.READY })
+                onRunRequest = () => logic.actions.openReportTask(otherReport, 'other-task', 'other-run')
+
+                await expectLogic(logic, () => {
+                    if (relationship === 'implementation') {
+                        logic.actions.createPrFromReport(report)
+                    } else {
+                        logic.actions.discussReport(report, 'https://example.com/report', 'Explain the recommendation')
+                    }
+                }).toFinishAllListeners()
+
+                expect(startedRuns).toHaveLength(1)
+                expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toMatchObject({
+                    taskId: 'other-task',
+                    runId: 'other-run',
+                })
+                expect(logic.values.reportChatContext?.report.id).toBe(otherReport.id)
             }
         )
 
