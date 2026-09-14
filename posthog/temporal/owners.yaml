@@ -1,8 +1,6 @@
 version: 1
 owners: []
 rules:
-    - match: ['/common/combined_metrics_server.py', '/tests/common/test_combined_metrics_server.py']
-      owners: team-platform-features
     - match: '/ai_observability/'
       owners: team-ai-observability
     - match: '/alerts/'
