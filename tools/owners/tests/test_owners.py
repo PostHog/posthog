@@ -528,6 +528,33 @@ def test_fmt_leaves_glob_files_untouched(tmp_path: Path) -> None:
     assert plan.is_canonical
 
 
+def test_fmt_keeps_a_nested_carrier_from_claiming_its_glob_served_parent(tmp_path: Path) -> None:
+    # `d` is frozen by its `ml-*` glob, so only `costs` is left to vote up the chain. A
+    # dir-statement built from that vote sits nearer than `d/owners.yaml`, shadows it,
+    # and moves `d/sub/a.py` off team-a, which the proof catches by aborting.
+    plan = _fmt_plan(
+        tmp_path,
+        {
+            "owners.yaml": "version: 1\nowners: [team-root]\n",
+            "r1.py": "x",
+            "r2.py": "x",
+            "d/owners.yaml": (
+                "version: 1\nowners: []\nrules:\n"
+                "  - match: '/sub/'\n    owners: [team-a]\n"
+                "  - match: '/sub/ml-*/'\n    owners: [team-c]\n"
+            ),
+            "d/sub/ml-one/z.py": "x",
+            "d/sub/a.py": "x",
+            "d/sub/b.py": "x",
+            "d/sub/pipe/ai/costs/owners.yaml": "version: 1\nowners: [team-b]\n",
+            "d/sub/pipe/ai/costs/g.py": "x",
+            "d/sub/pipe/ai/costs/h.py": "x",
+        },
+    )
+    assert plan.creations == []
+    assert plan.deletions == []
+
+
 def test_fmt_reports_top_level_owner_edits(tmp_path: Path) -> None:
     # Canonical placement here rewrites the root file's `owners:` ([] -> [team-a])
     # while deleting both children. A plan that only printed the deletions would
