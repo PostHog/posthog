@@ -308,34 +308,11 @@ class QueryCoalescingMiddleware:
         if not team_id:
             return self.get_response(request)
 
-        parsed_post_body: object = None
-        if request.method == "POST":
-            try:
-                parsed_post_body = orjson.loads(request.body)
-            except ValueError:
-                # DRF's parser accepts bodies orjson rejects (NaN and Infinity under
-                # STRICT_JSON=False, lone surrogates, other charsets, deeper nesting), so a
-                # body we cannot inspect can still execute a gated query. Fail closed.
-                query_coalesce_counter.labels(outcome="skipped_unparseable_body").inc()
-                return self.get_response(request)
-            # The experiment_exposure recordings filter is gated per experiment inside the
-            # query runner, which a coalescing follower never reaches. Let every such request
-            # run itself. #94639 tracks the general gap; remove this guard when it lands.
-            if self._carries_experiment_exposure(request.body, parsed_post_body):
-                query_coalesce_counter.labels(outcome="skipped_experiment_exposure").inc()
-                return self.get_response(request)
-
-        enabled = posthoganalytics.feature_enabled("http-query-coalescing", str(team_id))
-
-        try:
-            key = self._compute_key(team_id, request, parsed_post_body)
-        except TypeError:
-            # orjson.dumps rejects nesting above 255 levels, which is shallower than the 1024
-            # levels orjson.loads accepts, so a parsed body can still have no key. The view's
-            # parser takes that depth, so let it answer the request instead of raising here.
-            query_coalesce_counter.labels(outcome="skipped_unkeyable_body").inc()
+        key = self._coalescing_key(team_id, request)
+        if key is None:
             return self.get_response(request)
 
+        enabled = posthoganalytics.feature_enabled("http-query-coalescing", str(team_id))
         coalescer = QueryCoalescer(key, dry_run=not enabled)
 
         try:
@@ -411,6 +388,34 @@ class QueryCoalescingMiddleware:
         if not match:
             return None
         return int(match.group(1))
+
+    @classmethod
+    def _coalescing_key(cls, team_id: int, request: HttpRequest) -> str | None:
+        parsed_post_body: object = None
+        if request.method == "POST":
+            try:
+                parsed_post_body = orjson.loads(request.body)
+            except ValueError:
+                # DRF's parser accepts bodies orjson rejects (NaN and Infinity under
+                # STRICT_JSON=False, lone surrogates, other charsets, deeper nesting), so a
+                # body we cannot inspect can still execute a gated query. Fail closed.
+                query_coalesce_counter.labels(outcome="skipped_unparseable_body").inc()
+                return None
+            # The experiment_exposure recordings filter is gated per experiment inside the
+            # query runner, which a coalescing follower never reaches. Let every such request
+            # run itself. #94639 tracks the general gap; remove this guard when it lands.
+            if cls._carries_experiment_exposure(request.body, parsed_post_body):
+                query_coalesce_counter.labels(outcome="skipped_experiment_exposure").inc()
+                return None
+
+        try:
+            return cls._compute_key(team_id, request, parsed_post_body)
+        except TypeError:
+            # orjson.dumps rejects nesting above 255 levels, which is shallower than the 1024
+            # levels orjson.loads accepts, so a parsed body can still have no key. The view's
+            # parser takes that depth, so let it answer the request instead of raising here.
+            query_coalesce_counter.labels(outcome="skipped_unkeyable_body").inc()
+            return None
 
     @staticmethod
     def _carries_experiment_exposure(body: bytes, data: object) -> bool:
