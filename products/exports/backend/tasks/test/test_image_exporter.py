@@ -1049,23 +1049,41 @@ class TestImageExportRenderMetrics(APIBaseTest):
         assert after - before == 1
         assert mock_screenshot_asset.called
 
+    @parameterized.expand(
+        [
+            # classify_failure_type maps QueryError to "user" and BrowserlessUnavailable to "system".
+            ("user_query_error", QueryError("bad query"), "user", True),
+            # An unreachable render service is reported once by the Temporal activity interceptor
+            # after the retries run out, so the exporter must not file its own event per attempt.
+            ("renderer_unavailable", BrowserlessUnavailable("browserless is down"), "system", False),
+        ]
+    )
     @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
     @patch("os.remove")
     @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
-    def test_render_failure_counters_increment(self, mock_screenshot_asset: Any, *args: Any) -> None:
-        # QueryError classifies as "user" via classify_failure_type.
-        mock_screenshot_asset.side_effect = QueryError("bad query")
+    def test_render_failure_counters_increment(
+        self,
+        _name: str,
+        error: Exception,
+        failure_type: str,
+        expect_capture: bool,
+        mock_screenshot_asset: Any,
+        *args: Any,
+    ) -> None:
+        mock_screenshot_asset.side_effect = error
 
-        failure_labels = {"backend": "browserless", "failure_type": "user"}
+        failure_labels = {"backend": "browserless", "failure_type": failure_type}
         duration_labels = {"backend": "browserless", "outcome": "failure"}
         failure_before = self._sample("image_export_render_failure_total", failure_labels)
         duration_before = self._sample("image_export_render_duration_seconds_count", duration_labels)
 
         with self.settings(OBJECT_STORAGE_ENABLED=False):
-            with self.assertRaises(QueryError):
-                image_exporter.export_image(self.exported_asset)
+            with patch("products.exports.backend.tasks.image_exporter.capture_exception") as mock_capture:
+                with self.assertRaises(type(error)):
+                    image_exporter.export_image(self.exported_asset)
 
         failure_after = self._sample("image_export_render_failure_total", failure_labels)
         duration_after = self._sample("image_export_render_duration_seconds_count", duration_labels)
         assert failure_after - failure_before == 1
         assert duration_after - duration_before == 1
+        assert mock_capture.called is expect_capture
