@@ -1286,6 +1286,98 @@ mod tests {
     }
 
     #[test]
+    fn historical_revoke_keeps_a_reassigned_poll_and_its_ledger_slice() {
+        let topic_partition = TopicPartition::new("test", 0);
+        let ledger = TopicOffsetLedger::new();
+        let delivery = Delivery {
+            offset: 10,
+            charge: Charge {
+                events: 1,
+                bytes: 1,
+            },
+            kafka_ts: 0,
+            lag_ms: None,
+        };
+
+        // This collection saw offset 10 immediately before a revoke, then
+        // saw its replay after the partition was assigned again. Only the
+        // current generation is charged, while the poll still covers both
+        // deliveries that the batcher will complete.
+        let mut reassigned_deliveries = PartitionDeliveries::new(
+            ledger.generation(&topic_partition),
+            ledger.generations_version(),
+            &delivery,
+        );
+        ledger.forget_partitions([("test", 0)]);
+        ledger.forget_partitions([("test", 0)]);
+        reassigned_deliveries.record(
+            ledger.generations_version(),
+            || ledger.generation(&topic_partition),
+            &delivery,
+        );
+        assert_eq!(reassigned_deliveries.generation, 2);
+        assert_eq!(reassigned_deliveries.delivered, 2);
+        assert_eq!(reassigned_deliveries.charges.len(), 1);
+        ledger
+            .charge(
+                &topic_partition,
+                reassigned_deliveries.generation,
+                reassigned_deliveries.charges.iter().copied(),
+            )
+            .unwrap();
+
+        // The queued revoke notification belongs to generation 0. It must
+        // remove genuine old in-flight work, but not this poll collected and
+        // charged under the later reassignment.
+        let old_poll = poll(0, 0, 1, 1, 1);
+        let reassigned_poll = InFlightPoll {
+            poll_id: "reassigned".to_string(),
+            assignment_epoch: 1,
+            partitions: HashMap::from([(topic_partition.clone(), reassigned_deliveries)]),
+            message_count: 2,
+            covered: 0,
+            accepted: 0,
+            dispatched_at: Instant::now(),
+        };
+        let mut in_flight = VecDeque::from([old_poll, reassigned_poll]);
+
+        let stripped =
+            strip_revoked_partitions(&mut in_flight, std::slice::from_ref(&topic_partition));
+
+        assert_eq!(stripped, 1, "only the old assignment is stripped");
+        assert_eq!(in_flight.len(), 1);
+        assert_eq!(in_flight[0].poll_id, "reassigned");
+
+        apply_completion(&mut in_flight, completion(1, 0, &[10, 10], 2));
+        assert!(in_flight[0].is_complete());
+        let reassigned = in_flight.pop_front().unwrap();
+        let retained = reassigned.partitions.get(&topic_partition).unwrap();
+        ledger
+            .settle(
+                &topic_partition,
+                retained.generation,
+                retained.charges.iter().map(|(offset, _)| *offset),
+            )
+            .unwrap();
+        assert_eq!(ledger.take_frontier(&topic_partition), Some(Offset(11)));
+
+        // With the retained replay slice settled, the next accepted offset
+        // advances normally instead of remaining stuck behind offset 10.
+        ledger
+            .charge(
+                &topic_partition,
+                retained.generation,
+                [(Offset(11), delivery.charge)],
+            )
+            .unwrap();
+        ledger
+            .settle(&topic_partition, retained.generation, [Offset(11)])
+            .unwrap();
+        assert_eq!(ledger.take_frontier(&topic_partition), Some(Offset(12)));
+        assert_eq!(ledger.held(&topic_partition).offsets, 0);
+    }
+
+    #[test]
     fn apply_completion_requires_a_matching_epoch() {
         // The same offsets exist in two polls when a partition was revoked,
         // reassigned, and replayed. The epoch keeps each incarnation's
