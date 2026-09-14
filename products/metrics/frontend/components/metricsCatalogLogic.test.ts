@@ -102,6 +102,54 @@ describe('metricsCatalogLogic', () => {
         expect(jest.mocked(metricsValuesRetrieve)).toHaveBeenCalledTimes(2)
     })
 
+    it('keeps every in-flight card when more cards scroll into view', async () => {
+        // Several cards cross the viewport at once. Each one is its own request,
+        // so a later card must not cancel or fail an earlier one still in flight.
+        jest.mocked(metricsValuesRetrieve).mockImplementation(
+            (_teamId: any, params: any) =>
+                new Promise((resolve) =>
+                    setTimeout(() => resolve({ results: [{ ...SPARKLINE_ITEM, name: params.value }] } as any), 0)
+                ) as any
+        )
+        logic = metricsCatalogLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadCatalogSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSparkline(CATALOG_ITEMS[0])
+            logic.actions.loadSparkline(CATALOG_ITEMS[1])
+        }).toFinishAllListeners()
+
+        expect(logic.values.catalogItemDetailsFailed).toEqual({})
+        expect(Object.keys(logic.values.catalogItemDetails).sort()).toEqual([
+            CATALOG_ITEMS[0].name,
+            CATALOG_ITEMS[1].name,
+        ])
+    })
+
+    it('a rejection from the old service scope does not fail the same card in the new scope', async () => {
+        // A card in scope A fails after the person has entered scope B. The name
+        // can exist in both, and the new card must still get to ask for itself.
+        let rejectFirst: (error: Error) => void = () => {}
+        jest.mocked(metricsValuesRetrieve).mockImplementationOnce(
+            () => new Promise((_resolve, reject) => (rejectFirst = reject)) as any
+        )
+        metricNamePickerLogic.mount()
+        logic = metricsCatalogLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadCatalogSuccess'])
+
+        logic.actions.loadSparkline(CATALOG_ITEMS[0])
+        metricNamePickerLogic.actions.setServices(['api'])
+        await expectLogic(logic).toDispatchActions(['loadCatalogSuccess'])
+
+        rejectFirst(new Error('boom'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.catalogItemDetailsFailed).toEqual({})
+        expect(logic.values.catalogItemDetailsLoading[CATALOG_ITEMS[0].name]).toBeUndefined()
+    })
+
     it('narrows the visible cards by a search substring', async () => {
         logic = metricsCatalogLogic()
         logic.mount()
