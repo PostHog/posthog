@@ -78,13 +78,19 @@ from products.warehouse_sources.backend.facade.models import (
 logger = structlog.get_logger(__name__)
 
 
-def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
+def _report_view_types_error(e: Exception, view_name: str) -> serializers.ValidationError:
     # Column inference runs the HogQL-to-ClickHouse path, so a raw exception can carry stack
     # traces, internal table or column names, and S3 URIs. Surface only the errors already marked
     # user-safe; reduce everything else to its class name. Mirrors validate_query below, which
     # keeps the full cause in error tracking and logs instead of the response.
+    #
+    # A user-safe error is a mistake in the customer's SQL, so capturing it files an issue against
+    # us for their typo. An unmapped ClickHouse code also builds its class at runtime, so each new
+    # code would open a fresh issue instead of grouping.
+    logger.exception("Failed to retrieve types for view %s", view_name)
     if isinstance(e, ExposedHogQLError | ExposedCHQueryError):
         return serializers.ValidationError(f"Failed to retrieve types for view: {e}")
+    capture_exception(e)
     return serializers.ValidationError(f"Failed to retrieve types for view: unexpected {type(e).__name__}")
 
 
@@ -887,9 +893,7 @@ class DataWarehouseSavedQuerySerializer(
 
                 view.external_tables = view.get_s3_tables(database=self.context["database"])
             except Exception as e:
-                capture_exception(e)
-                logger.exception("Failed to retrieve types for view %s", view.name)
-                raise _view_types_validation_error(e)
+                raise _report_view_types_error(e, view.name)
 
         with transaction.atomic():
             view.save()
@@ -1065,9 +1069,7 @@ class DataWarehouseSavedQuerySerializer(
                 except RecursionError:
                     raise serializers.ValidationError("Model contains a cycle")
                 except Exception as e:
-                    capture_exception(e)
-                    logger.exception("Failed to retrieve types for view %s", view.name)
-                    raise _view_types_validation_error(e)
+                    raise _report_view_types_error(e, view.name)
 
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
