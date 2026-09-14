@@ -1211,10 +1211,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
-    # Team.event_retention_months and its enforcement gate are deliberately not serialized while enforcement is
-    # still gated to a test account: a read-only entitlement next to an "enforced: false" read as a setting callers
-    # could change. Add them back when the feature ships. See https://github.com/PostHog/posthog/issues/17031
-
     class Meta:
         model = Team
         fields = (
