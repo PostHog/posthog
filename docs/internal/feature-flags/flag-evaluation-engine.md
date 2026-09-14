@@ -210,7 +210,8 @@ if hash <= rollout_percentage / 100.0 → user is IN the rollout
 if hash >  rollout_percentage / 100.0 → user is OUT (OutOfRolloutBound)
 ```
 
-A 100% rollout skips the hash calculation entirely.
+A 100% rollout skips the rollout hash entirely. Variant selection hashes separately, unless
+the condition pins a variant or no variant depends on the hash.
 
 ### Identifier resolution priority
 
@@ -219,8 +220,14 @@ The identifier used for hashing depends on the flag configuration:
 | Flag type   | Bucketing     | Identifier (in priority order)                                     |
 | ----------- | ------------- | ------------------------------------------------------------------ |
 | Group flag  | N/A           | Group key from `groups` map                                        |
-| Person flag | `device_id`   | `$device_id` from request, fallback to `distinct_id`               |
+| Person flag | `device_id`   | `$device_id` from request (see below when it is absent)            |
 | Person flag | `distinct_id` | DB hash_key_override > request `$anon_distinct_id` > `distinct_id` |
+
+A person condition on a `device_id`-bucketed flag needs the `$device_id` only when the hash
+decides its outcome. If the request carries no `$device_id`, a partial rollout or an unpinned
+variant set is withheld and reports `OutOfRolloutBound`. It is not bucketed on `distinct_id`.
+A condition at 100% rollout is evaluated as usual when the flag has no variants, or when the
+condition pins one by name, because the identifier then changes nothing about its result.
 
 ## Condition matching
 
