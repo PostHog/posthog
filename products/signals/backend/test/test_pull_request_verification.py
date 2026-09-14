@@ -3,6 +3,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.egress.limiter.policies import Priority
+
+from products.signals.backend.management.commands.reconcile_report_pull_requests import reconcile_report_pull_requests
 from products.signals.backend.models import SignalReport, SignalReportPullRequest
 from products.signals.backend.pull_requests import verify_pull_request_state
 from products.signals.backend.task_run_artefacts import record_implementation_task
@@ -104,3 +107,12 @@ class TestPullRequestVerification(BaseTest):
         assert pr.checked_at is None
         report.refresh_from_db()
         assert report.status == SignalReport.Status.READY
+
+    @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository")
+    def test_the_bulk_sweep_reads_github_on_the_sheddable_lane(self, integration):
+        integration.return_value.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
+        self._merged_task_run(self._report())
+
+        list(reconcile_report_pull_requests(team_id=self.team.id, after=None, batch_size=10))
+
+        assert integration.call_args.kwargs == {"source": "signals_pr_reconcile", "priority": Priority.BATCH}

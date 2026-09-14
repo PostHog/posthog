@@ -8,6 +8,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -185,7 +186,9 @@ def schedule_pull_request_verification(*, team_id: int, prs: Sequence["Implement
         )
 
 
-def verify_pull_request_state(*, team_id: int, pr_url: str) -> str | None:
+def verify_pull_request_state(
+    *, team_id: int, pr_url: str, source: str | None = None, priority: Priority | None = None
+) -> str | None:
     """Read a pull request state from GitHub and store it as confirmed. Returns the stored state.
 
     Returns None when the state could not be read, which leaves every report holding this pull
@@ -200,7 +203,7 @@ def verify_pull_request_state(*, team_id: int, pr_url: str) -> str | None:
     if parsed is None:
         return None
     repository, pr_number = parsed.repository.lower(), parsed.number
-    state = _pull_request_details(team_id, pr_url).state
+    state = _pull_request_details(team_id, pr_url, source=source, priority=priority).state
     if state == SignalReportPullRequest.State.UNKNOWN:
         return None
     claimed_merge = state not in TERMINAL_PR_STATES and (

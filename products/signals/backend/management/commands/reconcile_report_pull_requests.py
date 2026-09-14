@@ -4,6 +4,8 @@ from typing import cast
 
 from django.core.management.base import BaseCommand
 
+from posthog.egress.limiter.policies import Priority
+
 from products.signals.backend.models import SignalReportPullRequest
 from products.signals.backend.pull_requests import TERMINAL_PR_STATES, verify_pull_request_state
 
@@ -25,7 +27,12 @@ def reconcile_report_pull_requests(*, team_id: int, after: str | None, batch_siz
         if not rows:
             return
         for pr_id, url in rows:
-            yield url, verify_pull_request_state(team_id=team_id, pr_url=url) or "unverified"
+            # A sweep of a whole team must yield to the GitHub traffic a person waits on. The
+            # batch lane is shed first, and `--after` resumes what a shed pass left unverified.
+            state = verify_pull_request_state(
+                team_id=team_id, pr_url=url, source="signals_pr_reconcile", priority=Priority.BATCH
+            )
+            yield url, state or "unverified"
             after = str(pr_id)
 
 
