@@ -8,9 +8,11 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.engineering_analytics.backend.facade.contracts import (
-    AuthorRepoFigure,
+    DeliveryScopeKind,
     PRTimelineSegmentKind as Kind,
+    ScopeRepoFigure,
 )
+from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope
 from products.engineering_analytics.backend.logic.pr_timeline import (
     GateAttempt,
     MasterFailureIndex,
@@ -20,16 +22,17 @@ from products.engineering_analytics.backend.logic.pr_timeline import (
     RunAttempt,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
-from products.engineering_analytics.backend.logic.queries.author_summary import (
-    AuthorSummaryAggregator,
+from products.engineering_analytics.backend.logic.queries.delivery_summary import (
+    DeliverySummaryAggregator,
     MergedPRFacts,
-    query_author_summary,
+    query_delivery_summary,
 )
-from products.engineering_analytics.backend.logic.queries.author_timelines import query_author_timelines
+from products.engineering_analytics.backend.logic.queries.pull_request_timelines import query_pull_request_timelines
 from products.engineering_analytics.backend.logic.views.source_schema import (
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     REVIEWS_COLUMNS,
+    TEAM_MEMBERS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import _issue_event_row, _pr_row, _run_row
@@ -194,14 +197,33 @@ class TestPRTimelineBuilder(SimpleTestCase):
         ]
 
 
+class TestDeliveryScope(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("nothing", {}),
+            ("two_people_at_once", {"author": "alice", "github_team": "team-replay"}),
+            ("blank_author", {"author": "  "}),
+            ("pr_without_repo", {"pr_number": 21}),
+        ]
+    )
+    def test_rejects_anything_but_one_scope(self, _name: str, params: dict) -> None:
+        with self.assertRaises(ValueError):
+            DeliveryScope.from_params(
+                author=params.get("author"),
+                github_team=params.get("github_team"),
+                pr_number=params.get("pr_number"),
+                repo=params.get("repo"),
+            )
+
+
 def _facts(
-    number: int, *, is_author: bool, ready_hours: float, approved_after_hours: float | None, pushes_after: list[float]
+    number: int, *, in_scope: bool, ready_hours: float, approved_after_hours: float | None, pushes_after: list[float]
 ) -> MergedPRFacts:
     merged_at = _at(100)
     ready_at = merged_at - timedelta(hours=ready_hours)
     return MergedPRFacts(
         number=number,
-        is_author=is_author,
+        in_scope=in_scope,
         created_at=ready_at - timedelta(hours=1),
         merged_at=merged_at,
         ready_to_merge_seconds=int(ready_hours * 3600),
@@ -212,21 +234,21 @@ def _facts(
     )
 
 
-class TestAuthorSummaryAggregator(SimpleTestCase):
-    def test_author_figures_read_only_the_authors_prs(self) -> None:
-        aggregator = AuthorSummaryAggregator(
+class TestDeliverySummaryAggregator(SimpleTestCase):
+    def test_scope_figures_read_only_the_prs_in_scope(self) -> None:
+        aggregator = DeliverySummaryAggregator(
             [
-                _facts(1, is_author=True, ready_hours=10, approved_after_hours=4, pushes_after=[0, 6]),
+                _facts(1, in_scope=True, ready_hours=10, approved_after_hours=4, pushes_after=[0, 6]),
                 # Approved while still a draft: nobody waited on a reviewer after it went ready.
-                _facts(2, is_author=False, ready_hours=2, approved_after_hours=-1, pushes_after=[1]),
-                _facts(3, is_author=False, ready_hours=30, approved_after_hours=None, pushes_after=[]),
+                _facts(2, in_scope=False, ready_hours=2, approved_after_hours=-1, pushes_after=[1]),
+                _facts(3, in_scope=False, ready_hours=30, approved_after_hours=None, pushes_after=[]),
             ]
         )
 
-        assert aggregator.ready_to_merge(0.5) == AuthorRepoFigure(author=36000, repo=36000)
-        assert aggregator.median_ready_to_first_approval() == AuthorRepoFigure(author=14400, repo=7200)
-        assert aggregator.before_first_approval_share() == AuthorRepoFigure(author=0.4, repo=14400 / 43200)
-        assert aggregator.pushes_after_approval() == AuthorRepoFigure(author=1, repo=1)
+        assert aggregator.ready_to_merge(0.5) == ScopeRepoFigure(scope=36000, repo=36000)
+        assert aggregator.median_ready_to_first_approval() == ScopeRepoFigure(scope=14400, repo=7200)
+        assert aggregator.before_first_approval_share() == ScopeRepoFigure(scope=0.4, repo=14400 / 43200)
+        assert aggregator.pushes_after_approval() == ScopeRepoFigure(scope=1, repo=1)
 
 
 def _review_row(review_id: int, pr_number: int, state: str, submitted_at: str) -> dict:
@@ -240,7 +262,15 @@ def _review_row(review_id: int, pr_number: int, state: str, submitted_at: str) -
     }
 
 
-class TestAuthorReadsOnWarehouse(_WarehouseMixin):
+def _member_row(member_id: int, login: str, team_slug: str) -> dict:
+    return {"id": member_id, "login": login, "team_id": 1, "team_slug": team_slug, "team_name": team_slug}
+
+
+_ALICE = DeliveryScope.from_params(author="alice", github_team=None, pr_number=None, repo=None)
+_ALICES_TEAM = DeliveryScope.from_params(author=None, github_team="team-replay", pr_number=None, repo=None)
+
+
+class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
     def _seed(self) -> None:
         self._create_table(
             "github_pull_requests",
@@ -276,6 +306,12 @@ class TestAuthorReadsOnWarehouse(_WarehouseMixin):
             REVIEWS_COLUMNS,
             [_review_row(1, 21, "APPROVED", _ago_offset_with_duration(2, 6 * 3600, 0)[0])],
         )
+        # Bob sits in another team, so the team scope must match alice's PRs only.
+        self._create_table(
+            "github_team_members",
+            TEAM_MEMBERS_COLUMNS,
+            [_member_row(1, "alice", "team-replay"), _member_row(2, "bob", "team-ingestion")],
+        )
         red_start, red_end = _ago_offset_with_duration(2, 0, 3600)
         fix_start, fix_end = _ago_offset_with_duration(2, 8 * 3600, 3600)
         gate_start, gate_end = _ago_offset_with_duration(2, 20 * 3600, 3600)
@@ -301,12 +337,13 @@ class TestAuthorReadsOnWarehouse(_WarehouseMixin):
             ],
         )
 
-    def test_summary_compares_author_with_repo_and_flags_missing_sources(self) -> None:
+    @parameterized.expand([("author", _ALICE), ("github_team", _ALICES_TEAM)])
+    def test_summary_compares_scope_with_repo_and_flags_missing_sources(self, _name: str, scope: DeliveryScope) -> None:
         self._seed()
         curated = CuratedGitHubSource.for_team(self.team)
 
-        summary = query_author_summary(
-            curated=curated, author="alice", date_from=datetime.now(tz=UTC) - timedelta(days=7), date_to=None
+        summary = query_delivery_summary(
+            curated=curated, scope=scope, date_from=datetime.now(tz=UTC) - timedelta(days=7), date_to=None
         )
 
         assert (summary.opened_pr_count, summary.merged_pr_count, summary.open_pr_count, summary.draft_pr_count) == (
@@ -320,44 +357,57 @@ class TestAuthorReadsOnWarehouse(_WarehouseMixin):
             True,
             True,
         )
-        assert summary.median_ready_to_merge_seconds.author == 86400
+        assert summary.median_ready_to_merge_seconds.scope == 86400
         assert summary.median_ready_to_merge_seconds.repo == (86400 + 3 * 86400) / 2
-        assert summary.pushes_after_approval_per_merged_pr.author == 1
-        assert summary.merge_queue_attempts_per_merged_pr.author == 1
+        assert summary.pushes_after_approval_per_merged_pr.scope == 1
+        assert summary.merge_queue_attempts_per_merged_pr.scope == 1
         assert summary.push_count == 2
-        assert summary.cost_per_merged_pr_usd.author is None
+        assert summary.cost_per_merged_pr_usd.scope is None
         assert summary.lead_time.deploy_data_available is False
 
-    def test_timelines_replay_each_pr(self) -> None:
+    @parameterized.expand(
+        [
+            ("author", _ALICE, {21, 23, 24}),
+            ("github_team", _ALICES_TEAM, {21, 23, 24}),
+            (
+                "one_pull_request",
+                DeliveryScope(
+                    kind=DeliveryScopeKind.PULL_REQUEST, pr_number=21, repo_owner="PostHog", repo_name="posthog"
+                ),
+                {21},
+            ),
+        ]
+    )
+    def test_timelines_replay_each_pr_in_scope(self, _name: str, scope: DeliveryScope, expected: set[int]) -> None:
         self._seed()
         curated = CuratedGitHubSource.for_team(self.team)
 
-        timelines = query_author_timelines(
-            curated=curated, author="alice", date_from=datetime.now(tz=UTC) - timedelta(days=7), date_to=None
+        timelines = query_pull_request_timelines(
+            curated=curated, scope=scope, date_from=datetime.now(tz=UTC) - timedelta(days=7), date_to=None
         )
 
         kinds = {item.number: [segment.kind for segment in item.segments] for item in timelines.items}
-        assert kinds == {
-            21: [
-                Kind.CI_RUNNING,
-                Kind.RED_FIXED_BY_PUSH,
-                Kind.CI_RUNNING,
-                Kind.APPROVED_NOT_ENQUEUED,
-                Kind.MERGE_QUEUE,
-            ],
-            23: [Kind.WAITING_FOR_REVIEW],
-            24: [Kind.DRAFT],
-        }
+        assert set(kinds) == expected
+        assert kinds[21] == [
+            Kind.CI_RUNNING,
+            Kind.RED_FIXED_BY_PUSH,
+            Kind.CI_RUNNING,
+            Kind.APPROVED_NOT_ENQUEUED,
+            Kind.MERGE_QUEUE,
+        ]
+        assert kinds.get(23, [Kind.WAITING_FOR_REVIEW]) == [Kind.WAITING_FOR_REVIEW]
+        assert kinds.get(24, [Kind.DRAFT]) == [Kind.DRAFT]
         merged = next(item for item in timelines.items if item.number == 21)
+        assert merged.author.handle == "alice"
         assert merged.pushes == 2
         assert merged.segments[-1].ended_at == merged.merged_at
         assert merged.started_at == _dt(_ago(2))
 
 
-class TestAuthorEndpoints(APIBaseTest):
-    @parameterized.expand([("author_summary",), ("author_pull_request_timelines",)])
-    def test_requires_author(self, action: str) -> None:
+class TestDeliveryEndpoints(APIBaseTest):
+    @parameterized.expand([("delivery_summary",), ("pull_request_timelines",)])
+    def test_requires_exactly_one_scope(self, action: str) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/{action}/")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == "author is required"
+        assert "exactly one of author, github_team" in response.json()["detail"]

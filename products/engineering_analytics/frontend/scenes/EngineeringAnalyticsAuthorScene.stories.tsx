@@ -7,10 +7,10 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import type {
-    AuthorPullRequestTimelinesApi,
-    AuthorSummaryApi,
+    DeliverySummaryApi,
     DurationDistributionApi,
     PRTimelineApi,
+    PullRequestTimelinesApi,
     WorkflowCostApi,
 } from '../generated/api.schemas'
 
@@ -30,8 +30,10 @@ function distribution(p50Hours: number, count: number): DurationDistributionApi 
     }
 }
 
-const SUMMARY: AuthorSummaryApi = {
-    author: 'jane-dev',
+const SUMMARY: DeliverySummaryApi = {
+    scope_kind: 'author',
+    scope: 'jane-dev',
+    has_membership_data: false,
     jobs_available: true,
     review_data_available: true,
     ready_data_available: true,
@@ -39,28 +41,28 @@ const SUMMARY: AuthorSummaryApi = {
     merged_pr_count: 21,
     open_pr_count: 3,
     draft_pr_count: 1,
-    cost_per_merged_pr_usd: { author: 9.4, repo: 6.1 },
-    billable_minutes_per_merged_pr: { author: 118, repo: 84 },
-    cost_per_push_usd: { author: 1.35, repo: 1.2 },
+    cost_per_merged_pr_usd: { scope: 9.4, repo: 6.1 },
+    billable_minutes_per_merged_pr: { scope: 118, repo: 84 },
+    cost_per_push_usd: { scope: 1.35, repo: 1.2 },
     total_cost_usd: 231.8,
     total_billable_minutes: 2940,
     push_count: 172,
-    median_ready_to_merge_seconds: { author: 18 * HOUR, repo: 9 * HOUR },
-    p90_ready_to_merge_seconds: { author: 4.1 * 24 * HOUR, repo: 3.2 * 24 * HOUR },
-    median_ready_to_first_approval_seconds: { author: 2.1 * HOUR, repo: 2.6 * HOUR },
-    median_first_approval_to_merge_seconds: { author: 11 * HOUR, repo: 3.4 * HOUR },
-    before_first_approval_share: { author: 0.38, repo: 0.52 },
-    pushes_after_approval_per_merged_pr: { author: 1.6, repo: 0.9 },
-    merge_queue_attempts_per_merged_pr: { author: 1.4, repo: 1.3 },
-    failed_merge_queue_share: { author: 0.24, repo: 0.21 },
+    median_ready_to_merge_seconds: { scope: 18 * HOUR, repo: 9 * HOUR },
+    p90_ready_to_merge_seconds: { scope: 4.1 * 24 * HOUR, repo: 3.2 * 24 * HOUR },
+    median_ready_to_first_approval_seconds: { scope: 2.1 * HOUR, repo: 2.6 * HOUR },
+    median_first_approval_to_merge_seconds: { scope: 11 * HOUR, repo: 3.4 * HOUR },
+    before_first_approval_share: { scope: 0.38, repo: 0.52 },
+    pushes_after_approval_per_merged_pr: { scope: 1.6, repo: 0.9 },
+    merge_queue_attempts_per_merged_pr: { scope: 1.4, repo: 1.3 },
+    failed_merge_queue_share: { scope: 0.24, repo: 0.21 },
     lead_time: {
         deploy_data_available: true,
         environment_scope: 'prod-us, prod-eu',
         merged_pr_count: 21,
         deployed_merged_pr_count: 19,
-        open_to_deploy: { author: distribution(21, 19), repo: distribution(12, 640) },
-        open_to_merge: { author: distribution(20, 19), repo: distribution(10, 640) },
-        merge_to_deploy: { author: distribution(1.1, 19), repo: distribution(1.1, 640) },
+        open_to_deploy: { scope: distribution(21, 19), repo: distribution(12, 640) },
+        open_to_merge: { scope: distribution(20, 19), repo: distribution(10, 640) },
+        merge_to_deploy: { scope: distribution(1.1, 19), repo: distribution(1.1, 640) },
     },
 }
 
@@ -83,6 +85,7 @@ function timeline(
     return {
         number,
         title,
+        author: { handle: 'jane-dev', display_name: 'jane-dev', avatar_url: '', is_bot: false },
         repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
         state: options.merged ? 'merged' : 'open',
         is_draft: !!options.draft,
@@ -97,8 +100,10 @@ function timeline(
 }
 
 // Open rows run exactly to NOW, so their last step length is the gap from the running total to NOW.
-const TIMELINES: AuthorPullRequestTimelinesApi = {
-    author_avatar_url: '',
+const TIMELINES: PullRequestTimelinesApi = {
+    scope_kind: 'author',
+    scope: 'jane-dev',
+    has_membership_data: false,
     review_data_available: true,
     jobs_available: true,
     merge_queue_state_available: true,
@@ -208,14 +213,14 @@ const meta: Meta = {
         featureFlags: [FEATURE_FLAGS.ENGINEERING_ANALYTICS],
         pageUrl: urls.engineeringAnalyticsAuthor('jane-dev'),
         testOptions: {
-            waitForSelector: '[data-attr="engineering-analytics-author-day-view"]',
+            waitForSelector: '[data-attr="engineering-analytics-day-view"]',
         },
     },
     decorators: [
         mswDecorator({
             get: {
-                'api/projects/:team_id/engineering_analytics/author_summary/': SUMMARY,
-                'api/projects/:team_id/engineering_analytics/author_pull_request_timelines/': TIMELINES,
+                'api/projects/:team_id/engineering_analytics/delivery_summary/': SUMMARY,
+                'api/projects/:team_id/engineering_analytics/pull_request_timelines/': TIMELINES,
                 'api/projects/:team_id/engineering_analytics/author_workflow_costs/': WORKFLOW_COSTS,
             },
         }),
@@ -241,12 +246,12 @@ export const AuthorWithoutReviewsOrDeploys: Story = {
     decorators: [
         mswDecorator({
             get: {
-                'api/projects/:team_id/engineering_analytics/author_summary/': {
+                'api/projects/:team_id/engineering_analytics/delivery_summary/': {
                     ...SUMMARY,
                     review_data_available: false,
                     lead_time: { ...SUMMARY.lead_time, deploy_data_available: false, environment_scope: '' },
                 },
-                'api/projects/:team_id/engineering_analytics/author_pull_request_timelines/': {
+                'api/projects/:team_id/engineering_analytics/pull_request_timelines/': {
                     ...TIMELINES,
                     review_data_available: false,
                 },

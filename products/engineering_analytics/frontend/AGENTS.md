@@ -11,7 +11,7 @@ UI grammar for every scene in this product. `frontend/src/AGENTS.md` and the rep
 ## One comparison vocabulary per question
 
 - Window-vs-window comparison renders as `WindowComparisonCard` ("This window / Previous window" bars plus a `DeltaBadge`). Nothing else: no invented forms (a muted "was N" companion value was tried and removed), no `MetricTile` delta pills for windowed metrics.
-- Author-vs-repository comparison, on the author page only, renders as `AuthorComparisonCard` ("This author / Repo" bars on one scale). The question there is "is my friction unusual here", which a previous window can't answer. It never compares authors with each other.
+- Scope-vs-repository comparison (an author or a team against the repository) renders as `ScopeComparisonCard` ("This author / Repo" bars on one scale). The question there is "is this friction unusual here", which a previous window can't answer. It never compares authors or teams with each other.
 - Table cells hold plain current values via `CountCell` (`components/CountCell.tsx`). Comparison never lives in a table cell.
 
 ## Information altitude

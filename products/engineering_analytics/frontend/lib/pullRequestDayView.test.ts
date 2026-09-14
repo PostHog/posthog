@@ -17,6 +17,7 @@ function pr(
     return {
         number,
         title: `PR ${number}`,
+        author: { handle: 'alice', display_name: 'alice', avatar_url: '', is_bot: false },
         repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
         state: options.merged ? 'merged' : 'open',
         is_draft: !!options.draft,
@@ -58,7 +59,7 @@ describe('pullRequestDayView', () => {
         ])
 
         expect(groups.map((group) => [group.label, group.rows.map((row) => row.pr.number)])).toEqual([
-            ['Open, your move', [4, 2]],
+            ["Open, the author's move", [4, 2]],
             ['Open, waiting on others', [1]],
             ['Merged, took over 2 days', [3]],
             ['Merged, under a day', [5]],

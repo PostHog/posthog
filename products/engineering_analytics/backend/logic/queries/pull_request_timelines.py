@@ -1,8 +1,9 @@
-"""Curated query: one author's pull requests as delivery timelines.
+"""Curated query: pull requests in one scope as delivery timelines.
 
-Fetches the immutable evidence for the author's open PRs and the PRs merged in the window, then
-replays each PR's states with ``logic.pr_timeline``. Every read is scoped to the listed PR
-numbers, so the scans track one author's work rather than the repository's history.
+Selects the pull requests in scope (an author's or a GitHub team's open PRs plus the PRs merged in
+the window, or one pull request whatever its state), fetches their immutable evidence, then replays
+each PR's states with ``logic.pr_timeline``. Every read is scoped to the selected PR numbers, so the
+scans track the listed work rather than the repository's history.
 
 Run attempts come from the jobs table when it is synced: the runs snapshot keeps only a run's
 newest attempt, so a failed first attempt that a re-run turned green is invisible without it.
@@ -15,11 +16,14 @@ from datetime import UTC, datetime, timedelta
 from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import (
-    AuthorPullRequestTimelines,
+    Author,
+    DeliveryScopeKind,
     PRState,
     PRTimeline,
+    PullRequestTimelines,
     RepoRef,
 )
+from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope
 from products.engineering_analytics.backend.logic.merge_queue import gate_attempt_expr
 from products.engineering_analytics.backend.logic.pr_timeline import (
     GateAttempt,
@@ -44,13 +48,17 @@ _LIMIT = 200
 # Trunk states that mean the entry left the queue without landing.
 _OUT_OF_QUEUE_STATES = frozenset({"failed", "cancelled"})
 
+# A list scope shows what is still open plus what merged in the window; closed-unmerged work is not
+# listed. A single pull request is shown whatever its state.
+_LIST_WINDOW = "(pr.state = 'open' OR (pr.merged_at >= {date_from} __DATE_TO__))"
+
 _PRS_SELECT = f"""
     SELECT
         pr.number, pr.title, pr.repo_owner, pr.repo_name, pr.state, pr.is_draft,
-        pr.created_at, pr.merged_at, pr.default_branch, pr.author_avatar_url
+        pr.created_at, pr.merged_at, pr.closed_at, pr.default_branch,
+        pr.author_handle, pr.author_avatar_url, pr.is_bot
     FROM __PR_SOURCE__ AS pr
-    WHERE pr.author_handle = {{author}}
-        AND (pr.state = 'open' OR (pr.merged_at >= {{date_from}} __DATE_TO__))
+    WHERE (__SCOPE__) AND __WINDOW__
     ORDER BY pr.created_at DESC
     LIMIT {_LIMIT + 1}
 """
@@ -117,53 +125,70 @@ _TRUNK_STATE_SELECT = """
 """
 
 
-class AuthorTimelinesQuery:
-    """Collects the evidence for one author's listed PRs and replays each into a timeline."""
+class PullRequestTimelinesQuery:
+    """Collects the evidence for the pull requests in one scope and replays each into a timeline."""
 
     def __init__(
-        self, curated: CuratedGitHubSource, *, author: str, date_from: datetime, date_to: datetime | None
+        self, curated: CuratedGitHubSource, *, scope: DeliveryScope, date_from: datetime, date_to: datetime | None
     ) -> None:
         self._curated = curated
-        self._author = author
+        self._scope = scope
         self._date_from = date_from
         self._date_to = date_to
         self._now = datetime.now(tz=UTC)
 
-    def run(self) -> AuthorPullRequestTimelines:
+    def _result(self, items: list[PRTimeline], *, truncated: bool) -> PullRequestTimelines:
+        return PullRequestTimelines(
+            scope_kind=self._scope.kind,
+            scope=self._scope.label,
+            has_membership_data=self._curated.members_source() is not None,
+            review_data_available=self._curated.reviews_source() is not None,
+            jobs_available=self._curated.jobs_source() is not None,
+            merge_queue_state_available=self._curated.trunk_merge_queue_source() is not None,
+            generated_at=self._now,
+            items=items,
+            truncated=truncated,
+            limit=_LIMIT,
+        )
+
+    def run(self) -> PullRequestTimelines:
         prs = self._query_prs()
         truncated = len(prs) > _LIMIT
         prs = prs[:_LIMIT]
-        jobs_available = self._curated.jobs_source() is not None
-        reviews_available = self._curated.reviews_source() is not None
-        trunk_available = self._curated.trunk_merge_queue_source() is not None
         if not prs:
-            return AuthorPullRequestTimelines(
-                author_avatar_url="",
-                review_data_available=reviews_available,
-                jobs_available=jobs_available,
-                merge_queue_state_available=trunk_available,
-                generated_at=self._now,
-                items=[],
-                truncated=False,
-                limit=_LIMIT,
-            )
+            return self._result([], truncated=False)
 
         pr_numbers = sorted({int(row[0]) for row in prs})
         # A day of slack below the oldest listed PR keeps its first CI run inside the scan.
         run_from = min(row[6] for row in prs) - timedelta(days=1)
         ready_at = self._query_ready_at(pr_numbers)
-        reviews = self._query_reviews(pr_numbers) if reviews_available else None
+        reviews = self._query_reviews(pr_numbers)
         attempts, gates = self._query_attempts(pr_numbers, run_from)
-        default_branch = next((row[8] for row in prs if row[8]), "")
+        default_branch = next((row[9] for row in prs if row[9]), "")
         master_failures = self._query_master_failures(attempts, default_branch, run_from)
-        out_of_queue = self._query_out_of_queue(pr_numbers) if trunk_available else set()
+        out_of_queue = self._query_out_of_queue(pr_numbers)
         costs = query_pr_list_costs(curated=self._curated, pr_numbers=pr_numbers)
 
         items = []
-        for number, title, repo_owner, repo_name, state, is_draft, created_at, merged_at, _branch, _avatar in prs:
+        for row in prs:
+            (
+                number,
+                title,
+                repo_owner,
+                repo_name,
+                state,
+                is_draft,
+                created_at,
+                merged_at,
+                closed_at,
+                _branch,
+                author_handle,
+                author_avatar_url,
+                is_bot,
+            ) = row
             number = int(number)
-            ended_at = merged_at or self._now
-            is_open = merged_at is None
+            is_open = state == PRState.OPEN
+            ended_at = merged_at or (closed_at if not is_open else None) or self._now
             started_at = (
                 created_at if is_open and is_draft else self._started_at(ready_at.get(number, []), created_at, ended_at)
             )
@@ -186,6 +211,12 @@ class AuthorTimelinesQuery:
                 PRTimeline(
                     number=number,
                     title=title or "",
+                    author=Author(
+                        handle=author_handle or "",
+                        display_name=author_handle or "",
+                        avatar_url=author_avatar_url or "",
+                        is_bot=bool(is_bot),
+                    ),
                     repo=RepoRef(provider="github", owner=repo_owner, name=repo_name),
                     state=PRState(state),
                     is_draft=bool(is_draft),
@@ -198,16 +229,7 @@ class AuthorTimelinesQuery:
                     segments=builder.build(),
                 )
             )
-        return AuthorPullRequestTimelines(
-            author_avatar_url=str(prs[0][9] or ""),
-            review_data_available=reviews_available,
-            jobs_available=jobs_available,
-            merge_queue_state_available=trunk_available,
-            generated_at=self._now,
-            items=items,
-            truncated=truncated,
-            limit=_LIMIT,
-        )
+        return self._result(items, truncated=truncated)
 
     @staticmethod
     def _started_at(ready_events: list[datetime], created_at: datetime, ended_at: datetime) -> datetime:
@@ -217,17 +239,22 @@ class AuthorTimelinesQuery:
 
     def _query_prs(self) -> list[tuple]:
         placeholders: dict[str, ast.Expr] = {
-            "author": ast.Constant(value=self._author),
             "date_from": ast.Constant(value=self._date_from),
+            **self._scope.placeholders(),
         }
         date_to_clause = ""
         if self._date_to is not None:
             placeholders["date_to"] = ast.Constant(value=self._date_to)
             date_to_clause = "AND pr.merged_at <= {date_to}"
+        window = "1 = 1" if self._scope.kind == DeliveryScopeKind.PULL_REQUEST else _LIST_WINDOW
+        sql = (
+            _PRS_SELECT.replace("__SCOPE__", self._scope.pr_predicate(members_source=self._curated.members_source()))
+            .replace("__WINDOW__", window)
+            .replace("__PR_SOURCE__", self._curated.pr_source())
+            .replace("__DATE_TO__", date_to_clause)
+        )
         response = self._curated.run(
-            _PRS_SELECT.replace("__PR_SOURCE__", self._curated.pr_source()).replace("__DATE_TO__", date_to_clause),
-            query_type="engineering_analytics.author_timelines_prs",
-            placeholders=placeholders,
+            sql, query_type="engineering_analytics.pull_request_timelines_prs", placeholders=placeholders
         )
         return [row for row in response.results or [] if row[6] is not None]
 
@@ -237,7 +264,7 @@ class AuthorTimelinesQuery:
             return {}
         response = self._curated.run(
             _TRANSITIONS_SELECT.replace("__EVENTS_SOURCE__", source),
-            query_type="engineering_analytics.author_timelines_transitions",
+            query_type="engineering_analytics.pull_request_timelines_transitions",
             placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
         )
         ready_at: dict[int, list[datetime]] = defaultdict(list)
@@ -246,12 +273,14 @@ class AuthorTimelinesQuery:
                 ready_at[int(number)].append(created_at)
         return ready_at
 
-    def _query_reviews(self, pr_numbers: list[int]) -> dict[int, list[ReviewVerdict]]:
+    def _query_reviews(self, pr_numbers: list[int]) -> dict[int, list[ReviewVerdict]] | None:
+        """Reviews per PR, or None when the reviews table is not synced."""
         source = self._curated.reviews_source()
-        assert source is not None
+        if source is None:
+            return None
         response = self._curated.run(
             _REVIEWS_SELECT.replace("__REVIEWS_SOURCE__", source),
-            query_type="engineering_analytics.author_timelines_reviews",
+            query_type="engineering_analytics.pull_request_timelines_reviews",
             placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
         )
         reviews: dict[int, list[ReviewVerdict]] = defaultdict(list)
@@ -266,7 +295,7 @@ class AuthorTimelinesQuery:
             _RUNS_SELECT.replace("__RUNS_SOURCE__", self._curated.run_source(started_floor=True)).replace(
                 "__GATE_ATTEMPT__", gate_attempt_expr("r.head_branch")
             ),
-            query_type="engineering_analytics.author_timelines_runs",
+            query_type="engineering_analytics.pull_request_timelines_runs",
             placeholders={
                 "pr_numbers": ast.Constant(value=pr_numbers),
                 "run_from": ast.Constant(value=run_from),
@@ -344,7 +373,7 @@ class AuthorTimelinesQuery:
             return {}
         response = self._curated.run(
             _JOB_ATTEMPTS_SELECT.replace("__JOBS_SOURCE__", source),
-            query_type="engineering_analytics.author_timelines_job_attempts",
+            query_type="engineering_analytics.pull_request_timelines_job_attempts",
             placeholders={
                 "run_ids": ast.Constant(value=run_ids),
                 "job_created_floor": run_windowed_job_created_floor_constant(run_from),
@@ -370,7 +399,7 @@ class AuthorTimelinesQuery:
             _MASTER_FAILURES_SELECT.replace("__JOBS_SOURCE__", jobs_source).replace(
                 "__RUNS_SOURCE__", self._curated.run_source(started_floor=True)
             ),
-            query_type="engineering_analytics.author_timelines_master_failures",
+            query_type="engineering_analytics.pull_request_timelines_master_failures",
             placeholders={
                 "default_branch": ast.Constant(value=default_branch),
                 "job_names": ast.Constant(value=job_names),
@@ -385,16 +414,17 @@ class AuthorTimelinesQuery:
 
     def _query_out_of_queue(self, pr_numbers: list[int]) -> set[int]:
         source = self._curated.trunk_merge_queue_source()
-        assert source is not None
+        if source is None:
+            return set()
         response = self._curated.run(
             _TRUNK_STATE_SELECT.replace("__TRUNK_SOURCE__", source),
-            query_type="engineering_analytics.author_timelines_trunk_state",
+            query_type="engineering_analytics.pull_request_timelines_trunk_state",
             placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
         )
         return {int(number) for number, state in response.results or [] if state in _OUT_OF_QUEUE_STATES}
 
 
-def query_author_timelines(
-    *, curated: CuratedGitHubSource, author: str, date_from: datetime, date_to: datetime | None
-) -> AuthorPullRequestTimelines:
-    return AuthorTimelinesQuery(curated, author=author, date_from=date_from, date_to=date_to).run()
+def query_pull_request_timelines(
+    *, curated: CuratedGitHubSource, scope: DeliveryScope, date_from: datetime, date_to: datetime | None
+) -> PullRequestTimelines:
+    return PullRequestTimelinesQuery(curated, scope=scope, date_from=date_from, date_to=date_to).run()

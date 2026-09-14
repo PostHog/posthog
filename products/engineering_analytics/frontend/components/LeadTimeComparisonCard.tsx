@@ -1,11 +1,11 @@
-// Lead time to deploy for one author against the repository: one You-vs-Repo box plot per stage.
-// No DORA band edge here: a band on one person's lead time reads as a grade.
+// Lead time to deploy for one scope (an author or a team) against the repository: one scope-vs-repo box
+// plot per stage. No DORA band edge here: a band on one person's or one team's lead time reads as a grade.
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 
-import type { AuthorLeadTimeApi, DurationDistributionApi } from '../generated/api.schemas'
+import type { DeliveryLeadTimeApi, DurationDistributionApi } from '../generated/api.schemas'
 import { compactAgeLabel } from '../lib/format'
 import { BoxPlotBucket, LeadTimeBoxPlot } from './LeadTimeBoxPlot'
 
@@ -24,11 +24,14 @@ function toBucket(label: string, distribution: DurationDistributionApi): BoxPlot
     }
 }
 
-export function AuthorLeadTimeCard({
+export function LeadTimeComparisonCard({
     leadTime,
+    scopeLabel,
     loading,
 }: {
-    leadTime: AuthorLeadTimeApi | null | undefined
+    leadTime: DeliveryLeadTimeApi | null | undefined
+    /** The box label for the scope, e.g. "This author" or "This team". */
+    scopeLabel: string
     loading: boolean
 }): JSX.Element {
     const stages = leadTime
@@ -38,18 +41,22 @@ export function AuthorLeadTimeCard({
               { key: 'merge_to_deploy', title: 'Merge to deploy', pair: leadTime.merge_to_deploy },
           ]
         : []
-    const headline = leadTime?.open_to_deploy.author
+    const headline = leadTime?.open_to_deploy.scope
 
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col p-4" data-attr="engineering-analytics-author-lead-time">
+        <LemonCard
+            hoverEffect={false}
+            className="flex flex-col p-4"
+            data-attr="engineering-analytics-delivery-lead-time"
+        >
             <h3 className="mb-1 text-xs font-semibold text-secondary">
                 <Tooltip
                     title={
                         <div className="flex flex-col gap-1">
                             <div>
-                                This author's merged pull requests (bots and drafts excluded), each matched once to the
-                                first successful production deploy that contains its merge. Open to merge includes draft
-                                time. The three stages use the same pull requests, so they add up.
+                                Merged pull requests (bots and drafts excluded), each matched once to the first
+                                successful production deploy that contains its merge. Open to merge includes draft time.
+                                The three stages use the same pull requests, so they add up.
                             </div>
                             <div>
                                 Box: the middle half of the pull requests. Line: median. Dot: mean. Whiskers: 5th to
@@ -57,7 +64,7 @@ export function AuthorLeadTimeCard({
                             </div>
                             <div>
                                 Deploy failure share and recovery are not shown: one deploy ships many pull requests, so
-                                neither belongs to one author. Health shows both for the repo.
+                                neither belongs to one author or team. Health shows both for the repo.
                             </div>
                         </div>
                     }
@@ -74,7 +81,7 @@ export function AuthorLeadTimeCard({
                 </div>
             ) : !headline || headline.pr_count === 0 ? (
                 <div className="flex h-20 items-center text-xs text-secondary">
-                    None of this author's pull requests reached a production deploy in the window.
+                    None of these pull requests reached a production deploy in the window.
                 </div>
             ) : (
                 <>
@@ -100,12 +107,12 @@ export function AuthorLeadTimeCard({
                                         seriesKey={stage.key}
                                         seriesLabel={stage.title}
                                         buckets={[
-                                            toBucket('This author', stage.pair.author),
+                                            toBucket(scopeLabel, stage.pair.scope),
                                             toBucket('Repo', stage.pair.repo),
                                         ]}
                                         formatSeconds={compactAgeLabel}
                                         excludeOutliers
-                                        dataAttr={`engineering-analytics-author-${stage.key}`}
+                                        dataAttr={`engineering-analytics-delivery-${stage.key}`}
                                     />
                                 </div>
                             ))}

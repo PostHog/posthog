@@ -4,7 +4,7 @@
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import type { AuthorSummaryApi } from '../generated/api.schemas'
+import type { DeliverySummaryApi } from '../generated/api.schemas'
 import { compactAgeLabel, percent } from '../lib/format'
 
 const BEFORE_APPROVAL_COLOR = 'var(--data-color-3)'
@@ -16,21 +16,21 @@ function SplitRow({
     p90,
     beforeShare,
     max,
-    isAuthor,
+    isScope,
 }: {
     label: string
     value: number
     p90: number | null
     beforeShare: number | null
     max: number
-    isAuthor: boolean
+    isScope: boolean
 }): JSX.Element {
     return (
         <div className="flex items-center gap-2">
             <span className="w-20 shrink-0 text-[11px] text-tertiary">{label}</span>
             <div className="relative h-2.5 flex-1">
                 <div
-                    className={`flex h-full gap-px overflow-hidden rounded-sm ${isAuthor ? '' : 'opacity-50'}`}
+                    className={`flex h-full gap-px overflow-hidden rounded-sm ${isScope ? '' : 'opacity-50'}`}
                     style={{ width: `${Math.max((value / max) * 100, 2)}%` }}
                 >
                     {beforeShare != null ? (
@@ -69,12 +69,12 @@ function SplitRow({
 function LegRow({
     color,
     label,
-    author,
+    scope,
     repo,
 }: {
     color: string
     label: string
-    author: number | null
+    scope: number | null
     repo: number | null
 }): JSX.Element {
     return (
@@ -83,7 +83,7 @@ function LegRow({
                 <span className="size-2 shrink-0 rounded-sm" style={{ backgroundColor: color }} />
                 <span className="truncate">{label}</span>
             </span>
-            <span className="font-semibold tabular-nums text-primary">{compactAgeLabel(author)}</span>
+            <span className="font-semibold tabular-nums text-primary">{compactAgeLabel(scope)}</span>
             <span className="text-right tabular-nums text-tertiary">repo {compactAgeLabel(repo)}</span>
         </div>
     )
@@ -91,22 +91,25 @@ function LegRow({
 
 export function ReadyToMergeCard({
     summary,
+    scopeLabel,
     loading,
 }: {
-    summary: AuthorSummaryApi | null
+    summary: DeliverySummaryApi | null
+    /** The row label for the scope's bar, e.g. "This author" or "This team". */
+    scopeLabel: string
     loading: boolean
 }): JSX.Element {
     const median = summary?.median_ready_to_merge_seconds
     const p90 = summary?.p90_ready_to_merge_seconds
     const share = summary?.before_first_approval_share
     const reviewsSynced = !!summary?.review_data_available
-    const max = Math.max(...[median?.author, median?.repo, p90?.author, p90?.repo].map((value) => value ?? 0))
+    const max = Math.max(...[median?.scope, median?.repo, p90?.scope, p90?.repo].map((value) => value ?? 0))
 
     return (
         <LemonCard
             hoverEffect={false}
             className="flex h-full flex-col p-4"
-            data-attr="engineering-analytics-author-ready"
+            data-attr="engineering-analytics-delivery-ready"
         >
             <h3 className="mb-1 text-xs font-semibold text-secondary">
                 <Tooltip title="Median calendar time from the last ready for review to the merge, over pull requests merged in the window. The bar length is that median. Its split is the share of all those hours spent before and after the first approval, so long pull requests weigh more. The two medians below are separate medians and do not add up to the total.">
@@ -115,11 +118,11 @@ export function ReadyToMergeCard({
             </h3>
             {loading ? (
                 <LemonSkeleton className="h-24 w-full" />
-            ) : median?.author != null ? (
+            ) : median?.scope != null ? (
                 <>
                     <div className="mb-3 flex flex-wrap items-baseline gap-2">
                         <span className="text-2xl font-semibold leading-none tabular-nums">
-                            {compactAgeLabel(median.author)}
+                            {compactAgeLabel(median.scope)}
                         </span>
                         {median.repo != null && (
                             <span className="text-xs tabular-nums text-tertiary">
@@ -129,12 +132,12 @@ export function ReadyToMergeCard({
                     </div>
                     <div className="flex flex-col gap-1.5">
                         <SplitRow
-                            label="This author"
-                            value={median.author}
-                            p90={p90?.author ?? null}
-                            beforeShare={reviewsSynced ? (share?.author ?? null) : null}
+                            label={scopeLabel}
+                            value={median.scope}
+                            p90={p90?.scope ?? null}
+                            beforeShare={reviewsSynced ? (share?.scope ?? null) : null}
                             max={max}
-                            isAuthor
+                            isScope
                         />
                         {median.repo != null && (
                             <SplitRow
@@ -143,7 +146,7 @@ export function ReadyToMergeCard({
                                 p90={p90?.repo ?? null}
                                 beforeShare={reviewsSynced ? (share?.repo ?? null) : null}
                                 max={max}
-                                isAuthor={false}
+                                isScope={false}
                             />
                         )}
                     </div>
@@ -152,13 +155,13 @@ export function ReadyToMergeCard({
                             <LegRow
                                 color={BEFORE_APPROVAL_COLOR}
                                 label="Ready to first approval, median"
-                                author={summary?.median_ready_to_first_approval_seconds.author ?? null}
+                                scope={summary?.median_ready_to_first_approval_seconds.scope ?? null}
                                 repo={summary?.median_ready_to_first_approval_seconds.repo ?? null}
                             />
                             <LegRow
                                 color={AFTER_APPROVAL_COLOR}
                                 label="First approval to merged, median"
-                                author={summary?.median_first_approval_to_merge_seconds.author ?? null}
+                                scope={summary?.median_first_approval_to_merge_seconds.scope ?? null}
                                 repo={summary?.median_first_approval_to_merge_seconds.repo ?? null}
                             />
                         </div>

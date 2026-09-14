@@ -1,6 +1,6 @@
-// Red check time on the author's merged pull requests, split by what turned the check green. Author
-// only: the cause comes from replaying each pull request's timeline, which is too heavy to run over the
-// whole repository per request.
+// Red check time on the listed merged pull requests, split by what turned the check green. No repo
+// figure: the cause comes from replaying each pull request's timeline, which is too heavy to run over
+// the whole repository per request.
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
@@ -21,7 +21,11 @@ export function RedTimeByCauseCard({
     const total = redTime.totalSecondsPerMergedPr
 
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col p-4" data-attr="engineering-analytics-author-red-time">
+        <LemonCard
+            hoverEffect={false}
+            className="flex flex-col p-4"
+            data-attr="engineering-analytics-delivery-red-time"
+        >
             <h3 className="mb-1 text-xs font-semibold text-secondary">
                 <Tooltip
                     title={
@@ -37,7 +41,7 @@ export function RedTimeByCauseCard({
                             </div>
                             <div>
                                 There is no repo figure: the cause comes from replaying each pull request, which only
-                                runs for this author's pull requests.
+                                runs for the pull requests listed here.
                             </div>
                             {!jobsAvailable && (
                                 <div>

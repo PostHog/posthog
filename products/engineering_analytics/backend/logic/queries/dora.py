@@ -803,7 +803,7 @@ def query_dora_overview(
 # population) or merged in it (the attribution-coverage population). The author page splits the
 # rows in Python, so the containment rule stays defined once, in the CTEs above.
 _DEPLOYED_PR_ROWS_SELECT = """
-    SELECT number, author_handle, created_at, merged_at, deployed_at
+    SELECT number, (__SCOPE__) AS in_scope, created_at, merged_at, deployed_at
     FROM deployed_prs
     WHERE (deployed_at >= {date_from} __DATE_TO_DEPLOYED__) OR (merged_at >= {date_from} __DATE_TO_MERGED__)
     LIMIT 100000
@@ -813,7 +813,8 @@ _DEPLOYED_PR_ROWS_SELECT = """
 @frozen
 class DeployedPR:
     number: int
-    author_handle: str
+    # True when the caller's scope predicate matches the PR.
+    in_scope: bool
     created_at: datetime
     merged_at: datetime
     # The first successful in-scope deployment that contains the merge.
@@ -827,10 +828,17 @@ class DeployedPRs:
 
 
 def query_deployed_prs(
-    *, curated: CuratedGitHubSource, date_from: datetime, date_to: datetime | None
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+    scope_predicate: str,
+    scope_placeholders: dict[str, ast.Expr],
 ) -> DeployedPRs | None:
     """The deployed-PR population behind lead time, in the default (production) environment scope,
-    as rows. None when the deploy tables aren't synced."""
+    as rows. ``scope_predicate`` is a trusted SQL predicate over the unqualified ``deployed_prs``
+    columns that marks each row ``in_scope``; its placeholders ride in ``scope_placeholders``. None
+    when the deploy tables aren't synced."""
     deploy_sources = curated.deploy_sources()
     if deploy_sources is None:
         return None
@@ -853,17 +861,19 @@ def query_deployed_prs(
         sql.replace("__PR_SOURCE__", pr_source)
         .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__TEAM_FILTER__", "")
+        .replace("__SCOPE__", scope_predicate)
     )
+    scan.placeholders.update(scope_placeholders)
     response = scan.run(sql, query_type="engineering_analytics.deployed_pr_rows")
     rows = [
         DeployedPR(
             number=int(number),
-            author_handle=str(author_handle or ""),
+            in_scope=bool(in_scope),
             created_at=created_at,
             merged_at=merged_at,
             deployed_at=deployed_at,
         )
-        for number, author_handle, created_at, merged_at, deployed_at in response.results or []
+        for number, in_scope, created_at, merged_at, deployed_at in response.results or []
         if created_at is not None and merged_at is not None and deployed_at is not None
     ]
     return DeployedPRs(environment_scope=scoped.environment_scope.scope, rows=rows)

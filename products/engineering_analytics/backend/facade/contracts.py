@@ -1568,13 +1568,22 @@ class PathOwnership:
     resolved: bool
 
 
+class DeliveryScopeKind(StrEnum):
+    """Which pull requests a delivery read covers. A scope is always exactly one author, one GitHub
+    team, or one pull request, so no delivery read puts people side by side (SPEC §2)."""
+
+    AUTHOR = "author"
+    GITHUB_TEAM = "github_team"
+    PULL_REQUEST = "pull_request"
+
+
 @dataclass(frozen=True)
-class AuthorRepoFigure:
-    """One figure measured twice over the same window: over the author's pull requests, and over
-    every non-bot pull request in the repository (the author included). None means the population
+class ScopeRepoFigure:
+    """One figure measured twice over the same window: over the pull requests in scope, and over
+    every non-bot pull request in the repository (the scope included). None means the population
     had nothing to measure, never zero."""
 
-    author: float | None
+    scope: float | None
     repo: float | None
 
 
@@ -1595,21 +1604,21 @@ class DurationDistribution:
 
 
 @dataclass(frozen=True)
-class AuthorRepoDistribution:
-    author: DurationDistribution
+class ScopeRepoDistribution:
+    scope: DurationDistribution
     repo: DurationDistribution
 
 
 @dataclass(frozen=True)
-class AuthorLeadTime:
-    """Lead time to deploy for one author against the repository, over the DORA deployed-PR
+class DeliveryLeadTime:
+    """Lead time to deploy for one scope against the repository, over the DORA deployed-PR
     population (bots and drafts excluded, containment resolved through the deploy's head commit).
 
     The distributions cover PRs whose first containing deploy succeeded in the window, so the
     three stages compose. The coverage pair counts PRs merged in the window instead:
     ``deployed_merged_pr_count`` of ``merged_pr_count`` reached a deploy. Deploy failure share and
     recovery are per deploy and one deploy ships many PRs, so they are not attributable to an
-    author and are not part of this type.
+    author or a team and are not part of this type.
     """
 
     deploy_data_available: bool
@@ -1617,47 +1626,52 @@ class AuthorLeadTime:
     environment_scope: str
     merged_pr_count: int
     deployed_merged_pr_count: int
-    open_to_deploy: AuthorRepoDistribution
-    open_to_merge: AuthorRepoDistribution
-    merge_to_deploy: AuthorRepoDistribution
+    open_to_deploy: ScopeRepoDistribution
+    open_to_merge: ScopeRepoDistribution
+    merge_to_deploy: ScopeRepoDistribution
 
 
 @dataclass(frozen=True)
-class AuthorSummary:
-    """Delivery and CI friction for one author's pull requests, each figure against the repository.
+class DeliverySummary:
+    """Delivery and CI friction for one author's or one GitHub team's pull requests, each figure
+    against the repository.
 
     Populations: PRs merged in the window, bots and drafts excluded, unless a field says otherwise.
     Medians are per merged PR. The ``*_available`` flags say which optional source backs a figure;
     a figure whose source is missing is None rather than a fake zero.
     """
 
-    author: str
+    scope_kind: DeliveryScopeKind
+    # The author login or the GitHub team slug.
+    scope: str
+    # A team scope needs the membership table; without it the scope matches no pull requests.
+    has_membership_data: bool
     # The optional sources behind the figures.
     jobs_available: bool
     review_data_available: bool
     ready_data_available: bool
-    # Plain author counts: no repo figure, because comparing volume ranks people.
+    # Plain counts: no repo figure, because comparing volume ranks people.
     opened_pr_count: int
     merged_pr_count: int
     open_pr_count: int
     draft_pr_count: int
     # CI spend. Cost includes merge-queue gate runs, which the PR's landing paid for.
-    cost_per_merged_pr_usd: AuthorRepoFigure
-    billable_minutes_per_merged_pr: AuthorRepoFigure
-    cost_per_push_usd: AuthorRepoFigure
+    cost_per_merged_pr_usd: ScopeRepoFigure
+    billable_minutes_per_merged_pr: ScopeRepoFigure
+    cost_per_push_usd: ScopeRepoFigure
     total_cost_usd: float | None
     total_billable_minutes: float | None
     push_count: int
     # Getting merged.
-    median_ready_to_merge_seconds: AuthorRepoFigure
-    p90_ready_to_merge_seconds: AuthorRepoFigure
-    median_ready_to_first_approval_seconds: AuthorRepoFigure
-    median_first_approval_to_merge_seconds: AuthorRepoFigure
-    before_first_approval_share: AuthorRepoFigure
-    pushes_after_approval_per_merged_pr: AuthorRepoFigure
-    merge_queue_attempts_per_merged_pr: AuthorRepoFigure
-    failed_merge_queue_share: AuthorRepoFigure
-    lead_time: AuthorLeadTime
+    median_ready_to_merge_seconds: ScopeRepoFigure
+    p90_ready_to_merge_seconds: ScopeRepoFigure
+    median_ready_to_first_approval_seconds: ScopeRepoFigure
+    median_first_approval_to_merge_seconds: ScopeRepoFigure
+    before_first_approval_share: ScopeRepoFigure
+    pushes_after_approval_per_merged_pr: ScopeRepoFigure
+    merge_queue_attempts_per_merged_pr: ScopeRepoFigure
+    failed_merge_queue_share: ScopeRepoFigure
+    lead_time: DeliveryLeadTime
 
 
 class PRTimelineSegmentKind(StrEnum):
@@ -1694,10 +1708,11 @@ class PRTimelineSegment:
 @dataclass(frozen=True)
 class PRTimeline:
     """One pull request's delivery timeline, from the moment it was ready for review (or opened,
-    for a draft) to its merge or to now, as consecutive segments with no gaps."""
+    for a draft) to its merge, its close, or now, as consecutive segments with no gaps."""
 
     number: int
     title: str
+    author: Author
     repo: RepoRef
     state: PRState
     is_draft: bool
@@ -1713,12 +1728,16 @@ class PRTimeline:
 
 
 @dataclass(frozen=True)
-class AuthorPullRequestTimelines:
-    """One author's pull requests on a shared clock: every PR still open, plus every PR merged in
-    the window. Closed-unmerged PRs are not listed. Capped at ``limit`` with ``truncated``."""
+class PullRequestTimelines:
+    """The pull requests in one scope on a shared clock. An author or team scope lists every PR
+    still open plus every PR merged in the window (closed-unmerged PRs are not listed); a pull
+    request scope returns that one PR whatever its state. Capped at ``limit`` with ``truncated``."""
 
-    # The author's GitHub avatar from their newest listed PR; empty when nothing is listed.
-    author_avatar_url: str
+    scope_kind: DeliveryScopeKind
+    # The author login, the GitHub team slug, or "owner/name#number".
+    scope: str
+    # A team scope needs the membership table; without it the scope matches no pull requests.
+    has_membership_data: bool
     review_data_available: bool
     jobs_available: bool
     # True when the Trunk merge-queue table is synced, so an open PR out of the queue is visible.

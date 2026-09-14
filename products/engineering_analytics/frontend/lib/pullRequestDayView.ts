@@ -162,7 +162,7 @@ function toRow(pr: PRTimelineApi): DayViewRow | null {
     if (segments.length === 0) {
         return null
     }
-    const isOpen = pr.merged_at == null
+    const isOpen = pr.state === 'open'
     const last = segments[segments.length - 1]
     let highlightKind = last.kind
     let highlightSeconds = secondsBetween(last.started_at, last.ended_at)
@@ -195,12 +195,12 @@ const byLengthDesc = (a: DayViewRow, b: DayViewRow): number => b.lengthSeconds -
 export function groupTimelines(items: PRTimelineApi[]): DayViewGroup[] {
     const rows = items.map(toRow).filter((row): row is DayViewRow => row !== null)
     const openReady = rows.filter((row) => row.isOpen && !row.pr.is_draft)
-    const merged = rows.filter((row) => !row.isOpen)
+    const merged = rows.filter((row) => row.pr.merged_at != null)
     const day = DAY_HOURS * HOUR_SECONDS
     const groups: DayViewGroup[] = [
         {
             key: 'open-author',
-            label: 'Open, your move',
+            label: "Open, the author's move",
             rows: openReady.filter((row) => AUTHOR_CAN_CLEAR.has(row.highlightKind)).sort(byHighlightDesc),
         },
         {

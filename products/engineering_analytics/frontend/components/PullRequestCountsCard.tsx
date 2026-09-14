@@ -1,15 +1,15 @@
-// Plain pull request counts for the author page. No repo figure on purpose: comparing how much
-// someone ships ranks people, and these counts are only the denominators for the cards next to it.
+// Plain pull request counts for a delivery scope. No repo figure on purpose: comparing how much an author
+// or a team ships ranks people, and these counts are only the denominators for the cards next to it.
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import type { AuthorSummaryApi } from '../generated/api.schemas'
+import type { DeliverySummaryApi } from '../generated/api.schemas'
 
-export function AuthorPullRequestCountsCard({
+export function PullRequestCountsCard({
     summary,
     loading,
 }: {
-    summary: AuthorSummaryApi | null
+    summary: DeliverySummaryApi | null
     loading: boolean
 }): JSX.Element {
     const lines: [string, string][] = summary

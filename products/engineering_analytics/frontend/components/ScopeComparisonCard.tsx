@@ -1,19 +1,19 @@
-// An author-against-repo card for the author page. The question there is "is this unusual here", so
-// the two values are the author's figure and the same figure over the whole repository, drawn as two
-// labeled bars on a shared zero-based scale. Window-over-window comparisons use WindowComparisonCard.
+// A scope-against-repo card: one author's or one team's figure next to the same figure over the whole
+// repository. The question is "is this unusual here", so the graphic is two labeled bars on a shared
+// zero-based scale. Window-over-window comparisons use WindowComparisonCard instead.
 
 import { ReactNode } from 'react'
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import type { AuthorRepoFigureApi } from '../generated/api.schemas'
+import type { ScopeRepoFigureApi } from '../generated/api.schemas'
 
 function ComparisonRow({
     label,
     value,
     max,
     formatValue,
-    isAuthor,
+    isScope,
     marker,
     markerLabel,
 }: {
@@ -21,7 +21,7 @@ function ComparisonRow({
     value: number
     max: number
     formatValue: (value: number) => string
-    isAuthor: boolean
+    isScope: boolean
     marker?: number | null
     markerLabel?: string
 }): JSX.Element {
@@ -30,7 +30,7 @@ function ComparisonRow({
             <span className="w-20 shrink-0 text-[11px] text-tertiary">{label}</span>
             <div className="relative h-2.5 flex-1 rounded-sm">
                 <div
-                    className={`h-full rounded-sm ${isAuthor ? 'bg-[var(--data-color-1)]' : 'bg-[var(--muted)]'}`}
+                    className={`h-full rounded-sm ${isScope ? 'bg-[var(--data-color-1)]' : 'bg-[var(--muted)]'}`}
                     style={{ width: `${Math.max(max > 0 ? (value / max) * 100 : 0, 2)}%` }}
                 />
                 {marker != null && max > 0 && (
@@ -47,9 +47,10 @@ function ComparisonRow({
     )
 }
 
-export function AuthorComparisonCard({
+export function ScopeComparisonCard({
     title,
     tooltip,
+    scopeLabel,
     figure,
     formatValue,
     marker,
@@ -62,10 +63,12 @@ export function AuthorComparisonCard({
     title: string
     /** Definition or methodology, shown on title hover. */
     tooltip?: ReactNode
-    figure: AuthorRepoFigureApi | null | undefined
+    /** The row label for the scope's bar, e.g. "This author" or "This team". */
+    scopeLabel: string
+    figure: ScopeRepoFigureApi | null | undefined
     formatValue: (value: number) => string
     /** A companion figure (e.g. p90) pinned as a tick on each bar, on the same scale. */
-    marker?: AuthorRepoFigureApi | null
+    marker?: ScopeRepoFigureApi | null
     markerLabel?: string
     /** The totals behind the figure, under the bars. */
     caption?: ReactNode
@@ -73,9 +76,9 @@ export function AuthorComparisonCard({
     emptyText: string
     dataAttr?: string
 }): JSX.Element {
-    const author = figure?.author
+    const scope = figure?.scope
     const repo = figure?.repo
-    const max = Math.max(...[author, repo, marker?.author, marker?.repo].map((value) => value ?? 0))
+    const max = Math.max(...[scope, repo, marker?.scope, marker?.repo].map((value) => value ?? 0))
 
     return (
         <LemonCard hoverEffect={false} className="flex flex-col p-4" data-attr={dataAttr}>
@@ -90,22 +93,22 @@ export function AuthorComparisonCard({
             </h3>
             {loading ? (
                 <LemonSkeleton className="h-20 w-full" />
-            ) : author != null ? (
+            ) : scope != null ? (
                 <>
                     <div className="mb-3 flex flex-wrap items-baseline gap-2">
-                        <span className="text-2xl font-semibold leading-none tabular-nums">{formatValue(author)}</span>
+                        <span className="text-2xl font-semibold leading-none tabular-nums">{formatValue(scope)}</span>
                         {repo != null && (
                             <span className="text-xs tabular-nums text-tertiary">repo {formatValue(repo)}</span>
                         )}
                     </div>
                     <div className="flex flex-col gap-1.5">
                         <ComparisonRow
-                            label="This author"
-                            value={author}
+                            label={scopeLabel}
+                            value={scope}
                             max={max}
                             formatValue={formatValue}
-                            isAuthor
-                            marker={marker?.author}
+                            isScope
+                            marker={marker?.scope}
                             markerLabel={markerLabel}
                         />
                         {repo != null && (
@@ -114,7 +117,7 @@ export function AuthorComparisonCard({
                                 value={repo}
                                 max={max}
                                 formatValue={formatValue}
-                                isAuthor={false}
+                                isScope={false}
                                 marker={marker?.repo}
                                 markerLabel={markerLabel}
                             />
