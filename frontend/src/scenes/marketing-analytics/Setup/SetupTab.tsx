@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -77,7 +77,16 @@ export function SetupTab(): JSX.Element {
 
     return (
         <div className="flex flex-col md:flex-row gap-6 mt-4">
-            <nav className="md:w-56 shrink-0 flex flex-row md:flex-col gap-px overflow-x-auto">
+            <div className="md:hidden">
+                <LemonSelect
+                    fullWidth
+                    value={active.key}
+                    onChange={setSetupSection}
+                    options={sections.map((section) => ({ value: section.key, label: section.label }))}
+                    aria-label="Setup section"
+                />
+            </div>
+            <nav className="hidden md:flex w-56 shrink-0 flex-col gap-px">
                 {sections.map((section) => (
                     <LemonButton
                         key={section.key}

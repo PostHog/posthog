@@ -37,3 +37,7 @@ With `new-marketing-analytics-dashboard` enabled, Marketing Analytics opens dire
 The bypass waits for feature flags before mounting setup detection. The explicit `?empty_state` preview still takes precedence.
 
 With `new-marketing-analytics-dashboard` enabled, Ad performance reuses the existing ad spend dashboard. Its conversion-goal switch appears only when goals are configured and defaults to on. Turning it off limits the summary and table queries to ad-platform metrics, including platform-reported conversions, and omits saved and draft PostHog conversion goals. This preference applies only to Ad performance; leaving the tab or disabling the dashboard flag restores the legacy queries and saved column choices. Ad performance keeps source status and reconnect controls visible when loading sources fails, without entering legacy onboarding.
+
+The new dashboard shows the conversion-goal suggestions from Setup, including missing New user and Revenue classifications. Review in Setup opens the existing configuration flow. Dismissed suggestions remain recoverable in Setup, and collapsing the dashboard suggestions persists in local storage. This does not create goals automatically or change candidate ranking.
+
+On narrow screens, Setup provides a section selector in place of the sidebar. Dashboard suggestion headers keep Review in Setup beside the title.
