@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from types import SimpleNamespace
 from typing import cast
 from uuid import UUID
 
@@ -29,6 +30,7 @@ from posthog.dags.deletes import (
     _count_through,
     _count_unswept_rows,
     _delete_predicate_params,
+    _runs_blocking_start,
     cleanup_old_events_by_partition,
     deletes_job,
     ensure_no_concurrent_deletes_run,
@@ -1041,7 +1043,16 @@ def test_the_survivor_count_retries_before_reporting_unknown(failing_attempts: i
     assert _count_through(build_op_context(), runner, "events", {}, 300) == expected
 
 
-def test_a_second_deletes_run_refuses_to_start_while_one_is_executing():
+@pytest.mark.parametrize(
+    "blocking_job",
+    [
+        deletes_job,
+        # A squash run blocks whatever its age: manual_deletes_job's preflight can go stale
+        # before the sensor launches the run, so the guard checks squash again at run start.
+        squash_person_overrides,
+    ],
+)
+def test_the_deletes_guard_yields_to_an_executing_deletes_or_squash_run(blocking_job: dagster.JobDefinition):
     assert "ensure_no_concurrent_deletes_run" in deletes_job.graph.node_names()
 
     @dagster.job(name=deletes_job.name)
@@ -1051,9 +1062,27 @@ def test_a_second_deletes_run_refuses_to_start_while_one_is_executing():
     instance = dagster.DagsterInstance.ephemeral()
     assert guard_only_job.execute_in_process(instance=instance).success, "a lone run must pass its own guard"
 
-    instance.create_run_for_job(job_def=deletes_job, status=dagster.DagsterRunStatus.STARTED)
+    instance.create_run_for_job(job_def=blocking_job, status=dagster.DagsterRunStatus.STARTED)
     result = guard_only_job.execute_in_process(instance=instance, raise_on_error=False)
     assert not result.success
+
+
+def test_the_guard_election_yields_only_to_earlier_runs():
+    def record(run_id: str, created: datetime) -> SimpleNamespace:
+        return SimpleNamespace(create_timestamp=created, dagster_run=SimpleNamespace(run_id=run_id))
+
+    older = record("aaa", datetime(2026, 9, 1, 12, 0, 0))
+    me = record("mmm", datetime(2026, 9, 1, 12, 0, 5))
+    younger = record("zzz", datetime(2026, 9, 1, 12, 0, 9))
+    tied = record("bbb", datetime(2026, 9, 1, 12, 0, 5))
+
+    records = cast("list[dagster.RunRecord]", [older, me, younger])
+    assert _runs_blocking_start(records, "mmm") == ["aaa"], "only the earlier run may block"
+    # Equal creation times fall back to the run id, so two runs that see each other still
+    # agree on a single survivor instead of both failing.
+    assert _runs_blocking_start(cast("list[dagster.RunRecord]", [me, tied]), "mmm") == ["bbb"]
+    # A missing own record blocks on everything rather than electing on incomplete data.
+    assert _runs_blocking_start(cast("list[dagster.RunRecord]", [younger]), "mmm") == ["zzz"]
 
 
 @pytest.mark.parametrize(

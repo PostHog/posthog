@@ -1,6 +1,6 @@
 import abc
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
@@ -328,7 +328,7 @@ class AdhocEventDeletesDictionary(Dictionary):
 # Statuses under which a run's mutations may still land on the cluster: STARTING and STARTED are
 # executing, and a CANCELING run's last mutation keeps applying server-side. QUEUED and
 # NOT_STARTED are left out on purpose. A queued run has done nothing yet, and its own guard will
-# see this run once it starts, so the run that started first is the one that survives.
+# rank it against this run once it starts.
 _EXECUTING_RUN_STATUSES = [
     dagster.DagsterRunStatus.STARTING,
     dagster.DagsterRunStatus.STARTED,
@@ -336,24 +336,48 @@ _EXECUTING_RUN_STATUSES = [
 ]
 
 
+def _runs_blocking_start(records: Sequence[dagster.RunRecord], current_run_id: str) -> list[str]:
+    """Ids of executing runs that outrank ``current_run_id`` for the right to continue.
+
+    Ranked by creation time with the run id as the tiebreak, so two runs that each see the
+    other compute the same loser and exactly one survives. When the current run is missing
+    from ``records``, every other run blocks, which fails conservatively rather than electing
+    on incomplete data.
+    """
+    created_by_id = {record.dagster_run.run_id: record.create_timestamp for record in records}
+    mine = created_by_id.get(current_run_id)
+    if mine is None:
+        return sorted(run_id for run_id in created_by_id)
+    return sorted(run_id for run_id, created in created_by_id.items() if (created, run_id) < (mine, current_run_id))
+
+
 @dagster.op(out=dagster.Out(dagster.Nothing))
 def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> None:
-    """Fail this run when another run of the same job is already executing.
+    """Fail this run when an earlier run of the same job, or any squash run, is executing.
 
-    Concurrent runs share their dictionary names, so each run's delete mutations read whichever
-    contents the other run loaded last, and mark_deletions_verified then claims deletions the
-    sweep may not have performed. Failing the later starter before it touches anything is the
-    safe direction: the earlier run finishes undisturbed, and the failed run's requests stay
-    pending for the next one.
+    Concurrent deletes runs share their dictionary names, so each run's delete mutations read
+    whichever contents the other run loaded last, and mark_deletions_verified then claims
+    deletions the sweep may not have performed. The election in _runs_blocking_start fails only
+    the later starter, so the earlier run finishes undisturbed and the failed run's requests
+    stay pending for the next one.
+
+    A squash run blocks too, whatever its age. The weekly chain serializes squash before
+    deletes because both issue heavy mutations on the same tables, and manual_deletes_job's
+    preflight can go stale between its check and the sensor launching this run, so the launched
+    run checks again here. This covers direct launchpad starts as well.
     """
     records = context.instance.get_run_records(
         dagster.RunsFilter(job_name=context.job_name, statuses=_EXECUTING_RUN_STATUSES)
     )
-    others = [record.dagster_run.run_id for record in records if record.dagster_run.run_id != context.run_id]
-    if others:
+    blockers = [f"{context.job_name} run {run_id}" for run_id in _runs_blocking_start(records, context.run_id)]
+    squash_records = context.instance.get_run_records(
+        dagster.RunsFilter(job_name=squash_person_overrides.name, statuses=_EXECUTING_RUN_STATUSES)
+    )
+    blockers.extend(f"{squash_person_overrides.name} run {record.dagster_run.run_id}" for record in squash_records)
+    if blockers:
         raise dagster.Failure(
-            description=f"Another {context.job_name} run is already executing: {', '.join(others)}. "
-            "Wait for it to finish or cancel it, then start a new run through manual_deletes_job."
+            description="This run yields to: " + "; ".join(blockers) + ". "
+            "Wait for them to finish or cancel them, then start a new run through manual_deletes_job."
         )
 
 
