@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "condition_index": {
+            "description": "Zero-based position of the release condition in `filters.groups`, counted from the read that produced `version`.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "id": {
+            "description": "A unique integer value identifying this feature flag.",
+            "type": "number"
+        },
+        "rollout_percentage": {
+            "description": "Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them.",
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+        },
+        "version": {
+            "description": "The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version.",
+            "minimum": 0,
+            "type": "number"
+        }
+    },
+    "required": ["id", "condition_index", "rollout_percentage", "version"],
+    "type": "object"
+}
