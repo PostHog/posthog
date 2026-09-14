@@ -114,7 +114,10 @@ export function parseRRuleToState(rruleStr: string, startsAt?: string | null): S
                 break
         }
 
-        const weekdays = opts.byweekday ? (opts.byweekday as number[]) : []
+        // RRule fills byweekday from dtstart when the rule declares no BYDAY, and a saved rule
+        // carries no DTSTART, so the filled value is the weekday the picker opened on. Read the
+        // days the rule declares, because a weekly rule without BYDAY runs on its start day.
+        const weekdays = rule.origOptions.byweekday && opts.byweekday ? (opts.byweekday as number[]) : []
 
         let monthlyMode: MonthlyMode = 'day_of_month'
         if (frequency === 'monthly') {

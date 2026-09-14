@@ -107,6 +107,12 @@ describe('workflowLogic schedule reducers', () => {
             expect(logic.values.pendingSchedule).toMatchObject({ rrule: 'FREQ=HOURLY;INTERVAL=2' })
         })
 
+        it('does not add a weekday to a weekly rule that has none', () => {
+            logic.actions.setSchedules([makeSchedule({ rrule: 'FREQ=WEEKLY;INTERVAL=1' })])
+            logic.actions.setScheduleState({ ...logic.values.scheduleState, interval: 2 })
+            expect(logic.values.pendingSchedule).toMatchObject({ rrule: 'FREQ=WEEKLY;INTERVAL=2' })
+        })
+
         it('returns schedule config when starts_at changes', async () => {
             logic.actions.setSchedules([makeSchedule()])
             const newStartsAt = '2026-05-01T10:00:00.000Z'

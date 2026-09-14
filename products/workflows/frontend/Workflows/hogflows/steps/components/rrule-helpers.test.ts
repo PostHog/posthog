@@ -74,6 +74,12 @@ describe('rrule-helpers', () => {
             expect(result.weekdays).toEqual([0, 2, 4])
         })
 
+        it('parses weekly without BYDAY as no weekday selected', () => {
+            const result = parseRRuleToState('FREQ=WEEKLY;INTERVAL=1', '2026-04-10T09:00:00.000Z')
+            expect(result.weekdays).toEqual([])
+            expect(result.rawRRule).toBeNull()
+        })
+
         it('parses monthly day_of_month', () => {
             const result = parseRRuleToState('FREQ=MONTHLY;BYMONTHDAY=15')
             expect(result.frequency).toBe('monthly')
