@@ -209,7 +209,9 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
 /**
  * What the behavior comparison found, captured each time the shelf loads. The card counts are what
  * say whether the feature finds anything in the wild: all zeros on most experiments would mean the
- * evidence floors are set too high to ever show a card.
+ * evidence floors are set too high to ever show a card. The compared-population fields are what
+ * `empty_reason` has to be read against, because the same reason asks for a different answer over a
+ * few dozen people than over thousands.
  */
 export interface ExperimentWatchShelfContext {
     too_early: boolean
@@ -224,6 +226,20 @@ export interface ExperimentWatchShelfContext {
     used_exposure_fallback: boolean
     /** Wall-clock time of the request, which is the heaviest read on the tab. */
     duration_ms: number
+    /** Exposed people the comparison covered, over every variant. The denominator the card counts
+     * and the empty reasons are missing on their own. */
+    compared_persons: number
+    /** Variants with enough exposed people to be compared at all; one means the comparison had
+     * nothing to compare that variant against. */
+    compared_variants: number
+    /** Hours of enrollment the comparison covered. What the person cap and the day budget bind, so
+     * a busy experiment reads hours here and one that stopped enrolling reads its last day. */
+    compared_enrollment_hours: number
+    /** More people were exposed than one comparison covers, so the oldest enrollees were left out.
+     * The precondition for 'one_sided_enrollment', and how often the cap binds at all. */
+    sessions_truncated: boolean
+    /** The project has more event names than one comparison ranks, so some were never considered. */
+    events_truncated: boolean
 }
 
 /** The comparison could not be loaded, and how: a request failure or a backend refusal. */
