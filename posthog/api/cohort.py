@@ -1743,7 +1743,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 # Avoid circular import: feature_flag imports cohort models
                 from products.feature_flags.backend.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
 
-                allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request)
+                allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request, team=self.team)
                 # The flag's cohort typeahead hits this endpoint on every keystroke, so the
                 # behavioral set is computed once per team and cached (invalidated on cohort
                 # writes); see get_flag_excluded_behavioral_cohort_ids.
