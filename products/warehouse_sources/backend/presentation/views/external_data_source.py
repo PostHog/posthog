@@ -2066,6 +2066,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "destroy",
         "reload",
         "refresh_schemas",
+        "bulk_update_schemas",
         "database_schema",
         "setup",
         "store_credentials",
