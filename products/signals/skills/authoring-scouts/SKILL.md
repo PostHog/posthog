@@ -142,6 +142,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   Only the person the scout's runs act as (whoever authored it) or a project admin can set the field, and grants are activity-logged. A scoped API key must itself carry each scope it grants.
   A granted scout is told in its run prompt which objects it may change, and is asked to name every change in its close-out. The grant is an upper bound: the acting user's own permissions still apply to each object, and the scout reports a refused write rather than retrying it.
   A dry run (`emit: false`) never holds the grant, so a scout can be previewed without it changing anything.
+  To audit the writes after a run, see "Auditing what a scout changed" in `working-with-scouts`: the changes land in the activity log under the scout's acting user, tagged "via MCP", with no scout or run name on the row.
   Applies from the scout's next run.
 - `output_destinations` — defaults to none.
   When adding Slack to an existing scout, first read `output_destinations`, then send the full object with every key preserved. Updates replace the object, so sending only `slack` removes an existing `webhook` pointer.

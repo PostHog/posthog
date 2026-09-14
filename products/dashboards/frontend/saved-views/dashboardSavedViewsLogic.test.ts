@@ -1,8 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -46,7 +44,6 @@ function page(views: DashboardListSavedView[], nextCursor: string | null): Pagin
 describe('dashboardSavedViewsLogic', () => {
     beforeEach(() => {
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_SAVED_VIEWS]: true })
         dashboardSavedViewsList.mockReset()
     })
 
@@ -83,45 +80,19 @@ describe('dashboardSavedViewsLogic', () => {
         logic.unmount()
     })
 
-    it('does not load saved views when the feature flag is disabled', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
-        const logic = dashboardSavedViewsLogic({ teamId: 1 })
-        logic.mount()
-
-        await expectLogic(logic).toMatchValues({ dashboardSavedViewsEnabled: false, savedViewsLoading: false })
-        expect(dashboardSavedViewsList).not.toHaveBeenCalled()
-
-        logic.unmount()
-    })
-
-    it('loads saved views when the feature flag becomes enabled', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
-        dashboardSavedViewsList.mockImplementation(async () => page([], null))
-        const logic = dashboardSavedViewsLogic({ teamId: 1 })
-        logic.mount()
-
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_SAVED_VIEWS]: true })
-
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ dashboardSavedViewsEnabled: true })
-        expect(dashboardSavedViewsList).toHaveBeenCalledTimes(2)
-
-        logic.unmount()
-    })
-
     it('keeps pinned dashboards visible when saved views replace the Pinned tab', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
         dashboardSavedViewsList.mockImplementation(async () => page([], null))
+        dashboardsLogic.mount()
+        dashboardsLogic.actions.setCurrentTab(DashboardsTab.Pinned)
         const logic = dashboardSavedViewsLogic({ teamId: 1 })
         logic.mount()
-        dashboardsLogic.actions.setCurrentTab(DashboardsTab.Pinned)
-
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_SAVED_VIEWS]: true })
 
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.currentTab).toBe(DashboardsTab.All)
         expect(logic.values.filters.pinned).toBe(true)
 
         logic.unmount()
+        dashboardsLogic.unmount()
     })
 
     it('keeps loaded saved views available when loading another page fails', async () => {
@@ -138,7 +109,6 @@ describe('dashboardSavedViewsLogic', () => {
         logic.actions.loadMoreSavedViewsFailure('Could not load more saved views', new ApiError(undefined, 403))
 
         expectLogic(logic).toMatchValues({
-            dashboardSavedViewsEnabled: true,
             savedViews: [savedView('private-1', 'private')],
             savedViewsLoadError: false,
             savedViewsLoadMoreFailed: true,
