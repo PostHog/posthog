@@ -28,6 +28,7 @@ from products.signals.backend.pull_requests import (
     apply_report_completion,
     import_report_pull_requests,
     link_pull_request,
+    pull_request_state_from_status,
     update_pull_request_state,
 )
 from products.signals.backend.report_claims import ReportClaim, actor_owns_claim, claim_from_artefact, get_active_claim
@@ -227,17 +228,8 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
         )
         return details
 
-    merged = bool(status.get("merged"))
-    if merged:
-        pr_state = SignalReportAssignment.PrState.MERGED
-    elif status.get("state") == "closed":
-        pr_state = SignalReportAssignment.PrState.CLOSED
-    elif status.get("draft"):
-        pr_state = SignalReportAssignment.PrState.DRAFT
-    elif status.get("state") == "open":
-        pr_state = SignalReportAssignment.PrState.OPEN
-    else:
-        pr_state = SignalReportAssignment.PrState.UNKNOWN
+    pr_state = pull_request_state_from_status(status)
+    merged = pr_state == SignalReportAssignment.PrState.MERGED
     return PullRequestDetails(
         url=status.get("url") or pr_url,
         repository=details.repository,

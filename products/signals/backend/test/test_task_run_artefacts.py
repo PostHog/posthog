@@ -198,7 +198,8 @@ class TestTaskRunArtefacts(BaseTest):
                 },
             )
             report.refresh_from_db()
-            assert report.status == SignalReport.Status.RESOLVED
+            # The task run claims the merge; only GitHub can finish the report.
+            assert report.status == SignalReport.Status.READY
 
         TaskRun.objects.create(
             team=self.team,

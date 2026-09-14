@@ -33,6 +33,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalScratchpad,
 )
+from products.signals.backend.pull_requests import verify_pull_request_state
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,
@@ -570,6 +571,22 @@ def open_implementation_pr_for_review(team_id: int, report_id: str, pr_url: str)
     Unlike assignment, a retry could also fight a reviewer who redrafted the pull request in between.
     """
     open_pull_request_ready_for_review(team_id=team_id, report_id=report_id, pr_url=pr_url)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.verify_implementation_pr_state",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def verify_implementation_pr_state(team_id: int, pr_url: str) -> None:
+    """Read the real state of a report's implementation pull request from GitHub and store it.
+
+    Runs on a worker because the GitHub read must not hold up the webhook or task-run sync that
+    queued it. Best effort and never retried: the reports stay open until a state is confirmed, and
+    the next pull request event queues this again.
+    """
+    verify_pull_request_state(team_id=team_id, pr_url=pr_url)
 
 
 def _capture_refund_sync_event(refund: SignalReportRefund, event: str, extra: dict[str, object]) -> None:
