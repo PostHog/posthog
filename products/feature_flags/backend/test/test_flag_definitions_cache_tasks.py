@@ -5,6 +5,7 @@ from django.test import TestCase
 from posthog.storage.cache_expiry_manager import CacheRefreshCounts
 from posthog.tasks.test.utils import PushGatewayTaskTestMixin
 
+from products.feature_flags.backend.local_evaluation import FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
     refresh_expiring_flag_definitions_cache_entries,
@@ -12,8 +13,9 @@ from products.feature_flags.backend.tasks import (
 
 
 class TestRefreshExpiringFlagDefinitionsCacheEntries(PushGatewayTaskTestMixin, TestCase):
+    @patch("products.feature_flags.backend.tasks.get_cache_stats_generic", return_value={})
     @patch("posthog.storage.cache_expiry_manager.refresh_expiring_caches")
-    def test_refreshes_cache(self, mock_refresh: MagicMock) -> None:
+    def test_refreshes_cache(self, mock_refresh: MagicMock, mock_stats: MagicMock) -> None:
         mock_refresh.return_value = CacheRefreshCounts(successful=5, failed=0)
 
         refresh_expiring_flag_definitions_cache_entries()
@@ -21,6 +23,7 @@ class TestRefreshExpiringFlagDefinitionsCacheEntries(PushGatewayTaskTestMixin, T
         mock_refresh.assert_called_once()
         assert self.registry.get_sample_value("posthog_flag_definitions_cache_refresh_successful_count") == 5
         assert self.registry.get_sample_value("posthog_flag_definitions_cache_refresh_failed_count") == 0
+        mock_stats.assert_called_once_with(FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG)
 
     @patch("posthog.storage.cache_expiry_manager.refresh_expiring_caches")
     def test_propagates_error(self, mock_refresh: MagicMock) -> None:

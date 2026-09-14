@@ -35,6 +35,7 @@ from products.metrics.backend.facade.api import (
     list_metric_error_spikes,
     list_metric_event_samples,
     list_metric_names,
+    list_metric_picker_names,
     run_metric_query,
     team_has_metrics,
 )
@@ -42,6 +43,7 @@ from products.metrics.backend.facade.contracts import (
     MAX_CLAUSES_PER_QUERY,
     METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
     METRICS_FEATURE_FLAG,
+    METRICS_FUNDAMENTALS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
     MetricQueryClause,
@@ -467,13 +469,42 @@ class _MetricNameSerializer(serializers.Serializer):
     metric_type = serializers.CharField(
         help_text="OTel metric type (gauge, sum, histogram, summary, exponential_histogram)."
     )
+    unit = serializers.CharField(
+        required=False, allow_blank=True, help_text="Unit of the metric value, if any (e.g. 'ms', 'By')."
+    )
+    last_seen = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="When the newest datapoint for this metric arrived, ISO 8601."
+    )
+    sparkline = serializers.ListField(
+        child=serializers.FloatField(),
+        required=False,
+        help_text="A small downsampled series of the metric's recent shape, for a sparkline.",
+    )
+
+
+class _MetricPickerNameSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Metric name as it appears in the team's data.")
+    metric_type = serializers.CharField(
+        help_text="OTel metric type (gauge, sum, histogram, summary, exponential_histogram)."
+    )
 
 
 class _MetricNamesResponseSerializer(serializers.Serializer):
     results = _MetricNameSerializer(many=True, help_text="Distinct metric names ordered by recent activity.")
 
 
+class _MetricPickerNamesResponseSerializer(serializers.Serializer):
+    results = _MetricPickerNameSerializer(many=True, help_text="Distinct metric names ordered by recent activity.")
+
+
 class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
+    metricName = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text="Exact metric name to limit attribute keys to. Omit to list keys across all metrics.",
+    )
     search = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -539,12 +570,15 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
     name = serializers.CharField(
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
     )
+    series_count = serializers.IntegerField(
+        help_text="Number of distinct recent series with this attribute, based on series metadata."
+    )
 
 
 class _MetricAttributeKeysResponseSerializer(serializers.Serializer):
     results = _MetricAttributeKeySerializer(
         many=True,
-        help_text="Distinct attribute keys (datapoint and resource attributes merged), most frequent first.",
+        help_text="Distinct attribute keys (datapoint and resource attributes merged), ordered by series count descending.",
     )
     count = serializers.IntegerField(help_text="Number of keys returned.")
 
@@ -879,7 +913,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
     def values(self, request: Request, *args, **kwargs) -> Response:
-        """Distinct metric names for the team. Backs the picker UI."""
+        """Distinct metric names for the team. Backs the catalog UI."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         params = _MetricValuesParamsSerializer(data=request.query_params)
@@ -887,6 +921,35 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         try:
             results = list_metric_names(
+                team=self.team,
+                search=params.validated_data["value"],
+                limit=params.validated_data["limit"],
+                services=params.validated_data["service"],
+            )
+        except ValueError as exc:
+            raise ParseError(str(exc))
+
+        return Response({"results": results}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        parameters=[_MetricValuesParamsSerializer],
+        responses={200: _MetricPickerNamesResponseSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["GET"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def names(self, request: Request, *args, **kwargs) -> Response:
+        """Distinct metric names for the viewer picker, without sparklines or caching."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        params = _MetricValuesParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        try:
+            results = list_metric_picker_names(
                 team=self.team,
                 search=params.validated_data["value"],
                 limit=params.validated_data["limit"],
@@ -908,9 +971,8 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
     def attributes(self, request: Request, *args, **kwargs) -> Response:
-        """Distinct attribute keys seen on the team's metrics (datapoint and
-        resource attributes merged), most frequent first. Backs the filter
-        bar's key autocomplete."""
+        """Attribute keys ordered by distinct series count, from highest to
+        lowest. `metricName` limits choices to one metric."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         params = _MetricAttributeKeysParamsSerializer(data=request.query_params)
@@ -919,6 +981,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             results = list_metric_attribute_keys(
                 team=self.team,
+                metric_name=params.validated_data["metricName"],
                 search=params.validated_data["search"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
@@ -1103,6 +1166,20 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         """Take one chart point apart into the series and samples behind it,
         and recompute it independently so the plotted number can be checked
         rather than trusted."""
+        # The class-level gate admits every team on the metrics alpha, which is wider
+        # than this action should be. Fundamentals is a correctness tool for the people
+        # who build the viewer, so it carries its own flag. Without this check the tab
+        # is hidden in the UI but the data behind it stays one POST away.
+        if not posthog_feature_flag_enabled(
+            METRICS_FUNDAMENTALS_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise PermissionDenied(
+                f"This action requires feature flag {METRICS_FUNDAMENTALS_FEATURE_FLAG!r} to be enabled for your organization."
+            )
+
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         body = _MetricExplainRequestSerializer(data=request.data)

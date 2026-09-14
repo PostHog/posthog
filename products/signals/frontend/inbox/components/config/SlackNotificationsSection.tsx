@@ -2,10 +2,11 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { ReactNode, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
-import { LemonSelect, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSelect, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { isSlackMemberTarget, slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
@@ -14,10 +15,12 @@ import { IntegrationType } from '~/types'
 
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
-import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority } from '../../types'
+import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority, SignalUserAutonomyConfig } from '../../types'
 import { ConfigCardHeader } from './ConfigCardHeader'
 
 const NOTIFY_ALL_VALUE = '__all__'
+
+type SlackTargetMode = 'dm' | 'channel'
 
 /** Minimum report priority that triggers a Slack ping. "All priorities" maps to a null min-priority. */
 const MIN_PRIORITY_OPTIONS: { value: SignalReportPriority | typeof NOTIFY_ALL_VALUE; label: string }[] = [
@@ -123,57 +126,151 @@ function TeamChannelCard({ integration }: { integration: IntegrationType }): JSX
     )
 }
 
+/** Where a saved config sends this user's reviewer pings, and whether that counts as enabled. */
+function readSlackTarget(
+    config: SignalUserAutonomyConfig | null,
+    integrations: IntegrationType[]
+): {
+    selectedIntegrationId: number | null
+    integration: IntegrationType | null
+    channel: string | null
+    savedMode: SlackTargetMode
+    /** The Slack account a saved direct message goes to, e.g. `@sam`. */
+    recipient: string | null
+    enabled: boolean
+} {
+    const selectedIntegrationId = config?.slack_notification_integration_id ?? null
+    // Workspace is shared with the team default. Default to the only workspace, or the user's saved pick.
+    const integration =
+        integrations.find((i) => i.id === selectedIntegrationId) ?? (integrations.length === 1 ? integrations[0] : null)
+    const channel = config?.slack_notification_channel ?? null
+    const savedMode: SlackTargetMode = channel && !isSlackMemberTarget(channel) ? 'channel' : 'dm'
+    return {
+        selectedIntegrationId,
+        integration,
+        channel,
+        savedMode,
+        recipient: savedMode === 'dm' && channel ? slackChannelDisplayName(channel) : null,
+        enabled: !!integration && !!channel,
+    }
+}
+
+function DirectMessageTarget({
+    recipient,
+    saving,
+    onEnable,
+}: {
+    recipient: string | null
+    saving: boolean
+    onEnable: () => void
+}): JSX.Element {
+    if (recipient) {
+        return <span className="text-xs text-secondary">PostHog sends these to {recipient} in Slack.</span>
+    }
+    return (
+        <>
+            <LemonButton
+                type="secondary"
+                size="small"
+                onClick={onEnable}
+                loading={saving}
+                disabledReason={saving ? 'Setting this up…' : undefined}
+            >
+                Send me a direct message
+            </LemonButton>
+            <span className="text-xs text-secondary">
+                PostHog finds you in the workspace and messages you there. There is no channel to create.
+            </span>
+        </>
+    )
+}
+
+function ChannelTarget({
+    integration,
+    value,
+    onChange,
+}: {
+    integration: IntegrationType
+    value: string | undefined
+    onChange: (next: string | null) => void
+}): JSX.Element {
+    return (
+        <>
+            <SlackChannelPicker integration={integration} value={value} onChange={onChange} />
+            <span className="text-xs text-secondary">
+                PostHog must be in the channel. Invite it with <code>/invite @PostHog</code>.
+            </span>
+        </>
+    )
+}
+
 /**
  * Per-user Slack notification controls – a cloud port of desktop's
  * `SlackInboxNotificationsSettings` / `SignalSlackNotificationsSettings`.
- * Notifications are enabled when an integration + channel are both set; the
+ * Notifications are enabled when an integration + target are both set; the
  * enable toggle clears them to disable. Min-priority gates which reports ping.
  * Backed by the `slack_notification_*` fields on `userAutonomyLogic`.
  */
-function PerUserChannelCard({ integrations }: { integrations: IntegrationType[] }): JSX.Element {
+function PerUserNotificationCard({ integrations }: { integrations: IntegrationType[] }): JSX.Element {
     const redesign = useFeatureFlag('INBOX_REDESIGN')
-    const { autonomyConfig, autonomyConfigLoading, slackPickersExpanded } = useValues(userAutonomyLogic)
+    const { autonomyConfig, autonomyConfigLoading, slackNotificationsSaving, slackPickersExpanded } =
+        useValues(userAutonomyLogic)
     const { updateSlackNotifications, setSlackPickersExpanded } = useActions(userAutonomyLogic)
 
-    // Workspace is shared with the team default. Default to the only workspace, or the user's saved pick.
-    const selectedIntegrationId = autonomyConfig?.slack_notification_integration_id ?? null
-    const effectiveIntegration =
-        integrations.find((i) => i.id === selectedIntegrationId) ?? (integrations.length === 1 ? integrations[0] : null)
-    const channel = autonomyConfig?.slack_notification_channel ?? null
+    const { selectedIntegrationId, integration, channel, savedMode, recipient, enabled } = readSlackTarget(
+        autonomyConfig,
+        integrations
+    )
     const minPriority = autonomyConfig?.slack_notification_min_priority ?? null
-    const notificationsEnabled = !!effectiveIntegration && !!channel
+
+    // The toggle is view state only: switching it must never write, or an exploratory click would
+    // clear a saved target. A direct message is the default because it needs no channel set up.
+    const [pendingMode, setPendingMode] = useState<SlackTargetMode | null>(null)
+    const mode = pendingMode ?? savedMode
 
     const onToggleEnabled = (enabled: boolean): void => {
         if (enabled) {
-            // Turning on just opens the workspace/channel pickers – the actual enable
-            // happens once a channel is chosen. Reveal them even when the workspace is
-            // ambiguous (multiple connected) so the user can pick one; persist it now
-            // only when it's unambiguous.
+            // With one workspace there is nothing to pick, so this also sets the direct message up.
             setSlackPickersExpanded(true)
-            if (effectiveIntegration && selectedIntegrationId === null) {
-                updateSlackNotifications({ integrationId: effectiveIntegration.id })
+            if (integration && selectedIntegrationId === null) {
+                setPendingMode('dm')
+                updateSlackNotifications({ integrationId: integration.id, directMessage: true })
             }
         } else {
-            // Disable by clearing the target and collapsing the pickers.
+            setPendingMode(null)
             setSlackPickersExpanded(false)
             updateSlackNotifications({ integrationId: null, channel: null })
         }
     }
 
     const onWorkspaceChange = (integrationId: number): void => {
-        // Switching workspaces clears the channel – it won't exist in the new workspace.
+        // The target won't exist in the new workspace. Pin the toggle to the mode the user was in.
+        setPendingMode(mode)
         updateSlackNotifications({ integrationId, channel: null })
+    }
+
+    const onSendDirectMessages = (): void => {
+        if (!integration) {
+            return
+        }
+        setPendingMode('dm')
+        updateSlackNotifications({ integrationId: integration.id, directMessage: true })
     }
 
     const onChannelChange = (next: string | null): void => {
         if (next === null) {
-            updateSlackNotifications({ channel: null })
+            // An empty picker still emits clears (e.g. Backspace in its input), so only a picker
+            // whose own target is saved may clear – otherwise viewing it would wipe a saved DM.
+            if (savedMode === 'channel' && channel) {
+                setPendingMode('channel')
+                updateSlackNotifications({ channel: null })
+            }
             return
         }
-        if (!effectiveIntegration) {
+        if (!integration) {
             return
         }
-        updateSlackNotifications({ integrationId: effectiveIntegration.id, channel: next })
+        updateSlackNotifications({ integrationId: integration.id, channel: next })
     }
 
     const onMinPriorityChange = (value: string): void => {
@@ -182,8 +279,7 @@ function PerUserChannelCard({ integrations }: { integrations: IntegrationType[] 
         })
     }
 
-    // "On" means the pickers are visible: the user expanded them, or a saved integration/channel
-    // already implies an enabled state.
+    // "On" means the controls are visible, which a saved integration or target implies on its own.
     const showPickers = slackPickersExpanded || selectedIntegrationId !== null || !!channel
 
     return (
@@ -191,17 +287,12 @@ function PerUserChannelCard({ integrations }: { integrations: IntegrationType[] 
             <div className="flex items-start justify-between gap-4">
                 <SlackCardHeader
                     title="Notify me directly"
-                    description={
-                        <>
-                            When you're a suggested reviewer, get pinged in your own channel. PostHog must be in the
-                            channel. Invite it with <code>/invite @PostHog</code>.
-                        </>
-                    }
+                    description="Get pinged when you're a suggested reviewer. PostHog can send you a direct message, or post in a channel you pick."
                 />
                 <LemonSwitch
                     checked={showPickers}
                     onChange={onToggleEnabled}
-                    disabled={autonomyConfigLoading && autonomyConfig === null}
+                    disabled={slackNotificationsSaving || (autonomyConfigLoading && autonomyConfig === null)}
                     aria-label="Enable Slack notifications"
                 />
             </div>
@@ -213,7 +304,7 @@ function PerUserChannelCard({ integrations }: { integrations: IntegrationType[] 
                             <span className="text-xs text-secondary">Workspace</span>
                             <LemonSelect
                                 className="max-w-[260px]"
-                                value={effectiveIntegration?.id ?? null}
+                                value={integration?.id ?? null}
                                 options={integrations.map((i) => ({
                                     value: i.id,
                                     label: i.display_name || `Slack workspace ${i.id}`,
@@ -224,14 +315,30 @@ function PerUserChannelCard({ integrations }: { integrations: IntegrationType[] 
                         </div>
                     )}
 
-                    {effectiveIntegration && (
-                        <div className="flex flex-col gap-1 min-w-0 max-w-md">
-                            <span className="text-xs text-secondary">Channel</span>
-                            <SlackChannelPicker
-                                integration={effectiveIntegration}
-                                value={channel ?? undefined}
-                                onChange={onChannelChange}
+                    {integration && (
+                        <div className="flex flex-col gap-2 min-w-0 max-w-md">
+                            <LemonSegmentedButton
+                                size="small"
+                                value={mode}
+                                onChange={(next) => setPendingMode(next as SlackTargetMode)}
+                                options={[
+                                    { value: 'dm', label: 'Direct message' },
+                                    { value: 'channel', label: 'Channel' },
+                                ]}
                             />
+                            {mode === 'dm' ? (
+                                <DirectMessageTarget
+                                    recipient={recipient}
+                                    saving={slackNotificationsSaving}
+                                    onEnable={onSendDirectMessages}
+                                />
+                            ) : (
+                                <ChannelTarget
+                                    integration={integration}
+                                    value={savedMode === 'channel' && channel ? channel : undefined}
+                                    onChange={onChannelChange}
+                                />
+                            )}
                         </div>
                     )}
 
@@ -241,7 +348,7 @@ function PerUserChannelCard({ integrations }: { integrations: IntegrationType[] 
                             className="max-w-[240px]"
                             value={minPriority ?? NOTIFY_ALL_VALUE}
                             options={MIN_PRIORITY_OPTIONS}
-                            disabledReason={!notificationsEnabled ? 'Pick a channel first' : undefined}
+                            disabledReason={!enabled ? 'Choose where to send these first' : undefined}
                             onChange={onMinPriorityChange}
                         />
                     </div>
@@ -272,7 +379,7 @@ export function SlackNotificationsSection(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <TeamChannelCard integration={integrations[0]} />
-            <PerUserChannelCard integrations={integrations} />
+            <PerUserNotificationCard integrations={integrations} />
         </div>
     )
 }

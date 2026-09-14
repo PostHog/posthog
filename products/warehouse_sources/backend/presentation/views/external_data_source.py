@@ -120,6 +120,7 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.source_management import (
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
     DEFAULT_LAG_WARNING_THRESHOLD_MB,
     PREVIEW_DEFAULT_ROWS,
@@ -135,6 +136,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     DocsFetchError,
     ExternalWebhookInfo,
     FieldType,
+    HostNotAllowedError,
     IntegrationAccountListingError,
     MySQLSource,
     OAuthMixin,
@@ -144,6 +146,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     SQLSource,
     SSLRequiredError,
+    TemporaryHostResolutionError,
     WebhookSource,
     build_default_schemas,
     build_default_sync_settings,
@@ -238,6 +241,16 @@ def _hide_noncanonical_managed_warehouse_sources(
     return queryset.exclude(hidden_sources)
 
 
+# Failures to reach the source database that only the customer can fix. Handlers return them as a
+# 400 without capturing, so they stay out of error tracking.
+_EXPECTED_CONNECTION_ERRORS = (
+    OperationalError,
+    BaseSSHTunnelForwarderError,
+    SSLRequiredError,
+    HostNotAllowedError,
+    TemporaryHostResolutionError,
+)
+
 REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "timeout": "Connection timed out while fetching schemas from the source.",
     "timed out": "Connection timed out while fetching schemas from the source.",
@@ -254,6 +267,9 @@ REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "forbidden": "The source credentials do not have permission to fetch schemas.",
     "ssl/tls connection is required": "SSL/TLS is required to connect to the source.",
     "could not establish session to ssh gateway": "Could not establish an SSH tunnel to the source.",
+    # Raised by the connect-time host check of every SQL source; the map is matched on lowercased text.
+    "database host not allowed": DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    "temporary failure resolving": "Could not resolve the source host right now. Try again in a moment.",
 }
 
 
@@ -1463,12 +1479,27 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         source_config: Config = source.parse_config(new_job_inputs)
         validated_job_inputs = source_config.to_dict()
+
+        # The settings form resubmits the whole connection config on every save, so changing an
+        # unrelated setting (auto-syncing new tables, the prefix, the description) re-probed the
+        # live connection too — and a momentarily unreachable database then failed the whole save,
+        # leaving nothing to do but retry. Compare the parsed config against what's stored so the
+        # probe below only runs when the connection actually changed. Direct query sources still
+        # probe on every save: the same call refreshes their schemas and connection metadata.
+        try:
+            stored_job_inputs = source.parse_config(existing_job_inputs).to_dict()
+        except Exception:
+            # A stored config that no longer parses can't be compared, so treat it as changed and
+            # let the probe run rather than skipping validation on a config we can't read.
+            stored_job_inputs = None
+        connection_config_changed = stored_job_inputs is None or stored_job_inputs != validated_job_inputs
+
         for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
             if key in existing_job_inputs:
                 validated_job_inputs[key] = existing_job_inputs[key]
         validated_data["job_inputs"] = validated_job_inputs
 
-        if job_inputs_were_submitted:
+        if job_inputs_were_submitted and (connection_config_changed or instance.is_direct_query):
             effective_api_version = source.resolve_api_version(instance.api_version)
             try:
                 if isinstance(source, (PostgresSource, MySQLSource)):
@@ -1990,6 +2021,19 @@ class IntegrationAccountsResponseSerializer(serializers.Serializer):
     )
 
 
+class AccountPickerManagementPermission(TeamMemberAdminManagementPermission):
+    """Admin gate for the account picker, with a message the customer can act on.
+
+    The base message names no next step. Free entry stays open on the account field, so a
+    member who cannot list accounts can still finish the source by filling the account in.
+    """
+
+    message = (
+        "You need admin access to this project to list the accounts this connection can reach. "
+        "Ask an admin to finish the setup, or fill in the account yourself."
+    )
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class ResolvedStoredCredential:
     payload: dict = dataclasses.field(repr=False)
@@ -2095,7 +2139,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 APIScopePermission(),
                 AccessControlPermission(),
                 TeamMemberAccessPermission(),
-                TeamMemberAdminManagementPermission(),
+                AccountPickerManagementPermission(),
             ]
         raise NotImplementedError()
 
@@ -2655,7 +2699,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                                 schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
                                 if schema_name is not None:
                                     pk_columns_by_table[schema_name] = primary_key_columns
-                except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+                except _EXPECTED_CONNECTION_ERRORS as e:
                     # Connecting to the user's database to detect CDC primary keys is expected to
                     # fail when the host, port, credentials, or SSH tunnel are wrong, or the server
                     # requires/refuses SSL. Surface it as a 400, but don't capture it — these are
@@ -4112,8 +4156,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 tables=tables,
                 slot_name=slot_name,
                 publication_name=publication_name,
+                team_id=self.team_id,
             )
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Probing a user-supplied database to validate it is expected to fail when the host,
             # credentials, or SSH tunnel are wrong or the server drops the connection. Surface it
             # to the wizard as a 400, but don't capture it — these are user/upstream connection
@@ -4182,7 +4227,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
             )
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Probing the source's database to validate it is expected to fail when the host,
             # credentials, or SSH tunnel are wrong, the server requires/refuses SSL, or it drops the
             # connection. Surface it as a 400, but don't capture it — these are user/upstream
@@ -4257,7 +4302,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
             )
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
             # requires/refuses SSL, dropped connection). Surface as a 400 without capturing — see the
             # check_cdc_prerequisites_for_source handler above.
@@ -4461,7 +4506,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return Response(status=status.HTTP_409_CONFLICT, data={"message": str(e)})
         except CDCRepairError as e:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Expected user/upstream connection failure — surface as a 400 without capturing,
             # mirroring the enable_cdc handler.
             return Response(
@@ -4542,7 +4587,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # back into the same deterministic failure.
         try:
             live_status = adapter.get_status(instance)
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={

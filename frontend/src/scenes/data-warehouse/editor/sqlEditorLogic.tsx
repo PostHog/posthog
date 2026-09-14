@@ -44,7 +44,7 @@ import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { findQueryAtCursor, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
 import { objectsEqual } from 'lib/utils/objects'
-import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -610,8 +610,10 @@ export interface sqlEditorLogicValues {
     suggestionPayload: SuggestionPayload | null
     upstream: {
         edges: DataModelingEdge[]
+        modelId: string
         nodes: DataModelingNode[]
     } | null
+    upstreamLoadFailed: boolean
     upstreamLoading: boolean
     upstreamViewMode: 'graph' | 'table'
     viewLoading: boolean
@@ -665,9 +667,9 @@ export interface sqlEditorLogicActions {
     materializeDataWarehouseSavedQuery: (
         viewId: string,
         syncFrequency?: import('~/types').DataModelingSyncInterval | undefined,
-        incremental?: DataWarehouseSavedQueryIncremental | undefined
+        incremental?: DataWarehouseSavedQueryIncremental | null | undefined
     ) => {
-        incremental: DataWarehouseSavedQueryIncremental | undefined
+        incremental: DataWarehouseSavedQueryIncremental | null | undefined
         syncFrequency: import('~/types').DataModelingSyncInterval | undefined
         viewId: string
     } // dataWarehouseViewsLogic
@@ -679,26 +681,8 @@ export interface sqlEditorLogicActions {
         viewId: string
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuery: (
-        view: Partial<DataWarehouseSavedQuery> & {
-            edited_history_id?: string
-            folder_id?: string | null
-            id: string
-            lifecycle?: string
-            shouldRematerialize?: boolean
-            soft_update?: boolean
-            sync_frequency?: string
-            types?: string[][]
-        }
-    ) => Partial<DataWarehouseSavedQuery> & {
-        edited_history_id?: string
-        folder_id?: string | null
-        id: string
-        lifecycle?: string
-        shouldRematerialize?: boolean
-        soft_update?: boolean
-        sync_frequency?: string
-        types?: string[][]
-    } // dataWarehouseViewsLogic
+        view: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+    ) => import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
     updateDataWarehouseSavedQueryFailure: (
         error: string,
         errorObject?: any
@@ -708,30 +692,10 @@ export interface sqlEditorLogicActions {
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
-        payload?:
-            | (Partial<DataWarehouseSavedQuery> & {
-                  edited_history_id?: string
-                  folder_id?: string | null
-                  id: string
-                  lifecycle?: string
-                  shouldRematerialize?: boolean
-                  soft_update?: boolean
-                  sync_frequency?: string
-                  types?: string[][]
-              })
-            | undefined
+        payload?: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate | undefined
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
-        payload?: Partial<DataWarehouseSavedQuery> & {
-            edited_history_id?: string
-            folder_id?: string | null
-            id: string
-            lifecycle?: string
-            shouldRematerialize?: boolean
-            soft_update?: boolean
-            sync_frequency?: string
-            types?: string[][]
-        }
+        payload?: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
     loadDatabase: (
         args_0?:
@@ -889,6 +853,7 @@ export interface sqlEditorLogicActions {
     loadUpstreamSuccess: (
         upstream: {
             edges: DataModelingEdge[]
+            modelId: string
             nodes: DataModelingNode[]
         },
         payload?: {
@@ -897,6 +862,7 @@ export interface sqlEditorLogicActions {
     ) => {
         upstream: {
             edges: DataModelingEdge[]
+            modelId: string
             nodes: DataModelingNode[]
         }
         payload?: {
@@ -1536,15 +1502,28 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     }),
     loaders(() => ({
         upstream: [
-            null as { nodes: DataModelingNode[]; edges: DataModelingEdge[] } | null,
+            null as { modelId: string; nodes: DataModelingNode[]; edges: DataModelingEdge[] } | null,
             {
                 loadUpstream: async (payload: { modelId: string }) => {
-                    return await api.dataModelingNodes.lineage({ savedQueryId: payload.modelId })
+                    const lineage = await api.dataModelingNodes.lineage({ savedQueryId: payload.modelId })
+                    return { modelId: payload.modelId, ...lineage }
                 },
             },
         ],
     })),
     reducers(({ props }) => ({
+        upstream: {
+            // The value is shared across views, so a new load must not leave the previous graph on screen.
+            loadUpstream: () => null,
+        },
+        upstreamLoadFailed: [
+            false,
+            {
+                loadUpstream: () => false,
+                loadUpstreamSuccess: () => false,
+                loadUpstreamFailure: () => true,
+            },
+        ],
         selectedQueryTablesAndColumns: [
             {} as Record<string, Record<string, boolean>>,
             {
@@ -2425,14 +2404,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     if (fromDraft) {
                         actions.deleteDraft(fromDraft, savedQuery?.name)
                     }
-
-                    // reload DAGs so newly created default DAG appears. Imported on demand: the data
-                    // modeling logic pulls in the graph library, which nothing else on the SQL editor path needs.
-                    void retryImport(() => import('../scene/dataModelingLogic'))
-                        .then(({ dataModelingLogic }) => dataModelingLogic.findMounted()?.actions.loadDags())
-                        .catch(() => {
-                            /* best-effort DAG refresh; a stale chunk load isn't worth failing the save for */
-                        })
 
                     if (isPartialSave && savedQuery) {
                         actions.createTab(savedQuery.query?.query ?? queryToSave.query, savedQuery)

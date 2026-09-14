@@ -14,12 +14,16 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
 
 from products.data_warehouse.backend.facade.api import reconcile_redshift_schemas
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HOST_RESOLUTION_EXHAUSTED_MESSAGE,
+    HostNotAllowedError,
     SSHTunnelMixin,
+    TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -157,6 +161,14 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             ),
         )
 
+    def get_retryable_errors(self) -> set[str]:
+        # The bounded lookup in front of every connect raises these when the resolver stalls or
+        # answers "try again". Neither is a verdict on the host, so a fresh attempt recovers.
+        return {HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return dict.fromkeys(self.get_retryable_errors(), HOST_RESOLUTION_EXHAUSTED_MESSAGE)
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             **self.default_non_retryable_errors(),
@@ -225,6 +237,10 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
 
         try:
             self.get_schemas(config, team_id, api_version=api_version)
+        except (HostNotAllowedError, TemporaryHostResolutionError) as e:
+            # The host policy refused the host, or its lookup never answered. Both carry their own
+            # user-facing wording and neither is a PostHog defect, so they are not captured.
+            return False, str(e)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in RedshiftErrors.items():

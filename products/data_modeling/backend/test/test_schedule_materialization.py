@@ -164,11 +164,10 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         node.refresh_from_db()
         assert get_declared_target(node) is None
 
-    def test_tiered_flag_writes_target_through_and_nulls_interval(self):
+    def test_writes_target_through_and_nulls_interval(self):
         node = Node.objects.get(saved_query=self.sq)
         with (
             mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
-            mock.patch(f"{RECONCILE}.tiered_schedules_enabled", return_value=True),
             mock.patch(f"{RECONCILE}.maybe_reconcile_dag") as reconcile,
         ):
             self.sq.schedule_materialization()
@@ -187,7 +186,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.save(update_fields=["sync_frequency_interval"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
-            mock.patch(f"{RECONCILE}.tiered_schedules_enabled", return_value=True),
             mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
         ):
             self.sq.schedule_materialization()
@@ -199,14 +197,13 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         node = Node.objects.get(saved_query=self.sq)
         set_declared_target(node, timedelta(hours=12))
         with (
-            mock.patch(f"{RECONCILE}.tiered_schedules_enabled", return_value=True),
             mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
         ):
             self.sq.revert_materialization()
         node.refresh_from_db()
         assert get_declared_target(node) is None
 
-    def test_tiered_flag_surfaces_invalid_frequency_without_disabling(self):
+    def test_surfaces_invalid_frequency_without_disabling(self):
         # an invalid frequency is a request problem: it must reach the caller as a validation
         # error, not silently flip is_materialized like infrastructure failures do
         self.sq.is_materialized = True
@@ -214,7 +211,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.save(update_fields=["is_materialized", "sync_frequency_interval"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
-            mock.patch(f"{RECONCILE}.tiered_schedules_enabled", return_value=True),
         ):
             try:
                 self.sq.schedule_materialization()

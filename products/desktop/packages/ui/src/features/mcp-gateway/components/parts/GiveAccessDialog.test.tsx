@@ -285,9 +285,9 @@ describe("GiveAccessDialog", () => {
       </Theme>,
     );
 
-    const shareButton = screen.getByRole("button", { name: "Share access" });
+    const shareButton = screen.getByRole("button", { name: /Share access/ });
     expect(shareButton).toBeDisabled();
-    expect(shareButton.querySelector(".rt-Spinner")).toBeInTheDocument();
+    expect(shareButton.querySelector('[role="status"]')).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
 
     fireEvent.keyDown(document, { key: "Escape" });

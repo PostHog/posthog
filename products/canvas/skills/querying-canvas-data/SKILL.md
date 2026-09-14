@@ -2,11 +2,13 @@
 name: querying-canvas-data
 description: >
   Get PostHog data into a canvas correctly: the host-injected `ph` SDK (loadInsight, query,
-  capture, state, openExternal, navigate), the data hierarchy (saved insights first, typed query nodes
+  capture, state, connectors, openExternal, navigate), the data hierarchy (saved insights first, typed query nodes
   second, inline HogQL last), verifiability (insight-backed metrics link their saved insight in
   PostHog; ad-hoc queries expose the exact query that ran), per-insight-type result shapes,
-  progressive per-query loading, date-range wiring, and event capture from a canvas. Use whenever a
-  canvas shows metrics, charts, tables, or any PostHog data, or needs to send analytics events.
+  progressive per-query loading, date-range wiring, live third-party data through the viewer's own
+  connections (ph.connectors), and event capture from a canvas. Use whenever a canvas shows
+  metrics, charts, tables, any PostHog data, or data from GitHub or an MCP server, or needs to send
+  analytics events.
 ---
 
 # Querying canvas data
@@ -255,13 +257,62 @@ canvas) differ in payload shape, auth, and behavior. Invoking looks like:
 const { result } = await ph.actions.invoke('tasks.create', { title, description })
 ```
 
+## Live third-party data — ph.connectors
+
+`ph.connectors.call(provider, tool, args, { refresh? })` reads data from a third-party service
+with the **viewer's** own connection, at view time. Use it for anything that must stay fresh
+per person: open pull requests, today's meetings, assigned issues. Never fetch such data
+yourself while authoring and bake the result into the source — that snapshot is stale the moment
+it is published, and it shows every viewer the author's data.
+
+- Providers are `github` (native, over the viewer's personal GitHub connection) or
+  `mcp:<server host>` for any server the viewer has connected in the MCP store (for example
+  `mcp:mcp.calendly.com`). Discover providers, tools, argument schemas, and per-tool `usage`
+  with the `canvas-connectors-retrieve` tool; pass `mcp_hosts` to inspect a server the current
+  user has not connected. Call only tools whose catalog entry has `is_read_only: true`.
+  MCP tools need an explicit read-only hint and a name that passes the local read-verb check.
+- **Declare every provider and tool** in `capabilities.connectors` as
+  `[{ "provider": "github", "tools": ["list_pull_requests"] }]`. Validation rejects an
+  undeclared `ph.connectors.call` literal, and the host refuses undeclared calls at runtime.
+- The call resolves to `{ status, result, detail, truncated, connect_path }`. Branch on `status`:
+  - `ok` — `result` holds the tool output. Native tools return their documented shape; MCP
+    tools return `{ content, structured_content, is_error }` (MCP content blocks).
+  - `not_connected` / `needs_reauth` — this viewer has no usable connection. Render a
+    "Connect GitHub" (or the server's name) button that calls `ph.connectors.connect(provider)`
+    from the click; the host opens the right settings page. Never treat this as empty data.
+  - `blocked`, `write_blocked`, `tool_missing`, `upstream_error` — show `detail` with a retry.
+- `truncated: true` means the result exceeded 256 KB and was cut to a preview; narrow the call
+  (a smaller `limit`, one repository) instead of paging client-side.
+- Calls can start on mount, but the host asks the viewer for access before it reads connector data.
+  Consent applies to one canvas version, provider, and tool. A refusal rejects the call; show the error and a retry button.
+- Results are cached per canvas version for `refresh` seconds (default 60, range 30–86400).
+  Account, organization, and project changes clear both results and consent.
+- Keep connector results in component state or `ph.state` scope `"user"`.
+  A canvas with connectors cannot declare shared state. Validation and the API reject this combination.
+
+```tsx
+const [prs, setPrs] = useState<{ loading: boolean; status?: string; rows?: PullRequest[] }>({ loading: true })
+useEffect(() => {
+  ph.connectors
+    .call('github', 'list_pull_requests', { repository: 'example/app', state: 'open' }, { refresh: 60 })
+    .then((res) => setPrs({ loading: false, status: res.status, rows: res.result?.pull_requests ?? [] }))
+    .catch((error) => setPrs({ loading: false, status: 'error', rows: [] }))
+}, [])
+```
+
 ## Side effects
 
 - `ph.capture(event, properties?, distinctId?)` — analytics events for interactions
   (fire-and-forget). Session replay, `$session_id`, and person attribution are handled by the
   host automatically; never initialize recording, set session ids, or roll your own capture.
-- `ph.openExternal(url)` — opens `https://posthog.com` / `*.posthog.com` URLs only, and only from
-  a user interaction (opens outside focus are ignored). Sandboxed `target="_blank"` navigation is
-  blocked, so do not use it as a fallback or link elsewhere.
+- `ph.openExternal(url)` — opens PostHog HTTPS URLs and `https://github.com/<owner>/<repo>/pull/<number>`
+  links from a user click. GitHub PR links open without a confirmation dialog. Files, commits, checks,
+  and fragment links are allowed; credentials, custom ports, query strings, and other domains are not.
+  Sandboxed `target="_blank"` navigation is blocked, so use the bridge rather than a browser fallback.
 - `ph.navigate.toTask(id)` / `.toNewTask()` / `.toCanvas(id)` / `.toNewCanvas()` — in-app
   navigation within the canvas's own channel.
+- `ph.navigate.toNewTask({ prompt, repository })` — opens a prefilled task form in a new tab from
+  a user click. `prompt` is at most 16,000 characters; `repository` is an `owner/repo` name. Both are
+  optional. Setting a repository selects cloud mode for this task without changing the space.
+  The viewer reviews and sends the prompt; opening the form does not start a run. Check for
+  `ph.navigate` in older published artifacts and ask for a rebuild after deployment if it is missing.

@@ -1,5 +1,4 @@
 import re
-import json
 import uuid
 import builtins
 import dataclasses
@@ -39,7 +38,7 @@ from posthog.api.fields import CoercedStringListField
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action
+from posthog.api.utils import action, parse_actor_property_filters
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
@@ -83,6 +82,7 @@ from posthog.utils import (
     relative_date_parse_with_delta_mapping,
 )
 
+from products.ai_training.backend.facade.api import queue_person_training_deletion
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
 from products.workflows.backend.api.message_assets import (
@@ -649,14 +649,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
 
-        person_properties: list[dict] = []
-        raw_properties = request.GET.get("properties")
-        if raw_properties:
-            for prop in json.loads(raw_properties):
-                # Legacy person filters default to the "exact" operator; ActorsQuery requires it explicitly.
-                if prop.get("type") != "cohort":
-                    prop.setdefault("operator", "exact")
-                person_properties.append(prop)
+        person_properties: list[dict] = parse_actor_property_filters(request.GET.get("properties"))
         if filter.email:
             person_properties.append({"type": "person", "key": "email", "value": filter.email, "operator": "exact"})
 
@@ -898,6 +891,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("You need to specify either distinct_ids or ids")
 
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
+        if not keep_person or delete_recordings:
+            queue_person_training_deletion(
+                self.team_id,
+                [*(distinct_ids or []), *(value for person in persons for value in person.distinct_ids)],
+            )
 
         persons_deleted = 0
         errors: builtins.list[dict[str, str]] = []
@@ -908,6 +906,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 actor=cast(User, request.user),
                 request=request,
                 organization_id=self.organization.id,
+                queue_ai_training_deletion=False,
             )
             persons_deleted = result.deleted_count
             errors = [{"person_uuid": str(u)} for u in result.errors]
@@ -915,7 +914,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if delete_events:
             queue_person_event_deletion(self.team_id, persons, actor=cast(User, request.user))
         if delete_recordings:
-            queue_person_recording_deletion(self.team_id, persons, actor=cast(User, request.user))
+            queue_person_recording_deletion(
+                self.team_id, persons, actor=cast(User, request.user), queue_ai_training_deletion=False
+            )
 
         return {
             "persons_found": len(persons),

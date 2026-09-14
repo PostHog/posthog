@@ -60,6 +60,7 @@ class ParsedEmail:
     capture_address: str
     attachments: tuple[UploadedFile, ...]
     forwarding_challenge_tokens: tuple[str, ...] = ()
+    auto_generated: bool = False
     # Set only when a trusted relay named someone else as the requester. `sender` is then the
     # person named, and this is the relay that vouched for them — kept so a misattributed ticket
     # can be traced back to the relay that caused it.

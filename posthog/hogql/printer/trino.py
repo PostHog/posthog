@@ -248,6 +248,34 @@ class TrinoPrinter(PostgresPrinter):
         separator = f"\n{self.indent(1)}" if self.pretty else " "
         return sql.rstrip() + separator + separator.join(suffixes)
 
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> str:
+        if not isinstance(node.initial_select_query, ast.SelectQuery) or not node.initial_select_query.ctes:
+            return super().visit_select_set_query(node)
+        ctes = node.initial_select_query.ctes
+
+        # HogQL stores set-wide CTEs on the first operand. Trino's queryPrimary excludes WITH.
+        query = clone_expr(node)
+        assert isinstance(query.initial_select_query, ast.SelectQuery)
+        query.initial_select_query.ctes = None
+        recursive = any(cte.recursive for cte in ctes.values())
+        if recursive:
+            self._assert_recursive_cte_supported()
+        prefix = ("WITH RECURSIVE " if recursive else "WITH ") + ", ".join(self.visit(cte) for cte in ctes.values())
+        sql = f"{prefix} {super().visit_select_set_query(query)}"
+        return f"({sql})" if len(self.stack) > 1 else sql
+
+    def _visit_set_operand(self, node: ast.SelectQuery | ast.SelectSetQuery) -> str:
+        if (
+            isinstance(node, ast.SelectSetQuery)
+            and isinstance(node.initial_select_query, ast.SelectQuery)
+            and node.initial_select_query.ctes
+        ):
+            return f"(SELECT * FROM {self.visit(node)})"
+        sql = super()._visit_set_operand(node)
+        if isinstance(node, ast.SelectQuery) and node.ctes:
+            return f"(SELECT * FROM {sql})"
+        return sql
+
     def _unsupported(self, feature_code: str, detail: str, node: ast.Expr | None = None) -> NoReturn:
         construct = node.name if isinstance(node, ast.Call) else node.__class__.__name__ if node else detail
         raise TrinoLoweringError(feature_code, construct, node, detail=detail)
@@ -268,8 +296,9 @@ class TrinoPrinter(PostgresPrinter):
         if name in {"empty", "notempty"}:
             return self._visit_empty(node, negated=name == "notempty")
         if name in {"in", "notin"}:
-            binary_args = self._visit_binary_args(node)
-            return f"({binary_args.left} {'NOT IN' if name == 'notin' else 'IN'} {binary_args.right})"
+            if len(node.args) != 2:
+                self._invalid_function_arguments(node, f"{node.name} expects exactly 2 arguments in Trino mode.")
+            return self._visit_membership(node.args[0], node.args[1], negated=name == "notin")
         if name == "mapfromarrays":
             return self._visit_map_from_arrays(node)
         if name == "length" and node.args and isinstance(self._resolve_type(node.args[0]), ast.ArrayType):
@@ -468,6 +497,8 @@ class TrinoPrinter(PostgresPrinter):
         return super().visit_order_expr(node)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> str:
+        if node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
+            return self._visit_membership(node.left, node.right, negated=node.op == ast.CompareOperationOp.NotIn)
         left_type = self._resolve_type(node.left)
         right_type = self._resolve_type(node.right)
         left_cast: str | None = None
@@ -495,6 +526,16 @@ class TrinoPrinter(PostgresPrinter):
         if right_cast is not None:
             right = f"CAST({right} AS {right_cast})"
         return self._get_compare_op(node.op, left, right)
+
+    def _visit_membership(self, left: ast.Expr, right: ast.Expr, *, negated: bool) -> str:
+        if isinstance(right, ast.Array) and not right.exprs:
+            return "TRUE" if negated else "FALSE"
+        return f"({self.visit(left)} {'NOT IN' if negated else 'IN'} {self._visit_in_values(right)})"
+
+    def _visit_in_values(self, node: ast.Expr) -> str:
+        if isinstance(node, ast.Array):
+            return f"({', '.join(self.visit(value) for value in node.exprs)})"
+        return super()._visit_in_values(node)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> str:
         left = self.visit(node.left)

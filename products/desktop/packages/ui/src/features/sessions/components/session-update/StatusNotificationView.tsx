@@ -186,6 +186,14 @@ export function StatusNotificationView({
     );
   }
 
+  if (status === "agent_started") {
+    return (
+      <ChatMarker variant="separator">
+        <ChatMarkerContent>Agent started</ChatMarkerContent>
+      </ChatMarker>
+    );
+  }
+
   if (status === "clearing") {
     if (isComplete) {
       return null;
@@ -287,7 +295,7 @@ function CompactingStatusView({
   return (
     <Box className="my-1 border-blue-6 border-l-2 px-3 py-1 dark:border-blue-8">
       <Flex align="center" gap="2">
-        <Spinner size={14} className="text-blue-9" />
+        <Spinner size="md" className="text-blue-9" />
         <Text className="text-[13px] text-gray-11">{label}</Text>
         <Text className="text-[13px] text-gray-10 tabular-nums">
           {formatDuration(elapsed, 1)}

@@ -15,11 +15,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apify_data
     validate_credentials as validate_apify_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.settings import (
+    ACTOR_RUNS_ENDPOINT,
+    ACTORS_ENDPOINT,
     DATASET_ITEMS_ENDPOINT,
+    DATASETS_ENDPOINT,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    USAGE_MONTHLY_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
@@ -64,7 +71,7 @@ class ApifyDatasetSource(ResumableSource[ApifyDatasetSourceConfig, ApifyResumeCo
 
 You can create an API token in your [Apify account settings](https://console.apify.com/settings/integrations), and find a dataset ID in the [Apify Console](https://console.apify.com/storage/datasets) (or use the `username~dataset-name` shorthand).
 
-The token needs read access to the dataset's storage.""",
+The token needs read access to the dataset's storage. The account-level tables (runs, Actors, datasets and monthly usage) come from the same token.""",
             iconPath="/static/services/apify_dataset.png",
             docsUrl="https://posthog.com/docs/cdp/sources/apify-dataset",
             fields=cast(
@@ -114,9 +121,20 @@ The token needs read access to the dataset's storage.""",
             INCREMENTAL_FIELDS,
             names,
             descriptions={
-                DATASET_ITEMS_ENDPOINT: "The rows produced by the Apify dataset. Columns are defined by the Actor that produced them. Full refresh only — the whole dataset is re-imported on every sync."
+                DATASET_ITEMS_ENDPOINT: "The rows produced by the Apify dataset. Columns are defined by the Actor that produced them. Full refresh only — the whole dataset is re-imported on every sync.",
+                ACTOR_RUNS_ENDPOINT: "Every Actor run on the account, with its status, timings, compute usage and the storages it wrote. Syncs incrementally on the run start time.",
+                ACTORS_ENDPOINT: "The Actors the account has created or used, with build and run counts. Resolves the actor ID carried on runs and datasets. Full refresh only.",
+                DATASETS_ENDPOINT: "The account's datasets, including the unnamed ones an Actor run creates, with item counts and the run that produced them. Full refresh only.",
+                USAGE_MONTHLY_ENDPOINT: "Platform usage and spend for the current monthly cycle, one row per day. Full refresh only: the cycle is re-imported on every sync.",
             },
         )
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,
+        )
+
+        return CANONICAL_DESCRIPTIONS
 
     def validate_credentials(
         self,
@@ -143,5 +161,6 @@ The token needs read access to the dataset's storage.""",
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # full refresh only
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            should_use_incremental_field=inputs.should_use_incremental_field,
         )

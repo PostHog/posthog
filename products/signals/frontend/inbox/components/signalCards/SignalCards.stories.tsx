@@ -130,6 +130,18 @@ const conversationsTicket = makeSignal({
     },
 })
 
+// Evidence stored without a ticket number still opens the ticket, from the uuid on the signal.
+const conversationsTicketWithoutNumber = makeSignal({
+    source_product: 'conversations',
+    source_type: 'ticket',
+    source_id: '0197c3d2-4f61-7a2b-9c88-5de1f0a3b774',
+    content: 'The export finishes but the emailed link 404s for everyone on the team.',
+    extra: {
+        channel_source: 'email',
+        status: 'open',
+    },
+})
+
 // An error tracking payload with no fingerprint fails that card's guard, so it falls back to the
 // generic card, which still links the issue from the source id.
 const genericWithEntityLink = makeSignal({
@@ -175,6 +187,15 @@ const scoutFinding = makeSignal({
         ],
         tags: ['uploads', 'regression'],
         time_range: { date_from: '2026-06-09T00:00:00Z', date_to: '2026-06-10T00:00:00Z' },
+    },
+})
+
+const scoutFindingWithLongName = makeSignal({
+    ...scoutFinding,
+    signal_id: 'sig-scout-long-name',
+    extra: {
+        ...(scoutFinding.extra as unknown as Record<string, unknown>),
+        skill_name: 'signals-scout-upload-pipeline-throughput-and-chunked-transfer-failure-watch',
     },
 })
 
@@ -429,6 +450,10 @@ export const TicketAttachments: Story = {
     render: () => <Rail signals={[conversationsTicket]} />,
 }
 
+export const TicketWithoutNumber: Story = {
+    render: () => <Rail signals={[conversationsTicketWithoutNumber]} />,
+}
+
 export const GenericFallbacks: Story = {
     render: () => <Rail signals={[genericWithEntityLink, genericWithExternalLink, genericWithoutLink]} />,
 }
@@ -477,6 +502,11 @@ export const ErrorTrackingStackTrace: Story = {
         }),
     ],
     render: () => <Rail signals={[errorTrackingIssueWithStackTrace]} />,
+}
+
+/** A scout name longer than the rail truncates, and the relative time stays at the end of the line. */
+export const LongScoutName: Story = {
+    render: () => <Rail signals={[scoutFindingWithLongName]} />,
 }
 
 /** One card per source with a dedicated renderer, so a layout change to any of them shows up here. */

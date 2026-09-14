@@ -48,6 +48,7 @@ from products.customer_analytics.backend.facade.testing import (
     create_account_relationship_definition,
     create_custom_property_definition,
     create_custom_property_value,
+    create_customer_task,
     create_feature_request,
     create_feature_request_account_link,
     create_feature_request_evidence,
@@ -235,6 +236,10 @@ def _create_account(team: Team, label: str):
 
 def _create_custom_property_definition(team: Team, label: str):
     return create_custom_property_definition(team_id=team.pk, name=f"def_{label}")
+
+
+def _create_customer_task(team: Team, label: str):
+    return create_customer_task(team_id=team.pk, name=f"customer_task_{label}")
 
 
 def _create_account_relationship(team: Team, label: str):
@@ -887,6 +892,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("custom_property_definitions", _create_custom_property_definition),
+    ("customer_tasks", _create_customer_task),
     ("_account_meetings", _create_account_meeting),
     ("_account_channel_summaries", _create_account_channel_summary),
     ("_account_email_threads", _create_account_email_thread),

@@ -22,7 +22,9 @@ from products.customer_analytics.backend.presentation.views.views import (
     EventStreamViewSet,
     FeatureRequestProductAreaViewSet,
     FeatureRequestViewSet,
+    UserCustomerAnalyticsConfigViewSet,
 )
+from products.customer_analytics.backend.presentation.views.workflow_customer_tasks import WorkflowCustomerTaskViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -105,6 +107,12 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_calendar_sync",
         ["team_id"],
     )
+    routers.projects.register(
+        r"user_customer_analytics_config",
+        UserCustomerAnalyticsConfigViewSet,
+        "project_user_customer_analytics_config",
+        ["team_id"],
+    )
     project_accounts_router = routers.projects.register(r"accounts", AccountViewSet, "project_accounts", ["team_id"])
     project_accounts_router.register(
         r"notebooks", AccountNotebookViewSet, "project_account_notebooks", ["team_id", "account_id"]
@@ -122,3 +130,9 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id", "account_id"],
     )
     routers.projects.register(r"customer_tasks", CustomerTaskViewSet, "project_customer_tasks", ["team_id"])
+    routers.projects.register(
+        r"workflow_customer_tasks",
+        WorkflowCustomerTaskViewSet,
+        "project_workflow_customer_tasks",
+        ["team_id"],
+    )

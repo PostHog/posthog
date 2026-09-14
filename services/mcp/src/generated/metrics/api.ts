@@ -394,7 +394,7 @@ export const MetricsQueryCreateBody = () => zod.object({
 })
 
 /**
- * Distinct metric names for the team. Backs the picker UI.
+ * Distinct metric names for the team. Backs the catalog UI.
  */
 export const MetricsValuesRetrieveParams = () => zod.object({
     project_id: zod

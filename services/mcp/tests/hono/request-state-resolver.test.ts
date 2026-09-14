@@ -79,8 +79,9 @@ vi.mock('@/hono/request-context', () => {
 })
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
-import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
+import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import type { Env } from '@/tools/types'
@@ -173,14 +174,22 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.clientProfile.clientName).toBe('cursor')
     })
 
-    it('auto-selects tools mode from the ChatGPT user-agent', async () => {
-        // ChatGPT's clientInfo.name is generic; the surface only shows up in the
+    it('auto-selects tools mode from a name-less Cursor user-agent', async () => {
+        // Older Cursor builds omit clientInfo.name and identify only through the
         // User-Agent. Guards the `userAgent: props.clientUserAgent` profile plumbing.
-        const props = makeProps({ mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (ChatGPT)' })
+        const props = makeProps({ mcpClientName: undefined, clientUserAgent: 'Cursor/3.1.15 (darwin arm64)' })
         const result = await makeResolver().resolve(props)
 
         expect(result.useSingleExec).toBe(false)
         expect(props.mode).toBe('tools')
+    })
+
+    it('keeps the labeled ChatGPT user-agent on the cli default', async () => {
+        const props = makeProps({ mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (ChatGPT)' })
+        const result = await makeResolver().resolve(props)
+
+        expect(result.useSingleExec).toBe(true)
+        expect(props.mode).toBe('cli')
     })
 
     it('defaults to cli mode when no client hints are present', async () => {
@@ -315,6 +324,19 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.renderUiEnabled).toBe(true)
         expect(result.useSingleExec).toBe(true)
         expect(props.mode).toBe('cli')
+    })
+
+    it('evaluates the exec skills flag even though no generated tool declares it', async () => {
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ [MCP_EXEC_SKILLS_FEATURE_FLAG]: true })
+
+        const result = await makeResolver().resolve(makeProps())
+
+        expect(evaluateFeatureFlags).toHaveBeenCalledWith(
+            expect.arrayContaining([MCP_EXEC_SKILLS_FEATURE_FLAG]),
+            'distinct-id',
+            undefined
+        )
+        expect(result.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG]).toBe(true)
     })
 
     it('honors a dev/test flag override even when evaluation returns nothing', async () => {

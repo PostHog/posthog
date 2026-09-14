@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from syrupy.assertion import SnapshotAssertion
+
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryModifiers, HogQLVariable
 
 from posthog.hogql.errors import QueryError
@@ -32,24 +34,27 @@ def _events() -> TrinoManifestTable:
     )
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT event FROM events WHERE event = {event}",
+        "SELECT event FROM events WHERE event = {event} ORDER BY timestamp DESC LIMIT 1 BY event",
+    ],
+)
 def test_transpiles_core_table_with_values_without_django_queries(
     django_assert_num_queries: Any,
+    query: str,
+    snapshot: SnapshotAssertion,
 ) -> None:
     with django_assert_num_queries(0):
         result = transpile_hogql_to_trino(
-            "SELECT event FROM events WHERE event = {event}",
+            query,
             manifest=_manifest(_events()),
             values={"event": "signup"},
             include_hogql=True,
         )
 
-    assert result.sql == (
-        'SELECT "org_catalog"."posthog"."events_production"."event" '
-        'FROM "org_catalog"."posthog"."events_production" '
-        'WHERE ("org_catalog"."posthog"."events_production"."event" = %(hogql_val_0)s) LIMIT 50000'
-    )
-    assert result.values == {"hogql_val_0": "signup"}
-    assert result.hogql == "SELECT event FROM events WHERE equals(event, 'signup') LIMIT 50000"
+    assert (result.sql, result.values, result.hogql) == snapshot
 
 
 def test_transpiles_manifest_table_without_django_queries(django_assert_num_queries: Any) -> None:

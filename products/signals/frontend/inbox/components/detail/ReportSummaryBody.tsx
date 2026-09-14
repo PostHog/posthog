@@ -38,8 +38,7 @@ function SummaryMarkdown({ markdown, sourceOffset, chartPlacements, className }:
 interface ReportSummaryBodyProps {
     summary: string
     chartPlacements: ChartPlacements
-    /** The Create PR button, rendered under the Solution section when the report offers it. */
-    createPrButton?: ReactNode
+    implementButton?: ReactNode
     /**
      * Says a pull request with the fix is open and links to it. Rendered under the Solution section, or after
      * the body when the summary has no sections, so a report never hides that its fix already shipped.
@@ -54,7 +53,7 @@ interface ReportSummaryBodyProps {
 export function ReportSummaryBody({
     summary,
     chartPlacements,
-    createPrButton,
+    implementButton,
     pullRequestNote,
 }: ReportSummaryBodyProps): JSX.Element {
     const parsed = useMemo(() => parseReportSummary(summary), [summary])
@@ -92,7 +91,7 @@ export function ReportSummaryBody({
                         chartPlacements={chartPlacements}
                     />
                     {section.kind === 'solution' && pullRequestNote && <div className="mt-2">{pullRequestNote}</div>}
-                    {section.kind === 'solution' && createPrButton && <div className="mt-2">{createPrButton}</div>}
+                    {section.kind === 'solution' && implementButton && <div className="mt-2">{implementButton}</div>}
                 </section>
             ))}
             {!hasSolutionSection && pullRequestNote}

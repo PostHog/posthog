@@ -592,9 +592,16 @@ function IdleGrid(): JSX.Element {
             onKeyDown={handleGridKeyDown}
         >
             {/* Suggestions list, or the selected topic's suggestions in the same slot */}
+            {/* The key remounts the column on every topic change, so the fade replays and the swap
+                reads as an answer to the badge click. Deselecting remounts without the class. */}
             <div
+                key={selectedTopic ?? 'default'}
                 role="rowgroup"
-                className={cn('flex-[2] min-w-0 flex flex-col gap-px', COLORFUL_ICONS)}
+                className={cn(
+                    'flex-[2] min-w-0 flex flex-col gap-px',
+                    COLORFUL_ICONS,
+                    selectedTopic && 'animate-fade-in motion-reduce:animate-none'
+                )}
                 data-attr="homepage-grid-column-suggestion"
                 style={{ minHeight: SUGGESTION_CARDS_HEIGHT_PX }}
             >

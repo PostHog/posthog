@@ -117,6 +117,7 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
                 exprs=[
                     self._touchpoint_condition(),
                     *self._lookback_date_conditions(date_range),
+                    *self._test_account_conditions(),
                 ]
             ),
             group_by=[ast.Field(chain=[_BREAKDOWN_VALUE])],
@@ -380,7 +381,19 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
             ),
             # Server ordering only decides which rows make the page; the table re-sorts client side.
             order_by=[
-                ast.OrderExpr(expr=ast.Field(chain=[_INFLUENCED_CONVERSIONS]), order="DESC"),
+                ast.OrderExpr(
+                    expr=ast.Call(
+                        name="arrayMax",
+                        args=[
+                            ast.Array(
+                                exprs=[ast.Field(chain=[f"{alias}_value"]) for alias in _ordered_weight_aliases()]
+                            )
+                        ],
+                    )
+                    if self.query.includeRevenue
+                    else ast.Field(chain=[_INFLUENCED_CONVERSIONS]),
+                    order="DESC",
+                ),
                 ast.OrderExpr(expr=ast.Field(chain=[_VISITORS]), order="DESC"),
             ],
             limit=ast.Constant(value=(self.query.limit or DEFAULT_LIMIT) + PAGINATION_EXTRA),
