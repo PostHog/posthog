@@ -443,7 +443,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("arrayFirstIndex(x -> x > 1, [1, 2])", 'coalesce(array_position(transform(ARRAY[1, 2], "x" ->'),
         (
             "arrayLastIndex(x -> x > 1, [1, 2])",
-            'IF(array_position(reverse(transform(ARRAY[1, 2], "x" ->',
+            'reduce(transform(ARRAY[1, 2], "x" ->',
         ),
         ("arrayRotateLeft([1, 2, 3], 1)", "concat(slice(ARRAY[1, 2, 3]"),
         ("arrayRotateRight([1, 2, 3], 1)", "mod(mod(-(1), cardinality(ARRAY[1, 2, 3]))"),
