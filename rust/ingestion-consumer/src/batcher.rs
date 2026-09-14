@@ -26,7 +26,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
-use crate::dispatcher::{Dispatcher, KeyOffset, SubBatch};
+use crate::dispatcher::{Dispatcher, KeyOffset, SubBatch, Submission};
 use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
 use crate::order_sentinel::KeyOrderSentinel;
 use crate::scheduler::SchedulerKind;
@@ -204,7 +204,7 @@ impl Batcher {
         self.inner.dispatcher.register_batch(&batch_id);
         let assign_start = Instant::now();
         let groups = accumulator.into_groups();
-        let pending = self.inner.dispatcher.assign_and_send(
+        let Submission { pending, retained } = self.inner.dispatcher.assign_and_send(
             &batch_id,
             assignment_epoch,
             groups,
@@ -220,6 +220,7 @@ impl Batcher {
             Arc::clone(&self.inner),
             batch_id.clone(),
             pending,
+            retained,
             assignment_epoch,
         ));
         let _ = self.flush_queue.send(FlushTicket {
@@ -238,11 +239,12 @@ async fn run_scatter(
     inner: Arc<BatcherInner>,
     batch_id: String,
     pending: Vec<PendingSubBatch>,
+    retained: bool,
     assignment_epoch: u64,
 ) {
-    // Nothing to send and nothing retained by the scheduler means no usable
-    // workers.
-    if pending.is_empty() && !inner.dispatcher.retains_work(&batch_id) {
+    // Use the submission's synchronous assignment outcome. Mutable scheduler
+    // state may have changed by the time this spawned task runs.
+    if pending.is_empty() && !retained {
         counter!("ingestion_consumer_no_healthy_workers_total").increment(1);
         inner.report_error("No healthy workers available to route batch".to_string());
         return;
