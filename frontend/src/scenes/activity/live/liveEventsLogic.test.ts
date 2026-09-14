@@ -1,8 +1,11 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, LiveEvent, PropertyFilterType, PropertyOperator } from '~/types'
@@ -79,6 +82,48 @@ describe('liveEventsLogic', () => {
             }).toMatchValues({
                 eventHosts: [],
             })
+        })
+    })
+
+    describe('stream errors', () => {
+        function lastStreamOptions(): { onError: (error: any) => void; onOpen?: () => void } {
+            const calls = streamSpy.mock.calls
+            if (calls.length === 0) {
+                throw new Error('api.stream was not called')
+            }
+            return calls[calls.length - 1][1]
+        }
+
+        it.each([
+            [401, 'This project cannot read the live event stream.'],
+            [504, 'The live event stream failed with error 504.'],
+        ])('surfaces an http %s as a non-retrying error', async (status, expectedStart) => {
+            await expectLogic(logic, () => {
+                lastStreamOptions().onError(new ApiError(undefined, status))
+            }).toMatchValues({ streamError: { message: expect.stringContaining(expectedStart), retrying: false } })
+        })
+
+        it('marks a transport error as retrying', async () => {
+            await expectLogic(logic, () => {
+                lastStreamOptions().onError(new TypeError('Failed to fetch'))
+            }).toMatchValues({ streamError: { message: expect.any(String), retrying: true } })
+        })
+
+        it('clears the error once the stream opens again', async () => {
+            lastStreamOptions().onError(new ApiError(undefined, 504))
+            await expectLogic(logic, () => {
+                lastStreamOptions().onOpen?.()
+            }).toMatchValues({ streamError: null })
+        })
+
+        it('does not connect without a live events token, and says so', async () => {
+            streamSpy.mockClear()
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, live_events_token: '' })
+
+            await expectLogic(logic, () => {
+                logic.actions.updateEventsConnection()
+            }).toMatchValues({ streamError: { message: expect.any(String), retrying: false } })
+            expect(streamSpy).not.toHaveBeenCalled()
         })
     })
 

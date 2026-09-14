@@ -3,8 +3,8 @@ import './LiveEventsTable.scss'
 import clsx from 'clsx'
 import { type ReactNode, useMemo } from 'react'
 
-import { IconPauseFilled } from '@posthog/icons'
-import { Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconPauseFilled, IconWarning } from '@posthog/icons'
+import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -16,6 +16,8 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import { LiveEvent } from '~/types'
+
+import { LiveStreamError } from './liveEventsLogic'
 
 export type LiveEventsFeedColumn = 'event' | 'person' | 'url' | 'recording' | 'timestamp' | 'more'
 
@@ -106,6 +108,9 @@ export interface LiveEventsFeedProps {
     columns?: LiveEventsFeedColumn[]
     emptyState?: ReactNode
     streamPaused?: boolean
+    /** When set, the feed says the stream is broken instead of waiting for events that cannot arrive. */
+    streamError?: LiveStreamError | null
+    onRetry?: () => void
     className?: string
 }
 
@@ -114,18 +119,36 @@ export function LiveEventsFeed({
     columns = ALL_COLUMNS,
     emptyState,
     streamPaused = false,
+    streamError,
+    onRetry,
     className,
 }: LiveEventsFeedProps): JSX.Element {
     const tableColumns = useMemo(() => columns.map((col) => COLUMN_DEFINITIONS[col]), [columns])
 
-    const defaultEmptyState = (
-        <div className="flex flex-col justify-center items-center gap-4 p-6">
-            {!streamPaused ? <Spinner className="text-4xl" textColored /> : <IconPauseFilled className="text-4xl" />}
-            <span className="text-lg font-title font-semibold leading-tight">
-                {!streamPaused ? 'Waiting for events…' : 'Stream paused'}
-            </span>
-        </div>
-    )
+    const defaultEmptyState =
+        streamError && !streamPaused ? (
+            <div className="flex flex-col justify-center items-center gap-2 p-6 text-center">
+                <IconWarning className="text-4xl text-warning" />
+                <span className="text-lg font-title font-semibold leading-tight">Live events are not streaming</span>
+                <span className="text-secondary max-w-md">{streamError.message}</span>
+                {onRetry && !streamError.retrying && (
+                    <LemonButton type="secondary" size="small" onClick={onRetry} className="mt-2">
+                        Try again
+                    </LemonButton>
+                )}
+            </div>
+        ) : (
+            <div className="flex flex-col justify-center items-center gap-4 p-6">
+                {!streamPaused ? (
+                    <Spinner className="text-4xl" textColored />
+                ) : (
+                    <IconPauseFilled className="text-4xl" />
+                )}
+                <span className="text-lg font-title font-semibold leading-tight">
+                    {!streamPaused ? 'Waiting for events…' : 'Stream paused'}
+                </span>
+            </div>
+        )
 
     return (
         <LemonTable
