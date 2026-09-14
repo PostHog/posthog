@@ -28,6 +28,17 @@ from products.posthog_ai.backend.models.assistant import (
 )
 
 
+def _remove_nulls(value: Any) -> Any:
+    # Postgres rejects NUL characters in JSONB, in values and in keys alike.
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, dict):
+        return {_remove_nulls(key): _remove_nulls(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_remove_nulls(item) for item in value]
+    return value
+
+
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
     jsonplus_serde = JsonPlusSerializer()
 
@@ -46,16 +57,6 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             else []
         )
 
-    def _remove_nulls(self, value: Any) -> Any:
-        # Postgres rejects NUL characters in JSONB, in values and in keys alike.
-        if isinstance(value, str):
-            return value.replace("\x00", "")
-        if isinstance(value, dict):
-            return {self._remove_nulls(key): self._remove_nulls(item) for key, item in value.items()}
-        if isinstance(value, (list, tuple)):
-            return [self._remove_nulls(item) for item in value]
-        return value
-
     def _dump_json(self, obj: Any) -> dict[str, Any]:
         # JsonPlusSerializer no longer exposes a JSON mode, so round-trip through msgpack
         # to coerce non-JSON values (e.g. Pydantic models in metadata writes) into
@@ -64,7 +65,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         if type_ != "msgpack":
             raise ValueError(f"Expected msgpack serialization for JSON dump, got {type_}")
         jsonable = ormsgpack.unpackb(blob, ext_hook=_msgpack_ext_hook_to_json, option=ormsgpack.OPT_NON_STR_KEYS)
-        return cast(dict[str, Any], self._remove_nulls(jsonable))
+        return cast(dict[str, Any], _remove_nulls(jsonable))
 
     def _get_checkpoint_qs(
         self,
