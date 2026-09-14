@@ -5,9 +5,10 @@ import ObservationRecording from './ObservationRecording'
 const mockSeekToTime = jest.fn()
 const mockPlayer = jest.fn<JSX.Element, [unknown]>(() => <div data-attr="recording-player" />)
 let mockSessionPlayerData: { start: { valueOf: () => number } | null; end: { valueOf: () => number } | null } | null
+let mockCurrentTimestamp: number | undefined
 
 jest.mock('kea', () => ({
-    useValues: () => ({ sessionPlayerData: mockSessionPlayerData }),
+    useValues: () => ({ sessionPlayerData: mockSessionPlayerData, currentTimestamp: mockCurrentTimestamp }),
 }))
 
 jest.mock('scenes/session-recordings/player/SessionRecordingPlayer', () => ({
@@ -26,6 +27,7 @@ describe('ObservationRecording', () => {
         mockSeekToTime.mockClear()
         mockPlayer.mockClear()
         mockSessionPlayerData = null
+        mockCurrentTimestamp = undefined
     })
 
     it('preserves player options and seeks once per citation after recording data arrives', () => {
@@ -55,10 +57,15 @@ describe('ObservationRecording', () => {
 
         mockSessionPlayerData = { start: { valueOf: () => 1000 }, end: { valueOf: () => 9000 } }
         rerender(<ObservationRecording {...props} pendingSeek={pendingSeek} />)
+        expect(mockSeekToTime).not.toHaveBeenCalled()
+
+        mockCurrentTimestamp = 0
+        rerender(<ObservationRecording {...props} pendingSeek={pendingSeek} />)
         expect(mockSeekToTime).toHaveBeenCalledTimes(1)
         expect(mockSeekToTime).toHaveBeenLastCalledWith(5000)
 
         mockSessionPlayerData = { start: { valueOf: () => 1000 }, end: { valueOf: () => 12000 } }
+        mockCurrentTimestamp = 6000
         rerender(<ObservationRecording {...props} pendingSeek={pendingSeek} />)
         expect(mockSeekToTime).toHaveBeenCalledTimes(1)
 

@@ -1,6 +1,6 @@
 # Replay Vision loading
 
-Observation pages load the result independently of the recording player component. The component loads when the reader expands the recording or selects a citation. Playback remains paused on manual expansion. A citation seeks after the recording data is ready.
+Observation pages load the result independently of the recording player component. The component loads when the reader expands the recording or selects a citation. Playback remains paused on manual expansion. A citation seeks after the recording bounds and player timestamp are ready. Metadata arriving before snapshots does not consume the pending seek.
 
 Observation detail requests omit `order_by=-created_at`, which is the API default. This permits the indexed previous/next lookup when no other filters apply. Other sorting and filter parameters remain unchanged.
 

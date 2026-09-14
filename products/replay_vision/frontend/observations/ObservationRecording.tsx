@@ -18,19 +18,22 @@ function AutoSeekToTime({
     ms: number
     trigger: number
 }): null {
-    const { sessionPlayerData } = useValues(sessionRecordingPlayerLogic({ playerKey, sessionRecordingId }))
+    const { sessionPlayerData, currentTimestamp } = useValues(
+        sessionRecordingPlayerLogic({ playerKey, sessionRecordingId })
+    )
+    const hasCurrentTimestamp = currentTimestamp !== undefined
     // `start`/`end` are fresh Dayjs objects on every snapshot batch; compare epochs so deps stay stable.
     const startMs = sessionPlayerData?.start?.valueOf() ?? null
     const endMs = sessionPlayerData?.end?.valueOf() ?? null
     // Latch per-trigger so snapshot-batch arrivals don't re-seek and fight playback.
     const seekedForTrigger = useRef<number | null>(null)
     useEffect(() => {
-        if (seekedForTrigger.current === trigger || startMs == null || endMs == null) {
+        if (!hasCurrentTimestamp || seekedForTrigger.current === trigger || startMs == null || endMs == null) {
             return
         }
         sessionRecordingPlayerLogic.findMounted({ playerKey, sessionRecordingId })?.actions.seekToTime(ms)
         seekedForTrigger.current = trigger
-    }, [startMs, endMs, ms, trigger, playerKey, sessionRecordingId])
+    }, [startMs, endMs, hasCurrentTimestamp, ms, trigger, playerKey, sessionRecordingId])
     return null
 }
 
