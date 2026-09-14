@@ -79,4 +79,26 @@ describe('getNextRetryMs', () => {
         await expect(refresher.get()).resolves.toEqual('foo2')
         expect(refreshFunction).toHaveBeenCalledTimes(2)
     })
+
+    it('holds the value for the jitter window on top of the max age', async () => {
+        let timeAdvance = 0
+        global.Date.now = jest.fn(() => realNow() + timeAdvance)
+        const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(1)
+        refresher = new BackgroundRefresher(refreshFunction, 10000, undefined, 5000)
+        refreshFunction.mockResolvedValue('foo')
+
+        await expect(refresher.get()).resolves.toEqual('foo')
+        expect(refreshFunction).toHaveBeenCalledTimes(1)
+
+        // Past the max age but still inside the jitter window
+        timeAdvance = 10000 + 1
+        await refresher.get()
+        expect(refreshFunction).toHaveBeenCalledTimes(1)
+
+        timeAdvance = 10000 + 5000 + 1
+        await refresher.get()
+        expect(refreshFunction).toHaveBeenCalledTimes(2)
+
+        randomSpy.mockRestore()
+    })
 })
