@@ -2350,6 +2350,14 @@ class TestEmailInboundTrustedRelay(BaseTest):
                 "no-reply@updates.acme.io",
                 "Acme App",
             ),
+            # SPF and DKIM authorise a whole domain, so a neighbouring mailbox on the relay's
+            # domain could otherwise put the trusted address in From and take over attribution.
+            (
+                "same_domain_envelope_keeps_from",
+                {"Reply-To": "jane@customer.com", "sender": "someone-else@updates.acme.io"},
+                "no-reply@updates.acme.io",
+                "Acme App",
+            ),
         ]
     )
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)

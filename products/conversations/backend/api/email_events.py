@@ -345,6 +345,16 @@ def _recover_relayed_requester(
         _relay_skipped(config, sender_email, "relay_not_authenticated")
         return None
 
+    # Authentication above is judged per domain, so it alone does not prove this message came
+    # from the relay's own mailbox. Requiring the envelope sender to be that exact address stops
+    # a neighbouring mailbox on the relay's domain from putting the trusted address in From and
+    # redirecting this team's replies. SPF still authorises per domain, so a sender that can forge
+    # the envelope address for that domain remains in the trust boundary the admin accepted when
+    # naming the relay.
+    if not _outbound_sender_authenticated(request, sender_email):
+        _relay_skipped(config, sender_email, "relay_envelope_mismatch")
+        return None
+
     saw_header = False
     for header in ("X-PostHog-Requester", "Reply-To"):
         for raw in _message_header_values(request, header):
