@@ -146,10 +146,14 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
         <div className="mt-4 flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
                 <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
-                <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
-                <LemonButton size="small" loading={responseLoading} onClick={() => loadData('force_async')}>
-                    Reload summary
-                </LemonButton>
+                {isTraffic && (
+                    <>
+                        <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
+                        <LemonButton size="small" loading={responseLoading} onClick={() => loadData('force_async')}>
+                            Reload summary
+                        </LemonButton>
+                    </>
+                )}
             </div>
             {sourceSuggestions.length > 0 && (
                 <div className="border rounded">

@@ -42,7 +42,7 @@ jest.mock('@posthog/lemon-ui', () => ({
     ),
     LemonSkeleton: () => null,
 }))
-jest.mock('lib/components/CompareFilter/CompareFilter', () => ({ CompareFilter: () => null }))
+jest.mock('lib/components/CompareFilter/CompareFilter', () => ({ CompareFilter: () => <div>Compare periods</div> }))
 jest.mock('lib/components/DateFilter/DateFilter', () => ({ DateFilter: () => null }))
 jest.mock('lib/logic/featureFlagLogic', () => ({ featureFlagLogic: {} }))
 jest.mock('scenes/web-analytics/common', () => ({ MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS: {} }))
@@ -100,6 +100,8 @@ describe('NewMarketingAnalyticsDashboard', () => {
         render(<NewMarketingAnalyticsDashboard />)
 
         expect(screen.getByLabelText('Acquisition')).not.toBeNull()
+        expect(screen.queryByText('Compare periods')).not.toBeNull()
+        expect(screen.queryByText('Reload summary')).not.toBeNull()
         expect(screen.getByText('Engagement')).not.toBeNull()
         expect(screen.queryByText('Attribution explorer')).toBeNull()
         expect(screen.queryByText('Retention explorer')).toBeNull()
@@ -140,9 +142,13 @@ describe('NewMarketingAnalyticsDashboard', () => {
             fireEvent.click(screen.getByText('Retention'))
         }
         expect(screen.queryByText('Retention explorer') !== null).toBe(retention)
+        expect(screen.queryByText('Compare periods') !== null).toBe(!conversion && !retention)
+        expect(screen.queryByText('Reload summary') !== null).toBe(!conversion && !retention)
         expect(screen.queryByText('Attribution explorer')).toBeNull()
         fireEvent.click(screen.getByText('Acquisition'))
         expect(screen.getByLabelText('Acquisition')).not.toBeNull()
+        expect(screen.queryByText('Compare periods')).not.toBeNull()
+        expect(screen.queryByText('Reload summary')).not.toBeNull()
         expect(screen.queryByText('Retention explorer')).toBeNull()
     })
 })
