@@ -76,3 +76,13 @@ The API evaluates the `logs-json-attribute-parsing` feature flag for the request
 In **Settings > Project > Logs > JSON parse log attribute**, enter one attribute key and select **Save**. Clear the key and save to turn it off. This setting is independent of **JSON parse logs**, which parses the log body.
 
 The same feature flag controls this setting's visibility. Disabling it does not stop parsing that is already configured.
+
+### Ingestion and linking
+
+PostHog parses the selected attribute's JSON object or array and adds up to 50 flattened fields, prefixed with the selected key. Selecting `attributes` for `{"sessionId":"example-session","personId":"example-user"}` adds `attributes.sessionId` and `attributes.personId`. Both structured JSON values and JSON stored as a string are supported.
+
+Use `attributes.sessionId` in **Link to session** and `attributes.personId` in **Link to person**, provided their values are the PostHog session ID and one of the person's PostHog distinct IDs. These settings match the flattened keys literally. The fields can also be used in log filters.
+
+The original attribute is preserved, and existing attributes take precedence over extracted fields. Missing keys, invalid JSON, and scalar values are left unchanged. Strings nested inside the parsed object are not parsed again. Resource attributes are not parsed.
+
+PII scrubbing, when enabled, runs before extraction. Changes apply only to newly ingested logs after the configuration reaches ingestion; existing records are not backfilled.
