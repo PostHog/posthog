@@ -134,6 +134,7 @@ Planned Tier B collectors:
 | 60s | memory contexts (Aurora) | A | `aurora_stat_memctx_usage()` — backends > 64 MB |
 | 60s | system cpu / memory / disk | A | `pg_proctab`: `pg_cputime`, `pg_memusage`, `pg_loadavg`, `pg_diskusage` |
 | 60s | backend cpu | A | `pg_proctab()` per pid joined to `pg_stat_activity` |
+| 10m | query checks | job | `ts_query_stats` + `cur_queries` in the stats DB: heavy new queries and regressions, attributed to a team via table ownership; `query_findings`, `ts_query_stats_1h`, `pgcollector_query_finding` gauges |
 | 30s | logs | B | CloudWatch Logs (RDS) or files: `ts_query_durations` (latency quantiles), `ts_log_plans` (auto_explain), `ts_autovacuum_runs`, `ts_checkpoints`, `ts_temp_files`, `ts_log_errors`, `ts_logs` counts, deadlock/lock-wait/cancel events |
 
 On Aurora, `query_stats` reads `aurora_stat_statements` (adds Aurora-storage I/O
@@ -213,8 +214,9 @@ Hand-written tables (Tier B): `ts_query_stats`, `cur_queries`,
 `ts_activity_samples`, `ts_activity_sessions`, `ts_lock_waits`,
 `cur_relations`, `cur_indexes`, `cur_settings`, `events`, `collector_state`,
 `collector_runs` (self-metrics: per collector/server tick duration, rows,
-error). Roll-ups (`ts_query_stats_1h`) are done by a periodic job in the sink,
-not by the collector.
+error). The hourly roll-up `ts_query_stats_1h` / `ts_server_stats_1h` is filled
+by the checks job (`migrations/0002_query_findings.sql`), which also owns
+`query_findings` and `checks_state`.
 
 Migrations: `migrations/*.sql`, applied by the sink on startup (`sqlx` migrate).
 
@@ -296,7 +298,11 @@ Secrets come from env (`${VAR}` expansion in URLs).
 6. ✅ **`pgapi`** — REST + MCP (17 tools) over the stats DB; edge-provided
    identity (Tailscale whois / ALB Cognito JWT / auth gateway), domain
    allowlist, read-only. UI still to come.
-7. UI on top of `pgapi` on top of the stats DB (separate design).
+7. ✅ UI on top of `pgapi`.
+8. ✅ **Slow-query checks** — `[checks]` job in the collector: `new_heavy` /
+   `regression` rules over the stats DB, attribution to a team through the
+   generated table ownership map, `query_findings` + gauges for the alerting
+   path (vmalert -> alertmanager -> incident.io rotation). See README.
 
 ## 9. Non-goals (for now)
 

@@ -15,6 +15,8 @@ pub struct Config {
     pub servers: Vec<ServerConfig>,
     #[serde(default)]
     pub ownership: OwnershipConfig,
+    #[serde(default)]
+    pub checks: ChecksConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -142,6 +144,127 @@ impl Default for OwnershipConfig {
 }
 fn ownership_fallback_rotation() -> String {
     "infra".into()
+}
+
+/// The slow-query checks job: finds heavy new queries and regressions in the stats DB,
+/// attributes them to a team and exposes them as findings (and gauges when `alerting`).
+#[derive(Debug, Deserialize, Clone)]
+pub struct ChecksConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(with = "humantime_serde", default = "checks_interval")]
+    pub interval: Duration,
+    /// Recent window every rule looks at.
+    #[serde(with = "humantime_serde", default = "checks_window")]
+    pub window: Duration,
+    /// Days of hourly roll-up the regression baseline compares against.
+    #[serde(default = "checks_baseline_days")]
+    pub baseline_days: u32,
+    /// Export open findings as `pgcollector_query_finding` gauges. Off = shadow mode:
+    /// findings are still persisted and visible in pgapi.
+    #[serde(default)]
+    pub alerting: bool,
+    /// Roles whose statements never produce findings (monitoring, RDS internals).
+    #[serde(default = "checks_ignore_roles")]
+    pub ignore_roles: Vec<String>,
+    /// Query fingerprints that never produce findings.
+    #[serde(default)]
+    pub mute: Vec<i64>,
+    #[serde(default)]
+    pub thresholds: Thresholds,
+}
+impl Default for ChecksConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval: checks_interval(),
+            window: checks_window(),
+            baseline_days: checks_baseline_days(),
+            alerting: false,
+            ignore_roles: checks_ignore_roles(),
+            mute: vec![],
+            thresholds: Thresholds::default(),
+        }
+    }
+}
+fn checks_interval() -> Duration {
+    Duration::from_secs(600)
+}
+fn checks_window() -> Duration {
+    Duration::from_secs(3600)
+}
+fn checks_baseline_days() -> u32 {
+    7
+}
+fn checks_ignore_roles() -> Vec<String> {
+    [
+        "pgcollector",
+        "pgapi",
+        "pganalyze",
+        "rdsadmin",
+        "rdstopmgr",
+        "rdsrepladmin",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(default)]
+pub struct Thresholds {
+    /// A query first seen more recently than this is "new".
+    #[serde(with = "humantime_serde")]
+    pub new_query_age: Duration,
+    /// A server younger than this has every query "new"; new_heavy is skipped.
+    #[serde(with = "humantime_serde")]
+    pub warmup: Duration,
+    /// new_heavy floors: any one of them opens a candidate.
+    pub share_pct: f64,
+    pub total_ms: f64,
+    pub mean_ms: f64,
+    pub mean_min_calls: i64,
+    pub shared_blks_read: i64,
+    pub temp_blks_written: i64,
+    /// regression: mean over the window vs the same hour-of-day over the baseline days.
+    pub regression_multiple: f64,
+    pub regression_p95_multiple: f64,
+    pub regression_min_mean_ms: f64,
+    pub regression_min_calls: i64,
+    pub regression_share_pct: f64,
+    pub baseline_min_days: usize,
+    /// Consecutive runs a candidate must match before a finding opens, and clean runs
+    /// before it resolves.
+    pub open_after_runs: i32,
+    pub resolve_after_runs: i32,
+    /// More new shapes than this on one table in one run collapse into one finding.
+    pub burst_shapes: usize,
+    /// Fewer distinct sample timestamps than this in the window = not enough data.
+    pub min_samples: i64,
+}
+impl Default for Thresholds {
+    fn default() -> Self {
+        Self {
+            new_query_age: Duration::from_secs(24 * 3600),
+            warmup: Duration::from_secs(48 * 3600),
+            share_pct: 2.0,
+            total_ms: 60_000.0,
+            mean_ms: 500.0,
+            mean_min_calls: 10,
+            shared_blks_read: 1_280_000,
+            temp_blks_written: 12_800,
+            regression_multiple: 3.0,
+            regression_p95_multiple: 1.5,
+            regression_min_mean_ms: 50.0,
+            regression_min_calls: 100,
+            regression_share_pct: 1.0,
+            baseline_min_days: 5,
+            open_after_runs: 2,
+            resolve_after_runs: 6,
+            burst_shapes: 5,
+            min_samples: 30,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]

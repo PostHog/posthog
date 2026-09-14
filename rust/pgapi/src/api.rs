@@ -52,6 +52,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/servers/:server/schema", get(schema))
         .route("/servers/:server/logs", get(logs))
         .route("/servers/:server/system", get(system))
+        .route("/findings", get(findings))
+        .route("/findings/:id", get(finding_detail))
+        .route("/servers/:server/findings", get(server_findings))
         .route("/collector/health", get(collector_health))
         .route("/sql", get(sql))
         .route("/stats-schema", get(stats_schema))
@@ -198,6 +201,49 @@ async fn logs(State(s): S, Path(server): Path<String>, Query(p): Query<OptDbQ>) 
 async fn system(State(s): S, Path(server): Path<String>, Query(r): Query<Range>) -> R {
     let (f, t) = r.resolve()?;
     Ok(Json(q::system(&s.db, &server, f, t).await?))
+}
+#[derive(Deserialize)]
+struct FindingsQ {
+    #[serde(flatten)]
+    range: Range,
+    server: Option<String>,
+    team: Option<String>,
+    status: Option<String>,
+    #[serde(default = "d_limit")]
+    limit: i64,
+}
+async fn findings(State(s): S, Query(p): Query<FindingsQ>) -> R {
+    let (f, t) = p.range.resolve()?;
+    Ok(Json(
+        q::findings(
+            &s.db,
+            p.server.as_deref(),
+            p.team.as_deref(),
+            p.status.as_deref(),
+            f,
+            t,
+            p.limit.clamp(1, 1000),
+        )
+        .await?,
+    ))
+}
+async fn server_findings(State(s): S, Path(server): Path<String>, Query(p): Query<FindingsQ>) -> R {
+    let (f, t) = p.range.resolve()?;
+    Ok(Json(
+        q::findings(
+            &s.db,
+            Some(&server),
+            p.team.as_deref(),
+            p.status.as_deref(),
+            f,
+            t,
+            p.limit.clamp(1, 1000),
+        )
+        .await?,
+    ))
+}
+async fn finding_detail(State(s): S, Path(id): Path<i64>) -> R {
+    Ok(Json(q::finding_detail(&s.db, id).await?))
 }
 async fn collector_health(State(s): S) -> R {
     Ok(Json(q::collector_health(&s.db).await?))

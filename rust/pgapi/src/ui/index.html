@@ -73,7 +73,7 @@
   const PAGES = [
     ['overview', 'Overview'], ['queries', 'Queries'], ['activity', 'Activity'], ['waits', 'Wait events'],
     ['tables', 'Tables'], ['indexes', 'Indexes'], ['vacuum', 'Vacuum'], ['events', 'Events'], ['logs', 'Logs'],
-    ['system', 'System'], ['schema', 'Schema'], ['settings', 'Settings'], ['collector', 'Collector health'],
+    ['system', 'System'], ['schema', 'Schema'], ['settings', 'Settings'], ['findings', 'Findings'], ['collector', 'Collector health'],
   ];
   const state = { servers: [], server: null, page: 'overview', params: {}, range: '1h' };
   const $ = (s, r = document) => r.querySelector(s);
@@ -343,6 +343,21 @@
         { key: 'at', label: 'time', fmt: fmt.ts }, { key: 'kind', label: 'kind', render: r => el('span', { class: 'pill' }, r.kind) }, { key: 'datname', label: 'db' }, { key: 'subject', label: 'subject', cls: 'mono' },
         { key: 'after', label: 'details', render: r => el('details', {}, el('summary', {}, summarize(r)), el('pre', {}, JSON.stringify({ before: r.before, after: r.after }, null, 2))) },
       ], { empty: 'no events in range' })),
+    ];
+  };
+  pages.findings = async () => {
+    const status = state.params.status || '';
+    const rows = await api(`/servers/${state.server}/findings`, { since: state.range === '1h' ? '24h' : state.range, status, limit: 500 });
+    const statuses = ['', 'open', 'pending', 'resolved'];
+    return [
+      el('h1', {}, 'Findings', el('span', { class: 'sub' }, 'heavy new queries and regressions, attributed to the team that owns the tables they touch')),
+      el('div', { class: 'toolbar' }, el('label', {}, 'status ', el('select', { onchange: e => go('findings', { status: e.target.value }) }, statuses.map(k => el('option', { value: k, selected: k === status ? '' : null }, k || 'not resolved'))))),
+      panel(null, table(rows, [
+        { key: 'last_detected', label: 'last seen', fmt: fmt.ts }, { key: 'status', label: 'status', render: r => el('span', { class: r.status === 'open' ? 'pill warn' : 'pill' }, r.status) },
+        { key: 'rule', label: 'rule', cls: 'mono' }, { key: 'team', label: 'team', render: r => el('span', { title: `${r.method}: ${(r.attribution || {}).reason || ''}` }, r.team) },
+        { key: 'datname', label: 'db' }, { key: 'queryid', label: 'query', render: r => el('a', { href: `#/${state.server}/query?queryid=${r.queryid}` }, queryCell(r.query || String(r.queryid))) },
+        { key: 'attribution', label: 'why', render: r => el('details', {}, el('summary', {}, ((r.attribution || {}).reasons || []).join('; ')), el('pre', {}, JSON.stringify({ attribution: r.attribution, stats: r.stats }, null, 2))) },
+      ], { empty: 'no findings in range' })),
     ];
   };
   function summarize(e) {
