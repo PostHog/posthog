@@ -37,6 +37,9 @@ GITHUB_ONLY_DOMAINS = [
     "codeload.github.com",
 ]
 
+# GitHub App auth failures with these statuses (installation gone/suspended) won't recover via retry.
+PERMANENT_GITHUB_STATUS_CODES = {401, 403, 404, 410}
+
 logger = structlog.get_logger(__name__)
 
 
@@ -85,6 +88,27 @@ def _capture_repo_research_event(
         )
 
 
+def _activity_info() -> temporalio.activity.Info | None:
+    """Info of the running activity, or None when the function runs outside an activity context."""
+    try:
+        return temporalio.activity.info()
+    except RuntimeError:
+        return None
+
+
+def _is_last_attempt(info: temporalio.activity.Info | None) -> bool:
+    """Tell whether Temporal schedules another attempt after this one.
+
+    The completion event counts jobs, so only the attempt that decides the job must emit it.
+    An unlimited retry policy has no last attempt. Report the attempt as the last one and
+    accept a duplicate event, because a silent failure metric is worse.
+    """
+    if info is None:
+        return True
+    maximum_attempts = info.retry_policy.maximum_attempts if info.retry_policy is not None else 0
+    return maximum_attempts <= 0 or info.attempt >= maximum_attempts
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -101,12 +125,14 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
     team = await aretry_on_db_connection_drop(
         lambda: Team.objects.select_related("organization").aget(pk=input.team_id)
     )
-    _capture_repo_research_event(
-        "signals_repo_research_started",
-        team,
-        team.organization,
-        input.report_id,
-    )
+    info = _activity_info()
+    if info is None or info.attempt == 1:
+        _capture_repo_research_event(
+            "signals_repo_research_started",
+            team,
+            team.organization,
+            input.report_id,
+        )
     try:
         async with Heartbeater():
             # Check for a previous selection from an earlier run, if any
@@ -175,16 +201,17 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             )
             return result
     except Exception as e:
-        _capture_repo_research_event(
-            "signals_repo_research_completed",
-            team,
-            team.organization,
-            input.report_id,
-            result="failed",
-            failure_reason="agentic_activity_error",
-        )
-        # Permanent GitHub App auth failures (installation gone/suspended) won't recover via retry.
-        if isinstance(e, GitHubIntegrationError) and e.status_code in {401, 403, 404, 410}:
+        non_retryable = isinstance(e, GitHubIntegrationError) and e.status_code in PERMANENT_GITHUB_STATUS_CODES
+        if non_retryable or _is_last_attempt(info):
+            _capture_repo_research_event(
+                "signals_repo_research_completed",
+                team,
+                team.organization,
+                input.report_id,
+                result="failed",
+                failure_reason=type(e).__name__,
+            )
+        if non_retryable:
             raise temporalio.exceptions.ApplicationError(
                 str(e),
                 type="GitHubIntegrationError",

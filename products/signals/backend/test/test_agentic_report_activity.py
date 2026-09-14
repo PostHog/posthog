@@ -1,5 +1,6 @@
 import json
 import random
+import dataclasses
 from datetime import UTC, datetime
 
 import pytest
@@ -8,9 +9,13 @@ from unittest.mock import AsyncMock, Mock, patch
 from django.db import OperationalError
 
 import pytest_asyncio
+import temporalio.exceptions
 from asgiref.sync import sync_to_async
+from temporalio.common import RetryPolicy
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team, User
+from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
@@ -456,6 +461,67 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
 
     assert result.repository == "posthog/posthog"
     assert captured_user_id == [user.id], "user_id should come from the UserIntegration owner"
+
+
+async def _run_failing_select_repository(ateam, error, attempt):
+    environment = ActivityEnvironment()
+    environment.info = dataclasses.replace(
+        environment.info, attempt=attempt, retry_policy=RetryPolicy(maximum_attempts=2)
+    )
+
+    def failing_load(report_id):
+        raise error
+
+    captured: list[tuple[str, dict]] = []
+
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
+            failing_load,
+        ),
+        patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"),
+        patch(
+            "products.signals.backend.temporal.agentic.select_repository.posthoganalytics.capture",
+            side_effect=lambda event, **kwargs: captured.append((event, kwargs["properties"])),
+        ),
+    ):
+        with pytest.raises(Exception) as raised:
+            await environment.run(
+                select_repository_activity,
+                SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals()),
+            )
+
+    return captured, raised.value
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("attempt,expected_started,expected_failed", [(1, 1, 0), (2, 0, 1)])
+async def test_select_repository_activity_reports_a_failure_once_per_job(
+    ateam, attempt, expected_started, expected_failed
+):
+    # Temporal retries this activity, so an event captured on every attempt counts one
+    # failed job twice, and counts an attempt that later succeeded as a failed job.
+    captured, _ = await _run_failing_select_repository(ateam, RuntimeError("sandbox agent timed out"), attempt)
+
+    started = [properties for event, properties in captured if event == "signals_repo_research_started"]
+    completed = [properties for event, properties in captured if event == "signals_repo_research_completed"]
+    assert len(started) == expected_started
+    assert [(p["result"], p["failure_reason"]) for p in completed] == [("failed", "RuntimeError")] * expected_failed
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_select_repository_activity_reports_a_non_retryable_failure_on_the_first_attempt(ateam):
+    # A dead GitHub installation stops the job on attempt 1, so waiting for the last
+    # attempt would lose the failure event completely.
+    captured, error = await _run_failing_select_repository(
+        ateam, GitHubIntegrationError("installation suspended", status_code=403), attempt=1
+    )
+
+    assert isinstance(error, temporalio.exceptions.ApplicationError)
+    completed = [properties for event, properties in captured if event == "signals_repo_research_completed"]
+    assert [(p["result"], p["failure_reason"]) for p in completed] == [("failed", "GitHubIntegrationError")]
 
 
 @pytest.mark.asyncio
