@@ -886,6 +886,7 @@ const REPO_CONFIG_DIRS = [
 // .dockerignore and the .env files are deliberately not here. Both are read by
 // something that every suite runs inside, and both are tripwires above.
 const REPO_CONFIG_FILES = [
+    '.coderabbit.yaml',
     '.cursorignore',
     '.cursorrules',
     '.editorconfig',
