@@ -21,6 +21,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.autoresearch.backend.dataset.labeling import (
     LABELER_QUERY_MODIFIERS,
+    PREDICTION_EVENT_NAME,
     _build_labeled_users_cte,
     _build_population_conditions,
     _build_population_kind_conditions,
@@ -149,6 +150,14 @@ class TestPopulationFilterCompilation(SimpleTestCase):
         self.assertEqual(parts, [expected_part])
         self.assertEqual({k: v for k, v in values.items() if k != "pop_k_0"}, expected_values)
 
+    def test_hostile_key_is_bound_not_interpolated(self) -> None:
+        # Keys are bound as HogQL values, so a hostile key must never reach the SQL text.
+        hostile_key = "'; DROP TABLE users; --"
+        parts, values = _build_population_conditions([{"key": hostile_key, "type": "person", "operator": "is_set"}])
+        self.assertEqual(len(parts), 1)
+        self.assertNotIn(hostile_key, parts[0])
+        self.assertEqual(values["pop_k_0"], hostile_key)
+
     def test_empty_allowlist_matches_nobody(self) -> None:
         parts, _values = _build_population_conditions(
             [{"key": "plan", "type": "person", "operator": "exact", "value": []}]
@@ -229,6 +238,41 @@ class TestPopulationKindCompilation(SimpleTestCase):
         )
         self.assertIn("person_id IN (SELECT DISTINCT person_id FROM events", sql)
         self.assertEqual(values["popk_days"], 30)
+
+    @parameterized.expand(
+        [
+            (
+                "inference_anchors",
+                lambda: build_inference_anchors_sql(lookback_days=90, inference_population={})[0],
+            ),
+            (
+                "eligible_count",
+                lambda: build_eligible_count_sql(horizon_days=7, lookback_days=90, training_population={})[0],
+            ),
+            (
+                "labeler_user_window",
+                lambda: build_random_t0_labeler_sql(
+                    target_event="x", horizon_days=7, lookback_days=90, training_population={}
+                )[0],
+            ),
+            (
+                "labeler_labeled_users_aggregate",
+                lambda: build_random_t0_labeler_sql(
+                    target_event="x", horizon_days=7, lookback_days=90, training_population={}
+                )[0].split("labeled_users AS")[1],
+            ),
+            (
+                "kind_membership_subquery",
+                lambda: build_inference_anchors_sql(
+                    lookback_days=90, inference_population={"kind": "performed_event_within_days", "days": 30}
+                )[0],
+            ),
+        ]
+    )
+    def test_activity_scans_exclude_the_prediction_event(self, _name: str, build) -> None:
+        # Every live cadence writes one autoresearch_prediction per scored person; a scan that
+        # counted it kept a person eligible forever on nothing but their own predictions.
+        self.assertIn(f"event != '{PREDICTION_EVENT_NAME}'", build())
 
     def test_inference_backfill_anchors_kind_windows_at_cutoff(self) -> None:
         sql, _values = build_inference_anchors_sql(

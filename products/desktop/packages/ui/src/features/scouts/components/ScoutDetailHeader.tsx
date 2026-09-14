@@ -9,7 +9,6 @@ import {
   deriveScoutLifecycle,
   formatNextRun,
   formatRunDuration,
-  formatScoutScheduleShort,
   getScoutOrigin,
   hasPendingScoutRun,
   nextRunAt,
@@ -26,6 +25,7 @@ import { Fragment, type ReactNode } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 import { useScoutRunNow } from "../hooks/useScoutRunNow";
 import { useScoutSkillCreators } from "../hooks/useScoutSkillCreators";
+import { ScoutCadenceLabel } from "./ScoutCadenceLabel";
 import { ScoutChatButton } from "./ScoutChatButton";
 import { ScoutEnabledSwitch } from "./ScoutConfigControls";
 import { ScoutHealthBanner } from "./ScoutLifecycleBadges";
@@ -136,7 +136,7 @@ function ScoutDetailHeading({
     creator ? `${origin} · by ${scoutCreatorDisplayName(creator)}` : origin,
   ];
   if (!config.emit) meta.push("Dry run");
-  meta.push(formatScoutScheduleShort(config));
+  meta.push(<ScoutCadenceLabel config={config} />);
   if (running) {
     meta.push(
       <span className="text-(--blue-11)">
@@ -158,14 +158,12 @@ function ScoutDetailHeading({
         Next run <span className="text-gray-12">{next}</span>
       </>,
     );
-  } else {
-    meta.push(
-      !config.enabled
-        ? "Switched off"
-        : config.run_cron_schedule
-          ? "Uses the project timezone"
-          : "Next run time is unavailable",
-    );
+  } else if (!config.enabled) {
+    meta.push("Switched off");
+  } else if (!config.run_cron_schedule) {
+    // A cron scout has no computed next run, but its cadence already names the time and the
+    // project timezone, so the slot stays empty rather than repeating them.
+    meta.push("Next run time is unavailable");
   }
   if (latest && latestOutcome !== "running") {
     meta.push(

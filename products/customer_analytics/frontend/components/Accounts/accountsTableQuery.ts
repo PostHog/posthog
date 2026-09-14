@@ -1,3 +1,4 @@
+import type { AssignmentStatus } from 'lib/components/AccountAssignmentFilter/accountAssignmentFilterTypes'
 import { isUUIDLike } from 'lib/utils/guards'
 
 import {
@@ -40,7 +41,6 @@ import {
     isAccountPropertyFilter,
     isAccountRelationshipFilter,
 } from './accountsPropertyFilters'
-import type { AssignmentStatus } from './accountsViewState'
 
 const RELATIONSHIP_COLUMN_REGEX = /^accounts\.relationships\.values\.`([0-9a-fA-F-]+)` AS [A-Za-z_][\w]*$/
 const CUSTOM_PROPERTY_COLUMN_REGEX = /^accounts\.custom_properties\.values\.`([0-9a-fA-F-]+)` AS [A-Za-z_][\w]*$/

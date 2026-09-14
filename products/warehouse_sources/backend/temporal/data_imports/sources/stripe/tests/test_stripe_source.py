@@ -248,6 +248,24 @@ class TestStripeSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 
+    def test_account_access_rejection_keeps_its_actionable_message(self):
+        # The finalization activity shows the first matching pattern's message, and matches against
+        # a message Temporal prefixes with the failing exception class. The generic "PermissionError"
+        # key therefore matches this failure too, and ordering it first left the customer Stripe's
+        # raw text — which echoes their key and account id back at them — instead of the guidance.
+        observed_error = (
+            "PermissionError: The provided key 'rk_live_***AAAA' does not have access to account "
+            "'acct_example' (or that account does not exist). Application access may have been revoked."
+        )
+        messages = [
+            message
+            for pattern, message in self.source.get_non_retryable_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages
+        assert messages[0] is not None
+        assert "isn't authorized for the configured Stripe account" in messages[0]
+
     @pytest.mark.parametrize(
         "other_error",
         [

@@ -8,7 +8,7 @@ with these property states are correctly counted and returned.
 Regression test for: https://github.com/PostHog/posthog/issues/40577
 """
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 from django.test import override_settings
@@ -33,7 +33,7 @@ from products.product_analytics.backend.hogql_queries.trends.trends_query_runner
 class TestTrendsBreakdownEmptyNullProperties(ClickhouseTestMixin, APIBaseTest):
     """Test breakdown behavior with null, empty string, and missing properties."""
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_breakdown_with_null_empty_and_missing_properties(self):
         """
         Test that breakdown correctly handles:
@@ -166,7 +166,7 @@ class TestTrendsBreakdownEmptyNullProperties(ClickhouseTestMixin, APIBaseTest):
             "Actors query should return all users with null, empty string, or missing property",
         )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_multiple_breakdown_with_null_empty_and_missing_properties(self):
         """
         Test that multiple breakdowns correctly handle null/empty/missing properties.

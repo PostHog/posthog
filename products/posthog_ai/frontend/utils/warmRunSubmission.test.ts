@@ -1,8 +1,7 @@
 import { kea, path, resetContext } from 'kea'
+import { type DisposablesManager, disposablesPlugin } from 'kea-disposables'
 
 import { ApiError } from 'lib/api-error'
-
-import { DisposablesManager, disposablesPlugin } from '~/kea-disposables'
 
 import { submitWithWarmRunRetry } from './warmRunSubmission'
 

@@ -141,6 +141,8 @@ export interface ProductEmptyStateConfig {
      * stays the hero and this renders under the "or" divider.
      */
     PrimaryAction?: ComponentType
+    /** Product-specific installation options below the primary setup action. */
+    SetupActions?: ComponentType<{ mode: ProductEmptyStateMode; preview: boolean }>
     docsUrl?: string
     /** Target of the small "Or configure manually" link; falls back to `docsUrl` */
     manualSetupUrl?: string
@@ -177,6 +179,7 @@ export interface SceneProductEmptyState {
      * roll the empty state out gradually.
      */
     featureFlag?: FeatureFlagKey
+    bypassFeatureFlag?: FeatureFlagKey
     /**
      * Only gate these surfaces, for a scene module that serves more than one. Omit to gate
      * every scene the module serves.

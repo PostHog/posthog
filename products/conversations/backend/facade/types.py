@@ -8,6 +8,7 @@ yet. Rename it once the product meets the strict structure rules.
 """
 
 from datetime import datetime
+from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
@@ -44,6 +45,21 @@ class SupportTicketMessage:
     direction: str
     is_private: bool
     created_at: datetime
+
+
+@dataclass(frozen=True, kw_only=True)
+class ResolvedTicketRevision:
+    ticket_id: UUID
+    ticket_number: int
+    resolution_comment_id: UUID
+    source_team_id: int
+    display_label: str
+    deep_link: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class PublicHumanReplies:
+    replies: tuple[str, ...]
 
 
 @dataclass(frozen=True)

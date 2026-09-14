@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import Mock, patch
 
@@ -210,7 +210,7 @@ class TestConversationEvents(BaseTest):
     def test_capture_message_sent_stamps_sla_state(self, _name, sla_due_at, expected, mock_capture):
         self.ticket.sla_due_at = datetime.fromisoformat(sla_due_at) if sla_due_at else None
 
-        with freeze_time("2026-01-01T12:00:00Z"):
+        with time_machine.travel("2026-01-01T12:00:00Z", tick=False):
             capture_message_sent(self.ticket, "msg-123", "Hello customer", author=self.user)
 
         properties = mock_capture.call_args.kwargs["properties"]

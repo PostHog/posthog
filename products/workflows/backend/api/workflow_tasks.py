@@ -14,15 +14,18 @@ from posthog.models.team.team import Team
 
 from products.tasks.backend.facade.workflow_tasks import (
     MAX_ATTACHED_SKILLS,
+    OUTPUT_FIELD_TYPES,
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskLimitExceeded,
     WorkflowTaskOriginKeyConflict,
+    WorkflowTaskOutputFieldsInvalid,
     WorkflowTaskOwnerIneligible,
     WorkflowTaskRateCapped,
     WorkflowTaskRateLimits,
     WorkflowTaskSlackContext,
     WorkflowTaskTeamRateCapped,
     WorkflowTaskUsageLimited,
+    build_output_schema,
     create_workflow_task,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
@@ -132,6 +135,23 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         required=False,
         help_text="Stable key for this invocation. A retried request with the same key returns the existing task.",
     )
+    output_fields = serializers.DictField(
+        child=serializers.ChoiceField(choices=OUTPUT_FIELD_TYPES),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Fields the agent must return, as {name: string|number|boolean}. They come back on the step "
+            "result as `output.<name>`; text fields are cut at 1500 characters."
+        ),
+    )
+
+    def validate_output_fields(self, value: dict[str, str] | None) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        try:
+            return build_output_schema(value)
+        except WorkflowTaskOutputFieldsInvalid as exc:
+            raise serializers.ValidationError(str(exc))
 
 
 class WorkflowTaskResponseSerializer(serializers.Serializer):
@@ -218,6 +238,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                     WorkflowTaskSlackContext(**data["slack_context"]) if data.get("slack_context") else None
                 ),
                 rate_limits=rate_limits,
+                output_schema=data.get("output_fields"),
             )
         except WorkflowTaskConnectorsInvalid as error:
             raise serializers.ValidationError(

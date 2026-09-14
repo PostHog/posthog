@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections.abc import Collection
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -10,8 +11,8 @@ from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from dateutil.rrule import DAILY, rrule
-from django_deprecate_fields import deprecate_field
 
+from posthog.migration_helpers import deprecate_field
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
@@ -313,7 +314,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     def get_internal_flag_ids(
         cls,
         *,
-        team_id: int | None = None,
+        team_ids: Collection[int] | None = None,
         project_id: int | None = None,
         using: str = "default",
     ) -> set[int]:
@@ -328,19 +329,19 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         Note: The user-created `linked_flag` is NOT included since it's user-managed.
 
         Args:
-            team_id: Filter by team ID (use for team-scoped queries)
+            team_ids: Filter by a batch of team IDs (use for batched jobs like health checks)
             project_id: Filter by project ID (use for project-scoped queries)
             using: Database alias to use (e.g., "default" or "replica")
 
         Returns:
             Set of feature flag IDs linked to surveys
         """
-        if team_id is not None:
-            queryset = cls.objects.db_manager(using).filter(team_id=team_id)
+        if team_ids is not None:
+            queryset = cls.objects.db_manager(using).filter(team_id__in=team_ids)
         elif project_id is not None:
             queryset = cls.objects.db_manager(using).filter(team__project_id=project_id)
         else:
-            raise ValueError("Either team_id or project_id must be provided")
+            raise ValueError("Either team_ids or project_id must be provided")
 
         return {
             flag_id

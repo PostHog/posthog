@@ -28,10 +28,11 @@ pre-bump versions.
 """
 
 from collections import defaultdict
+from collections.abc import Collection
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Value
+from django.db.models import QuerySet, Value
 from django.db.models.functions import Coalesce
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
@@ -249,14 +250,15 @@ def _flag_version_bump_entry(flag: FeatureFlag, old_version: int | None, trigger
     )
 
 
-def _direct_flag_dependency_ids(flag: FeatureFlag) -> set[int]:
+def direct_flag_dependency_ids(flag: FeatureFlag) -> set[int]:
     """Flag ids this flag has a ``flag_evaluates_to`` release condition on.
 
     Same parse as ``flags_cache._extract_direct_dependency_ids`` (a dependency is keyed by
     the referenced flag's id in ``key``), minus its inactive/deleted short-circuit: a
     disabled flag still ships in the local-evaluation payload so dependencies can resolve
     it, so its dependents still need the bump. Tolerant of malformed values so one bad
-    sibling flag can't break the save that triggered this.
+    sibling flag can't break the save that triggered this. Read by the version-bump path
+    below and by the stale-flags health check.
     """
     dependency_ids: set[int] = set()
     try:
@@ -278,6 +280,19 @@ def _direct_flag_dependency_ids(flag: FeatureFlag) -> set[int]:
     return dependency_ids
 
 
+def flags_with_flag_dependencies(project_ids: Collection[int]) -> QuerySet[FeatureFlag]:
+    """Non-deleted flags in these projects whose filters hold a flag-type release condition.
+
+    The jsonb predicate is the one assumption about how a flag dependency is stored in
+    ``filters``; the version-bump path and the stale-flags health check both build on it,
+    so it lives here once.
+    """
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static predicate, no user input)
+    return FeatureFlag.objects.filter(team__project_id__in=project_ids, deleted=False).extra(
+        where=["""jsonb_path_exists(filters, '$.** ? (@.type == "flag")')"""]
+    )
+
+
 def _dependent_flags(sources: list[FeatureFlag], project_id: int) -> list[tuple[FeatureFlag, FeatureFlag]]:
     """Non-deleted flags in the project that transitively depend on any source flag.
 
@@ -293,18 +308,15 @@ def _dependent_flags(sources: list[FeatureFlag], project_id: int) -> list[tuple[
     walk below needs no further round trips.
     """
     candidate_flags = list(
-        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static predicate, no user input)
-        FeatureFlag.objects.filter(team__project_id=project_id, deleted=False)
-        .extra(where=["""jsonb_path_exists(filters, '$.** ? (@.type == "flag")')"""])
         # select_related: the activity entry per bumped flag reads flag.team.organization_id.
-        .select_related("team")
+        flags_with_flag_dependencies([project_id]).select_related("team")
     )
     if not candidate_flags:
         return []
 
     dependents_of: dict[int, list[FeatureFlag]] = defaultdict(list)
     for flag in candidate_flags:
-        for dependency_id in _direct_flag_dependency_ids(flag):
+        for dependency_id in direct_flag_dependency_ids(flag):
             dependents_of[dependency_id].append(flag)
 
     dependents: list[tuple[FeatureFlag, FeatureFlag]] = []

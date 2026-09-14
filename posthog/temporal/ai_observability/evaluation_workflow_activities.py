@@ -1,7 +1,8 @@
 import json
 import uuid
+import hashlib
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -17,6 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
+from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime, hydrate_event_reference
 from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
 from posthog.temporal.ai_observability.evaluation_sentiment import run_sentiment_eval
@@ -34,10 +36,25 @@ SOURCE_AI_PROPERTIES_TO_COPY = ("$ai_prompt_name", "$ai_prompt_version")
 EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE = "EmitEvaluationEventFailed"
 
 
-@dataclass
+def backfill_verdict_timestamp(
+    unit_timestamp: datetime, evaluation_id: str, backfill_id: str, unit_id: str
+) -> datetime:
+    """Spread a backfilled verdict inside the second its unit sits in.
+
+    The Kafka deduplicator keys a row on (timestamp, distinct_id, team_id, event), so backfilled
+    `$ai_evaluation` events that share a timestamp collide and all but one are dropped. Hashing all
+    three ids keeps the offset stable across activity retries, so a retried emit still collapses
+    into the original. Ingestion keeps millisecond precision, so the spread is about 1000 buckets.
+    """
+    digest = hashlib.sha256(f"{evaluation_id}:{backfill_id}:{unit_id}".encode()).digest()
+    return unit_timestamp + timedelta(microseconds=int.from_bytes(digest[:8], "big") % 1_000_000)
+
+
+@frozen
 class RunEvaluationInputs:
     evaluation_id: str
     event_data: dict[str, Any]
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -212,12 +229,13 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
     await database_sync_to_async(_send)()
 
 
-@dataclass
+@frozen
 class EmitEvaluationEventInputs:
     evaluation: dict[str, Any]
     event_data: dict[str, Any]
     result: EvaluationActivityResult
     start_time: datetime
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -228,7 +246,10 @@ class EmitEvaluationEventInputs:
 
 
 def build_evaluation_event_properties(
-    evaluation: dict[str, Any], result: EvaluationActivityResult, start_time: datetime
+    evaluation: dict[str, Any],
+    result: EvaluationActivityResult,
+    start_time: datetime,
+    backfill_id: str | None = None,
 ) -> dict[str, Any]:
     """Assemble the target-independent `$ai_evaluation` properties shared by all emit paths.
 
@@ -246,7 +267,11 @@ def build_evaluation_event_properties(
         "$ai_evaluation_result_type": result["result_type"],
         "$ai_evaluation_start_time": start_time.isoformat(),
         "$ai_evaluation_reasoning": result["reasoning"],
+        "$ai_evaluation_trigger": "backfill" if backfill_id else "live",
     }
+
+    if backfill_id:
+        properties["$ai_evaluation_backfill_id"] = backfill_id
 
     if result.get("skipped"):
         properties["$ai_evaluation_skipped"] = True
@@ -295,11 +320,14 @@ def _evaluation_event_uuid() -> str | None:
 async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) -> None:
     """Emit the $ai_evaluation event via capture_internal so it routes through the ingestion
     pipeline for cost calculation. A billing-limited capture drops the event without failing
-    the caller. The event timestamp is the workflow start time, not emit time: ingestion dedup
-    keys on (timestamp, event, distinct_id, token), so only a stable timestamp lets a retried
-    emit collapse into the original."""
+    the caller. The event timestamp never comes from emit time: ingestion dedup keys on
+    (timestamp, event, distinct_id, token), so only a stable timestamp lets a retried emit
+    collapse into the original."""
     evaluation = inputs.evaluation
-    event_data = inputs.event_data
+    # The judge path reads the same generation twice, once here and once in the judge activity.
+    # Both are point lookups on the ai_events sort key, which is cheaper than pushing an event
+    # that capture accepts up to 8 MiB through a Temporal payload capped near 2 MiB.
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
     result = inputs.result
     start_time = inputs.start_time
 
@@ -310,7 +338,7 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
             else event_data["properties"]
         )
 
-        properties = build_evaluation_event_properties(evaluation, result, start_time)
+        properties = build_evaluation_event_properties(evaluation, result, start_time, inputs.backfill_id)
         properties.update(
             {
                 "$ai_target_event_id": event_data["uuid"],
@@ -331,7 +359,18 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=event_data["distinct_id"],
-            timestamp=start_time,
+            # A backfilled verdict sits at its generation's time so time-bucketed views line it
+            # up with the trace it grades instead of with the day the backfill ran.
+            timestamp=(
+                backfill_verdict_timestamp(
+                    as_utc_datetime(event_data["timestamp"]),
+                    str(evaluation["id"]),
+                    inputs.backfill_id,
+                    str(event_data["uuid"]),
+                )
+                if inputs.backfill_id
+                else start_time
+            ),
             properties=properties,
             event_uuid=_evaluation_event_uuid(),
         )
@@ -409,6 +448,7 @@ class RunLocalEvaluationInputs:
     evaluation_id: str
     event_data: dict[str, Any]
     start_time: datetime
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -443,12 +483,15 @@ async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> Loc
     evaluation = await database_sync_to_async_pool(fetch_evaluation)(inputs.evaluation_id, inputs.event_data["team_id"])
 
     evaluation_type = evaluation.get("evaluation_type", "llm_judge")
-    if evaluation_type == "hog":
-        result = await run_hog_eval_for_event(evaluation, inputs.event_data)
-    elif evaluation_type == "sentiment":
-        result = await run_sentiment_eval(evaluation, inputs.event_data)
-    else:
+    if evaluation_type not in ("hog", "sentiment"):
+        # An llm_judge returns before the read: its own activity hydrates what it grades.
         return LocalEvaluationOutcome(evaluation=evaluation, result=None, emitted=False)
+
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
+    if evaluation_type == "hog":
+        result = await run_hog_eval_for_event(evaluation, event_data)
+    else:
+        result = await run_sentiment_eval(evaluation, event_data)
 
     emitted = False
     if not is_terminal_user_error_result(result):
@@ -456,9 +499,10 @@ async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> Loc
             await emit_generation_evaluation_event(
                 EmitEvaluationEventInputs(
                     evaluation=evaluation,
-                    event_data=inputs.event_data,
+                    event_data=event_data,
                     result=result,
                     start_time=inputs.start_time,
+                    backfill_id=inputs.backfill_id,
                 )
             )
         except Exception as error:

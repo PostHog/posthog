@@ -1,6 +1,7 @@
 """Contract-shaped reads of saved queries for consumers outside this product."""
 
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.conf import settings
@@ -9,6 +10,9 @@ from ..facade.contracts import SavedQuerySummary
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.node import Node
 from .saved_query_freshness import saved_query_materialized_at
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 
 
 def _clickhouse_type(entry: object) -> str | None:
@@ -60,6 +64,49 @@ def all_saved_query_names(team_id: int) -> dict[str, str]:
     """The current name of every saved query in this team that still resolves. One query."""
     rows = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).values_list("id", "name")
     return {str(saved_query_id): name for saved_query_id, name in rows}
+
+
+def allowed_saved_query_ids(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    *,
+    required_level: "AccessControlLevel" = "viewer",
+    ids: Collection[UUID] | None = None,
+) -> frozenset[UUID]:
+    """The saved queries this caller may reach at ``required_level``.
+
+    ``ids`` narrows the objects loaded before their access controls are read, so a caller asking
+    about one view does not pay for the whole project. ``None`` asks about every view; an empty
+    collection asks about none.
+    """
+    if ids is not None and not ids:
+        return frozenset()
+    if ids is None:
+        return user_access_control.allowed_object_ids(
+            "warehouse_view",
+            team_id,
+            required_level,
+            lambda: _resolve_allowed_saved_query_ids(team_id, user_access_control, required_level, None),
+        )
+    return _resolve_allowed_saved_query_ids(team_id, user_access_control, required_level, ids)
+
+
+def _resolve_allowed_saved_query_ids(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    required_level: "AccessControlLevel",
+    ids: Collection[UUID] | None,
+) -> frozenset[UUID]:
+    candidates = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True)
+    if ids is not None:
+        candidates = candidates.filter(id__in=ids)
+    saved_queries = list(candidates.only("id", "created_by_id"))
+    user_access_control.preload_object_access_controls(list(saved_queries))
+    return frozenset(
+        saved_query.id
+        for saved_query in saved_queries
+        if user_access_control.check_access_level_for_object(saved_query, required_level)
+    )
 
 
 def backing_table_ids_by_saved_query(team_id: int) -> dict[UUID, UUID]:

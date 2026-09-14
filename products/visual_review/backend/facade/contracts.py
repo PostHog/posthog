@@ -448,6 +448,7 @@ class UpdateRepoRequestInput:
 
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
+    debt_digest_enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -457,6 +458,7 @@ class UpdateRepoInput:
     repo_id: UUID
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
+    debt_digest_enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -496,6 +498,7 @@ class Repo:
     repo_full_name: str
     baseline_file_paths: dict[str, str]
     enable_pr_comments: bool
+    debt_digest_enabled: bool
     created_at: datetime
 
 
@@ -510,6 +513,11 @@ BASELINE_OVERVIEW_MAX_ENTRIES = 5000
 # so a busy repo doesn't drag in proportionally more rows. ~10 runs is enough
 # to wash out a single jittery render while staying responsive on real changes.
 BASELINE_DRIFT_RECENT_RUN_COUNT = 10
+
+# Accepted variants against one current baseline at which the baseline stops describing one
+# rendering and starts describing a set. Three is the point where a reader can no longer hold what
+# "the baseline" means for that snapshot, and the same floor the frequently-tolerated stat uses.
+VARIANT_PILEUP_MIN = 3
 
 
 @dataclass(frozen=True)
@@ -546,6 +554,11 @@ class BaselineEntry:
     height: int | None
     tolerate_count_30d: int
     tolerate_count_90d: int
+    # Accepted variants still recorded against the hash this baseline currently holds. Distinct
+    # from the two counts above, which measure how often somebody accepted drift in a rolling
+    # window. A baseline change drops this to zero, because a toleration is recorded against the
+    # baseline hash it was decided for and stops matching when that hash moves.
+    active_variants_current_baseline: int
     is_quarantined: bool
     last_run_at: datetime
     # Lifetime count of YAML baseline flips on master/main for this identifier.
@@ -576,6 +589,8 @@ class BaselineTotals:
     recently_tolerated: int
     frequently_tolerated: int
     currently_quarantined: int
+    # Baselines carrying at least `VARIANT_PILEUP_MIN` accepted variants of their current hash.
+    variant_pileups: int
     by_run_type: dict[str, int]
 
 

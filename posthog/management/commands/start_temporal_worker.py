@@ -37,6 +37,10 @@ from posthog.temporal.backfill_group_type_created_at import (
     ACTIVITIES as BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES,
     WORKFLOWS as BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS,
 )
+from posthog.temporal.backfill_materialized_property import (
+    ACTIVITIES as BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES,
+    BackfillMaterializedPropertiesBatchWorkflow,
+)
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
@@ -87,10 +91,6 @@ from posthog.temporal.ingestion_acceptance_test import (
 from posthog.temporal.mcp_analytics.intent_clustering import (
     MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
     MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
-)
-from posthog.temporal.product_analytics import (
-    ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
-    WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
 )
 from posthog.temporal.proxy_service import (
     ACTIVITIES as PROXY_SERVICE_ACTIVITIES,
@@ -237,6 +237,10 @@ from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
 )
+from products.product_analytics.backend.facade.temporal import (
+    ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
+    WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
+)
 from products.pulse.backend.temporal.registry import (
     ACTIVITIES as PULSE_ACTIVITIES,
     WORKFLOWS as PULSE_WORKFLOWS,
@@ -341,6 +345,7 @@ _task_queue_specs = [
         + EXPERIMENT_CANARY_WORKFLOWS
         + EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
+        + [BackfillMaterializedPropertiesBatchWorkflow]
         + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
@@ -364,6 +369,7 @@ _task_queue_specs = [
         + EXPERIMENT_CANARY_ACTIVITIES
         + EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
+        + BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES
         + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES

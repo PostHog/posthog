@@ -6,7 +6,10 @@ from posthog.celery import app
 # a submodule import would leave queued messages and Beat entries unresolved.
 EXPECTED_TASK_NAMES = {
     "products.conversations.backend.tasks.process_supporthog_event",
+    "products.conversations.backend.tasks.process_supporthog_event_receipt",
     "products.conversations.backend.tasks.process_supporthog_interactivity",
+    "products.conversations.backend.tasks.process_supporthog_interactivity_receipt",
+    "products.conversations.backend.tasks.sweep_inbound_events",
     "products.conversations.backend.tasks.post_reply_to_slack",
     "products.conversations.backend.tasks.send_email_reply",
     "products.conversations.backend.tasks.flush_pending_email_replies",
