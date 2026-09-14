@@ -5,7 +5,9 @@ import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
+import { PropertyType } from '~/types'
 
 import { SurveyEventTrigger } from './SurveyEventTrigger'
 import { surveyLogic } from './surveyLogic'
@@ -15,13 +17,16 @@ import { surveyWizardLogic } from './wizard/surveyWizardLogic'
 jest.mock('lib/components/PropertyFilters/PropertyFilters', () => ({
     PropertyFilters: ({
         eventNames,
+        excludedProperties,
         onChange,
     }: {
         eventNames: string[]
+        excludedProperties?: Record<string, string[]>
         onChange: (filters: Record<string, any>[]) => void
     }) => (
         <div data-testid={`property-filters-${eventNames[0]}`}>
             <div>{`Property filters for ${eventNames[0]}`}</div>
+            <div data-attr="excluded-properties">{(excludedProperties?.['event_properties'] ?? []).join(',')}</div>
             <button
                 type="button"
                 onClick={() => onChange([{ key: 'plan', value: ['pro'], operator: 'exact', type: 'event' }])}
@@ -80,6 +85,28 @@ describe('Survey event trigger property filters', () => {
 
         expect(await screen.findByText('No filters')).toBeInTheDocument()
         expect(screen.getByText('Property filters for signed_up')).toBeInTheDocument()
+    })
+
+    it('hides only array event properties from the filter picker', async () => {
+        mountSurveyWithTriggerEvent()
+        propertyDefinitionsModel.mount()
+        propertyDefinitionsModel.actions.updatePropertyDefinitions({
+            'event/plan': { id: 'plan', name: 'plan', property_type: PropertyType.String },
+            'event/tags': { id: 'tags', name: 'tags', property_type: PropertyType.StringArray },
+            // PostHog has not resolved a type for this one yet, which does not make it an array
+            'event/checkout_step': { id: 'checkout_step', name: 'checkout_step', property_type: undefined },
+        })
+
+        render(
+            <Provider>
+                <BindLogic logic={surveyLogic} props={{ id: 'new' }}>
+                    <SurveyEventTrigger />
+                </BindLogic>
+            </Provider>
+        )
+
+        // Only the array property is excluded: an unresolved type filters fine and stays offered
+        expect((await screen.findByTestId('excluded-properties')).textContent).toBe('tags')
     })
 
     it('shows inline property filters in the guided editor and persists changes', async () => {

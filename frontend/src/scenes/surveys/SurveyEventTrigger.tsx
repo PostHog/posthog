@@ -79,14 +79,13 @@ export function useExcludedObjectProperties(): Record<TaxonomicFilterGroupType.E
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
 
     return useMemo(() => {
-        const eventProperties = propertyDefinitionsByType('event')
-        const objectProperties = eventProperties.filter((prop) => {
-            // Exclude StringArray (arrays/objects) and undefined property types. Only primitive types are supported for
-            // comparison purposes in the JS SDK.
-            return !prop.property_type || prop.property_type === PropertyType.StringArray
-        })
+        // The JS SDK compares primitive values only, so an array property can never match.
+        // A missing property_type means PostHog has not resolved the type yet. Such a property
+        // compares fine, so it stays selectable.
         return {
-            [TaxonomicFilterGroupType.EventProperties]: objectProperties.map((prop) => prop.name),
+            [TaxonomicFilterGroupType.EventProperties]: propertyDefinitionsByType('event')
+                .filter((prop) => prop.property_type === PropertyType.StringArray)
+                .map((prop) => prop.name),
         }
     }, [propertyDefinitionsByType])
 }
