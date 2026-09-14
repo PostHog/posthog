@@ -72,13 +72,13 @@ class TestUploadedStoryIndex:
     def repo(self, team):
         return repos.create_repo(team_id=team.id, repo_external_id=4242, repo_full_name="org/story-index")
 
-    def _run(self, repo, metadata: dict | None = None) -> Run:
+    def _run(self, repo, metadata: dict | None = None, branch: str = "master") -> Run:
         run, _uploads = runs.create_run(
             CreateRunInput(
                 repo_id=repo.id,
                 run_type=RunType.STORYBOOK,
                 commit_sha="abc",
-                branch="master",
+                branch=branch,
                 snapshots=[],
                 metadata=metadata or {},
             ),
@@ -112,11 +112,19 @@ class TestUploadedStoryIndex:
         assert (first is not None) is asks_for_upload
         assert conflicting is None
 
-    def test_a_value_that_is_not_a_sha256_is_ignored(self, repo) -> None:
-        run = self._run(repo)
+    @pytest.mark.parametrize(
+        "branch,story_index_hash",
+        [
+            ("master", "../../other-repo/map"),
+            # Readers only use the newest default-branch run, so a map from any other branch is never read.
+            ("feature/x", _MAP_HASH),
+        ],
+    )
+    def test_a_map_nothing_would_read_is_not_recorded(self, repo, branch: str, story_index_hash: str) -> None:
+        run = self._run(repo, branch=branch)
 
         with patch.object(story_index.StoryIndexStorage, "exists") as exists:
-            assert story_index.register_story_index(run.id, repo.team_id, "../../other-repo/map") is None
+            assert story_index.register_story_index(run.id, repo.team_id, story_index_hash) is None
 
         run.refresh_from_db()
         assert story_index.METADATA_KEY not in run.metadata

@@ -111,13 +111,6 @@ class StoryIndexStorage(ArtifactStorage):
     def _key(self, content_hash: str) -> str:
         return f"{self._prefix()}{content_hash}.json"
 
-    def list_hashes(self) -> list[str]:
-        if not settings.OBJECT_STORAGE_ENABLED:
-            return []
-
-        prefix = self._prefix()
-        return [key.removeprefix(prefix).removesuffix(".json") for key in object_storage.list_objects(prefix) or []]
-
     def delete_hashes(self, story_index_hashes: list[str]) -> list[str]:
         """Delete maps by hash. Returns the storage paths that were not deleted."""
         return self.delete_paths([self._key(story_index_hash) for story_index_hash in story_index_hashes])

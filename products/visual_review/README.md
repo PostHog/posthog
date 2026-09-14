@@ -39,6 +39,7 @@ The windows and the reasons behind them are constants in `backend/logic/retentio
   An artifact goes when no snapshot of the repo points at it or names its hash, no artifact uses it as a thumbnail, and it is over 7 days old.
 - Rows go before objects, and run registration and the delete share a per-repo lock, so a run is never told an artifact exists that the sweep then removes.
   An artifact row is what makes the CLI skip an upload, so a row without its object is the one state to avoid; a leaked object only costs storage.
+- A story-to-file map goes when the sweep deletes the last run that names it.
 - Each invocation is capped by rows and by a time budget, so a backlog drains over days.
 
 ### Weekly debt digest
@@ -71,7 +72,7 @@ That is not evidence the story recovered.
 Reminders about retained exceptions repeat until they are removed or no longer apply.
 
 Attribution runs through the story index of the newest default-branch Storybook run, and then through `owners.yaml`.
-`vr run upload --storybook-index <index.json> --storybook-root <dir>` turns the build's `index.json` into a story-to-file map, and each run records the map's SHA-256 in `metadata["story_index_hash"]`.
+`vr run upload --storybook-index <index.json> --storybook-root <dir>` turns the build's `index.json` into a story-to-file map, and each default-branch run records the map's SHA-256 in `metadata["story_index_hash"]`.
 The map is stored once per distinct content, under `visual_review/<repo_id>/story-index/<hash>.json`, and uploaded only when the store does not hold that hash yet.
 A reader accepts the stored bytes only when they hash to their name.
 A snapshot identifier is a story id plus the theme, the browser when it is not chromium, and the viewport width for a story that snapshots several.

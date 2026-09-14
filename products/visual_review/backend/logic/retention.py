@@ -119,6 +119,8 @@ class RetentionSweep:
         self.team_id = repo.team_id
         self.now = now
         self.deadline = deadline
+        # Hashes of the story-to-file maps named by runs this sweep deleted.
+        self.released_story_index_hashes: set[str] = set()
 
     def _out_of_time(self) -> bool:
         return time.monotonic() >= self.deadline
@@ -185,6 +187,11 @@ class RetentionSweep:
 
     def _delete_runs(self, run_ids: list[UUID]) -> int:
         deleted = 0
+        hash_by_run_id = dict(
+            self._runs()
+            .filter(id__in=run_ids, metadata__has_key=story_index.METADATA_KEY)
+            .values_list("id", KeyTextTransform(story_index.METADATA_KEY, "metadata"))
+        )
         # One run per DELETE, in the order given (oldest first). Django applies
         # SET_NULL to the runs that point at a deleted run before it deletes
         # anything, so a batch that holds two links of one supersession chain
@@ -202,7 +209,10 @@ class RetentionSweep:
             with transaction.atomic(using=WRITER_DB):
                 self._splice_out_of_chain(run_id)
                 _total, per_model = self._runs().filter(id=run_id).delete()
-            deleted += per_model.get(Run._meta.label, 0)
+            run_deleted = per_model.get(Run._meta.label, 0)
+            deleted += run_deleted
+            if run_deleted and run_id in hash_by_run_id:
+                self.released_story_index_hashes.add(hash_by_run_id[run_id])
         return deleted
 
     def delete_expired_runs(self) -> int:
@@ -277,31 +287,27 @@ class RetentionSweep:
             )
         return ArtifactSweepResult(deleted=deleted, objects_leaked=objects_leaked)
 
-    def delete_unreferenced_story_indexes(self) -> int:
-        """Delete the story-to-file maps that no remaining run of the repo names.
+    def delete_released_story_indexes(self) -> int:
+        """Delete the story-to-file maps that no remaining run names, among those the deleted runs named.
 
-        A map is stored once per distinct content, named by its hash, and no row tracks it, so this is
-        the only thing that removes one. The listing comes before the run query: a run records its
-        hash before its shards upload the map, so a run created while the sweep runs still counts.
+        A map is stored once per distinct content and no row tracks it, so this is the only thing that
+        removes one. Only the maps of runs this sweep deleted are candidates, so nothing lists storage.
         """
-        if self._out_of_time():
+        if not self.released_story_index_hashes or self._out_of_time():
             return 0
 
-        storage = StoryIndexStorage(str(self.repo.id))
-        stored = set(storage.list_hashes())
-        if not stored:
-            return 0
-        referenced = set(
+        still_named = set(
             self._runs()
-            .filter(metadata__has_key=story_index.METADATA_KEY)
-            .values_list(KeyTextTransform(story_index.METADATA_KEY, "metadata"), flat=True)
+            .annotate(story_index_hash=KeyTextTransform(story_index.METADATA_KEY, "metadata"))
+            .filter(story_index_hash__in=self.released_story_index_hashes)
+            .values_list("story_index_hash", flat=True)
         )
-        unreferenced = sorted(stored - referenced)
-        if not unreferenced:
+        unnamed = sorted(self.released_story_index_hashes - still_named)
+        if not unnamed:
             return 0
 
-        failed_paths = storage.delete_hashes(unreferenced)
-        deleted = len(unreferenced) - len(failed_paths)
+        failed_paths = StoryIndexStorage(str(self.repo.id)).delete_hashes(unnamed)
+        deleted = len(unnamed) - len(failed_paths)
         logger.info(
             "visual_review.retention_story_indexes_deleted",
             repo_id=str(self.repo.id),
@@ -335,9 +341,9 @@ def sweep_repo(repo: Repo, now: datetime | None = None, deadline: float | None =
     # Runs go first, because the snapshot rows they take with them are what
     # holds most artifacts in use.
     runs_deleted = sweep.delete_expired_runs()
+    # Right after the runs, because only this sweep knows which maps the deleted runs named.
+    story_indexes_deleted = sweep.delete_released_story_indexes()
     artifacts = sweep.delete_orphaned_artifacts()
-    # Last, because the runs this sweep deleted are what frees a map.
-    story_indexes_deleted = sweep.delete_unreferenced_story_indexes()
     return RetentionSweepResult(
         runs_deleted=runs_deleted,
         artifacts_deleted=artifacts.deleted,

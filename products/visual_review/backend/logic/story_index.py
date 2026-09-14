@@ -27,7 +27,7 @@ from ..db import WRITER_DB
 from ..facade.enums import RunType
 from ..models import Repo, Run
 from ..storage import StoryIndexStorage
-from . import content_cache
+from . import content_cache, run_queries
 
 logger = structlog.get_logger(__name__)
 
@@ -101,7 +101,8 @@ def register_story_index(run_id: UUID, team_id: int, story_index_hash: str) -> S
     """Record the map a run's build produced, and ask for the map when the store does not hold it.
 
     Every shard of a run sends the same hash, so the first shard records it and the others change
-    nothing. A value that is not a SHA-256 cannot name a stored map, so it is ignored.
+    nothing. A value that is not a SHA-256 cannot name a stored map, so it is ignored. Only a
+    default-branch run records a map, because readers only use the newest default-branch run.
     """
     if not _HASH_PATTERN.match(story_index_hash):
         logger.info("visual_review.story_index_hash_invalid", run_id=str(run_id))
@@ -111,9 +112,11 @@ def register_story_index(run_id: UUID, team_id: int, story_index_hash: str) -> S
         run = (
             Run.objects.using(WRITER_DB)
             .select_for_update()
-            .only("id", "repo_id", "metadata")
+            .only("id", "repo_id", "branch", "metadata")
             .get(id=run_id, team_id=team_id)
         )
+        if run.branch not in run_queries._DEFAULT_BRANCHES:
+            return None
         metadata = run.metadata or {}
         recorded = metadata.get(METADATA_KEY)
         if recorded is None:
@@ -164,7 +167,8 @@ def _read_paths(repo: Repo, story_index_hash: str) -> dict[str, str] | None:
         return None
     try:
         document = json.loads(raw)
-    except ValueError:
+    # A deeply nested document raises RecursionError, which is not a ValueError.
+    except (ValueError, RecursionError):
         document = None
     paths = document.get("paths") if isinstance(document, dict) and document.get("version") == _MAP_VERSION else None
     if not isinstance(paths, dict):

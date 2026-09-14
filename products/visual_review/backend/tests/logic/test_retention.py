@@ -287,21 +287,22 @@ class TestRetentionSweep:
         assert result.artifacts_deleted == 1
         assert Artifact.objects.filter(repo_id=repo.id).count() == 1
 
-    def test_a_story_index_goes_once_no_remaining_run_names_it(self, repo, now, mocker, stub_object_delete):
-        named, unnamed = "a" * 64, "b" * 64
-        run = self._run(repo, now, age_days=1)
-        run.metadata = {story_index.METADATA_KEY: named}
-        run.save(update_fields=["metadata"])
-        prefix = f"visual_review/{repo.id}/story-index/"
-        mocker.patch(
-            "products.visual_review.backend.storage.object_storage.list_objects",
-            return_value=[f"{prefix}{named}.json", f"{prefix}{unnamed}.json"],
-        )
+    def test_a_story_index_goes_with_the_last_run_that_names_it(self, repo, now, stub_object_delete):
+        released, shared = "a" * 64, "b" * 64
+        latest = self._run(repo, now, age_days=1)
+        for story_index_hash, run in (
+            (shared, latest),
+            (released, self._run(repo, now, age_days=400, superseded_by=latest)),
+            (shared, self._run(repo, now, age_days=400, superseded_by=latest)),
+        ):
+            run.metadata = {story_index.METADATA_KEY: story_index_hash}
+            run.save(update_fields=["metadata"])
 
         result = retention.sweep_repo(repo, now=now)
 
+        # The shared map is still named by the run that stays, so only the released one goes.
         assert result.story_indexes_deleted == 1
-        stub_object_delete.assert_called_once_with([f"{prefix}{unnamed}.json"])
+        stub_object_delete.assert_called_once_with([f"visual_review/{repo.id}/story-index/{released}.json"])
 
     def test_sweeping_one_repo_leaves_another_repo_alone(self, repo, other_repo, now):
         kept_latest = self._run(other_repo, now, age_days=200)
