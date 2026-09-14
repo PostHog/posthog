@@ -54,9 +54,13 @@ The v1 write API rejects an incoming `filters.version` key with HTTP 400 and cod
 Omit that key when creating or updating targeting. The top-level `version` field
 still provides optimistic concurrency control.
 
-This check does not migrate existing filters with a stray `version` key. Reads and
-updates that omit filters keep their existing behavior. The experiment-rule accessor
-rejects stored filters whose config discriminator is v2 or unsupported.
+Stored filters with an absent version or numeric 1 use the existing v1 path.
+Updates reject other stored formats with `unsupported_config_version`, including writes that omit filters or send `{}`.
+This check does not migrate existing configurations.
+
+Ordinary POST, PUT, and PATCH writes route through the feature flag facade.
+The serializer remains the v1 validation, approval, and persistence adapter.
+See [API write ownership](api-writes.md) for the call path and transaction boundary.
 
 ### Custom actions
 

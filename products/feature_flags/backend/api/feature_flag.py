@@ -35,7 +35,6 @@ from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import RETRYABLE_FLAGS_SERVICE_EXCEPTIONS, get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
@@ -106,11 +105,13 @@ from products.feature_flags.backend.api.filters_schema import (
     FeatureFlagFiltersSerializer,
 )
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
+from products.feature_flags.backend.api.write_flags import FeatureFlagWriteViewSetMixin
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
+from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
@@ -1353,6 +1354,11 @@ class FeatureFlagSerializer(
 
     def validate(self, attrs):
         """Validate feature flag creation/update including evaluation tag requirements."""
+        if self.instance is not None and "get_filters" not in attrs:
+            try:
+                self._validate_stored_config_format()
+            except serializers.ValidationError as exc:
+                raise serializers.ValidationError({"filters": exc.detail}) from exc
         attrs = super().validate(attrs)
 
         # Run universal validations before any early returns so they always apply,
@@ -1600,6 +1606,13 @@ class FeatureFlagSerializer(
             )
             raise
 
+    def _validate_stored_config_format(self) -> None:
+        if self.instance is not None and detect_config_format(self.instance.filters).kind != "v1":
+            raise serializers.ValidationError(
+                "This flag's stored configuration cannot be updated through this API. Contact support.",
+                code="unsupported_config_version",
+            )
+
     def _validate_filters_inner(self, filters, operation: str):
         # Unknown keys survive normalization during the validation rollout. Reserve the
         # config discriminator before that path can store an unsupported format.
@@ -1607,6 +1620,8 @@ class FeatureFlagSerializer(
             raise serializers.ValidationError(
                 "filters.version is reserved. Remove it from the request.", code="reserved_config_version"
             )
+
+        self._validate_stored_config_format()
 
         # An empty filters dict on an update carries no instruction, so the merged state is
         # the stored state and there is nothing to validate. Returning it untouched also
@@ -1616,7 +1631,11 @@ class FeatureFlagSerializer(
         # the empty-groups rule rejects them.
         if self.instance is not None and not filters:
             assert isinstance(self.instance, FeatureFlag)
-            return self.instance.filters
+            stored = copy.deepcopy(self.instance.filters)
+            if self.instance.has_encrypted_payloads and stored.get("payloads"):
+                # update() restores ciphertext for this sentinel without encrypting it again.
+                stored["payloads"] = dict.fromkeys(stored["payloads"], REDACTED_PAYLOAD_VALUE)
+            return stored
 
         # `filters` arrives as the raw request dict, so the structural tier runs once below,
         # on the merged state.
@@ -3248,7 +3267,7 @@ class FlagLifecycleWriteRequest(ServiceRequest):
 @extend_schema(extensions={"x-product": ProductKey.FEATURE_FLAGS})
 class FeatureFlagViewSet(
     ApprovalHandlingMixin,
-    TeamAndOrgViewSetMixin,
+    FeatureFlagWriteViewSetMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
