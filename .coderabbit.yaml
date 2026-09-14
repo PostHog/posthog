@@ -17,11 +17,10 @@ reviews:
     commit_status: false
     poem: false
 
-    # Every section below renders in the walkthrough comment, which is the
-    # second comment CodeRabbit posts on a pull request. With all of them off
-    # the walkthrough carries nothing, so the findings review is the only
-    # comment left. The high-level summary still goes to the pull request
-    # description, not to a comment.
+    # Each section below renders in the walkthrough comment, the second comment
+    # CodeRabbit posts on a pull request. CodeRabbit has no setting that
+    # suppresses that comment, so the sections are off to keep it short. The
+    # walkthrough prose and the merge risk line have no toggle and stay.
     changed_files_summary: false
     sequence_diagrams: false
     estimate_code_review_effort: false
@@ -60,28 +59,20 @@ reviews:
               Prefer parameterised tests over near-duplicate test functions.
               In async Python, flag blocking synchronous calls such as ORM queries, HTTP requests, file I/O, and sleep.
 
-    # Checkbox recipes that need a walkthrough comment to live in. Autofix,
-    # fix_ci, and resolve_merge_conflict are left on: they are reachable from
-    # the review comment and from chat.
-    finishing_touches:
-        docstrings:
-            enabled: false
-        unit_tests:
-            enabled: false
-
-    # Pre-merge checks also report in the walkthrough comment, so each one is
-    # off. Conventional Commit titles are validated in GitHub Actions, PostHog
-    # documents selectively, and PRs are not consistently linked to issues.
     pre_merge_checks:
+        # PostHog documents selectively and does not enforce docstring coverage.
         docstrings:
             mode: 'off'
 
+        # PostHog already validates Conventional Commit titles in GitHub Actions.
         title:
             mode: 'off'
 
+        # Retain the description check as useful, non-blocking PR context.
         description:
-            mode: 'off'
+            mode: 'warning'
 
+        # PostHog does not consistently link issues to PRs.
         issue_assessment:
             mode: 'off'
 
