@@ -66,11 +66,10 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
         view = create_saved_query(team_id=self.team.id, name="partial", columns={"task_id": {}})
 
         with self.assertRaises(CommandError):
-            self._configure("--claim-saved-query", str(view.id))
+            self._configure("--bind-ae", str(self.ae_definition.id), "--claim-saved-query", str(view.id))
 
-        assert (
-            get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig).ownership_claim_saved_query_id is None
-        )
+        config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        assert (config.ownership_claim_saved_query_id, config.ae_relationship_definition_id) == (None, None)
 
     def test_binding_is_frozen_while_accounts_manage_the_role(self):
         self._configure("--bind-ae", str(self.ae_definition.id))

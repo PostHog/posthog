@@ -44,37 +44,34 @@ class Command(BaseCommand):
         if team is None:
             raise CommandError(f"No team {options['team_id']}")
 
+        # One transaction, so a refused binding or an unusable view leaves the configuration as it was.
         try:
             with transaction.atomic():
                 for role in ownership.OWNERSHIP_ROLES:
                     if options[f"bind_{role}"] is not None or options[f"unbind_{role}"]:
                         ownership.bind_role(team, role, options[f"bind_{role}"])
-        except ownership.InvalidRoleBindingError as error:
+                config = get_or_create_team_extension(team, TeamCustomerAnalyticsConfig)
+                update_fields = []
+                if options["claims"] is not None:
+                    config.ownership_claims_enabled = options["claims"] == "enabled"
+                    update_fields.append("ownership_claims_enabled")
+                if options["claim_saved_query"] is not None:
+                    saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+                    view = saved_query_model.objects.filter(
+                        team_id=team.id, id=options["claim_saved_query"], deleted=False
+                    ).first()
+                    if view is None:
+                        raise CommandError(f"No warehouse view {options['claim_saved_query']} in this project")
+                    check_decision_columns(view.name, view.columns)
+                    config.ownership_claim_saved_query = view
+                    update_fields.append("ownership_claim_saved_query")
+                if options["clear_claim_saved_query"]:
+                    config.ownership_claim_saved_query = None
+                    update_fields.append("ownership_claim_saved_query")
+                if update_fields:
+                    config.save(update_fields=update_fields)
+        except (ownership.InvalidRoleBindingError, ClaimSourceMisconfigured) as error:
             raise CommandError(str(error))
-
-        config = get_or_create_team_extension(team, TeamCustomerAnalyticsConfig)
-        update_fields = []
-        if options["claims"] is not None:
-            config.ownership_claims_enabled = options["claims"] == "enabled"
-            update_fields.append("ownership_claims_enabled")
-        if options["claim_saved_query"] is not None:
-            saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
-            view = saved_query_model.objects.filter(
-                team_id=team.id, id=options["claim_saved_query"], deleted=False
-            ).first()
-            if view is None:
-                raise CommandError(f"No warehouse view {options['claim_saved_query']} in this project")
-            try:
-                check_decision_columns(view.name, view.columns)
-            except ClaimSourceMisconfigured as error:
-                raise CommandError(str(error))
-            config.ownership_claim_saved_query = view
-            update_fields.append("ownership_claim_saved_query")
-        if options["clear_claim_saved_query"]:
-            config.ownership_claim_saved_query = None
-            update_fields.append("ownership_claim_saved_query")
-        if update_fields:
-            config.save(update_fields=update_fields)
 
         bindings = ownership.role_bindings(team.id)
         config.refresh_from_db()
