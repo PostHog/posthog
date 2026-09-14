@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { FeatureFlagReleaseType } from '~/types'
 
-import { RelatedFeatureFlag, relatedFeatureFlagsLogic } from './relatedFeatureFlagsLogic'
+import { RelatedFeatureFlag, relatedFeatureFlagsLogic } from '../logics/relatedFeatureFlagsLogic'
 
 interface Props {
     distinctId: string | null

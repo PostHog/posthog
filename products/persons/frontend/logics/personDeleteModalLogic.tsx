@@ -8,7 +8,7 @@ import { toParams } from 'lib/utils/url'
 
 import { PersonType } from '~/types'
 
-import { asDisplay } from './person-utils'
+import { asDisplay } from '../person-utils'
 
 export interface PersonDeleteModalLogicProps {
     person: PersonType
@@ -125,6 +125,8 @@ export const personDeleteModalLogic = kea<personDeleteModalLogicType>([
                         params.delete_recordings = true
                     }
 
+                    // The persons delete endpoint has no generated function.
+                    // nosemgrep: prefer-codegen-api
                     await api.delete(`api/person/${person.id}?${toParams(params)}`)
                     posthog.capture('delete person', params)
 

@@ -12,7 +12,7 @@ import { Breadcrumb, PersonType } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 
-import { getHogqlQueryStringForPersonId, parsePersonFromHogQLRow } from './person-utils'
+import { getHogqlQueryStringForPersonId, parsePersonFromHogQLRow } from '../person-utils'
 
 export interface PersonLogicProps {
     id: string | undefined
