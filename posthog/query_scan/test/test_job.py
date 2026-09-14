@@ -37,7 +37,6 @@ def _plan(name: str) -> str:
 
 
 def _fake_job_boundaries(test: BaseTest, stored: dict[str, Any]) -> mock.Mock:
-    """Fake the slot store, the flag and the analytics capture around the job, and return the capture."""
     redis = mock.Mock()
     redis.get.side_effect = lambda key: stored.get(key)
     redis.set.side_effect = lambda key, value, ex=None, nx=False: stored.__setitem__(key, value)
