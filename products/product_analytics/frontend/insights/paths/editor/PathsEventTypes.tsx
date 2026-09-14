@@ -3,12 +3,12 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
+import { humanizePathsEventTypes } from 'scenes/insights/utils'
 
 import { PathsFilter } from '~/queries/schema/schema-general'
 import { EditorFilterProps, PathType } from '~/types'
 
-import { humanizePathsEventTypes } from '../utils'
+import { pathsDataLogic } from 'products/product_analytics/frontend/insights/paths/pathsDataLogic'
 
 export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Element {
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
