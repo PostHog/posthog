@@ -14,7 +14,7 @@ PARENT_UUID_FIELD = "_uuid"
 PARENT_URI_PARAM_FIELD = "_uri_param"
 
 
-@dataclass
+@dataclass(frozen=True)
 class CalendlyEndpointConfig:
     name: str
     path: str

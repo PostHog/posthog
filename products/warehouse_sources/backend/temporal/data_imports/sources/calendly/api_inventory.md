@@ -13,21 +13,21 @@ Calendly REST API v2 — base URL `https://api.calendly.com`. Auth via a Persona
 
 ## Endpoints synced
 
-| Endpoint                   | Path                        | Incremental                        | Notes                      |
-| -------------------------- | --------------------------- | ---------------------------------- | -------------------------- |
-| `event_types`              | `/event_types`              | full refresh                       | no server-side time filter |
-| `scheduled_events`         | `/scheduled_events`         | `min_start_time` (on `start_time`) | `sort=start_time:asc`      |
-| `groups`                   | `/groups`                   | full refresh                       | no server-side time filter |
-| `organization_memberships` | `/organization_memberships` | full refresh                       | no server-side time filter |
-| `routing_forms`            | `/routing_forms`            | full refresh                       | no server-side time filter |
+| Endpoint                   | Path                        | Incremental                        | Notes                                 |
+| -------------------------- | --------------------------- | ---------------------------------- | ------------------------------------- |
+| `event_types`              | `/event_types`              | full refresh                       | no server-side time filter            |
+| `scheduled_events`         | `/scheduled_events`         | `min_start_time` (on `start_time`) | `sort=start_time:asc`                 |
+| `groups`                   | `/groups`                   | full refresh                       | no server-side time filter            |
+| `organization_memberships` | `/organization_memberships` | full refresh                       | no server-side time filter            |
+| `routing_forms`            | `/routing_forms`            | full refresh                       | no server-side time filter            |
 | `contacts`                 | `/contacts`                 | full refresh                       | account-scoped, `sort=created_at:asc` |
 
 ### Fanned out over a parent
 
-| Endpoint                   | Path                                  | Parent             | Notes                                  |
-| -------------------------- | ------------------------------------- | ------------------ | -------------------------------------- |
-| `invitees`                 | `/scheduled_events/{uuid}/invitees`   | `scheduled_events` | parent UUID in the path, `sort=created_at:asc` |
-| `routing_form_submissions` | `/routing_form_submissions?form=`     | `routing_forms`    | parent URI as a query param, `sort=created_at:asc` |
+| Endpoint                   | Path                                  | Parent             | Notes                                                  |
+| -------------------------- | ------------------------------------- | ------------------ | ------------------------------------------------------ |
+| `invitees`                 | `/scheduled_events/{uuid}/invitees`   | `scheduled_events` | parent UUID in the path, `sort=created_at:asc`         |
+| `routing_form_submissions` | `/routing_form_submissions?form=`     | `routing_forms`    | parent URI as a query param, `sort=created_at:asc`     |
 | `event_type_memberships`   | `/event_type_memberships?event_type=` | `event_types`      | Calendly calls these event type hosts; takes no `sort` |
 
 None of the four accepts a server-side timestamp filter, so all are full refresh and merge on `uri`.
