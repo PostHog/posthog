@@ -28,13 +28,12 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 from products.web_analytics.backend import weekly_digest
-from products.web_analytics.backend.temporal.digest_common import paginate_index, paginate_keyset
+from products.web_analytics.backend.temporal.digest_common import OrgBatchPageResult, paginate_index, paginate_keyset
 from products.web_analytics.backend.temporal.digest_notification.types import (
     DigestBatchInput,
     DigestBatchResult,
     NotificationDigestOutcome,
     OrgBatchPageInput,
-    OrgBatchPageResult,
     OrgDigestNotificationCounts,
     SendTestDigestNotificationInput,
 )

@@ -29,20 +29,6 @@ class OrgBatchPageInput:
     page_size: int = 5000
 
 
-@dataclasses.dataclass
-class OrgBatchPageResult:
-    batches: list[list[str]]
-    cursor: str | None
-
-    @property
-    def org_count(self) -> int:
-        return sum(len(batch) for batch in self.batches)
-
-    @property
-    def batch_count(self) -> int:
-        return len(self.batches)
-
-
 @dataclasses.dataclass(frozen=False)
 class OrgDigestNotificationCounts:
     sent: int = 0

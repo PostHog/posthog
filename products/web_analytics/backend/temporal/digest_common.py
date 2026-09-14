@@ -16,6 +16,20 @@ ACTIVITY_RETRY_POLICY = common.RetryPolicy(
 )
 
 
+@dataclasses.dataclass(frozen=True)
+class OrgBatchPageResult:
+    batches: list[list[str]]
+    cursor: str | None
+
+    @property
+    def org_count(self) -> int:
+        return sum(len(batch) for batch in self.batches)
+
+    @property
+    def batch_count(self) -> int:
+        return len(self.batches)
+
+
 @dataclasses.dataclass(frozen=False)
 class DigestBatchTotals:
     """`failure_rate` excludes `orgs_skipped`: digest skips are benign

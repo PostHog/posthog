@@ -29,14 +29,13 @@ from posthog.user_permissions import UserPermissions
 
 from products.web_analytics.backend import weekly_digest
 from products.web_analytics.backend.recap import recap_url_for_team
-from products.web_analytics.backend.temporal.digest_common import paginate_index, paginate_keyset
+from products.web_analytics.backend.temporal.digest_common import OrgBatchPageResult, paginate_index, paginate_keyset
 from products.web_analytics.backend.temporal.weekly_digest.types import (
     WA_DIGEST_EMAIL_UNAVAILABLE_TYPE,
     DigestBatchInput,
     DigestBatchResult,
     DigestOutcome,
     OrgBatchPageInput,
-    OrgBatchPageResult,
     OrgDigestCounts,
     SendTestDigestInput,
     WAWeeklyDigestInput,
