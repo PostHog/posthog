@@ -46,7 +46,7 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
 )
 from posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse import (
     ManagedWarehouseShadowInputs,
-    materialize_view_duckgres_activity,
+    materialize_view_managed_warehouse_activity,
 )
 from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
 
@@ -100,9 +100,7 @@ async def _make_job(
 
 
 class TestMaterializeViewManagedWarehouseActivity:
-    async def test_legacy_activity_records_failure_against_the_job_engine(
-        self, activity_environment, ateam, anode, ajob, adag
-    ):
+    async def test_records_failure_against_the_job_engine(self, activity_environment, ateam, anode, ajob, adag):
         ajob.engine = DataModelingJobEngine.LEGACY_DUCKGRES
         await database_sync_to_async(ajob.save)(update_fields=["engine"])
         inputs = ManagedWarehouseShadowInputs(
@@ -124,7 +122,7 @@ class TestMaterializeViewManagedWarehouseActivity:
                 return_value=False,
             ) as mock_maybe_suspend,
         ):
-            await activity_environment.run(materialize_view_duckgres_activity, inputs)
+            await activity_environment.run(materialize_view_managed_warehouse_activity, inputs)
 
         mock_maybe_suspend.assert_awaited_once()
         assert mock_maybe_suspend.await_args is not None

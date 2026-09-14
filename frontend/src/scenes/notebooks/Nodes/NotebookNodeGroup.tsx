@@ -14,7 +14,6 @@ import { formatCurrency } from 'lib/utils/currency'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { defineNotebookWidgetViews, getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -24,6 +23,7 @@ import { CurrencyCode, NodeKind } from '~/queries/schema/schema-general'
 import { Group, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { groupLogic } from 'products/groups/frontend/logics/groupLogic'
+import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { DataSourceIcon } from './components/DataSourceIcon'
