@@ -157,14 +157,23 @@ impl InFlightPoll {
     }
 }
 
-/// Remove revoked partitions from the in-flight polls, and remove polls left
-/// empty. Only the revoked partitions' slices go: a poll's kept partitions
-/// keep their counts and settle their ledger charges at commit, so the
-/// frontier never crosses a hole. Dropping whole polls here froze kept
-/// partitions' commits under cooperative rebalancing.
+/// A partition revocation stamped with the ledger generation started by the
+/// revoke. Poll slices from earlier generations are stale; slices collected
+/// after a later reassignment must survive a delayed notification.
+#[derive(Clone, Debug)]
+struct RevokedPartition {
+    topic_partition: TopicPartition,
+    generation: u64,
+}
+
+/// Remove revoked partitions from in-flight polls, and remove polls left
+/// empty. Only slices from before that partition's revoke generation go: a
+/// poll's kept or newly reassigned slices retain their counts and settle their
+/// ledger charges at commit, so the frontier never crosses a hole.
+
 fn strip_revoked_partitions(
     in_flight_polls: &mut VecDeque<InFlightPoll>,
-    revoked: &[TopicPartition],
+    revoked: &[RevokedPartition],
 ) -> u64 {
     let mut stripped: u64 = 0;
     for poll in in_flight_polls.iter_mut() {
@@ -172,7 +181,10 @@ fn strip_revoked_partitions(
         let mut removed_covered = 0u32;
         let mut removed_accepted = 0u32;
         poll.partitions.retain(|topic_partition, deliveries| {
-            if revoked.contains(topic_partition) {
+            if revoked.iter().any(|revoked| {
+                revoked.topic_partition == *topic_partition
+                    && deliveries.generation < revoked.generation
+            }) {
                 removed_delivered += deliveries.delivered;
                 removed_covered += deliveries.covered;
                 removed_accepted += deliveries.accepted;
@@ -291,7 +303,7 @@ pub struct IngestionConsumer {
     topic_offset_ledger: Arc<TopicOffsetLedger>,
     /// Partitions revoked since the loop last looked, fed by the rebalance
     /// callback. Only populated under the key-table scheduler.
-    revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
+    revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
 }
 
 impl IngestionConsumer {
@@ -311,7 +323,9 @@ impl IngestionConsumer {
         // callbacks reset the same baselines the commit path checks against.
         let commit_sentinel = consumer.context().commit_sentinel();
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
-        let revoked_partitions: Arc<Mutex<Vec<TopicPartition>>> = Arc::new(Mutex::new(Vec::new()));
+        let revoke_ledger = Arc::clone(&topic_offset_ledger);
+        let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
+            Arc::new(Mutex::new(Vec::new()));
         let purge_dispatcher = Arc::clone(&dispatcher);
         let hook_revoked = (dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
             .then(|| Arc::clone(&revoked_partitions));
@@ -320,11 +334,16 @@ impl IngestionConsumer {
             .set_revoke_hook(Box::new(move |partitions| {
                 purge_dispatcher.purge_revoked(partitions);
                 if let Some(list) = &hook_revoked {
-                    list.lock().unwrap().extend(
-                        partitions
-                            .iter()
-                            .map(|(topic, partition)| TopicPartition::new(topic, *partition)),
-                    );
+                    list.lock().unwrap().extend(partitions.iter().map(
+                        |(topic, partition)| {
+                            let topic_partition = TopicPartition::new(topic, *partition);
+                            let generation = revoke_ledger.generation(&topic_partition);
+                            RevokedPartition {
+                                topic_partition,
+                                generation,
+                            }
+                        },
+                    ));
                 }
             }));
         let (batcher, outputs) = Batcher::new(
@@ -391,18 +410,25 @@ impl IngestionConsumer {
             Arc::clone(&topic_offset_ledger),
         );
         context.set_assignment_epoch(transport.assignment_epoch());
-        let revoked_partitions: Arc<Mutex<Vec<TopicPartition>>> = Arc::new(Mutex::new(Vec::new()));
+        let revoke_ledger = Arc::clone(&topic_offset_ledger);
+        let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
+            Arc::new(Mutex::new(Vec::new()));
         let purge_dispatcher = batcher.dispatcher();
         let hook_revoked = (purge_dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
             .then(|| Arc::clone(&revoked_partitions));
         context.set_revoke_hook(Box::new(move |partitions| {
             purge_dispatcher.purge_revoked(partitions);
             if let Some(list) = &hook_revoked {
-                list.lock().unwrap().extend(
-                    partitions
-                        .iter()
-                        .map(|(topic, partition)| TopicPartition::new(topic, *partition)),
-                );
+                list.lock().unwrap().extend(partitions.iter().map(
+                    |(topic, partition)| {
+                        let topic_partition = TopicPartition::new(topic, *partition);
+                        let generation = revoke_ledger.generation(&topic_partition);
+                        RevokedPartition {
+                            topic_partition,
+                            generation,
+                        }
+                    },
+                ));
             }
         }));
         let consumer: StreamConsumer<SentinelContext> =
@@ -638,7 +664,7 @@ impl IngestionConsumer {
     /// covered; its offsets stay uncommitted and replay under the new
     /// assignment, and its late completions are discarded as stale.
     fn drop_revoked_polls(&self, in_flight_polls: &mut VecDeque<InFlightPoll>) {
-        let revoked: Vec<TopicPartition> =
+        let revoked: Vec<RevokedPartition> =
             std::mem::take(&mut *self.revoked_partitions.lock().unwrap());
         if revoked.is_empty() {
             return;
@@ -1258,7 +1284,13 @@ mod tests {
         // Partition 1 already had one message covered before the revoke.
         apply_completion(&mut in_flight, completion(1, 1, &[10], 1));
 
-        let stripped = strip_revoked_partitions(&mut in_flight, &[TopicPartition::new("test", 1)]);
+        let stripped = strip_revoked_partitions(
+            &mut in_flight,
+            &[RevokedPartition {
+                topic_partition: TopicPartition::new("test", 1),
+                generation: 1,
+            }],
+        );
 
         assert_eq!(stripped, 2);
         assert_eq!(in_flight[0].message_count, 2);
@@ -1278,7 +1310,13 @@ mod tests {
     fn strip_revoked_partitions_removes_an_emptied_poll() {
         let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 2, 0, 3, 4)]);
 
-        let stripped = strip_revoked_partitions(&mut in_flight, &[TopicPartition::new("test", 0)]);
+        let stripped = strip_revoked_partitions(
+            &mut in_flight,
+            &[RevokedPartition {
+                topic_partition: TopicPartition::new("test", 0),
+                generation: 1,
+            }],
+        );
 
         assert_eq!(stripped, 4);
         assert_eq!(in_flight.len(), 1);
@@ -1341,8 +1379,13 @@ mod tests {
         };
         let mut in_flight = VecDeque::from([old_poll, reassigned_poll]);
 
-        let stripped =
-            strip_revoked_partitions(&mut in_flight, std::slice::from_ref(&topic_partition));
+        let stripped = strip_revoked_partitions(
+            &mut in_flight,
+            &[RevokedPartition {
+                topic_partition: topic_partition.clone(),
+                generation: 1,
+            }],
+        );
 
         assert_eq!(stripped, 1, "only the old assignment is stripped");
         assert_eq!(in_flight.len(), 1);
