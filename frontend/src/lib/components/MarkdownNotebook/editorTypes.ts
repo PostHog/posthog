@@ -40,6 +40,9 @@ export type InsertCommand = {
     description?: string
     aliases?: string[]
     icon?: ReactNode
+    /** Short tag drawn after the label, for calling out a cell people have not met yet. Not
+     * searchable: a badge is about the menu, not about what the cell does. */
+    badge?: string
     closeOnRun?: boolean
     disabled?: boolean
     run: (targetNodeId: string) => void

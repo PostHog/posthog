@@ -254,6 +254,11 @@
         "params": [],
         "scope": "project"
     },
+    "businessKnowledgeSettings": {
+        "template": "/business-knowledge/settings",
+        "params": [],
+        "scope": "project"
+    },
     "canvas": {
         "template": "/canvas",
         "params": [],

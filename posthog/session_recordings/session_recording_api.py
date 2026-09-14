@@ -115,6 +115,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.ai_training.backend.facade.api import queue_training_deletion
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -1622,6 +1623,8 @@ class SessionRecordingViewSet(
 
         Returns list of session IDs that failed to delete.
         """
+
+        queue_training_deletion(self.team.id, "session", session_ids)
 
         async def _delete_all() -> list[str]:
             async with recording_api_client() as storage:

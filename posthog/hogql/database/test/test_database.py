@@ -4522,5 +4522,6 @@ class TestCreateForPosthogTables(BaseTest):
         system_table_names = database.get_system_table_names()
         assert "system.feature_flags" not in system_table_names
         assert "system.activity_logs" not in system_table_names
+        assert "system.customer_tasks" not in system_table_names
         with pytest.raises(TableAccessDeniedError):
             database.get_table("system.activity_logs")

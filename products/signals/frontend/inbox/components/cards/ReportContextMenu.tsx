@@ -136,7 +136,7 @@ function ReportContextMenuItems({
     const hasOpenPr = hasOpenImplementationPr(report)
     const { isSelected, toggle: toggleSelection } = useReportCardSelection(report.id, true)
 
-    // The row's own affordances (hold, Cmd-click, checkbox) are easy to miss, so the menu names
+    // The row's own selection gestures (hold, Shift-click) are easy to miss, so the menu names
     // the feature outright.
     const selectItem = (
         <ContextMenuItem asChild>

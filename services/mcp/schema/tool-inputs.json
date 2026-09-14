@@ -15,6 +15,67 @@
                 }
             }
         },
+        "BillingSpendBreakdownsSchema": {
+            "description": "Dimensions to break spend down by. Pass `[\"type\"]` for per-product series, `[\"team\"]` for one series per project summed across products, or `[\"type\",\"team\"]` for per-project series within each product. Omit for one aggregate series.",
+            "anyOf": [
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["type", "team"]
+                    }
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "BillingTeamIdsSchema": {
+            "description": "Project IDs to filter by, e.g. `[1,2]`. Omit for every project this request can see: all organization projects for full billing access, or the member-visible and token-scoped projects for member read-only access.",
+            "anyOf": [
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                    }
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "BillingUsageBreakdownsSchema": {
+            "description": "Dimensions to break usage down by. Pass `[\"type\"]` for per-usage-type series or `[\"type\",\"team\"]` for per-project series within each usage type. Team breakdowns require `\"type\"`; do not pass `[\"team\"]` by itself. Omit for one aggregate series.",
+            "anyOf": [
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["type", "team"]
+                    }
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "BillingUsageTypesSchema": {
+            "description": "Usage type identifiers to filter by, e.g. `[\"event_count_in_period\"]` or `[\"event_count_in_period\",\"recording_count_in_period\"]`. Omit for all usage types.",
+            "anyOf": [
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
         "BusinessKnowledgeUrlSourceCreateSchema": {
             "type": "object",
             "properties": {

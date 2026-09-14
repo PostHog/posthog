@@ -76,10 +76,23 @@ it("runs repository setup in a new worktree beyond the connection deadline", asy
     ]) {
       const onLog = vi.fn();
       const onNotification = vi.fn();
+      const processExits: Promise<void>[] = [];
+      const pendingExits = new Map<number, () => void>();
       const transport = createAcpConnection({
         adapter: "claude",
         deviceType: "local",
         logger: new Logger({ onLog }),
+        processCallbacks: {
+          onProcessSpawned: ({ pid }) => {
+            processExits.push(
+              new Promise<void>((resolve) => pendingExits.set(pid, resolve)),
+            );
+          },
+          onProcessExited: (pid) => {
+            pendingExits.get(pid)?.();
+            pendingExits.delete(pid);
+          },
+        },
       });
       const connection = new ClientSideConnection(
         () => ({
@@ -143,6 +156,10 @@ it("runs repository setup in a new worktree beyond the connection deadline", asy
         );
       } finally {
         await transport.cleanup();
+        // Aborting the SDK does not wait for its child to stop writing config.
+        expect(
+          (await withTimeout(Promise.all(processExits), 5_000)).result,
+        ).toBe("success");
       }
     }
     expect(readFileSync(join(repository, ".setup-runs"), "utf8")).toBe(
