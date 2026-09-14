@@ -731,8 +731,6 @@ function InfiniteListEmptyState(): JSX.Element {
         taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
         allSectionHasResults
 
-    // Without the aggregated "all" tab (e.g. the control variant, which doesn't inject SuggestedFilters),
-    // there's no single place to jump to — so surface the specific categories that do have matches.
     // Keyed off result counts (not `infiniteListCounts`/`totalListCount`) so render-backed groups like
     // the SQL expression editor, whose affordance row makes `totalListCount` non-zero for any query,
     // don't produce a misleading "See results in …" jump.
@@ -746,8 +744,8 @@ function InfiniteListEmptyState(): JSX.Element {
               )
             : []
 
-    // Reads the Events group rather than this list's own group: in the pill variant the active tab is
-    // the aggregated one, which carries no exclusions of its own. `taxonomicGroups` holds every group
+    // Reads the Events group rather than this list's own group because the active tab can be the
+    // aggregated one, which carries no exclusions of its own. `taxonomicGroups` holds every group
     // whether or not this filter offers it, hence the gate.
     const hiddenEventSearched = taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Events)
         ? hiddenEventMatchingSearch(

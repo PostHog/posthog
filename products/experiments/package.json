@@ -7,8 +7,7 @@
         "@posthog/brand": "catalog:",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:",
-        "ts-pattern": "catalog:"
+        "kea-router": "catalog:"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
@@ -25,7 +24,6 @@
         "@testing-library/user-event": "*",
         "@types/react": "*",
         "clsx": "*",
-        "fuse.js": "*",
         "react": "*"
     }
 }

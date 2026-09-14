@@ -1,11 +1,17 @@
 {
     "name": "@posthog/products-persons",
     "dependencies": {
+        "fast-equals": "catalog:",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@types/react": "*",
         "clsx": "*",
