@@ -115,14 +115,22 @@ const aiScanReports = [
         report_id: '019f9582-0000-7000-8000-0000000000d1',
         title: 'Exports stall for accounts on the EU region since 09:30',
         summary:
-            'Four customers on four different domains describe the same stall in different words. The detector has an open pattern for "export", and this adds that all four are on the EU region.',
+            'Four customers on four different domains describe the same stall in different words.\n\n' +
+            'All four sit on the EU region, and the open "export" pattern from the detector holds only one of them. ' +
+            'Tickets: [#4182](/support/tickets/019f9582-0000-7000-8000-0000000000e1), ' +
+            '[#4190](/support/tickets/019f9582-0000-7000-8000-0000000000e2), ' +
+            '[#4203](/support/tickets/019f9582-0000-7000-8000-0000000000e3), ' +
+            '[#4211](/support/tickets/019f9582-0000-7000-8000-0000000000e4).',
         filed_at: '2026-07-25T10:02:00Z',
     },
     {
         report_id: '019f9582-0000-7000-8000-0000000000d2',
         title: 'Magic link emails arrive late for three customers',
         summary:
-            'None of the three tickets share a word the detector matches on, but each describes a 20 minute delay.',
+            'None of the three tickets share a word the detector matches on, but each describes a 20 minute delay.\n\n' +
+            'Tickets: [#4176](/support/tickets/019f9582-0000-7000-8000-0000000000e5), ' +
+            '[#4181](/support/tickets/019f9582-0000-7000-8000-0000000000e6), ' +
+            '[#4188](/support/tickets/019f9582-0000-7000-8000-0000000000e7).',
         filed_at: '2026-07-25T09:02:00Z',
     },
 ]

@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -61,7 +62,12 @@ export function TicketPatternAiScanFindings(): JSX.Element | null {
                                 </Link>
                                 <TZLabel time={report.filed_at} className="text-muted text-xs" />
                             </div>
-                            <span className="text-muted text-xs break-words">{report.summary}</span>
+                            {/* The scout writes the ticket citations into the summary as markdown links, so
+                                this has to render markdown. Images stay off because the body is model output
+                                over ticket text that anybody can send us. */}
+                            <LemonMarkdown lowKeyHeadings disableImages className="text-muted text-xs break-words">
+                                {report.summary}
+                            </LemonMarkdown>
                         </li>
                     ))}
                 </ul>
