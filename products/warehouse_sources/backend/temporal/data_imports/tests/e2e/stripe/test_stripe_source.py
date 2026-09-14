@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import WEBHOOK_ONLY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
+    RATE_LIMIT_RETRIES,
     StripeAuthenticationError,
     StripeNestedResource,
     StripePermissionError,
@@ -706,8 +707,8 @@ def test_call_stripe_passes_through_successful_result():
         # (status_code, num_retries, max_network_retries, expected)
         # 429 is now retried while budget remains — the SDK omits this on its own.
         ("rate_limit_retried", 429, 0, 2, True),
-        # ...but stops once the retry budget is exhausted, so we don't loop forever.
-        ("rate_limit_budget_exhausted", 429, 2, 2, False),
+        # ...on its own budget, and stops once that is exhausted, so we don't loop forever.
+        ("rate_limit_budget_exhausted", 429, RATE_LIMIT_RETRIES, 2, False),
         # 5xx keeps the SDK's built-in retry behavior.
         ("server_error_still_retried", 503, 0, 2, True),
         # Non-retryable 4xx (e.g. a bad request) must NOT be retried.
