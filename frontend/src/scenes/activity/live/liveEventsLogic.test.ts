@@ -173,6 +173,22 @@ describe('liveEventsLogic', () => {
         })
     })
 
+    describe('connection lifecycle', () => {
+        it.each([
+            ['leaves a stream that was never paused alone', false, 1],
+            ['reconnects a stream that was paused', true, 2],
+        ])('resuming %s', (_label, pauseFirst, expectedConnections) => {
+            expect(streamSpy).toHaveBeenCalledTimes(1)
+
+            if (pauseFirst) {
+                logic.actions.pauseStream()
+            }
+            logic.actions.resumeStream()
+
+            expect(streamSpy).toHaveBeenCalledTimes(expectedConnections)
+        })
+    })
+
     describe('stream URL property filters', () => {
         it.each([
             {

@@ -224,7 +224,7 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, selectors, values, cache }) => ({
         setFilters: () => {
             actions.clearEvents()
             actions.updateEventsConnection()
@@ -379,7 +379,13 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
         pauseStream: () => {
             cache.disposables.dispose('eventsConnection')
         },
-        resumeStream: () => {
+        resumeStream: (_, __, ___, previousState) => {
+            // The page-visibility effect calls this once on mount too, when nothing was paused.
+            // Reconnecting there would abort the stream afterMount has just opened and start a
+            // second one, which counts every visit twice.
+            if (!selectors.streamPaused(previousState)) {
+                return
+            }
             actions.updateEventsConnection()
         },
         addEvents: ({ events }) => {
