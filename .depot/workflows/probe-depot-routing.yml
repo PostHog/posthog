@@ -29,3 +29,17 @@ jobs:
             - run: |
                   if [[ "${{ needs.sleeper.result }}" != "success" && "${{ needs.sleeper.result }}" != "skipped" ]]; then exit 1; fi
                   echo ok
+    ambient-variable-read:
+        name: Probe ambient variable read
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - env:
+                  TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  one=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" \
+                      "https://api.github.com/repos/$REPO/actions/variables/CD_DEPLOY_ENABLED")
+                  list=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" \
+                      "https://api.github.com/repos/$REPO/actions/variables?per_page=1")
+                  echo "DEPOT_AMBIENT: get-one=$one list=$list"
