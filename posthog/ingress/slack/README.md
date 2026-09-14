@@ -31,10 +31,12 @@ Nothing under `posthog/ingress/` reads it.
 
 Slack's `url_verification` handshake wants the challenge echoed in the response body, which no consumer can do.
 The incarnation answers it in `pre_dispatch_response()`, before dispatch.
-The status codes are the defaults.
+
+Slack redelivers a delivery it got a non-2xx for, so `forward_failure_status` is 502: a forward to the region that owns the workspace that did not land must not be receipted, or the event is lost.
+The other status codes are the defaults.
 
 ## Consumers
 
-No product registers a Slack consumer yet.
-The conversations Slack endpoint moves to ingress in its own PR.
+`conversations_slack`, on the `supporthog` app, for every event type the app is subscribed to.
+It declares `ownership`, so a delivery about a workspace the other region holds is forwarded there.
 See the [Endpoints table](../README.md#endpoints).
