@@ -345,7 +345,15 @@ export interface sceneLogicProps {
 export interface sceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sceneConfig: (sceneId: string | null) => SceneConfig | null
-        activeSceneId: (sceneId: string | null, isCurrentTeamUnavailable: boolean) => string | null
+        activeSceneId: (
+            sceneId: string | null,
+            isCurrentTeamUnavailable: boolean,
+            location: {
+                hash: string
+                pathname: string
+                search: string
+            }
+        ) => string | null
         activeExportedScene: (
             activeSceneId: string | null,
             exportedScenes: Record<string, SceneExport<SceneProps>>
