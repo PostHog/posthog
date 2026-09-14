@@ -52,6 +52,9 @@ class ZScoreDetector(BaseDetector):
         if not self._validate_data(data, min_length=window + offset + diffs_n):
             return DetectionResult(is_anomaly=False)
 
+        if self.below_volume_floor(data):
+            return DetectionResult(is_anomaly=False)
+
         original_length = len(data)
         data = self.preprocess(data)
         values = data if data.ndim == 1 else data[:, 0]
@@ -107,6 +110,9 @@ class ZScoreDetector(BaseDetector):
         offset = max(self.training_offset, 1)
 
         if not self._validate_data(data, min_length=window + offset + diffs_n):
+            return DetectionResult(is_anomaly=False)
+
+        if self.below_volume_floor(data):
             return DetectionResult(is_anomaly=False)
 
         data = self.preprocess(data)

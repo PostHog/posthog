@@ -26,6 +26,7 @@ import {
 
 import {
     DEFAULT_ANOMALY_DETECTION_THRESHOLD,
+    DEFAULT_ANOMALY_MIN_BASELINE,
     getDefaultZScoreDetectorConfig,
     getDefaultWindow,
 } from '../logic/detectorConfigDefaults'
@@ -464,6 +465,12 @@ function SingleDetectorConfigSection({
                     calculationInterval={calculationInterval}
                 />
             )}
+            {config.type !== 'threshold' && (
+                <MinBaselineInput
+                    value={config.min_baseline}
+                    onChange={(val) => onChange({ ...config, min_baseline: val } as SingleDetectorConfig)}
+                />
+            )}
             <PreprocessingSection config={config} onChange={(updated) => onChange(updated as SingleDetectorConfig)} />
         </div>
     )
@@ -483,6 +490,33 @@ function AnomalyThresholdInput({ value, onChange }: { value: number; onChange: (
                 step={0.05}
                 value={value}
                 onChange={(val) => onChange(val ? parseFloat(String(val)) : DEFAULT_ANOMALY_DETECTION_THRESHOLD)}
+            />
+        </div>
+    )
+}
+
+function MinBaselineInput({
+    value,
+    onChange,
+}: {
+    value: number | undefined
+    onChange: (value: number) => void
+}): JSX.Element {
+    return (
+        <div>
+            <Label
+                text="Minimum volume"
+                tooltip="Skip the check when the metric's typical value is below this. On a few events per interval, one extra event is a large relative move, so the comparison is not reliable. Use 0 to always check."
+            />
+            <LemonInput
+                data-attr="alertForm-detector-min-baseline"
+                type="number"
+                min={0}
+                step={1}
+                value={value}
+                placeholder={String(DEFAULT_ANOMALY_MIN_BASELINE)}
+                onChange={(val) => onChange(val ?? 0)}
+                fullWidth
             />
         </div>
     )

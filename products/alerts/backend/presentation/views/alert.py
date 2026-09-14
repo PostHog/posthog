@@ -755,6 +755,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "n_bins": (5, 50, "Number of bins"),
             "multiplier": (0.5, 10.0, "IQR multiplier"),
             "training_offset_n": (1, 500, "Training offset"),
+            "min_baseline": (0, 1_000_000, "Minimum volume"),
         }
 
         for param, (min_val, max_val, label) in PARAM_RANGES.items():

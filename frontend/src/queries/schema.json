@@ -6473,6 +6473,10 @@
         "COPODDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "min_baseline": {
+                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "type": "number"
+                },
                 "preprocessing": {
                     "$ref": "#/definitions/PreprocessingConfig",
                     "description": "Preprocessing transforms applied before detection"
@@ -20967,6 +20971,10 @@
         "ECODDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "min_baseline": {
+                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "type": "number"
+                },
                 "preprocessing": {
                     "$ref": "#/definitions/PreprocessingConfig",
                     "description": "Preprocessing transforms applied before detection"
@@ -29184,6 +29192,10 @@
         "HBOSDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "min_baseline": {
+                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "type": "number"
+                },
                 "n_bins": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of histogram bins (default: 10)"
@@ -30042,6 +30054,10 @@
         "IQRDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "min_baseline": {
+                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "type": "number"
+                },
                 "multiplier": {
                     "description": "IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)",
                     "type": "number"
@@ -31014,6 +31030,10 @@
         "IsolationForestDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "min_baseline": {
+                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "type": "number"
+                },
                 "n_estimators": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of trees in the forest (default: 100)"
@@ -31045,6 +31065,10 @@
                     "description": "Distance method: 'largest', 'mean', 'median' (default: 'largest')",
                     "enum": ["largest", "mean", "median"],
                     "type": "string"
+                },
+                "min_baseline": {
+                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "type": "number"
                 },
                 "n_neighbors": {
                     "$ref": "#/definitions/integer",
@@ -31241,6 +31265,10 @@
         "LOFDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "min_baseline": {
+                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "type": "number"
+                },
                 "n_neighbors": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of neighbors for LOF (default: 20)"
@@ -32296,6 +32324,10 @@
         "MADDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "min_baseline": {
+                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "type": "number"
+                },
                 "preprocessing": {
                     "$ref": "#/definitions/PreprocessingConfig",
                     "description": "Preprocessing transforms applied before detection"
@@ -38753,6 +38785,10 @@
                     "description": "SVM kernel type (default: \"rbf\")",
                     "type": "string"
                 },
+                "min_baseline": {
+                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "type": "number"
+                },
                 "nu": {
                     "description": "Upper bound on training errors fraction (default: 0.1)",
                     "type": "number"
@@ -38780,6 +38816,10 @@
         "PCADetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "min_baseline": {
+                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "type": "number"
+                },
                 "preprocessing": {
                     "$ref": "#/definitions/PreprocessingConfig",
                     "description": "Preprocessing transforms applied before detection"
@@ -58236,6 +58276,10 @@
         "ZScoreDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "min_baseline": {
+                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "type": "number"
+                },
                 "preprocessing": {
                     "$ref": "#/definitions/PreprocessingConfig",
                     "description": "Preprocessing transforms applied before detection"

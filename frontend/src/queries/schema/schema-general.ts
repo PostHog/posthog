@@ -6550,6 +6550,8 @@ export interface ZScoreDetectorConfig {
     threshold?: number
     /** Rolling window size for calculating mean/std (default: 30) */
     window?: integer
+    /** Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5) */
+    min_baseline?: number
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -6560,6 +6562,8 @@ export interface MADDetectorConfig {
     threshold?: number
     /** Rolling window size for calculating median/MAD (default: 30) */
     window?: integer
+    /** Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5) */
+    min_baseline?: number
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -6570,6 +6574,8 @@ export interface IQRDetectorConfig {
     multiplier?: number
     /** Rolling window size for calculating quartiles (default: 30) */
     window?: integer
+    /** Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5) */
+    min_baseline?: number
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -6590,6 +6596,8 @@ export interface ECODDetectorConfig {
     threshold?: number
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5) */
+    min_baseline?: number
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -6600,6 +6608,8 @@ export interface COPODDetectorConfig {
     threshold?: number
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5) */
+    min_baseline?: number
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -6612,6 +6622,8 @@ export interface IsolationForestDetectorConfig {
     n_estimators?: integer
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5) */
+    min_baseline?: number
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -6626,6 +6638,8 @@ export interface KNNDetectorConfig {
     method?: 'largest' | 'mean' | 'median'
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5) */
+    min_baseline?: number
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -6638,6 +6652,8 @@ export interface HBOSDetectorConfig {
     n_bins?: integer
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5) */
+    min_baseline?: number
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -6650,6 +6666,8 @@ export interface LOFDetectorConfig {
     n_neighbors?: integer
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5) */
+    min_baseline?: number
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -6664,6 +6682,8 @@ export interface OCSVMDetectorConfig {
     nu?: number
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5) */
+    min_baseline?: number
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
@@ -6674,6 +6694,8 @@ export interface PCADetectorConfig {
     threshold?: number
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
     window?: integer
+    /** Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5) */
+    min_baseline?: number
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfig
 }
