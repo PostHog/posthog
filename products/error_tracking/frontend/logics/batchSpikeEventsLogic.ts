@@ -74,6 +74,9 @@ export const batchSpikeEventsLogic = kea<batchSpikeEventsLogicType>([
                         if (isBreakpoint(e)) {
                             throw e
                         }
+                        // Bail if a newer load has superseded this one, so a late failure cannot
+                        // clear the newer markers.
+                        breakpoint()
                         // Spike markers are supplementary, so the issue page renders fine without
                         // them. Degrade to no markers instead of failing the loader. Catching here
                         // skips the gate `initKea` applies to loader failures, so reapply it: a
