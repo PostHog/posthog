@@ -251,17 +251,19 @@ export function computePreviewOccurrences(
         const isFinite = state.endType !== 'never'
 
         // Occurrences are "fake UTC" (their UTC fields encode local time in the schedule
-        // timezone), so convert each to a real moment before comparing against now —
+        // timezone), so now has to move into the same coordinate before the comparison —
         // otherwise an occurrence still pending today is wrongly treated as already past.
-        const now = dayjs()
-        if (fakeUtcToReal(dtstart, timezone).isBefore(now)) {
+        // Move it once, because a timezone parse for every past occurrence of an hourly
+        // schedule that started months ago holds the main thread for about a second.
+        const nowInFakeUtc = realToFakeUtc(dayjs(), timezone).getTime()
+        if (dtstart.getTime() < nowInFakeUtc) {
             // Scan forward from the start until enough future occurrences are found. A
             // fixed multiple of the limit is not enough for short intervals: an hourly
             // schedule that started months ago has thousands of past occurrences.
             const wanted = isFinite ? MAX_PREVIEW_COUNT : limit
             const future: Date[] = []
             rule.all((date, i) => {
-                if (fakeUtcToReal(date, timezone).isAfter(now)) {
+                if (date.getTime() > nowInFakeUtc) {
                     future.push(date)
                 }
                 return future.length < wanted && i < MAX_PREVIEW_SCAN
@@ -286,6 +288,12 @@ export function computePreviewOccurrences(
 export function fakeUtcToReal(date: Date, timezone?: string): dayjs.Dayjs {
     const utcStr = dayjs(date).utc().format('YYYY-MM-DD HH:mm:ss')
     return timezone ? dayjs.tz(utcStr, timezone) : dayjs.utc(utcStr)
+}
+
+/** The reverse of fakeUtcToReal: a real moment as the "fake UTC" date the rrule expansion uses. */
+function realToFakeUtc(moment: dayjs.Dayjs, timezone?: string): Date {
+    const local = timezone ? moment.tz(timezone) : moment.utc()
+    return new Date(Date.UTC(local.year(), local.month(), local.date(), local.hour(), local.minute(), local.second()))
 }
 
 export function buildSummary(state: ScheduleState, startsAt: string | null): string {
