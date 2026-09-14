@@ -72,6 +72,8 @@ import type {
     ErrorTrackingSuppressionRuleUpdateRequestApi,
     ErrorTrackingSuppressionRulesListParams,
     ErrorTrackingSymbolSetApi,
+    ErrorTrackingSymbolSetBulkCheckUploadApi,
+    ErrorTrackingSymbolSetBulkCheckUploadResponseApi,
     ErrorTrackingSymbolSetBulkDeleteApi,
     ErrorTrackingSymbolSetBulkFinishUploadApi,
     ErrorTrackingSymbolSetBulkStartUploadApi,
@@ -1933,6 +1935,29 @@ export const errorTrackingSymbolSetsFinishUploadUpdate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(errorTrackingSymbolSetFinishUploadApi),
     })
+}
+
+export const getErrorTrackingSymbolSetsBulkCheckUploadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/bulk_check_upload/`
+}
+
+/**
+ * Report which of the given symbol sets still need `bulk_start_upload`. Symbol sets already uploaded with identical content are omitted and marked as still in use.
+ */
+export const errorTrackingSymbolSetsBulkCheckUploadCreate = async (
+    projectId: string,
+    errorTrackingSymbolSetBulkCheckUploadApi: ErrorTrackingSymbolSetBulkCheckUploadApi,
+    options?: RequestInit
+): Promise<ErrorTrackingSymbolSetBulkCheckUploadResponseApi> => {
+    return apiMutator<ErrorTrackingSymbolSetBulkCheckUploadResponseApi>(
+        getErrorTrackingSymbolSetsBulkCheckUploadCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingSymbolSetBulkCheckUploadApi),
+        }
+    )
 }
 
 export const getErrorTrackingSymbolSetsBulkDeleteCreateUrl = (projectId: string) => {

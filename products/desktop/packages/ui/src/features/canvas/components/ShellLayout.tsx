@@ -21,12 +21,10 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
+import { CopyCanvasLinkButton } from "@posthog/ui/features/canvas/components/CopyCanvasLinkButton";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { SpaceHeaderRow } from "@posthog/ui/features/canvas/components/SpaceHeaderRow";
@@ -64,6 +62,7 @@ import {
   PRIVATE_SPACE_MENTIONS_DISABLED,
 } from "@posthog/ui/features/sessions/mentionAvailability";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { Flex } from "@radix-ui/themes";
@@ -164,22 +163,6 @@ function FreeformEditControls({
 
   return (
     <div className="no-drag flex items-center gap-2">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              size="icon-sm"
-              aria-label="Copy link to canvas"
-              onClick={() =>
-                void copyCanvasLink(channelId, dashboardId, "canvas")
-              }
-            >
-              <LinkIcon size={14} />
-            </Button>
-          }
-        />
-        <TooltipContent side="bottom">Copy link to canvas</TooltipContent>
-      </Tooltip>
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
@@ -329,6 +312,9 @@ function CanvasBreadcrumb({
       leafLabel={name}
       editScopeKey={dashboardId}
       onRename={(next) => void renameDashboard(dashboardId, next)}
+      leafTrailing={
+        <CopyCanvasLinkButton channelId={channelId} dashboardId={dashboardId} />
+      }
       trailing={
         <>
           {commentTaskId && (
@@ -420,7 +406,7 @@ export function ShellLayout() {
           canvas actions (Edit / New canvas) on the right.
           Freeform canvases own their own date control in-app (DateTimePicker). */}
       {showToolbar && (
-        <div className="flex h-10 shrink-0 items-center border-border border-b px-3">
+        <ChromeBar inset="control">
           {isDashboardDetail && toolbarDashboardId && toolbarChannelId ? (
             <CanvasBreadcrumb
               channelName={toolbarChannelName}
@@ -441,7 +427,7 @@ export function ShellLayout() {
               trailing={<NewCanvasMenu channelId={channelId} />}
             />
           ) : null}
-        </div>
+        </ChromeBar>
       )}
       {/* The right panel lays itself over this row's right edge and pins its
           switcher to the row's top right, so the row is its positioning context

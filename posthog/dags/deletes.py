@@ -307,7 +307,15 @@ class AdhocEventDeletesDictionary(Dictionary):
 
     @property
     def query(self) -> str:
-        return f"SELECT team_id, uuid, created_at FROM {self.source.qualified_name} WHERE (team_id, uuid) not in (SELECT team_id, uuid FROM {self.source.qualified_name} WHERE is_deleted = 1)"
+        # Grouped rather than filtered with NOT IN: the source is a ReplacingMergeTree, so a key
+        # inserted twice reads as two rows until a merge collapses them. The dictionary keeps one
+        # row per key whichever way, but which one it keeps follows the order the source rows
+        # arrive, and that order is not stable when a host parses a staged Parquet in parallel.
+        # max(is_deleted) = 0 is the same exclusion the NOT IN subquery made, on one scan.
+        return (
+            f"SELECT team_id, uuid, max(created_at) AS created_at FROM {self.source.qualified_name} "
+            f"GROUP BY team_id, uuid HAVING max(is_deleted) = 0"
+        )
 
     def staged(self) -> StagedDictionary:
         return StagedDictionary(
@@ -547,6 +555,7 @@ def delete_events(
 
     # Every registered target must get this delete, or rows survive on the table that got skipped.
     placements = resolve_placements(cluster)
+    reuse_floor = _mutation_reuse_floor(cluster)
     delete_mutation_runners = [
         (
             placement,
@@ -556,6 +565,7 @@ def delete_events(
                 parameters=_delete_predicate_params(
                     load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary
                 ),
+                reuse_since=reuse_floor,
             ),
         )
         for placement in placements
@@ -624,6 +634,7 @@ def delete_team_data(
             "dictionary": load_and_verify_deletes_dictionary.qualified_name,
             "team_deletion_type": DeletionType.Team,
         },
+        reuse_since=_mutation_reuse_floor(cluster),
     )
 
     # This mutation run on any host because it will be replicated to all shards since
@@ -697,6 +708,18 @@ def _delete_predicate_params(
         "team_deletion_type": DeletionType.Team,
         "adhoc_event_deletes_dictionary": adhoc_event_deletes_dictionary.qualified_name,
     }
+
+
+def _mutation_reuse_floor(cluster: ClickhouseCluster) -> datetime:
+    """A ClickHouse clock reading to bound mutation reuse by; see MutationRunner.reuse_since.
+
+    Read from ClickHouse rather than here so it compares against ``system.mutations.create_time``
+    on the same clock. A reading slightly ahead of a host costs a duplicate mutation, which is
+    idempotent; one behind would let a previous run's mutation be adopted, which is the failure
+    this floor exists to stop.
+    """
+    rows = cluster.any_host_by_role(Query("SELECT now()"), NodeRole.DATA).result()
+    return rows[0][0]
 
 
 def _rows_from_any_host(cluster: ClickhouseCluster, query: Query) -> list:
@@ -784,9 +807,6 @@ def mark_deletions_verified(
     pending_deletions_dictionary: PendingDeletesDictionary,
     adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary,
 ) -> VerifiedDeletionResources:
-    # Only a report. The mutations have already run, the requests are marked verified either way,
-    # and failing here would strand the run without undoing anything. It exists so a sweep that
-    # removed nothing leaves a trace rather than passing as a clean run.
     unswept = _count_unswept_rows(
         context,
         cluster,
@@ -794,14 +814,19 @@ def mark_deletions_verified(
         adhoc_event_deletes_dictionary,
         config.verification_max_execution_time,
     )
+    context.add_output_metadata({"unswept_rows": dagster.MetadataValue.json(unswept)})
+
+    # A request marked verified is a claim the rows are gone, and nothing revisits it: the adhoc
+    # tombstone this op writes also keeps those uuids out of every later run. So a count that came
+    # back non-zero has to stop the marking rather than annotate it. Leaving the requests pending
+    # costs a repeated sweep next run, which is the recoverable direction.
     remaining = {table: count for table, count in unswept.items() if count}
     if remaining:
-        context.log.error(
-            "The sweep finished and rows it should have removed are still readable: "
+        raise dagster.Failure(
+            description="The sweep finished and rows it should have removed are still readable: "
             + ", ".join(f"{table}={count}" for table, count in remaining.items())
-            + f". Marking these requests verified anyway. See {COVERAGE_DOC}."
+            + f". Leaving these requests pending for the next run. See {COVERAGE_DOC}."
         )
-    context.add_output_metadata({"unswept_rows": dagster.MetadataValue.json(unswept)})
 
     now = timezone.now()
     deletion_ids = [

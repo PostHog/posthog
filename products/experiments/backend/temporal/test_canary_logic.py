@@ -174,6 +174,16 @@ class TestEvaluateCanaryRuns:
                 {"control": (500.0, 3090), "test": (500.0, 3000)},
                 OUTCOME_DIVERGENCE,
             ),
+            ("all_runs_empty_is_skipped", "funnel", {}, {}, {}, OUTCOME_SKIPPED),
+            (
+                # A cache that lost its content must not pass as "no exposures yet".
+                "empty_precomputed_reads_with_populated_direct_scan_is_error",
+                "funnel",
+                {},
+                {},
+                _BASE,
+                OUTCOME_ERROR,
+            ),
         ]
     )
     def test_outcomes(self, _name, metric_type, a, b, c, expected):
@@ -237,10 +247,6 @@ class TestEvaluateCanaryRuns:
             "funnel", _snapshot("a", _BASE), _snapshot("b", _BASE), _snapshot("c", {"control": (1000.0, 10000)})
         )
         assert verdict.outcome == OUTCOME_ERROR
-
-    def test_empty_results_are_skipped(self):
-        verdict = evaluate_canary_runs("funnel", _snapshot("a", _BASE), _snapshot("b", {}), _snapshot("c", _BASE))
-        assert verdict.outcome == OUTCOME_SKIPPED
 
     def test_low_volume_is_skipped(self):
         low = {"control": (10.0, 50), "test": (12.0, 60)}
