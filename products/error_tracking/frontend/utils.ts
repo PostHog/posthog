@@ -146,7 +146,12 @@ export function getIssueReplayFilterGroup(issueId: string, issueLabel?: string):
     // A HogQL `-- comment` is stripped before the query runs, so it never changes matching, but the
     // filter UI renders the condition by its comment. Pass the error name so a preview shows
     // "$exception where <error>" instead of a raw, opaque `issue_id = '<uuid>'`.
-    const comment = issueLabel ? ` -- ${issueLabel}` : ''
+    //
+    // The name is attacker-influenced (an app can throw an exception with any name), and a HogQL line
+    // comment runs only to the next CR/LF. A line terminator in the name would end the comment and let
+    // the rest run as a live condition, widening the scanner past this issue, so strip line terminators
+    // before embedding. The label is display-only, so collapsing them to a space loses nothing.
+    const comment = issueLabel ? ` -- ${issueLabel.replace(/[\r\n]/g, ' ')}` : ''
     return {
         type: FilterLogicalOperator.And,
         values: [

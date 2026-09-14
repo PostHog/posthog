@@ -262,6 +262,17 @@ describe('getIssueReplayFilterGroup', () => {
             ],
         })
     })
+
+    // The label rides in a HogQL `-- comment`, which ends at a line terminator. The issue name is
+    // attacker-influenced, so a newline in it must not break out of the comment and inject a live
+    // condition that widens the scanner beyond this issue.
+    it('strips line terminators from the label so it cannot break out of the HogQL comment', () => {
+        const group = getIssueReplayFilterGroup('issue-uuid', 'TypeError\n OR 1 = 1')
+        const key = (group.values[0] as any).values[0].properties[0].key as string
+
+        expect(key).not.toMatch(/[\r\n]/)
+        expect(key).toEqual("issue_id = 'issue-uuid' -- TypeError  OR 1 = 1")
+    })
 })
 
 describe('issueVisionScannerHandoff', () => {
