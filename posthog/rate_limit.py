@@ -1215,7 +1215,7 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
 
 
 def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
-    """Atomically consume one of this user's weekly mints for this program, or raise.
+    """Atomically consume one of this user's weekly mints across all programs, or raise.
 
     `limit` replaces the throttle's weekly count; None keeps the configured rate.
 
@@ -1254,7 +1254,7 @@ def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
         capture_exception(e)
         return None
     if count > (throttle.num_requests if limit is None else limit):
-        raise exceptions.Throttled(detail="This wizard program has used its weekly run limit. Try again next week.")
+        raise exceptions.Throttled(detail="This account has used its weekly wizard run limit. Try again next week.")
     return counter
 
 
