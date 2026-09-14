@@ -12,7 +12,6 @@ import { HEALTH_LABELS, HEALTH_TAG_TYPES } from './checksConstants'
 import { ChecksTable } from './ChecksTable'
 import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
-import { DataQualitySchedule } from './DataQualitySchedule'
 import { SuiteRunsHistory } from './SuiteRunsHistory'
 
 interface DataQualityChecksPanelProps extends DataQualityChecksLogicProps {
@@ -44,7 +43,6 @@ export function DataQualityChecksPanel({
         pollTimedOut,
         runAllInFlight,
         accessDenied,
-        showSchedule,
     } = useValues(logic)
     const { runAll, loadChecks, loadHealth, upsertCheck, runCheck } = useActions(logic)
 
@@ -124,8 +122,6 @@ export function DataQualityChecksPanel({
                 </div>
 
                 {notice}
-
-                {showSchedule && <DataQualitySchedule metricId={logicProps.subjectId} />}
 
                 {dataLastSyncedAt && (
                     <p className="mb-0 text-secondary text-sm">

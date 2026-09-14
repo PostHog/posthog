@@ -177,13 +177,6 @@ describe('dataQualityChecksLogic', () => {
         expect(notExpected).not.toHaveBeenCalled()
     })
 
-    it('offers scheduling only after the first metric check is saved', async () => {
-        await mountLogic({ subjectType: 'metric', subjectId: 'metric-1' })
-        expect(logic.values.showSchedule).toBe(false)
-        logic.actions.upsertCheck(buildCheck({ check_type: 'custom_sql' }))
-        expect(logic.values.showSchedule).toBe(true)
-    })
-
     it('keeps a failed metric check load distinct from an empty result and can retry', async () => {
         ;(dataCatalogMetricsChecksList as jest.Mock).mockRejectedValueOnce(new Error('Service unavailable'))
         await mountLogic({ subjectType: 'metric', subjectId: 'metric-1' })

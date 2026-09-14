@@ -98,6 +98,7 @@ describe('MetricTestsTab', () => {
         )
         expect(await screen.findByText('Signups are positive')).toBeInTheDocument()
         expect(screen.getByText(/definition is not SQL/)).toBeInTheDocument()
+        expect(screen.getByText('Run automatically')).toBeInTheDocument()
         expect(screen.getByText('New check').closest('button')).toHaveAttribute('aria-disabled', 'true')
         logic.unmount()
     })

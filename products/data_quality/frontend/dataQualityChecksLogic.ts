@@ -69,7 +69,6 @@ export interface dataQualityChecksLogicValues {
     pendingCheckActions: Record<CheckPendingKind, Record<string, boolean>>
     pollTimedOut: boolean
     runAllInFlight: boolean
-    showSchedule: boolean
     sortedChecks: DataQualityCheckApi[]
     suiteRunCheckRunsBySuiteRunId: Record<string, DataQualityCheckRunApi[]>
     suiteRuns: DataQualitySuiteRunApi[]
@@ -205,7 +204,6 @@ export interface dataQualityChecksLogicActions {
 export interface dataQualityChecksLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        showSchedule: (checks: DataQualityCheckApi[], arg: any) => boolean
         enabledChecksCount: (checks: DataQualityCheckApi[]) => number
         isSuiteRunning: (activeSuiteRun: DataQualitySuiteRunApi | null, pollTimedOut: boolean) => boolean
         sortedChecks: (checks: DataQualityCheckApi[]) => DataQualityCheckApi[]
@@ -348,11 +346,6 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
         ],
     }),
     selectors({
-        showSchedule: [
-            (s) => [s.checks, (_, props) => props.subjectType],
-            (checks: DataQualityCheckApi[], subjectType: DataQualitySubjectType): boolean =>
-                subjectType === 'metric' && checks.length > 0,
-        ],
         enabledChecksCount: [
             (s) => [s.checks],
             (checks: DataQualityCheckApi[]) => checks.filter((check) => check.enabled !== false).length,
