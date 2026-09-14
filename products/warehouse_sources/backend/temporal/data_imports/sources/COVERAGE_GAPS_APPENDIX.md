@@ -902,14 +902,14 @@ Note: Remaining GETs are file downloads (document/template/audit-log PDFs), sing
 
 ## Braintree — gaps
 
-Today (3): `disputes`, `refunds`, `transactions`
+Today (6): `customers`, `disputes`, `merchant_accounts`, `recurring_billing_subscriptions`, `refunds`, `transactions`
 
 Diffed against: <https://graphql.braintreepayments.com/reference/>
 
-- [ ] `search.customers / Query.customers (CustomerConnection)` — lookup table resolving the customer behind every synced transaction and refund (high)
-- [ ] `Query.recurringBillingSubscriptions` — recurring revenue / subscription state, unavailable from one-off transactions (high)
-- [ ] `Query.report.transactionLevelFees (TransactionLevelFeeReport)` — per-transaction processing fees — the net-revenue side of transactions we already sync (high)
-- [ ] `Merchant.merchantAccounts (MerchantAccountConnection)` — lookup resolving the merchantAccountId carried on every transaction (high)
+- [x] `search.customers / Query.customers (CustomerConnection)` — lookup table resolving the customer behind every synced transaction and refund (high)
+- [x] `Query.recurringBillingSubscriptions` — recurring revenue / subscription state, unavailable from one-off transactions (high)
+- [ ] `Query.report.transactionLevelFees (TransactionLevelFeeReport)` — per-transaction processing fees — the net-revenue side of transactions we already sync (high). Not a table: the field is deprecated in favour of `report.paymentLevelFees`, and both return only a `url` to a per-date report file rather than a connection of rows.
+- [x] `Merchant.merchantAccounts (MerchantAccountConnection)` — lookup resolving the merchantAccountId carried on every transaction (high)
 - [ ] `Query.recurringBillingSubscriptionPlans` — lookup resolving the plan a subscription references (high)
 - [ ] `Query.verifications (VerificationConnection)` — payment method verification attempts and decline reasons (medium)
 - [ ] `search.payments (PaymentConnection)` — superset of all payment types, including ones never surfacing as card transactions (medium)
