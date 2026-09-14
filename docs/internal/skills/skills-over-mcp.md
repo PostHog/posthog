@@ -37,7 +37,12 @@ Two further rules matter for us:
 
 ## What this means for us
 
-- Never treat `allowed_tools` as a security boundary. It is author intent, and no PostHog code enforces it.
+- Never treat `allowed_tools` as a security boundary for skill delivery.
+  It is author intent there, and no code in the skills product enforces it.
+- Signals is the one exception, because it enforces the list itself.
+  `emit_report` / `edit_report` in `allowed_tools` is a scout's opt-in to the report channel.
+  The runner grants the report scope only to an opted-in skill, and `_assert_report_tool_opted_in` in `products/signals/backend/scout_harness/views.py` fail-closes each write against the skill version the run snapshotted.
+  Keep both layers: `products/tasks/backend/temporal/client.py` over-grants the report scope on a fallback path, and is safe only because that write gate exists.
 - Keep the field. Every delivery path shipping today reads the skill from a file, so the list still does its job there.
 - Say so in author-facing copy. A skill author who relies on the list needs to know that the MCP path drops it.
 
