@@ -937,7 +937,6 @@ export interface ActionType extends WithAccessControl {
     post_to_slack?: boolean
     slack_message_format?: string
     steps?: ActionStepType[]
-    selector_match_changed_steps?: number[]
     created_by: UserBasicType | null
     tags?: string[]
     verified?: boolean
