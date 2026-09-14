@@ -406,9 +406,7 @@ class ComposeFingerprint:
     # send identical content to the same recipient are two distinct tickets, so they must not
     # collapse — only a genuine retry from the same author does.
     creator_id: int | None
-    # The tags the create applies to the ticket. Two composes that differ only by tags are distinct
-    # requests — otherwise the second request's tags are silently dropped when it replays the first
-    # request's ticket instead of creating its own.
+    # Two composes that differ only by tags are distinct requests, not a replay of one another.
     tags: frozenset[str]
 
     @classmethod
@@ -484,8 +482,7 @@ class ComposeFingerprint:
         # a distinct ticket even when everything else matches.
         if first.created_by_id != self.creator_id:
             return False
-        # Tags are part of the request's identity: a retry that adds or drops a tag must not
-        # replay a ticket that was created with a different tag set.
+        # A retry that adds or drops a tag must not replay a differently-tagged ticket.
         if current_tag_names(ticket) != self.tags:
             return False
         return True
@@ -496,12 +493,9 @@ class ComposeFingerprint:
         This closes the window where a create commits but its publication never lands: the
         reservation is gone, so only the database can tell the retry that its ticket exists.
         """
-        # Every column matches() checks except the opening comment's body, author, and this
-        # request's tags is filtered here too. Unlike the old team/channel/config/email_from-only
-        # filter, no arbitrary limit can now cut off the real match: anything left after this is
-        # already the small, genuine-retry set the 120-second window was meant to capture.
-        # email_subject is nullable and matches() treats NULL the same as "", so an empty subject
-        # must also accept a NULL column here.
+        # Filter on every matches() column the DB can express directly, so the unbounded query
+        # below can't miss the real match under a burst of newer, non-matching tickets. subject
+        # is nullable and matches() treats NULL as "", so a blank subject must accept NULL too.
         subject_filter = (
             Q(email_subject__isnull=True) | Q(email_subject="")
             if not self.email_subject

@@ -2347,8 +2347,7 @@ class TestComposeTicketAPI(APIBaseTest):
         assert Ticket.objects.filter(team=self.team).count() == 2
 
     def test_compose_same_content_with_different_tags_is_not_deduplicated(self, mock_on_commit):
-        # Tags are part of the request identity: a second request that differs only by tags must
-        # open its own ticket, or its tags are silently dropped in favor of the first request's.
+        # A different tag set must open its own ticket, not silently drop the tags of a replay.
         base = {
             "recipient_email": "pitch@test.com",
             "email_config_id": str(self.email_config.id),
@@ -2369,9 +2368,7 @@ class TestComposeTicketAPI(APIBaseTest):
         assert second_detail.json()["tags"] == ["bug_report"]
 
     def test_compose_recovers_the_existing_ticket_past_newer_unrelated_tickets(self, mock_on_commit):
-        # find_persisted_match must not let a burst of newer, unrelated tickets to the same email
-        # channel crowd out the real match: it has to keep looking rather than give up after an
-        # arbitrary number of non-matching candidates.
+        # A burst of newer, unrelated tickets to the same channel must not crowd out the real match.
         payload = {
             "recipient_email": "pitch@test.com",
             "email_config_id": str(self.email_config.id),
