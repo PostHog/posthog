@@ -52,7 +52,10 @@ from posthog.utils import relative_date_parse, str_to_bool
 from products.batch_exports.backend.api.destination_tests import get_destination_test
 from products.batch_exports.backend.api.utils import check_hogql_batch_exports_enabled
 from products.batch_exports.backend.hogql_source import (
+    DATA_INTERVAL_START_PLACEHOLDER,
     UnsupportedHogQLQueryError,
+    find_interval_placeholders,
+    parse_hogql_select_for_batch_export,
     validate_hogql_query_for_batch_export,
 )
 from products.batch_exports.backend.models.batch_export import (
@@ -2147,6 +2150,17 @@ def create_backfill(
             send_feature_flag_events=False,
         ):
             raise ValidationError("Backfilling from the beginning of time is not enabled for this team.")
+
+        if batch_export.model == BatchExport.Model.HOGQL and (hogql_query := batch_export.hogql_query) is not None:
+            try:
+                parsed = parse_hogql_select_for_batch_export(hogql_query)
+            except UnsupportedHogQLQueryError as e:
+                raise ValidationError(str(e)) from e
+            if DATA_INTERVAL_START_PLACEHOLDER in find_interval_placeholders(parsed):
+                raise ValidationError(
+                    "This query references {data_interval_start}, which is unavailable when backfilling from the "
+                    "beginning of time. Provide 'start_at' or remove {data_interval_start} from the query."
+                )
 
     concurrency_limit = settings.BATCH_EXPORT_MAX_CONCURRENT_BACKFILLS_PER_TEAM
     active_backfills = BatchExportBackfill.objects.filter(

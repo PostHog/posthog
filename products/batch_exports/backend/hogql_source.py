@@ -22,9 +22,6 @@ if typing.TYPE_CHECKING:
 DATA_INTERVAL_START_PLACEHOLDER = "data_interval_start"
 DATA_INTERVAL_END_PLACEHOLDER = "data_interval_end"
 
-# For queries that just want the whole range, like beginning-of-time backfills.
-DATA_INTERVAL_START_EPOCH = dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
-
 # When validating a query, we need to fill-in some values. Any values would
 # work, these are just arbitrary.
 _VALIDATION_DATA_INTERVAL_START = dt.datetime(2000, 1, 1, tzinfo=dt.UTC)
@@ -89,21 +86,25 @@ def replace_interval_placeholders(
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     """Return a copy of the query with the interval placeholders replaced by their values.
 
-    A `None` start substitutes the epoch sentinel, so a `field >= {data_interval_start}`
-    predicate keeps matching every row in a backfill from the beginning of time.
-
+    A referenced bound must have a value, including for beginning-of-time backfills.
     The input query is not modified.
     """
+    bounds = {
+        DATA_INTERVAL_START_PLACEHOLDER: data_interval_start,
+        DATA_INTERVAL_END_PLACEHOLDER: data_interval_end,
+    }
+    for name in sorted(find_interval_placeholders(parsed)):
+        if bounds[name] is None:
+            raise UnsupportedHogQLQueryError(
+                f"The query references '{{{name}}}', but '{name}' is not defined. "
+                "Provide the bound or remove the placeholder from the query."
+            )
+
     return typing.cast(
         ast.SelectQuery | ast.SelectSetQuery,
         replace_placeholders(
             parsed,
-            {
-                DATA_INTERVAL_START_PLACEHOLDER: ast.Constant(
-                    value=data_interval_start if data_interval_start is not None else DATA_INTERVAL_START_EPOCH
-                ),
-                DATA_INTERVAL_END_PLACEHOLDER: ast.Constant(value=data_interval_end),
-            },
+            {name: ast.Constant(value=value) for name, value in bounds.items() if value is not None},
         ),
     )
 

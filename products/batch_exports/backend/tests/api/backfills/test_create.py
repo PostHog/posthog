@@ -1,4 +1,5 @@
 import datetime as dt
+from typing import TYPE_CHECKING
 
 import pytest
 import time_machine
@@ -15,9 +16,16 @@ from posthog.models.integration import Integration
 from posthog.models.person.util import create_person
 from posthog.models.team import Team
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportBackfill
-from products.batch_exports.backend.tests.api.fixtures import create_organization
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportBackfill, BatchExportSource
+from products.batch_exports.backend.tests.api.fixtures import (
+    create_batch_export,
+    create_destination,
+    create_organization,
+)
 from products.batch_exports.backend.tests.api.operations import backfill_batch_export, create_batch_export_ok
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 pytestmark = [
     pytest.mark.django_db,
@@ -571,3 +579,87 @@ def test_batch_export_earliest_backfill_allowed_with_feature_flag(
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert "backfill_id" in response.json()
+
+
+@pytest.mark.parametrize(
+    "model,hogql_query,start_at,expected_error",
+    [
+        pytest.param(
+            "hogql",
+            "SELECT event FROM (SELECT event FROM events WHERE timestamp >= {data_interval_start})",
+            None,
+            "This query references {data_interval_start}",
+            id="missing-referenced-start",
+        ),
+        pytest.param(
+            "hogql",
+            "SELECT event FROM events WHERE timestamp >= {data_interval_start}",
+            "2021-01-01T00:00:00+00:00",
+            None,
+            id="explicit-start",
+        ),
+        pytest.param(
+            "hogql",
+            "SELECT event FROM events WHERE timestamp < {data_interval_end}",
+            None,
+            None,
+            id="end-only",
+        ),
+        pytest.param(
+            "hogql",
+            "SELECT '{data_interval_start}' AS literal FROM events",
+            None,
+            None,
+            id="no-placeholders",
+        ),
+        pytest.param(
+            "events",
+            "SELECT event FROM events WHERE timestamp >= {data_interval_start}",
+            None,
+            None,
+            id="events-custom-schema",
+        ),
+        pytest.param(
+            "hogql",
+            "SELECT event FROM events WHERE timestamp >= {unknown}",
+            None,
+            "Unknown placeholder '{unknown}'",
+            id="unsupported-persisted-query",
+        ),
+    ],
+)
+def test_batch_export_backfill_hogql_interval_validation(
+    client: HttpClient,
+    team: Team,
+    user: "User",
+    model: str,
+    hogql_query: str,
+    start_at: str | None,
+    expected_error: str | None,
+) -> None:
+    client.force_login(user)
+    batch_export = create_batch_export(team, create_destination())
+    batch_export.model = model
+    if model == BatchExport.Model.HOGQL:
+        batch_export.source = BatchExportSource.objects.create(team=team, hogql_query=hogql_query)
+    else:
+        batch_export.schema = {"hogql_query": hogql_query, "fields": [{"expression": "event", "alias": "event"}]}
+    batch_export.save()
+
+    with (
+        patch("products.batch_exports.backend.api.batch_export.posthoganalytics.feature_enabled", return_value=True),
+        patch("products.batch_exports.backend.api.batch_export.sync_connect") as connect,
+        patch("products.batch_exports.backend.api.batch_export.backfill_export") as backfill,
+    ):
+        response = backfill_batch_export(client, team.pk, str(batch_export.pk), start_at, "2021-01-01T01:00:00+00:00")
+
+    if expected_error is not None:
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected_error in response.json()["detail"]
+        connect.assert_not_called()
+        backfill.assert_not_called()
+    else:
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert "backfill_id" in response.json()
+        backfill.assert_called_once()
+        assert backfill.call_args.kwargs["start_at"] == (dt.datetime.fromisoformat(start_at) if start_at else None)

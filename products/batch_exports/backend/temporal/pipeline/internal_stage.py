@@ -44,6 +44,7 @@ from posthog.temporal.common.clickhouse import (
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.hogql_source import UnsupportedHogQLQueryError
 from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.service import (
     BackfillDetails,
@@ -107,6 +108,7 @@ NON_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     DataIntervalEndInFutureError,
     HogQLQueryResourceLimitExceededError,
     InvalidFilterError,
+    UnsupportedHogQLQueryError,
 )
 
 

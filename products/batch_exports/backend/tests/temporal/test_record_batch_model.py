@@ -343,10 +343,7 @@ class TestHogQLQueryRecordBatchModel:
         assert f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" not in printed_query
         assert model.wait_for_data_interval_end is False
 
-    @pytest.mark.parametrize("has_data_interval_start", [True, False], ids=["with-start", "without-start"])
-    async def test_as_query_with_parameters_applies_data_interval(
-        self, ateam, data_interval_start, data_interval_end, has_data_interval_start
-    ):
+    async def test_as_query_with_parameters_applies_data_interval(self, ateam, data_interval_start, data_interval_end):
         model = HogQLQueryRecordBatchModel(
             team_id=ateam.id,
             hogql_query=(
@@ -355,18 +352,12 @@ class TestHogQLQueryRecordBatchModel:
                 "AND timestamp < {data_interval_end}"
             ),
         )
-        printed_query, _ = await model.as_query_with_parameters(
-            data_interval_start if has_data_interval_start else None, data_interval_end
-        )
+        printed_query, _ = await model.as_query_with_parameters(data_interval_start, data_interval_end)
 
         upper_bound = f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
         lower_bound = f"toDateTime64('{data_interval_start:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
         assert f"less(timestamp, {upper_bound})" in printed_query
-        if has_data_interval_start:
-            assert f"greaterOrEquals(timestamp, {lower_bound})" in printed_query
-        else:
-            # a missing start (backfill from the beginning of time) substitutes the epoch sentinel
-            assert "toDateTime64('1970-01-01 00:00:00.000000', 6, 'UTC')" in printed_query
+        assert f"greaterOrEquals(timestamp, {lower_bound})" in printed_query
         # the user's own filters are kept
         assert "equals(event, %(hogql_val_" in printed_query
         assert model.wait_for_data_interval_end is True
