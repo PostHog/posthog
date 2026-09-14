@@ -254,7 +254,9 @@ export interface sidepanelTicketsLogicMeta {
         ticketFilterCounts: (tickets: ConversationTicket[]) => Record<SidePanelTicketFilter, number>
         filteredTickets: (
             tickets: ConversationTicket[],
-            effectiveStatusFilter: SidePanelTicketFilter
+            effectiveStatusFilter: SidePanelTicketFilter,
+            currentTicket: ConversationTicket | null,
+            view: SidePanelViewState
         ) => ConversationTicket[]
         canCreateTicket: (
             billing: BillingType | null,
@@ -472,17 +474,27 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 return counts
             },
         ],
-        // Unread threads float to the top, then most recent activity, so the reply you're waiting
-        // on isn't buried under older tickets that happened to be created later.
+        // Unread threads float to the top, then most recent activity. The open thread counts as
+        // unread while it is being read: opening it marks it read, and the full-screen scene keeps
+        // the list beside the thread, so without the pin the row would drop or vanish on click.
         filteredTickets: [
-            (s) => [s.tickets, s.effectiveStatusFilter],
-            (tickets: ConversationTicket[], effectiveStatusFilter: SidePanelTicketFilter): ConversationTicket[] =>
-                tickets
-                    .filter((ticket) => ticketMatchesFilter(ticket, effectiveStatusFilter))
+            (s) => [s.tickets, s.effectiveStatusFilter, s.currentTicket, s.view],
+            (
+                tickets: ConversationTicket[],
+                effectiveStatusFilter: SidePanelTicketFilter,
+                currentTicket: ConversationTicket | null,
+                view: SidePanelViewState
+            ): ConversationTicket[] => {
+                const pinnedId = view === 'ticket' ? (currentTicket?.id ?? null) : null
+                const surfaces = (ticket: ConversationTicket): boolean =>
+                    ticket.id === pinnedId || (ticket.unread_count ?? 0) > 0
+                return tickets
+                    .filter((ticket) => ticket.id === pinnedId || ticketMatchesFilter(ticket, effectiveStatusFilter))
                     .sort((a, b) => {
-                        const unreadDelta = Number((b.unread_count ?? 0) > 0) - Number((a.unread_count ?? 0) > 0)
-                        return unreadDelta !== 0 ? unreadDelta : ticketActivityTime(b) - ticketActivityTime(a)
-                    }),
+                        const surfaceDelta = Number(surfaces(b)) - Number(surfaces(a))
+                        return surfaceDelta !== 0 ? surfaceDelta : ticketActivityTime(b) - ticketActivityTime(a)
+                    })
+            },
         ],
         // Opening a ticket is the paid part of support. Reading and replying to tickets already in
         // the account isn't — free plans can end up with tickets via billing questions or PostHog AI
