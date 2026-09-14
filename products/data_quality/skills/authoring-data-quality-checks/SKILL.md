@@ -54,7 +54,8 @@ stays fixed by the URL. An edit that duplicates another check's assertion is rej
 Create and run calls need the subject's UUID. The two queries above return names and columns, not
 IDs. Resolve the ID by exact name, and exclude deleted rows. A substring match can select a
 neighboring subject. A soft-deleted row keeps its original name, so a replacement can share that
-name.
+name. Read the deleted flag through `coalesce`: it is null on rows that predate the column's
+default, and the product counts a null row as live.
 
 Resolve the view first. A materialized view's backing table carries the view's own name, and no
 exposed column tells the two apart. A name that a view answers to is a view. A check on that
@@ -65,7 +66,9 @@ never gets.
 - **Saved query (view).** The `id` is the `saved_query_id`.
 
   ```sql
-  SELECT id FROM system.data_modeling_views WHERE name = 'orders' AND deleted = 0
+  SELECT id
+  FROM system.data_modeling_views
+  WHERE name = 'orders' AND coalesce(deleted, 0) = 0
   ```
 
 - **Warehouse table.** Resolve a table only when no view holds the name. The subject name is the
@@ -76,7 +79,7 @@ never gets.
   ```sql
   SELECT id, external_data_source_id
   FROM system.data_warehouse_tables
-  WHERE name = 'stripe_charge' AND deleted = 0
+  WHERE name = 'stripe_charge' AND coalesce(deleted, 0) = 0
   ORDER BY created_at DESC
   LIMIT 1
   ```
@@ -85,7 +88,9 @@ never gets.
   `external_data_source_id`, read that source before you use the table ID.
 
   ```sql
-  SELECT access_method, deleted FROM system.data_warehouse_sources WHERE id = '<source id>'
+  SELECT access_method, coalesce(deleted, 0) AS deleted
+  FROM system.data_warehouse_sources
+  WHERE id = '<source id>'
   ```
 
   A deleted source takes its tables out of reach, and the create is rejected. A direct connection is
