@@ -4,6 +4,15 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { dateFilterToText } from 'lib/utils/dateFilters'
+import {
+    type IntervalOption,
+    buildBucketKeys,
+    intervalOptionsForWindow,
+    lastBucketIsInProgress,
+    normalizeBucket,
+    parseIntervalParam,
+    resolveInterval,
+} from 'lib/utils/timeBuckets'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -16,16 +25,6 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
-
-import {
-    type IntervalOption,
-    buildBucketKeys,
-    intervalOptionsForWindow,
-    lastBucketIsInProgress,
-    normalizeBucket,
-    parseIntervalParam,
-    resolveInterval,
-} from './timeBuckets'
 
 export interface CategoryCount {
     category: string

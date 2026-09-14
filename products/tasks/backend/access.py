@@ -1,6 +1,8 @@
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from django.conf import settings
+
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none
@@ -54,6 +56,10 @@ def _get_funding_status(user: User, organization: "Organization") -> Organizatio
 def get_desktop_access_decision(user: User, organization: "Organization") -> DesktopAccessDecision:
     if not user or not user.is_authenticated or not user.distinct_id:
         raise DesktopAccessResolutionError("Authentication is required to evaluate Desktop access")
+
+    if settings.DEBUG:
+        observe_desktop_access_decision(outcome="override")
+        return DesktopAccessDecision.ALLOWED
 
     organization_id = str(organization.id)
     groups = {"organization": organization_id}

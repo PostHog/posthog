@@ -4,6 +4,7 @@ import {
   HOST_TRPC_CLIENT,
   type HostTrpcClient,
 } from "@posthog/host-router/client";
+import { clearQuerySnapshots } from "@posthog/ui/hooks/useQuerySnapshot";
 import {
   IMPERATIVE_QUERY_CLIENT,
   type ImperativeQueryClient,
@@ -37,4 +38,5 @@ export function clearAuthScopedQueries(): void {
   queryClient().removeQueries({
     predicate: (query) => query.meta?.authScoped === true,
   });
+  clearQuerySnapshots();
 }

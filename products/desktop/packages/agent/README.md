@@ -165,6 +165,10 @@ Required environment variables (validated by zod in `src/server/bin.ts`):
 - `POSTHOG_PERSONAL_API_KEY` — API key for PostHog requests
 - `POSTHOG_PROJECT_ID` — numeric project ID
 
+Optional behavior toggles:
+
+- `POSTHOG_BENJAMIN` — `1` or `true` appends the vendored Benjamin-Plus token-efficiency instruction (`src/adapters/benjamin/instruction.ts`) to the Claude system prompt and the Codex instructions, and stamps the pinned upstream commit into run state as `benjamin_version` at session start. Any other value leaves prompts unchanged.
+
 Optional run telemetry (the logs pair must both be set, otherwise telemetry stays off):
 
 - `POSTHOG_AGENT_OTEL_LOGS_URL` — full OTLP logs URL for run metadata, e.g. `https://us.i.posthog.com/i/v1/logs`
@@ -244,7 +248,7 @@ ACP defines standard methods like `session/prompt`, `session/update`, and `sessi
 
 - `_posthog/run_started` — `{ sessionId, runId, taskId?, agentVersion }` — session initialized and ready. `agentVersion` is the agent's semver, used by clients to gate UI features against agent capabilities
 - `_posthog/task_complete` — `{ sessionId, taskId }` — agent finished (success or end-turn)
-- `_posthog/error` — `{ sessionId, message, error? }` — unrecoverable error
+- `_posthog/error` — `{ sessionId, message, error?, errorCategory? }` — unrecoverable error. `errorCategory` is the `classifyAgentError()` classification, which the Django log drain reports as the run's cause
 - `_posthog/status` — `{ sessionId, status, message? }` — progress updates
 - `_posthog/sdk_session` — `{ taskRunId, sessionId, adapter }` — maps the ACP session to a task run and adapter type (emitted once per session, used by clients to know which adapter is active)
 

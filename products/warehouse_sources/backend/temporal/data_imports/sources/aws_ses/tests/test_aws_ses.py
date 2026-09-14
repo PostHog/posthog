@@ -3,7 +3,7 @@ import datetime as dt
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -152,7 +152,7 @@ class TestSendRequest:
         session.get.return_value = make_response(200, {})
         credentials = Credentials("AKIAEXAMPLE", "secret")
 
-        with freeze_time("2026-08-07T10:00:00Z"):
+        with time_machine.travel("2026-08-07T10:00:00Z", tick=False):
             send_request(session, credentials, "eu-west-1", "/v2/email/account")
 
         assert session.get.call_args[0][0] == "https://email.eu-west-1.amazonaws.com/v2/email/account"
@@ -403,6 +403,172 @@ class TestGetRows:
 
         assert batches == []
         assert manager.cleared is True
+
+    @pytest.mark.parametrize(
+        "endpoint,responses,expected_row,detail_path",
+        [
+            (
+                "email_templates",
+                [
+                    {"TemplatesMetadata": [{"TemplateName": "welcome", "CreatedTimestamp": JAN_2025}]},
+                    {
+                        "TemplateName": "welcome",
+                        "TemplateContent": {"Subject": "Hi!", "Text": "Hello", "Html": "<p>Hello</p>"},
+                    },
+                ],
+                {
+                    "template_name": "welcome",
+                    "created_timestamp": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                    "template_content_subject": "Hi!",
+                    "template_content_text": "Hello",
+                    "template_content_html": "<p>Hello</p>",
+                },
+                "/v2/email/templates/welcome",
+            ),
+            (
+                "contact_lists",
+                [
+                    {"ContactLists": [{"ContactListName": "newsletter", "LastUpdatedTimestamp": JAN_2025}]},
+                    {
+                        "ContactListName": "newsletter",
+                        "Description": "Weekly product updates",
+                        "Topics": [{"TopicName": "releases", "DefaultSubscriptionStatus": "OPT_IN"}],
+                        "CreatedTimestamp": JAN_2025,
+                        "LastUpdatedTimestamp": JAN_2025,
+                        "Tags": [{"Key": "env", "Value": "prod"}],
+                    },
+                ],
+                {
+                    "contact_list_name": "newsletter",
+                    "description": "Weekly product updates",
+                    "topics": [{"TopicName": "releases", "DefaultSubscriptionStatus": "OPT_IN"}],
+                    "created_timestamp": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                    "last_updated_timestamp": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                    "tags": [{"Key": "env", "Value": "prod"}],
+                },
+                "/v2/email/contact-lists/newsletter",
+            ),
+            (
+                "dedicated_ip_pools",
+                [
+                    {"DedicatedIpPools": ["marketing-pool"]},
+                    {"DedicatedIpPool": {"PoolName": "marketing-pool", "ScalingMode": "MANAGED"}},
+                ],
+                {
+                    "pool_name": "marketing-pool",
+                    "dedicated_ip_pool_pool_name": "marketing-pool",
+                    "dedicated_ip_pool_scaling_mode": "MANAGED",
+                },
+                "/v2/email/dedicated-ip-pools/marketing-pool",
+            ),
+            (
+                "dedicated_ips",
+                [
+                    {
+                        "DedicatedIps": [
+                            {
+                                "Ip": "192.0.2.10",
+                                "WarmupStatus": "DONE",
+                                "WarmupPercentage": 100,
+                                "PoolName": "marketing-pool",
+                            }
+                        ]
+                    }
+                ],
+                {
+                    "ip": "192.0.2.10",
+                    "warmup_status": "DONE",
+                    "warmup_percentage": 100,
+                    "pool_name": "marketing-pool",
+                },
+                None,
+            ),
+            (
+                "custom_verification_email_templates",
+                [
+                    {
+                        "CustomVerificationEmailTemplates": [
+                            {
+                                "TemplateName": "verify-address",
+                                "FromEmailAddress": "no-reply@example.com",
+                                "TemplateSubject": "Please confirm your address",
+                            }
+                        ]
+                    },
+                    {
+                        "TemplateName": "verify-address",
+                        "FromEmailAddress": "no-reply@example.com",
+                        "TemplateSubject": "Please confirm your address",
+                        "TemplateContent": "<html>Confirm</html>",
+                        "SuccessRedirectionURL": "https://example.com/verified",
+                        "FailureRedirectionURL": "https://example.com/failed",
+                    },
+                ],
+                {
+                    "template_name": "verify-address",
+                    "from_email_address": "no-reply@example.com",
+                    "template_subject": "Please confirm your address",
+                    "template_content": "<html>Confirm</html>",
+                    "success_redirection_url": "https://example.com/verified",
+                    "failure_redirection_url": "https://example.com/failed",
+                },
+                "/v2/email/custom-verification-email-templates/verify-address",
+            ),
+            (
+                "multi_region_endpoints",
+                [
+                    {
+                        "MultiRegionEndpoints": [
+                            {
+                                "EndpointName": "global-sending",
+                                "Status": "READY",
+                                "EndpointId": "e1a2b3c4",
+                                "Regions": ["us-east-1", "eu-west-1"],
+                                "CreatedTimestamp": JAN_2025,
+                                "LastUpdatedTimestamp": JAN_2025,
+                            }
+                        ]
+                    }
+                ],
+                {
+                    "endpoint_name": "global-sending",
+                    "status": "READY",
+                    "endpoint_id": "e1a2b3c4",
+                    "regions": ["us-east-1", "eu-west-1"],
+                    "created_timestamp": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                    "last_updated_timestamp": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                },
+                None,
+            ),
+        ],
+    )
+    def test_each_new_get_table_yields_rows_carrying_its_primary_key_column(
+        self,
+        endpoint: str,
+        responses: list[dict[str, Any]],
+        expected_row: dict[str, Any],
+        detail_path: Optional[str],
+    ) -> None:
+        batches, send, _ = self._run(responses, endpoint=endpoint)
+
+        assert batches == [[expected_row]]
+        primary_key = AWS_SES_ENDPOINTS[endpoint].primary_key
+        assert primary_key is not None
+        for key_column in primary_key:
+            assert expected_row[key_column]
+        if detail_path is not None:
+            assert send.call_args_list[1][0][3] == detail_path
+
+    def test_an_account_with_no_dedicated_ips_yields_an_empty_table_and_stays_reachable(self) -> None:
+        batches, _, manager = self._run([{"DedicatedIps": []}], endpoint="dedicated_ips")
+
+        assert batches == []
+        assert manager.cleared is True
+
+        with mock.patch.object(aws_ses, "send_request", return_value={"DedicatedIps": []}):
+            assert probe_endpoint_permissions("key", "secret", None, "us-east-1", ["dedicated_ips"]) == {
+                "dedicated_ips": None
+            }
 
 
 class TestValidateCredentials:

@@ -234,6 +234,11 @@ class CDCExtractActivity:
         # past transactions that are completely yielded — see _read_wal_loop.
         self.current_txn_lsn: str | None = None
         self.last_complete_txn_end_lsn: str | None = None
+        # End of WAL before this run peeked, and whether the peek reached the end of the backlog.
+        # Together they let a run that decoded nothing still release the WAL it examined — see
+        # _handle_no_changes.
+        self._pre_read_position: str | None = None
+        self._backlog_drained: bool = False
         self.event_count: int = 0
         self.all_table_names: set[str] = set()
         # Wall-clock start, set in run(); drives cdc_extraction_duration_seconds.
@@ -864,6 +869,9 @@ class CDCExtractActivity:
         try:
             self._require_configured_slot()
             self.reader.connect()
+            # Taken before the peek, so anything committed after it stays above this position and
+            # is decoded by a later run.
+            self._pre_read_position = self.reader.current_position()
 
             self._load_pk_columns()
             self._read_wal_loop()
@@ -1316,6 +1324,7 @@ class CDCExtractActivity:
             # Drained: the peek returned less than a full page, so the backlog is exhausted.
             # Leave any buffered tail for run()'s _final_flush (is_final=True) + advance.
             if rows_consumed < limit:
+                self._backlog_drained = True
                 return
 
             if (time.monotonic() - self._run_started_at) >= CDC_READ_SOFT_DEADLINE_SECONDS:
@@ -1451,11 +1460,32 @@ class CDCExtractActivity:
 
     def _handle_no_changes(self, truncated_tables: list[str]) -> None:
         """Early-return path: no DML events were read."""
+        # A mid-run page advance already released the WAL it committed, so the slot moved this run.
+        advanced = self.last_confirmed_lsn is not None
         if truncated_tables:
             truncate_end_lsn = self.reader.last_commit_end_lsn
             if truncate_end_lsn is not None:
                 self._confirm_position(truncate_end_lsn)
                 self.log.info("slot_advanced_past_truncate", position=truncate_end_lsn)
+                advanced = True
+
+        # Logical decoding reads every WAL record, but the peek only returns the ones the
+        # publication covers, so a source whose publication is quiet while the rest of the database
+        # writes yields nothing to advance on. The slot then pins the WAL from its last confirmed
+        # position and the source retains it until the lag safety net drops the slot. The peek
+        # examined every record up to the pre-read position and kept none of them, so releasing that
+        # much is safe. Two conditions bound it. The backlog must have drained, because a run
+        # stopped by the read deadline left records below that position unread. Nothing else may
+        # have advanced the slot this run, because the pre-read position can sit behind where those
+        # advances left it, and the next quiet run releases the remainder anyway.
+        if not advanced and self._backlog_drained and self._pre_read_position is not None:
+            try:
+                self._confirm_position(self._pre_read_position)
+                self.log.info("slot_advanced_no_changes", position=self._pre_read_position)
+            except Exception:
+                # Retention hygiene, not the run's work. Failing here would mark every schema failed
+                # and email the customer about a run that read nothing and lost nothing.
+                self.log.warning("slot_advance_no_changes_failed", exc_info=True)
 
         now = dt.datetime.now(tz=dt.UTC)
         for schema in self.cdc_schemas:

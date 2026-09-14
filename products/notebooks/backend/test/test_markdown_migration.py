@@ -281,7 +281,7 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert "> Quoted context" in markdown
         assert "\n\n<Query " in markdown
         assert "\n\n## Where to improve" in markdown
-        assert "\n\n<Python " in markdown
+        assert '\n\n<UnknownNode nodeType="ph-python" ' in markdown
         assert "> ! Watch this" in markdown
         assert "> <" not in markdown
 

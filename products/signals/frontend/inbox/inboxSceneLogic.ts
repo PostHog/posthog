@@ -31,6 +31,7 @@ import {
     InboxReportCloseMethod,
     InboxReportOpenMethod,
 } from './inboxAnalytics'
+import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic } from './logics/inboxFiltersLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
 import type { ScoutCreateInitialValues } from './logics/scoutCreateModalLogic'
@@ -38,6 +39,7 @@ import { scratchpadLogic } from './logics/scratchpadLogic'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import {
     INBOX_LEGACY_TAB_KEYS,
+    INBOX_REPORT_SECTION_KEYS,
     INBOX_STAFF_ONLY_TAB_KEYS,
     INBOX_TAB_KEYS,
     InboxReportSectionKey,
@@ -47,6 +49,7 @@ import {
     SignalScoutRunStatus,
     SignalScoutRunSummary,
 } from './types'
+import { mergeReportRows, selectedFlatListSections } from './utils/flatReportList'
 import { isInboxRedesignEnabled } from './utils/inboxRedesign'
 import { inboxTabRedirectPath } from './utils/inboxReportUrls'
 import { decodeScoutCreateTemplate } from './utils/scoutTemplateDeepLink'
@@ -134,6 +137,43 @@ export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks:
     )
 }
 
+/**
+ * Which pane of the scout detail page is open. The main column holds Reports, Runs and Signals; the
+ * rail holds Told and Learned. One value covers both, because below the detail page's container
+ * breakpoint the rail's tabs join the main tab bar and only one pane shows at a time.
+ *
+ * `null` means nobody has chosen: the page picks Reports when the scout has any, else Runs.
+ */
+export const SCOUT_DETAIL_TABS = ['reports', 'runs', 'signals', 'told', 'learned'] as const
+export type ScoutDetailTab = (typeof SCOUT_DETAIL_TABS)[number]
+
+function asScoutDetailTab(value: string | undefined): ScoutDetailTab | null {
+    return value !== undefined && (SCOUT_DETAIL_TABS as readonly string[]).includes(value)
+        ? (value as ScoutDetailTab)
+        : null
+}
+
+/** The pane a scout URL's path states on its own: a finding is addressed within Signals. */
+function panePathImplies(findingId: string | null): ScoutDetailTab | null {
+    return findingId ? 'signals' : null
+}
+
+/** The pane a scout URL opens: the one its `tab` names, or the one its path implies. */
+function scoutUrlPane(tab: ScoutDetailTab | null, findingId: string | null): ScoutDetailTab | null {
+    return tab ?? panePathImplies(findingId)
+}
+
+/**
+ * The search params a scout-page navigation should carry: whatever is on the URL now, with `tab`
+ * set to the open pane, or dropped when the path already states that pane. A bare scout URL states
+ * the default pane and a finding URL states Signals, so both stay clean, and every other pane is
+ * named in the URL so it survives a reload.
+ */
+function scoutTabSearchParams(pane: ScoutDetailTab | null, findingId: string | null): Record<string, any> {
+    const { tab: _ignored, ...rest } = router.values.searchParams
+    return pane && pane !== panePathImplies(findingId) ? { ...rest, tab: pane } : rest
+}
+
 /** Whether a URL segment is one of the current layout's page tabs. */
 function isInboxTabKey(value: string | undefined, redesign: boolean): value is InboxTabKey {
     const tabKeys = (redesign ? INBOX_TAB_KEYS : INBOX_LEGACY_TAB_KEYS) as string[]
@@ -174,14 +214,48 @@ function findLoadedReport(id: string): SignalReport | null {
 }
 
 /**
- * Position (1-based) and size of the report's list, for `Inbox report opened`. Searches the mounted
- * per-section lists for the report. Null when the report isn't in a loaded list (e.g. a cold deep-link).
+ * Position (1-based) and size of the report's list, for `Inbox report opened` and `Inbox report
+ * scrolled`. Under the flat Reports list (`flatList`) the rank is rebuilt with the same selection,
+ * dedupe, and ordering the list rendered with, so these outcome events join to the impressions
+ * recorded at the same rank. With the redesign flag off each tab is its own list, so the rank is
+ * the position within the report's own state. Null when the report isn't in a rendered list (e.g.
+ * a cold deep-link).
  */
-function findReportRank(id: string): {
+function findReportRank(
+    id: string,
+    flatList: boolean
+): {
     rank: number | null
     listSize: number | null
     section: InboxReportSectionKey | null
 } {
+    if (flatList) {
+        const filterValues = inboxFiltersLogic.findMounted()?.values
+        if (!filterValues) {
+            return { rank: null, listSize: null, section: null }
+        }
+        const isStaff = userLogic.findMounted()?.values.user?.is_staff ?? false
+        const reportsBySection = Object.fromEntries(
+            INBOX_REPORT_SECTION_KEYS.map((sectionKey) => [
+                sectionKey,
+                reportListLogic.findMounted({
+                    sectionKey,
+                    listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey],
+                })?.values.reports ?? [],
+            ])
+        ) as Record<InboxReportSectionKey, SignalReport[]>
+        const rows = mergeReportRows(
+            reportsBySection,
+            selectedFlatListSections(filterValues.visibleStateFilter, isStaff),
+            filterValues.sortField,
+            filterValues.sortDirection
+        )
+        const idx = rows.findIndex((row) => row.report.id === id)
+        if (idx >= 0) {
+            return { rank: idx + 1, listSize: rows.length, section: rows[idx].sectionKey }
+        }
+        return { rank: null, listSize: null, section: null }
+    }
     for (const sectionKey of Object.keys(INBOX_REPORT_SECTION_LIST_PARAMS) as InboxReportSectionKey[]) {
         const mounted = reportListLogic.findMounted({
             sectionKey,
@@ -292,6 +366,7 @@ export interface inboxSceneLogicValues {
     isScratchpadOpen: boolean
     isStaff: boolean
     isTriageOpen: boolean
+    scoutDetailTab: ScoutDetailTab | null
     scoutTemplateDraft: ScoutCreateInitialValues | null
     selectedReport: SignalReport | null
     selectedReportId: string | null
@@ -367,6 +442,9 @@ export interface inboxSceneLogicActions {
     setRunsOpen: (open: boolean) => {
         open: boolean
     }
+    setScoutDetailTab: (tab: ScoutDetailTab | null) => {
+        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | null
+    }
     setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => {
         draft: ScoutCreateInitialValues | null
     }
@@ -382,10 +460,12 @@ export interface inboxSceneLogicActions {
     }
     setSelectedScoutSkillName: (
         skillName: string | null,
-        findingId?: string | null
+        findingId?: string | null,
+        tab?: ScoutDetailTab | null
     ) => {
         findingId: string | null
         skillName: string | null
+        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | null
     }
     setTriageOpen: (open: boolean) => {
         open: boolean
@@ -423,8 +503,11 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
 
     connect(() => ({
         // Mount inboxFiltersLogic with the scene so its URL sync (shareable filter params) applies on
-        // deep-link load, before the filter bar / list have rendered.
-        logic: [inboxFiltersLogic],
+        // deep-link load, before the filter bar / list have rendered. inboxBulkActionsLogic owns the
+        // `reportStateChanged` broadcast the report refresh below sends, and kea throws when an action
+        // is dispatched through an unmounted logic, so the scene keeps it alive instead of relying on
+        // a component (the list toolbar, the detail actions) having rendered first.
+        logic: [inboxFiltersLogic, inboxBulkActionsLogic],
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags', 'receivedFeatureFlags']],
         actions: [signalSourcesLogic, ['loadSourceConfigs'], featureFlagLogic, ['setFeatureFlags']],
     })),
@@ -440,11 +523,21 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         setActiveTab: (tab: InboxTabKey) => ({ tab }),
         // Scout detail surface: selecting a scout opens its full-width detail over the list. An
         // optional finding id deep-links to one emitted finding within that scout (highlighted +
-        // scrolled into view if it's still in the recent window).
-        setSelectedScoutSkillName: (skillName: string | null, findingId: string | null = null) => ({
+        // scrolled into view if it's still in the recent window). The pane travels with the
+        // selection so a route can name the tab its URL asked for in the same action: a second
+        // action for the tab would first write a URL without it, and that write is a history entry.
+        setSelectedScoutSkillName: (
+            skillName: string | null,
+            findingId: string | null = null,
+            tab: ScoutDetailTab | null = null
+        ) => ({
             skillName,
             findingId,
+            tab,
         }),
+        // Which pane of the open scout's page is showing. Carried in the URL so a link to a scout's
+        // runs survives a reload.
+        setScoutDetailTab: (tab: ScoutDetailTab | null) => ({ tab }),
         // Scout fleet-memory (scratchpad) surface: a full-width browse/search view over the list,
         // mutually exclusive with the report and scout-detail views. Reached from the fleet-memory callout.
         setScratchpadOpen: (open: boolean) => ({ open }),
@@ -614,6 +707,16 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             null as string | null,
             {
                 setSelectedScoutSkillName: (_, { findingId }) => findingId,
+            },
+        ],
+        scoutDetailTab: [
+            null as ScoutDetailTab | null,
+            {
+                setScoutDetailTab: (_, { tab }) => tab,
+                // The pane the navigation named wins: a route passes the tab its URL carries, so a
+                // finding link that names another pane opens that one. A roster click passes
+                // nothing, which leaves the page on the pane its path implies.
+                setSelectedScoutSkillName: (_, { findingId, tab }) => scoutUrlPane(tab, findingId),
             },
         ],
     }),
@@ -787,14 +890,22 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
         // Fire `Inbox report opened` once the authoritative record lands (skip background refreshes
         // of the already-open report). Rank/list_size come from whichever loaded list holds it.
-        loadSelectedReportSuccess: ({ selectedReportResponse }) => {
+        loadSelectedReportSuccess: ({ selectedReportResponse }, _, __, previousState) => {
             const report = selectedReportResponse
+            // The report lists stay mounted behind the detail pane and reconcile only on this
+            // broadcast, so a status the server moved behind us (a webhook suppressing the report)
+            // would leave their row and count showing the old state. Compare against the record we
+            // held for the same report, so navigating between two reports never counts as a change.
+            const previous = selectors.selectedReport(previousState)
+            if (report && previous?.id === report.id && previous.status !== report.status) {
+                inboxBulkActionsLogic.actions.reportStateChanged()
+            }
             // Skip already-open refreshes, and stale loads for a report the user already navigated away
             // from before the fetch returned (else we'd log a phantom open + a later bogus dwell close).
             if (!report || values.selectedReportId !== report.id || cache.openTracking?.report.id === report.id) {
                 return
             }
-            const { rank, listSize, section } = findReportRank(report.id)
+            const { rank, listSize, section } = findReportRank(report.id, values.isRedesign)
             captureInboxReportOpened({
                 report,
                 openMethod: (cache.pendingOpenMethod as InboxReportOpenMethod | undefined) ?? 'unknown',
@@ -818,7 +929,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 return
             }
             open.scrolled = true
-            const { rank, listSize } = findReportRank(open.report.id)
+            const { rank, listSize } = findReportRank(open.report.id, values.isRedesign)
             captureInboxReportScrolled({
                 report: open.report,
                 rank,
@@ -877,7 +988,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
     })),
 
-    events(({ cache }) => ({
+    events(({ actions, cache, values }) => ({
         afterMount: () => {
             // `beforeUnmount` flushes dwell time on in-app navigation, but a tab close or hard page
             // unload never unmounts the scene, so half the closes were dropped. Flush on `pagehide`
@@ -890,6 +1001,27 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     return () => window.removeEventListener('pagehide', onPageHide)
                 },
                 'reportUnloadFlush',
+                { pauseOnPageHidden: false }
+            )
+            // The open report is fetched once and then lags the server (closing its PR on GitHub
+            // suppresses it through the webhook), so re-fetch when the tab comes back into view.
+            // Same opt-out as above: the listener must be alive while hidden to see the return.
+            cache.disposables.add(
+                () => {
+                    const disposables = cache.disposables
+                    const onVisibilityChange = (): void => {
+                        if (document.visibilityState !== 'visible' || disposables.isDisposed) {
+                            return
+                        }
+                        const id = values.selectedReportId
+                        if (id) {
+                            actions.loadSelectedReport({ id })
+                        }
+                    }
+                    document.addEventListener('visibilitychange', onVisibilityChange)
+                    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+                },
+                'selectedReportRefreshOnVisible',
                 { pauseOnPageHidden: false }
             )
         },
@@ -934,11 +1066,18 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             router.values.hashParams,
             { replace: false },
         ],
-        setSelectedScoutSkillName: () => [
+        setSelectedScoutSkillName: ({ findingId }) => [
             inboxSurfaceUrl(values),
-            router.values.searchParams,
+            scoutTabSearchParams(values.scoutDetailTab, findingId),
             router.values.hashParams,
             { replace: false },
+        ],
+        setScoutDetailTab: () => [
+            inboxSurfaceUrl(values),
+            scoutTabSearchParams(values.scoutDetailTab, values.selectedScoutFindingId),
+            router.values.hashParams,
+            // A tab switch is not a navigation step — Back should leave the scout, not walk its tabs.
+            { replace: true },
         ],
         setScratchpadOpen: () => [
             inboxSurfaceUrl(values),
@@ -1067,7 +1206,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 }
                 closeAllSurfaces()
             },
-            [urls.inboxScout(':skillName')]: ({ skillName }: { skillName?: string }) => {
+            [urls.inboxScout(':skillName')]: (
+                { skillName }: { skillName?: string },
+                searchParams: Record<string, string | undefined>
+            ) => {
                 // `/inbox/scouts/scratchpad`, `/inbox/scouts/findings`, and `/inbox/scouts/runs` also match
                 // this pattern; their own handlers own those paths (no real scout skill_name collides —
                 // they're `signals-scout-*`).
@@ -1075,22 +1217,33 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     return
                 }
                 const name = skillName ?? null
+                const tab = asScoutDetailTab(searchParams.tab)
                 // Also reset the finding when landing on the bare scout URL after a finding deep-link.
                 if (values.selectedScoutSkillName !== name || values.selectedScoutFindingId !== null) {
-                    actions.setSelectedScoutSkillName(name)
+                    actions.setSelectedScoutSkillName(name, null, tab)
+                }
+                // Only a tab move within the scout already open reaches this, because the selection
+                // above carries the tab. Sending both would push a URL without the tab first.
+                if (values.scoutDetailTab !== tab) {
+                    actions.setScoutDetailTab(tab)
                 }
             },
-            [urls.inboxScout(':skillName', ':findingId')]: ({
-                skillName,
-                findingId,
-            }: {
-                skillName?: string
-                findingId?: string
-            }) => {
+            [urls.inboxScout(':skillName', ':findingId')]: (
+                { skillName, findingId }: { skillName?: string; findingId?: string },
+                searchParams: Record<string, string | undefined>
+            ) => {
                 const name = skillName ?? null
                 const finding = findingId ?? null
+                // A finding opens on Signals, where it is highlighted, but the reader can move to
+                // another pane without leaving the finding behind. The URL records that move, so it
+                // has to be read back here rather than reset to Signals.
+                const tab = asScoutDetailTab(searchParams.tab)
                 if (values.selectedScoutSkillName !== name || values.selectedScoutFindingId !== finding) {
-                    actions.setSelectedScoutSkillName(name, finding)
+                    actions.setSelectedScoutSkillName(name, finding, tab)
+                }
+                const pane = scoutUrlPane(tab, finding)
+                if (values.scoutDetailTab !== pane) {
+                    actions.setScoutDetailTab(pane)
                 }
             },
             [urls.inboxReport(':tab', ':reportId')]: (

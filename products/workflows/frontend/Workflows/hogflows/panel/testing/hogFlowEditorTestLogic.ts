@@ -28,8 +28,9 @@ import {
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import type { TriggerAction } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
+import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
 import { HogflowTestResult } from '../../steps/types'
-import { createExampleEvent } from '../../testEventFactory'
+import { createExampleEvent, createExampleEventForTrigger } from '../../testEventFactory'
 import type { HogFlow } from '../../types'
 
 // Time range constants for event search
@@ -315,6 +316,7 @@ export interface hogFlowEditorTestLogicMeta {
                                 filters: {
                                     all_roles_unassigned?: boolean | undefined
                                     assigned_to_user_ids?: number[] | undefined
+                                    assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                     audience_type?: 'accounts' | 'persons' | undefined
                                     properties: any[]
                                     tag_names?: string[] | undefined
@@ -332,9 +334,11 @@ export interface hogFlowEditorTestLogicMeta {
                             }
                           | {
                                 filters: {
+                                    events: any[]
                                     properties?: any[] | undefined
+                                    source: 'internal-events'
                                 }
-                                type: 'slack-message'
+                                type: 'internal-event'
                             }
                           | {
                                 filters: {
@@ -445,6 +449,7 @@ export interface hogFlowEditorTestLogicMeta {
                                 filters: {
                                     all_roles_unassigned?: boolean | undefined
                                     assigned_to_user_ids?: number[] | undefined
+                                    assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                     audience_type?: 'accounts' | 'persons' | undefined
                                     properties: any[]
                                     tag_names?: string[] | undefined
@@ -462,9 +467,11 @@ export interface hogFlowEditorTestLogicMeta {
                             }
                           | {
                                 filters: {
+                                    events: any[]
                                     properties?: any[] | undefined
+                                    source: 'internal-events'
                                 }
-                                type: 'slack-message'
+                                type: 'internal-event'
                             }
                           | {
                                 filters: {
@@ -823,19 +830,23 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         const response = await performWideEventsQueryInTwoPhases(query)
 
                         if (!response?.results?.[0]) {
-                            // No matching events found, use standard example event
-                            const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
+                            // No matching events found, use a trigger-appropriate example event
+                            const exampleGlobals = createExampleEventForTrigger(
+                                values.triggerAction?.config,
+                                values.workflow.team_id,
+                                values.workflow.name
+                            )
 
                             if (extendedSearch) {
                                 // Extended search also failed
                                 actions.setSampleGlobalsError(
-                                    `No "${eventName}" events found in the last ${EXTENDED_SEARCH_DAYS} days. Using an example $pageview event instead.`
+                                    `No "${eventName}" events found in the last ${EXTENDED_SEARCH_DAYS} days. Using an example ${exampleGlobals.event.event} event instead.`
                                 )
                                 actions.setCanTryExtendedSearch(false)
                             } else {
                                 // First search failed, allow extended search
                                 actions.setSampleGlobalsError(
-                                    `No "${eventName}" events found in the last ${STANDARD_SEARCH_DAYS} days. Using an example $pageview event instead.`
+                                    `No "${eventName}" events found in the last ${STANDARD_SEARCH_DAYS} days. Using an example ${exampleGlobals.event.event} event instead.`
                                 )
                                 actions.setCanTryExtendedSearch(true)
                             }
@@ -1047,8 +1058,17 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             actions.loadSampleGlobals()
         } else {
             // Only use example event if we can't load actual events
-            const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
+            const exampleGlobals = createExampleEventForTrigger(
+                values.triggerAction?.config,
+                values.workflow.team_id,
+                values.workflow.name
+            )
             actions.loadSampleGlobalsSuccess(exampleGlobals)
+            if (isSlackMessageTriggerConfig(values.triggerAction?.config)) {
+                actions.setSampleGlobalsError(
+                    "A real Slack message can't be loaded here. This example matches your channel and who-can-start-a-run filters. Edit it to test any other filters, such as message text."
+                )
+            }
         }
     }),
 ])

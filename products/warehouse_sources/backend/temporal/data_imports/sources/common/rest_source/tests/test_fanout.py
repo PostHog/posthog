@@ -1,10 +1,15 @@
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import Mock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import rest_source
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
+    FANOUT_PARENT_ROWS_CONSUMED,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     _make_paginate_dependent_resource,
 )
@@ -14,9 +19,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     required_parents_from_endpoint_configs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ParentRowFilter,
     ResolvedParam,
+    RESTAPIConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
@@ -375,6 +382,68 @@ def test_paginate_dependent_resource_does_not_leak_params_across_parents() -> No
         assert "before" not in params_snapshot
 
 
+def _pages_by_path(
+    pages: dict[str, list[dict[str, Any]]],
+) -> Callable[..., Iterator[list[dict[str, Any]]]]:
+    def paginate(self: Any, *, path: str = "", **kwargs: Any) -> Iterator[list[dict[str, Any]]]:
+        yield pages[path]
+
+    return paginate
+
+
+@pytest.mark.parametrize(
+    "warehouse_parent,expected_parent_source",
+    [(False, "api"), (True, "warehouse")],
+)
+def test_dependent_resource_reports_which_parent_source_served_its_rows(
+    warehouse_parent: bool, expected_parent_source: str
+) -> None:
+    # The fan-out size only detects a warehouse parent that is missing rows when the same line
+    # says which source produced it.
+    parent_resource: dict[str, Any] = {"name": "parents", "endpoint": {"path": "/parents"}}
+    if warehouse_parent:
+        parent_resource["parent_source"] = "warehouse"
+        parent_resource["data_iterator"] = lambda: iter([[{"id": "p1"}, {"id": "p2"}]])
+
+    config: dict[str, Any] = {
+        "client": {"base_url": "https://api.example.com"},
+        "resources": [
+            parent_resource,
+            {
+                "name": "children",
+                "endpoint": {
+                    "path": "/parents/{parent_id}/children",
+                    "params": {"parent_id": {"type": "resolve", "resource": "parents", "field": "id"}},
+                },
+            },
+        ],
+    }
+    pages = {
+        "/parents": [{"id": "p1"}, {"id": "p2"}],
+        "/parents/p1/children": [{"id": "c1"}],
+        "/parents/p2/children": [{"id": "c2"}],
+    }
+
+    with (
+        patch.object(RESTClient, "paginate", _pages_by_path(pages)),
+        patch.object(rest_source, "logger") as logger,
+    ):
+        resources = rest_source.rest_api_resources(
+            cast(RESTAPIConfig, config), team_id=1, job_id="j", db_incremental_field_last_value=None
+        )
+        children = next(r for r in resources if r.name == "children")
+        rows = [row for page in children for row in page]
+
+    assert [row["id"] for row in rows] == ["c1", "c2"]
+    logger.info.assert_called_once_with(
+        FANOUT_PARENT_ROWS_CONSUMED,
+        parent_source=expected_parent_source,
+        rows_total=2,
+        resumed=False,
+        page_rows=2,
+    )
+
+
 class _FakeResumableClient:
     # paginate() simulates page-by-page pagination with resume: it honors
     # initial_paginator_state["page"] as the start index and calls resume_hook after each page.
@@ -551,6 +620,7 @@ def test_warehouse_parent_builds_data_iterator_and_404_ignore(
         row_filter=row_filter,
     )
     assert child_resource["endpoint"]["response_actions"] == [{"status_code": 404, "action": "ignore"}]
+    assert parent_resource["parent_source"] == "warehouse"
 
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
@@ -573,6 +643,7 @@ def test_warehouse_parent_config_stays_on_api_path_when_not_enabled(mock_rest_ap
     parent_resource = config["resources"][0]
     child_resource = config["resources"][1]
     assert "data_iterator" not in parent_resource
+    assert "parent_source" not in parent_resource
     assert parent_resource["endpoint"]["params"]["limit"] == 3
     assert "response_actions" not in child_resource["endpoint"]
 
@@ -606,6 +677,8 @@ def test_unreadable_parent_table_falls_back_to_the_api_path(mock_rest_api_resour
     config = mock_rest_api_resources.call_args.args[0]
     parent_resource = config["resources"][0]
     assert "data_iterator" not in parent_resource
+    # Left unset so the telemetry reports the parent this run read, not the one it asked for.
+    assert "parent_source" not in parent_resource
     assert parent_resource["endpoint"]["params"]["limit"] == 3
     # The snapshot-only 404 handling goes with it: a fresh API parent doesn't list stale rows.
     assert "response_actions" not in config["resources"][1]["endpoint"]

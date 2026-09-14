@@ -1,5 +1,4 @@
 {% extends "email/base.html" %}
-
 {% block section %}
     <p>
         Your subscription <strong>{{ subscription_title }}</strong> has been
@@ -7,13 +6,13 @@
     </p>
     <p><i>{{ reason }}</i></p>
     {% if action_message %}
-    <p>{{ action_message }}</p>
+        <p>{{ action_message }}</p>
     {% else %}
-    <p>To resume delivery, fix the issue above and re-enable the subscription.</p>
+        <p>To resume delivery, fix the issue above and re-enable the subscription.</p>
     {% endif %}
     {% if subscription_url %}
-    <div class="mb mt text-center">
-        <a class="button" href="{% absolute_uri subscription_url %}">Manage subscription</a>
-    </div>
+        <div class="mb mt text-center">
+            <a class="button" href="{% absolute_uri subscription_url %}">Manage subscription</a>
+        </div>
     {% endif %}
 {% endblock %}

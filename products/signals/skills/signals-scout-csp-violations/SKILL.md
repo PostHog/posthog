@@ -1,11 +1,9 @@
 ---
 name: signals-scout-csp-violations
 description: >
-  Signals scout for Content Security Policy violation reports. Watches `$csp_violation` events
-  for blocked-URL clusters, per-directive bursts, post-deploy regressions, and suspicious
-  third-party domains, and files each validated cluster as a report in the inbox. Also files
-  occasional advisory reports on policy posture: enforcement readiness, inline-script debt,
-  and reporting noise budget.
+  Signals scout for Content Security Policy violations. Watches `$csp_violation` events for
+  blocked-URL clusters, per-directive bursts, post-deploy regressions, and suspicious third-
+  party domains.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the analytics tools in the

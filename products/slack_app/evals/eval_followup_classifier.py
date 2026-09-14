@@ -26,6 +26,7 @@ from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.evals.scorers import FOLLOWUP_KEY, FollowupRoutingMatch, NoUnaskedWake
 
 SUITE_KIND = SuiteKind.ONE_SHOT
@@ -34,8 +35,10 @@ TASK_TITLE = "Fix the checkout button not firing autocapture events"
 
 # The thread every case continues: a human asked, the agent acknowledged.
 THREAD = [
-    {"user": "alice", "text": "@PostHog autocapture isn't picking up clicks on our checkout button", "ts": "1.0"},
-    {"user": "posthog", "text": "Looking into it — checking how the button is rendered.", "ts": "2.0"},
+    SlackThreadMessage(
+        user="alice", text="@PostHog autocapture isn't picking up clicks on our checkout button", ts="1.0"
+    ),
+    SlackThreadMessage(user="posthog", text="Looking into it — checking how the button is rendered.", ts="2.0"),
 ]
 
 

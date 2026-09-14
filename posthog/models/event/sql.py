@@ -884,9 +884,6 @@ UNION ALL
 SELECT toUInt16(0) AS total, {date_from_truncated}
 """
 
-EVENT_JOIN_PERSON_SQL = """
-INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi ON events.distinct_id = pdi.distinct_id
-"""
 
 GET_EVENTS_WITH_PROPERTIES = """
 SELECT * FROM events WHERE

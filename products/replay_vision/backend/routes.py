@@ -8,8 +8,6 @@ from products.replay_vision.backend.api import (
     ScannerScoutReportViewSet,
     ScannerScoutViewSet,
     SessionReplayObservationViewSet,
-    VisionActionRunViewSet,
-    VisionActionViewSet,
     VisionAlertViewSet,
     VisionQuotaViewSet,
 )
@@ -48,9 +46,3 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(r"vision/quota", VisionQuotaViewSet, "project_vision_quota", ["team_id"])
     routers.projects.register(r"vision/alerts", VisionAlertViewSet, "project_vision_alerts", ["team_id"])
-    project_vision_actions_router = routers.projects.register(
-        r"vision/actions", VisionActionViewSet, "project_vision_actions", ["team_id"]
-    )
-    project_vision_actions_router.register(
-        r"runs", VisionActionRunViewSet, "project_vision_action_runs", ["team_id", "vision_action_id"]
-    )

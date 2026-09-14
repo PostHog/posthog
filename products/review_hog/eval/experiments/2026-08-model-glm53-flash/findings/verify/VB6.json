@@ -1,0 +1,6 @@
+{
+    "id": "VB6",
+    "real": false,
+    "source": "reused-LB1",
+    "reasoning": "Identical claim already verified as LB1 (sol experiment): adopt is_real=false. Frozen tree confirms: activities.py:168-177 stamps stamphog_self_driving_review only into STAMPHOG_EXTRA_PROPERTIES for sandbox events; stamphog_review_failed (activities.py:864-875) omits it. But that failure event is unchanged master behavior (PR hunks never touch mark_review_failed), no in-tree dashboard/monitor consumes the flag on failures, self-driving failures remain isolatable via the bot author distinct_id (activities.py:865; other bot PRs skipped at tasks.py:229-231), and run.output['inbox_review'] is persisted and API-readable. Telemetry-completeness wish, not a reachable defect."
+}

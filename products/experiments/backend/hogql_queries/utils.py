@@ -3,6 +3,7 @@ from enum import Enum
 from typing import Any, Optional, TypeVar
 
 import structlog
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ExperimentFunnelMetric,
@@ -142,7 +143,12 @@ def split_baseline_and_test_variants(
 ) -> tuple[V, list[V]]:
     control_variants = [variant for variant in variants if variant.key == baseline_key]
     if not control_variants:
-        raise ValueError("No control variant found")
+        # Expected while an experiment has no exposures for its baseline yet — a
+        # user-facing validation error, not a server error.
+        raise ValidationError(
+            f"No exposures for the '{baseline_key}' variant yet. Results can be calculated once it has data.",
+            code="no_data",
+        )
     if len(control_variants) > 1:
         raise ValueError("Multiple control variants found")
     control_variant = control_variants[0]

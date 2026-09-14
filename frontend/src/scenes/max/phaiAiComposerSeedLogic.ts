@@ -1,5 +1,5 @@
 import { MakeLogicType, connect, kea, path } from 'kea'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
@@ -35,12 +35,16 @@ export const phaiAiComposerSeedLogic = kea<phaiAiComposerSeedLogicType>([
     }),
 
     urlToAction(({ actions, values }) => ({
-        [urls.ai()]: (_, search) => {
+        [urls.ai()]: (_, search, hash) => {
             if (search.ask && !search.chat) {
+                const { ask, ...remainingSearch } = search
+                // Hash changes also run this handler. Remove the prompt before handing it off so they
+                // cannot submit it again.
+                router.actions.replace(router.values.location.pathname, remainingSearch, hash)
                 // `ask` is URL-controlled — same org-level AI data-processing consent gate as the legacy
                 // `askMax` path: without approval the seed only prefills the composer, and the user's own
                 // send goes through the composer's consent flow.
-                actions.setSeed({ prompt: String(search.ask), autoSubmit: values.dataProcessingAccepted })
+                actions.setSeed({ prompt: String(ask), autoSubmit: values.dataProcessingAccepted })
             }
         },
     })),

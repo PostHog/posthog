@@ -145,19 +145,95 @@ describe('meta ads template', () => {
         expect(fetchResponse.finished).toBe(true)
         expect(fetchResponse.error).toBeUndefined()
     })
-    it('wraps a raw fbclid into an fbc click ID', async () => {
-        const response = await tester.invokeMapping(
-            'Page Viewed',
-            { accessToken: 'access-token', pixelId: 'pixel-id' },
-            createAdDestinationPayload({
-                event: { event: '$pageview', properties: {} },
-                person: { properties: { fbclid: 'AbC_123-x' } },
-            })
-        )
+    describe('fbc click ID', () => {
+        // The event is fixed at 2025-01-01T00:00:00Z, so a click stamped 89 days earlier is inside
+        // Meta's 90-day window and one stamped 91 days earlier is outside it.
+        const eventMs = DateTime.fromISO('2025-01-01T00:00:00Z').toMillis()
+        const dayMs = 24 * 60 * 60 * 1000
 
-        expect(response.error).toBeUndefined()
-        const body = parseJSON((response.invocation.queueParameters as { body: string }).body)
-        expect(body.data[0].user_data.fbc).toEqual('fb.1.1735689600000.AbC_123-x')
+        it.each([
+            {
+                name: 'sends the $fbc PostHog stamped when it saw the click',
+                event: {},
+                person: { $fbc: `fb.1.${eventMs - 89 * dayMs}.AbC_123-x` },
+                expected: `fb.1.${eventMs - 89 * dayMs}.AbC_123-x`,
+            },
+            {
+                name: 'drops a click Meta would reject as older than 90 days',
+                event: {},
+                person: { $fbc: `fb.1.${eventMs - 91 * dayMs}.AbC_123-x` },
+                expected: undefined,
+            },
+            {
+                name: 'prefers the fbc the site stores itself',
+                event: {},
+                person: { fbc: `fb.1.${eventMs}.site-owned`, $fbc: `fb.1.${eventMs}.AbC_123-x` },
+                expected: `fb.1.${eventMs}.site-owned`,
+            },
+            {
+                name: 'stamps an fbclid on this event with the event time',
+                event: { fbclid: 'AbC_123-x' },
+                person: {},
+                expected: `fb.1.${eventMs}.AbC_123-x`,
+            },
+            {
+                name: 'sends nothing for an fbclid of unknown age',
+                event: {},
+                person: { fbclid: 'AbC_123-x' },
+                expected: undefined,
+            },
+            {
+                name: 'does not redate a stale click the event still carries',
+                event: { fbclid: 'AbC_123-x' },
+                person: { $fbc: `fb.1.${eventMs - 91 * dayMs}.AbC_123-x` },
+                expected: undefined,
+            },
+            {
+                name: "keeps the appendix Meta's parameter builder adds",
+                event: {},
+                person: { fbc: `fb.1.${eventMs}.AbC_123-x.Bg` },
+                expected: `fb.1.${eventMs}.AbC_123-x.Bg`,
+            },
+            {
+                name: "keeps the parameter builder's longer appendix",
+                event: {},
+                person: { fbc: `fb.1.${eventMs}.AbC_123-x.AQYAAQAA` },
+                expected: `fb.1.${eventMs}.AbC_123-x.AQYAAQAA`,
+            },
+            {
+                name: 'drops a click stamped after the conversion',
+                event: {},
+                person: { $fbc: `fb.1.${eventMs + dayMs}.AbC_123-x` },
+                expected: undefined,
+            },
+            {
+                name: 'keeps a click stamped a moment after the event by a drifting clock',
+                event: {},
+                person: { $fbc: `fb.1.${eventMs + 1000}.AbC_123-x` },
+                expected: `fb.1.${eventMs + 1000}.AbC_123-x`,
+            },
+            {
+                name: 'sends the event when a person holds a non-string fbc',
+                event: {},
+                person: { fbc: 1735689600000 },
+                expected: undefined,
+            },
+        ])('$name', async ({ event, person, expected }) => {
+            const response = await tester.invokeMapping(
+                'Page Viewed',
+                { accessToken: 'access-token', pixelId: 'pixel-id' },
+                createAdDestinationPayload({
+                    event: { event: '$pageview', properties: event },
+                    person: { properties: person },
+                })
+            )
+
+            expect(response.error).toBeUndefined()
+            const body = parseJSON((response.invocation.queueParameters as { body: string }).body)
+            expect(body.data[0].user_data.fbc).toEqual(expected)
+            // A candidate the template rejects must cost only the fbc field, never the whole send.
+            expect(body.data[0].user_data.em).toBeDefined()
+        })
     })
 
     it('surfaces error responses', async () => {

@@ -5,6 +5,7 @@ analytics runner; keeping them here means a runner is just its query shape plus
 its harness-label SQL.
 """
 
+import json
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -58,6 +59,15 @@ def tool_scope_exprs(tool: str) -> list[ast.Expr]:
         ),
         parse_expr("properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=NEW_SDK_SOURCE)}),
     ]
+
+
+def display_person_properties(*, email: str, name: str) -> str:
+    """JSON of only the person fields a row's person cell renders, omitting blanks.
+
+    Shared by every runner that returns a person alongside a row, so none of them
+    ships the whole ``person.properties`` blob to the client.
+    """
+    return json.dumps({k: v for k, v in (("email", email), ("name", name)) if v})
 
 
 def validate_mcp_analytics_access(team: "Team", user: "User") -> bool:

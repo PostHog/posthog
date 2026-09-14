@@ -1,5 +1,7 @@
 import {
   type ArtifactType,
+  type EffortLevel,
+  effortLevelSchema,
   type Task,
   type TaskRun,
   type TaskRunArtifact,
@@ -21,26 +23,26 @@ export type TaskRunArtifactDTO = Omit<
 };
 
 type TaskRunResponseDTO = Partial<
-  Omit<Schemas.TaskRunDetail, "artifacts" | "status">
+  Omit<Schemas.TaskRunDetailDTO, "artifacts" | "state">
 > & {
   id: string;
   artifacts?: Array<TaskRunArtifactDTO> | null;
-  status?: Schemas.StatusA35Enum | "started" | null;
+  state?: unknown;
   team?: number | null;
 };
 
 type TaskResponseDTO = Partial<
-  Omit<Schemas.Task, "created_by" | "json_schema" | "latest_run">
+  Omit<Schemas.TaskDetailDTO, "json_schema" | "latest_run">
 > & {
   id: string;
   channel?: string | null;
-  created_by?: Schemas.UserBasic | null;
   github_user_integration?: string | null;
   last_activity_at?: string | null;
   json_schema?: unknown | null;
   latest_run?: Record<string, unknown> | null;
   runtime?: unknown;
   repositories?: string[];
+  description_preview?: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -65,6 +67,11 @@ function normalizeTaskRunStatus(status: unknown): TaskRunStatus {
     default:
       return "not_started";
   }
+}
+
+function normalizeEffortLevel(value: string | null): EffortLevel | null {
+  const parsed = effortLevelSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 function normalizeArtifactType(type: string): ArtifactType {
@@ -181,9 +188,11 @@ export function normalizeTaskRunResponse(
     ...(dto.model === undefined ? {} : { model: dto.model }),
     ...(dto.reasoning_effort === undefined
       ? {}
-      : { reasoning_effort: dto.reasoning_effort }),
+      : { reasoning_effort: normalizeEffortLevel(dto.reasoning_effort) }),
     ...(dto.stage === undefined ? {} : { stage: dto.stage }),
-    ...(dto.environment === undefined ? {} : { environment: dto.environment }),
+    ...(dto.environment === "local" || dto.environment === "cloud"
+      ? { environment: dto.environment }
+      : {}),
     status: normalizeTaskRunStatus(dto.status),
     log_url: dto.log_url ?? "",
     error_message: dto.error_message ?? null,
@@ -222,6 +231,9 @@ export function normalizeTaskResponse(
       ? {}
       : { title_manually_set: dto.title_manually_set }),
     description: dto.description ?? "",
+    ...(dto.description_preview === undefined
+      ? {}
+      : { description_preview: dto.description_preview }),
     created_at: dto.created_at ?? "",
     updated_at: dto.updated_at ?? "",
     last_activity_at: dto.last_activity_at ?? dto.updated_at ?? "",

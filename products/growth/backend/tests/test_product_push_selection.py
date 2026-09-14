@@ -17,8 +17,10 @@ from products.growth.backend.product_push.selection import (
     BLESSED_PRODUCT_ORDER,
     FALLBACK_PRODUCT_ORDER,
     PUSH_PRODUCT_PATHS,
+    get_org_used_product_keys,
     select_next_product,
 )
+from products.growth.backend.product_push.surfaces import SURFACE_ADOPTION_CHECKS
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 
@@ -52,14 +54,15 @@ class TestSelectNextProduct(BaseTest):
         assert selection.product_key == "web_analytics"
 
     def test_any_intent_excludes_product_without_activation_criterion(self) -> None:
-        # web_analytics has no activation criterion — a bare intent row is the usage signal.
+        # web_analytics has no activation criterion — a bare intent row is the usage signal. With
+        # both top products excluded, the walk lands on the next blessed entry (self_driving).
         ProductIntent.objects.create(team=self.team, product_type="product_analytics", activated_at=NOW)
         ProductIntent.objects.create(team=self.team, product_type="web_analytics")
 
         selection = select_next_product(self.organization, NOW)
 
         assert selection is not None
-        assert selection.product_key == "session_replay"
+        assert selection.product_key == "self_driving"
 
     @parameterized.expand(
         [
@@ -140,6 +143,38 @@ class TestSelectNextProduct(BaseTest):
         assert selection.product_key in {product_key.value for product_key in FALLBACK_PRODUCT_ORDER}
         assert selection.scheduled_campaign is None
 
+    def test_org_that_connected_a_surface_no_longer_has_it_pushed(self) -> None:
+        # A growth surface is org-wide: connecting it once (here, the Slack app) marks the whole org
+        # as using it, so the rotation stops advertising it — even with no ProductIntent row.
+        from posthog.models.integration.model import Integration
+
+        assert "posthog_slack" not in get_org_used_product_keys(self.organization)
+
+        Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SLACK, integration_id="T123", config={}, errors=""
+        )
+
+        assert "posthog_slack" in get_org_used_product_keys(self.organization)
+
+    def test_surface_reached_in_the_walk_is_skipped_once_adopted(self) -> None:
+        # Exclude every blessed product above posthog_slack so the walk lands on it, then connect
+        # Slack and confirm the walk steps past the adopted surface to the next blessed product.
+        from posthog.models.integration.model import Integration
+
+        ProductIntent.objects.create(team=self.team, product_type="product_analytics", activated_at=NOW)
+        ProductIntent.objects.create(team=self.team, product_type="web_analytics")
+        self._campaign("self_driving", ProductPushCampaign.Status.ADOPTED, ended_at=NOW - timedelta(days=200))
+        self._campaign("session_replay", ProductPushCampaign.Status.ADOPTED, ended_at=NOW - timedelta(days=200))
+
+        selection = select_next_product(self.organization, NOW)
+        assert selection is not None and selection.product_key == "posthog_slack"
+
+        Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SLACK, integration_id="T9", config={}, errors=""
+        )
+        selection = select_next_product(self.organization, NOW)
+        assert selection is not None and selection.product_key == "error_tracking"
+
     def test_returns_none_when_every_pushable_product_is_excluded(self) -> None:
         for product_key in [*BLESSED_PRODUCT_ORDER, *FALLBACK_PRODUCT_ORDER]:
             self._campaign(product_key.value, ProductPushCampaign.Status.ADOPTED, ended_at=NOW - timedelta(days=10))
@@ -153,6 +188,10 @@ class TestPushProductConfig(SimpleTestCase):
         # unreleased item) would render a broken or dead-end promo card.
         catalog = {product.path: product.category for product in Products.products()}
         for product_key in [*BLESSED_PRODUCT_ORDER, *FALLBACK_PRODUCT_ORDER]:
+            # Growth surfaces (Desktop, Slack, GitHub, Self-driving) aren't catalog products — they
+            # carry their own label and destination in the frontend display config instead.
+            if product_key.value in SURFACE_ADOPTION_CHECKS:
+                continue
             path = PUSH_PRODUCT_PATHS.get(product_key)
             assert path is not None, f"{product_key} has no PUSH_PRODUCT_PATHS entry"
             assert path in catalog, f"{product_key} maps to {path!r}, which is not in the product catalog"

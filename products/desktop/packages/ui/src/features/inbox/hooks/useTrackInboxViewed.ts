@@ -1,5 +1,5 @@
 import { buildInboxViewedProperties } from "@posthog/core/inbox/engagement";
-import { INBOX_SCOPE_FOR_YOU } from "@posthog/core/inbox/reportMembership";
+import { inboxReviewerScopeValue } from "@posthog/core/inbox/reportMembership";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { track } from "@posthog/ui/shell/analytics";
@@ -52,7 +52,10 @@ export function useTrackInboxViewed(options?: { enabled?: boolean }): void {
           sourceProductFilter,
           priorityFilter,
           searchQuery,
-          isDefaultScope: scope === INBOX_SCOPE_FOR_YOU,
+          scope: inboxReviewerScopeValue(scope),
+          // The legacy tabbed inbox has no report-state filter control.
+          reportStateFilter: [],
+          defaultReportStateFilter: [],
         },
       }),
     );

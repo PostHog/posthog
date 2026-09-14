@@ -26,6 +26,7 @@ from products.review_hog.backend.reviewer.constants import (
     OUTCOME_JUDGE_FAILURE_STREAK,
     OUTCOME_JUDGE_REASONING_MAX_CHARS,
     OUTCOME_MAX_JUDGE_CALLS_PER_REPORT,
+    VALIDATION_MODEL,
 )
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.outcomes.classify import (
@@ -126,6 +127,27 @@ class TestClassifyReportDecision:
         captured, _judge = self._run(inputs=self._inputs(comment=None, compare_files=_TOUCHING), judge_return=False)
         assert captured[0]["properties"]["outcome"] == "ignored"
         assert captured[0]["properties"]["classification_method"] == "judge_rejected"
+
+    def test_the_outcome_event_carries_the_review_arm(self):
+        # Per-tier precision splits this event by the report's arm as it stands when the outcome is
+        # classified: a row in a cheaper tier must label its findings with that tier and effort, not
+        # the default pins.
+        report = ReviewReport(
+            repository="o/r",
+            pr_number=7,
+            review_tier="agent_p2",
+            review_runtime_adapter="codex",
+            review_model="gpt-5.6-sol",
+            review_reasoning_effort="medium",
+            review_initial_permission_mode="full-access",
+        )
+        captured, _judge = self._run(inputs=self._inputs(comment=None, compare_files=_TOUCHING), report=report)
+        props = captured[0]["properties"]
+        assert props["review_tier"] == "agent_p2"
+        assert props["review_model"] == "gpt-5.6-sol"
+        assert props["review_reasoning_effort"] == "medium"
+        assert props["review_arm_fallback"] is False
+        assert props["validator_model"] == VALIDATION_MODEL
 
     def test_the_judges_reasoning_is_persisted_with_the_outcome(self):
         # The ruling is the only record of why a finding was classified as it was; the diff it read

@@ -38,8 +38,10 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     run_started_floor_constant,
+    success_rate_expr,
     window_pair_predicates,
 )
+from products.engineering_analytics.backend.logic.queries.delivery_pipeline import query_delivery_pipeline
 from products.engineering_analytics.backend.logic.queries.merge_queue_overview import (
     query_merge_queue_overview,
     query_merge_queue_trunk_outcomes,
@@ -54,20 +56,18 @@ from products.engineering_analytics.backend.logic.queries.workflow_health import
     query_time_to_green_window,
 )
 
-_RUNS_SELECT = """
+_RUNS_SELECT = f"""
     SELECT
         countIf(__CUR__) AS run_count,
         countIf(__PREV__) AS run_count_prev,
-        countIf(status = 'completed' AND conclusion = 'success' AND __CUR__)
-            / nullIf(countIf(status = 'completed' AND __CUR__), 0) AS success_rate,
-        countIf(status = 'completed' AND conclusion = 'success' AND __PREV__)
-            / nullIf(countIf(status = 'completed' AND __PREV__), 0) AS success_rate_prev,
+        {success_rate_expr("__CUR__")} AS success_rate,
+        {success_rate_expr("__PREV__")} AS success_rate_prev,
         countIf(run_attempt > 1 AND __CUR__) AS rerun_cycles,
         countIf(run_attempt > 1 AND __PREV__) AS rerun_cycles_prev,
         countIf(head_branch = 'master' AND __CUR__) AS master_runs,
         countIf(head_branch = 'main' AND __CUR__) AS main_runs
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {prev_from} __DATE_TO__
+    WHERE run_started_at >= {{prev_from}} __DATE_TO__
 """
 
 # The locked cycle-time recipe: a median over merges is a median over human, never-drafted PRs.
@@ -122,14 +122,13 @@ def query_default_branch(
     return "main" if (main_runs or 0) > (master_runs or 0) else "master"
 
 
-# Pass rate per bucket over completed runs, all branches — the population the headline pass rate uses.
-# Division through nullIf yields NULL for a bucket with no completed run (a gap, not 0%).
-_PASS_RATE_SERIES_SELECT = """
+# Pass rate per bucket over conclusive runs on all branches, matching the headline population.
+_PASS_RATE_SERIES_SELECT = f"""
     SELECT
         __BUCKET_FN__ AS bucket_start,
-        countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate
+        {success_rate_expr()} AS success_rate
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {date_from} __DATE_TO__
+    WHERE run_started_at >= {{date_from}} __DATE_TO__
     GROUP BY bucket_start
     LIMIT 40000
 """
@@ -194,8 +193,8 @@ def query_success_rate_series(
     date_to: datetime | None,
     granularity: Granularity,
 ) -> list[PassRateBucket]:
-    """Pass rate per bucket across the window, oldest first: completed runs that succeeded, all branches —
-    the same population as the headline pass rate. Empty buckets carry ``success_rate`` None (a gap)."""
+    """Pass rate per bucket across the window, oldest first: successful runs divided by conclusive runs
+    on all branches, matching the headline population. Empty buckets carry ``success_rate`` None."""
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "run_started_floor": run_started_floor_constant(date_from),
@@ -483,6 +482,7 @@ def query_repo_overview(
     time_to_green = query_time_to_green_window(
         curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
     )
+    pipeline = query_delivery_pipeline(curated=curated, date_from=date_from, date_to=date_to)
     costs = _derive_cost_headlines(
         query_workflow_window_costs_with_prev(
             curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
@@ -547,4 +547,5 @@ def query_repo_overview(
         open_to_merge_series_granularity=series.granularity,
         ready_to_merge_series=series.ready_to_merge,
         ready_to_merge_series_granularity=series.granularity,
+        delivery_pipeline=pipeline,
     )

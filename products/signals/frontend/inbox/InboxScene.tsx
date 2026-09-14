@@ -270,7 +270,7 @@ export function InboxScene(): JSX.Element {
         <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
             <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
                 <SceneTitleSection
-                    name="Inbox"
+                    name="Self-driving inbox"
                     // The description explains the active tab so new users can orient themselves.
                     // The welcome takeover leads with its own full-size pitch, so a description here
                     // would say the same thing twice. While the verdict is pending no description is
@@ -336,14 +336,15 @@ export function InboxScene(): JSX.Element {
                             <div>
                                 <h3 className="m-0 text-base font-semibold">Report not found</h3>
                                 <p className="m-0 mt-1 text-sm text-tertiary">
-                                    This report does not exist. It may have been removed.
+                                    We can't find this report in this project. Check that you have the right project
+                                    selected.
                                 </p>
                             </div>
                             <LemonButton
                                 type="secondary"
                                 to={backOverride ?? urls.inbox(isRedesign ? 'reports' : activeTab)}
                             >
-                                {backOverride ? 'Back' : 'Back to inbox'}
+                                {backOverride ? 'Back' : 'Back to self-driving inbox'}
                             </LemonButton>
                         </div>
                     )}

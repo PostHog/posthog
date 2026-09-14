@@ -75,6 +75,7 @@ def clip_hog_function_name(name: str) -> str:
 
 def destination_filter(alert_id: str, event_id: str) -> dict[str, Any]:
     return {
+        "source": "internal-events",
         "events": [{"id": event_id, "type": "events"}],
         "properties": [
             {

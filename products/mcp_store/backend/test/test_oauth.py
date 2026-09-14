@@ -8,6 +8,8 @@ from django.test import SimpleTestCase, TestCase
 import requests
 from parameterized import parameterized
 
+from posthog.models.instance_setting import override_instance_config
+
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
 from products.mcp_store.backend.oauth import (
     TIMEOUT,
@@ -21,6 +23,7 @@ from products.mcp_store.backend.oauth import (
     discover_oauth_metadata,
     exchange_oauth_token,
     oauth_resource,
+    refresh_installation_token,
     refresh_oauth_token,
     register_dcr_client,
     requested_oauth_grant_types,
@@ -1021,6 +1024,7 @@ class TestRegisterDCRClient(SimpleTestCase):
                 "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
             },
             "https://app.posthog.com/callback",
+            ("read",),
         )
 
         assert result == DcrClientRegistration(
@@ -1029,7 +1033,7 @@ class TestRegisterDCRClient(SimpleTestCase):
         payload = mock_post.call_args.kwargs["json"]
         assert payload["grant_types"] == ["authorization_code", "refresh_token"]
         assert payload["token_endpoint_auth_method"] == "client_secret_post"
-        assert payload["scope"] == "read write"
+        assert payload["scope"] == "read"
         assert "refresh_token" not in payload["scope"]
         assert mock_post.call_args.kwargs["allow_redirects"] is False
 
@@ -1105,17 +1109,37 @@ class TestRegisterDCRClient(SimpleTestCase):
         }
 
         assert requested_oauth_scopes(metadata) == ["read"]
+        assert requested_oauth_scopes(metadata, ("read", "admin", "read")) == ["read"]
+        with self.assertRaisesRegex(ValueError, "does not contain any scopes"):
+            requested_oauth_scopes(metadata, ())
+        with self.assertRaisesRegex(ValueError, "does not match any provider-supported scopes"):
+            requested_oauth_scopes(metadata, ("admin",))
         assert requested_oauth_grant_types(metadata) == ["authorization_code", "refresh_token"]
         assert oauth_resource(metadata) == "https://mcp.example.com/"
 
 
 class TestResolveInstallationOauthContext(BaseTest):
-    def test_template_backed_install_returns_template_creds(self):
+    @parameterized.expand(
+        [
+            ("metadata_without_methods_defaults_to_basic", {}, "client_secret_basic"),
+            (
+                "metadata_selects_client_secret_post",
+                {"token_endpoint_auth_methods_supported": ["client_secret_post"]},
+                "client_secret_post",
+            ),
+        ]
+    )
+    def test_template_backed_install_returns_template_creds(
+        self, _name: str, metadata_overrides: dict, expected_auth_method: str
+    ) -> None:
         template = MCPServerTemplate.objects.create(
             name="Template",
             url="https://mcp.template.example.com/mcp",
             auth_type="oauth",
-            oauth_metadata={"token_endpoint": "https://auth.template.example.com/token"},
+            oauth_metadata={
+                "token_endpoint": "https://auth.template.example.com/token",
+                **metadata_overrides,
+            },
             oauth_credentials={"client_id": "template-client", "client_secret": "template-secret"},
             created_by=self.user,
         )
@@ -1135,7 +1159,41 @@ class TestResolveInstallationOauthContext(BaseTest):
         assert ctx.metadata["token_endpoint"] == "https://auth.template.example.com/token"
         assert ctx.client_id == "template-client"
         assert ctx.client_secret == "template-secret"
-        assert ctx.token_endpoint_auth_method == "client_secret_basic"
+        assert ctx.token_endpoint_auth_method == expected_auth_method
+
+    def test_template_backed_install_uses_instance_credential_source(self):
+        template = MCPServerTemplate.objects.create(
+            name="Slack",
+            url="https://mcp.slack.test.example/mcp",
+            auth_type="oauth",
+            oauth_metadata={
+                "issuer": "https://mcp.slack.com",
+                "authorization_endpoint": "https://slack.com/oauth/v2_user/authorize",
+                "token_endpoint": "https://slack.com/api/oauth.v2.user.access",
+                "token_endpoint_auth_methods_supported": ["client_secret_post"],
+            },
+            oauth_credentials_source="slack_app",
+            oauth_credentials={},
+            created_by=self.user,
+        )
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            url=template.url,
+            auth_type="oauth",
+            sensitive_configuration={"access_token": "tok"},
+        )
+
+        with (
+            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
+            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
+        ):
+            ctx = resolve_installation_oauth_context(installation)
+
+        assert ctx.client_id == "slack-client"
+        assert ctx.client_secret == "slack-secret"
+        assert ctx.token_endpoint_auth_method == "client_secret_post"
 
     def test_dcr_template_backed_install_returns_per_installation_metadata_and_creds(self):
         # DCR templates carry no shared client_id AND no trusted metadata —
@@ -1205,6 +1263,65 @@ class TestResolveInstallationOauthContext(BaseTest):
 
         assert ctx.client_secret is None
         assert ctx.token_endpoint_auth_method == "none"
+
+
+class TestSourceBackedOauthMetadataBinding(BaseTest):
+    def _installation(self) -> MCPServerInstallation:
+        template = MCPServerTemplate.objects.create(
+            name="Slack",
+            url="https://mcp.slack.test.example/mcp",
+            auth_type="oauth",
+            oauth_metadata={
+                "issuer": "https://mcp.slack.com",
+                "authorization_endpoint": "https://slack.com/oauth/v2_user/authorize",
+                "token_endpoint": "https://attacker.example.com/token",
+                "token_endpoint_auth_methods_supported": ["client_secret_post"],
+            },
+            oauth_credentials_source="slack_app",
+            created_by=self.user,
+        )
+        return MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            url=template.url,
+            auth_type="oauth",
+            sensitive_configuration={"refresh_token": "refresh-token"},
+        )
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_exchange_rejects_modified_token_endpoint_before_sending_secret(self, mock_post, _allow):
+        installation = self._installation()
+
+        with (
+            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
+            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
+            self.assertRaises(OAuthTokenExchangeError),
+        ):
+            exchange_oauth_token(
+                installation=installation,
+                code="auth-code",
+                pkce_verifier="pkce-verifier",
+                redirect_uri="https://app.posthog.com/callback",
+                is_https=lambda url: url.startswith("https://"),
+            )
+
+        mock_post.assert_not_called()
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_refresh_rejects_modified_token_endpoint_before_sending_secret(self, mock_post, _allow):
+        installation = self._installation()
+
+        with (
+            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
+            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
+            self.assertRaises(TokenRefreshError),
+        ):
+            refresh_installation_token(installation)
+
+        mock_post.assert_not_called()
 
 
 class TestExchangeOauthToken(BaseTest):

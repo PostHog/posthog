@@ -496,3 +496,113 @@ describe("McpAppsService lazy discovery", () => {
     expect(posthogClient.readResource).toHaveBeenCalledTimes(2);
   });
 });
+
+function makeProxyClient(
+  tools: Array<{ name: string; _meta?: { ui: Record<string, unknown> } }>,
+) {
+  return {
+    ...makeClient(),
+    listTools: vi.fn(async () => ({ tools })),
+    callTool: vi.fn(async ({ name }: { name: string }) => ({
+      content: [{ type: "text", text: `ran ${name}` }],
+    })),
+  };
+}
+
+function connectProxyClient(
+  service: McpAppsService,
+  client: ReturnType<typeof makeProxyClient>,
+) {
+  vi.spyOn(internals(service), "createConnection").mockImplementation(
+    async (c) => ({ name: c.name, client, transport: {} }),
+  );
+  return client;
+}
+
+describe("McpAppsService.proxyToolCall", () => {
+  let service: McpAppsService;
+
+  beforeEach(() => {
+    service = makeService();
+  });
+
+  it("calls a tool whose visibility includes app", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const client = makeProxyClient([
+      {
+        name: "loops-review",
+        _meta: {
+          ui: { resourceUri: REVIEW_URI, visibility: ["model", "app"] },
+        },
+      },
+    ]);
+    connectProxyClient(service, client);
+
+    await expect(
+      service.proxyToolCall("posthog", "loops-review", { id: "123" }),
+    ).resolves.toEqual({
+      content: [{ type: "text", text: "ran loops-review" }],
+    });
+    expect(client.callTool).toHaveBeenCalledWith({
+      name: "loops-review",
+      arguments: { id: "123" },
+    });
+  });
+
+  it("calls a tool with a UI association and no explicit visibility", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const client = makeProxyClient([
+      { name: "loops-review", _meta: { ui: { resourceUri: REVIEW_URI } } },
+    ]);
+    connectProxyClient(service, client);
+
+    await expect(
+      service.proxyToolCall("posthog", "loops-review"),
+    ).resolves.toEqual({
+      content: [{ type: "text", text: "ran loops-review" }],
+    });
+  });
+
+  it.each([
+    ["a model-only tool", "posthog", "secret-tool", "(model)"],
+    [
+      "a tool with no UI association",
+      "posthog",
+      "exec-helper",
+      "(no UI association)",
+    ],
+    [
+      "the exec tool without a UI association",
+      "posthog",
+      "exec",
+      "(no UI association)",
+    ],
+    [
+      "the exec tool name on a non-built-in server",
+      "acme",
+      "exec",
+      "(no UI association)",
+    ],
+  ])("denies %s", async (_label, serverName, toolName, reason) => {
+    service.setServerConfigs([config("posthog"), config("acme")]);
+    const client = makeProxyClient([
+      {
+        name: "secret-tool",
+        _meta: {
+          ui: {
+            resourceUri: "ui://posthog/secret.html",
+            visibility: ["model"],
+          },
+        },
+      },
+      { name: "exec-helper" },
+      { name: "exec" },
+    ]);
+    connectProxyClient(service, client);
+
+    await expect(service.proxyToolCall(serverName, toolName)).rejects.toThrow(
+      `is not accessible to apps ${reason}`,
+    );
+    expect(client.callTool).not.toHaveBeenCalled();
+  });
+});

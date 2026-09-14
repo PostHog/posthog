@@ -1,18 +1,30 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { TextMorph } from 'torph/react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { PropertyFilterType } from '~/types'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerEditorStep, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
-import { OBSERVATION_CREDITS_BY_MODEL, SCANNER_TYPE_TAG_TYPE, modelName, scannerTypeLabel } from '../types'
+import {
+    OBSERVATION_CREDITS_BY_MODEL,
+    SCANNER_TYPE_TAG_TYPE,
+    modelName,
+    type ReplayScanner,
+    scannerTypeLabel,
+} from '../types'
 
 /** Why the draft chose this model, doubling as the guidance on when each tier fits. Keyed by the
  * concrete model id so a retired model just falls through to the generic line. */
@@ -20,7 +32,7 @@ function modelRoleLabel(model: string): string {
     if (model === 'gemini-3.5-flash-lite') {
         return 'Cheapest tier. Best for simple yes/no checks.'
     }
-    if (model === 'gemini-3.7-flash') {
+    if (model === 'gemini-3.8-flash') {
         return 'Most capable tier. Best for nuanced scoring or summaries.'
     }
     if (model === 'gemini-3-flash-preview') {
@@ -41,7 +53,7 @@ function activityFilterLabel(mode: string): string {
     return 'All recordings'
 }
 
-/** One label:value row in the sampling and budget block. */
+/** One label:value row in the eligible-recordings and sampling blocks. */
 function StatRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
     return (
         <>
@@ -97,6 +109,77 @@ function OverviewSection({
     )
 }
 
+/** One kind of filter on the drafted scanner, with the values it holds. */
+export interface EligibleFilterGroup {
+    label: string
+    values: string[]
+}
+
+/** The targeted experiment and variant, named so the row stands alone before the experiment loads. */
+function experimentValues(scanner: ReplayScanner, experimentName?: string): string[] {
+    const targeting = scanner.experiment_targeting
+    if (!targeting?.experiment_id) {
+        return []
+    }
+    const variant = targeting.variant ? `${targeting.variant} variant` : 'all variants'
+    return [`${experimentName ?? `Experiment ${targeting.experiment_id}`} (${variant})`]
+}
+
+/** The pages a session must have visited.
+ *
+ * Read by key, not by position: the properties list can hold a cohort alongside the pages, and
+ * taking whichever came first would render a cohort id as a page.
+ */
+function pageValues(scanner: ReplayScanner): string[] {
+    const property = scanner.query?.properties?.find(
+        (candidate) => 'key' in candidate && candidate.key === 'visited_page'
+    )
+    if (!property || !('value' in property) || !Array.isArray(property.value)) {
+        return []
+    }
+    return property.value.map(String)
+}
+
+/** The names of the query's events or actions, whichever list is asked for. */
+function namedQueryEntities(scanner: ReplayScanner, key: 'events' | 'actions'): string[] {
+    const query = scanner.query
+    const entities = (query && key in query ? query[key] : null) ?? []
+    return entities.map((entity) => String(entity.name ?? entity.id)).filter(Boolean)
+}
+
+/** The cohorts the scan is limited to. The query carries only ids, so the name is looked up. */
+function cohortValues(scanner: ReplayScanner, cohortNames?: Record<string, string>): string[] {
+    return (scanner.query?.properties ?? [])
+        .filter((property) => property.type === PropertyFilterType.Cohort)
+        .map((property) => String(cohortNames?.[String(property.value)] ?? `Cohort ${property.value}`))
+}
+
+/** What the drafted scanner watches, grouped by the kind of filter each value came from.
+ *
+ * Each kind narrows differently. An experiment picks the people, a page picks where they went, an
+ * event or an action picks what they did, and a cohort picks who they are. They also combine, so a
+ * flat row of values leaves the reader to guess which value is which kind. The label is also the
+ * only thing that makes an action or a cohort readable: neither value says what it is.
+ */
+export function eligibleFilterGroups(
+    scanner: ReplayScanner,
+    { experimentName, cohortNames }: { experimentName?: string; cohortNames?: Record<string, string> } = {}
+): EligibleFilterGroup[] {
+    const kinds: [singular: string, plural: string, values: string[]][] = [
+        ['Experiment', 'Experiments', experimentValues(scanner, experimentName)],
+        ['Page', 'Pages', pageValues(scanner)],
+        ['Event', 'Events', namedQueryEntities(scanner, 'events')],
+        ['Action', 'Actions', namedQueryEntities(scanner, 'actions')],
+        ['Cohort', 'Cohorts', cohortValues(scanner, cohortNames)],
+    ]
+    return kinds
+        .filter(([, , values]) => values.length > 0)
+        .map(([singular, plural, values]) => ({
+            label: pluralize(values.length, singular, plural, false),
+            values,
+        }))
+}
+
 /** The landing step after a goal-based draft: the whole drafted config, ordered by comprehension,
  * with each section deep-linking into the wizard step that edits it. */
 export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.Element {
@@ -109,7 +192,10 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         scannerEstimate,
         scannerEstimateLoading,
         isScannerSubmitting,
+        experimentContext,
     } = useValues(logic)
+    // Names the drafted cohort, which the query carries only by id.
+    const { cohortsById } = useValues(cohortsModel)
     const { submitScanner, loadScannerEstimate } = useActions(logic)
 
     useEffect(() => {
@@ -121,19 +207,12 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    const firstProperty = scanner.query?.properties?.[0]
-    const pageValues =
-        firstProperty &&
-        'value' in firstProperty &&
-        Array.isArray(firstProperty.value) &&
-        firstProperty.value.length > 0
-            ? firstProperty.value
-            : null
-
-    const eventValues =
-        scanner.query && 'events' in scanner.query && Array.isArray(scanner.query.events)
-            ? scanner.query.events.map((e) => String(e.name ?? e.id)).filter(Boolean)
-            : []
+    const filterGroups = eligibleFilterGroups(scanner, {
+        experimentName: experimentContext?.experiment.name,
+        cohortNames: Object.fromEntries(
+            Object.entries(cohortsById).map(([id, cohort]) => [id, cohort?.name ?? `Cohort ${id}`])
+        ),
+    })
 
     // The draft is still generating: show the page's shape so the wait reads as progress.
     if (goalDraftLoading) {
@@ -193,13 +272,16 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
             </OverviewSection>
 
             <OverviewSection label="Eligible recordings" editStep="triggers" scannerId={scannerId}>
-                {pageValues || eventValues.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                        {(pageValues ?? []).map((page) => (
-                            <LemonSnack key={`page-${String(page)}`}>{String(page)}</LemonSnack>
-                        ))}
-                        {eventValues.map((event) => (
-                            <LemonSnack key={`event-${event}`}>{event}</LemonSnack>
+                {filterGroups.length > 0 ? (
+                    <div className="grid grid-cols-[auto_1fr] items-start gap-x-3 gap-y-1 text-sm">
+                        {filterGroups.map((group) => (
+                            <StatRow key={group.label} label={group.label}>
+                                <span className="flex flex-wrap gap-1">
+                                    {group.values.map((value) => (
+                                        <LemonSnack key={value}>{value}</LemonSnack>
+                                    ))}
+                                </span>
+                            </StatRow>
                         ))}
                     </div>
                 ) : (
@@ -295,10 +377,58 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     )
 }
 
+// Drafting a scanner runs a model call that takes several seconds, so the wait needs to read as
+// work in progress. These rotate above the skeleton, in the same spirit as the insights loader.
+const DRAFT_LOADING_MESSAGES = [
+    'Reading your goal…',
+    'Snuffling through your pages for a match…',
+    'Counting hedgehogs and recordings…',
+    'Weighing the budget against the traffic…',
+    'Picking a model for the job…',
+    'Drafting the scanner…',
+]
+
+const MESSAGE_INTERVAL_MS = 2500
+
+/** The rotating orange loading bar shown while the draft generates. */
+function DraftLoadingBar(): JSX.Element {
+    const frozen = inStorybook() || inStorybookTestRunner()
+    const [messageIndex, setMessageIndex] = useState(() =>
+        frozen ? 0 : Math.floor(Math.random() * DRAFT_LOADING_MESSAGES.length)
+    )
+
+    useEffect(() => {
+        // A frozen index keeps every Storybook snapshot identical.
+        if (frozen) {
+            return
+        }
+        const interval = setInterval(() => {
+            setMessageIndex((current) => {
+                let next = Math.floor(Math.random() * DRAFT_LOADING_MESSAGES.length)
+                if (next === current) {
+                    next = (next + 1) % DRAFT_LOADING_MESSAGES.length
+                }
+                return next
+            })
+        }, MESSAGE_INTERVAL_MS)
+        return () => clearInterval(interval)
+    }, [frozen])
+
+    return (
+        <div className="flex flex-col items-center gap-1 py-2">
+            <TextMorph as="span" className="text-sm font-medium text-secondary">
+                {DRAFT_LOADING_MESSAGES[messageIndex]}
+            </TextMorph>
+            <LoadingBar />
+        </div>
+    )
+}
+
 /** The overview's shape while the draft is still generating, so navigating there reads as progress. */
 function ScannerGoalOverviewSkeleton(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
+            <DraftLoadingBar />
             {['What it understood', 'Name', 'What it will ask', 'Eligible recordings', 'Sampling and budget'].map(
                 (label) => (
                     <div key={label} className="bg-bg-light border rounded-lg p-4 space-y-2">

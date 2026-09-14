@@ -11,9 +11,9 @@
  * * `marketing` - Marketing
  * * `transactional` - Transactional
  */
-export type CategoryTypeEnumApi = (typeof CategoryTypeEnumApi)[keyof typeof CategoryTypeEnumApi]
+export type MessageCategoryTypeEnumApi = (typeof MessageCategoryTypeEnumApi)[keyof typeof MessageCategoryTypeEnumApi]
 
-export const CategoryTypeEnumApi = {
+export const MessageCategoryTypeEnumApi = {
     Marketing: 'marketing',
     Transactional: 'transactional',
 } as const
@@ -26,7 +26,7 @@ export interface MessageCategoryApi {
     name: string
     description?: string
     public_description?: string
-    category_type?: CategoryTypeEnumApi
+    category_type?: MessageCategoryTypeEnumApi
     readonly created_at: string
     readonly updated_at: string
     /** @nullable */
@@ -51,7 +51,7 @@ export interface PatchedMessageCategoryApi {
     name?: string
     description?: string
     public_description?: string
-    category_type?: CategoryTypeEnumApi
+    category_type?: MessageCategoryTypeEnumApi
     readonly created_at?: string
     readonly updated_at?: string
     /** @nullable */
@@ -174,10 +174,9 @@ export interface AddSuppressionRequestApi {
  * * `MANUAL` - Manual
  * * `COMPLAINT` - Complaint
  */
-export type MessageSuppressionSourceEnumApi =
-    (typeof MessageSuppressionSourceEnumApi)[keyof typeof MessageSuppressionSourceEnumApi]
+export type SuppressionSourceEnumApi = (typeof SuppressionSourceEnumApi)[keyof typeof SuppressionSourceEnumApi]
 
-export const MessageSuppressionSourceEnumApi = {
+export const SuppressionSourceEnumApi = {
     Bounce: 'BOUNCE',
     Manual: 'MANUAL',
     Complaint: 'COMPLAINT',
@@ -193,7 +192,7 @@ export interface MessageSuppressionApi {
      * * `BOUNCE` - Bounce
      * * `MANUAL` - Manual
      * * `COMPLAINT` - Complaint */
-    readonly source: MessageSuppressionSourceEnumApi
+    readonly source: SuppressionSourceEnumApi
     /**
      * Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces').
      * @nullable

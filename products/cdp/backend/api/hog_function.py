@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+import requests
 import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
@@ -26,7 +27,7 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
-from posthog.cdp.internal_events import is_managed_alert_internal_event
+from posthog.cdp.internal_events import is_managed_alert_internal_event, is_reserved_internal_event
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
@@ -173,6 +174,23 @@ def _named_warehouse_tables(entries: Any) -> list[Any]:
         for entry in entries
         if isinstance(entry, dict) and entry.get("table_name") and entry.get("name") != "Select a table"
     ]
+
+
+def _worker_error_messages(response: requests.Response) -> list[str]:
+    """The CDP worker's own description of a failed test invocation, as a list of messages."""
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        for key in ("errors", "error", "detail"):
+            value = body.get(key)
+            if isinstance(value, list):
+                return [str(item) for item in value]
+            if value:
+                return [str(value)]
+    text = (response.text or "").strip()
+    return [text] if text else [f"The worker returned {response.status_code}."]
 
 
 def _without(value: Any, keys: tuple[str, ...]) -> Any:
@@ -576,18 +594,27 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         return super().to_internal_value(data)
 
-    def validate_type(self, value):
-        if value == HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value:
-            raise serializers.ValidationError(
-                "Cannot create or modify warehouse source webhook functions via this API."
-            )
+    # A legacy destination is only ever written by the plugin config migration. One created here would
+    # supersede the plugin config it shares a template with, silently replacing it.
+    UNCREATABLE_TYPE_ERRORS = {
+        HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value: "Cannot create or modify warehouse source webhook functions via this API.",
+        HogFunctionType.LEGACY_DESTINATION.value: "Cannot create legacy destination functions via this API.",
+    }
+    # A migrated legacy destination stays editable, so a person can disable one that misbehaves
+    UNEDITABLE_TYPES = {HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value}
 
-        # Ensure it is only set when creating a new function
-        if self.context.get("view") and self.context["view"].action == "create":
+    def validate_type(self, value):
+        is_create = bool(self.context.get("view")) and self.context["view"].action == "create"
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        changing_type = instance is not None and instance.type != value
+
+        if value in self.UNCREATABLE_TYPE_ERRORS and (is_create or changing_type or value in self.UNEDITABLE_TYPES):
+            raise serializers.ValidationError(self.UNCREATABLE_TYPE_ERRORS[value])
+
+        if is_create:
             return value
 
-        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
-        if instance and instance.type != value:
+        if changing_type:
             raise serializers.ValidationError("Cannot modify the type of an existing function")
         return value
 
@@ -616,6 +643,19 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 raise serializers.ValidationError(
                     {"filters": "Alert notification destinations are managed through the alert API."}
                 )
+
+        proposed_filters = attrs.get("filters", self.instance.filters if isinstance(self.instance, HogFunction) else {})
+        reserved = sorted(
+            {
+                event_filter["id"]
+                for event_filter in (proposed_filters or {}).get("events", [])
+                if isinstance(event_filter, dict) and is_reserved_internal_event(event_filter.get("id"))
+            }
+        )
+        if reserved:
+            raise serializers.ValidationError(
+                {"filters": f"{', '.join(reserved)} is reserved for the product that emits it."}
+            )
 
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
 
@@ -684,12 +724,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if hog_type in TYPES_WITH_JAVASCRIPT_SOURCE:
                 try:
                     # Validate transpilation using the model instance
+                    instance = self.instance if isinstance(self.instance, HogFunction) else None
                     attrs["transpiled"] = get_transpiled_function(
                         HogFunction(
                             team=team,
                             hog=attrs["hog"],
                             filters=attrs["filters"],
                             inputs=attrs["inputs"],
+                            inputs_schema=attrs.get("inputs_schema", instance.inputs_schema if instance else None),
                         )
                     )
                 except TranspilerError:
@@ -1185,7 +1227,9 @@ class HogFunctionViewSet(
         )
 
         if res.status_code != 200:
-            return Response({"status": "error"}, status=res.status_code)
+            # The worker's own message is the only description of the failure. Dropping it leaves the
+            # caller with a bare status code and nothing to act on.
+            return Response({"status": "error", "errors": _worker_error_messages(res)}, status=res.status_code)
 
         return Response(res.json())
 

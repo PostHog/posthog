@@ -24,19 +24,12 @@ from posthog.dataclasses import frozen
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.tasks.alerts.utils import INSIGHT_ALERT_FIRING_EVENT
 
-from products.alerts.backend.destination_configs import DESTINATION_SPECS, DestinationType
+from products.alerts.backend.insight_alert_destinations import INSIGHT_CHART_BLOCK, SLACK_TEMPLATE_ID
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
 
-SLACK_TEMPLATE_ID = DESTINATION_SPECS[DestinationType.SLACK].template_id
-
 DIVIDER_BLOCK = {"type": "divider"}
-
-# Byte-for-byte the block the sub-template now writes, so a repaired destination and a freshly
-# created one are indistinguishable. Keep it in step with the insight-alert-firing Slack entry in
-# frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.
-INSIGHT_CHART_BLOCK = "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}"
 
 
 @frozen

@@ -97,6 +97,9 @@ SourceCredentialsValidationResult = tuple[bool, str | None]
 # opaque vendor labels (Stripe date versions, semver, names) — never parsed or ordered.
 UNVERSIONED_API_VERSION = "v1"
 
+# Wall-clock bound on `probe_new_data` before the import falls back to the full sync.
+FAST_RETURN_PROBE_TIMEOUT = datetime.timedelta(minutes=2)
+
 
 def error_message_matches(error_msg: str, patterns: Iterable[str]) -> bool:
     """Case-insensitive match of `error_msg` against `get_non_retryable_errors`/`get_retryable_errors` patterns.
@@ -184,6 +187,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # See `sources/common/history_window.py`.
     history_lookback: datetime.timedelta | None = None
 
+    def history_lookback_for_schema(self, schema_name: str) -> datetime.timedelta | None:
+        """How far back a first sync of one schema reaches, or None for no bound.
+
+        Override when tables of one source need different bounds, for example a daily and an hourly
+        rollup of the same data, where the hourly table holds 24 rows for every daily row.
+        """
+        return self.history_lookback
+
     @property
     @abstractmethod
     def source_type(self) -> ExternalDataSourceType:
@@ -230,6 +241,27 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
 
         return set()
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        """Customer-facing messages for retryable failures that survived the whole retry budget.
+
+        Entries here do NOT change retryability — a matching failure keeps retrying and the schema
+        stays enabled. They only replace the raw driver text the job would otherwise store once
+        Temporal's retries run out, so `latest_error` names the failure class and a next action
+        instead of leaking connection internals.
+
+        Keys are partial error messages matched against `str(error)`, and should be drawn from
+        `get_retryable_errors` — a class the source never retries has no exhaustion to describe.
+        `get_non_retryable_errors` is consulted first, so a message matching both keeps the
+        non-retryable wording. The finalizer's generic `Transient_Error_Messages` map is consulted
+        next, so entries here only apply to classes that map does not name.
+
+        Returns `dict[str, str]`:
+            key = a partial error message to match on
+            value = the message to store on the failed job
+        """
+
+        return {}
 
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:
         """Sibling schemas `schema_name` reads from the warehouse instead of re-fetching.
@@ -351,6 +383,21 @@ class _BaseSource(ABC, Generic[ConfigType]):
         ``api_version`` follows the `get_schemas` contract: the resolved pin of the source
         instance being validated, or ``None`` (→ `default_version`) before a row exists."""
         return True, None
+
+    def probe_new_data(self, config: ConfigType, inputs: SourceInputs) -> bool | None:
+        """Whether the source has data past this schema's stored watermark.
+
+        `False` lets the run complete without extracting anything, so only return it when the
+        source is provably unchanged. `None` (the default) means "unknown" and runs the normal
+        sync, which is also the right answer for any error: never let a probe failure suppress
+        a sync. Callers guarantee the schema is incremental/append, past its initial sync, and
+        has no repair work pending.
+
+        The caller stops waiting after FAST_RETURN_PROBE_TIMEOUT but cannot interrupt this
+        method's thread, so implementations should bound their own remote call below that limit
+        (for example a server-side statement timeout) to avoid orphaned queries.
+        """
+        return None
 
     def get_endpoint_permissions(
         self, config: ConfigType, team_id: int, endpoints: list[str], api_version: str | None = None

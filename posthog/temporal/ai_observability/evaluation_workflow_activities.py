@@ -1,6 +1,8 @@
 import json
+import uuid
+import hashlib
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -9,11 +11,17 @@ from django.db import transaction
 import structlog
 import temporalio
 from structlog.contextvars import bind_contextvars
+from temporalio.exceptions import ApplicationError
 
 from posthog.api.capture import CaptureInternalError
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
+from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
+from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime, hydrate_event_reference
+from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
+from posthog.temporal.ai_observability.evaluation_sentiment import run_sentiment_eval
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
 from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
@@ -25,11 +33,28 @@ logger = structlog.get_logger(__name__)
 
 SOURCE_AI_PROPERTIES_TO_COPY = ("$ai_prompt_name", "$ai_prompt_version")
 
+EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE = "EmitEvaluationEventFailed"
 
-@dataclass
+
+def backfill_verdict_timestamp(
+    unit_timestamp: datetime, evaluation_id: str, backfill_id: str, unit_id: str
+) -> datetime:
+    """Spread a backfilled verdict inside the second its unit sits in.
+
+    The Kafka deduplicator keys a row on (timestamp, distinct_id, team_id, event), so backfilled
+    `$ai_evaluation` events that share a timestamp collide and all but one are dropped. Hashing all
+    three ids keeps the offset stable across activity retries, so a retried emit still collapses
+    into the original. Ingestion keeps millisecond precision, so the spread is about 1000 buckets.
+    """
+    digest = hashlib.sha256(f"{evaluation_id}:{backfill_id}:{unit_id}".encode()).digest()
+    return unit_timestamp + timedelta(microseconds=int.from_bytes(digest[:8], "big") % 1_000_000)
+
+
+@frozen
 class RunEvaluationInputs:
     evaluation_id: str
     event_data: dict[str, Any]
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -39,44 +64,45 @@ class RunEvaluationInputs:
         }
 
 
+def fetch_evaluation(evaluation_id: str, team_id: int) -> dict[str, Any]:
+    """Fetch evaluation config from Postgres."""
+    try:
+        evaluation = Evaluation.objects.select_related(
+            "model_configuration",
+            "model_configuration__provider_key",
+        ).get(id=evaluation_id, team_id=team_id)
+
+        model_configuration = None
+        if evaluation.model_configuration:
+            mc = evaluation.model_configuration
+            model_configuration = {
+                "provider": mc.provider,
+                "model": mc.model,
+                "provider_key_id": str(mc.provider_key_id) if mc.provider_key_id else None,
+            }
+
+        return {
+            "id": str(evaluation.id),
+            "name": evaluation.name,
+            "evaluation_type": evaluation.evaluation_type,
+            "evaluation_config": evaluation.evaluation_config,
+            "output_type": evaluation.output_type,
+            "output_config": evaluation.output_config,
+            "team_id": evaluation.team_id,
+            "model_configuration": model_configuration,
+            "enabled": evaluation.enabled,
+            "deleted": evaluation.deleted,
+        }
+    except Evaluation.DoesNotExist:
+        logger.exception("Evaluation not found", evaluation_id=evaluation_id)
+        raise ValueError(f"Evaluation {evaluation_id} not found")
+
+
 @temporalio.activity.defn
 async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, Any]:
     """Fetch evaluation config from Postgres."""
     bind_contextvars(team_id=inputs.event_data.get("team_id"), evaluation_id=inputs.evaluation_id)
-
-    def _fetch() -> dict[str, Any]:
-        try:
-            evaluation = Evaluation.objects.select_related(
-                "model_configuration",
-                "model_configuration__provider_key",
-            ).get(id=inputs.evaluation_id, team_id=inputs.event_data["team_id"])
-
-            model_configuration = None
-            if evaluation.model_configuration:
-                mc = evaluation.model_configuration
-                model_configuration = {
-                    "provider": mc.provider,
-                    "model": mc.model,
-                    "provider_key_id": str(mc.provider_key_id) if mc.provider_key_id else None,
-                }
-
-            return {
-                "id": str(evaluation.id),
-                "name": evaluation.name,
-                "evaluation_type": evaluation.evaluation_type,
-                "evaluation_config": evaluation.evaluation_config,
-                "output_type": evaluation.output_type,
-                "output_config": evaluation.output_config,
-                "team_id": evaluation.team_id,
-                "model_configuration": model_configuration,
-                "enabled": evaluation.enabled,
-                "deleted": evaluation.deleted,
-            }
-        except Evaluation.DoesNotExist:
-            logger.exception("Evaluation not found", evaluation_id=inputs.evaluation_id)
-            raise ValueError(f"Evaluation {inputs.evaluation_id} not found")
-
-    return await database_sync_to_async(_fetch)()
+    return await database_sync_to_async(fetch_evaluation)(inputs.evaluation_id, inputs.event_data["team_id"])
 
 
 @temporalio.activity.defn
@@ -203,12 +229,13 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
     await database_sync_to_async(_send)()
 
 
-@dataclass
+@frozen
 class EmitEvaluationEventInputs:
     evaluation: dict[str, Any]
     event_data: dict[str, Any]
     result: EvaluationActivityResult
     start_time: datetime
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -219,7 +246,10 @@ class EmitEvaluationEventInputs:
 
 
 def build_evaluation_event_properties(
-    evaluation: dict[str, Any], result: EvaluationActivityResult, start_time: datetime
+    evaluation: dict[str, Any],
+    result: EvaluationActivityResult,
+    start_time: datetime,
+    backfill_id: str | None = None,
 ) -> dict[str, Any]:
     """Assemble the target-independent `$ai_evaluation` properties shared by all emit paths.
 
@@ -237,7 +267,11 @@ def build_evaluation_event_properties(
         "$ai_evaluation_result_type": result["result_type"],
         "$ai_evaluation_start_time": start_time.isoformat(),
         "$ai_evaluation_reasoning": result["reasoning"],
+        "$ai_evaluation_trigger": "backfill" if backfill_id else "live",
     }
+
+    if backfill_id:
+        properties["$ai_evaluation_backfill_id"] = backfill_id
 
     if result.get("skipped"):
         properties["$ai_evaluation_skipped"] = True
@@ -273,11 +307,27 @@ def build_evaluation_event_properties(
     return properties
 
 
-@temporalio.activity.defn
-async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> None:
-    """Emit $ai_evaluation event via capture_internal so it routes through the ingestion pipeline for cost calculation."""
+def _evaluation_event_uuid() -> str | None:
+    """One workflow emits one $ai_evaluation, so its uuid derives from the workflow id, which
+    survives activity retries and workflow-level retries alike. A manual re-run mints a new
+    workflow id (it embeds a ms timestamp), so re-runs still get distinct events."""
+    if not temporalio.activity.in_activity():
+        return None
+    workflow_id = temporalio.activity.info().workflow_id
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog://ai-evaluation/{workflow_id}"))
+
+
+async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) -> None:
+    """Emit the $ai_evaluation event via capture_internal so it routes through the ingestion
+    pipeline for cost calculation. A billing-limited capture drops the event without failing
+    the caller. The event timestamp never comes from emit time: ingestion dedup keys on
+    (timestamp, event, distinct_id, token), so only a stable timestamp lets a retried emit
+    collapse into the original."""
     evaluation = inputs.evaluation
-    event_data = inputs.event_data
+    # The judge path reads the same generation twice, once here and once in the judge activity.
+    # Both are point lookups on the ai_events sort key, which is cheaper than pushing an event
+    # that capture accepts up to 8 MiB through a Temporal payload capped near 2 MiB.
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
     result = inputs.result
     start_time = inputs.start_time
 
@@ -288,7 +338,7 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             else event_data["properties"]
         )
 
-        properties = build_evaluation_event_properties(evaluation, result, start_time)
+        properties = build_evaluation_event_properties(evaluation, result, start_time, inputs.backfill_id)
         properties.update(
             {
                 "$ai_target_event_id": event_data["uuid"],
@@ -309,8 +359,20 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=event_data["distinct_id"],
-            timestamp=datetime.now(UTC),
+            # A backfilled verdict sits at its generation's time so time-bucketed views line it
+            # up with the trace it grades instead of with the day the backfill ran.
+            timestamp=(
+                backfill_verdict_timestamp(
+                    as_utc_datetime(event_data["timestamp"]),
+                    str(evaluation["id"]),
+                    inputs.backfill_id,
+                    str(event_data["uuid"]),
+                )
+                if inputs.backfill_id
+                else start_time
+            ),
             properties=properties,
+            event_uuid=_evaluation_event_uuid(),
         )
 
     try:
@@ -326,6 +388,12 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
     except Exception:
         increment_emit_event_outcome("failed")
         raise
+
+
+@temporalio.activity.defn
+async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> None:
+    """Emit $ai_evaluation event via capture_internal so it routes through the ingestion pipeline for cost calculation."""
+    await emit_generation_evaluation_event(inputs)
 
 
 @dataclass
@@ -373,3 +441,74 @@ async def emit_internal_telemetry_activity(inputs: EmitInternalTelemetryInputs) 
         ph_client.flush()
 
     await database_sync_to_async(_emit_telemetry, thread_sensitive=False)()
+
+
+@frozen
+class RunLocalEvaluationInputs:
+    evaluation_id: str
+    event_data: dict[str, Any]
+    start_time: datetime
+    backfill_id: str | None = None
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "evaluation_id": self.evaluation_id,
+            "team_id": self.event_data.get("team_id"),
+        }
+
+
+@frozen
+class LocalEvaluationOutcome:
+    """What `run_local_evaluation_activity` handled.
+
+    `result` is None when the evaluation runs on an LLM judge: the activity only fetched the
+    config, and the workflow must run the judge with its own timeout and retry policy. `emitted`
+    says whether the $ai_evaluation event was sent here, so the workflow never emits a second one.
+    """
+
+    evaluation: dict[str, Any]
+    result: EvaluationActivityResult | None
+    emitted: bool
+
+
+@temporalio.activity.defn
+async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
+    """Fetch the evaluation and, for hog and sentiment, execute it and emit its event in one
+    activity. These runtimes make no external call, so one activity replaces three Temporal
+    Cloud actions. llm_judge returns after the fetch: the judge needs its own activity and
+    retry policy. Terminal user errors skip the emit; the workflow owns disable and notify.
+    """
+    bind_contextvars(team_id=inputs.event_data.get("team_id"), evaluation_id=inputs.evaluation_id)
+    evaluation = await database_sync_to_async_pool(fetch_evaluation)(inputs.evaluation_id, inputs.event_data["team_id"])
+
+    evaluation_type = evaluation.get("evaluation_type", "llm_judge")
+    if evaluation_type not in ("hog", "sentiment"):
+        # An llm_judge returns before the read: its own activity hydrates what it grades.
+        return LocalEvaluationOutcome(evaluation=evaluation, result=None, emitted=False)
+
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
+    if evaluation_type == "hog":
+        result = await run_hog_eval_for_event(evaluation, event_data)
+    else:
+        result = await run_sentiment_eval(evaluation, event_data)
+
+    emitted = False
+    if not is_terminal_user_error_result(result):
+        try:
+            await emit_generation_evaluation_event(
+                EmitEvaluationEventInputs(
+                    evaluation=evaluation,
+                    event_data=event_data,
+                    result=result,
+                    start_time=inputs.start_time,
+                    backfill_id=inputs.backfill_id,
+                )
+            )
+        except Exception as error:
+            # Typed so the workflow counts one emit failure per run, after retries end.
+            raise ApplicationError(
+                "Failed to emit $ai_evaluation", type=EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE
+            ) from error
+        emitted = True
+    return LocalEvaluationOutcome(evaluation=evaluation, result=result, emitted=emitted)

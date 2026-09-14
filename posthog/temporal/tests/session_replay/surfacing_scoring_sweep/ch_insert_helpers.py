@@ -21,6 +21,7 @@ INSERT INTO sharded_session_replay_events (
     first_url,
     snapshot_source,
     snapshot_library,
+    snapshot_mode,
     event_count,
     surfacing_score
 )
@@ -33,6 +34,7 @@ SELECT
     argMinState(cast(NULL, 'Nullable(String)'), now64(6) - INTERVAL 1 HOUR),
     argMinState(cast(NULL, 'LowCardinality(Nullable(String))'), now64(6) - INTERVAL 1 HOUR),
     argMinState(cast(NULL, 'Nullable(String)'), now64(6) - INTERVAL 1 HOUR),
+    argMinState(cast(NULL, 'LowCardinality(Nullable(String))'), now64(6) - INTERVAL 1 HOUR),
     %(event_count)s,
     %(surfacing_score)s
 """
@@ -47,6 +49,7 @@ INSERT INTO sharded_session_replay_events (
     first_url,
     snapshot_source,
     snapshot_library,
+    snapshot_mode,
     event_count,
     surfacing_score
 )
@@ -59,6 +62,7 @@ SELECT
     argMinState(cast(NULL, 'Nullable(String)'), toDateTime64(%(start)s, 6, 'UTC')),
     argMinState(cast(NULL, 'LowCardinality(Nullable(String))'), toDateTime64(%(start)s, 6, 'UTC')),
     argMinState(cast(NULL, 'Nullable(String)'), toDateTime64(%(start)s, 6, 'UTC')),
+    argMinState(cast(NULL, 'LowCardinality(Nullable(String))'), toDateTime64(%(start)s, 6, 'UTC')),
     %(event_count)s,
     %(surfacing_score)s
 """

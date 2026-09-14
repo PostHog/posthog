@@ -1,7 +1,6 @@
 from typing import Any
 
 import pytest
-from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 
@@ -9,7 +8,6 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.slack_app.backend.feature_flags import SLACK_APP_HOME_FLAG
 from products.slack_app.backend.models import SlackSettings, UntaggedFollowupMode
 from products.slack_app.backend.services.slack_settings import (
     AIPreferences,
@@ -30,25 +28,6 @@ def slack_setup(db):
         sensitive_config={"access_token": "xoxb"},
     )
     return integration
-
-
-@pytest.fixture
-def flag_on():
-    """Flip the slack-app-home flag on for the duration of a test."""
-    with patch(
-        "products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled",
-        return_value=True,
-    ) as mock:
-        yield mock
-
-
-@pytest.fixture
-def flag_off():
-    with patch(
-        "products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled",
-        return_value=False,
-    ) as mock:
-        yield mock
 
 
 @pytest.fixture(autouse=True)
@@ -181,7 +160,7 @@ class TestResolveAIPreferences:
             ),
         ],
     )
-    def test_resolution_table(self, slack_setup, flag_on, user_row, workspace_row, expected):
+    def test_resolution_table(self, slack_setup, user_row, workspace_row, expected):
         integration = slack_setup
         if user_row:
             SlackSettings.objects.create(
@@ -207,7 +186,7 @@ class TestResolveAIPreferences:
             )
         assert resolve_ai_preferences(integration, "U001") == expected
 
-    def test_user_row_with_no_pair_reads_as_no_preference(self, slack_setup, flag_on):
+    def test_user_row_with_no_pair_reads_as_no_preference(self, slack_setup):
         """A user row without the atomic `(runtime_adapter, model)` pair is
         treated as "no personal preference" — the orphaned effort never leaks
         into the resolved triple."""
@@ -224,7 +203,7 @@ class TestResolveAIPreferences:
 
         assert resolve_ai_preferences(integration, "U001") == AIPreferences()
 
-    def test_unsupported_effort_dropped_when_model_does_not_support_it(self, slack_setup, flag_on):
+    def test_unsupported_effort_dropped_when_model_does_not_support_it(self, slack_setup):
         """If a row stores an effort the resolved model can't honour (e.g.
         the model definition changed since the effort was saved), the
         resolver drops it rather than letting it leak through to the task
@@ -247,7 +226,7 @@ class TestResolveAIPreferences:
         assert result.model == "claude-sonnet-4-6"
         assert result.reasoning_effort is None
 
-    def test_user_id_none_resolves_empty(self, slack_setup, flag_on):
+    def test_user_id_none_resolves_empty(self, slack_setup):
         # No Slack user to attribute the run to, so there's no preference to
         # apply — the workspace row's AI fields are no longer consulted.
         integration = slack_setup
@@ -258,30 +237,6 @@ class TestResolveAIPreferences:
             ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "high"},
         )
         assert resolve_ai_preferences(integration, None) == AIPreferences()
-
-    def test_flag_off_returns_empty_even_with_rows_present(self, slack_setup, flag_off):
-        integration = slack_setup
-        SlackSettings.objects.create(
-            default_integration=integration,
-            slack_workspace_id="T_WS",
-            slack_user_id="U001",
-            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "high"},
-        )
-        assert resolve_ai_preferences(integration, "U001") == AIPreferences()
-
-    def test_flag_check_failure_fails_closed(self, slack_setup):
-        integration = slack_setup
-        SlackSettings.objects.create(
-            default_integration=integration,
-            slack_workspace_id="T_WS",
-            slack_user_id="U001",
-            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "high"},
-        )
-        with patch(
-            "products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled",
-            side_effect=RuntimeError("boom"),
-        ):
-            assert resolve_ai_preferences(integration, "U001") == AIPreferences()
 
 
 class TestResolveUntaggedFollowupMode:
@@ -359,7 +314,3 @@ class TestValidateAIPreferences:
     def test_effort_unsupported_by_model_rejected(self):
         with pytest.raises(ValidationError, match="not supported"):
             validate_ai_preferences("claude", "claude-sonnet-4-6", "xhigh")
-
-    def test_flag_constant_is_stable(self):
-        # Sanity: the flag name is what we documented and rolled out with.
-        assert SLACK_APP_HOME_FLAG == "slack-app-home"

@@ -3,7 +3,8 @@ from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
-from requests import Session
+from requests import Response, Session
+from requests.exceptions import HTTPError
 
 from posthog.dataclasses import frozen
 
@@ -43,6 +44,27 @@ class DateWindow:
 
 class RoktAdsError(Exception):
     pass
+
+
+def _error_detail(response: Response) -> str:
+    """Pull Rokt's explanation of a rejected request out of the error body.
+
+    Rokt does not document its error shape, so read the keys it is likely to use and fall
+    back to the raw text. Without this the caller keeps only the bare status line and loses
+    the reason Rokt refused the request.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text.strip()[:500]
+
+    if isinstance(body, dict):
+        detail = body.get("message") or body.get("error") or body.get("detail") or body.get("errors")
+        if detail:
+            return str(detail)[:500]
+    if isinstance(body, list) and body:
+        return str(body[0])[:500]
+    return str(body)[:500]
 
 
 class RoktAdsClient:
@@ -103,14 +125,26 @@ class RoktAdsClient:
     def _auth_headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.access_token()}", "Content-Type": "application/json"}
 
+    @staticmethod
+    def _raise_for_status(response: Response) -> None:
+        """Turn an error response into a `RoktAdsError` that carries Rokt's own explanation.
+
+        The status line stays in the message, so `get_non_retryable_errors` keeps matching it.
+        """
+        try:
+            response.raise_for_status()
+        except HTTPError as err:
+            detail = _error_detail(response)
+            raise RoktAdsError(f"{err} — {detail}" if detail else str(err)) from err
+
     def get(self, path: str) -> Any:
         response = self._session.get(f"{BASE_URL}{path}", headers=self._auth_headers())
-        response.raise_for_status()
+        self._raise_for_status(response)
         return response.json()
 
     def post(self, path: str, body: dict[str, Any]) -> Any:
         response = self._session.post(f"{BASE_URL}{path}", headers=self._auth_headers(), json=body)
-        response.raise_for_status()
+        self._raise_for_status(response)
         return response.json()
 
     def list_accounts(self) -> list[dict[str, Any]]:
@@ -190,13 +224,16 @@ def build_report_body(
     if not metrics:
         raise RoktAdsError(f"Rokt account grants none of the metrics {endpoint_name} reports on.")
 
+    # No `orderBys`: the Query API only sorts on a requested dimension or metric slug, and
+    # `datetime` is a response-only interval marker rather than a slug, so ordering by it makes
+    # Rokt reject the whole report with a 400. Row order does not matter here anyway - the
+    # incremental cursor takes the max `datetime` over each window and resume is window-based.
     body: dict[str, Any] = {
         "interval": REPORT_INTERVAL,
         "startDate": window.start.isoformat(),
         "endDate": window.end.isoformat(),
         "metrics": metrics,
         "dimensions": endpoint["dimensions"],
-        "orderBys": [{"column": "datetime", "direction": "asc"}],
     }
     if timezone_variation:
         body["timezoneVariation"] = timezone_variation

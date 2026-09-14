@@ -6,11 +6,11 @@ function item(type: ThreadItem['type'], id: string, text?: string): ThreadItem {
 }
 
 describe('computeTurnTrailers', () => {
-    it('assigns stable ordinals and per-turn text across multiple turns', () => {
+    it('assigns stable ordinals, per-turn text, and per-turn trace ids across multiple turns', () => {
         const trailers = computeTurnTrailers([
             item('human_message', 'h0', 'q1'),
             item('assistant_message', 'a0', 'first answer'),
-            item('turn_separator', 'turn-0'),
+            { ...item('turn_separator', 'turn-0'), traceId: 'trace-a' },
             item('human_message', 'h1', 'q2'),
             item('assistant_thought', 't0', 'thinking'),
             item('assistant_message', 'a1', 'second answer'),
@@ -18,11 +18,17 @@ describe('computeTurnTrailers', () => {
             item('turn_separator', 'turn-1'),
         ])
 
-        expect(trailers.get('turn-0')).toEqual({ turnIndex: 0, isLastTurn: false, turnText: 'first answer' })
+        expect(trailers.get('turn-0')).toEqual({
+            turnIndex: 0,
+            isLastTurn: false,
+            turnText: 'first answer',
+            traceId: 'trace-a',
+        })
         expect(trailers.get('turn-1')).toEqual({
             turnIndex: 1,
             isLastTurn: true,
             turnText: 'second answer\n\ncontinued',
+            traceId: undefined,
         })
     })
 

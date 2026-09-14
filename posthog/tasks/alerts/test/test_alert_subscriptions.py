@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -14,7 +14,7 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 from products.alerts.backend.models import AlertConfiguration, AlertSubscription
 
 
-@freeze_time("2024-06-02T08:55:00.000Z")
+@time_machine.travel("2024-06-02T08:55:00.000Z", tick=False)
 class TestAlertSubscriptionOrgMembership(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -80,7 +80,7 @@ class TestAlertSubscriptionOrgMembership(APIBaseTest):
         assert email.to[0]["recipient"] == "user1@posthog.com"
 
 
-@freeze_time("2024-06-02T08:55:00.000Z")
+@time_machine.travel("2024-06-02T08:55:00.000Z", tick=False)
 class TestGetSubscribedUsersEmails(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -150,7 +150,7 @@ class TestGetSubscribedUsersEmails(APIBaseTest):
         assert emails == []
 
 
-@freeze_time("2024-06-02T08:55:00.000Z")
+@time_machine.travel("2024-06-02T08:55:00.000Z", tick=False)
 class TestAlertEmailNotifications(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 

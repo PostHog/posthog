@@ -1,7 +1,11 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date
 
 import pytest
 from unittest.mock import MagicMock, call, patch
+
+from django.test import override_settings
 
 import psycopg
 import pyarrow as pa
@@ -9,14 +13,21 @@ from psycopg import sql
 from psycopg.pq import TransactionStatus
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     TemporaryFileSizeExceedsLimitException,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
+    TemporaryHostResolutionError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
     RedshiftSourceConfig,
@@ -733,7 +744,7 @@ class TestFetchArrowBatches:
 
         tables = list(_fetch_arrow_batches(cursor, 5, _STREAM_SCHEMA, fetch_size=2))
 
-        assert _ids(tables) == [[1, 2, 3, 4, 5, 6], [7]]
+        assert _ids(tables) == [[1, 2, 3, 4, 5], [6, 7]]
         assert [c.args[0] for c in cursor.fetchmany.call_args_list] == [2, 2, 2, 2, 2]
 
     def test_fetches_a_whole_chunk_at_a_time_by_default(self):
@@ -1242,6 +1253,16 @@ class TestRedshiftSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s", TEMPORARY_HOST_RESOLUTION_ERROR],
+    )
+    def test_resolver_failures_before_the_connect_are_classified_retryable(self, error_msg):
+        source = RedshiftSource()
+        assert any(pattern in error_msg for pattern in source.get_retryable_errors())
+        assert not any(pattern in error_msg for pattern in source.get_non_retryable_errors())
+        assert source.get_retryable_errors() == set(source.get_retry_exhausted_errors().keys())
+
     def test_query_timeout_raw_message_is_non_retryable(self):
         # Mirrors the `InsufficientPrivilege` case above: the activity-level check matches raw
         # `str(exception)`, which for `QueryTimeoutException` is just the message with no class
@@ -1278,6 +1299,29 @@ class TestRedshiftValidateCredentials:
 
         assert ok is False
         assert error is not None and "does not support SSL" in error
+        capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "refusal,expected_fragment",
+        [
+            (HostNotAllowedError("Database host not allowed: resolves to a private address"), "not allowed"),
+            (TemporaryHostResolutionError("db.example.com"), "Try again in a moment"),
+        ],
+    )
+    def test_a_host_the_policy_refuses_is_returned_without_capturing(self, mocker, refusal, expected_fragment):
+        config = _make_config()
+        source = RedshiftSource()
+        mocker.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None))
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        mocker.patch.object(source, "get_schemas", side_effect=refusal)
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source.capture_exception"
+        )
+
+        ok, error = source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert error is not None and expected_fragment in error
         capture.assert_not_called()
 
     def test_ssh_gateway_session_error_maps_to_actionable_message(self, mocker):
@@ -1380,6 +1424,27 @@ class TestIsTransientConnectionDropError:
     def test_matches_connection_is_lost(self):
         assert _is_transient_connection_drop_error(psycopg.OperationalError("the connection is lost")) is True
 
+    def test_matches_connect_time_server_closed(self):
+        # A drop during the connect handshake surfaces as a different message than an already-open
+        # connection dying, so the guard must match it too or it re-raises on the first attempt.
+        assert (
+            _is_transient_connection_drop_error(
+                psycopg.OperationalError("connection failed: server closed the connection unexpectedly")
+            )
+            is True
+        )
+
+    def test_matches_consuming_input_failed_ssl_syscall_error(self):
+        # Regression: a drop detected while reading a query's response (e.g. `get_table_metadata`
+        # mid-probe) surfaces as "consuming input failed: SSL SYSCALL error: EOF detected" rather
+        # than either message above, and previously fell through to a full Temporal activity retry.
+        assert (
+            _is_transient_connection_drop_error(
+                psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected")
+            )
+            is True
+        )
+
     def test_does_not_match_unrelated_operational_error(self):
         # A permanent, non-actionable failure that also raises OperationalError must not be
         # swept up by the narrow "the connection is lost" match and retried in-process.
@@ -1462,6 +1527,33 @@ class TestBuildPipeline:
         list(response.items())  # type: ignore[arg-type]
         # streaming cursor.execute should have been invoked for the streaming query
         assert streaming_cursor.execute.called
+
+    def test_sync_all_names_the_columns_rediscovered_before_streaming(self, build_pipeline_mocks, mocker):
+        # A role holding column grants instead of table grants cannot run `SELECT *`, because the
+        # star expands to columns it may not read. The cluster drops `nickname` between setup and
+        # the read here: naming it would fail the read as a permanent error, which disables the
+        # schema.
+        def table_with(*columns: str) -> Table:
+            return Table(
+                name="messages",
+                parents=("public",),
+                columns=[RedshiftColumn(name=name, data_type="varchar", nullable=True) for name in columns],
+                type="table",
+            )
+
+        mocker.patch.object(
+            RedshiftImplementation,
+            "get_table_metadata",
+            side_effect=[table_with("id", "email", "nickname"), table_with("id", "email")],
+        )
+        _, streaming_cursor = build_pipeline_mocks
+        impl = RedshiftImplementation()
+
+        response = impl.build_pipeline(_make_config(), _make_inputs())
+        list(response.items())  # type: ignore[arg-type]
+
+        streaming_query = streaming_cursor.stream.call_args.args[0]
+        assert streaming_query.as_string().startswith('SELECT "id", "email" FROM')
 
     def test_chunk_size_override_skips_probe(self, build_pipeline_mocks, mocker):
         mocked_chunk_size = mocker.patch.object(RedshiftImplementation, "get_chunk_size")
@@ -1601,3 +1693,44 @@ class TestGetConnectionMetadata:
         metadata = RedshiftSource().get_connection_metadata(_make_config(schema=schema), team_id=1)
 
         assert metadata == {"engine": "redshift", "database": "dev", "schema": expected_schema}
+
+
+_REDSHIFT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift"
+
+
+class TestRedshiftConnectDialsOnlyValidatedAddresses:
+    @contextmanager
+    def _production_cloud(self, *addresses: str) -> Iterator[MagicMock]:
+        with (
+            override_settings(CLOUD_DEPLOYMENT="US"),
+            patch(f"{_REDSHIFT_MODULE}.open_ssh_tunnel") as tunnel_mock,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.settings"
+            ) as mock_settings,
+            patch("posthog.psycopg_helpers.socket.getaddrinfo", return_value=addrinfo(5439, *addresses)),
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
+            patch(f"{_REDSHIFT_MODULE}.psycopg.connect") as connect_mock,
+        ):
+            tunnel_mock.return_value.__enter__.return_value = ("db.example.com", 5439)
+            mock_settings.TEST = False
+            mock_settings.DEBUG = False
+            mock_settings.E2E_TESTING = False
+            connect_mock.return_value.__enter__.return_value = MagicMock()
+            yield connect_mock
+
+    def test_a_public_set_is_dialed_pinned_with_the_hostname_kept(self) -> None:
+        with self._production_cloud("52.1.2.3", "52.1.2.4") as connect_mock:
+            with RedshiftImplementation().connect(_make_config(), team_id=999):
+                pass
+
+        kwargs = connect_mock.call_args.kwargs
+        assert kwargs["host"] == "db.example.com,db.example.com"
+        assert kwargs["hostaddr"] == "52.1.2.3,52.1.2.4"
+        assert kwargs["port"] == 5439
+
+    def test_the_team_reaches_the_host_policy(self) -> None:
+        with self._production_cloud("10.0.0.5") as connect_mock:
+            with RedshiftImplementation().connect(_make_config(), team_id=2):
+                pass
+
+        assert connect_mock.call_args.kwargs["hostaddr"] == "10.0.0.5"

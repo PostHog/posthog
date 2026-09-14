@@ -112,6 +112,8 @@ export interface OverviewTotals {
     crawls: number
     crawlsPrevious: number
     pages: number
+    /** Forwarded access-log events. Without them the crawler numbers can only ever be zero. */
+    serverLogs: number
 }
 
 export type PagePerformanceBucket = 'hour' | 'day' | 'week'
@@ -168,14 +170,14 @@ const OVERVIEW_METRICS: {
     },
     {
         key: 'llm_referrals',
-        label: 'LLM referrals',
+        label: 'AI referrals',
         value: (t) => t.llm,
         previous: (t) => t.llmPrevious,
         series: (p) => p.llm,
     },
     {
         key: 'agent_crawls',
-        label: 'Agent crawls',
+        label: 'AI crawls',
         value: (t) => t.crawls,
         previous: (t) => t.crawlsPrevious,
         series: (p) => p.crawls,
@@ -192,6 +194,46 @@ const EMPTY_OVERVIEW_TOTALS: OverviewTotals = {
     crawls: 0,
     crawlsPrevious: 0,
     pages: 0,
+    serverLogs: 0,
+}
+
+export type PagePerformanceTabState = 'loading' | 'ready' | 'no-events' | 'no-traffic-in-range'
+export type PagePerformanceAiTrafficState = 'loading' | 'ready' | 'empty'
+export type PagePerformanceCrawlerState = 'loading' | 'ready' | 'empty' | 'needs-server-logs'
+
+export interface PagePerformanceDataState {
+    tab: PagePerformanceTabState
+    aiTraffic: PagePerformanceAiTrafficState
+    crawlers: PagePerformanceCrawlerState
+}
+
+const READY_DATA_STATE: PagePerformanceDataState = { tab: 'ready', aiTraffic: 'ready', crawlers: 'ready' }
+
+/**
+ * Which of the tab's three stories can actually be told from the data at hand. A zero here is
+ * ambiguous: crawlers never run JavaScript, so no forwarded access logs means no crawler rows are
+ * possible, whatever the site's real crawler traffic is. Separating that from a genuine zero keeps
+ * the tab from reporting an instrumentation gap as a fact about the world.
+ */
+export const resolvePagePerformanceDataState = (
+    totals: OverviewTotals | null,
+    hasIngestedEvents: boolean
+): PagePerformanceDataState => {
+    if (!totals) {
+        return { tab: 'loading', aiTraffic: 'loading', crawlers: 'loading' }
+    }
+    if (totals.visitors === 0 && totals.pages === 0 && totals.crawls === 0 && totals.serverLogs === 0) {
+        return {
+            tab: hasIngestedEvents ? 'no-traffic-in-range' : 'no-events',
+            aiTraffic: 'empty',
+            crawlers: hasIngestedEvents ? 'needs-server-logs' : 'empty',
+        }
+    }
+    return {
+        tab: 'ready',
+        aiTraffic: totals.llm > 0 ? 'ready' : 'empty',
+        crawlers: totals.crawls > 0 ? 'ready' : totals.serverLogs > 0 ? 'empty' : 'needs-server-logs',
+    }
 }
 
 const tsLiteral = (date: dayjs.Dayjs, timezone: string): string => date.tz(timezone).format("'YYYY-MM-DD HH:mm:ss'")
@@ -309,8 +351,7 @@ export const parsePagePerformanceOverviewResponse = (
 /** Aligns the human and crawler series onto one bucket axis — either query can miss a bucket entirely. */
 export const mergePagePerformanceSeries = (
     human: ParsedOverviewResponse,
-    crawler: ParsedOverviewResponse,
-    bucketSize: PagePerformanceBucket
+    crawler: ParsedOverviewResponse
 ): OverviewSeriesPoint[] => {
     const byBucket = new Map<number, OverviewSeriesPoint>()
 
@@ -321,7 +362,7 @@ export const mergePagePerformanceSeries = (
             return existing
         }
         const point: OverviewSeriesPoint = {
-            label: formatBucketLabel(bucket, bucketSize),
+            label: bucket.toISOString(),
             visitors: 0,
             google: 0,
             llm: 0,
@@ -358,33 +399,11 @@ export const resolvePagePerformanceBucket = (window: PagePerformanceWindow): Pag
     return 'week'
 }
 
-const PAGE_TABLE_COLUMNS = [
-    'context.columns.breakdown_value',
-    'context.columns.visitors',
-    'context.columns.google_search',
-    'context.columns.llm_referrals',
-    'context.columns.agent_crawls',
-    'context.columns.conversions',
-    'context.columns.avg_time',
-]
-
-const PAGE_TABLE_VISITORS_INDEX = PAGE_TABLE_COLUMNS.indexOf('context.columns.visitors')
-
 const BUCKET_HOGQL_FN: Record<PagePerformanceBucket, string> = {
     hour: 'toStartOfHour',
     day: 'toStartOfDay',
     week: 'toStartOfWeek',
 }
-
-const BUCKET_LABEL_FORMAT: Record<PagePerformanceBucket, string> = {
-    hour: 'MMM D, HH:mm',
-    day: 'MMM D',
-    week: 'MMM D',
-}
-
-// The bucket is parsed with `dayjs.tz(..., timezone)`, so it already carries the target offset.
-const formatBucketLabel = (bucket: dayjs.Dayjs, bucketSize: PagePerformanceBucket): string =>
-    bucket.format(BUCKET_LABEL_FORMAT[bucketSize])
 
 export interface MetricCellValue {
     current: number
@@ -396,12 +415,6 @@ export const parseMetricCell = (value: unknown): MetricCellValue | null =>
     Array.isArray(value) && value.length >= 2
         ? { current: Number(value[0] ?? 0), previous: Number(value[1] ?? 0) }
         : null
-
-/** The row's own human visitor count, which every other metric on that row is a share of. */
-export const pageVisitorsFromRecord = (record: unknown): number => {
-    const cell = Array.isArray(record) ? record[PAGE_TABLE_VISITORS_INDEX] : null
-    return Array.isArray(cell) ? Number(cell[0] ?? 0) : 0
-}
 
 /** Shares below 10% get a decimal, so a page holding 0.4% of site traffic doesn't read as 0%. */
 export const formatShare = (part: number, whole: number): string | null => {
@@ -565,7 +578,8 @@ const buildOverviewCrawlerQuery = (window: PagePerformanceWindow, bucketSize: Pa
 SELECT
     ${BUCKET_HOGQL_FN[bucketSize]}(timestamp) AS bucket,
     countIf((${CRAWLER}) AND ${cur}) AS crawls,
-    countIf((${CRAWLER}) AND ${prev}) AS crawls_previous
+    countIf((${CRAWLER}) AND ${prev}) AS crawls_previous,
+    countIf(event = '$http_log' AND ${cur}) AS server_logs
 FROM events
 WHERE and(
     event IN ${PAGE_PERFORMANCE_EVENTS},
@@ -654,6 +668,7 @@ export interface pagePerformanceLogicValues {
     candidatesError: string | null
     candidatesInput: string
     candidatesLoading: boolean
+    dataState: PagePerformanceDataState
     footerText: string
     goalLabel: string | null
     orderBy: PagePerformanceOrderBy
@@ -671,6 +686,7 @@ export interface pagePerformanceLogicValues {
     pageCandidateQuery: WebStatsTableQuery
     pageCandidates: string[] | null
     pageTableQuery: DataTableNode
+    pageTableInput: string
     pathExpr: string
     previousPathExpr: string
     window: PagePerformanceWindow
@@ -681,9 +697,7 @@ export interface pagePerformanceLogicActions {
     closeBreakdown: () => {
         value: true
     }
-    loadOverview: () => {
-        value: true
-    }
+    loadOverview: (reset?: boolean) => { reset: boolean }
     loadOverviewFailure: (error: string) => {
         error: string
     }
@@ -694,9 +708,7 @@ export interface pagePerformanceLogicActions {
         overviewTotals: OverviewTotals
         overviewSeries: OverviewSeriesPoint[]
     }
-    loadCandidates: () => {
-        value: true
-    }
+    loadCandidates: (reset?: boolean) => { reset: boolean }
     loadCandidatesFailure: (error: string) => {
         error: string
     }
@@ -769,6 +781,11 @@ export interface pagePerformanceLogicMeta {
         ) => DataTableNode | null
         comparePeriods: (compareFilter: CompareFilter) => boolean
         siteVisitors: (overviewTotals: OverviewTotals | null) => number
+        dataState: (
+            overviewTotals: OverviewTotals | null,
+            overviewError: string | null,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => PagePerformanceDataState
         overviewMetrics: (
             overviewTotals: OverviewTotals | null,
             overviewSeries: OverviewSeriesPoint[],
@@ -814,13 +831,13 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
         setOrderBy: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
         openBreakdown: (breakdown: PagePerformanceBreakdownState) => ({ breakdown }),
         closeBreakdown: true,
-        loadOverview: true,
+        loadOverview: (reset: boolean = false) => ({ reset }),
         loadOverviewFailure: (error: string) => ({ error }),
         loadOverviewSuccess: (overviewTotals: OverviewTotals, overviewSeries: OverviewSeriesPoint[]) => ({
             overviewTotals,
             overviewSeries,
         }),
-        loadCandidates: true,
+        loadCandidates: (reset: boolean = false) => ({ reset }),
         loadCandidatesFailure: (error: string) => ({ error }),
         loadCandidatesSuccess: (pageCandidates: string[]) => ({ pageCandidates }),
     }),
@@ -841,14 +858,14 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
         overviewTotals: [
             null as OverviewTotals | null,
             {
-                loadOverview: () => null,
+                loadOverview: (state, { reset }) => (reset ? null : state),
                 loadOverviewSuccess: (_, { overviewTotals }) => overviewTotals,
             },
         ],
         overviewSeries: [
             [] as OverviewSeriesPoint[],
             {
-                loadOverview: () => [],
+                loadOverview: (state, { reset }) => (reset ? [] : state),
                 loadOverviewSuccess: (_, { overviewSeries }) => overviewSeries,
             },
         ],
@@ -870,8 +887,13 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
         pageCandidates: [
             null as string[] | null,
             {
-                loadCandidates: () => null,
-                loadCandidatesSuccess: (_, { pageCandidates }) => pageCandidates,
+                loadCandidates: (state, { reset }) => (reset ? null : state),
+                loadCandidatesSuccess: (state, { pageCandidates }) =>
+                    state &&
+                    state.length === pageCandidates.length &&
+                    state.every((page, index) => page === pageCandidates[index])
+                        ? state
+                        : pageCandidates,
             },
         ],
         candidatesError: [
@@ -1144,6 +1166,18 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
             (s) => [s.compareFilter],
             (compareFilter: CompareFilter): boolean => compareFilter.compare !== false,
         ],
+        dataState: [
+            (s) => [s.overviewTotals, s.overviewError, s.currentTeam],
+            (
+                overviewTotals: OverviewTotals | null,
+                overviewError: string | null,
+                currentTeam: TeamPublicType | TeamType | null
+            ): PagePerformanceDataState =>
+                // A failed overview says nothing about the sections, so let their own queries speak instead.
+                overviewError
+                    ? READY_DATA_STATE
+                    : resolvePagePerformanceDataState(overviewTotals, !!currentTeam?.ingested_event),
+        ],
         // A number rather than the totals object, so a reload doesn't re-render every row on identity alone.
         siteVisitors: [
             (s) => [s.overviewTotals],
@@ -1168,6 +1202,14 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                 webAnalyticsFilters: WebAnalyticsPropertyFilters
             ): string =>
                 JSON.stringify([overviewHumanQuery, overviewCrawlerQuery, filterTestAccounts, webAnalyticsFilters]),
+        ],
+        pageTableInput: [
+            (s) => [s.overviewInput, s.orderBy, s.conversionGoal],
+            (
+                overviewInput: string,
+                orderBy: PagePerformanceOrderBy,
+                conversionGoal: WebAnalyticsConversionGoal | null
+            ): string => JSON.stringify([overviewInput, orderBy, conversionGoal]),
         ],
         candidatesInput: [
             (s) => [s.pageCandidateQuery],
@@ -1247,10 +1289,12 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                 isPathCleaningEnabled: boolean
             ): string => {
                 return [
-                    pluralize(overviewTotals?.pages ?? 0, 'page'),
+                    overviewTotals ? pluralize(overviewTotals.pages, 'page') : null,
                     `conversion goal: ${goalLabel ?? 'not set'}`,
                     `path cleaning ${isPathCleaningEnabled ? 'on' : 'off'}`,
-                ].join(' · ')
+                ]
+                    .filter(Boolean)
+                    .join(' · ')
             },
         ],
     })),
@@ -1267,7 +1311,7 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
             error instanceof Error ? error.message : 'Could not load search and AI data'
 
         return {
-            loadOverview: async (_, breakpoint) => {
+            loadOverview: async ({ reset }, breakpoint) => {
                 await breakpoint(300)
                 const signal = signalFor('overviewRequest')
                 const overviewNode = (query: string): HogQLQuery => ({
@@ -1281,11 +1325,19 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                 })
                 try {
                     const [humanResponse, crawlerResponse] = await Promise.all([
-                        performQuery(overviewNode(values.overviewHumanQuery), { signal }),
-                        performQuery(overviewNode(values.overviewCrawlerQuery), { signal }),
+                        performQuery(
+                            overviewNode(values.overviewHumanQuery),
+                            { signal },
+                            reset ? 'blocking' : 'force_blocking'
+                        ),
+                        performQuery(
+                            overviewNode(values.overviewCrawlerQuery),
+                            { signal },
+                            reset ? 'blocking' : 'force_blocking'
+                        ),
                     ])
                     breakpoint()
-                    const { window: dateWindow, bucketSize } = values
+                    const { window: dateWindow } = values
                     const human = parsePagePerformanceOverviewResponse(
                         humanResponse.columns,
                         humanResponse.results,
@@ -1307,21 +1359,27 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                             crawls: crawler.totals.crawls ?? 0,
                             crawlsPrevious: crawler.totals.crawls_previous ?? 0,
                             pages: human.totals.pages ?? 0,
+                            serverLogs: crawler.totals.server_logs ?? 0,
                         },
-                        mergePagePerformanceSeries(human, crawler, bucketSize)
+                        mergePagePerformanceSeries(human, crawler)
                     )
                 } catch (error) {
-                    if (isCancellation(error)) {
+                    if (isCancellation(error) || cache.disposables.isDisposed) {
                         return
                     }
+                    breakpoint()
                     actions.loadOverviewFailure(failureMessage(error))
                 }
             },
-            loadCandidates: async (_, breakpoint) => {
+            loadCandidates: async ({ reset }, breakpoint) => {
                 await breakpoint(300)
                 const signal = signalFor('candidatesRequest')
                 try {
-                    const candidatesResponse = await performQuery(values.pageCandidateQuery, { signal })
+                    const candidatesResponse = await performQuery(
+                        values.pageCandidateQuery,
+                        { signal },
+                        reset ? 'blocking' : 'force_blocking'
+                    )
                     breakpoint()
                     const pageCandidates = (candidatesResponse.results ?? []).flatMap((candidate) => {
                         if (!Array.isArray(candidate) || typeof candidate[0] !== 'string' || candidate[0] === '') {
@@ -1331,9 +1389,10 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                     })
                     actions.loadCandidatesSuccess(pageCandidates)
                 } catch (error) {
-                    if (isCancellation(error)) {
+                    if (isCancellation(error) || cache.disposables.isDisposed) {
                         return
                     }
+                    breakpoint()
                     actions.loadCandidatesFailure(failureMessage(error))
                 }
             },
@@ -1345,15 +1404,15 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
     }),
     subscriptions(({ actions }) => ({
         overviewInput: () => {
-            actions.loadOverview()
+            actions.loadOverview(true)
         },
         candidatesInput: () => {
-            actions.loadCandidates()
+            actions.loadCandidates(true)
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadOverview()
-        actions.loadCandidates()
+        actions.loadOverview(true)
+        actions.loadCandidates(true)
     }),
 ])
 

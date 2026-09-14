@@ -25,6 +25,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
+import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import {
     markdownCrc,
     mergeNotebookMarkdownChanges,
@@ -41,7 +42,6 @@ import { downloadFile } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { slugify } from 'lib/utils/strings'
-import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -71,21 +71,11 @@ import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/genera
 import type { CommentType, UserType } from '../../../types'
 import {
     buildNotebookDependencyGraph,
-    collectDuckSqlNodes,
-    collectHogqlSqlNodes,
     collectNodeIndices,
-    collectPythonNodes,
     collectNotebookFrameNodes,
     collectSqlV2Nodes,
 } from '../Nodes/notebookNodeContent'
-import type {
-    DuckSqlNodeSummary,
-    HogqlSqlNodeSummary,
-    NotebookDependencyGraph,
-    PythonNodeSummary,
-    NotebookFrameNodeSummary,
-    SqlV2NodeSummary,
-} from '../Nodes/notebookNodeContent'
+import type { NotebookDependencyGraph, NotebookFrameNodeSummary, SqlV2NodeSummary } from '../Nodes/notebookNodeContent'
 import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
 import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '../types'
 import type { NotebookListItemType, NotebookVariableApi } from '../types'
@@ -107,7 +97,7 @@ import { buildNotebookOpenedEvent } from './notebookAnalytics'
 import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { NotebookKernelInfo } from './notebookKernelInfoLogic'
-import { notebookNodeStalenessLogic } from './notebookNodeStalenessLogic'
+import { notebookNodeStalenessLogic, NotebookNodeRunTerminalStatus } from './notebookNodeStalenessLogic'
 import {
     NOTEBOOK_AI_PRESENCE_CLIENT_ID,
     NOTEBOOK_AI_PRESENCE_NAME,
@@ -310,9 +300,8 @@ export interface notebookLogicValues {
     canvasFiltersOverride: any
     containerSize: 'medium' | 'small'
     content: JSONContent
+    contentAtLastRun: JSONContent | null
     dependencyGraph: NotebookDependencyGraph
-    duckSqlNodeIndices: Map<string, number>
-    duckSqlNodeSummaries: DuckSqlNodeSummary[]
     editingNodeIds: Record<string, true>
     editingNodeLogics: BuiltLogic<notebookNodeLogicType>[]
     findNodeLogic: (type: NotebookNodeType, attributes: Record<string, any>) => notebookNodeLogicType | null
@@ -321,8 +310,6 @@ export interface notebookLogicValues {
     getSharedCachedInlineQueryResults: (nodeId: string | null | undefined) => AnyResponseType | null
     getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel | null
     hasUnsavedVariables: boolean
-    hogqlSqlNodeIndices: Map<string, number>
-    hogqlSqlNodeSummaries: HogqlSqlNodeSummary[]
     isEditable: boolean
     isLocalOnly: boolean
     isShareModalOpen: boolean
@@ -354,8 +341,6 @@ export interface notebookLogicValues {
     notebookPresenceParticipants: NotebookPresenceParticipant[]
     personUUIDFromCanvasOverride: string | null
     previewContent: JSONContent | null
-    pythonNodeIndices: Map<string, number>
-    pythonNodeSummaries: PythonNodeSummary[]
     runnableVariables: NotebookVariable[]
     shortId: string
     shouldBeEditable: boolean
@@ -381,6 +366,15 @@ export interface notebookLogicActions {
         callback: ((event: { sent: boolean }) => void) | undefined
         context: Record<string, any> | null
     } // commentsLogic
+    nodeRunFinished: (
+        nodeId: string,
+        status: NotebookNodeRunTerminalStatus,
+        content: JSONContent | null
+    ) => {
+        content: JSONContent | null
+        nodeId: string
+        status: NotebookNodeRunTerminalStatus
+    } // notebookNodeStalenessLogic
     setShowVariables: (showVariables: boolean | null) => {
         showVariables: boolean | null
     } // notebookSettingsLogic
@@ -551,6 +545,9 @@ export interface notebookLogicActions {
         error: string
         errorObject?: any
     }
+    saveNotebookNow: () => {
+        value: true
+    }
     saveNotebookSuccess: (
         notebook: NotebookType | null,
         payload?: {
@@ -576,6 +573,9 @@ export interface notebookLogicActions {
     }
     setContainerSize: (containerSize: 'medium' | 'small') => {
         containerSize: 'medium' | 'small'
+    }
+    setContentAtLastRun: (content: JSONContent | null) => {
+        content: JSONContent | null
     }
     setEditable: (editable: boolean) => {
         editable: boolean
@@ -683,16 +683,10 @@ export interface notebookLogicMeta {
             nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>,
             content: JSONContent
         ) => BuiltLogic<notebookNodeLogicType>[]
-        pythonNodeSummaries: (content: JSONContent) => PythonNodeSummary[]
-        duckSqlNodeSummaries: (content: JSONContent) => DuckSqlNodeSummary[]
-        hogqlSqlNodeSummaries: (content: JSONContent) => HogqlSqlNodeSummary[]
         sqlV2NodeSummaries: (content: JSONContent) => SqlV2NodeSummary[]
         frameNodeSummaries: (content: JSONContent) => NotebookFrameNodeSummary[]
-        dependencyGraph: (content: JSONContent) => NotebookDependencyGraph
-        pythonNodeIndices: (content: JSONContent) => Map<string, number>
+        dependencyGraph: (contentAtLastRun: JSONContent | null) => NotebookDependencyGraph
         sqlNodeIndices: (content: JSONContent) => Map<string, number>
-        duckSqlNodeIndices: (content: JSONContent) => Map<string, number>
-        hogqlSqlNodeIndices: (content: JSONContent) => Map<string, number>
         isShowingLeftColumn: (showHistory: boolean) => boolean
         variables: (localVariables: NotebookVariable[] | null, notebook: NotebookType | null) => NotebookVariable[]
         variableErrors: (variables: NotebookVariable[], content: JSONContent) => (string | null)[]
@@ -741,7 +735,14 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['comments', 'selectedCommentId'],
-            notebookKernelInfoLogic({ shortId: props.shortId, mode: props.mode }),
+            notebookKernelInfoLogic({
+                shortId: props.shortId,
+                mode: props.mode,
+                // A shared view is exactly the one that renders from cachedNotebook, and both kernel
+                // endpoints are team-scoped. This is the mount that matters: the panel is not the
+                // only thing that brings the logic up.
+                isShared: !!props.cachedNotebook,
+            }),
             ['kernelInfo'],
             notebookSettingsLogic,
             ['showKernelInfo', 'showVariablesOverride'],
@@ -760,6 +761,9 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['setItemContext', 'maybeLoadComments'],
+            // Connected so the dependency-graph snapshot can refresh when a cell run finishes.
+            notebookNodeStalenessLogic({ shortId: props.shortId }),
+            ['nodeRunFinished'],
         ],
     })),
     actions({
@@ -803,6 +807,7 @@ export const notebookLogic = kea<notebookLogicType>([
         showMarkdownMergeConflictDetails: (conflicts: NotebookCollaborationConflict[]) => ({ conflicts }),
         dismissMarkdownMergeConflictDetails: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        saveNotebookNow: true,
         renameNotebook: (title: string) => ({ title }),
         setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
         exportJSON: true,
@@ -819,6 +824,7 @@ export const notebookLogic = kea<notebookLogicType>([
         }),
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
+        setContentAtLastRun: (content: JSONContent | null) => ({ content }),
         insertComment: (context: Record<string, any>) => ({ context }),
         selectComment: (itemContextId: string) => ({ itemContextId }),
         openShareModal: true,
@@ -840,6 +846,13 @@ export const notebookLogic = kea<notebookLogicType>([
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
                 clearLocalContent: () => null,
+            },
+        ],
+        // The document as of the last run: a cell output exists only after its cell has run.
+        contentAtLastRun: [
+            null as JSONContent | null,
+            {
+                setContentAtLastRun: (_, { content }) => content,
             },
         ],
         // Local edits ahead of the saved notebook; null means "nothing edited yet, use the server's".
@@ -1429,16 +1442,12 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
 
-        pythonNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectPythonNodes(content)],
-        duckSqlNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectDuckSqlNodes(content)],
-        hogqlSqlNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectHogqlSqlNodes(content)],
         sqlV2NodeSummaries: [(s) => [s.content], (content: JSONContent) => collectSqlV2Nodes(content)],
         frameNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectNotebookFrameNodes(content)],
-        dependencyGraph: [(s) => [s.content], (content: JSONContent) => buildNotebookDependencyGraph(content)],
-
-        pythonNodeIndices: [
-            (s) => [s.content],
-            (content: JSONContent) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.Python),
+        dependencyGraph: [
+            // Keyed on the last-run snapshot, not live content, so typing does not rebuild it.
+            (s) => [s.contentAtLastRun],
+            (contentAtLastRun: JSONContent | null) => buildNotebookDependencyGraph(contentAtLastRun),
         ],
 
         sqlNodeIndices: [
@@ -1451,14 +1460,6 @@ export const notebookLogic = kea<notebookLogicType>([
                         (isHogQLQuery(node.attrs?.query) ||
                             (node.attrs?.query?.source && isHogQLQuery(node.attrs.query.source)))
                 ),
-        ],
-        duckSqlNodeIndices: [
-            (s) => [s.content],
-            (content: JSONContent) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.DuckSQL),
-        ],
-        hogqlSqlNodeIndices: [
-            (s) => [s.content],
-            (content: JSONContent) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.HogQLSQL),
         ],
 
         isShowingLeftColumn: [(s) => [s.showHistory], (showHistory: boolean) => showHistory],
@@ -1967,6 +1968,20 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.setLocalContent(buildMarkdownNotebookContent(nextMarkdown, values.markdownEditorNodeId))
         },
 
+        saveNotebookNow: () => {
+            // Autosave already saves every edit, so this only skips its debounce and repeats the
+            // gates that path applies. No local content means the notebook is already saved.
+            if (values.previewContent || values.autosavePaused || values.isLocalOnly) {
+                return
+            }
+
+            if (!values.localContent || !values.content || values.notebookLoading) {
+                return
+            }
+
+            actions.saveNotebook({ content: values.content, title: values.title })
+        },
+
         setLocalContent: async ({ jsonContent, skipCapture }, breakpoint) => {
             if (
                 values.mode !== 'canvas' &&
@@ -2080,6 +2095,9 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.maybeLoadComments()
             actions.processPendingMarkdownStreamEvents()
 
+            // Seed the snapshot so an opened notebook shows its links before any rerun.
+            actions.setContentAtLastRun(values.content)
+
             // `notebook opened` is a human/browser open — capture once per mount. This listener
             // also runs on every polling refresh (scheduleNotebookRefresh above), so gate on a
             // per-instance flag; the flag resets on remount, so revisiting counts as a new open.
@@ -2093,6 +2111,15 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         loadNotebookFailure: () => {
             actions.processPendingMarkdownStreamEvents()
+        },
+
+        // Only a successful run carries the executed document; failed and interrupted runs pass
+        // null and leave the snapshot, so the links keep matching what the kernel last ran. This is
+        // the document the staleness logic records too, so the two stay consistent.
+        nodeRunFinished: ({ content }) => {
+            if (content) {
+                actions.setContentAtLastRun(content)
+            }
         },
 
         exportJSON: () => {

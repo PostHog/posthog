@@ -36,6 +36,13 @@ export const getNextJSSetupSteps = (ctx: OnboardingComponentsContext): StepDefin
                                     pnpm add posthog-js
                                 `,
                             },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add posthog-js
+                                `,
+                            },
                         ]}
                     />
                 </>
@@ -334,6 +341,13 @@ export const getNextJSServerSteps = (ctx: OnboardingComponentsContext): StepDefi
                                 file: 'pnpm',
                                 code: dedent`
                                     pnpm add posthog-node
+                                `,
+                            },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add posthog-node
                                 `,
                             },
                         ]}

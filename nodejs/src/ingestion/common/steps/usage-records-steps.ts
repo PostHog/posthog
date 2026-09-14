@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
 
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { resolvePersonMode } from '~/ingestion/common/steps/event-processing/create-event'
 import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
-import { UsageKeyResolver } from '~/ingestion/common/usage-records/billable-events'
+import { EVENTS_USAGE_KEY, UsageKeyResolver } from '~/ingestion/common/usage-records/billable-events'
 import { BeforeBatchStep } from '~/ingestion/framework/batching-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { EventHeaders, Person } from '~/types'
 
 export interface EventUsageBatchContext {
     eventUsageBatch: UsageRecordBatch
@@ -26,7 +28,10 @@ export function createEventUsageBeforeBatchStep<TInput, CInput, CBatch>(
 
 export interface RecordEventUsageInput {
     preparedEvent: { teamId: number; event: string; eventUuid: string; distinctId: string; timestamp: string }
+    headers: Pick<EventHeaders, 'now'>
     eventUsageBatch: UsageRecordBatch
+    processPerson?: boolean
+    person?: Person
 }
 
 /**
@@ -54,15 +59,21 @@ export interface EventUsageRecord {
     teamId: number
     usageKey: string
     recordId: string
+    timestampMs?: number
 }
 
 export interface EventUsageRecordContext {
-    eventUsageRecord?: EventUsageRecord
+    eventUsageRecords?: EventUsageRecord[]
 }
 
 /**
  * One record per event. Its identity travels inside the event, so a replay reproduces it
  * whatever the consumer's batching, which an offset-derived identity cannot.
+ *
+ * Person processing bills a second record under its own usage key, matching the nightly report,
+ * which counts the same event under both meters. It shares the identity, which the usage key
+ * separates, and it waits on the same acknowledgement: an event that never lands should not bill
+ * for the person work either.
  *
  * TODO: decide how usage records should treat events dated in the past. This step bills every
  * billable event at the moment it is processed, including a historical migration. The nightly
@@ -78,13 +89,28 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
     resolveUsageKey: UsageKeyResolver
 ): ProcessingStep<T, T & EventUsageRecordContext> {
     return function recordEventUsageStep(input: T): Promise<PipelineResult<T & EventUsageRecordContext>> {
-        const usageKey = input.eventUsageBatch.accepts(input.preparedEvent.teamId)
-            ? resolveUsageKey(input.preparedEvent.event)
-            : undefined
-        const eventUsageRecord = usageKey
-            ? { teamId: input.preparedEvent.teamId, usageKey, recordId: analyticsRecordId(input.preparedEvent) }
-            : undefined
-        return Promise.resolve(ok({ ...input, eventUsageRecord }))
+        if (!input.eventUsageBatch.accepts(input.preparedEvent.teamId)) {
+            return Promise.resolve(ok({ ...input, eventUsageRecords: undefined }))
+        }
+        const usageKey = resolveUsageKey(input.preparedEvent.event)
+        if (!usageKey) {
+            return Promise.resolve(ok({ ...input, eventUsageRecords: undefined }))
+        }
+        const { teamId } = input.preparedEvent
+        const recordId = analyticsRecordId(input.preparedEvent)
+        const captureTimestampMs = input.headers.now?.getTime()
+        const timestampMs = Number.isFinite(captureTimestampMs) ? captureTimestampMs : undefined
+        const eventUsageRecords: EventUsageRecord[] = [{ teamId, usageKey, recordId, timestampMs }]
+        // Mirrors the report's enhanced-persons query: the plain billable count plus a `person_mode`
+        // filter, so an event billed under its own key is outside both. Reading the mode stored on
+        // the event rather than `processPerson` keeps force upgrades counted.
+        if (
+            usageKey === EVENTS_USAGE_KEY &&
+            resolvePersonMode(input.person, input.processPerson ?? false) !== 'propertyless'
+        ) {
+            eventUsageRecords.push({ teamId, usageKey: 'enhanced_person_events', recordId, timestampMs })
+        }
+        return Promise.resolve(ok({ ...input, eventUsageRecords }))
     }
 }
 
@@ -99,14 +125,16 @@ export function createRecordEventUsageAfterIngestStep<T extends RecordEventUsage
     T
 > {
     return function recordEventUsageAfterIngestStep(input: T): Promise<PipelineResult<T>> {
-        const record = input.eventUsageRecord
-        if (record && input.eventUsageBatch) {
-            input.eventUsageBatch.addAfterAcknowledgements(
-                input.ingested,
-                record.teamId,
-                record.usageKey,
-                record.recordId
-            )
+        if (input.eventUsageBatch) {
+            for (const record of input.eventUsageRecords ?? []) {
+                input.eventUsageBatch.addAfterAcknowledgements(
+                    input.ingested,
+                    record.teamId,
+                    record.usageKey,
+                    record.recordId,
+                    record.timestampMs
+                )
+            }
         }
         return Promise.resolve(ok(input))
     }

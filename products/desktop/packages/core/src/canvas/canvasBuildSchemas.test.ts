@@ -215,8 +215,8 @@ describe("canvas build lifecycle", () => {
         ),
     );
     const service = new DashboardsService({
-      json: async (path: string) => {
-        expect(path).toBe("canvases/canvas-1/builds/");
+      revalidatedJson: async (path: string) => {
+        expect(path).toBe("canvases/canvas-1/builds/?scope=slim");
         return (await fetchMock()).json();
       },
     } as unknown as ProjectApiClient);

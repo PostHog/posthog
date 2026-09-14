@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -91,7 +91,7 @@ def pending_batch_select_columns(status_alias: str) -> str:
         b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
         b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
         b.cumulative_row_count, b.resource_name, b.is_resume,
-        b.is_first_ever_sync, b.metadata,
+        b.is_first_ever_sync, b.metadata, b.destination_ids,
         COALESCE({status_alias}.attempt, 0) AS latest_attempt,
         b.created_at
     """
@@ -473,6 +473,8 @@ class PendingBatch:
     is_first_ever_sync: bool
     metadata: dict[str, Any]
     latest_attempt: int
+    # Snapshotted on the batch when the run started. Empty means the PostHog warehouse only.
+    destination_ids: list[str] = field(default_factory=list)
     created_at: datetime | None = None
     # Observed denormalized state clock at read time; None for sinks that don't surface it.
     state_changed_at: datetime | None = None
@@ -510,6 +512,7 @@ class PendingBatch:
             "partition_mode": self.metadata.get("partition_mode"),
             "cdc_write_mode": self.metadata.get("cdc_write_mode"),
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
+            "destination_ids": self.destination_ids or [],
         }
 
 
@@ -763,7 +766,7 @@ class BatchQueue:
                         b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
                         b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
                         b.cumulative_row_count, b.resource_name, b.is_resume,
-                        b.is_first_ever_sync, b.metadata,
+                        b.is_first_ever_sync, b.metadata, b.destination_ids,
                         b.latest_attempt,
                         b.created_at
                     FROM {BATCH_TABLE} b

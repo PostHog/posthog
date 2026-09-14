@@ -21,6 +21,11 @@
             "description": "The initial index from which to return the results.",
             "type": "number"
         },
+        "origin_product": {
+            "description": "Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
+            "enum": ["loops"],
+            "type": "string"
+        },
         "search": {
             "description": "Case-insensitive search across workflow name and description.",
             "type": "string"

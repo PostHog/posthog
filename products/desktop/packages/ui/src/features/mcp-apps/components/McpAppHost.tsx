@@ -17,7 +17,7 @@ import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { Box, Flex, IconButton, Text } from "@radix-ui/themes";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { type Phase, useAppBridge } from "../hooks/useAppBridge";
 import {
@@ -108,7 +108,7 @@ export function McpAppHost({
   );
   const openLinkMut = useMutation(trpc.mcpApps.openLink.mutationOptions());
 
-  const { sendWhenReady } = useAppBridge({
+  const { sendWhenReady, sendResultOnce } = useAppBridge({
     iframeEl,
     uiResource: uiResource,
     serverName,
@@ -133,18 +133,6 @@ export function McpAppHost({
     openLink: openLinkMut.mutateAsync,
   });
 
-  const sentResultForCallRef = useRef<string | null>(null);
-  const sendResultOnce = useCallback(
-    (raw: unknown) => {
-      if (sentResultForCallRef.current === toolCall.toolCallId) return;
-      sentResultForCallRef.current = toolCall.toolCallId;
-      const toolResult = toCallToolResult(raw);
-      log.info("Sending tool result to app", { mcpToolName, toolResult });
-      sendWhenReady((bridge) => bridge.sendToolResult(toolResult));
-    },
-    [toolCall.toolCallId, sendWhenReady, mcpToolName],
-  );
-
   // Forward tool results from subscriptions
   useSubscription(
     trpc.mcpApps.onToolResult.subscriptionOptions(
@@ -153,7 +141,8 @@ export function McpAppHost({
         onData: (event) => {
           if (isExec) {
             if (event.toolCallId !== toolCall.toolCallId) return;
-            sendResultOnce(event.result);
+            log.info("Sending tool result to app", { mcpToolName });
+            sendResultOnce(toolCall.toolCallId, event.result);
             return;
           }
           const toolResult = toCallToolResult(event.result);
@@ -181,7 +170,7 @@ export function McpAppHost({
     log.info("exec replay: sending result from toolCall prop", {
       toolCallId: toolCall.toolCallId,
     });
-    sendResultOnce(toolCall.rawOutput);
+    sendResultOnce(toolCall.toolCallId, toolCall.rawOutput);
   }, [
     isExec,
     toolCall.status,

@@ -1,6 +1,6 @@
 import dataclasses
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -151,7 +151,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        with freeze_time("2012-01-15T03:21:34.000Z"):
+        with time_machine.travel("2012-01-15T03:21:34.000Z", tick=False):
             result = PathsQueryRunner(
                 query={
                     "kind": "PathsQuery",
@@ -178,7 +178,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[3].target, "3_/about")
         self.assertEqual(response[3].value, 1)
 
-        with freeze_time("2012-01-15T03:21:34.000Z"):
+        with time_machine.travel("2012-01-15T03:21:34.000Z", tick=False):
             date_from = now() - relativedelta(days=7)
             result = PathsQueryRunner(
                 query={
@@ -1048,7 +1048,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0].target, "2_/about")
         self.assertEqual(response[0].value, 2)
 
-    @freeze_time("2012-01-15T03:21:34.000Z")
+    @time_machine.travel("2012-01-15T03:21:34.000Z", tick=False)
     def test_path_replacements_none_does_not_apply_team_cleaning(self):
         """pathReplacements=None (omitted) should not apply team cleaning — the frontend sets True explicitly."""
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
@@ -1083,7 +1083,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         combined = " ".join(sources_and_targets)
         assert "123" in combined or "456" in combined
 
-    @freeze_time("2012-01-15T03:21:34.000Z")
+    @time_machine.travel("2012-01-15T03:21:34.000Z", tick=False)
     def test_path_replacements_false_skips_team_cleaning(self):
         """pathReplacements=False should not apply team path cleaning filters."""
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
@@ -1119,7 +1119,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         combined = " ".join(sources_and_targets)
         assert "123" in combined or "456" in combined
 
-    @freeze_time("2012-01-15T03:21:34.000Z")
+    @time_machine.travel("2012-01-15T03:21:34.000Z", tick=False)
     def test_path_replacements_apply_capture_group_backreference_alias(self):
         """A team cleaning alias can reuse regex capture groups via re2 `\\1` syntax. The paths runner
         builds its own replaceRegexpAll chain, so this guards backreference substitution on that path

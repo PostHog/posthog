@@ -1,5 +1,5 @@
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const navigation = vi.hoisted(() => ({
@@ -14,10 +14,25 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToTaskDetail: navigation.toTaskDetail,
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => true,
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
+  useChannels: () => ({
+    channels: [{ id: "channel-1", name: "Personal space", starred: false }],
+  }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
+  useFileTaskToChannel: () => vi.fn(),
+}));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => vi.fn(),
+}));
 
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { ActivityRow } from "./ActivityRow";
 import { openActivityItem } from "./openActivityItem";
+import type { TaskRowMenuProps } from "./TaskRowMenu";
 
 function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
   return {
@@ -37,6 +52,18 @@ function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
 }
 
 const NO_BLOCKED_TASKS: ReadonlySet<string> = new Set();
+
+function taskMenu(overrides: Partial<TaskRowMenuProps> = {}): TaskRowMenuProps {
+  return {
+    kind: "task",
+    id: "task-1",
+    title: "Say hello",
+    isPinned: false,
+    onTogglePin: vi.fn(),
+    onArchive: vi.fn(),
+    ...overrides,
+  };
+}
 
 describe("ActivityRow", () => {
   beforeEach(() => {
@@ -58,6 +85,7 @@ describe("ActivityRow", () => {
   it("leads a completed activity row with the task title", () => {
     render(
       <ActivityRow
+        menu={taskMenu()}
         item={item({
           activityKind: "completed",
           taskTitle: "Tell me a joke",
@@ -92,14 +120,15 @@ describe("ActivityRow", () => {
   });
 
   it.each([
-    { label: "unread", isUnread: true, hasActionPadding: true },
-    { label: "read", isUnread: false, hasActionPadding: false },
+    { label: "unread", isUnread: true, laneClass: "pr-14" },
+    { label: "read", isUnread: false, laneClass: "pr-8" },
   ])(
-    "reserves trailing room for a compact $label row only when it has a read action",
-    ({ isUnread, hasActionPadding }) => {
+    "reserves a compact $label row's trailing lane for the actions it shows",
+    ({ isUnread, laneClass }) => {
       render(
         <ActivityRow
           item={item({ isUnread })}
+          menu={taskMenu()}
           onMarkRead={vi.fn()}
           onActivate={vi.fn()}
           blockedTaskIds={NO_BLOCKED_TASKS}
@@ -108,11 +137,49 @@ describe("ActivityRow", () => {
       );
 
       const row = screen.getByText("Say hello").closest("button");
-      expect(row).toHaveClass("py-1.5");
-      expect(row).not.toHaveClass("pr-10");
-      expect(row?.classList.contains("pr-8")).toBe(hasActionPadding);
+      expect(row).toHaveClass("py-1.5", laneClass);
+      expect(
+        screen.getByLabelText("Options for Say hello"),
+      ).toBeInTheDocument();
     },
   );
+
+  it("offers the row's task actions from its options menu", async () => {
+    // Real timers: the menu's open transition and `waitFor` both need a clock.
+    vi.useRealTimers();
+    const onArchive = vi.fn();
+    render(
+      <ActivityRow
+        item={item({})}
+        menu={taskMenu({ onArchive })}
+        onMarkRead={vi.fn()}
+        onActivate={vi.fn()}
+        blockedTaskIds={NO_BLOCKED_TASKS}
+      />,
+    );
+
+    fireEvent.mouseDown(screen.getByLabelText("Options for Say hello"), {
+      button: 0,
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText("Archive")).toBeInTheDocument(),
+    );
+    for (const label of [
+      "Open in new tab",
+      "Pin",
+      "Add to Command Center…",
+      "File to…",
+      "Archive",
+    ]) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    // A rename edits the row in place, and the feed has no inline editor.
+    expect(screen.queryByText("Rename")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Archive"));
+    expect(onArchive).toHaveBeenCalledOnce();
+  });
 
   it("opens an activity mention at its exact comment thread", () => {
     const activity = item({
@@ -131,6 +198,7 @@ describe("ActivityRow", () => {
     render(
       <ActivityRow
         item={activity}
+        menu={taskMenu()}
         onMarkRead={vi.fn()}
         onActivate={openActivityItem}
         blockedTaskIds={NO_BLOCKED_TASKS}

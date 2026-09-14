@@ -317,7 +317,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
 
 
 class TestSimulateDetectorBreakdowns:
-    @patch("products.alerts.backend.evaluation.detector.upgrade_query")
+    @patch("products.alerts.backend.evaluation.detector.upgrade_insight")
     @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_returns_breakdown_results(self, mock_calc: MagicMock, _mock_upgrade: MagicMock) -> None:
         mock_calc.return_value = InsightResult(
@@ -349,7 +349,7 @@ class TestSimulateDetectorBreakdowns:
         # Aggregated totals (each series has 1 point dropped for the incomplete current interval)
         assert result["total_points"] == (len(STABLE_DATA) - 1) + (len(ANOMALOUS_DATA) - 1)
 
-    @patch("products.alerts.backend.evaluation.detector.upgrade_query")
+    @patch("products.alerts.backend.evaluation.detector.upgrade_insight")
     @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_non_breakdown_has_no_breakdown_results(self, mock_calc: MagicMock, _mock_upgrade: MagicMock) -> None:
         mock_calc.return_value = InsightResult(
@@ -375,7 +375,7 @@ class TestSimulateDetectorBreakdowns:
 
         assert "breakdown_results" not in result
 
-    @patch("products.alerts.backend.evaluation.detector.upgrade_query")
+    @patch("products.alerts.backend.evaluation.detector.upgrade_insight")
     @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_caps_breakdown_simulations(self, mock_calc: MagicMock, _mock_upgrade: MagicMock) -> None:
         breakdown_results = [
@@ -404,7 +404,7 @@ class TestSimulateDetectorBreakdowns:
 
         assert len(result["breakdown_results"]) == MAX_DETECTOR_BREAKDOWN_VALUES
 
-    @patch("products.alerts.backend.evaluation.detector.upgrade_query")
+    @patch("products.alerts.backend.evaluation.detector.upgrade_insight")
     @patch("products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight")
     def test_simulates_a_hogql_insight_through_the_registry(
         self, mock_calc: MagicMock, _mock_upgrade: MagicMock

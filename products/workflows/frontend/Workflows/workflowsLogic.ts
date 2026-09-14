@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
 import type { HogFlow } from './hogflows/types'
+import { prepareWorkflowDuplicate } from './workflowDuplication'
 
 export type WorkflowStatusFilter = 'all' | 'active' | 'draft' | 'archived'
 
@@ -33,7 +34,7 @@ export const WORKFLOW_TRIGGER_TYPE_OPTIONS: { value: WorkflowTriggerTypeFilter; 
     { value: 'tracking_pixel', label: 'Tracking pixel' },
     { value: 'data-warehouse-table', label: 'Data warehouse table' },
     { value: 'data-warehouse-view', label: 'Data warehouse view' },
-    { value: 'slack-message', label: 'Slack message' },
+    { value: 'internal-event', label: 'Internal event' },
 ]
 
 const WORKFLOW_TRIGGER_TYPE_FILTERS = WORKFLOW_TRIGGER_TYPE_OPTIONS.map((option) => option.value)
@@ -320,11 +321,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     return values.workflows
                 },
                 duplicateWorkflow: async ({ workflow }) => {
-                    await api.hogFlows.createHogFlow({
-                        ...workflow,
-                        status: 'draft',
-                        name: `${workflow.name} (copy)`,
-                    })
+                    await api.hogFlows.createHogFlow(prepareWorkflowDuplicate(workflow))
                     // The copy is a draft; reload so it only shows when it matches the current filter
                     // and lands in the right spot under the server-side sort and pagination.
                     actions.loadWorkflows()

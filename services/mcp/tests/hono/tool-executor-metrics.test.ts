@@ -51,6 +51,8 @@ import {
     wrapError,
 } from '@/lib/errors'
 
+import { toolFromPreBuilt } from '../shared/test-utils'
+
 const mockTrackToolCall = vi.mocked(trackToolCall)
 
 /** Extra-properties bag passed to the 5th arg of `trackToolCall` for a given tool. */
@@ -100,6 +102,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        flagGatedTools: [],
         gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
@@ -110,15 +113,17 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
     }
 }
 
+type FakeToolBase = { schema: z.ZodObject<Record<string, never>>; handler: ReturnType<typeof vi.fn>; _meta: undefined }
+
 function makeFakeTool(
     name: string,
     handler: () => Promise<unknown> = async () => 'ok'
-): {
-    name: string
-    base: { schema: z.ZodObject<Record<string, never>>; handler: ReturnType<typeof vi.fn>; _meta: undefined }
-} {
+): { name: string; build: () => FakeToolBase; base: FakeToolBase } {
     return {
         name,
+        build() {
+            return this.base
+        },
         base: {
             schema: z.object({}),
             handler: vi.fn().mockImplementation(handler),
@@ -405,6 +410,9 @@ describe('ToolExecutor metrics', () => {
         it('records validation_error without starting a timer', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue({
                 name: 'strict-tool',
+                build() {
+                    return this.base
+                },
                 base: { schema: z.object({ required_field: z.string() }), handler: vi.fn(), _meta: undefined },
             } as any)
 
@@ -421,6 +429,9 @@ describe('ToolExecutor metrics', () => {
         it('emits an errored analytics event with the rejected fields on a schema rejection', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue({
                 name: 'strict-tool',
+                build() {
+                    return this.base
+                },
                 base: { schema: z.object({ required_field: z.string() }), handler: vi.fn(), _meta: undefined },
             } as any)
 
@@ -459,16 +470,9 @@ describe('ToolExecutor metrics', () => {
             // Mirror getFilteredTools: full tool objects with real schemas and
             // handlers, so exec's inner dispatch (schema validation, handler
             // call) behaves as in production.
-            const tools = catalog.getPreBuiltEntries().map((entry) => {
-                const preBuilt = catalog.getToolByName(entry.name)!
-                return {
-                    ...preBuilt.base,
-                    title: entry.title,
-                    description: entry.description ?? '',
-                    annotations: entry.annotations,
-                    scopes: [],
-                }
-            })
+            const tools = catalog
+                .getPreBuiltEntries()
+                .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
             return makeState(tools as any, { useSingleExec: true })
         }
 
@@ -497,6 +501,25 @@ describe('ToolExecutor metrics', () => {
 
             const call = mockTrackToolCall.mock.calls.at(-1)
             expect(call?.[4]).toMatchObject(expected)
+        })
+
+        // A name a feature flag retired is one we own, so it is recordable like any
+        // other. Recorded as unrecognized instead, the `gated_tool` class counts the
+        // wasted round trips without naming the rename that caused them.
+        it('stamps the retired tool a flag gate removed, not the unrecognized sentinel', async () => {
+            const state = execState()
+            // What the resolver produces with the gate on: the flag filter drops the
+            // tool from the catalog, and `getFlagGatedTools` picks it up.
+            state.allTools = state.allTools.filter((tool) => tool.name !== 'notebooks-create')
+            state.flagGatedTools = [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }]
+
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'call notebooks-create {}' } }, state)
+
+            expect(mockTrackToolCall.mock.calls.at(-1)?.[4]).toMatchObject({
+                $mcp_exec_verb: 'call',
+                $mcp_exec_target_tool: 'notebooks-create',
+                $mcp_error_code: 'gated_tool',
+            })
         })
 
         it('emits inner tool name for counter and duration on inner tool call', async () => {
@@ -622,6 +645,25 @@ describe('ToolExecutor metrics', () => {
                 }
             }
 
+            /** A context whose skill fetch 404s with the store's own lookup detail,
+             *  which is the only 404 the dispatcher rewrites into a plain result. */
+            function contextThatMisses(): any {
+                return {
+                    ...contextThatServes(),
+                    api: {
+                        request: vi.fn().mockRejectedValue(
+                            new PostHogApiError({
+                                status: 404,
+                                statusText: 'Not Found',
+                                body: '{"detail":"Skill with name \'conductor\' not found."}',
+                                url: 'https://us.posthog.com/api/projects/2/llm_skills/name/conductor/',
+                                method: 'GET',
+                            })
+                        ),
+                    },
+                }
+            }
+
             function execStateWith(context: any): ResolvedState {
                 return { ...execState(), context }
             }
@@ -662,6 +704,22 @@ describe('ToolExecutor metrics', () => {
                 expect(lastExtras()).not.toHaveProperty('$mcp_skill_body_offset')
             })
 
+            // The agent reads a lookup miss as a plain result, but the miss rate has to
+            // stay measurable. Recording the rewritten result as a success would hide
+            // every deleted or renamed skill agents keep asking for.
+            it('records a rewritten lookup miss as a failed call', async () => {
+                const response: any = await executor.handleToolCall(
+                    { name: 'exec', arguments: { command: 'call skill-get {"skill_name":"conductor"}' } },
+                    execStateWith(contextThatMisses())
+                )
+
+                expect(response.isError).toBeFalsy()
+                expect(mockTrackToolCall.mock.calls.at(-1)?.[2]).toBe(true)
+                expect(lastExtras()).not.toHaveProperty('$mcp_skill_name')
+                expect(lastExtras()).toMatchObject({ $mcp_error_type: 'api_4xx', $mcp_error_status: 404 })
+                expect(callsFor(mockToolErrorsInc, 'skill-get')).toEqual([{ tool: 'skill-get', error_type: 'api_4xx' }])
+            })
+
             // Dropping the skill must not take the exec properties with it — those are
             // stamped on failures by design, and are the only record of what was tried.
             it('keeps the exec verb and target when a skill read fails', async () => {
@@ -691,16 +749,9 @@ describe('ToolExecutor metrics', () => {
             })
 
             it('records the skill in direct tools mode too', async () => {
-                const tools = catalog.getPreBuiltEntries().map((entry) => {
-                    const preBuilt = catalog.getToolByName(entry.name)!
-                    return {
-                        ...preBuilt.base,
-                        title: entry.title,
-                        description: entry.description ?? '',
-                        annotations: entry.annotations,
-                        scopes: [],
-                    }
-                })
+                const tools = catalog
+                    .getPreBuiltEntries()
+                    .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
 
                 await executor.handleToolCall(
                     { name: 'skill-get', arguments: { skill_name: 'conductor' } },

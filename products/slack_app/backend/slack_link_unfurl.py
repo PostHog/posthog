@@ -23,6 +23,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
+from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
@@ -427,6 +428,7 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     uac = UserAccessControl(user, team=team)
 
     unfurls: dict[str, dict] = {}
+    unfurled_kinds: list[str] = []
     # Every resource we recognized but chose not to unfurl, so a report of "no unfurl appeared"
     # can be answered from logs instead of by re-deriving the path by hand.
     skipped: list[dict[str, str]] = []
@@ -531,6 +533,9 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             except Exception:
                 logger.exception("slack_task_reference_attach_failed", task_id=str(task.id), team_id=team.pk)
 
+        if raw_url in unfurls:
+            unfurled_kinds.append(kind)
+
     logger.info(
         "slack_app_link_unfurl_result",
         team_id=team.pk,
@@ -553,3 +558,13 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         slack.client.chat_unfurl(**unfurl_kwargs)
     except Exception:
         logger.exception("slack_link_unfurl_chat_unfurl_failed", team_id=team.pk)
+    else:
+        capture_slack_event(
+            integration,
+            "slack app link unfurled",
+            slack_user_id=slack_user_id,
+            posthog_user=user,
+            kinds=sorted(set(unfurled_kinds)),
+            unfurled_count=len(unfurls),
+            skipped_count=len(skipped),
+        )

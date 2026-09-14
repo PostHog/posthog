@@ -11,6 +11,7 @@ from posthog.models import Team, User
 
 from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.skills import (
+    CATEGORY_BY_NAME_PREFIX,
     LLMSkill,
     LLMSkillFile,
     LLMSkillOwner,
@@ -113,6 +114,19 @@ class LLMSkillEditError(Exception):
 
 class LLMSkillDuplicateNameConflictError(Exception):
     pass
+
+
+@frozen
+class LLMSkillRenameNotAllowedError(Exception):
+    """The rename would move a skill in or out of a name prefix another product keys its rows on.
+
+    `signals-scout-` and `review-hog-` rows (schedules, pauses, per-user enablement, run history) are
+    keyed on the skill name, and products can't reach into each other to move them. A rename that
+    touches either prefix would leave those rows pointing at a name nothing holds, so it is refused
+    rather than half-applied.
+    """
+
+    prefix: str
 
 
 @frozen
@@ -707,6 +721,55 @@ def archive_skill(team: Team, skill_name: str) -> list[int]:
     return skill_versions
 
 
+def _product_owned_name_prefix(name: str) -> str:
+    """The registered prefix `name` carries, or "" when it carries none."""
+    return next((prefix for prefix, _ in CATEGORY_BY_NAME_PREFIX if name.startswith(prefix)), "")
+
+
+def rename_skill(team: Team, *, skill_name: str, new_name: str) -> LLMSkill:
+    """Move a logical skill to `new_name`, keeping its versions, files, and owners.
+
+    Every version row carries the name, and owners are keyed on `(team, skill_name)`, so the rename
+    has to move all of them together or it loses history and ownership — which is exactly what the
+    duplicate-then-archive workaround did.
+    """
+    blocked_prefix = _product_owned_name_prefix(skill_name) or _product_owned_name_prefix(new_name)
+    if blocked_prefix:
+        raise LLMSkillRenameNotAllowedError(prefix=blocked_prefix)
+
+    with transaction.atomic():
+        locked_version_ids = list(
+            LLMSkill.objects.select_for_update()
+            .filter(team=team, name=skill_name, deleted=False)
+            .order_by("version", "created_at", "id")
+            .values_list("id", flat=True)
+        )
+        if not locked_version_ids:
+            raise LLMSkillNotFoundError()
+        if new_name == skill_name:
+            return _renamed_skill_or_missing(team, new_name)
+        if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
+            raise LLMSkillDuplicateNameConflictError()
+
+        # Bump updated_at (the .update() bypasses auto_now) so the marketplace plugin version,
+        # derived from max(updated_at) across all team rows, advances — a renamed skill changes
+        # the directory name in the exported tree, so installs must pick the rename up.
+        LLMSkill.objects.filter(team=team, name=skill_name, deleted=False).update(
+            name=new_name,
+            updated_at=timezone.now(),
+        )
+        rename_skill_owners(team, skill_name, new_name)
+
+    return _renamed_skill_or_missing(team, new_name)
+
+
+def _renamed_skill_or_missing(team: Team, name: str) -> LLMSkill:
+    skill = get_skill_by_name_from_db(team, name)
+    if skill is None:
+        raise LLMSkillNotFoundError()
+    return skill
+
+
 # --- Skill owners ---------------------------------------------------------------------------------
 # Owners are keyed on the *logical* skill `(team, skill_name)`, so nothing here touches a version row:
 # editing a skill body never changes who owns it. Every read and write goes through `_owner_qs`, which
@@ -801,6 +864,16 @@ def clear_skill_owners(team: Team, skill_name: str) -> None:
     """Drop every owner row for a logical skill — called on archive so a later skill that reuses the
     name (recreate / import / duplicate) doesn't inherit the archived skill's owners."""
     _owner_qs(team).filter(skill_name=skill_name).delete()
+
+
+def rename_skill_owners(team: Team, skill_name: str, new_name: str) -> None:
+    """Move every owner row of a logical skill onto `new_name`, so a rename keeps its owners.
+
+    Owner rows for `new_name` are dropped first: they can only be leftovers from a name nothing
+    active holds, and the `(team, skill_name, user)` unique constraint would otherwise reject the move.
+    """
+    _owner_qs(team).filter(skill_name=new_name).delete()
+    _owner_qs(team).filter(skill_name=skill_name).update(skill_name=new_name)
 
 
 def seed_skill_owner(team: Team, skill_name: str, user: User) -> None:

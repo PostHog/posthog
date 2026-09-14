@@ -20,9 +20,22 @@ DevStackImageBakeOutcome = Literal["succeeded", "bake_failed", "failed", "dispat
 #   completed         — stream reached its completion sentinel
 #   stream_error      — Redis/stream error sentinel ended the connection
 #   unavailable       — stream key never appeared within the wait timeout
+#   drained           — terminal run whose stream key already expired; ended immediately
 #   client_disconnect — client went away (GeneratorExit) before completion
 #   rotated           — per-connection cap reached; clean EOF, client resumes
-StreamConnectionOutcome = Literal["completed", "stream_error", "unavailable", "client_disconnect", "rotated"]
+#   backlog_error     — run-log read for connect-time backlog failed; client retries
+#   backlog_busy      — worker at its in-flight replay byte budget; client retries
+StreamConnectionOutcome = Literal[
+    "completed",
+    "stream_error",
+    "unavailable",
+    "drained",
+    "client_disconnect",
+    "rotated",
+    "backlog_error",
+    "backlog_busy",
+]
+StreamWriteSkippedPath = Literal["ingest", "mirror", "relay"]
 _ALLOWED_MODES = {"background", "interactive"}
 _ALLOWED_RUN_SOURCES = {"manual", "signal_report"}
 _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
@@ -86,6 +99,12 @@ WORKFLOW_DISPATCH_ATTEMPT_TOTAL = Counter(
 WORKFLOW_DISPATCH_START_DURATION_SECONDS = Histogram(
     "posthog_tasks_workflow_dispatch_start_duration_seconds", "Temporal workflow start RPC duration"
 )
+WORKFLOW_DISPATCH_START_RPC_DURATION_SECONDS = Histogram(
+    "posthog_tasks_workflow_dispatch_start_rpc_duration_seconds",
+    "Temporal workflow start RPC duration",
+    labelnames=["kind"],
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 5, 7.5, 10),
+)
 WORKFLOW_DISPATCH_READY = Gauge("posthog_tasks_workflow_dispatch_ready", "Ready workflow dispatches")
 WORKFLOW_DISPATCH_OLDEST_READY_AGE_SECONDS = Gauge(
     "posthog_tasks_workflow_dispatch_oldest_ready_age_seconds", "Age of the oldest ready workflow dispatch"
@@ -122,8 +141,9 @@ RUN_LOG_MIRROR_OTLP_BATCHES_TOTAL = Counter(
 
 LOG_APPEND_UNSERIALIZED_TOTAL = Counter(
     "posthog_tasks_log_append_unserialized_total",
-    "Task-run log appends that ran without the per-object lock (redis unavailable, or contention "
-    "past the blocking timeout), where a concurrent append can still drop entries.",
+    "Task-run log appends that did not hold the per-object lock: refused on contention past the wait "
+    "(the agent retries them) or run unserialized while redis is unavailable.",
+    labelnames=["reason"],
 )
 
 PREWARMED_ACTIVATED_TOTAL = Counter(
@@ -214,6 +234,48 @@ TASK_RUN_STREAM_CONNECTIONS_OPENED_TOTAL = Counter(
     labelnames=["origin_product"],
 )
 
+TASK_RUN_STREAM_BACKLOG_ENTRIES_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_backlog_entries_total",
+    "Run-log entries served as connect-time backlog on thin-tail SSE stream connections",
+    labelnames=["origin_product"],
+)
+
+TASK_RUN_STREAM_BACKLOG_GAP_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_backlog_gap_total",
+    "Thin-tail SSE connections whose first uncovered live entry was not contiguous with the log backlog",
+    labelnames=["origin_product"],
+)
+
+STREAM_BACKLOG_BYTES_BUCKETS = [
+    65_536.0,
+    262_144.0,
+    1_048_576.0,
+    4_194_304.0,
+    16_777_216.0,
+    52_428_800.0,
+    134_217_728.0,
+    536_870_912.0,
+]
+
+TASK_RUN_STREAM_BACKLOG_BYTES = Histogram(
+    "posthog_tasks_task_run_stream_backlog_bytes",
+    "Run-log byte size measured before a connect-time backlog replay on thin-tail SSE stream connections",
+    labelnames=["origin_product"],
+    buckets=STREAM_BACKLOG_BYTES_BUCKETS,
+)
+
+TASK_RUN_STREAM_BACKLOG_OVERSIZED_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_backlog_oversized_total",
+    "Thin-tail SSE connections whose run log exceeded the backlog byte cap and degraded to the Redis window",
+    labelnames=["origin_product"],
+)
+
+TASK_RUN_STREAM_BACKLOG_THROTTLED_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_backlog_throttled_total",
+    "Thin-tail SSE connections refused a backlog replay because the worker's in-flight replay byte budget was full",
+    labelnames=["origin_product"],
+)
+
 TASK_RUN_STREAM_CONNECTIONS_CLOSED_TOTAL = Counter(
     "posthog_tasks_task_run_stream_connections_closed_total",
     "SSE task-run stream connections closed, labeled by how they ended",
@@ -237,6 +299,12 @@ TASK_RUN_STREAM_RESUME_GAP_TOTAL = Counter(
     "posthog_tasks_task_run_stream_resume_gap_total",
     "SSE reconnects whose Last-Event-ID was already trimmed from Redis (events lost for that client)",
     labelnames=["origin_product"],
+)
+
+TASK_RUN_STREAM_WRITE_SKIPPED_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_write_skipped_total",
+    "Task-run events not mirrored into Redis because presence gating found no attached reader",
+    labelnames=["path", "origin_product"],
 )
 
 TASK_RUN_AGENT_FAILURE_TOTAL = Counter(
@@ -361,24 +429,6 @@ def observe_compute_quota_check(outcome: ComputeQuotaOutcome) -> None:
     COMPUTE_QUOTA_CHECK_TOTAL.labels(outcome=outcome).inc()
 
 
-# analytics_event: pr_created | pr_merged | pr_closed | pr_reviewed (bounded, code-defined).
-# reason: unresolved_installation (no Integration matched the delivery's installation id) or
-#         capture_exception (posthoganalytics.capture raised). Both paths were silent before,
-#         so a webhook-side event loss only showed up as a capture-rate dip in analytics.
-GITHUB_WEBHOOK_PR_EVENT_DROPPED_TOTAL = Counter(
-    "posthog_tasks_github_webhook_pr_event_dropped_total",
-    "GitHub PR webhook events that never reached PostHog capture, labeled by event and drop reason",
-    labelnames=["analytics_event", "reason"],
-)
-
-# outcome: resolved | unresolved | timeout | error. timeout means the bounded org-member
-# lookup hit statement_timeout and was skipped so the delivery survives without attribution.
-GITHUB_WEBHOOK_ATTRIBUTION_TOTAL = Counter(
-    "posthog_tasks_github_webhook_attribution_total",
-    "Outcome of the org-member lookup that attributes a GitHub login on the pr_merged/pr_reviewed webhook path",
-    labelnames=["outcome"],
-)
-
 # scoped: "true" when the delivery's installation resolved to at least one team, so the
 # TaskRun lookup could ride the team_id index. "false" means it fell back to the legacy
 # unscoped lookup, which walks posthog_task_run once per leg — the thing we want to watch
@@ -388,20 +438,6 @@ GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL = Counter(
     "GitHub webhook TaskRun lookups, labeled by whether they were scoped to the installation's teams",
     labelnames=["scoped"],
 )
-
-GitHubWebhookAnalyticsEvent = Literal["pr_created", "pr_merged", "pr_closed", "pr_reviewed"]
-GitHubWebhookDropReason = Literal["unresolved_installation", "capture_exception"]
-GitHubWebhookAttributionOutcome = Literal["resolved", "unresolved", "timeout", "error"]
-
-
-def observe_github_webhook_pr_event_dropped(
-    *, analytics_event: GitHubWebhookAnalyticsEvent, reason: GitHubWebhookDropReason
-) -> None:
-    GITHUB_WEBHOOK_PR_EVENT_DROPPED_TOTAL.labels(analytics_event=analytics_event, reason=reason).inc()
-
-
-def observe_github_webhook_attribution(*, outcome: GitHubWebhookAttributionOutcome) -> None:
-    GITHUB_WEBHOOK_ATTRIBUTION_TOTAL.labels(outcome=outcome).inc()
 
 
 def observe_github_webhook_task_run_lookup(*, scoped: bool) -> None:
@@ -563,6 +599,27 @@ def observe_stream_connection_opened(origin_product: str) -> None:
     TASK_RUN_STREAM_CONNECTIONS_OPENED_TOTAL.labels(origin_product=origin_product).inc()
 
 
+def observe_stream_backlog_served(origin_product: str, entries: int) -> None:
+    if entries > 0:
+        TASK_RUN_STREAM_BACKLOG_ENTRIES_TOTAL.labels(origin_product=origin_product).inc(entries)
+
+
+def observe_stream_backlog_gap(origin_product: str) -> None:
+    TASK_RUN_STREAM_BACKLOG_GAP_TOTAL.labels(origin_product=origin_product).inc()
+
+
+def observe_stream_backlog_bytes(origin_product: str, size_bytes: int) -> None:
+    TASK_RUN_STREAM_BACKLOG_BYTES.labels(origin_product=origin_product).observe(size_bytes)
+
+
+def observe_stream_backlog_oversized(origin_product: str) -> None:
+    TASK_RUN_STREAM_BACKLOG_OVERSIZED_TOTAL.labels(origin_product=origin_product).inc()
+
+
+def observe_stream_backlog_throttled(origin_product: str) -> None:
+    TASK_RUN_STREAM_BACKLOG_THROTTLED_TOTAL.labels(origin_product=origin_product).inc()
+
+
 def observe_stream_connection_closed(
     origin_product: str, outcome: StreamConnectionOutcome, duration_seconds: float
 ) -> None:
@@ -578,6 +635,10 @@ def observe_stream_length_on_connect(length: int) -> None:
 
 def observe_stream_resume_gap(origin_product: str) -> None:
     TASK_RUN_STREAM_RESUME_GAP_TOTAL.labels(origin_product=origin_product).inc()
+
+
+def observe_stream_write_skipped(path: StreamWriteSkippedPath, origin_product: str | None = None) -> None:
+    TASK_RUN_STREAM_WRITE_SKIPPED_TOTAL.labels(path=path, origin_product=_metric_label(origin_product)).inc()
 
 
 def observe_task_run_failed(properties: dict[str, object]) -> None:

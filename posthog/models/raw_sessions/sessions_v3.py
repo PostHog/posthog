@@ -754,49 +754,6 @@ GROUP BY session_id_v7, session_timestamp, team_id
 """
 )
 
-RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_V3 = """
-SELECT
-    value,
-    count(value)
-FROM (
-    SELECT
-        {property_expr} as value
-    FROM
-        raw_sessions_v3
-    WHERE
-        team_id = %(team_id)s AND
-        session_timestamp >= now() - INTERVAL 30 DAY AND
-        {property_expr} IS NOT NULL AND
-        {property_expr} != ''
-    ORDER BY session_id_v7 DESC
-    LIMIT 100000
-)
-GROUP BY value
-ORDER BY count(value) DESC
-LIMIT 20
-"""
-
-RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER_V3 = """
-SELECT
-    value,
-    count(value)
-FROM (
-    SELECT
-        {property_expr} as value
-    FROM
-        raw_sessions_v3
-    WHERE
-        team_id = %(team_id)s AND
-        session_timestamp >= now() - INTERVAL 30 DAY AND
-        {property_expr} ILIKE %(value)s
-    ORDER BY session_id_v7 DESC
-    LIMIT 100000
-)
-GROUP BY value
-ORDER BY count(value) DESC
-LIMIT 20
-"""
-
 
 def GET_NUM_RAW_SESSIONS_ACTIVE_PARTS(
     partitions: list[str],

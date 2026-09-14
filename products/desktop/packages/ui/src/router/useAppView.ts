@@ -3,18 +3,24 @@ import {
   type TaskInputReportAssociation,
   useTaskInputPrefillStore,
 } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
+import {
+  isReportPath,
+  reportSourceHrefFromLocation,
+} from "@posthog/ui/router/reportNavigation";
 import { useRouterState } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { getCurrentMatches } from "./navigationBridge";
 
 export type AppViewType =
   | "task-detail"
-  | "task-pending"
   | "task-input"
   | "folder-settings"
   | "activity"
   | "home"
   | "inbox"
+  | "report"
+  // The Agents page moved into Settings, so no route yields this view any
+  // more. It stays for tabs that were opened on the old page.
   | "agents"
   | "loops"
   | "archived"
@@ -29,12 +35,11 @@ export interface AppView {
   taskId?: string;
   folderId?: string;
   folderRepository?: string;
-  pendingTaskKey?: string;
   taskInputRequestId?: string;
   initialPrompt?: string;
   initialContent?: EditorContent;
   recoveredFromKey?: string;
-  initialCloudRepository?: string;
+  initialCloudRepository?: string | null;
   initialModel?: string;
   initialMode?: string;
   folderRunEnvironment?: "local" | "cloud";
@@ -59,8 +64,6 @@ function deriveFromMatches(matches: Match[]): AppView {
       // their own query hooks (e.g. useTasks) keyed on `taskId`.
       return { type: "task-detail", taskId };
     }
-    case "/tasks/pending/$key":
-      return { type: "task-pending", pendingTaskKey: last.params.key };
     case "/new":
       return { type: "task-input" };
     case "/folders/$folderId":
@@ -71,8 +74,8 @@ function deriveFromMatches(matches: Match[]): AppView {
       return { type: "home" };
     case "/inbox":
       return { type: "inbox" };
-    case "/agents":
-      return { type: "agents" };
+    case "/reports/$reportId":
+      return { type: "report" };
     case "/loops":
       return { type: "loops" };
     case "/archived":
@@ -92,12 +95,6 @@ function deriveFromMatches(matches: Match[]): AppView {
     default:
       if (last.fullPath.startsWith("/inbox")) {
         return { type: "inbox" };
-      }
-      // /agents is an Outlet layout; the view lives at the index child and
-      // scout detail routes nest deeper, so match the whole subtree rather
-      // than only the bare layout route.
-      if (last.fullPath.startsWith("/agents")) {
-        return { type: "agents" };
       }
       // /loops covers the list, create form, and the per-loop detail / edit
       // subtree ($loopId is an Outlet layout), so match the prefix.
@@ -165,6 +162,35 @@ export function useAppView(): AppView {
     }
     return view;
   }, [fullPath, taskId, pendingKey, folderId, prefill]);
+}
+
+/**
+ * The legacy navigation row a report's source path belongs to. Only the types
+ * the legacy sidebar highlights; settings, tasks and other non-row surfaces
+ * return null.
+ */
+export function legacyNavTypeForPath(path: string): AppViewType | null {
+  if (/^\/inbox(\/|$)/.test(path)) return "inbox";
+  if (/^\/activity(\/|$)/.test(path)) return "activity";
+  if (/^\/loops(\/|$)/.test(path)) return "loops";
+  if (/^\/command-center(\/|$)/.test(path)) return "command-center";
+  return null;
+}
+
+/**
+ * On a report, the legacy navigation row its source names; null on any other
+ * route (or a report with no row-shaped source). Lets the legacy sidebar keep
+ * "you are here" while a report is open, matching what the rail does with the
+ * same `?from=`.
+ */
+export function useReportSourceNavType(): AppViewType | null {
+  return useRouterState({
+    select: (s) => {
+      if (!isReportPath(s.location.pathname)) return null;
+      const source = reportSourceHrefFromLocation(s.location);
+      return source ? legacyNavTypeForPath(source.split(/[?#]/)[0]) : null;
+    },
+  });
 }
 
 /**

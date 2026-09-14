@@ -266,6 +266,7 @@ export interface inboxOnboardingLogicValues {
     pullsCountLoading: boolean // reportListLogic
     reportsCount: number | null // reportListLogic
     reportsCountLoading: boolean // reportListLogic
+    searchParams: Record<string, any> // router
     enabledScoutsCount: number // scoutFleetLogic
     scoutConfigs: SignalScoutConfig[] | null // scoutFleetLogic
     scoutConfigsLoading: boolean // scoutFleetLogic
@@ -379,7 +380,10 @@ export interface inboxOnboardingLogicMeta {
         ) => InboxSettledUiState | null
         onboardingMode: (
             resolvedOnboardingMode: InboxOnboardingMode,
-            lastSettledUiState: InboxSettledUiState | null
+            lastSettledUiState: InboxSettledUiState | null,
+            searchParams: Record<string, any>,
+            isSelfDrivingSetUp: boolean,
+            isWizardRunning: boolean
         ) => InboxOnboardingMode
     }
 }
@@ -432,6 +436,8 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             ['receivedFeatureFlags'],
             teamLogic,
             ['currentTeamId'],
+            router,
+            ['searchParams'],
         ],
         actions: [
             wizardActiveSessionDetectorLogic,
@@ -639,11 +645,25 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         // What the scene renders: while the verdict is settling, fall back to what this team saw
         // last visit instead of a skeleton, so the loading state only ever shows on a first visit.
         onboardingMode: [
-            (s) => [s.resolvedOnboardingMode, s.lastSettledUiState],
+            (s) => [
+                s.resolvedOnboardingMode,
+                s.lastSettledUiState,
+                s.searchParams,
+                s.isSelfDrivingSetUp,
+                s.isWizardRunning,
+            ],
             (
                 resolvedOnboardingMode: InboxOnboardingMode,
-                lastSettledUiState: InboxSettledUiState | null
-            ): InboxOnboardingMode => resolveDisplayMode(resolvedOnboardingMode, lastSettledUiState),
+                lastSettledUiState: InboxSettledUiState | null,
+                searchParams: Record<string, unknown>,
+                isSelfDrivingSetUp: boolean,
+                isWizardRunning: boolean
+            ): InboxOnboardingMode => {
+                if (searchParams.setup === 'github-first' && !isSelfDrivingSetUp && !isWizardRunning) {
+                    return 'takeover'
+                }
+                return resolveDisplayMode(resolvedOnboardingMode, lastSettledUiState)
+            },
         ],
     }),
 

@@ -272,7 +272,8 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
     bucket: `teams` feeds team-membership checks and the cross-team calculus
     downstream, and a raw handle there would fail membership lookups and inflate
     the team count. `team_files` samples each team's changed paths so a later
-    consumer can tell a change in a team's area from one that merely grazed it.
+    consumer can tell a change in a team's area from one that merely grazed it,
+    and a generated path is left out of that sample because no person edited it.
     `team_generated_file_counts` says how many of each team's files a build step
     wrote, which the capped sample cannot answer."""
     all_teams: set[str] = set()
@@ -297,6 +298,7 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
                 team_file_counts[t] += 1
                 if generated:
                     team_generated_counts[t] += 1
+                    continue
                 # Capped: a sweeping rename can own hundreds of a team's files and no consumer
                 # needs them all. The cap binds only on a sweep, where the count alone is the
                 # useful signal anyway.
@@ -314,7 +316,8 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
         "unowned_files": unowned_files,
         "team_file_counts": dict(team_file_counts.most_common()),
         "team_generated_file_counts": dict(team_generated_counts.most_common()),
-        "team_files": {t: team_files[t] for t, _ in team_file_counts.most_common()},
+        # Empty for a team whose only files a build step wrote: those are excluded above.
+        "team_files": {t: team_files.get(t, []) for t, _ in team_file_counts.most_common()},
         "cross_team": len(all_teams) > 1,
     }
 

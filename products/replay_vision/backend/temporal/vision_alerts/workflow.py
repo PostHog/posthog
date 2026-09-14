@@ -70,7 +70,7 @@ class VisionAlertCheckWorkflow(PostHogWorkflow):
             for batch, result in zip(discovery.batches, results):
                 if isinstance(result, ActivityError):
                     workflow.logger.warning(
-                        "Vision alert batch failed; counting its alerts as errored", batch_size=len(batch)
+                        "Vision alert batch failed; counting its alerts as errored", extra={"batch_size": len(batch)}
                     )
                     output.alerts_errored += len(batch)
                 elif isinstance(result, BaseException):

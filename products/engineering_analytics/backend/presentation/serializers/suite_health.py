@@ -73,10 +73,13 @@ class TrunkQuarantinedTestSerializer(DataclassSerializer):
             "nodeid": {
                 "help_text": "Runner-native test id reconstructed from Trunk's (file, classname, name) key.",
             },
-            "file": {"help_text": "Repo-relative path of the test file, as Trunk reports it."},
+            "file": {
+                "help_text": "Repo-relative path of the test file, empty when neither the repository nor "
+                "Trunk places it.",
+            },
             "owner_team": {
-                "help_text": "Owning team slug from the per-test CI spans' emission-time stamp, or 'unowned' "
-                "when no in-retention span carries one.",
+                "help_text": "Owning team slug from the repository's ownership files, or 'unowned' when the "
+                "test's file cannot be placed or no team claims its path.",
             },
             "status": {"help_text": "Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'."},
             "quarantine_setting": {
@@ -118,6 +121,10 @@ class TrunkQuarantineDebtSerializer(DataclassSerializer):
         extra_kwargs = {
             "available": {
                 "help_text": "False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error.",
+            },
+            "owners_resolved": {
+                "help_text": "False when the repository's ownership files could not be read, so every "
+                "test reads as 'unowned' for that reason rather than because no team claims it.",
             },
             "ttl_days": {"help_text": "Days a quarantine may stand before it counts as overdue."},
             "repository": {

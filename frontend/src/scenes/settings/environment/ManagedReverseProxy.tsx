@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo } from 'react'
 
@@ -22,7 +22,6 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
@@ -48,7 +47,6 @@ const statusText = {
 }
 
 export function ManagedReverseProxy(): JSX.Element {
-    const rootRedirectEnabled = useFeatureFlag('MANAGED_REVERSE_PROXY_ROOT_REDIRECT')
     const {
         shouldShowCloudflareOptIn,
         formState,
@@ -58,8 +56,10 @@ export function ManagedReverseProxy(): JSX.Element {
         diagnoseLoadingIds,
         expandedRecordIds,
     } = useValues(proxyLogic)
-    const { acknowledgeCloudflareOptIn, deleteRecord, retryRecord, diagnose, setRecordExpanded, showForm } =
-        useActions(proxyLogic)
+    const { acknowledgeCloudflareOptIn, retryRecord, diagnose, setRecordExpanded, showForm } = useActions(proxyLogic)
+    // Awaitable so the confirmation dialog can hold its Delete button in a loading state
+    // until the request settles.
+    const { deleteRecord } = useAsyncActions(proxyLogic)
     const { preflight } = useValues(preflightLogic)
 
     const cloudflareProxyEnabled = preflight?.instance_preferences?.cloudflare_proxy_enabled
@@ -193,6 +193,7 @@ export function ManagedReverseProxy(): JSX.Element {
                                             secondaryButton: {
                                                 children: 'Cancel',
                                             },
+                                            shouldAwaitSubmit: true,
                                         })
                                     },
                                 },
@@ -225,9 +226,7 @@ export function ManagedReverseProxy(): JSX.Element {
                 columns={columns}
                 dataSource={proxyRecords}
                 expandable={{
-                    expandedRowRender: (record) => (
-                        <ExpandedRow record={record} rootRedirectEnabled={rootRedirectEnabled} />
-                    ),
+                    expandedRowRender: (record) => <ExpandedRow record={record} />,
                     isRowExpanded: (record) => (expandedRecordIds.includes(record.id) ? true : -1),
                     onRowExpand: (record) => setRecordExpanded(record.id, true),
                     onRowCollapse: (record) => setRecordExpanded(record.id, false),
@@ -350,13 +349,7 @@ function CloudflareOptInBanner({
     )
 }
 
-const ExpandedRow = ({
-    record,
-    rootRedirectEnabled,
-}: {
-    record: ProxyRecord
-    rootRedirectEnabled: boolean
-}): JSX.Element => {
+const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
     const { diagnosticReports, recordActiveTabs, rootRedirectDrafts, proxyRecordsLoading } = useValues(proxyLogic)
     const { setRecordActiveTab, setRootRedirectDraft, updateRootRedirect } = useActions(proxyLogic)
 
@@ -374,7 +367,7 @@ const ExpandedRow = ({
                 </CodeSnippet>
             ),
         },
-        ...(canConfigureRootRedirect(record, rootRedirectEnabled)
+        ...(canConfigureRootRedirect(record)
             ? [
                   {
                       label: 'Root redirect',

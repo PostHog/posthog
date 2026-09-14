@@ -1,5 +1,6 @@
 import json
 import uuid
+from types import SimpleNamespace
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 
@@ -32,6 +33,7 @@ from products.ai_observability.backend.models.score_definitions import ScoreDefi
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.annotations.backend.models.annotation import Annotation
+from products.autoresearch.backend.facade import testing as autoresearch_testing
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
 from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
 from products.canvas.backend.models import Canvas
@@ -46,6 +48,7 @@ from products.customer_analytics.backend.facade.testing import (
     create_account_relationship_definition,
     create_custom_property_definition,
     create_custom_property_value,
+    create_customer_task,
     create_feature_request,
     create_feature_request_account_link,
     create_feature_request_evidence,
@@ -235,6 +238,10 @@ def _create_custom_property_definition(team: Team, label: str):
     return create_custom_property_definition(team_id=team.pk, name=f"def_{label}")
 
 
+def _create_customer_task(team: Team, label: str):
+    return create_customer_task(team_id=team.pk, name=f"customer_task_{label}")
+
+
 def _create_account_relationship(team: Team, label: str):
     account = create_account(team_id=team.pk, name=f"account_{label}")
     definition = create_account_relationship_definition(team_id=team.pk, name=f"rel_{label}")
@@ -290,6 +297,11 @@ def _create_cohort(team: Team, label: str) -> Cohort:
 
 def _create_annotation(team: Team, label: str) -> Annotation:
     return Annotation.objects.create(team=team, content=f"annotation_{label}")
+
+
+def _create_autoresearch_pipeline(team: Team, label: str) -> SimpleNamespace:
+    # autoresearch is sealed: the row is planted through its facade, so only the id comes back.
+    return SimpleNamespace(pk=autoresearch_testing.create_pipeline(team_id=team.pk, name=f"pipeline_{label}"))
 
 
 def _create_cohort_calculation_history(team: Team, label: str) -> CohortCalculationHistory:
@@ -866,6 +878,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("actions", _create_action),
     ("alerts", _create_alert),
     ("annotations", _create_annotation),
+    ("autoresearch_pipelines", _create_autoresearch_pipeline),
     ("batch_export_backfills", _create_batch_export_backfill),
     ("batch_export_on_demands", _create_batch_export_on_demand),
     ("batch_export_runs", _create_batch_export_run),
@@ -879,6 +892,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("custom_property_definitions", _create_custom_property_definition),
+    ("customer_tasks", _create_customer_task),
     ("_account_meetings", _create_account_meeting),
     ("_account_channel_summaries", _create_account_channel_summary),
     ("_account_email_threads", _create_account_email_thread),
@@ -1093,6 +1107,36 @@ class TestSystemTablesCanvasDeletedExclusionIsolation(NonAtomicBaseTest):
 
         assert str(live_canvas.pk) in ids
         assert str(deleted_canvas.pk) not in ids
+
+
+class TestSystemTablesActivityLogsCanvasIdCoercion(NonAtomicBaseTest):
+    """The Canvas visibility rule compares `item_id` against canvas ids, which are UUIDs."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_numeric_item_id_readable_while_canvases_exist(self):
+        # One canvas is enough to make the rule's id set non-empty and UUID-typed. `item_id` is a
+        # String holding whatever object the row is about, and most of those ids are numeric, so
+        # ClickHouse coerced every row's item_id to UUID and the whole table failed to read.
+        with team_scope(self.team.pk):
+            channel = Channel.objects.create(team=self.team, name="activity-log-canvas-channel")
+            Canvas.objects.create(team=self.team, channel=channel, name="live")
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.id,
+            activity="created",
+            scope="Insight",
+            item_id="11510926",
+            detail={},
+        )
+
+        response = execute_hogql_query(
+            "SELECT item_id FROM system.activity_logs WHERE item_id = '11510926'",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert [row[0] for row in response.results] == ["11510926"]
 
 
 class TestSystemTablesTaskInternalExclusion(BaseTest):

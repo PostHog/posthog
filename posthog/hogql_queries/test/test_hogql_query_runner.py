@@ -190,6 +190,9 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("tables", "select * from system.information_schema.tables", True),
             ("relationships", "select * from system.information_schema.relationships", True),
             ("columns", "select * from system.information_schema.columns", True),
+            # system.activity_logs is floored to the plan's retention window, which moves with the clock,
+            # so a stored row outlives the entitlement that let it be read.
+            ("activity_logs", "select * from system.activity_logs", True),
             ("other_system_table", "select id, name from system.insights", False),
             ("events", "select count(event) from events", False),
             ("unparseable", "INVALID SQL SYNTAX", False),

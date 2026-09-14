@@ -160,6 +160,22 @@ describe('dashboardsLogic', () => {
         expect(router.values.searchParams.created_by).toBeUndefined()
     })
 
+    it('replaces tag results for a new search and appends the next page', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadTagResultsSuccess(
+                { next: 'next-page', previous: null, results: ['alpha', 'beta'] },
+                { search: '', offset: 0 }
+            )
+        }).toMatchValues({ hasMoreTagResults: true, tagResults: ['alpha', 'beta'] })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadTagResultsSuccess(
+                { next: null, previous: 'previous-page', results: ['gamma'] },
+                { search: '', offset: 2 }
+            )
+        }).toMatchValues({ hasMoreTagResults: false, tagResults: ['alpha', 'beta', 'gamma'] })
+    })
+
     describe('reflecting a completed move', () => {
         it('updates the moved dashboard to its new folder', async () => {
             await expectLogic(logic, () => {
@@ -517,6 +533,19 @@ describe('dashboardsLogic', () => {
         await expectLogic(logic).toMatchValues({
             filters: expect.objectContaining(expected),
         })
+    })
+
+    it('normalizes the legacy pinned tab while preserving its filter', async () => {
+        logic.unmount()
+        router.actions.push(urls.dashboards(), { tab: DashboardsTab.Pinned })
+        logic = dashboardsLogic({ tabId: '1' })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            currentTab: DashboardsTab.All,
+            filters: expect.objectContaining({ pinned: true }),
+        })
+        expect(router.values.searchParams['tab']).toBeUndefined()
     })
 
     it('restores both search and tags from the URL and fetches with the restored tags', async () => {

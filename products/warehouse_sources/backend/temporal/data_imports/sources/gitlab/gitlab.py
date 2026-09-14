@@ -190,11 +190,13 @@ def validate_credentials(
     if not project or not project.strip():
         return False, "Missing project id or path"
 
-    # GitLab addresses a project by its numeric id or a group/project path. A pasted URL or a bare
-    # group name otherwise URL-encodes into a nonsense path, 404s, and gets reported as "not found
-    # or not accessible with this token" — which points the user at the token rather than the format.
+    # GitLab addresses a project by its numeric id or a group/project path. A pasted URL, a bare
+    # group name, or a stray leading, trailing, or doubled slash otherwise URL-encodes into a
+    # nonsense path, 404s, and gets reported as "not found or not accessible with this token", which
+    # points the user at the token rather than the format.
     project_ref = project.strip()
-    if "://" in project_ref or ("/" not in project_ref and not project_ref.isdigit()):
+    segments = project_ref.split("/")
+    if not project_ref.isdigit() and ("://" in project_ref or len(segments) < 2 or not all(segments)):
         return (
             False,
             "Enter the project as group/project (for example, mygroup/myproject) or its numeric project ID, not a full URL.",

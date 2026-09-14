@@ -19,7 +19,9 @@ export const pluginLogEntryCounter = new Counter({
 export const moveDistinctIdsCountHistogram = new Histogram({
     name: 'move_distinct_ids_count',
     help: 'Number of distinct IDs moved in merge operations',
-    buckets: [0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000],
+    buckets: [
+        0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000,
+    ],
 })
 
 export const personPropertiesSizeHistogram = new Histogram({

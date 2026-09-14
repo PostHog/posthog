@@ -16,10 +16,12 @@ export interface OffsetStore {
 export interface BlockMetadataBatcherOptions {
     flushIntervalMs: number
     maxRows: number
+    maxBytes?: number
 }
 
 export class BlockMetadataBatcher {
     private buffer: MlBlockMetadataRow[] = []
+    private bufferedBytes = 0
     private pendingOffsets = new Map<string, TopicPartitionOffset>()
     private lastFlushMs: number
 
@@ -34,6 +36,9 @@ export class BlockMetadataBatcher {
 
     /** Buffers a batch and flushes once the buffer is old enough or large enough. */
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
+        for (const message of messages) {
+            this.bufferedBytes += message.value?.length ?? 0
+        }
         for (const row of parseBlockMetadataMessages(messages)) {
             this.buffer.push(row)
         }
@@ -47,7 +52,10 @@ export class BlockMetadataBatcher {
     }
 
     private shouldFlush(nowMs: number): boolean {
-        if (this.buffer.length >= this.options.maxRows) {
+        if (
+            this.buffer.length >= this.options.maxRows ||
+            this.bufferedBytes >= (this.options.maxBytes ?? 32 * 1024 * 1024)
+        ) {
             return true
         }
         // Flush on the interval whenever there's anything to commit — including offsets for batches that
@@ -67,6 +75,7 @@ export class BlockMetadataBatcher {
             await this.store.write(this.buffer)
             this.buffer = []
         }
+        this.bufferedBytes = 0
         if (this.pendingOffsets.size > 0) {
             // Commit after the write lands so a failed write replays; skipped-only batches still advance here.
             this.offsetStore.offsetsStore([...this.pendingOffsets.values()])

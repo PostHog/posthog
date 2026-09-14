@@ -42,8 +42,6 @@ Shortcuts taken to ship the first version. Revisit when they bite.
   properties the workflow references — read-side usage isn't indexed, and one filtered query per
   view is cheap. If the added request latency bites, narrow to workflow-referenced properties or
   make the step poll.
-- **v2 materialization only.** v1 `run_workflow.py` is frozen and does not dispatch the sync; v1
-  teams get it after migrating to v2.
 
 ## Account Track Rules schedule
 

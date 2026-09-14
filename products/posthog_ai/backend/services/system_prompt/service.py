@@ -9,7 +9,8 @@ bare string would replace the preset entirely. Project context, groups, billing,
 reachable via the PostHog MCP server, so they are not duplicated here; per-turn context is delivered
 separately via the ``<posthog_context>`` wrapper.
 
-The service is pure over its inputs — no side effects.
+The metric catalog is inspected through its MCP tools at the moment it is needed, so this service
+does not embed a partial catalog snapshot in a Run's system prompt.
 """
 
 from typing import Literal
@@ -17,7 +18,10 @@ from typing import Literal
 from typing_extensions import TypedDict
 
 from products.posthog_ai.backend.helpers import BaseSandboxService
-from products.posthog_ai.backend.services.system_prompt.prompt import POSTHOG_AI_SYSTEM_PROMPT
+from products.posthog_ai.backend.services.system_prompt.prompt import (
+    POSTHOG_AI_SYSTEM_PROMPT,
+    governed_metrics_catalog_prompt,
+)
 
 
 class ClaudeCodeSystemPrompt(TypedDict):
@@ -33,7 +37,7 @@ class ClaudeCodeSystemPrompt(TypedDict):
 
 
 class PromptService(BaseSandboxService):
-    """Provide the systemPrompt suffix for a PostHog AI sandbox Run. Stateless over its inputs."""
+    """Provide the systemPrompt suffix for a PostHog AI sandbox Run."""
 
     def build(self) -> ClaudeCodeSystemPrompt:
         """Return the PostHog AI systemPrompt as a Claude Code preset-plus-append suffix.
@@ -42,4 +46,5 @@ class PromptService(BaseSandboxService):
         ``clientConnection.newSession({ _meta: { systemPrompt } })``; the sandbox appends ``append``
         after Claude Code's own system prompt rather than replacing it.
         """
-        return {"type": "preset", "preset": "claude_code", "append": POSTHOG_AI_SYSTEM_PROMPT}
+        prompt = POSTHOG_AI_SYSTEM_PROMPT + governed_metrics_catalog_prompt()
+        return {"type": "preset", "preset": "claude_code", "append": prompt}

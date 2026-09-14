@@ -24,14 +24,14 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter
 
-from posthog.schema import SessionsV2JoinMode
+from posthog.schema import SessionsV2JoinMode, WebAnalyticsPreComputeStrategy
 
 from posthog.hogql import ast
 from posthog.hogql.property import get_property_type, property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog import redis
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value, tag_queries
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 
@@ -717,14 +717,41 @@ def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[La
     """Emit the same `*_rejected` / `*_eligible` info log shape used by every
     lazy path so a single Loki query can attribute all fall-throughs."""
     if error is not None:
+        reason = type(error).__name__
+        set_lazy_precompute_ineligible_reason(reason)
         logger.info(
             f"{log_prefix}_rejected",
             team_id=team_id,
-            reason=type(error).__name__,
+            reason=reason,
             detail=str(error) or None,
         )
     else:
+        set_lazy_precompute_ineligible_reason(None)
         logger.info(f"{log_prefix}_eligible", team_id=team_id)
+
+
+def set_lazy_precompute_ineligible_reason(reason: Optional[str]) -> None:
+    """Record why a gate refused this read, or clear the tag when a gate admits the query.
+
+    A stats-table read consults several gates in turn, so a rejection from an earlier gate must not
+    survive onto a query that a later gate admits.
+    """
+    if reason is None:
+        clear_tag("web_analytics_precompute_ineligible_reason")
+    else:
+        tag_queries(web_analytics_precompute_ineligible_reason=reason)
+
+
+def lazy_precompute_ineligible_reason(strategy: WebAnalyticsPreComputeStrategy) -> Optional[str]:
+    """Give the reason a gate refused this read, but only for a response the live path served.
+
+    The gates run before the runner selects a strategy. A read the lazy gate rejects can still be
+    served from the pre-aggregated tables, so the tag must not ride out next to a strategy that is
+    not `LIVE`.
+    """
+    if strategy != WebAnalyticsPreComputeStrategy.LIVE:
+        return None
+    return get_query_tag_value("web_analytics_precompute_ineligible_reason")
 
 
 def compute_filters_eligibility_hash(query: Any, team_timezone: str) -> str:

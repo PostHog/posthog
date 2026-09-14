@@ -70,6 +70,8 @@ def test_transient_http_errors_stay_retryable(status_code, reason):
         "Shopify: internal error from request 500 Internal Server Error",
         'Shopify: internal errors in payload [{"message": "internal error", "extensions": {"code": "internal_server_error"}}]',
         "Shopify: connection broken while reading response: Connection broken: IncompleteRead(0 bytes read)",
+        "Failed to retrieve Shopify access token: 500 Internal Server Error",
+        "Failed to retrieve Shopify access token: 429 Too Many Requests",
     ],
 )
 def test_exhausted_internal_retries_are_classified_as_retryable(error_message):

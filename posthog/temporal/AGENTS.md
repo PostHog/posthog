@@ -6,6 +6,21 @@ Pointers, not content. Read the linked docs before changing code or tests in thi
 
 - [Temporal at PostHog](./README.md) — concepts, workflows, activities, the conventions we use, common pitfalls, links to the upstream Temporal SDK docs.
 
+## Logging
+
+Never pass structured fields as keyword arguments to `activity.logger` or `workflow.logger`.
+Both are stdlib `logging.LoggerAdapter` instances, which forward keyword arguments to `Logger._log()`.
+That method accepts only `exc_info`, `stack_info`, `stacklevel` and `extra`, so any other field raises `TypeError`.
+
+- **In an activity, log through the module's structlog logger.** It takes keyword fields directly, and `merge_temporal_context` is registered as a global processor, so the activity id, workflow id and attempt are still attached. See [Logging](./README.md#logging).
+- **In a workflow, keep `workflow.logger` and pass fields via `extra={...}`.** Do not switch a workflow to structlog: `workflow.logger` suppresses duplicate logs during replay, and a structlog logger re-logs every replayed line.
+
+`LoggerAdapter.log` checks `isEnabledFor(level)` before it reads the keyword arguments, so a bad `info` call is inert at the default test level of WARNING and fails only in production, which runs at INFO.
+In a workflow the crash is a workflow _task_ failure, which Temporal retries forever, so the run wedges instead of failing and reports no error status.
+Tests that exercise a workflow end to end should pin `temporalio.activity` and `temporalio.workflow` to INFO, and set an `execution_timeout` so a wedged run fails rather than hangs.
+
+The semgrep rule `temporal-logger-no-keyword-fields` blocks this at review time.
+
 ## Writing or modifying tests in this tree
 
 - [Testing patterns](./README.md#testing-patterns) — when to use real Worker vs `ActivityEnvironment` vs no harness, why some files need `@pytest.mark.django_db(transaction=True)`, the module-scoped Worker pattern that avoids booting the temporal-test-server per test, the `connection.connect()` monkeypatch escape hatch, and the parametrize-don't-copy-paste rule.

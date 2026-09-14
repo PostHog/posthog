@@ -198,6 +198,106 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-09-11 — resolution replies: one verdict sentence, a divider, a few lines (feedback-driven)
+
+- **What.** The resolution prompt (`prompts/thread_resolution/prompt.jinja`, `<reply_shape>`) fixes the reply's shape:
+  one verdict sentence, a blank line, `---`, then at most 3 short lines (5 for `escalate`), written in Simplified
+  Technical English via the `writing-simplified-technical-english` skill the sandbox image already carries (the
+  review and validation prompts adopted it 2026-08-13, PR #80776). Follow-up turns carry a one-line reminder and the
+  `reply` schema description says the same. Test and lint output leave the reply: the driver posts the verdict's
+  `verification` field under it as a collapsed "How this was verified" block (`_verification_section`,
+  `temporal/resolution.py`), after the commit link, and inserts the blank line GitHub needs before a `---` the model
+  wrote directly under its verdict (`_normalize_reply_divider`; without it the verdict renders as a heading). A reply
+  past the shape (more than 5 support lines or 150 visible words) is folded, not cut or rejected: the verdict and the
+  first lines stay visible, the rest goes under a collapsed "More detail" block, and a warning logs the drift
+  (`_fold_overlong_reply`). Rejecting was ruled out in review: a schema limit fails the turn parser with no correction
+  path, so a landed fix commit would get no reply. Review also flagged that publishing `verification` opens a
+  credential channel: the sandbox holds the GitHub token and a PostHog personal API key, the git remote carries the
+  token inline, and nothing inspected the body before it posted (the reply had the same gap on master). The posted
+  body is now scrubbed of credential shapes last (`tools/redaction.py`: PostHog secret prefixes `phx_`/`phs_`/
+  `pha_`/`phr_` and the per-run `phe_` AI gateway token, GitHub `gh?_`/`github_pat_` tokens, `x-access-token` clone URLs; `phc_` project tokens are public
+  and stay), with a warning logged, and the prompt asks for a summary rather than raw command output. The review
+  stage runs the same scrub over the review body and every inline finding comment (`_post_github_review`), since
+  its sandboxes hold the same tokens. Comparing against live token values was ruled out as overengineering: the
+  sandbox's copies can differ from what the delivery step could fetch, and the shapes already cover every
+  credential type the sandbox holds. The resolution-criteria
+  skill's step 4 no longer asks for "how it was verified" in the reply (new canonical version).
+- **Why.** Dogfood feedback on PR #97753: four replies of 5 to 7 paragraphs each, walls of text nobody reads. The
+  prompt asked for a self-contained answer plus how it was verified, and the model over-delivered; the
+  `verification` field was stored and shown nowhere. The shape lives in the prompt, not the editable criteria
+  skill, because it is format rather than judgment and a team edit cannot lose it.
+- **Not changed.** Finding comments (STE since 2026-08-13; their validator bullets sit collapsed) and the finding
+  comment's layout, which repeats its text inside the copy-paste AI prompt block. Trimming that is a rendering
+  follow-up in `publish_review.py`, not a prompt one.
+- **Check.** No live e2e. A throwaway one-shot harness rendered the real opener for five invented threads (one per
+  outcome) plus invented investigation notes and the two skills inline, and asked `claude-opus-5` @ xhigh for the
+  verdict, three runs per outcome. 15/15 replies matched the shape: verdict sentence, blank line before `---`,
+  ≤3 support lines (≤5 for escalate), no test output in the reply, 33 to 116 words (the flagged replies ran 300 to
+  400). Watch the next dogfood resolution run for drift after a long in-sandbox investigation, which the one-shot
+  cannot reproduce.
+
+### ✅ BUILT 2026-09-03 — comment layout back to description-first (reverses the 2026-07-17 validation-first order)
+
+User call: the issue description reads first, the validator's verdict second.
+Reading order is now claim (title) → what the issue is (description) → why it's real (validation) → fix / AI prompt.
+Applied in both renderers (`_format_issue_comment` in `publish_review.py`, `_render_off_diff_section` in `prepare_validation_markdown.py`); the order tests in both suites flipped with it.
+Template-level and reversible, same as the original move.
+
+- **Follow-up from review (2026-09-11).** The validator prompt, the `argumentation` field description, and the
+  regenerated `issue_validation/schema.json` now describe the description as sitting _above_ the verdict, and keep
+  the "bullets stand on their own" rule on its order-independent reason (a reader can expand them alone, and later
+  pipeline steps read them without the description).
+
+### ✅ BUILT 2026-08-27 — reviewer tier by PR origin and Signals priority (agent PRs review cheaper; branch-only inbox reviews retired; resolver on Opus 5)
+
+- **What.** The reviewer's effort is no longer one fleet-wide pin. Each `ReviewReport` is placed in a **review
+  tier** when it is created (`select_review_tier`, `REVIEW_ARMS_BY_TIER` in `reviewer/constants.py`): a person's
+  PR → `human` (Sol @ xhigh); an **agent PR** (a report created with a Signals link, which only the inbox trigger
+  passes) → by the report's latest priority judgment, P0/P1 → xhigh, P2 → medium, P3/P4 → low, no readable
+  judgment → `agent_unprioritized` at xhigh with a warning. The priority is the one the report carried when the
+  implementation task was created: the inbox receiver reads it with a `created_at < task.created_at` cut-off
+  (`persisted_report_priority`) and passes it into the workflow inputs, so the implementation agent — which holds
+  the `task:write` artefact tool that appends judgments — cannot lower the effort of its own review (ReviewHog
+  finding on the PR). The tier and the priority used are persisted
+  beside the arm (`review_tier`, `review_signal_priority`; migration 0031) and labeled on the review events
+  (`review_tier`, `signal_priority`, `signal_report_id`, plus `turn_trigger_source`, the trigger of THIS turn —
+  the row only remembers the trigger that created it). The validator stays Opus 5 @ xhigh for every tier.
+- **Why.** The 2026-08 validator/reviewer experiment (`eval/experiments/2026-08-validator-model-sol/`) showed the
+  reviewer's effort is the one knob that trades findings for cost predictably: medium keeps about half of xhigh's
+  real findings, low about a third, and only xhigh surfaces issues nobody reported before. Most reviews are agent
+  PRs and most of those sit at P2 or below, where a cheaper review is an acceptable trade; a person's PR, and the
+  agent PRs a person asks about, keep the full review. Start simple, then iterate on the tier telemetry.
+- **Rules that were grilled (2026-08-27; the record with the options that lost is in the maintainer's playground
+  notes, the outcomes here):** the agent-PR predicate is the Signals link at creation, so label/UI-triggered
+  agent PRs route as human in v1 (the branch-name lookup through the tasks facade is the first iteration). The
+  tier is decided **once** at creation (a per-turn re-decision would feed a cheap turn's findings into a stronger
+  turn's "already covered" injection), with one exception: a person's trigger (`HUMAN_TRIGGER_SOURCES`: label,
+  UI, CLI) that starts a review of a cheaper tier **lifts** it to `human` for that and every later turn, never
+  the reverse — the accepted cost is that the lifted turn treats the cheap findings as already covered. The lift
+  is the review fetch's opt-in (`lift_tier_on_human_trigger`), because the resolution stage upserts the same row
+  under the person's trigger and a resolve-only request reviews nothing (found in review). A person's trigger
+  that lands while the review is still running joins it (`USE_EXISTING`) and never reaches that fetch, so the
+  trigger endpoints write the lift themselves and answer `joined_running_review` (ReviewHog finding on the PR:
+  stamphog's refusal hand-off adds the label minutes in, inside that window). A missing priority fails
+  expensive under its own label. The table lives in code, not in per-user or per-team settings (the "single
+  existing threshold knob, no separate inbox threshold" precedent from Stage 6 applies to model choice too), and
+  the cheaper arms roll out per team through the existing `REVIEWHOG_TEAM_IDS` dogfood gate (other teams record
+  their tier but run the default arm). No A/B: the weighted arm draw (`REVIEW_EXPERIMENT_ARMS`) is gone, model
+  selection is deterministic.
+- **Also in this change.** The inbox trigger no longer reviews a pushed branch before its PR opens: a review of a
+  branch whose PR never opens is spend with no reader, and the PR save re-fires the receiver, so waiting costs
+  only the head start (the workflow/client keep their branch-target support; the receiver just never uses it).
+  The resolution stage moves from Opus 4.8 to **Opus 5** @ xhigh (validated outside this repo; a plain pin
+  change, not tiered).
+- **Watch.** Dashboard 1922705 splits reviews, cost per review, and valid findings by `review_tier`, and an
+  executed-effort tile reads the gateway's `$ai_effort` on the review generations — the pinned effort and the
+  executed effort are two different facts (the 2026-08 Tasks effort bug ran every Sol review at `low` for weeks
+  while the pin said xhigh), so a silent regression shows on day one.
+- **Backlog, in order.** (1) Route label/UI-triggered agent PRs by priority too (branch-name lookup through the
+  tasks facade). (2) Skip the blind-spot sweep on P3/P4. (3) A daily budget guard that drops new agent PRs one
+  tier. (4) Only with an experiment: validator at `high` on P3/P4. Parked: a PR-size axis, dollar-value bumps.
+  Excluded: resolver tiering.
+
 ### ✅ DECIDED 2026-08-21 — label trigger moves onto the GitHub App webhook (additive handler, no second inlet)
 
 - **What.** The `reviewhog` label add reaches ReviewHog as a `pull_request` handler registered in core's
@@ -2794,7 +2894,10 @@ trigger_source=TRIGGER_UI)` → `202 {workflow_id, status}`. The URL is canonica
 > fetch, empty-diff skip, branch-keyed rows + PR upgrade) for callers that know a real head branch;
 > the receiver rejoins once tasks records the pushed head branch. **→ It rejoined 2026-07-03:
 > `output.head_branch` (agent-server-synced pushed head) is that trustworthy carrier — see the
-> 🔁 trigger-redesign note above. The `TaskRun.branch` FIELD stays banned.**
+> 🔁 trigger-redesign note above. The `TaskRun.branch` FIELD stays banned.** **→ Retired again
+> 2026-08-27: the receiver fires on `output.pr_url` only (a review of a branch whose PR never opens
+> is spend with no reader); the client/workflow branch-target support stays. See the reviewer-tier
+> decision near the top.**
 >
 > **2026-07-03 adversarial review (7 finder dimensions × 3-skeptic refutation panels, findings in
 > `/tmp/reviewhog-signals-combination-adversarial-review.md`) — 4 fixes applied:** (1) the confirmed
@@ -2972,10 +3075,12 @@ fleet-level control during alpha).
 3. ✅ **The trigger** — the `TaskRun` receiver behind the settings gate. REDESIGNED 2026-07-03
    (see the 🔁 note above): fires on the `output`-recording save — `output.pr_url` (PR leg) else
    `output.head_branch` (branch leg) — never on completion (successful runs stay `in_progress`
-   forever) and never on the `TaskRun.branch` field.
+   forever) and never on the `TaskRun.branch` field. **→ Since 2026-08-27 the receiver fires on
+   `output.pr_url` only; the branch leg is retired (reviewer-tier decision near the top).**
 4. ✅ **Branch targets** — PR-by-branch resolve in fetch, the compare fallback (empty diff →
-   self-skip), nullable `pr_number` identity + the branch workflow id. Receiver-reachable again
-   via `output.head_branch` since the 2026-07-03 trigger redesign.
+   self-skip), nullable `pr_number` identity + the branch workflow id. Receiver-reachable via
+   `output.head_branch` from the 2026-07-03 trigger redesign until 2026-08-27; client/workflow
+   support only since then.
 5. ✅ **Dogfood e2e — RAN 2026-07-03** — synthetic report + real Inbox "Create PR" click + real
    PR #68141: receiver fired on the `pr_url` save, inbox workflow with creation-time provenance,
    single-chunk pipeline, zero findings on the clean typo PR → publish self-skipped → receipt

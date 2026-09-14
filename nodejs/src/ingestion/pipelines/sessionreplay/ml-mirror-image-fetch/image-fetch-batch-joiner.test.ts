@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { register } from 'prom-client'
 
 import { IMAGE_FETCH_BATCH_JOIN_TIMEOUT_MS, ImageFetchBatchJoiner } from './image-fetch-batch-joiner'
 
@@ -23,33 +24,41 @@ function deferred(): { promise: Promise<void>; resolve: () => void; reject: (err
 }
 
 describe('ImageFetchBatchJoiner', () => {
-    beforeEach(() => jest.useFakeTimers())
+    beforeEach(() => {
+        jest.useFakeTimers()
+        register.resetMetrics()
+    })
     afterEach(() => jest.useRealTimers())
 
-    it('joins batches from two consumers before processing', async () => {
+    it.each([2, 16])('joins batches from %i consumers before processing', async (consumerCount) => {
         const processBatch = jest.fn(() => Promise.resolve())
-        const joiner = new ImageFetchBatchJoiner(2, processBatch)
+        const joiner = new ImageFetchBatchJoiner(consumerCount, processBatch)
 
-        const first = joiner.handleBatch([message(0)])
+        const messages = Array.from({ length: consumerCount }, (_, partition) => message(partition))
+        const pending = messages.slice(0, -1).map((item) => joiner.handleBatch([item]))
         expect(processBatch).not.toHaveBeenCalled()
-        const second = joiner.handleBatch([message(1)])
+        pending.push(joiner.handleBatch([messages[consumerCount - 1]]))
 
-        await Promise.all([first, second])
-        expect(processBatch).toHaveBeenCalledWith([message(0), message(1)])
+        await Promise.all(pending)
+        expect(processBatch).toHaveBeenCalledTimes(1)
+        expect(processBatch).toHaveBeenCalledWith(messages)
     })
 
-    it('processes one available batch when the join window ends', async () => {
-        const processBatch = jest.fn(() => Promise.resolve())
-        const joiner = new ImageFetchBatchJoiner(2, processBatch)
+    it.each([2, 16])(
+        'processes a partial batch with a target of %i when the join window ends',
+        async (consumerCount) => {
+            const processBatch = jest.fn(() => Promise.resolve())
+            const joiner = new ImageFetchBatchJoiner(consumerCount, processBatch)
 
-        const pending = joiner.handleBatch([message(0)])
-        await jest.advanceTimersByTimeAsync(IMAGE_FETCH_BATCH_JOIN_TIMEOUT_MS - 1)
-        expect(processBatch).not.toHaveBeenCalled()
-        await jest.advanceTimersByTimeAsync(1)
+            const pending = joiner.handleBatch([message(0)])
+            await jest.advanceTimersByTimeAsync(IMAGE_FETCH_BATCH_JOIN_TIMEOUT_MS - 1)
+            expect(processBatch).not.toHaveBeenCalled()
+            await jest.advanceTimersByTimeAsync(1)
 
-        await pending
-        expect(processBatch).toHaveBeenCalledWith([message(0)])
-    })
+            await pending
+            expect(processBatch).toHaveBeenCalledWith([message(0)])
+        }
+    )
 
     it('rejects active and pending consumers when processing fails', async () => {
         const error = new Error('fetch pass failed')
@@ -59,10 +68,23 @@ describe('ImageFetchBatchJoiner', () => {
         const first = joiner.handleBatch([message(0)])
         await jest.advanceTimersByTimeAsync(IMAGE_FETCH_BATCH_JOIN_TIMEOUT_MS)
         const second = joiner.handleBatch([message(1)])
+        const active = register.getSingleMetric('ml_image_fetch_stage_active')!
+        expect((await active.get()).values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ labels: { stage: 'consumer_join' }, value: 1 }),
+                expect.objectContaining({ labels: { stage: 'consumer_process' }, value: 1 }),
+            ])
+        )
         pass.reject(error)
 
         await expect(first).rejects.toBe(error)
         await expect(second).rejects.toBe(error)
+        expect((await active.get()).values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ labels: { stage: 'consumer_join' }, value: 0 }),
+                expect.objectContaining({ labels: { stage: 'consumer_process' }, value: 0 }),
+            ])
+        )
     })
 
     it('does not hold a later partial batch behind active processing', async () => {

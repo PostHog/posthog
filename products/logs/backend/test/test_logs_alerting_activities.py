@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import unittest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -528,7 +528,7 @@ class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
             filters={"serviceNames": [service]},
         )
 
-    @freeze_time("2026-01-01T10:05:00Z")
+    @time_machine.travel("2026-01-01T10:05:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.classify_alert_error")
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
     @patch("products.logs.backend.temporal.activities._run_batched_query")
@@ -564,7 +564,7 @@ class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
         assert prefetch_a.query_duration_ms is not None and prefetch_a.query_duration_ms >= 0
         assert prefetch_b.query_duration_ms is not None and prefetch_b.query_duration_ms >= 0
 
-    @freeze_time("2026-01-01T10:05:00Z")
+    @time_machine.travel("2026-01-01T10:05:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.classify_alert_error")
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
     @patch("products.logs.backend.temporal.activities._run_batched_query")
@@ -610,7 +610,7 @@ class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
         assert "simulated per-alert query failure" in str(bad_prefetch.error)
         assert bad_prefetch.query_duration_ms is not None and bad_prefetch.query_duration_ms >= 0
 
-    @freeze_time("2026-01-01T10:05:00Z")
+    @time_machine.travel("2026-01-01T10:05:00Z", tick=False)
     def test_attribute_filter_single_alert_cohort_succeeds_end_to_end(self):
         # The shape that broke in production: a size-1, projection-ineligible
         # cohort whose alert filters on a log attribute. Runs the real batched
@@ -716,7 +716,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         defaults.update(kwargs)
         return LogsAlertConfiguration.objects.create(**defaults)
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_threshold_breached_transitions_to_firing(self, mock_produce, mock_query_cls):
@@ -734,7 +734,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         mock_produce.assert_called_once()
         assert mock_produce.call_args.kwargs["event"].event == "$logs_alert_firing"
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_threshold_not_breached_stays_not_firing(self, mock_produce, mock_query_cls):
@@ -751,7 +751,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         assert stats["fired"] == 0
         mock_produce.assert_not_called()
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_steady_state_writes_no_alert_event(self, _mock_produce, mock_query_cls):
@@ -762,7 +762,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
 
         assert LogsAlertEvent.objects.filter(alert=alert).count() == 0
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_creates_event_row(self, mock_produce, mock_query_cls):
@@ -783,7 +783,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         assert check.query_duration_ms is not None and check.query_duration_ms >= 0
         assert check.error_message is None
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_advances_next_check_at(self, mock_produce, mock_query_cls):
@@ -797,7 +797,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         alert.refresh_from_db()
         assert alert.next_check_at is not None and alert.next_check_at > now
 
-    @freeze_time("2025-01-01T21:58:00Z")
+    @time_machine.travel("2025-01-01T21:58:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_advances_next_check_at_past_quiet_hours(self, _mock_produce, mock_query_cls):
@@ -813,7 +813,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         alert.refresh_from_db()
         assert alert.next_check_at == datetime(2025, 1, 2, 7, 0, tzinfo=UTC)
 
-    @freeze_time("2025-01-01T21:58:00Z")
+    @time_machine.travel("2025-01-01T21:58:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_uses_quiet_hours_saved_after_the_alert_loaded(self, _mock_produce, mock_query_cls):
@@ -829,7 +829,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         alert.refresh_from_db()
         assert alert.next_check_at == datetime(2025, 1, 2, 7, 0, tzinfo=UTC)
 
-    @freeze_time("2025-01-01T23:00:00Z")
+    @time_machine.travel("2025-01-01T23:00:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_suppresses_notification_when_quiet_hours_start_after_evaluation(self, mock_produce, mock_query_cls):
@@ -848,7 +848,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         alert.refresh_from_db()
         assert alert.next_check_at == datetime(2025, 1, 2, 7, 0, tzinfo=UTC)
 
-    @freeze_time("2025-01-02T06:56:00Z")
+    @time_machine.travel("2025-01-02T06:56:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_advances_last_quiet_hours_check_to_the_window_end(self, _mock_produce, mock_query_cls):
@@ -864,7 +864,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         alert.refresh_from_db()
         assert alert.next_check_at == datetime(2025, 1, 2, 7, 0, tzinfo=UTC)
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     @patch(
@@ -891,7 +891,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         assert "DB::Exception" not in (check.error_message or "")
         assert stats["errored"] == 1
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_emit_event_uses_team_distinct_id(self, mock_produce, mock_query_cls):
@@ -905,7 +905,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         event = mock_produce.call_args.kwargs["event"]
         assert event.distinct_id == f"team_{self.team.id}"
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_last_notified_at_set_after_kafka_success(self, mock_produce, mock_query_cls):
@@ -919,7 +919,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         alert.refresh_from_db()
         assert alert.last_notified_at == now
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event", side_effect=Exception("Kafka down"))
     @patch("products.alerts.backend.destinations.capture_exception")
@@ -943,7 +943,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
             ("below_not_breached", "below", 50, False),
         ]
     )
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_threshold_operators(self, _name, operator, count, should_fire, mock_produce, mock_query_cls):
@@ -962,7 +962,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
             assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
             assert stats["fired"] == 0
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_resolution_emits_resolved_event(self, mock_produce, mock_query_cls):
@@ -984,7 +984,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         mock_produce.assert_called_once()
         assert mock_produce.call_args.kwargs["event"].event == "$logs_alert_resolved"
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_cooldown_suppresses_notification(self, mock_produce, mock_query_cls):
@@ -1003,7 +1003,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         assert alert.state == LogsAlertConfiguration.State.FIRING
         mock_produce.assert_not_called()
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_n_of_m_requires_multiple_breaches_to_fire(self, mock_produce, mock_query_cls):
@@ -1033,7 +1033,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         assert stats["fired"] == 1
         mock_produce.assert_called_once()
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_event_properties_include_logs_url_params(self, mock_produce, mock_query_cls):
@@ -1054,7 +1054,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         assert props["severity_levels"] == ["error"]
         assert props["triggered_at"] == "2025-01-01T00:01:00+00:00"
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_logs_url_params_includes_absolute_date_range(self, mock_produce, mock_query_cls):
@@ -1073,7 +1073,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         assert "2024-12-31T23%3A51%3A00" in props["logs_url_params"] or "23:51:00" in props["logs_url_params"]
         assert "2025-01-01T00%3A01%3A00" in props["logs_url_params"] or "00:01:00" in props["logs_url_params"]
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_resolution_within_cooldown_suppresses_resolved_event(self, mock_produce, mock_query_cls):
@@ -1129,7 +1129,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
             ),
         ]
     )
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_break_on_consecutive_failures(
@@ -1174,7 +1174,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
             assert props["last_error_message"] == "Query is too expensive. Try narrower filters or a shorter window."
             assert "DB::Exception" not in props["last_error_message"]
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.increment_state_transition")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
@@ -1186,7 +1186,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
 
         mock_transition.assert_called_once_with(AlertState.NOT_FIRING, AlertState.FIRING)
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.increment_state_transition")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
@@ -1206,7 +1206,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
             ("resolve", 0, LogsAlertConfiguration.State.FIRING),
         ]
     )
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.increment_notification_failures")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event", side_effect=Exception("Kafka down"))
@@ -1230,7 +1230,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
 
         mock_notif_failures.assert_called_once_with(NotificationAction(expected_action_name))
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.increment_notification_failures")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
@@ -1252,7 +1252,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
             ("unknown", QueryErrorCategory.ERROR),
         ]
     )
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.increment_check_errors")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
@@ -1277,7 +1277,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
 
         mock_check_errors.assert_called_once_with(expected_category)
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.increment_check_errors")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
@@ -1291,7 +1291,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
 
         mock_check_errors.assert_not_called()
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_query_uses_checkpoint_as_date_to_when_in_past(self, _mock_produce, mock_query_cls):
@@ -1306,7 +1306,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         assert kwargs["date_to"] == checkpoint
         assert kwargs["date_from"] == checkpoint - dt.timedelta(minutes=5)
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_query_uses_now_when_checkpoint_is_in_future(self, _mock_produce, mock_query_cls):
@@ -1322,7 +1322,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         assert kwargs["date_to"] == now
         assert kwargs["date_from"] == now - dt.timedelta(minutes=5)
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_query_uses_now_when_checkpoint_is_none(self, _mock_produce, mock_query_cls):
@@ -1336,7 +1336,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         assert kwargs["date_to"] == now
         assert kwargs["date_from"] == now - dt.timedelta(minutes=5)
 
-    @freeze_time("2025-01-01T01:00:00Z")
+    @time_machine.travel("2025-01-01T01:00:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_query_ignores_stale_checkpoint_quiet_partition_case(self, _mock_produce, mock_query_cls):
@@ -1362,7 +1362,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
             ("M=10_window=60_worst_case", 60, 10, 105),
         ]
     )
-    @freeze_time("2025-01-01T05:00:00Z")
+    @time_machine.travel("2025-01-01T05:00:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_date_from_covers_full_rolling_check_lookback(
@@ -1382,7 +1382,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         assert kwargs["date_to"] == now
         assert kwargs["date_from"] == now - dt.timedelta(minutes=expected_range_minutes)
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_errored_notification_emitted_on_first_error(self, mock_produce, mock_query_cls):
@@ -1409,7 +1409,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         assert len(errored_calls) == 1
         assert errored_calls[0].kwargs["event"].properties["consecutive_failures"] == 1
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.capture_exception")
     def test_errored_notification_retried_after_kafka_failure(self, _mock_capture, mock_query_cls):
@@ -1442,7 +1442,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         ]
         assert len(errored_calls) == 1
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.capture_exception")
     def test_enqueue_failure_keeps_successful_checks_counter_reset(self, _mock_capture, mock_query_cls):
@@ -1480,7 +1480,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         ]
         assert len(errored_calls) == 1
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.capture_exception")
     def test_broken_notification_retried_after_kafka_failure(self, _mock_capture, mock_query_cls):
@@ -1519,7 +1519,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
             ("broken", LogsAlertConfiguration.State.ERRORED, 4, NotificationAction.BROKEN),
         ]
     )
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.increment_notification_failures")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event", side_effect=Exception("Kafka down"))
@@ -1665,7 +1665,7 @@ class TestEvaluateSingleAlertEndToEnd(ClickhouseTestMixin, APIBaseTest):
     see.
     """
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_breach_against_real_clickhouse_fires_alert(self, _mock_produce):
         # Five logs at 10:30 with a unique service. next_check_at=10:33,
@@ -1729,7 +1729,7 @@ class TestEvaluateSingleAlertEndToEnd(ClickhouseTestMixin, APIBaseTest):
         defaults.update(kwargs)
         return LogsAlertConfiguration.objects.create(**defaults)
 
-    @freeze_time("2025-12-16T10:35:00Z")
+    @time_machine.travel("2025-12-16T10:35:00Z", tick=False)
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_n_of_m_progression_across_consecutive_evals(self, _mock_produce):
         # Real-CH version of the N-of-M progression test. M=3 N=2 over 5-min buckets.
@@ -1790,7 +1790,7 @@ class TestEvaluateSingleAlertEndToEnd(ClickhouseTestMixin, APIBaseTest):
         alert.refresh_from_db()
         assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
 
-    @freeze_time("2025-12-16T10:25:00Z")
+    @time_machine.travel("2025-12-16T10:25:00Z", tick=False)
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_cooldown_suppresses_resolve_notification_within_window(self, mock_produce):
         # Alert fires at next_check_at #1, resolve attempted at next_check_at #2
@@ -1823,7 +1823,7 @@ class TestEvaluateSingleAlertEndToEnd(ClickhouseTestMixin, APIBaseTest):
         assert alert.state == LogsAlertConfiguration.State.NOT_FIRING  # state still transitions
         assert mock_produce.call_count == 1  # but no second notification dispatched
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_below_operator_fires_on_truly_silent_service(self, _mock_produce):
         # `execute_rolling_checks` always returns exactly `period_count` entries (zero
@@ -1845,7 +1845,7 @@ class TestEvaluateSingleAlertEndToEnd(ClickhouseTestMixin, APIBaseTest):
             "below operator on a silent service must fire — count=0 satisfies count<threshold"
         )
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     @patch("products.alerts.backend.destinations.produce_internal_event")
     def test_first_run_with_null_nca_anchors_on_now(self, _mock_produce):
         # Alert created with next_check_at=None (first eval after enable). The
@@ -2045,7 +2045,7 @@ class TestCohortManifest(unittest.TestCase):
 class TestDiscoverCohortsActivity(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    @freeze_time("2026-05-05T23:00:00Z")
+    @time_machine.travel("2026-05-05T23:00:00Z", tick=False)
     def test_skips_alert_with_invalid_quiet_hours_and_discovers_healthy_alerts(self):
         from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
 
@@ -2080,7 +2080,7 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
         discovered_alert_ids = [alert_id for manifest in result.manifests for alert_id in manifest.alert_ids]
         assert discovered_alert_ids == [str(healthy_alert.id)]
 
-    @freeze_time("2026-05-05T23:00:00Z")
+    @time_machine.travel("2026-05-05T23:00:00Z", tick=False)
     def test_reschedules_due_alert_during_quiet_hours_before_evaluation(self):
         from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
 
@@ -2103,7 +2103,7 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
         alert.refresh_from_db()
         assert alert.next_check_at == datetime(2026, 5, 6, 7, 0, tzinfo=UTC)
 
-    @freeze_time("2026-05-05T10:00:00Z")
+    @time_machine.travel("2026-05-05T10:00:00Z", tick=False)
     def test_returns_manifests_for_due_alerts_only(self):
         from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
 
@@ -2139,7 +2139,7 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
         assert len(result.manifests) == 1
         assert len(result.manifests[0].alert_ids) == 2
 
-    @freeze_time("2026-05-05T10:00:00Z")
+    @time_machine.travel("2026-05-05T10:00:00Z", tick=False)
     def test_transitions_alert_with_broken_filter_config_to_broken(self):
         from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
 
@@ -2227,7 +2227,7 @@ class TestCohortFromManifest(unittest.TestCase):
 class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    @freeze_time("2026-05-05T10:05:00Z")
+    @time_machine.travel("2026-05-05T10:05:00Z", tick=False)
     @patch("posthog.slo.context.emit_slo_completed")
     @patch("posthog.slo.context.emit_slo_started")
     @patch("products.logs.backend.temporal.activities._run_cohort_query")
@@ -2289,7 +2289,7 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
             assert call.kwargs["properties"].outcome == SloOutcome.SUCCESS
             assert call.kwargs["extra_properties"]["alert_state"] == AlertState.NOT_FIRING
 
-    @freeze_time("2026-05-05T10:05:00Z")
+    @time_machine.travel("2026-05-05T10:05:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities._run_cohort_query")
     def test_one_cohorts_failure_isolated_within_batch(self, mock_run_cohort_query):
         # If one cohort raises, the remaining cohorts in the batch still run.
@@ -2352,7 +2352,7 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         assert result.alerts_errored == 1
         assert result.alerts_checked == 1
 
-    @freeze_time("2025-01-01T00:01:00Z")
+    @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
     @patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US")
     @patch("posthog.slo.context.emit_slo_completed")
     @patch("posthog.slo.context.emit_slo_started")

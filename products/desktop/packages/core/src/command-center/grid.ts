@@ -220,6 +220,31 @@ export function reflowCells(
   return next;
 }
 
+export function resizeCellsForLayout(
+  cells: readonly (string | null)[],
+  from: LayoutPreset,
+  to: LayoutPreset,
+  occupiedCellIndices?: readonly number[],
+): (string | null)[] {
+  const newCount = getCellCount(to);
+  const isShrinking = newCount < getCellCount(from);
+  if (!occupiedCellIndices || !isShrinking) {
+    return reflowCells(cells, from, to);
+  }
+
+  const occupiedCells = occupiedCellIndices
+    .map((index) => cells[index])
+    .filter((cell): cell is string => cell != null);
+  return resizeCells(occupiedCells, newCount);
+}
+
 export function clampZoom(value: number): number {
   return Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value)) * 10) / 10;
+}
+
+// Composer draft key for a tile creating its own task. Deliberately outside the
+// "task-input" namespace: those ids drive the sidebar's unsent-draft dot, which
+// must not light up for a draft that lives in the grid.
+export function getCellSessionId(authScope: string, cellIndex: number): string {
+  return `cc-cell-${authScope}-${cellIndex}`;
 }

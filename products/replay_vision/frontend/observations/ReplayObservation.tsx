@@ -5,11 +5,13 @@ import { useEffect, useRef, useState } from 'react'
 import {
     IconArrowLeft,
     IconArrowRight,
+    IconChevronRight,
     IconClock,
     IconCollapse,
     IconExpand,
     IconGear,
     IconInfo,
+    IconPlayFilled,
     IconSparkles,
     IconThoughtBubble,
     IconVideoCamera,
@@ -22,6 +24,7 @@ import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
@@ -37,9 +40,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { BooleanTag } from '../components/BooleanTag'
 import { CardHeader } from '../components/CardHeader'
+import { CitedMarkdown } from '../components/CitedMarkdown'
 import { LabeledRow } from '../components/LabeledRow'
 import {
-    CitedText,
     ObservationConfidence,
     ObservationPrimaryOutput,
     ObservationStatusTag,
@@ -49,6 +52,7 @@ import { ObservationProgressBar } from '../components/ObservationProgressBar'
 import { ObservationRetryButton } from '../components/ObservationRetryButton'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
+import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
     type ClassifierScannerConfig,
     type MonitorScannerConfig,
@@ -62,24 +66,26 @@ import {
     parseFailureReason,
     parseIneligibleReason,
     OBSERVATION_TRIGGER_TAG,
-    type ScannerType,
+    SUCCEEDED_OUTPUT_LABEL,
 } from '../replay_scanners/types'
-import { scannerLabel } from '../utils/observation'
+import { hasScannerPage, scannerLabel } from '../utils/observation'
+import { parseNumericParam } from '../utils/urlParams'
 import { ObservationLabelControl } from './ObservationLabelControl'
-import { neighborFilterParams, observationDetailUrl, replayObservationLogic } from './replayObservationLogic'
+import { observationLabelLogic } from './observationLabelLogic'
+import { ObservationPinnedProperties } from './ObservationPinnedProperties'
+import { ObservationShareButton } from './ObservationShareButton'
+import {
+    neighborFilterParams,
+    observationDetailUrl,
+    replayObservationLogic,
+    scannerReturnParams,
+} from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 export const scene: SceneExport = {
     component: ReplayObservationSceneComponent,
     logic: replayObservationSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
-}
-
-const SUCCEEDED_OUTPUT_LABEL: Record<ScannerType, string> = {
-    classifier: 'Categories',
-    summarizer: 'Summary',
-    monitor: 'Verdict',
-    scorer: 'Score',
 }
 
 function AutoSeekToTime({
@@ -109,6 +115,63 @@ function AutoSeekToTime({
     return null
 }
 
+// A reader opens an observation for the result, not the prompt they configured. Collapse the prompt to one
+// peek line so the verdict and reasoning stay above the fold.
+function PromptRow({ prompt }: { prompt: string }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    return (
+        <div>
+            <button
+                type="button"
+                className="flex items-center gap-0.5 text-xs text-muted mb-0.5 hover:text-default"
+                onClick={() => setExpanded(!expanded)}
+                aria-expanded={expanded}
+                data-attr="vision-observation-prompt-toggle"
+            >
+                <IconChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />
+                Prompt
+            </button>
+            <p
+                className={cn(
+                    'text-sm m-0 leading-snug',
+                    expanded ? 'text-default whitespace-pre-wrap' : 'text-muted line-clamp-1'
+                )}
+            >
+                {prompt}
+            </p>
+        </div>
+    )
+}
+
+/** Rating happens here, not in the Calibration tab, so a rater never sees the recommendation it feeds. */
+function CalibrationEntryPoint({ observation }: { observation: ReplayObservationApi }): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    // Read the rating from the control's logic rather than the loaded observation, which keeps the
+    // label it was fetched with. The control alongside builds this same keyed logic.
+    const { label } = useValues(
+        observationLabelLogic({ observationId: observation.id, initialLabel: observation.label })
+    )
+    // Multivariate flags resolve to the variant key, and "control" is truthy, so compare rather than coerce.
+    if (
+        !label ||
+        !hasScannerPage(observation) ||
+        featureFlags[FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ENTRY_POINT] !== 'test'
+    ) {
+        return null
+    }
+    return (
+        <p className="text-sm text-muted m-0">
+            <Link
+                to={`${urls.replayVision(observation.scanner_id)}?tab=calibration`}
+                data-attr="vision-observation-calibration-entry-point"
+            >
+                Rate more results for this scanner
+            </Link>{' '}
+            to get a config recommendation from your ratings.
+        </p>
+    )
+}
+
 export function ReplayObservationSceneComponent(): JSX.Element {
     const { observationId } = useValues(replayObservationSceneLogic)
     const { searchParams } = useValues(router)
@@ -116,11 +179,19 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const [recordingExpanded, setRecordingExpanded] = useState(false)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
+    // A shared link carries the moment the sharer was watching, in seconds, the same way a recording link does.
+    const sharedStartSeconds = parseNumericParam(searchParams.t)
 
-    // A citation seek belongs to one observation — never replay it on a sibling after prev/next navigation.
+    // Open a shared link where its sender left off. A seek belongs to one observation, so both the shared
+    // start and any citation seek are dropped once prev/next moves to a sibling.
     useEffect(() => {
-        setPendingSeek(null)
-    }, [observationId])
+        if (sharedStartSeconds !== null && sharedStartSeconds >= 0) {
+            setRecordingExpanded(true)
+            setPendingSeek({ ms: sharedStartSeconds * 1000, trigger: Date.now() })
+        } else {
+            setPendingSeek(null)
+        }
+    }, [observationId, sharedStartSeconds])
 
     const observationLogic = replayObservationLogic({ id: observationId })
     useAttachedLogic(observationLogic, replayObservationSceneLogic)
@@ -148,6 +219,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
         )
     }
 
+    const playerKey = `vision-observation-${observation.id}`
     const snapshot = observation.scanner_snapshot
     const result = readResult(observation)
     const reasoning = result && typeof result.reasoning === 'string' ? result.reasoning : null
@@ -194,7 +266,9 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     // navigation (and the server-computed neighbor ids) stay within the filtered list.
     const neighborParams = neighborFilterParams(searchParams)
     const neighborsFiltered = Object.keys(neighborParams).some((key) => key !== 'order_by')
-    const observationUrl = (id: string): string => observationDetailUrl(id, neighborParams)
+    // Prev/next keeps the return params too, so back still lands on the list view the reader came from.
+    const observationUrl = (id: string): string =>
+        observationDetailUrl(id, { ...neighborParams, ...scannerReturnParams(searchParams) })
 
     const seekEmbeddedPlayer = (ms: number): void => {
         if (!recordingExpanded) {
@@ -269,34 +343,60 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         >
                             Next
                         </LemonButton>
+                        <ObservationShareButton
+                            observationId={observation.id}
+                            sessionRecordingId={observation.session_id}
+                            playerKey={playerKey}
+                        />
                         <ReplayVisionFeedbackButton />
                     </>
                 }
             />
 
             <LemonCard className="overflow-hidden p-0" hoverEffect={false}>
-                <div
-                    className="flex items-center gap-2 bg-surface-primary p-3 cursor-pointer hover:bg-surface-secondary"
-                    onClick={toggleRecordingExpanded}
-                >
-                    <LemonButton
-                        icon={recordingExpanded ? <IconCollapse /> : <IconExpand />}
-                        size="small"
-                        tooltip={recordingExpanded ? 'Collapse recording' : 'Expand recording'}
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            toggleRecordingExpanded()
-                        }}
+                {recordingExpanded ? (
+                    <div
+                        className="flex items-center gap-2 bg-surface-primary p-3 cursor-pointer hover:bg-surface-secondary"
+                        onClick={toggleRecordingExpanded}
+                    >
+                        <LemonButton
+                            icon={<IconCollapse />}
+                            size="small"
+                            tooltip="Collapse recording"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                toggleRecordingExpanded()
+                            }}
+                            data-attr="vision-observation-recording-toggle"
+                        />
+                        <IconVideoCamera className="text-muted-alt" />
+                        <h3 className="text-lg font-semibold m-0">Recording</h3>
+                    </div>
+                ) : (
+                    // Collapsed, this row is the only sign the page holds a video, so it leads with a
+                    // thumbnail of the player it opens: a dark screen carrying one play target.
+                    <button
+                        type="button"
+                        className="w-full flex items-center gap-3 p-3 text-left bg-surface-primary hover:bg-surface-secondary"
+                        onClick={toggleRecordingExpanded}
+                        aria-expanded={false}
                         data-attr="vision-observation-recording-toggle"
-                    />
-                    <IconVideoCamera className="text-muted-alt" />
-                    <h3 className="text-lg font-semibold m-0">Recording</h3>
-                </div>
+                    >
+                        <span className="flex items-center justify-center w-20 h-12 rounded bg-black shrink-0">
+                            <IconPlayFilled className="text-xl text-brand-red" />
+                        </span>
+                        <span className="flex-1 min-w-0">
+                            <h3 className="text-lg font-semibold m-0">Watch the recording</h3>
+                            <span className="text-sm text-muted">Play the session this observation was made from</span>
+                        </span>
+                        <IconExpand className="text-lg text-muted-alt shrink-0" />
+                    </button>
+                )}
                 {recordingExpanded && (
                     <div className="border-t border-border h-[calc(100vh-16rem)] min-h-[480px]">
                         <SessionRecordingPlayer
                             sessionRecordingId={observation.session_id}
-                            playerKey={`vision-observation-${observation.id}`}
+                            playerKey={playerKey}
                             mode={SessionRecordingPlayerMode.Standard}
                             autoPlay={false}
                             noBorder
@@ -305,7 +405,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         />
                         {pendingSeek && (
                             <AutoSeekToTime
-                                playerKey={`vision-observation-${observation.id}`}
+                                playerKey={playerKey}
                                 sessionRecordingId={observation.session_id}
                                 ms={pendingSeek.ms}
                                 trigger={pendingSeek.trigger}
@@ -391,11 +491,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     <ScannerTypeBadge scannerType={scannerType} />
                                 </LabeledRow>
                             )}
-                            {prompt && scannerType !== 'summarizer' && (
-                                <LabeledRow label="Prompt">
-                                    <p className="text-sm text-default m-0 leading-snug">{prompt}</p>
-                                </LabeledRow>
-                            )}
                             <LabeledRow label={scannerType ? SUCCEEDED_OUTPUT_LABEL[scannerType] : ''}>
                                 <ObservationPrimaryOutput
                                     observation={observation}
@@ -404,6 +499,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     copyable
                                 />
                             </LabeledRow>
+                            {prompt && scannerType !== 'summarizer' && <PromptRow prompt={prompt} />}
                             {observation.completed_at && (
                                 <LabeledRow label="Event">
                                     <Link to={urls.event(observation.id, observation.completed_at)}>
@@ -412,6 +508,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                 </LabeledRow>
                             )}
                             <ObservationLabelControl observationId={observation.id} initialLabel={observation.label} />
+                            <CalibrationEntryPoint observation={observation} />
                         </div>
                     )}
 
@@ -428,9 +525,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     >
                         <CardHeader icon={<IconThoughtBubble />} title="Model reasoning" />
                         {reasoning ? (
-                            <p className="text-sm whitespace-pre-wrap m-0">
-                                <CitedText text={reasoning} segments={reasoningSegments} onSeek={seekEmbeddedPlayer} />
-                            </p>
+                            <CitedMarkdown text={reasoning} segments={reasoningSegments} onSeek={seekEmbeddedPlayer} />
                         ) : (
                             <p className="text-muted text-sm m-0 italic">
                                 {observation.status === 'ineligible'
@@ -445,6 +540,8 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     </section>
                 )}
             </div>
+
+            <ObservationPinnedProperties sessionId={observation.session_id} />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <LemonCard className="p-4" hoverEffect={false}>

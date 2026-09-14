@@ -29,7 +29,7 @@ export function InboxDetailHeader({ report }: { report: SignalReport }): JSX.Ele
                 to={urls.inbox('reports')}
                 className="-ml-2 w-fit"
             >
-                Inbox
+                Self-driving inbox
             </LemonButton>
             <div className="flex items-start justify-between gap-3 min-w-0">
                 <h1 className="min-w-0 flex-1 m-0 break-words text-2xl font-bold leading-tight tracking-tight">

@@ -1,9 +1,8 @@
 from typing import cast
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.documentation import PostHogAutoSchema, _FallbackSerializer
@@ -58,6 +57,17 @@ class InstrumentationChecklistSerializer(serializers.Serializer):
     )
 
 
+class InstrumentationChecklistQuerySerializer(serializers.Serializer):
+    refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Grade the checks against a fresh read instead of a recent cached one. Use it after "
+            "changing instrumentation, when a cached verdict would still describe the old code."
+        ),
+    )
+
+
 class InstrumentationCheckActionSerializer(serializers.Serializer):
     check = serializers.ChoiceField(choices=CHECK_KEYS, help_text="Key of the check to dismiss or restore.")
 
@@ -101,24 +111,28 @@ class AIObservabilityInstrumentationChecklistViewSet(TeamAndOrgViewSetMixin, vie
             scope__isnull=True
         )
 
-    def _graded_checklist(self) -> Response:
+    def _graded_checklist(self, *, force_refresh: bool = False) -> Response:
         # query_ai_events tags the product but not the feature, and sync_execute rejects a query
-        # missing either. Tagging here covers the read and both write actions, which recompute.
+        # missing either. Tagging here covers the read and both write actions, which regrade.
         tag_queries(feature=Feature.INSTRUMENTATION_CHECKLIST)
         dismissed = self._states().filter(status=AIObservabilityChecklistItemState.Status.DISMISSED)
-        checks = grade_checklist(fetch_checklist_stats(self.team), dismissed.values_list("check_key", flat=True))
+        # A dismissal changes which status a check reports, never the counts behind it, so both write
+        # actions regrade the cached counts rather than paying for the aggregate again.
+        stats = fetch_checklist_stats(self.team, force_refresh=force_refresh)
+        checks = grade_checklist(stats, dismissed.values_list("check_key", flat=True))
         serializer = InstrumentationChecklistSerializer({"window_days": WINDOW_DAYS, "checks": checks})
         return Response(serializer.data)
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=InstrumentationChecklistQuerySerializer,
+        responses={200: OpenApiResponse(response=InstrumentationChecklistSerializer)},
         operation_id="ai_observability_instrumentation_checklist_retrieve",
-        responses={200: InstrumentationChecklistSerializer},
     )
     @llma_track_latency("llma_instrumentation_checklist_list")
     @monitor(feature=None, endpoint="llma_instrumentation_checklist_list", method="GET")
-    def list(self, request: Request, **kwargs) -> Response:
+    def list(self, request: ValidatedRequest, **kwargs) -> Response:
         """Grade every instrumentation check for this project."""
-        return self._graded_checklist()
+        return self._graded_checklist(force_refresh=request.validated_query_data["refresh"])
 
     @validated_request(
         request_serializer=InstrumentationCheckActionSerializer,

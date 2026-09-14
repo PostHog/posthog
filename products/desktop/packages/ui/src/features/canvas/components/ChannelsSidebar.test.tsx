@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   channels: [] as {
     id: string;
     name: string;
-    channelType: "public" | "personal";
+    channelType: "public" | "personal" | "private";
     starred: boolean;
   }[],
   channelsLoading: false,
@@ -98,13 +98,14 @@ vi.mock("@tanstack/react-router", () => ({
   }: {
     select: (s: {
       matches: { fullPath: string }[];
-      location: { pathname: string; state: { tabId?: string } };
+      location: { pathname: string; href: string; state: { tabId?: string } };
     }) => unknown;
   }) =>
     select({
       matches: [{ fullPath: mocks.fullPath }],
       location: {
         pathname: mocks.fullPath,
+        href: mocks.fullPath,
         state: { tabId: mocks.historyTabId },
       },
     }),
@@ -331,6 +332,17 @@ describe("ChannelsSidebar", () => {
 
       expect(listIsInteractive()).toBe(false);
       expect(screen.getByTestId("channel-sidebar").textContent).toBe(ME.id);
+    });
+
+    // The pane carries the space's own tabs, so holding it back until the space
+    // list lands left a cold load with nothing to switch between.
+    it("opens the route's channel before the channel list lands", () => {
+      mocks.routeChannelId = ENG.id;
+      mocks.channels = [];
+      mocks.channelsLoading = true;
+      renderSidebar();
+      expect(screen.getByTestId("channel-sidebar").textContent).toBe(ENG.id);
+      expect(listIsInteractive()).toBe(false);
     });
 
     it("stays on the list while no channel resolves", () => {

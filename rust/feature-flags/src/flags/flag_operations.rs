@@ -1,4 +1,6 @@
+use crate::flags::flag_group_type_mapping::GroupTypeIndex;
 use crate::flags::flag_models::*;
+use crate::properties::property_models::PropertyFilter;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -34,9 +36,17 @@ impl FeatureFlag {
     ///
     /// This is true if the flag has a group type index set
     /// OR if the flag has a cohort filter
-    /// OR if the flag has a property filter and the property filter is not present in the overrides
-    pub fn requires_db_preparation(&self, overrides: &HashMap<String, Value>) -> bool {
-        self.filters.requires_db_properties(overrides, &self.key)
+    /// OR if the flag has a person property filter that is not present in the overrides
+    /// OR if the flag has a group property filter that `group_filter_needs_db` selects
+    ///    (the caller owns the request's group context — see
+    ///    `FeatureFlagMatcher::group_filter_needs_db_prep`)
+    pub fn requires_db_preparation(
+        &self,
+        overrides: &HashMap<String, Value>,
+        group_filter_needs_db: &dyn Fn(&PropertyFilter, Option<GroupTypeIndex>) -> bool,
+    ) -> bool {
+        self.filters
+            .requires_db_properties(overrides, &self.key, group_filter_needs_db)
             || self.filters.requires_cohort_filters()
     }
 
@@ -52,24 +62,33 @@ impl FeatureFlag {
 
     /// Returns true if the flag has multivariate variants that depend on hashing.
     ///
-    /// A flag with no variants or any variant at 100% is effectively not multivariate,
-    /// since the variant assignment doesn't depend on hashing. When any variant has
-    /// 100% rollout, that variant wins for everyone regardless of their hash bucket.
+    /// `get_matching_variant` walks the variants in order accumulating percentages and returns
+    /// the first whose running total passes the hash, so a variant is reachable only while the
+    /// total before it is still under 100 and its own share is non-zero. Hashing decides nothing
+    /// when at most one variant is reachable.
+    ///
+    /// Note this is about position, not just presence of a 100: `[100, 40]` is not hash
+    /// dependent because the first variant already takes everyone, while `[40, 100]` is,
+    /// because hashes below 0.40 still select the first.
     pub fn has_hash_dependent_variants(&self) -> bool {
         match &self.filters.multivariate {
             None => false,
             Some(multivariate) => {
-                let variants = &multivariate.variants;
-                // No variants = not multivariate
-                if variants.is_empty() {
-                    return false;
+                let mut cumulative = 0.0;
+                let mut reachable = 0;
+                for variant in &multivariate.variants {
+                    if cumulative >= 100.0 {
+                        break;
+                    }
+                    if variant.rollout_percentage > 0.0 {
+                        reachable += 1;
+                        if reachable > 1 {
+                            return true;
+                        }
+                    }
+                    cumulative += variant.rollout_percentage;
                 }
-                // Any variant at 100% wins for everyone, making hashing irrelevant
-                if variants.iter().any(|v| v.rollout_percentage >= 100.0) {
-                    return false;
-                }
-                // Multiple variants with partial rollouts = truly multivariate
-                true
+                false
             }
         }
     }
@@ -121,11 +140,13 @@ pub fn flags_require_db_preparation<'a>(
     flags: &[&'a FeatureFlag],
     overrides: &HashMap<String, Value>,
     filtered_out_flag_ids: &HashSet<i32>,
+    group_filter_needs_db: &dyn Fn(&PropertyFilter, Option<GroupTypeIndex>) -> bool,
 ) -> Vec<&'a FeatureFlag> {
     flags
         .iter()
         .filter(|flag| {
-            !filtered_out_flag_ids.contains(&flag.id) && flag.requires_db_preparation(overrides)
+            !filtered_out_flag_ids.contains(&flag.id)
+                && flag.requires_db_preparation(overrides, group_filter_needs_db)
         })
         .copied()
         .collect()
@@ -1224,12 +1245,12 @@ mod tests {
         )]);
 
         assert!(flag.get_group_type_index().is_none());
-        assert!(!flag.requires_db_preparation(&overrides));
+        assert!(!flag.requires_db_preparation(&overrides, &|_, _| true));
 
         flag.filters.aggregation_group_type_index = Some(0);
 
         assert!(flag.get_group_type_index().is_some());
-        assert!(flag.requires_db_preparation(&overrides));
+        assert!(flag.requires_db_preparation(&overrides, &|_, _| true));
     }
 
     #[test]
@@ -1244,7 +1265,7 @@ mod tests {
             Value::String("value".to_string()),
         )]);
 
-        assert!(flag.requires_db_preparation(&overrides));
+        assert!(flag.requires_db_preparation(&overrides, &|_, _| true));
     }
 
     #[test]
@@ -1264,7 +1285,7 @@ mod tests {
                     Value::String("value".to_string()),
                 ),
             ]);
-            assert!(flag.requires_db_preparation(&overrides));
+            assert!(flag.requires_db_preparation(&overrides, &|_, _| true));
         }
 
         {
@@ -1278,7 +1299,7 @@ mod tests {
                     Value::String("value".to_string()),
                 ),
             ]);
-            assert!(!flag.requires_db_preparation(&overrides));
+            assert!(!flag.requires_db_preparation(&overrides, &|_, _| true));
         }
     }
 
@@ -1288,7 +1309,7 @@ mod tests {
         let mut flag = mock!(FeatureFlag);
         flag.filters.holdout = Some(mock!(Holdout));
 
-        assert!(!flag.requires_db_preparation(&HashMap::new()));
+        assert!(!flag.requires_db_preparation(&HashMap::new(), &|_, _| true));
     }
 
     // ======== Tests for experience continuity optimization helper methods ========
@@ -1359,6 +1380,138 @@ mod tests {
         });
         // When any variant is at 100%, hashing doesn't matter - that variant always wins
         assert!(!flag.has_hash_dependent_variants());
+    }
+
+    #[test]
+    fn test_has_hash_dependent_variants_partial_before_100_percent() {
+        // Hashes below 0.40 select "control", so assignment depends on the hash and
+        // continuity lookups must not be skipped.
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "control".to_string(),
+                    name: Some("Control".to_string()),
+                    rollout_percentage: 40.0,
+                },
+                MultivariateFlagVariant {
+                    key: "test".to_string(),
+                    name: Some("Test".to_string()),
+                    rollout_percentage: 100.0,
+                },
+            ],
+        });
+        assert!(flag.has_hash_dependent_variants());
+    }
+
+    #[test]
+    fn test_has_hash_dependent_variants_zero_before_100_percent() {
+        // A zero-share variant is never selected, so the 100 still takes everyone.
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "control".to_string(),
+                    name: Some("Control".to_string()),
+                    rollout_percentage: 0.0,
+                },
+                MultivariateFlagVariant {
+                    key: "test".to_string(),
+                    name: Some("Test".to_string()),
+                    rollout_percentage: 100.0,
+                },
+            ],
+        });
+        assert!(!flag.has_hash_dependent_variants());
+    }
+
+    #[test]
+    fn test_has_hash_dependent_variants_first_variant_over_100_percent() {
+        // The first variant already covers the whole range, so later ones are unreachable.
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "control".to_string(),
+                    name: Some("Control".to_string()),
+                    rollout_percentage: 150.0,
+                },
+                MultivariateFlagVariant {
+                    key: "test".to_string(),
+                    name: Some("Test".to_string()),
+                    rollout_percentage: 10.0,
+                },
+            ],
+        });
+        assert!(!flag.has_hash_dependent_variants());
+    }
+
+    #[test]
+    fn test_has_hash_dependent_variants_all_zero() {
+        // No variant is ever selected, so the hash decides nothing.
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "control".to_string(),
+                    name: Some("Control".to_string()),
+                    rollout_percentage: 0.0,
+                },
+                MultivariateFlagVariant {
+                    key: "test".to_string(),
+                    name: Some("Test".to_string()),
+                    rollout_percentage: 0.0,
+                },
+            ],
+        });
+        assert!(!flag.has_hash_dependent_variants());
+    }
+
+    #[test]
+    fn test_has_hash_dependent_variants_100_percent_in_the_middle() {
+        // The third variant is unreachable, but the first two still split on the hash.
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "a".to_string(),
+                    name: Some("A".to_string()),
+                    rollout_percentage: 30.0,
+                },
+                MultivariateFlagVariant {
+                    key: "b".to_string(),
+                    name: Some("B".to_string()),
+                    rollout_percentage: 100.0,
+                },
+                MultivariateFlagVariant {
+                    key: "c".to_string(),
+                    name: Some("C".to_string()),
+                    rollout_percentage: 50.0,
+                },
+            ],
+        });
+        assert!(flag.has_hash_dependent_variants());
+    }
+
+    #[test]
+    fn test_needs_hash_key_override_partial_before_100_percent() {
+        let mut flag = mock!(FeatureFlag);
+        flag.ensure_experience_continuity = Some(true);
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "control".to_string(),
+                    name: Some("Control".to_string()),
+                    rollout_percentage: 40.0,
+                },
+                MultivariateFlagVariant {
+                    key: "test".to_string(),
+                    name: Some("Test".to_string()),
+                    rollout_percentage: 100.0,
+                },
+            ],
+        });
+        assert!(flag.needs_hash_key_override());
     }
 
     #[test]
@@ -1575,18 +1728,19 @@ mod tests {
         let overrides = HashMap::new();
 
         // Without filtering, both flags require DB preparation
-        let result = flags_require_db_preparation(&flags, &overrides, &HashSet::new());
+        let result =
+            flags_require_db_preparation(&flags, &overrides, &HashSet::new(), &|_, _| true);
         assert_eq!(result.len(), 2);
 
         // With flag_a filtered out, only flag_b requires preparation
         let filtered = HashSet::from([1]);
-        let result = flags_require_db_preparation(&flags, &overrides, &filtered);
+        let result = flags_require_db_preparation(&flags, &overrides, &filtered, &|_, _| true);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].key, "flag_b");
 
         // With both filtered, none require preparation
         let filtered = HashSet::from([1, 2]);
-        let result = flags_require_db_preparation(&flags, &overrides, &filtered);
+        let result = flags_require_db_preparation(&flags, &overrides, &filtered, &|_, _| true);
         assert!(result.is_empty());
     }
 }

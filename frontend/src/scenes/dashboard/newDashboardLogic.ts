@@ -17,10 +17,11 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -37,6 +38,8 @@ import {
     DashboardType,
     JsonType,
 } from '~/types'
+
+import { WEBSITE_METRICS_METRIC_CARD_TILES } from 'products/dashboards/frontend/websiteMetricsMetricCardTemplate'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { InsightModel } from '../../types'
@@ -108,6 +111,23 @@ export function applyTemplate(
         return newObject
     }
     return obj
+}
+
+const METRIC_CARD_TEMPLATE_NAME = 'Website Metrics'
+
+// A global scope alone does not identify the built-in: staff can promote a project template, which keeps its team_id.
+function isMetricTemplate(template: DashboardTemplateType): boolean {
+    return (
+        template.scope === 'global' && template.team_id == null && template.template_name === METRIC_CARD_TEMPLATE_NAME
+    )
+}
+
+export function applyMetricTemplateVariant(
+    tiles: DashboardTemplateStoredTile[],
+    template: DashboardTemplateType,
+    isTestVariant: boolean
+): DashboardTemplateStoredTile[] {
+    return isTestVariant && isMetricTemplate(template) ? WEBSITE_METRICS_METRIC_CARD_TILES : tiles
 }
 
 function makeTilesUsingVariables(
@@ -342,7 +362,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     )
                     actions.hideNewDashboardModal()
                     actions.resetNewDashboard()
-                    const queryBasedDashboard = getQueryBasedDashboard(result)
+                    const queryBasedDashboard = getQueryBasedDashboard(result, 'new_dashboard')
                     queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                     actions.submitNewDashboardSuccessWithResult(result)
                     tryShowMCPHint('dashboards.create', {
@@ -365,7 +385,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
     selectors(({ props }) => ({
         isFeatureFlagDashboard: [() => [], () => props.featureFlagId],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         addDashboard: ({ form }) => {
             actions.resetNewDashboard()
             actions.setNewDashboardValues({ ...defaultFormValues, ...form })
@@ -385,7 +405,13 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             creationContext = null,
         }) => {
             actions.setIsLoading(true)
-            const tiles = makeTilesUsingVariables(template.tiles, variables)
+            const isMetricTemplateTestVariant =
+                isMetricTemplate(template) &&
+                values.featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATE_METRIC_CARD] === 'test'
+            const tiles = makeTilesUsingVariables(
+                applyMetricTemplateVariant(template.tiles, template, isMetricTemplateTestVariant),
+                variables
+            )
             const dashboardJSON = {
                 ...template,
                 tiles,
@@ -403,7 +429,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 )
 
                 actions.resetNewDashboard()
-                const queryBasedDashboard = getQueryBasedDashboard(result)
+                const queryBasedDashboard = getQueryBasedDashboard(result, 'new_dashboard')
                 queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                 actions.submitNewDashboardSuccessWithResult(result, variables)
 

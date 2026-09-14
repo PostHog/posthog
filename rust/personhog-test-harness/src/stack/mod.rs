@@ -91,7 +91,8 @@ pub struct Stack {
     store: PersonhogStore,
     topic: String,
     pub router_url: String,
-    /// Set when the stack spawned a personhog-identity service.
+    /// Set when the stack spawned a personhog-identity service: the traffic
+    /// router's URL, which proxies identity RPCs to it.
     pub identity_url: Option<String>,
     pub log_dir: PathBuf,
 }
@@ -225,6 +226,12 @@ impl Stack {
                     ("ETCD_ENDPOINTS", config.etcd_endpoints.clone()),
                     ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
                     ("BACKEND_TIMEOUT_MS", "5000".to_string()),
+                    // Identity RPCs enter through the router, as deployed.
+                    ("IDENTITY_ENABLED", config.spawn_identity.to_string()),
+                    (
+                        "IDENTITY_URL",
+                        format!("http://127.0.0.1:{IDENTITY_GRPC_PORT}"),
+                    ),
                     ("POD_NAME", name.clone()),
                     ("COORDINATOR_ENABLED", (!is_traffic_router).to_string()),
                     (
@@ -259,10 +266,16 @@ impl Stack {
                     ("PERSON_TABLE", config.pg_target_table.clone()),
                     ("PERSON_DISTINCT_ID_TABLE", pdi_table.to_string()),
                     ("FF_HASH_KEY_OVERRIDE_TABLE", ffhko_table.to_string()),
+                    // The service default is off. The gate needs the
+                    // sweeper: a leader kill abandons a merge mid-saga,
+                    // and only the sweeper re-drives it. The short
+                    // interval fits a short run.
+                    ("LIFECYCLE_SWEEPER_ENABLED", "true".to_string()),
+                    ("LIFECYCLE_SWEEP_INTERVAL_SECS", "3".to_string()),
                 ],
                 &log_dir,
             )?);
-            Some(format!("http://127.0.0.1:{IDENTITY_GRPC_PORT}"))
+            Some(router_url.clone())
         } else {
             None
         };

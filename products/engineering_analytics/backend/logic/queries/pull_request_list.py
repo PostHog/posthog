@@ -22,6 +22,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_list_costs
 
 _LIMIT = 1000
@@ -86,7 +87,7 @@ _PUSH_HISTORY_SELECT = """
         repo_owner, repo_name, pr_number, head_sha,
         min(first_start) AS started_at,
         if(countIf(last_end IS NOT NULL) = 0, NULL, dateDiff('second', min(first_start), max(last_end))) AS wall_seconds,
-        countIf(s = 'completed' AND c IN ('failure', 'timed_out')) > 0 AS failed,
+        countIf(s = 'completed' AND c IN (__DECISIVE_FAILURES__)) > 0 AS failed,
         countIf(s IS NULL OR s != 'completed') > 0 AS pending
     FROM (
         SELECT
@@ -114,8 +115,10 @@ def query_pr_push_history(
     the scan tracks the page (same shape as ``query_pr_list_costs``)."""
     if not pr_numbers:
         return {}
-    sql = _PUSH_HISTORY_SELECT.replace("__RUNS_SOURCE__", curated.run_source()).replace(
-        "__PUSH_HISTORY_LIMIT__", str(_PUSH_HISTORY_LIMIT)
+    sql = (
+        _PUSH_HISTORY_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+        .replace("__PUSH_HISTORY_LIMIT__", str(_PUSH_HISTORY_LIMIT))
+        .replace("__DECISIVE_FAILURES__", DECISIVE_FAILURE_CONCLUSIONS_SQL)
     )
     response = curated.run(
         sql,

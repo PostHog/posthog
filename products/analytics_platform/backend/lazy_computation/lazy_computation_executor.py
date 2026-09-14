@@ -35,6 +35,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -140,6 +141,8 @@ LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(
 #   - `failed`      → INSERT raised (retryable or non-retryable), row moved PENDING → FAILED.
 #   - `stale`       → another waiter detected the owning executor crashed and marked
 #                     the row FAILED via `_try_mark_stale_job_as_failed`.
+#   - `expired`     → a create conflict found the blocking PENDING row past its own
+#                     expires_at and marked it FAILED via `_try_fail_expired_pending_job`.
 LAZY_COMPUTATION_JOBS_CREATED_TOTAL = Counter(
     "lazy_computation_jobs_created_total",
     "PreaggregationJob rows inserted in PENDING status (one per missing range, per executor).",
@@ -202,7 +205,17 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
     return settings
 
 
-@dataclass
+def _ttl_jitter_offset(window_start: datetime, jitter_seconds: int) -> int:
+    """Stable offset in [0, jitter_seconds) for a window, from its start date.
+
+    sha256, not hash(): hash() is salted per process, and the offset must come out the same
+    everywhere.
+    """
+    digest = hashlib.sha256(window_start.date().isoformat().encode()).digest()
+    return int.from_bytes(digest[:8], "big") % jitter_seconds
+
+
+@frozen
 class TtlSchedule:
     """Maps time windows to TTL values based on their recency.
 
@@ -245,6 +258,16 @@ class TtlSchedule:
     long warmer window). Windows older than this keep their full band TTL. `None` caps every
     empty window regardless of age.
 
+    `default_ttl_jitter_seconds` spreads out when default-band (frozen) windows expire. A
+    backfill builds every chunk on the same day, so with one uniform TTL the whole history
+    expires at once and the next read must rebuild all of it. The jitter adds a stable
+    per-window offset in [0, jitter) to the default TTL, so chunks expire days apart and a read
+    only finds a chunk or two missing. The offset comes from the window's start date, not from
+    randomness, so a rebuild gives each chunk the same offset again and chunks do not go back
+    to expiring together. Rule-matched (recent) windows never get jitter. Opt in only for
+    frozen, immutable data: jitter keeps data longer, which is safe only when the data cannot
+    change. `None` disables it.
+
     Use parse_ttl_schedule() to create from user-facing dict format.
     """
 
@@ -254,12 +277,22 @@ class TtlSchedule:
     settling_period_seconds: int | None = None
     empty_result_ttl_seconds: int | None = None
     empty_result_max_age_seconds: int | None = None
+    default_ttl_jitter_seconds: int | None = None
 
-    def get_ttl(self, window_start: datetime) -> int:
+    def get_ttl(self, window_start: datetime, *, jittered: bool = False) -> int:
+        """TTL for a window. `jittered=True` adds the default-band jitter offset.
+
+        Job creation and the freshness check must both pass `jittered=True`, or jobs get
+        recomputed before they expire. `split_ranges_by_ttl` must not: it merges windows by
+        comparing TTLs, and per-window offsets would break the merging.
+        """
         for cutoff, ttl in self.rules:
             if window_start >= cutoff:
                 return ttl
-        return self.default_ttl_seconds
+        ttl = self.default_ttl_seconds
+        if jittered and self.default_ttl_jitter_seconds:
+            ttl += _ttl_jitter_offset(window_start, self.default_ttl_jitter_seconds)
+        return ttl
 
     def empty_result_expires_at(self, computed_at: datetime, window_end: datetime) -> datetime | None:
         """When a zero-row job for this window should expire, or None to keep the band TTL.
@@ -301,6 +334,7 @@ def parse_ttl_schedule(
     settling_period_seconds: int | None = None,
     empty_result_ttl_seconds: int | None = None,
     empty_result_max_age_seconds: int | None = None,
+    default_ttl_jitter_seconds: int | None = None,
 ) -> TtlSchedule:
     """Parse a TTL specification into a TtlSchedule.
 
@@ -324,6 +358,8 @@ def parse_ttl_schedule(
         raise ValueError(f"empty_result_ttl_seconds must be positive, got {empty_result_ttl_seconds}")
     if empty_result_max_age_seconds is not None and empty_result_max_age_seconds <= 0:
         raise ValueError(f"empty_result_max_age_seconds must be positive, got {empty_result_max_age_seconds}")
+    if default_ttl_jitter_seconds is not None and default_ttl_jitter_seconds <= 0:
+        raise ValueError(f"default_ttl_jitter_seconds must be positive, got {default_ttl_jitter_seconds}")
 
     if isinstance(ttl, int):
         if ttl <= 0:
@@ -335,6 +371,7 @@ def parse_ttl_schedule(
             settling_period_seconds=settling_period_seconds,
             empty_result_ttl_seconds=empty_result_ttl_seconds,
             empty_result_max_age_seconds=empty_result_max_age_seconds,
+            default_ttl_jitter_seconds=default_ttl_jitter_seconds,
         )
 
     tz = ZoneInfo(team_timezone)
@@ -365,6 +402,7 @@ def parse_ttl_schedule(
         settling_period_seconds=settling_period_seconds,
         empty_result_ttl_seconds=empty_result_ttl_seconds,
         empty_result_max_age_seconds=empty_result_max_age_seconds,
+        default_ttl_jitter_seconds=default_ttl_jitter_seconds,
     )
 
 
@@ -684,19 +722,28 @@ def find_missing_contiguous_windows(
 
     If no jobs exist for Jan 1-4, it returns: [(Jan 1, Jan 4)]
     """
+    # Some callers pass naive datetimes; window bounds and job rows are aware UTC.
+    if end_timestamp.tzinfo is None:
+        end_timestamp = end_timestamp.replace(tzinfo=UTC)
+
     # Step 1: Generate daily windows for the range
     daily_windows = get_daily_windows(start_timestamp, end_timestamp)
 
     # Step 2: Find missing daily windows
     missing = []
     for window_start, window_end in daily_windows:
+        # The final window is rounded up to a full day, but the query reads only
+        # up to end_timestamp. A claim clamped to the data horizon (see
+        # clamp_ranges_to_data_horizon) must count as covering, or every read at
+        # the same `end` would rebuild the same window.
+        required_end = min(window_end, end_timestamp)
         # Check if this window is covered by any READY or PENDING job
         is_covered = False
         for job in existing_jobs:
             if (
                 job.status in (PreaggregationJob.Status.READY, PreaggregationJob.Status.PENDING)
                 and job.time_range_start <= window_start
-                and job.time_range_end >= window_end
+                and job.time_range_end >= required_end
             ):
                 is_covered = True
                 break
@@ -726,6 +773,55 @@ def find_missing_contiguous_windows(
     merged.append((current_start, current_end))
 
     return merged
+
+
+@frozen
+class BuildRange:
+    """One contiguous span a single job's INSERT fills, with its band TTL."""
+
+    start: datetime
+    end: datetime
+    ttl_seconds: int
+
+
+def clamp_ranges_to_data_horizon(
+    ttl_ranges: list[tuple[datetime, datetime, int]],
+    horizon: datetime | None,
+) -> list[BuildRange]:
+    """
+    Clamp build ranges so no created job claims time past `horizon`, the point
+    up to which the INSERT stores data. A None horizon only wraps the ranges.
+
+    Daily windows round the final day up to midnight, so a historical mid-day
+    horizon would otherwise create a job that claims hours it never stored, and
+    every later read would treat the unstored tail as covered until the job
+    expires (up to 60 days in the frozen band).
+
+    A range that crosses the horizon splits at the horizon's day boundary: the
+    complete days keep a full-day claim and the partial tail becomes its own
+    job. Split jobs tile, so a later full-day rebuild replaces only the tail.
+    A single clamped multi-day job would partially overlap that rebuild and be
+    evicted whole by `filter_overlapping_jobs`, dropping its complete days.
+
+    Callers must not pass a horizon on the current UTC day: the same-day TTL
+    already refreshes today's window, and a clamped claim would force a
+    rebuild on every read.
+    """
+    if horizon is None:
+        return [BuildRange(start=s, end=e, ttl_seconds=ttl) for s, e, ttl in ttl_ranges]
+
+    clamped: list[BuildRange] = []
+    horizon_day_start = datetime(horizon.year, horizon.month, horizon.day, tzinfo=UTC)
+    for range_start, range_end, ttl in ttl_ranges:
+        if range_end <= horizon:
+            clamped.append(BuildRange(start=range_start, end=range_end, ttl_seconds=ttl))
+            continue
+        split = max(range_start, horizon_day_start)
+        if split > range_start:
+            clamped.append(BuildRange(start=range_start, end=split, ttl_seconds=ttl))
+        if horizon > split:
+            clamped.append(BuildRange(start=split, end=horizon, ttl_seconds=ttl))
+    return clamped
 
 
 def create_lazy_computation_job(
@@ -957,6 +1053,7 @@ class LazyComputationExecutor:
         start: datetime,
         end: datetime,
         run_insert: Callable[[Team, PreaggregationJob], int | None] | None = None,
+        end_is_data_horizon: bool = False,
     ) -> LazyComputationResult:
         """
         Execute computation jobs for the given query and time range.
@@ -973,6 +1070,12 @@ class LazyComputationExecutor:
                         default AST-based run_computation_insert with query_info. Returns the
                         number of rows it wrote, or None when it can't report one — see the
                         empty-insert branch below for what a 0 buys.
+            end_is_data_horizon: True when the caller's INSERT stores no rows past
+                        `end` (it bakes `end` into its own filters), so the final
+                        day's job must not claim past it. Leave False when the
+                        INSERT fills whole daily windows regardless of `end`,
+                        because clamping those would create a new partial-tail job
+                        for every distinct `end` a user submits.
         """
         insert_fn = run_insert or (lambda t, j: run_lazy_computation_insert(t, j, query_info))
         query_hash = compute_query_hash(query_info)
@@ -989,6 +1092,15 @@ class LazyComputationExecutor:
         conflict_passes = 0
 
         had_ready_at_start: bool | None = None
+
+        # Set when `end` is a data horizon on a past UTC day; the create loop then
+        # clamps job claims to it so a truncated build cannot mark unstored hours
+        # as covered. Some callers pass a naive `end`; treat it as UTC like the
+        # window math does.
+        now_utc = django_timezone.now()
+        today_start_utc = datetime(now_utc.year, now_utc.month, now_utc.day, tzinfo=UTC)
+        end_utc = end if end.tzinfo is not None else end.replace(tzinfo=UTC)
+        historical_end = end_utc if end_is_data_horizon and end_utc < today_start_utc else None
 
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
             if outcome == "check_miss":
@@ -1035,9 +1147,17 @@ class LazyComputationExecutor:
                 fresh_jobs = self._filter_by_freshness(existing_jobs)
                 pending_jobs = [j for j in fresh_jobs if j.status == PreaggregationJob.Status.PENDING]
 
-                # Step 2: Find missing ranges, split at TTL boundaries
-                missing_ranges = find_missing_contiguous_windows(fresh_jobs, start, end)
-                ttl_ranges = split_ranges_by_ttl(missing_ranges, self.ttl_schedule)
+                # Step 2: Find missing ranges, split at TTL boundaries.
+                # Coverage is checked on the overlap-filtered set because that is
+                # the set the final return serves: the filter drops an older job
+                # that a newer one overlaps, so a window only the older job covered
+                # would read as zero if the unfiltered union counted it as covered.
+                # The filter can also hide a window covered only by an older
+                # PENDING job; recomputing it costs at most one duplicate build.
+                missing_ranges = find_missing_contiguous_windows(filter_overlapping_jobs(fresh_jobs), start, end)
+                build_ranges = clamp_ranges_to_data_horizon(
+                    split_ranges_by_ttl(missing_ranges, self.ttl_schedule), historical_end
+                )
 
                 if had_ready_at_start is None:
                     had_ready_at_start = any(j.status == PreaggregationJob.Status.READY for j in fresh_jobs)
@@ -1047,7 +1167,7 @@ class LazyComputationExecutor:
                 # fully cover the range, return them immediately — complete-but-stale beats
                 # blocking. Whoever refreshes (the warmer, or a request after the grace)
                 # replaces the data; `filter_overlapping_jobs` always prefers newer jobs.
-                if self.stale_while_revalidate_seconds is not None and (ttl_ranges or pending_jobs):
+                if self.stale_while_revalidate_seconds is not None and (build_ranges or pending_jobs):
                     graced = find_existing_jobs(
                         team, query_hash, start, end, expired_grace_seconds=self.stale_while_revalidate_seconds
                     )
@@ -1072,7 +1192,7 @@ class LazyComputationExecutor:
                 # jobs (the stale-serve above would have returned), and this request
                 # must not compute inline or block on someone else's pending job —
                 # report the miss so the caller serves live and warms in background.
-                if not self.run_inserts and (ttl_ranges or pending_jobs):
+                if not self.run_inserts and (build_ranges or pending_jobs):
                     result = LazyComputationResult(
                         ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
                     )
@@ -1082,8 +1202,8 @@ class LazyComputationExecutor:
                 # Step 3: Insert missing ranges
                 did_work = False
                 lost_create_race = False
-                if ttl_ranges and failures <= self.max_retries:
-                    for range_start, range_end, ttl in ttl_ranges:
+                if build_ranges and failures <= self.max_retries:
+                    for build_range in build_ranges:
                         # Each insert runs inline and is bounded only by the ClickHouse
                         # max_execution_time, which is larger than our wait budget. A capped
                         # (narrow) window can produce many ranges; stop before starting another
@@ -1097,7 +1217,14 @@ class LazyComputationExecutor:
                             _log_execution("timeout", result)
                             return result
 
-                        new_job = create_lazy_computation_job(team, query_hash, range_start, range_end, ttl)
+                        # `ttl_seconds` is the band TTL used for merging; the job's real expiry adds the jitter
+                        new_job = create_lazy_computation_job(
+                            team,
+                            query_hash,
+                            build_range.start,
+                            build_range.end,
+                            self.ttl_schedule.get_ttl(build_range.start, jittered=True),
+                        )
                         if new_job is None:
                             # Another executor created a PENDING job for this range; the
                             # rescan at the top of the loop will pick it up. The log keeps
@@ -1109,9 +1236,21 @@ class LazyComputationExecutor:
                                 team_id=team.id,
                                 query_hash=query_hash,
                                 table=str(query_info.table),
-                                time_range_start=str(range_start),
-                                time_range_end=str(range_end),
+                                time_range_start=str(build_range.start),
+                                time_range_end=str(build_range.end),
                             )
+                            if self._try_fail_expired_pending_job(team, query_hash, build_range.start, build_range.end):
+                                LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
+                                    outcome="expired", table=str(query_info.table)
+                                ).inc()
+                                logger.warning(
+                                    "lazy_computation.expired_pending_job_failed",
+                                    team_id=team.id,
+                                    query_hash=query_hash,
+                                    table=str(query_info.table),
+                                    time_range_start=str(build_range.start),
+                                    time_range_end=str(build_range.end),
+                                )
                             lost_create_race = True
                             continue
 
@@ -1139,7 +1278,7 @@ class LazyComputationExecutor:
                             new_job.computed_at = django_timezone.now()
                             if wrote_nothing and new_job.expires_at is not None:
                                 empty_expires_at = self.ttl_schedule.empty_result_expires_at(
-                                    new_job.computed_at, range_end
+                                    new_job.computed_at, build_range.end
                                 )
                                 if empty_expires_at is not None:
                                     new_job.expires_at = min(new_job.expires_at, empty_expires_at)
@@ -1155,9 +1294,9 @@ class LazyComputationExecutor:
                                 job_id=str(new_job.id),
                                 query_hash=query_hash,
                                 table=str(query_info.table),
-                                time_range_start=str(range_start),
-                                time_range_end=str(range_end),
-                                ttl_seconds=ttl,
+                                time_range_start=str(build_range.start),
+                                time_range_end=str(build_range.end),
+                                ttl_seconds=build_range.ttl_seconds,
                                 insert_duration_ms=round(insert_elapsed * 1000),
                                 rows_written=rows_written,
                                 expires_at=str(new_job.expires_at),
@@ -1178,9 +1317,9 @@ class LazyComputationExecutor:
                                 job_id=str(new_job.id),
                                 query_hash=query_hash,
                                 table=str(query_info.table),
-                                time_range_start=str(range_start),
-                                time_range_end=str(range_end),
-                                ttl_seconds=ttl,
+                                time_range_start=str(build_range.start),
+                                time_range_end=str(build_range.end),
+                                ttl_seconds=build_range.ttl_seconds,
                                 insert_duration_ms=round(insert_elapsed * 1000),
                                 error=str(e)[:500],
                                 error_type=type(e).__name__,
@@ -1204,7 +1343,7 @@ class LazyComputationExecutor:
                                 return result
                         did_work = True
 
-                if ttl_ranges and failures > self.max_retries:
+                if build_ranges and failures > self.max_retries:
                     errors.append("Max retries exceeded for computation")
                     result = LazyComputationResult(
                         ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
@@ -1216,13 +1355,12 @@ class LazyComputationExecutor:
                     if lost_create_race and not did_work:
                         # In the healthy race the loser's next rescan sees the winner's
                         # committed PENDING row and moves to the wait branch, so the
-                        # first conflict pass retries immediately. A conflict that
-                        # repeats with the window still missing means the blocking row
-                        # is PENDING but past its expires_at: invisible to
-                        # find_existing_jobs yet still holding the unique-index slot,
-                        # which would otherwise hot-spin no-op inserts until the wait
-                        # budget runs out. Pace those retries with the same backoff the
-                        # wait branch uses.
+                        # first conflict pass retries immediately. An expired blocking
+                        # row is failed by _try_fail_expired_pending_job above, so the
+                        # next pass can recreate it. Conflicts that still repeat with
+                        # the window missing would hot-spin no-op inserts until the
+                        # wait budget runs out. Pace those retries with the same
+                        # backoff the wait branch uses.
                         conflict_passes += 1
                         if conflict_passes > 1:
                             remaining = self.wait_timeout_seconds - (time.monotonic() - start_time)
@@ -1288,6 +1426,46 @@ class LazyComputationExecutor:
         _log_execution("success", result)
         return result
 
+    def _try_fail_expired_pending_job(
+        self, team: Team, query_hash: str, range_start: datetime, range_end: datetime
+    ) -> bool:
+        """
+        Mark an expired PENDING row as FAILED so its window can be recomputed.
+
+        A PENDING row past its expires_at is excluded by find_existing_jobs but
+        still holds the unique_pending_job_per_range slot, so its window shows as
+        missing while every attempt to create a job for it hits a conflict. The
+        wait branch never stale-marks such a row because it only sees jobs
+        find_existing_jobs returns. Without this, the window stays blocked
+        forever and every reader burns its wait budget before falling back.
+
+        The expires_at < now() guard means only rows whose data would already be
+        past its ClickHouse TTL can be failed; a live INSERT finishing afterwards
+        overwrites FAILED with READY, so at worst a takeover costs one duplicate
+        build. The publish wakes waiters that subscribed to the row before it
+        expired, so they rescan now instead of at their next poll timeout.
+        """
+        blocker = PreaggregationJob.objects.filter(
+            team=team,
+            query_hash=query_hash,
+            time_range_start=range_start,
+            time_range_end=range_end,
+            status=PreaggregationJob.Status.PENDING,
+            expires_at__lt=django_timezone.now(),
+        ).first()
+        if blocker is None:
+            return False
+        updated = PreaggregationJob.objects.filter(
+            id=blocker.id,
+            status=PreaggregationJob.Status.PENDING,
+        ).update(
+            status=PreaggregationJob.Status.FAILED,
+            error="Expired while pending (owning executor never finished)",
+        )
+        if updated > 0:
+            publish_job_completion(blocker.id, "failed")
+        return updated > 0
+
     def _try_mark_stale_job_as_failed(self, job: PreaggregationJob) -> bool:
         """
         Try to mark a stale PENDING job as FAILED.
@@ -1348,7 +1526,7 @@ class LazyComputationExecutor:
             if job.status == PreaggregationJob.Status.PENDING:
                 result.append(job)
                 continue
-            desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start)
+            desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start, jittered=True)
             fresh_until = job.created_at + timedelta(seconds=desired_ttl + grace_seconds)
             if settling_period is not None:
                 settled_at = job.time_range_end + timedelta(seconds=settling_period)
@@ -1380,6 +1558,7 @@ def ensure_precomputed(
     run_inserts: bool = True,
     empty_result_ttl_seconds: int | None = None,
     empty_result_max_age_seconds: int | None = None,
+    end_is_data_horizon: bool = False,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1445,6 +1624,10 @@ def ensure_precomputed(
                       hash covers only the substituted AST — so modifiers must never
                       change what the query computes, only how it executes (e.g.
                       `sessionIdPushdown`, which is semantics-preserving by design).
+        end_is_data_horizon: Set True when the insert query bakes `time_range_end`
+                      into its own filters, so it stores no rows past it. Job claims
+                      then clamp to a historical end instead of claiming the full
+                      final day. See LazyComputationExecutor.execute.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1550,7 +1733,14 @@ def ensure_precomputed(
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         run_inserts=run_inserts,
     )
-    return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
+    return executor.execute(
+        team,
+        query_info,
+        time_range_start,
+        time_range_end,
+        run_insert=_run_manual_insert,
+        end_is_data_horizon=end_is_data_horizon,
+    )
 
 
 def _resolve_insert_query(insert_query: str | ast.SelectQuery, placeholders: dict[str, ast.Expr]) -> ast.SelectQuery:

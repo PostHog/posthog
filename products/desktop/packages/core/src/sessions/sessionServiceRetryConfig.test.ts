@@ -66,28 +66,39 @@ function createHarness(session: AgentSession) {
     store: {
       getSessionByTaskId: (taskId: string) =>
         Object.values(sessions).find((s) => s.taskId === taskId),
+      getSessions: () => sessions,
+      setSession: (nextSession: AgentSession) => {
+        sessions[nextSession.taskRunId] = nextSession;
+      },
+      removeSession: (taskRunId: string) => {
+        delete sessions[taskRunId];
+      },
     },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     trpc: {
       agent: {
+        cancel: { mutate: vi.fn().mockResolvedValue(undefined) },
+        onSessionEvent: { subscribe: () => ({ unsubscribe: vi.fn() }) },
         onSessionIdleKilled: {
           subscribe: () => ({ unsubscribe: vi.fn() }),
         },
       },
     },
+    adapterStore: { removeAdapter: vi.fn(), setAdapter: vi.fn() },
+    removePersistedConfigOptions: vi.fn(),
+    settings: {},
+    track: vi.fn(),
   } as unknown as SessionServiceDeps;
 
   const service = new SessionService(deps);
-  vi.spyOn(
-    service as unknown as { teardownSession: () => Promise<void> },
-    "teardownSession",
-  ).mockResolvedValue(undefined);
-  vi.spyOn(
-    service as unknown as {
-      getAuthCredentialsStatus: () => Promise<unknown>;
-    },
-    "getAuthCredentialsStatus",
-  ).mockResolvedValue({ kind: "ready", auth: { client: {} } });
+  const getAuthCredentialsStatus = vi
+    .spyOn(
+      service as unknown as {
+        getAuthCredentialsStatus: () => Promise<unknown>;
+      },
+      "getAuthCredentialsStatus",
+    )
+    .mockResolvedValue({ kind: "ready", auth: { client: {} } });
   const createNewLocalSession = vi
     .spyOn(
       service as unknown as {
@@ -117,15 +128,65 @@ function createHarness(session: AgentSession) {
       parseFailureCount: 0,
     });
 
-  return { service, createNewLocalSession, reconnectInPlace, fetchSessionLogs };
+  return {
+    service,
+    deps,
+    createNewLocalSession,
+    reconnectInPlace,
+    fetchSessionLogs,
+    getAuthCredentialsStatus,
+  };
 }
 
 describe("SessionService.clearSessionError retry config", () => {
+  it("ends startup when a new session connects without a prompt", async () => {
+    const { service, deps, createNewLocalSession, getAuthCredentialsStatus } =
+      createHarness(makeSession({ initialPrompt: undefined }));
+    createNewLocalSession.mockRestore();
+    const clearStartup = vi.fn();
+    deps.store.clearTaskStarting = clearStartup;
+    deps.trpc.agent.start = {
+      mutate: vi.fn().mockResolvedValue({ channel: "empty-run" }),
+    } as unknown as SessionServiceDeps["trpc"]["agent"]["start"];
+    getAuthCredentialsStatus.mockResolvedValue({
+      kind: "ready",
+      auth: {
+        client: {
+          createTaskRun: vi.fn().mockResolvedValue({ id: "empty-run" }),
+        },
+      },
+    });
+    vi.spyOn(
+      service as unknown as { subscribeToChannel: (runId: string) => void },
+      "subscribeToChannel",
+    ).mockImplementation(() => {});
+
+    await (
+      service as unknown as {
+        createNewLocalSession: (
+          taskId: string,
+          title: string,
+          repoPath: string,
+          auth: unknown,
+        ) => Promise<void>;
+      }
+    ).createNewLocalSession("task-1", "Test task", "/repo", {
+      client: { createTaskRun: async () => ({ id: "empty-run" }) },
+    });
+
+    expect(deps.store.getSessions()["empty-run"]).toMatchObject({
+      taskRunId: "empty-run",
+      status: "connected",
+    });
+    expect(clearStartup).toHaveBeenCalledWith("task-1", "empty-run");
+  });
+
   it("recreates the session with the original run configuration", async () => {
     const session = makeSession({
       model: "claude-fable-5",
       adapter: "codex",
       codexModelAccess: "own-subscription",
+      claudeModelAccess: "own-subscription",
       executionMode: "auto",
       reasoningLevel: "high",
       contextWindow: "1m",
@@ -148,7 +209,7 @@ describe("SessionService.clearSessionError retry config", () => {
       undefined,
       "1m",
       true,
-      "own-subscription",
+      { codex: "own-subscription", claude: "own-subscription" },
     );
   });
 
@@ -191,16 +252,154 @@ describe("SessionService.clearSessionError retry config", () => {
     expect(reconnectInPlace).toHaveBeenCalledWith("task-1", "/repo");
   });
 
-  it("recreates when the transcript holds only the user's prompt echo", async () => {
-    const session = makeSession({ events: [PROMPT_ECHO_EVENT] });
-    const { service, createNewLocalSession, reconnectInPlace } =
-      createHarness(session);
+  it.each(["prompt echo", "startup progress", "stored startup progress"])(
+    "recreates when the transcript holds only %s",
+    async (source) => {
+      const startupEvent: AcpMessage = {
+        type: "acp_message",
+        ts: 2,
+        message: {
+          jsonrpc: "2.0",
+          method: "_posthog/status",
+          params: { status: "setup_hooks" },
+        },
+      };
+      const events =
+        source === "stored startup progress"
+          ? []
+          : source === "startup progress"
+            ? [PROMPT_ECHO_EVENT, startupEvent]
+            : [PROMPT_ECHO_EVENT];
+      const {
+        service,
+        createNewLocalSession,
+        reconnectInPlace,
+        fetchSessionLogs,
+      } = createHarness(makeSession({ events }));
+      if (source === "stored startup progress") {
+        fetchSessionLogs.mockResolvedValue({
+          rawEntries: [
+            {
+              type: "notification",
+              timestamp: "2026-07-06T00:00:00.000Z",
+              notification: startupEvent.message,
+            },
+          ],
+          totalLineCount: 1,
+          parseFailureCount: 0,
+        });
+      }
+      await service.clearSessionError("task-1", "/repo");
+      expect(createNewLocalSession).toHaveBeenCalled();
+      expect(reconnectInPlace).not.toHaveBeenCalled();
+    },
+  );
 
-    await service.clearSessionError("task-1", "/repo");
+  it.each(["create run", "start agent", "send prompt"])(
+    "preserves recovery state after repeated failures to %s",
+    async (failureStage) => {
+      const session = makeSession({
+        model: "claude-fable-5",
+        adapter: "claude",
+        executionMode: "auto",
+      });
+      const { service, deps, createNewLocalSession, getAuthCredentialsStatus } =
+        createHarness(session);
+      createNewLocalSession.mockRestore();
+      let nextRun = 0;
+      const createTaskRun = vi.fn(async () => ({ id: `retry-${++nextRun}` }));
+      let onStartupEvent: ((event: unknown) => void) | undefined;
+      const unsubscribeStartup = vi.fn();
+      const reportStartupPhase = vi.fn();
+      deps.store.setTaskStartupPhase = reportStartupPhase;
+      const clearStartup = vi.fn();
+      deps.store.clearTaskStarting = clearStartup;
+      deps.trpc.agent.onSessionEvent = {
+        subscribe: (
+          _input: unknown,
+          callbacks: { onData?: (event: unknown) => void },
+        ) => {
+          onStartupEvent = callbacks.onData;
+          return { unsubscribe: unsubscribeStartup };
+        },
+      };
+      const startAgent = vi.fn().mockImplementation(async () => {
+        onStartupEvent?.({
+          message: {
+            method: "_posthog/status",
+            params: { status: "setup_hooks" },
+          },
+        });
+        return { channel: "retry" };
+      });
+      deps.trpc.agent.start = {
+        mutate: startAgent,
+      } as unknown as SessionServiceDeps["trpc"]["agent"]["start"];
+      getAuthCredentialsStatus.mockResolvedValue({
+        kind: "ready",
+        auth: { client: { createTaskRun } },
+      });
+      vi.spyOn(
+        service as unknown as { subscribeToChannel: () => void },
+        "subscribeToChannel",
+      ).mockImplementation(() => {});
+      const sendPrompt = vi
+        .spyOn(service, "sendPrompt")
+        .mockResolvedValue({ stopReason: "end_turn" });
+      const failure = new Error(`Cannot ${failureStage}`);
+      const failingOperation =
+        failureStage === "create run"
+          ? createTaskRun
+          : failureStage === "start agent"
+            ? startAgent
+            : sendPrompt;
+      failingOperation
+        .mockRejectedValueOnce(failure)
+        .mockRejectedValueOnce(failure);
 
-    expect(createNewLocalSession).toHaveBeenCalled();
-    expect(reconnectInPlace).not.toHaveBeenCalled();
-  });
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await expect(
+          service.clearSessionError("task-1", "/repo"),
+        ).rejects.toThrow(failure.message);
+        expect(deps.store.getSessionByTaskId("task-1")).toMatchObject({
+          status: "error",
+          errorMessage: failure.message,
+          initialPrompt: session.initialPrompt,
+          model: session.model,
+          adapter: session.adapter,
+          executionMode: session.executionMode,
+          ...(failureStage === "send prompt"
+            ? { taskRunId: `retry-${attempt + 1}` }
+            : {}),
+        });
+      }
+
+      await service.clearSessionError("task-1", "/repo");
+
+      expect(deps.store.getSessionByTaskId("task-1")).toMatchObject({
+        status: "connected",
+        initialPrompt: session.initialPrompt,
+        model: session.model,
+      });
+      expect(sendPrompt).toHaveBeenLastCalledWith(
+        "task-1",
+        session.initialPrompt,
+      );
+      expect(createTaskRun).toHaveBeenCalledTimes(3);
+      expect(reportStartupPhase).toHaveBeenLastCalledWith(
+        "task-1",
+        deps.store.getSessionByTaskId("task-1")?.taskRunId,
+        "setup_hooks",
+      );
+      expect(unsubscribeStartup).toHaveBeenCalledTimes(
+        startAgent.mock.calls.length,
+      );
+      if (failureStage === "start agent") {
+        expect(clearStartup).toHaveBeenNthCalledWith(1, "task-1", "retry-1");
+        expect(clearStartup).toHaveBeenNthCalledWith(2, "task-1", "retry-2");
+      }
+    },
+  );
 });
 
 const CONNECT_PARAMS: ConnectParams = {
@@ -261,6 +460,7 @@ describe("SessionService.connectToTask start failure", () => {
               .fn()
               .mockRejectedValue(new Error("session start timeout")),
           },
+          onSessionEvent: { subscribe: () => ({ unsubscribe: vi.fn() }) },
           onSessionIdleKilled: {
             subscribe: () => ({ unsubscribe: vi.fn() }),
           },
@@ -306,6 +506,7 @@ describe("SessionService.connectToTask missing auth", () => {
       getIsOnline: () => true,
       trpc: {
         agent: {
+          onSessionEvent: { subscribe: () => ({ unsubscribe: vi.fn() }) },
           onSessionIdleKilled: {
             subscribe: () => ({ unsubscribe: vi.fn() }),
           },

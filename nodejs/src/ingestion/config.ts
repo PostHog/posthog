@@ -26,6 +26,9 @@ import {
 /** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '' disables the personless default so it is opt-in per team via config. */
 export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = ''
 
+/** Default for FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS: '' excludes nobody, so the allowlist alone decides. */
+export const DEFAULT_FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS = ''
+
 // =============================================================================
 // Infrastructure sub-config types
 // These group CommonConfig keys by infrastructure concern for use in server
@@ -168,6 +171,9 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_ASYNC_TOPIC: string
     PERSON_MERGE_ASYNC_ENABLED: boolean
     PERSON_MERGE_SYNC_BATCH_SIZE: number
+    // The saga's per-source move guard in SYNC mode; an over-limit source
+    // comes back skipped_move_limit for the merge-mode policy.
+    PERSONHOG_SYNC_MERGE_MOVE_LIMIT: number
     // Kill switch for emitting person_merge_events to the cohort-stream-processor.
     // Enable ordering: (1) create the topic, (2) set INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC
     // (startup topic verification is then fatal by design), (3) flip this on. Flipping this on before
@@ -192,6 +198,12 @@ export type IngestionConsumerConfig = {
     // recreated person revives above its own tombstone. Comma-separated team IDs, or '*' for all
     // teams; empty means no teams.
     PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
+    // Re-emit committed distinct id mappings for merge events that arrive already satisfied,
+    // debounced per (team, distinct id). Heals ClickHouse mapping rows lost to a crash between
+    // a merge's commit and its produce; see MergeMappingDebounce for why the cache is in-memory.
+    PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: boolean
+    PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: number
+    PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: number
     // Teams whose person creation claims an existing unreachable posthog_person row holding
     // the same deterministic (team_id, uuid) instead of inserting a duplicate row. Scope to
     // teams whose distinct-ID mappings were destroyed outside the write path (stranded rows);
@@ -209,6 +221,12 @@ export type IngestionConsumerConfig = {
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
     GROUPS_PREFETCH_ENABLED: boolean
+
+    // Team-keyed cache prefetch config: one batched warm-up per chunk for each cache,
+    // instead of a per-event lookup in the sequential steps that read it.
+    TEAMS_PREFETCH_ENABLED: boolean
+    EVENT_SCHEMAS_PREFETCH_ENABLED: boolean
+    HOG_FUNCTIONS_PREFETCH_ENABLED: boolean
 
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
@@ -233,6 +251,8 @@ export type IngestionConsumerConfig = {
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
     FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
+    /** Teams held back from the personless default even when the allowlist is '*': '' for none, '*' to disable the default for every team, or comma-separated team IDs */
+    FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS: string
     /** Teams whose multivariate $feature_flag_called events are duplicated as $experiment_exposure: '*' for all, '' to disable, or comma-separated team IDs */
     EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: string
 
@@ -353,12 +373,16 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_ASYNC_TOPIC: '',
         PERSON_MERGE_ASYNC_ENABLED: false,
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+        PERSONHOG_SYNC_MERGE_MOVE_LIMIT: 10_000,
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
         PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
+        PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: false,
+        PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: 500_000,
+        PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: 60 * 60 * 1000,
         PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: '',
 
         // Group batch writing config
@@ -368,6 +392,10 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUPS_PREFETCH_ENABLED: false,
+
+        TEAMS_PREFETCH_ENABLED: false,
+        EVENT_SCHEMAS_PREFETCH_ENABLED: false,
+        HOG_FUNCTIONS_PREFETCH_ENABLED: false,
 
         // Event overflow config
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
@@ -389,6 +417,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+        FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS,
         EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '',
 
         // $feature_flag_called fork into the flag_evaluations ClickHouse table.

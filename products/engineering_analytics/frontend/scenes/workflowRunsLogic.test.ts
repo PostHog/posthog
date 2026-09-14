@@ -56,7 +56,7 @@ describe('workflowRunsLogic', () => {
         logic?.unmount()
     })
 
-    it('scopes the runs list, activity chart, and cost breakdown to the shared branch, reloading all on a change', async () => {
+    it('sends the shared run scope to every windowed read on the page, reloading all of them on a change', async () => {
         logic = workflowRunsLogic({ repoOwner: 'PostHog', repoName: 'posthog', workflowName: 'CI', sourceId: null })
         logic.mount()
         const filters = engineeringAnalyticsFiltersLogic()
@@ -65,29 +65,34 @@ describe('workflowRunsLogic', () => {
             'loadRunsSuccess',
             'loadRunActivitySuccess',
             'loadRunnerCostsSuccess',
+            'loadJobAggregatesSuccess',
         ])
 
-        // No branch applied → the endpoints see every branch (the pre-fix behavior for the whole page).
-        const runsArgs = { workflow_name: 'CI', repo: 'PostHog/posthog', date_from: '-7d', branch: undefined }
-        expect(mockRuns).toHaveBeenLastCalledWith('1', expect.objectContaining(runsArgs))
-        expect(mockRunActivity).toHaveBeenLastCalledWith('1', expect.objectContaining(runsArgs))
-        expect(mockRunnerCosts).toHaveBeenLastCalledWith('1', expect.objectContaining(runsArgs))
+        const windowedReads = [mockRuns, mockRunActivity, mockRunnerCosts, mockJobAggregates]
+        for (const read of windowedReads) {
+            expect(read).toHaveBeenLastCalledWith(
+                '1',
+                expect.objectContaining({ workflow_name: 'CI', repo: 'PostHog/posthog', date_from: '-7d' })
+            )
+            // All runs is the default, and the backend already reports every run when the param is absent.
+            expect(read.mock.lastCall?.[1]).not.toHaveProperty('run_scope')
+        }
 
-        // Applying a branch on the shared filters logic reloads all three reads scoped to it — so the detail
-        // page's numbers (and the chart's runs) match the branch-scoped Workflows tab instead of widening
-        // back to all branches.
-        filters.actions.setBranchFilter('master')
-        filters.actions.applyBranchFilter()
+        // Picking a group on the shared filters logic reloads all four reads scoped to it, so the detail
+        // page's numbers and its chart match the list it was opened from.
+        filters.actions.setRunScope('merge_queue')
         await expectLogic(logic).toDispatchActions([
             'loadRuns',
             'loadRunActivity',
             'loadRunnerCosts',
+            'loadJobAggregates',
             'loadRunsSuccess',
             'loadRunActivitySuccess',
             'loadRunnerCostsSuccess',
+            'loadJobAggregatesSuccess',
         ])
-        expect(mockRuns).toHaveBeenLastCalledWith('1', expect.objectContaining({ branch: 'master' }))
-        expect(mockRunActivity).toHaveBeenLastCalledWith('1', expect.objectContaining({ branch: 'master' }))
-        expect(mockRunnerCosts).toHaveBeenLastCalledWith('1', expect.objectContaining({ branch: 'master' }))
+        for (const read of windowedReads) {
+            expect(read).toHaveBeenLastCalledWith('1', expect.objectContaining({ run_scope: 'merge_queue' }))
+        }
     })
 })

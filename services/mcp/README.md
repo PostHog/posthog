@@ -284,6 +284,47 @@ Available features:
 
 To view which tools are available per feature, see our [documentation](https://posthog.com/docs/model-context-protocol) or check `schema/tool-definitions-all.json`.
 
+### Learning and skills in cli mode
+
+Claude web and desktop silently drop `exec` when its serialized `inputSchema` reaches 16,384 characters.
+In cli mode, the `posthog` tool keeps the guidance needed for routine calls in its schema.
+The compact tool-domain index stays inline in the `command` schema so Claude can discover relevant tools before making a call.
+Optional, task-specific guidance is served through the same tool:
+
+- `learn` lists the available built-in guides and, when enabled, the PostHog/project skill discovery syntax.
+- `learn analytics` loads detailed analytics guidance and examples.
+- `learn visualizations` loads rendering guidance when visualizations are available.
+- `learn urls` loads the PostHog app link formatting rules (kept inline for other clients; served as a guide on Claude web and desktop to protect the schema budget).
+- `learn feedback` loads feedback guidance when feedback is available.
+- `learn skills` lists qualified names from the published PostHog bundle (`posthog:`) and the current project's Skills store (`project:`).
+- `learn -s <query>` searches both sources in names, descriptions, Markdown bodies, and bundled file paths. Results from both sources are merged into one relevance order.
+- `learn -d <source>:<skill> [...]` prints the one-line description of each named skill without reading its body (up to 20 per call). Unknown names are reported inline without failing the batch.
+- `learn posthog:<skill> [path]` or `learn project:<skill> [path]` reads a skill or one of its bundled files.
+- `learn <source>:<skill> <path> [path...]` reads several bundled files, and `learn <source>:<skill> [<source>:<skill>...]` reads several skills, in one call (up to 10 targets).
+- `learn <source>:<skill> <path> -s <query>` searches within one Markdown file.
+- `learn <source>:<skill> <path> --lines <start>:<end>` reads an inclusive line range.
+
+Built-in guides are specific to Claude web and desktop. Skill discovery is independently available to every cli-mode client when the `mcp-exec-skills` feature flag is enabled. Other clients, including Claude Code, receive only the skill commands and do not receive Claude's built-in guides. If the flag is missing, disabled, or cannot be evaluated, skill commands are omitted from the schema and rejected at runtime.
+When skill discovery is enabled, the inline prompt tells every non-plugin cli client, including Claude web and desktop, to search with `learn -s "<task keywords>"` before non-trivial PostHog work, load matches by exact qualified name, and follow the loaded `SKILL.md` before choosing tools. Trivial lookups and unrelated conversation skip this workflow.
+A product `call` in a session that loaded no skill is rejected with an instruction to search first; `call --no-skills ...` records that no skill applies and opens the gate for the rest of the session. Clients without an MCP session id are not gated.
+
+The skill bundle is shared through Redis: each pod loads it once at startup, parses it into memory, and serves every `learn` command from that parsed catalog.
+A background timer polls a small version key in Redis; only when the version changes does a pod read the archive bytes again.
+One pod at a time refreshes the archive from its source when the shared copy is older than ten minutes, using a conditional request so an unchanged release costs a 304.
+The cached bytes are kept for thirty days and re-extended on every refresh, so a source outage serves the last good archive.
+No `learn`, `initialize`, or `discover` request reads the archive from Redis.
+By default it is loaded from `https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip`.
+Set `POSTHOG_MCP_SKILLS_URL` to use another archive during local development.
+Custom archive URLs use separate Redis cache namespaces so a local bundle cannot read or overwrite the published bundle's cache entry.
+Project skills are read directly from the request-authenticated project and are not cached by the MCP server.
+Only latest, active, uncategorized skills are exposed through `learn`; category-specific skills such as scouts stay on their own surfaces.
+Project full-text search is bounded to 10 skills, two short snippets per skill, and a five-second database timeout.
+Individual `learn` responses stay below 44,000 characters; large references return a heading outline for follow-up search or line reads.
+The fixed command syntax stays in the tool schema, while skill names and bodies are loaded only when requested.
+`consumer=plugin` and `consumer=posthog-code` omit `learn` because both surfaces already supply their own bundled skill context, regardless of the feature flag.
+
+Other clients keep the full inline command reference.
+
 ### Tool filtering
 
 For finer-grained control you can allowlist specific tools by name using the `tools` query parameter. Only the exact tool names listed will be exposed, regardless of their feature category.

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from temporalio.testing import ActivityEnvironment
 
+from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS, TruncatedCompletionError
 from posthog.models import Organization, Team
 from posthog.models.scoping.manager import TeamScopedQuerySet
 
@@ -228,7 +229,7 @@ class TestBuildBoundedEnrichmentPrompt:
             known_descriptions={},
             columns_needing_description=[c["name"] for c in columns],
             business_context="short context",
-        )
+        ).prompt
         assert len(prompt) <= MAX_PROMPT_CHARS
         for column in columns:
             assert column["name"] in prompt
@@ -247,7 +248,7 @@ class TestBuildBoundedEnrichmentPrompt:
             known_descriptions={},
             columns_needing_description=["col_0", "col_1"],
             business_context=huge_context,
-        )
+        ).prompt
         assert len(prompt) <= MAX_PROMPT_CHARS
         # The 100k-char context is truncated to the cap (a few stray "x" elsewhere in the template are fine).
         assert MAX_BUSINESS_CONTEXT_CHARS <= prompt.count("x") < MAX_BUSINESS_CONTEXT_CHARS + 100
@@ -268,7 +269,7 @@ class TestBuildBoundedEnrichmentPrompt:
             known_descriptions={},
             columns_needing_description=[c["name"] for c in columns],
             business_context="",
-        )
+        ).prompt
         assert len(prompt) <= MAX_PROMPT_CHARS
         # The first column survives; some tail columns are dropped to stay under budget.
         assert columns[0]["name"] in prompt
@@ -295,7 +296,7 @@ class TestBuildBoundedEnrichmentPrompt:
             known_descriptions={},
             columns_needing_description=[str(c["name"]) for c in columns],
             business_context="",
-        )
+        ).prompt
         assert len(prompt) <= MAX_PROMPT_CHARS
         # The surviving column's FK stays; the dropped column's FK is gone.
         assert "kept_target" in prompt
@@ -340,8 +341,8 @@ class TestExtractJsonObject:
         ],
     )
     def test_extracts_object_from_fenced_or_wrapped_replies(self, content):
-        # The gateway's Anthropic route doesn't reliably honour json_object mode, so replies arrive
-        # fenced or with prose — all must still yield the parsed object.
+        # A caller that asks for JSON in the prompt can get it fenced or with prose, and it must
+        # still parse.
         parsed = _extract_json_object(content)
         assert parsed == {"table_description": "t", "columns": {"a": "desc"}}
 
@@ -351,12 +352,14 @@ class TestExtractJsonObject:
 
 
 class TestGenerateDescriptions:
-    def _response(self, content: str | None) -> MagicMock:
-        response = MagicMock()
-        response.choices = [MagicMock()]
-        response.choices[0].message.content = content
-        response.usage = MagicMock(prompt_tokens=1, completion_tokens=0, total_tokens=1)
-        return response
+    def _client(self, content: str | None, *, truncated: bool = False) -> MagicMock:
+        client = MagicMock()
+        client.complete.return_value = MagicMock(
+            text=content or "",
+            usage={"model": "m", "prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1},
+            truncated=truncated,
+        )
+        return client
 
     def _call(self) -> tuple[dict, dict]:
         return enrich._generate_descriptions(
@@ -375,18 +378,66 @@ class TestGenerateDescriptions:
     @pytest.mark.parametrize("content", [None, "", "   ", "not json", "```\nnope\n```"])
     def test_raises_on_unparseable_response(self, content):
         # An empty or non-JSON reply must surface as an error (→ "partial"), not silently persist nothing.
-        client = MagicMock()
-        client.chat.completions.create.return_value = self._response(content)
-        with patch.object(enrich, "get_llm_client", return_value=client):
+        with patch.object(enrich, "build_enrichment_client", return_value=self._client(content)):
             with pytest.raises(ValueError):
                 self._call()
 
+    def test_truncated_response_raises_the_truncation_error(self):
+        # A cut-off reply is its own failure class, so an undersized ceiling stays visible in analytics.
+        client = self._client('{"columns": ', truncated=True)
+        with patch.object(enrich, "build_enrichment_client", return_value=client):
+            with pytest.raises(TruncatedCompletionError):
+                self._call()
+
     def test_parses_fenced_response(self):
-        client = MagicMock()
-        client.chat.completions.create.return_value = self._response('```json\n{"columns": {"a": "desc"}}\n```')
-        with patch.object(enrich, "get_llm_client", return_value=client):
+        client = self._client('```json\n{"columns": {"a": "desc"}}\n```')
+        with patch.object(enrich, "build_enrichment_client", return_value=client):
             parsed, _usage = self._call()
         assert parsed == {"columns": {"a": "desc"}}
+
+    def test_the_bounded_ceiling_reaches_the_request(self):
+        """Pins the hand-off, not the sizing. The ceiling is computed in the shared helper and pinned
+        there; without this the `max_output_tokens=` argument below can be deleted on this surface
+        with the whole suite green, silently restoring the flat cap the sizing exists to replace."""
+        client = self._client('{"columns": {"a": "desc"}}')
+        with patch.object(enrich, "build_enrichment_client", return_value=client):
+            self._call()
+
+        sent = client.complete.call_args.kwargs["max_output_tokens"]
+        expected = enrich.build_bounded_enrichment_prompt(
+            source_name="Stripe",
+            table_name="t",
+            endpoint_name="Charge",
+            docs_url=None,
+            columns=[{"name": "a", "data_type": "String", "is_nullable": False}],
+            foreign_keys=[],
+            known_descriptions={},
+            columns_needing_description=["a"],
+            business_context="",
+        ).max_output_tokens
+        assert sent == expected
+        assert sent < MAX_OUTPUT_TOKENS, "a one-column table must not reserve the whole cap"
+
+    def test_a_deferred_column_is_reported_for_a_later_pass(self):
+        """Warehouse idempotency is per annotation row, so a deferred column is simply still
+        unannotated and the next sync asks for it. Pinned so the deferral stays observable."""
+        columns = [{"name": f"c{i:03d}" + "x" * 396, "data_type": "String", "is_nullable": False} for i in range(200)]
+        bounded = enrich.build_bounded_enrichment_prompt(
+            source_name="Stripe",
+            table_name="t",
+            endpoint_name="Charge",
+            docs_url=None,
+            columns=columns,
+            foreign_keys=[],
+            known_descriptions={},
+            columns_needing_description=[str(column["name"]) for column in columns],
+            business_context="",
+        )
+
+        assert bounded.deferred, "a 200-column table of 400-char names cannot fit one reply"
+        assert set(bounded.requested).isdisjoint(bounded.deferred)
+        assert len(bounded.requested) + len(bounded.deferred) == len(columns)
+        assert bounded.max_output_tokens <= MAX_OUTPUT_TOKENS
 
 
 class TestCanonicalDescriptionsResolver:

@@ -768,3 +768,64 @@ export const UnknownToolLoading: Story = {
     },
   },
 };
+
+export const PiWorkflowRunning: Story = {
+  args: {
+    toolCall: {
+      toolCallId: `story-${Date.now()}`,
+      title: "workflow",
+      kind: "other",
+      status: "in_progress",
+      details: {
+        name: "release-check",
+        currentPhase: "Review",
+        agents: [
+          {
+            id: 1,
+            label: "Review API",
+            agent: "Explore",
+            objective: "Find compatibility risks",
+            status: "running",
+          },
+          {
+            id: 2,
+            label: "Review UI",
+            agent: "Explore",
+            objective: "Check interaction states",
+            status: "done",
+          },
+          {
+            id: 3,
+            label: "Review tests",
+            agent: "Plan",
+            objective: "Find missing regression coverage",
+            status: "running",
+          },
+        ],
+      },
+    },
+  },
+};
+
+export const PiSubagentRunning: Story = {
+  args: {
+    toolCall: {
+      toolCallId: `story-${Date.now()}`,
+      title: "subagent",
+      kind: "other",
+      status: "in_progress",
+      details: {
+        mode: "single",
+        results: [
+          {
+            runId: "run-1",
+            agent: "Explore",
+            task: "Inspect the session event pipeline",
+            state: "running",
+            model: "posthog/claude-haiku-4-5",
+          },
+        ],
+      },
+    },
+  },
+};

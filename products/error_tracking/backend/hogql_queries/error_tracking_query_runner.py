@@ -15,7 +15,7 @@ from posthog.hogql.database.schema.error_tracking_recent_issue_state import RECE
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.utils import relative_date_parse
@@ -53,7 +53,7 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
         )
         self.date_to = ErrorTrackingQueryRunner.parse_relative_date_to(self.query.dateRange.date_to)
         self.date_from = ErrorTrackingQueryRunner.parse_relative_date_from(
-            self.query.dateRange.date_from, default_end=self.date_to
+            self.query.dateRange.date_from, self.team.timezone_info, default_end=self.date_to
         )
 
         if self.query.withAggregations is None:
@@ -87,7 +87,7 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
 
     @classmethod
     def parse_relative_date_from(
-        cls, date: str | None, default_end: datetime.datetime | None = None
+        cls, date: str | None, timezone_info: ZoneInfo, default_end: datetime.datetime | None = None
     ) -> datetime.datetime:
         if date == "all":
             return datetime.datetime.now(tz=ZoneInfo("UTC")) - datetime.timedelta(days=365 * 4)
@@ -95,7 +95,9 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
             # A missing date_from must not silently mean "all time" — that's a 4-year events
             # scan. Anchor the default window to the range end so date_to-only queries stay valid.
             return (default_end or datetime.datetime.now(tz=ZoneInfo("UTC"))) - datetime.timedelta(days=7)
-        return relative_date_parse(date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=ZoneInfo("UTC"))
+        return relative_date_parse(
+            date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=timezone_info, always_truncate=True
+        )
 
     @classmethod
     def parse_relative_date_to(cls, date: str | None) -> datetime.datetime:

@@ -49,6 +49,7 @@ class ShipmailSource(ResumableSource[ShipmailSourceConfig, ShipmailResumeConfig]
 
 Grant the key the read scopes for the tables you want to sync: `messages:read`, `mailboxes:read`, `domains:read`, and `suppressions:read`.""",
             iconPath="/static/services/shipmail.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/shipmail",
             fields=cast(
                 list[FieldType],
                 [

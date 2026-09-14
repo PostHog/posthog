@@ -124,3 +124,270 @@
   LIMIT 421
   '''
 # ---
+# name: TestMarketingAnalyticsRetentionQueryRunner.test_retention_sql_0_campaign
+  '''
+  WITH acquisition AS MATERIALIZED (
+    SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id, min(events__session.`$start_timestamp`) AS cohort_at, argMin(toString(ifNull(events__session.`$entry_utm_campaign`, %(hogql_val_8)s)), events__session.`$start_timestamp`) AS breakdown_value 
+    FROM events LEFT JOIN (
+      SELECT min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`, nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), %(hogql_val_1)s), %(hogql_val_2)s) AS `$entry_utm_campaign`, raw_sessions.session_id_v7 AS session_id_v7 
+      FROM raw_sessions 
+      WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime(%(hogql_val_3)s, %(hogql_val_4)s), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime(%(hogql_val_5)s, %(hogql_val_6)s), toIntervalDay(3)))) 
+      GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_7)s)), events__session.session_id_v7) LEFT OUTER JOIN (
+      SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+      FROM person_distinct_id_overrides 
+      WHERE equals(person_distinct_id_overrides.team_id, 420) 
+      GROUP BY person_distinct_id_overrides.distinct_id 
+      HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+      SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+    WHERE and(equals(events.team_id, 420), and(equals(events.event, %(hogql_val_9)s), notEmpty(events.`$session_id`), greater(toUnixTimestamp(events__session.`$start_timestamp`), 0)), greaterOrEquals(events.timestamp, toDateTime(%(hogql_val_10)s, %(hogql_val_11)s)), lessOrEquals(events.timestamp, toDateTime(%(hogql_val_12)s, %(hogql_val_13)s)), ifNull(greaterOrEquals(events__session.`$start_timestamp`, toDateTime(%(hogql_val_14)s, %(hogql_val_15)s)), 0), ifNull(lessOrEquals(events__session.`$start_timestamp`, toDateTime(%(hogql_val_16)s, %(hogql_val_17)s)), 0), globalNotIn(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), (
+          SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id 
+          FROM events LEFT OUTER JOIN (
+            SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+            FROM person_distinct_id_overrides 
+            WHERE equals(person_distinct_id_overrides.team_id, 420) 
+            GROUP BY person_distinct_id_overrides.distinct_id 
+            HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+            SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+          WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_18)s), notEmpty(events.`$session_id`), greaterOrEquals(events.timestamp, minus(toDateTime(%(hogql_val_19)s, %(hogql_val_20)s), toIntervalDay(90))), less(events.timestamp, toDateTime(%(hogql_val_21)s, %(hogql_val_22)s)))))) 
+    GROUP BY actor_id), activity AS (
+    SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id, dateDiff(%(hogql_val_23)s, toStartOfWeek(toDateTime(%(hogql_val_24)s, %(hogql_val_25)s), 0), toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_26)s), 0)) AS activity_index 
+    FROM events LEFT OUTER JOIN (
+      SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+      FROM person_distinct_id_overrides 
+      WHERE equals(person_distinct_id_overrides.team_id, 420) 
+      GROUP BY person_distinct_id_overrides.distinct_id 
+      HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+      SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+    WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_27)s), greaterOrEquals(events.timestamp, toDateTime(%(hogql_val_28)s, %(hogql_val_29)s)), lessOrEquals(events.timestamp, toDateTime(%(hogql_val_30)s, %(hogql_val_31)s)), globalIn(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), (
+          SELECT acquisition.actor_id AS actor_id 
+          FROM acquisition))) 
+    GROUP BY actor_id, activity_index), cohort_sizes AS MATERIALIZED (
+    SELECT acquisition.breakdown_value AS breakdown_value, dateDiff(%(hogql_val_32)s, toStartOfWeek(toDateTime(%(hogql_val_33)s, %(hogql_val_34)s), 0), toStartOfWeek(toTimeZone(acquisition.cohort_at, %(hogql_val_35)s), 0)) AS cohort_index, count(acquisition.actor_id) AS cohort_size 
+    FROM acquisition 
+    GROUP BY acquisition.breakdown_value, cohort_index), matrix AS (
+    SELECT acquisition.breakdown_value AS breakdown_value, dateDiff(%(hogql_val_36)s, toStartOfWeek(toDateTime(%(hogql_val_37)s, %(hogql_val_38)s), 0), toStartOfWeek(toTimeZone(acquisition.cohort_at, %(hogql_val_39)s), 0)) AS cohort_index, minus(activity.activity_index, dateDiff(%(hogql_val_40)s, toStartOfWeek(toDateTime(%(hogql_val_41)s, %(hogql_val_42)s), 0), toStartOfWeek(toTimeZone(acquisition.cohort_at, %(hogql_val_43)s), 0))) AS intervals_from_base, count(DISTINCT acquisition.actor_id) AS count 
+    FROM acquisition INNER JOIN activity ON equals(activity.actor_id, acquisition.actor_id) 
+    GROUP BY acquisition.breakdown_value, cohort_index, intervals_from_base 
+    HAVING and(ifNull(greaterOrEquals(intervals_from_base, 0), 0), ifNull(less(intervals_from_base, 4), 0))), folded_sizes AS (
+    SELECT if(globalIn(cohort_sizes.breakdown_value, (
+          SELECT cohort_sizes.breakdown_value AS breakdown_value 
+          FROM cohort_sizes 
+          GROUP BY cohort_sizes.breakdown_value 
+          ORDER BY sum(cohort_sizes.cohort_size) DESC, cohort_sizes.breakdown_value ASC 
+          LIMIT 20)), cohort_sizes.breakdown_value, %(hogql_val_44)s) AS breakdown_value, cohort_sizes.cohort_index AS cohort_index, sum(cohort_sizes.cohort_size) AS cohort_size 
+    FROM cohort_sizes 
+    GROUP BY breakdown_value, cohort_sizes.cohort_index), folded_matrix AS (
+    SELECT if(globalIn(matrix.breakdown_value, (
+          SELECT cohort_sizes.breakdown_value AS breakdown_value 
+          FROM cohort_sizes 
+          GROUP BY cohort_sizes.breakdown_value 
+          ORDER BY sum(cohort_sizes.cohort_size) DESC, cohort_sizes.breakdown_value ASC 
+          LIMIT 20)), matrix.breakdown_value, %(hogql_val_45)s) AS breakdown_value, matrix.cohort_index AS cohort_index, matrix.intervals_from_base AS intervals_from_base, sum(matrix.count) AS count 
+    FROM matrix 
+    GROUP BY breakdown_value, matrix.cohort_index, matrix.intervals_from_base), summary AS (
+    SELECT uniqExact(cohort_sizes.breakdown_value) AS distinct_breakdowns 
+    FROM cohort_sizes) 
+  SELECT folded_sizes.breakdown_value AS breakdown_value, folded_sizes.cohort_index AS cohort_index, folded_sizes.cohort_size AS cohort_size, folded_matrix.intervals_from_base AS intervals_from_base, folded_matrix.count AS count, summary.distinct_breakdowns AS distinct_breakdowns 
+  FROM folded_sizes LEFT JOIN folded_matrix ON and(equals(folded_matrix.breakdown_value, folded_sizes.breakdown_value), equals(folded_matrix.cohort_index, folded_sizes.cohort_index)) CROSS JOIN summary 
+  ORDER BY breakdown_value ASC, cohort_index ASC, intervals_from_base ASC 
+  LIMIT 421
+  '''
+# ---
+# name: TestMarketingAnalyticsRetentionQueryRunner.test_retention_sql_1_source
+  '''
+  WITH acquisition AS MATERIALIZED (
+    SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id, min(events__session.`$start_timestamp`) AS cohort_at, argMin(if(in(lower(if(notEmpty(ifNull(events__session.`$entry_utm_source`, %(hogql_val_8)s)), events__session.`$entry_utm_source`, %(hogql_val_9)s)), [%(hogql_val_10)s, %(hogql_val_11)s, %(hogql_val_12)s]), %(hogql_val_13)s, if(in(lower(if(notEmpty(ifNull(events__session.`$entry_utm_source`, %(hogql_val_14)s)), events__session.`$entry_utm_source`, %(hogql_val_15)s)), [%(hogql_val_16)s, %(hogql_val_17)s, %(hogql_val_18)s, %(hogql_val_19)s, %(hogql_val_20)s, %(hogql_val_21)s, %(hogql_val_22)s, %(hogql_val_23)s]), %(hogql_val_24)s, if(in(lower(if(notEmpty(ifNull(events__session.`$entry_utm_source`, %(hogql_val_25)s)), events__session.`$entry_utm_source`, %(hogql_val_26)s)), [%(hogql_val_27)s]), %(hogql_val_28)s, if(in(lower(if(notEmpty(ifNull(events__session.`$entry_utm_source`, %(hogql_val_29)s)), events__session.`$entry_utm_source`, %(hogql_val_30)s)), [%(hogql_val_31)s, %(hogql_val_32)s, %(hogql_val_33)s, %(hogql_val_34)s, %(hogql_val_35)s, %(hogql_val_36)s, %(hogql_val_37)s, %(hogql_val_38)s, %(hogql_val_39)s]), %(hogql_val_40)s, if(notEmpty(ifNull(events__session.`$entry_utm_source`, %(hogql_val_41)s)), events__session.`$entry_utm_source`, %(hogql_val_42)s))))), events__session.`$start_timestamp`) AS breakdown_value 
+    FROM events LEFT JOIN (
+      SELECT min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`, nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_1)s), %(hogql_val_2)s) AS `$entry_utm_source`, raw_sessions.session_id_v7 AS session_id_v7 
+      FROM raw_sessions 
+      WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime(%(hogql_val_3)s, %(hogql_val_4)s), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime(%(hogql_val_5)s, %(hogql_val_6)s), toIntervalDay(3)))) 
+      GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_7)s)), events__session.session_id_v7) LEFT OUTER JOIN (
+      SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+      FROM person_distinct_id_overrides 
+      WHERE equals(person_distinct_id_overrides.team_id, 420) 
+      GROUP BY person_distinct_id_overrides.distinct_id 
+      HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+      SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+    WHERE and(equals(events.team_id, 420), and(equals(events.event, %(hogql_val_43)s), notEmpty(events.`$session_id`), greater(toUnixTimestamp(events__session.`$start_timestamp`), 0)), greaterOrEquals(events.timestamp, toDateTime(%(hogql_val_44)s, %(hogql_val_45)s)), lessOrEquals(events.timestamp, toDateTime(%(hogql_val_46)s, %(hogql_val_47)s)), ifNull(greaterOrEquals(events__session.`$start_timestamp`, toDateTime(%(hogql_val_48)s, %(hogql_val_49)s)), 0), ifNull(lessOrEquals(events__session.`$start_timestamp`, toDateTime(%(hogql_val_50)s, %(hogql_val_51)s)), 0), globalNotIn(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), (
+          SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id 
+          FROM events LEFT OUTER JOIN (
+            SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+            FROM person_distinct_id_overrides 
+            WHERE equals(person_distinct_id_overrides.team_id, 420) 
+            GROUP BY person_distinct_id_overrides.distinct_id 
+            HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+            SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+          WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_52)s), notEmpty(events.`$session_id`), greaterOrEquals(events.timestamp, minus(toDateTime(%(hogql_val_53)s, %(hogql_val_54)s), toIntervalDay(90))), less(events.timestamp, toDateTime(%(hogql_val_55)s, %(hogql_val_56)s)))))) 
+    GROUP BY actor_id), activity AS (
+    SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id, dateDiff(%(hogql_val_57)s, toStartOfWeek(toDateTime(%(hogql_val_58)s, %(hogql_val_59)s), 0), toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_60)s), 0)) AS activity_index 
+    FROM events LEFT OUTER JOIN (
+      SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+      FROM person_distinct_id_overrides 
+      WHERE equals(person_distinct_id_overrides.team_id, 420) 
+      GROUP BY person_distinct_id_overrides.distinct_id 
+      HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+      SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+    WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_61)s), greaterOrEquals(events.timestamp, toDateTime(%(hogql_val_62)s, %(hogql_val_63)s)), lessOrEquals(events.timestamp, toDateTime(%(hogql_val_64)s, %(hogql_val_65)s)), globalIn(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), (
+          SELECT acquisition.actor_id AS actor_id 
+          FROM acquisition))) 
+    GROUP BY actor_id, activity_index), cohort_sizes AS MATERIALIZED (
+    SELECT acquisition.breakdown_value AS breakdown_value, dateDiff(%(hogql_val_66)s, toStartOfWeek(toDateTime(%(hogql_val_67)s, %(hogql_val_68)s), 0), toStartOfWeek(toTimeZone(acquisition.cohort_at, %(hogql_val_69)s), 0)) AS cohort_index, count(acquisition.actor_id) AS cohort_size 
+    FROM acquisition 
+    GROUP BY acquisition.breakdown_value, cohort_index), matrix AS (
+    SELECT acquisition.breakdown_value AS breakdown_value, dateDiff(%(hogql_val_70)s, toStartOfWeek(toDateTime(%(hogql_val_71)s, %(hogql_val_72)s), 0), toStartOfWeek(toTimeZone(acquisition.cohort_at, %(hogql_val_73)s), 0)) AS cohort_index, minus(activity.activity_index, dateDiff(%(hogql_val_74)s, toStartOfWeek(toDateTime(%(hogql_val_75)s, %(hogql_val_76)s), 0), toStartOfWeek(toTimeZone(acquisition.cohort_at, %(hogql_val_77)s), 0))) AS intervals_from_base, count(DISTINCT acquisition.actor_id) AS count 
+    FROM acquisition INNER JOIN activity ON equals(activity.actor_id, acquisition.actor_id) 
+    GROUP BY acquisition.breakdown_value, cohort_index, intervals_from_base 
+    HAVING and(ifNull(greaterOrEquals(intervals_from_base, 0), 0), ifNull(less(intervals_from_base, 4), 0))), folded_sizes AS (
+    SELECT if(globalIn(cohort_sizes.breakdown_value, (
+          SELECT cohort_sizes.breakdown_value AS breakdown_value 
+          FROM cohort_sizes 
+          GROUP BY cohort_sizes.breakdown_value 
+          ORDER BY sum(cohort_sizes.cohort_size) DESC, cohort_sizes.breakdown_value ASC 
+          LIMIT 20)), cohort_sizes.breakdown_value, %(hogql_val_78)s) AS breakdown_value, cohort_sizes.cohort_index AS cohort_index, sum(cohort_sizes.cohort_size) AS cohort_size 
+    FROM cohort_sizes 
+    GROUP BY breakdown_value, cohort_sizes.cohort_index), folded_matrix AS (
+    SELECT if(globalIn(matrix.breakdown_value, (
+          SELECT cohort_sizes.breakdown_value AS breakdown_value 
+          FROM cohort_sizes 
+          GROUP BY cohort_sizes.breakdown_value 
+          ORDER BY sum(cohort_sizes.cohort_size) DESC, cohort_sizes.breakdown_value ASC 
+          LIMIT 20)), matrix.breakdown_value, %(hogql_val_79)s) AS breakdown_value, matrix.cohort_index AS cohort_index, matrix.intervals_from_base AS intervals_from_base, sum(matrix.count) AS count 
+    FROM matrix 
+    GROUP BY breakdown_value, matrix.cohort_index, matrix.intervals_from_base), summary AS (
+    SELECT uniqExact(cohort_sizes.breakdown_value) AS distinct_breakdowns 
+    FROM cohort_sizes) 
+  SELECT folded_sizes.breakdown_value AS breakdown_value, folded_sizes.cohort_index AS cohort_index, folded_sizes.cohort_size AS cohort_size, folded_matrix.intervals_from_base AS intervals_from_base, folded_matrix.count AS count, summary.distinct_breakdowns AS distinct_breakdowns 
+  FROM folded_sizes LEFT JOIN folded_matrix ON and(equals(folded_matrix.breakdown_value, folded_sizes.breakdown_value), equals(folded_matrix.cohort_index, folded_sizes.cohort_index)) CROSS JOIN summary 
+  ORDER BY breakdown_value ASC, cohort_index ASC, intervals_from_base ASC 
+  LIMIT 421
+  '''
+# ---
+# name: TestMarketingAnalyticsRetentionQueryRunner.test_retention_sql_2_channel
+  '''
+  WITH acquisition AS MATERIALIZED (
+    SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id, min(events__session.`$start_timestamp`) AS cohort_at, argMin(if(notEmpty(ifNull(events__session.`$channel_type`, %(hogql_val_125)s)), events__session.`$channel_type`, %(hogql_val_126)s), events__session.`$start_timestamp`) AS breakdown_value 
+    FROM events LEFT JOIN (
+      SELECT min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`, multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), %(hogql_val_1)s), %(hogql_val_2)s), %(hogql_val_3)s), %(hogql_val_4)s)), %(hogql_val_5)s), %(hogql_val_6)s, or(in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), %(hogql_val_7)s), %(hogql_val_8)s), %(hogql_val_9)s), %(hogql_val_10)s)), tuple(%(hogql_val_11)s, %(hogql_val_12)s, %(hogql_val_13)s, %(hogql_val_14)s, %(hogql_val_15)s, %(hogql_val_16)s)), startsWith(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), %(hogql_val_17)s), %(hogql_val_18)s), %(hogql_val_19)s), %(hogql_val_20)s)), %(hogql_val_21)s), isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), %(hogql_val_22)s), %(hogql_val_23)s)), isNotNull(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), %(hogql_val_24)s), %(hogql_val_25)s), %(hogql_val_26)s), %(hogql_val_27)s))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_28)s), %(hogql_val_29)s), %(hogql_val_30)s), %(hogql_val_31)s)), ''), 'source')) , dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_28)s), %(hogql_val_29)s), %(hogql_val_30)s), %(hogql_val_31)s)), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), %(hogql_val_32)s), %(hogql_val_33)s), %(hogql_val_34)s), %(hogql_val_35)s)), %(hogql_val_36)s), %(hogql_val_37)s, NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), %(hogql_val_38)s), %(hogql_val_39)s), %(hogql_val_40)s), %(hogql_val_41)s)), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), %(hogql_val_42)s), %(hogql_val_43)s), ''), 'source')) , dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), %(hogql_val_42)s), %(hogql_val_43)s), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), %(hogql_val_44)s), %(hogql_val_45)s), %(hogql_val_46)s), %(hogql_val_47)s), %(hogql_val_48)s), 0), %(hogql_val_49)s, match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), %(hogql_val_50)s), %(hogql_val_51)s), %(hogql_val_52)s), %(hogql_val_53)s)), %(hogql_val_54)s), %(hogql_val_55)s, isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), %(hogql_val_56)s), %(hogql_val_57)s)), %(hogql_val_58)s, %(hogql_val_59)s)), and(ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), %(hogql_val_60)s), %(hogql_val_61)s), %(hogql_val_62)s), 0), isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), %(hogql_val_63)s), %(hogql_val_64)s), %(hogql_val_65)s), %(hogql_val_66)s))), or(isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_67)s), %(hogql_val_68)s), %(hogql_val_69)s), %(hogql_val_70)s))), in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_71)s), %(hogql_val_72)s), %(hogql_val_73)s), %(hogql_val_74)s)), tuple(%(hogql_val_75)s, %(hogql_val_76)s, %(hogql_val_77)s))), not(isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), %(hogql_val_78)s), %(hogql_val_79)s)))), %(hogql_val_80)s, coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_81)s), %(hogql_val_82)s), %(hogql_val_83)s), %(hogql_val_84)s)), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_81)s), %(hogql_val_82)s), %(hogql_val_83)s), %(hogql_val_84)s)), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), %(hogql_val_85)s), %(hogql_val_86)s), %(hogql_val_87)s), %(hogql_val_88)s)), %(hogql_val_89)s), %(hogql_val_90)s, NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), %(hogql_val_91)s), %(hogql_val_92)s), %(hogql_val_93)s), %(hogql_val_94)s)), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), %(hogql_val_95)s), %(hogql_val_96)s), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), %(hogql_val_95)s), %(hogql_val_96)s), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), %(hogql_val_97)s), %(hogql_val_98)s), %(hogql_val_99)s), %(hogql_val_100)s)), %(hogql_val_101)s), %(hogql_val_102)s, match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), %(hogql_val_103)s), %(hogql_val_104)s), %(hogql_val_105)s), %(hogql_val_106)s)), %(hogql_val_107)s), %(hogql_val_108)s, isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), %(hogql_val_109)s), %(hogql_val_110)s)), %(hogql_val_111)s, ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), %(hogql_val_112)s), %(hogql_val_113)s), %(hogql_val_114)s), 0), %(hogql_val_115)s, isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), %(hogql_val_116)s), %(hogql_val_117)s)), %(hogql_val_118)s, %(hogql_val_119)s))) AS `$channel_type`, raw_sessions.session_id_v7 AS session_id_v7 
+      FROM raw_sessions 
+      WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime(%(hogql_val_120)s, %(hogql_val_121)s), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime(%(hogql_val_122)s, %(hogql_val_123)s), toIntervalDay(3)))) 
+      GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_124)s)), events__session.session_id_v7) LEFT OUTER JOIN (
+      SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+      FROM person_distinct_id_overrides 
+      WHERE equals(person_distinct_id_overrides.team_id, 420) 
+      GROUP BY person_distinct_id_overrides.distinct_id 
+      HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+      SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+    WHERE and(equals(events.team_id, 420), and(equals(events.event, %(hogql_val_127)s), notEmpty(events.`$session_id`), greater(toUnixTimestamp(events__session.`$start_timestamp`), 0)), greaterOrEquals(events.timestamp, toDateTime(%(hogql_val_128)s, %(hogql_val_129)s)), lessOrEquals(events.timestamp, toDateTime(%(hogql_val_130)s, %(hogql_val_131)s)), ifNull(greaterOrEquals(events__session.`$start_timestamp`, toDateTime(%(hogql_val_132)s, %(hogql_val_133)s)), 0), ifNull(lessOrEquals(events__session.`$start_timestamp`, toDateTime(%(hogql_val_134)s, %(hogql_val_135)s)), 0), globalNotIn(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), (
+          SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id 
+          FROM events LEFT OUTER JOIN (
+            SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+            FROM person_distinct_id_overrides 
+            WHERE equals(person_distinct_id_overrides.team_id, 420) 
+            GROUP BY person_distinct_id_overrides.distinct_id 
+            HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+            SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+          WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_136)s), notEmpty(events.`$session_id`), greaterOrEquals(events.timestamp, minus(toDateTime(%(hogql_val_137)s, %(hogql_val_138)s), toIntervalDay(90))), less(events.timestamp, toDateTime(%(hogql_val_139)s, %(hogql_val_140)s)))))) 
+    GROUP BY actor_id), activity AS (
+    SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id, dateDiff(%(hogql_val_141)s, toStartOfWeek(toDateTime(%(hogql_val_142)s, %(hogql_val_143)s), 0), toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_144)s), 0)) AS activity_index 
+    FROM events LEFT OUTER JOIN (
+      SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+      FROM person_distinct_id_overrides 
+      WHERE equals(person_distinct_id_overrides.team_id, 420) 
+      GROUP BY person_distinct_id_overrides.distinct_id 
+      HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+      SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+    WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_145)s), greaterOrEquals(events.timestamp, toDateTime(%(hogql_val_146)s, %(hogql_val_147)s)), lessOrEquals(events.timestamp, toDateTime(%(hogql_val_148)s, %(hogql_val_149)s)), globalIn(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), (
+          SELECT acquisition.actor_id AS actor_id 
+          FROM acquisition))) 
+    GROUP BY actor_id, activity_index), cohort_sizes AS MATERIALIZED (
+    SELECT acquisition.breakdown_value AS breakdown_value, dateDiff(%(hogql_val_150)s, toStartOfWeek(toDateTime(%(hogql_val_151)s, %(hogql_val_152)s), 0), toStartOfWeek(toTimeZone(acquisition.cohort_at, %(hogql_val_153)s), 0)) AS cohort_index, count(acquisition.actor_id) AS cohort_size 
+    FROM acquisition 
+    GROUP BY acquisition.breakdown_value, cohort_index), matrix AS (
+    SELECT acquisition.breakdown_value AS breakdown_value, dateDiff(%(hogql_val_154)s, toStartOfWeek(toDateTime(%(hogql_val_155)s, %(hogql_val_156)s), 0), toStartOfWeek(toTimeZone(acquisition.cohort_at, %(hogql_val_157)s), 0)) AS cohort_index, minus(activity.activity_index, dateDiff(%(hogql_val_158)s, toStartOfWeek(toDateTime(%(hogql_val_159)s, %(hogql_val_160)s), 0), toStartOfWeek(toTimeZone(acquisition.cohort_at, %(hogql_val_161)s), 0))) AS intervals_from_base, count(DISTINCT acquisition.actor_id) AS count 
+    FROM acquisition INNER JOIN activity ON equals(activity.actor_id, acquisition.actor_id) 
+    GROUP BY acquisition.breakdown_value, cohort_index, intervals_from_base 
+    HAVING and(ifNull(greaterOrEquals(intervals_from_base, 0), 0), ifNull(less(intervals_from_base, 4), 0))), folded_sizes AS (
+    SELECT if(globalIn(cohort_sizes.breakdown_value, (
+          SELECT cohort_sizes.breakdown_value AS breakdown_value 
+          FROM cohort_sizes 
+          GROUP BY cohort_sizes.breakdown_value 
+          ORDER BY sum(cohort_sizes.cohort_size) DESC, cohort_sizes.breakdown_value ASC 
+          LIMIT 20)), cohort_sizes.breakdown_value, %(hogql_val_162)s) AS breakdown_value, cohort_sizes.cohort_index AS cohort_index, sum(cohort_sizes.cohort_size) AS cohort_size 
+    FROM cohort_sizes 
+    GROUP BY breakdown_value, cohort_sizes.cohort_index), folded_matrix AS (
+    SELECT if(globalIn(matrix.breakdown_value, (
+          SELECT cohort_sizes.breakdown_value AS breakdown_value 
+          FROM cohort_sizes 
+          GROUP BY cohort_sizes.breakdown_value 
+          ORDER BY sum(cohort_sizes.cohort_size) DESC, cohort_sizes.breakdown_value ASC 
+          LIMIT 20)), matrix.breakdown_value, %(hogql_val_163)s) AS breakdown_value, matrix.cohort_index AS cohort_index, matrix.intervals_from_base AS intervals_from_base, sum(matrix.count) AS count 
+    FROM matrix 
+    GROUP BY breakdown_value, matrix.cohort_index, matrix.intervals_from_base), summary AS (
+    SELECT uniqExact(cohort_sizes.breakdown_value) AS distinct_breakdowns 
+    FROM cohort_sizes) 
+  SELECT folded_sizes.breakdown_value AS breakdown_value, folded_sizes.cohort_index AS cohort_index, folded_sizes.cohort_size AS cohort_size, folded_matrix.intervals_from_base AS intervals_from_base, folded_matrix.count AS count, summary.distinct_breakdowns AS distinct_breakdowns 
+  FROM folded_sizes LEFT JOIN folded_matrix ON and(equals(folded_matrix.breakdown_value, folded_sizes.breakdown_value), equals(folded_matrix.cohort_index, folded_sizes.cohort_index)) CROSS JOIN summary 
+  ORDER BY breakdown_value ASC, cohort_index ASC, intervals_from_base ASC 
+  LIMIT 421
+  '''
+# ---
+# name: TestMarketingAnalyticsRetentionQueryRunner.test_retention_sql_3_all_users
+  '''
+  WITH acquisition AS MATERIALIZED (
+    SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id, min(events__session.`$start_timestamp`) AS cohort_at, argMin(if(in(lower(if(notEmpty(ifNull(events__session.`$entry_utm_source`, %(hogql_val_8)s)), events__session.`$entry_utm_source`, %(hogql_val_9)s)), [%(hogql_val_10)s, %(hogql_val_11)s, %(hogql_val_12)s]), %(hogql_val_13)s, if(in(lower(if(notEmpty(ifNull(events__session.`$entry_utm_source`, %(hogql_val_14)s)), events__session.`$entry_utm_source`, %(hogql_val_15)s)), [%(hogql_val_16)s, %(hogql_val_17)s, %(hogql_val_18)s, %(hogql_val_19)s, %(hogql_val_20)s, %(hogql_val_21)s, %(hogql_val_22)s, %(hogql_val_23)s]), %(hogql_val_24)s, if(in(lower(if(notEmpty(ifNull(events__session.`$entry_utm_source`, %(hogql_val_25)s)), events__session.`$entry_utm_source`, %(hogql_val_26)s)), [%(hogql_val_27)s]), %(hogql_val_28)s, if(in(lower(if(notEmpty(ifNull(events__session.`$entry_utm_source`, %(hogql_val_29)s)), events__session.`$entry_utm_source`, %(hogql_val_30)s)), [%(hogql_val_31)s, %(hogql_val_32)s, %(hogql_val_33)s, %(hogql_val_34)s, %(hogql_val_35)s, %(hogql_val_36)s, %(hogql_val_37)s, %(hogql_val_38)s, %(hogql_val_39)s]), %(hogql_val_40)s, if(notEmpty(ifNull(events__session.`$entry_utm_source`, %(hogql_val_41)s)), events__session.`$entry_utm_source`, %(hogql_val_42)s))))), events__session.`$start_timestamp`) AS breakdown_value 
+    FROM events LEFT JOIN (
+      SELECT min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`, nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), %(hogql_val_1)s), %(hogql_val_2)s) AS `$entry_utm_source`, raw_sessions.session_id_v7 AS session_id_v7 
+      FROM raw_sessions 
+      WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime(%(hogql_val_3)s, %(hogql_val_4)s), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime(%(hogql_val_5)s, %(hogql_val_6)s), toIntervalDay(3)))) 
+      GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_7)s)), events__session.session_id_v7) LEFT OUTER JOIN (
+      SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+      FROM person_distinct_id_overrides 
+      WHERE equals(person_distinct_id_overrides.team_id, 420) 
+      GROUP BY person_distinct_id_overrides.distinct_id 
+      HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+      SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+    WHERE and(equals(events.team_id, 420), and(equals(events.event, %(hogql_val_43)s), notEmpty(events.`$session_id`), greater(toUnixTimestamp(events__session.`$start_timestamp`), 0)), greaterOrEquals(events.timestamp, toDateTime(%(hogql_val_44)s, %(hogql_val_45)s)), lessOrEquals(events.timestamp, toDateTime(%(hogql_val_46)s, %(hogql_val_47)s)), ifNull(greaterOrEquals(events__session.`$start_timestamp`, toDateTime(%(hogql_val_48)s, %(hogql_val_49)s)), 0), ifNull(lessOrEquals(events__session.`$start_timestamp`, toDateTime(%(hogql_val_50)s, %(hogql_val_51)s)), 0)) 
+    GROUP BY actor_id), activity AS (
+    SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id, dateDiff(%(hogql_val_52)s, toStartOfWeek(toDateTime(%(hogql_val_53)s, %(hogql_val_54)s), 0), toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_55)s), 0)) AS activity_index 
+    FROM events LEFT OUTER JOIN (
+      SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+      FROM person_distinct_id_overrides 
+      WHERE equals(person_distinct_id_overrides.team_id, 420) 
+      GROUP BY person_distinct_id_overrides.distinct_id 
+      HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+      SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+    WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_56)s), greaterOrEquals(events.timestamp, toDateTime(%(hogql_val_57)s, %(hogql_val_58)s)), lessOrEquals(events.timestamp, toDateTime(%(hogql_val_59)s, %(hogql_val_60)s)), globalIn(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), (
+          SELECT acquisition.actor_id AS actor_id 
+          FROM acquisition))) 
+    GROUP BY actor_id, activity_index), cohort_sizes AS MATERIALIZED (
+    SELECT acquisition.breakdown_value AS breakdown_value, dateDiff(%(hogql_val_61)s, toStartOfWeek(toDateTime(%(hogql_val_62)s, %(hogql_val_63)s), 0), toStartOfWeek(toTimeZone(acquisition.cohort_at, %(hogql_val_64)s), 0)) AS cohort_index, count(acquisition.actor_id) AS cohort_size 
+    FROM acquisition 
+    GROUP BY acquisition.breakdown_value, cohort_index), matrix AS (
+    SELECT acquisition.breakdown_value AS breakdown_value, dateDiff(%(hogql_val_65)s, toStartOfWeek(toDateTime(%(hogql_val_66)s, %(hogql_val_67)s), 0), toStartOfWeek(toTimeZone(acquisition.cohort_at, %(hogql_val_68)s), 0)) AS cohort_index, minus(activity.activity_index, dateDiff(%(hogql_val_69)s, toStartOfWeek(toDateTime(%(hogql_val_70)s, %(hogql_val_71)s), 0), toStartOfWeek(toTimeZone(acquisition.cohort_at, %(hogql_val_72)s), 0))) AS intervals_from_base, count(DISTINCT acquisition.actor_id) AS count 
+    FROM acquisition INNER JOIN activity ON equals(activity.actor_id, acquisition.actor_id) 
+    GROUP BY acquisition.breakdown_value, cohort_index, intervals_from_base 
+    HAVING and(ifNull(greaterOrEquals(intervals_from_base, 0), 0), ifNull(less(intervals_from_base, 4), 0))), folded_sizes AS (
+    SELECT if(globalIn(cohort_sizes.breakdown_value, (
+          SELECT cohort_sizes.breakdown_value AS breakdown_value 
+          FROM cohort_sizes 
+          GROUP BY cohort_sizes.breakdown_value 
+          ORDER BY sum(cohort_sizes.cohort_size) DESC, cohort_sizes.breakdown_value ASC 
+          LIMIT 20)), cohort_sizes.breakdown_value, %(hogql_val_73)s) AS breakdown_value, cohort_sizes.cohort_index AS cohort_index, sum(cohort_sizes.cohort_size) AS cohort_size 
+    FROM cohort_sizes 
+    GROUP BY breakdown_value, cohort_sizes.cohort_index), folded_matrix AS (
+    SELECT if(globalIn(matrix.breakdown_value, (
+          SELECT cohort_sizes.breakdown_value AS breakdown_value 
+          FROM cohort_sizes 
+          GROUP BY cohort_sizes.breakdown_value 
+          ORDER BY sum(cohort_sizes.cohort_size) DESC, cohort_sizes.breakdown_value ASC 
+          LIMIT 20)), matrix.breakdown_value, %(hogql_val_74)s) AS breakdown_value, matrix.cohort_index AS cohort_index, matrix.intervals_from_base AS intervals_from_base, sum(matrix.count) AS count 
+    FROM matrix 
+    GROUP BY breakdown_value, matrix.cohort_index, matrix.intervals_from_base), summary AS (
+    SELECT uniqExact(cohort_sizes.breakdown_value) AS distinct_breakdowns 
+    FROM cohort_sizes) 
+  SELECT folded_sizes.breakdown_value AS breakdown_value, folded_sizes.cohort_index AS cohort_index, folded_sizes.cohort_size AS cohort_size, folded_matrix.intervals_from_base AS intervals_from_base, folded_matrix.count AS count, summary.distinct_breakdowns AS distinct_breakdowns 
+  FROM folded_sizes LEFT JOIN folded_matrix ON and(equals(folded_matrix.breakdown_value, folded_sizes.breakdown_value), equals(folded_matrix.cohort_index, folded_sizes.cohort_index)) CROSS JOIN summary 
+  ORDER BY breakdown_value ASC, cohort_index ASC, intervals_from_base ASC 
+  LIMIT 421
+  '''
+# ---

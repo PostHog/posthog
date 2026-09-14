@@ -4,6 +4,7 @@ from celery import shared_task
 from posthog.tasks.utils import CeleryQueue
 
 from products.workflows.backend.services.email_sending_tier import recompute_email_sending_tiers
+from products.workflows.backend.services.email_sending_tier_notifications import notify_email_sending_tier_changes
 
 logger = structlog.get_logger(__name__)
 
@@ -14,6 +15,7 @@ def recompute_workflows_email_sending_tiers() -> None:
     clean the sending was. Runs in every rollout mode: tiers are stored before anything reads them,
     so enforcement can be switched on against a settled distribution."""
     decisions = recompute_email_sending_tiers()
+    notify_email_sending_tier_changes(decisions)
     logger.info(
         "workflows_email_sending_tier_sweep_finished",
         evaluated_teams=len(decisions),

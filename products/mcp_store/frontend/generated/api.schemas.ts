@@ -499,6 +499,8 @@ export interface MCPGatewayServerApi {
      * * `api_key` - API Key
      * * `oauth` - OAuth */
     readonly template_auth_type: MCPAuthTypeEnumApi | null
+    /** How members connect to this server: the template's type for catalog servers, or the type the custom server was added with. Null only for custom servers registered before the type was recorded; members then choose. */
+    readonly auth_type: MCPAuthTypeEnumApi | null
     readonly is_team_enabled: boolean
     /** Deprecated brand icon key from the linked template. Empty for custom servers. */
     readonly icon_key: string
@@ -724,6 +726,7 @@ export type AgentKeyEnumApi = (typeof AgentKeyEnumApi)[keyof typeof AgentKeyEnum
 export const AgentKeyEnumApi = {
     Support: 'support',
     Scout: 'scout',
+    Workflow: 'workflow',
 } as const
 
 /**
@@ -760,6 +763,8 @@ export interface MCPServiceAccountServerApi {
     name: string
     /** Server description. */
     description: string
+    /** MCP server URL. Clients derive a brand icon from it when icon_domain is empty. */
+    url: string
     /** Deprecated brand icon key. Empty for custom servers. */
     icon_key: string
     /** Brand domain. Empty for custom servers. */
@@ -772,6 +777,8 @@ export interface MCPServiceAccountServerApi {
      * * `disabled` - disabled
      * * `missing_credential` - missing_credential */
     connection_state: ConnectionStateEnumApi
+    /** Whether agent runs can use this grant: the server is enabled for the project and an admin has not revoked the sharing member's access. Independent of connection_state, which reports credential health. */
+    reachable: boolean
 }
 
 export interface MCPServiceAccountApi {
@@ -1149,7 +1156,6 @@ export interface MCPServerTemplateApi {
     name: string
     /** @maxLength 2048 */
     url: string
-    /** @maxLength 2048 */
     docs_url?: string
     description?: string
     auth_type?: MCPAuthTypeEnumApi

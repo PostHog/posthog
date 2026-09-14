@@ -22,6 +22,7 @@ const SOURCES: GitHubSourceApi[] = [{ id: 'src-1', repo: 'PostHog/posthog', pref
 
 const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
     available: true,
+    owners_resolved: true,
     ttl_days: 15,
     repository: 'PostHog/posthog',
     trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog',
@@ -112,4 +113,21 @@ type Story = StoryObj<typeof meta>
 export const TrunkQuarantineDebt: Story = {
     render: () => <App />,
     parameters: { pageUrl: urls.engineeringAnalyticsTestHealth() },
+}
+
+const OWNERS_UNAVAILABLE: TrunkQuarantineDebtApi = {
+    ...TRUNK_QUARANTINE,
+    owners_resolved: false,
+    teams: [{ owner_team: 'unowned', test_count: 3, overdue_count: 2, oldest_age_days: 44 }],
+    tests: TRUNK_QUARANTINE.tests.map((test) => ({ ...test, file: '', owner_team: 'unowned' })),
+}
+
+export const TrunkQuarantineDebtOwnersUnavailable: Story = {
+    render: () => <App />,
+    parameters: { pageUrl: urls.engineeringAnalyticsTestHealth() },
+    decorators: [
+        mswDecorator({
+            get: { 'api/projects/:team_id/engineering_analytics/trunk_quarantine/': OWNERS_UNAVAILABLE },
+        }),
+    ],
 }

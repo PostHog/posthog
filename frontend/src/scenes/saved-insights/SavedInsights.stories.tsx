@@ -53,6 +53,16 @@ export const EmptyState: Story = {
     ],
 }
 
+export const ErrorState: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/insights': () => [500, { detail: 'Internal server error' }],
+            },
+        }),
+    ],
+}
+
 export const SearchResults: Story = {
     parameters: {
         pageUrl: urls.savedInsights() + '?search=revenue',

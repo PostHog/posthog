@@ -227,7 +227,7 @@ class TestFingerprintEmbeddingResultActivity:
         target_issue_id = uuid.uuid4()
         source_fingerprint = MagicMock(issue_id=source_issue_id, fingerprint="test-fingerprint")
         target_issue = MagicMock()
-        target_issue.merge.return_value = ErrorTrackingIssueMergeResult.MERGED
+        target_issue.merge.return_value = (ErrorTrackingIssueMergeResult.MERGED, [])
         target_fingerprint = MagicMock(issue_id=target_issue_id, issue=target_issue, fingerprint="fingerprint-1")
         team = MagicMock(id=2, uuid=uuid.uuid4())
         fingerprint_query = MagicMock()
@@ -281,7 +281,7 @@ class TestFingerprintEmbeddingResultActivity:
         source_fingerprint = MagicMock(issue_id=source_issue_id, fingerprint="test-fingerprint")
         same_issue_fingerprint = MagicMock(issue_id=source_issue_id, fingerprint="same-issue")
         target_issue = MagicMock()
-        target_issue.merge.return_value = ErrorTrackingIssueMergeResult.MERGED
+        target_issue.merge.return_value = (ErrorTrackingIssueMergeResult.MERGED, [])
         target_fingerprint = MagicMock(issue_id=target_issue_id, issue=target_issue, fingerprint="valid-target")
         fingerprint_query = MagicMock()
         fingerprint_query.select_related.return_value.order_by.return_value = [
@@ -390,7 +390,7 @@ class TestFingerprintEmbeddingResultActivity:
         target_issue_id = uuid.uuid4()
         source_fingerprint = MagicMock(issue_id=source_issue_id, fingerprint="test-fingerprint")
         target_issue = MagicMock()
-        target_issue.merge.return_value = ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS
+        target_issue.merge.return_value = (ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS, [])
         target_fingerprint = MagicMock(issue_id=target_issue_id, issue=target_issue, fingerprint="fingerprint-1")
         team = MagicMock(id=2, uuid=uuid.uuid4())
         fingerprint_query = MagicMock()

@@ -1,20 +1,23 @@
 import { ArrowRightIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import {
   feedQueryTypeScope,
   parseFeedQuery,
   type TypeValue,
 } from "@posthog/core/tasks/feedQuery";
-import { formatRelativeTimeShort } from "@posthog/shared";
+import { singleLineTitle } from "@posthog/shared";
 import { useFeedQuerySuggestions } from "@posthog/ui/features/canvas/components/feedQuerySuggestions";
 import { applyFeedQuerySuggestion } from "@posthog/ui/features/canvas/components/feedQuerySuggestionUtils";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
-import { TaskCommandIcon } from "@posthog/ui/features/command/TaskCommandIcon";
 import type {
   Command,
   CommandSection,
-} from "@posthog/ui/features/command/useSearchSections";
+} from "@posthog/ui/features/command/commandRow";
+import { taskRowParts } from "@posthog/ui/features/command/commandRowFacts";
+import { commandRowMeta } from "@posthog/ui/features/command/commandRowMeta";
+import { TaskCommandIcon } from "@posthog/ui/features/command/TaskCommandIcon";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
 import { navigateToFeed } from "@posthog/ui/router/navigationBridge";
@@ -214,7 +217,9 @@ export function useFeedQueryCommands({
             detail: feed.query,
             detailPrefix: "",
             keywords: `${query} ${searchText} ${feed.name}`,
-            icon: <ArrowRightIcon size={12} className="text-gray-11" />,
+            icon: (
+              <ArrowRightIcon size={12} className="text-muted-foreground" />
+            ),
             action: "open-feed",
             onRun: () => {
               closeSettings();
@@ -233,17 +238,12 @@ export function useFeedQueryCommands({
     if (shown.length > 0) {
       const items = shown.map((task): Command => {
         const space = task.channel ? channelNames.get(task.channel) : undefined;
-        const subtitle = [
-          task.repository ?? undefined,
-          space ? `#${space}` : undefined,
-          formatRelativeTimeShort(task.created_at),
-        ]
-          .filter(Boolean)
-          .join(" · ");
         return {
           id: `feed-query-task-${task.id}`,
-          label: task.title,
-          subtitle,
+          label: singleLineTitle(task.title),
+          subtitle: commandRowMeta(taskRowParts(task)),
+          detail: space ? channelDisplayLabel(space) : undefined,
+          detailPrefix: "",
           keywords: `${query} ${searchText}`,
           icon: <TaskCommandIcon task={task} />,
           action: "open-task",
@@ -261,7 +261,9 @@ export function useFeedQueryCommands({
         items.push({
           id: "feed-query-show-all",
           label: `Show all ${matchCount} matches`,
-          icon: <MagnifyingGlassIcon size={12} className="text-gray-11" />,
+          icon: (
+            <MagnifyingGlassIcon size={12} className="text-muted-foreground" />
+          ),
           action: "show-all-matches",
           keepOpen: true,
           onRun: onShowAll,
@@ -285,7 +287,9 @@ export function useFeedQueryCommands({
           label,
           detail: `${count} ${count === 1 ? "task" : "tasks"}`,
           detailPrefix: "",
-          icon: <MagnifyingGlassIcon size={12} className="text-gray-11" />,
+          icon: (
+            <MagnifyingGlassIcon size={12} className="text-muted-foreground" />
+          ),
           action: "repair-query",
           keepOpen: true,
           onRun: () => onApply(`${next} `, next.length + 1),

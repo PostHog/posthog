@@ -1,4 +1,7 @@
-import { getCurrentMatches } from "@posthog/ui/router/navigationBridge";
+import {
+  hrefPath,
+  reportSourceHrefFromHref,
+} from "@posthog/ui/router/reportNavigation";
 
 /**
  * Which rail destination the app is on, and whether that destination owns the
@@ -10,13 +13,15 @@ import { getCurrentMatches } from "@posthog/ui/router/navigationBridge";
  */
 export type NavRailPane =
   | "home"
+  | "reports"
   | "spaces"
   | "activity"
   | "canvases"
   | "inbox"
   | "command-center"
   | "loops"
-  | "context";
+  | "context"
+  | "feeds";
 
 /**
  * The root path of each destination.
@@ -27,6 +32,7 @@ export type NavRailPane =
  */
 export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
   home: "/",
+  reports: "/reports",
   spaces: "/spaces",
   activity: "/activity",
   canvases: "/canvases",
@@ -34,18 +40,21 @@ export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
   "command-center": "/command-center",
   loops: "/loops",
   context: "/spaces/context",
+  feeds: "/feeds",
 };
 
 // Spaces is absent: it takes everything nothing else claims, so listing it
 // would only shadow that fallback with the same answer.
 const CLAIMED: readonly NavRailPane[] = [
   "home",
+  "reports",
   "activity",
   "canvases",
   "inbox",
   "command-center",
   "loops",
   "context",
+  "feeds",
 ];
 
 export function railPaneForPath(fullPath: string): NavRailPane {
@@ -60,25 +69,41 @@ export function railPaneForPath(fullPath: string): NavRailPane {
   return "spaces";
 }
 
-export function railPaneForMatches(
-  matches: readonly { fullPath: string }[],
-): NavRailPane {
-  return railPaneForPath(matches[matches.length - 1]?.fullPath ?? "");
+/**
+ * A report page belongs to the list it was opened from rather than to its own
+ * path, so `/reports/$id` under `?from=/inbox` is Self-driving.
+ */
+export function railPaneForHref(href: string): NavRailPane {
+  return railPaneForPath(reportSourceHrefFromHref(href) ?? hrefPath(href));
 }
 
-/** Read the destination outside React (event handlers, imperative picks). */
-/** Not wired to a caller yet. The @public tag stops knip from reporting it. */
-export function getRailPane(): NavRailPane {
-  return railPaneForMatches(getCurrentMatches());
+const NON_RESTORABLE_ROOTS = [
+  "/settings",
+  "/folders",
+  "/skills",
+  "/mcp-servers",
+  "/usage",
+  "/inbox/agents",
+];
+
+export function isRestorableVisitHref(
+  pane: NavRailPane,
+  href: string,
+): boolean {
+  const path = hrefPath(href);
+  const blocked = NON_RESTORABLE_ROOTS.some(
+    (root) => path === root || path.startsWith(`${root}/`),
+  );
+  if (blocked) return false;
+  return railPaneForHref(href) === pane;
 }
 
-// Home, Inbox, Command Center and Loops are whole-screen destinations: no
-// route under them may put a second nav on the screen. Spaces owns the space
-// tree, Activity owns the feed.
 const PANES_WITH_SIDEBAR = new Set<NavRailPane>([
   "spaces",
   "activity",
   "canvases",
+  "feeds",
+  "inbox",
 ]);
 
 export function railPaneHasSidebar(pane: NavRailPane): boolean {

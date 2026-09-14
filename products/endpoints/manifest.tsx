@@ -17,6 +17,7 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'endpoints',
             description: 'Define queries your application will use via the API and monitor their cost and usage.',
+            docsHref: 'https://posthog.com/docs/endpoints',
         },
         EndpointScene: {
             import: () => import('./frontend/EndpointScene'),

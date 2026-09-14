@@ -45,6 +45,7 @@ function makeParams() {
     isResume: false,
     settingsManager: new SettingsManager(cwd),
     taskState: new Map(),
+    traceparentHookNonce: "0123456789abcdef",
   };
 }
 
@@ -445,6 +446,270 @@ describe("buildSessionOptions", () => {
         expect(headers).toBe(expected);
       },
     );
+
+    it("stamps the task id as the LLMA session id so generations group with feedback", () => {
+      const headers = buildSessionOptions({
+        ...makeParams(),
+        taskId: "task-123",
+      }).env?.ANTHROPIC_CUSTOM_HEADERS;
+
+      expect(headers).toContain("x-posthog-property-$ai_session_id: task-123");
+      expect(headers).not.toContain("test-session");
+    });
+  });
+
+  describe("ANTHROPIC_CUSTOM_HEADERS on the direct-Bedrock path", () => {
+    const originalProjectId = process.env.POSTHOG_PROJECT_ID;
+    const originalCustomHeaders = process.env.ANTHROPIC_CUSTOM_HEADERS;
+    const originalUseBedrock = process.env.CLAUDE_CODE_USE_BEDROCK;
+
+    beforeEach(() => {
+      delete process.env.POSTHOG_PROJECT_ID;
+      delete process.env.ANTHROPIC_CUSTOM_HEADERS;
+      process.env.CLAUDE_CODE_USE_BEDROCK = "1";
+    });
+
+    afterEach(() => {
+      for (const [key, value] of [
+        ["POSTHOG_PROJECT_ID", originalProjectId],
+        ["ANTHROPIC_CUSTOM_HEADERS", originalCustomHeaders],
+        ["CLAUDE_CODE_USE_BEDROCK", originalUseBedrock],
+      ] as const) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    });
+
+    // AWS strips underscore-named headers before validating the SigV4
+    // signature, so signing them yields 403 SignatureDoesNotMatch. On direct
+    // Bedrock they reach no gateway, so they are dropped; hyphen-only headers
+    // sign fine and stay.
+    it("drops underscore-named x-posthog-property headers and keeps hyphen-only ones", () => {
+      process.env.POSTHOG_PROJECT_ID = "42";
+      process.env.ANTHROPIC_CUSTOM_HEADERS =
+        "x-posthog-property-task_id: task-abc";
+
+      const headers = buildSessionOptions({
+        ...makeParams(),
+        taskId: "task-123",
+      }).env?.ANTHROPIC_CUSTOM_HEADERS;
+
+      expect(headers).not.toContain("x-posthog-property-task_id");
+      expect(headers).not.toContain("x-posthog-property-$ai_session_id");
+      expect(headers).toContain("X-PostHog-Project-Id: 42");
+      expect(headers).toContain("x-posthog-use-bedrock-fallback: true");
+    });
+
+    it("keeps underscore-named headers when not on the direct-Bedrock path", () => {
+      delete process.env.CLAUDE_CODE_USE_BEDROCK;
+
+      const headers = buildSessionOptions({
+        ...makeParams(),
+        taskId: "task-123",
+      }).env?.ANTHROPIC_CUSTOM_HEADERS;
+
+      expect(headers).toContain("x-posthog-property-$ai_session_id: task-123");
+    });
+  });
+
+  describe("machineAuth (own Claude subscription)", () => {
+    const STRIPPED_KEYS = [
+      "ANTHROPIC_BASE_URL",
+      "ANTHROPIC_AUTH_TOKEN",
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_CUSTOM_HEADERS",
+      "CLAUDE_CODE_USE_BEDROCK",
+      "CLAUDE_CODE_USE_VERTEX",
+      "CLAUDE_CODE_USE_FOUNDRY",
+      "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+      "CLAUDE_CODE_USE_MANTLE",
+      "CLAUDE_CODE_ENABLE_TELEMETRY",
+      "OTEL_EXPORTER_OTLP_ENDPOINT",
+      "TRACEPARENT",
+    ] as const;
+    const original: Partial<Record<string, string | undefined>> = {};
+
+    beforeEach(() => {
+      for (const key of STRIPPED_KEYS) {
+        original[key] = process.env[key];
+        process.env[key] = `ambient-${key}`;
+      }
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = "user-oauth-token";
+    });
+
+    afterEach(() => {
+      for (const key of STRIPPED_KEYS) {
+        const value = original[key];
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+      delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    });
+
+    it("strips ambient and gateway credentials and telemetry, and sends no x-posthog headers", () => {
+      const env = buildSessionOptions({
+        ...makeParams(),
+        machineAuth: {},
+        gatewayEnv: {
+          anthropicBaseUrl: "https://gateway.example.com",
+          anthropicAuthToken: "gateway-token",
+          openaiBaseUrl: "https://gateway.example.com/v1",
+          openaiApiKey: "gateway-token",
+          anthropicCustomHeaders: "x-posthog-property-task_id: task-abc",
+          posthogProjectId: "42",
+        },
+      }).env;
+
+      expect(env).toBeDefined();
+      for (const key of STRIPPED_KEYS) {
+        expect(env?.[key]).toBeUndefined();
+      }
+      expect(env?.OPENAI_BASE_URL).toBeUndefined();
+      expect(env?.OPENAI_API_KEY).toBeUndefined();
+      expect(env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("user-oauth-token");
+      for (const [key, value] of Object.entries(env ?? {})) {
+        expect(value).not.toContain("x-posthog-");
+        expect(key).not.toMatch(/X-PostHog/i);
+      }
+    });
+
+    it.each([
+      { configDir: undefined, expected: path.join(os.homedir(), ".claude") },
+      { configDir: "/home/me/.claude", expected: "/home/me/.claude" },
+    ])(
+      "runs against the machine config dir $configDir, not the app one",
+      ({ configDir, expected }) => {
+        process.env.CLAUDE_CONFIG_DIR = "/app-data/claude";
+        try {
+          const env = buildSessionOptions({
+            ...makeParams(),
+            machineAuth: { configDir },
+          }).env;
+
+          expect(env?.CLAUDE_CONFIG_DIR).toBe(expected);
+        } finally {
+          delete process.env.CLAUDE_CONFIG_DIR;
+        }
+      },
+    );
+
+    it("keeps session behavior flags and the Electron node mode", () => {
+      const env = buildSessionOptions({
+        ...makeParams(),
+        machineAuth: {},
+      }).env;
+
+      expect(env?.CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL).toBe("true");
+      expect(env?.CLAUDE_CODE_ENABLE_TODO_TOOLS).toBe("1");
+      expect(env?.ENABLE_TOOL_SEARCH).toBe("auto:0");
+      expect(env?.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS).toBe("1");
+    });
+
+    it("skips the pinned gateway-era fallback model", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        machineAuth: {},
+      });
+
+      expect(options.fallbackModel).toBeUndefined();
+    });
+
+    it("keeps the relayed OAuth token out of the environment", async () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        userProvidedOptions: {
+          pathToClaudeCodeExecutable: "/tmp/untrusted-claude",
+          executable: "node",
+          executableArgs: ["--eval", "throw new Error('wrong executable')"],
+          settings: {
+            apiKeyHelper: "printf fake-api-key",
+            env: {
+              ANTHROPIC_BASE_URL: "https://example.com",
+              HTTPS_PROXY: "https://proxy.example.com",
+              NODE_EXTRA_CA_CERTS: "/tmp/example-ca.pem",
+              NODE_TLS_REJECT_UNAUTHORIZED: "0",
+              CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
+              CLAUDE_CODE_REMOTE: "1",
+              ANTHROPIC_UNIX_SOCKET: "/tmp/untrusted.sock",
+              CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD: "1",
+            },
+          },
+        },
+        machineAuth: { oauthToken: "sk-ant-oat01-fake-test-token" },
+        gatewayEnv: {
+          anthropicBaseUrl: "https://gateway.example.com",
+          anthropicAuthToken: "gateway-token",
+          openaiBaseUrl: "https://gateway.example.com/v1",
+          openaiApiKey: "gateway-token",
+          anthropicCustomHeaders: "x-posthog-property-task_id: task-abc",
+          posthogProjectId: "42",
+        },
+      });
+      const env = options.env;
+
+      expect(env?.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+      expect(env?.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe("0");
+      for (const key of STRIPPED_KEYS) {
+        expect(env?.[key]).toBeUndefined();
+      }
+      expect(env?.OPENAI_BASE_URL).toBeUndefined();
+      expect(env?.OPENAI_API_KEY).toBeUndefined();
+      for (const [key, value] of Object.entries(env ?? {})) {
+        expect(value).not.toContain("x-posthog-");
+        expect(key).not.toMatch(/X-PostHog/i);
+      }
+      expect(options.settings).toMatchObject({
+        apiKeyHelper: "",
+        env: {
+          ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+          HTTPS_PROXY: "",
+          NODE_EXTRA_CA_CERTS: "",
+          NODE_TLS_REJECT_UNAUTHORIZED: "1",
+          CLAUDE_CODE_OAUTH_TOKEN: "",
+          CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3",
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
+          CLAUDE_CODE_REMOTE: "",
+          ANTHROPIC_UNIX_SOCKET: "",
+          CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD: "",
+        },
+      });
+      expect(options.pathToClaudeCodeExecutable).toBeUndefined();
+      expect(options.executable).toBeUndefined();
+      expect(options.executableArgs).toBeUndefined();
+      expect(options.spawnClaudeCodeProcess).toBeTypeOf("function");
+      expect(JSON.stringify(options)).not.toContain(
+        "sk-ant-oat01-fake-test-token",
+      );
+      const child = options.spawnClaudeCodeProcess?.({
+        command: process.execPath,
+        args: [
+          "-e",
+          'const fs = require("node:fs"); const token = fs.readFileSync("/dev/fd/3", "utf8"); process.stdout.write(JSON.stringify({ received: token === "sk-ant-oat01-fake-test-token", inEnvironment: Object.values(process.env).includes(token), remaining: fs.readFileSync("/dev/fd/3", "utf8") }));',
+        ],
+        cwd: os.tmpdir(),
+        env: options.env ?? {},
+        signal: new AbortController().signal,
+      });
+      expect(child).toBeDefined();
+      if (!child) throw new Error("Claude process did not start.");
+      let output = "";
+      const exited = new Promise<number | null>((resolve) => {
+        child.on("exit", resolve);
+      });
+      for await (const chunk of child.stdout) output += chunk.toString();
+      expect(await exited).toBe(0);
+      expect(JSON.parse(output)).toEqual({
+        received: true,
+        inEnvironment: false,
+        remaining: "",
+      });
+    });
   });
 
   describe("per-session context wiki env", () => {
@@ -610,6 +875,58 @@ describe("buildSessionOptions", () => {
       expect(env?.TRACEPARENT).toBe(
         "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
       );
+    });
+
+    it("registers the traceparent hook and hook events for gateway sessions", () => {
+      const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+
+      const settings = JSON.parse(String(options.extraArgs?.settings));
+      const hook = settings.hooks.UserPromptSubmit[0].hooks[0];
+      expect(hook.command).toContain("$TRACEPARENT");
+      expect(options.includeHookEvents).toBe(true);
+    });
+
+    it("registers no traceparent hook for BYOK sessions", () => {
+      const options = buildSessionOptions(makeParams());
+
+      expect(options.extraArgs?.settings).toBeUndefined();
+      expect(options.includeHookEvents).toBe(false);
+    });
+
+    it("never clobbers a caller-supplied settings flag", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        userProvidedOptions: { extraArgs: { settings: '{"model":"x"}' } },
+      });
+
+      expect(options.extraArgs?.settings).toBe('{"model":"x"}');
+    });
+
+    it("skips the hook when the caller uses the SDK settings option", () => {
+      // Both channels feed the same CLI flag; the SDK silently drops the
+      // extraArgs one, which would kill the caller's settings.
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        userProvidedOptions: { settings: '{"model":"x"}' },
+      });
+
+      expect(options.extraArgs?.settings).toBeUndefined();
+    });
+
+    it("skips the POSIX hook on Windows hosts", () => {
+      const platform = Object.getOwnPropertyDescriptor(process, "platform");
+      Object.defineProperty(process, "platform", { value: "win32" });
+      try {
+        const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+        expect(options.extraArgs?.settings).toBeUndefined();
+        expect(options.includeHookEvents).toBe(false);
+      } finally {
+        if (platform) {
+          Object.defineProperty(process, "platform", platform);
+        }
+      }
     });
   });
 });

@@ -1,0 +1,6 @@
+{
+    "id": "VA6",
+    "real": true,
+    "source": "fresh",
+    "reasoning": "Confirmed. receivers.py:93,130-138 forwards output.pr_url verbatim to process_inbox_pr_review, which stamps inbox_review provenance with no find_signal_implementation_run attestation (stamphog/tasks.py:1108-1235) - unlike the webhook carve-out, which attests (tasks.py:190-215). The engine's bot/draft/author/review-mode bypass keys solely off that provenance (activities.py:448-451). output.pr_url is attacker-writable: task_control_q grants control of SIGNAL_REPORT tasks to any team member (visibility.py:30-46), and set_output/update (task:write) re-fire the receiver via run.save(update_fields=['output']) (facade set_task_run_output). Only guards are a synced+enabled repo config and PR-open, so a member gets an unrelated human-authored PR in any enabled repo approved. Precondition (an opted-in acting reviewer) is the feature's normal state. Reachable."
+}
