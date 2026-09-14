@@ -26,6 +26,10 @@ Engagement displays session duration and bounce rate from the same Web Overview 
 
 The new dashboard embeds the existing Attribution explorer as Conversion when `marketing-analytics-attribution` is enabled. It keeps goal selection, attribution models, conversion paths and the explorer’s date and test-account filters.
 
+The new dashboard shows undismissed ad-source connection suggestions from the existing Setup plan. The accordion remembers its expanded state in local storage. Connect opens the existing review in Setup; sources are never connected automatically. Dismissed suggestions can be restored in Setup.
+
+Each Setup section also lists its dismissed suggestions behind Show dismissed, with an individual Restore action. This remains available when all suggestions in that section are dismissed.
+
 The new dashboard also embeds the existing Retention explorer when `marketing-analytics-retention` is enabled. It shares the acquisition date range and keeps the explorer’s cohort controls, reload and empty state. Previous-period comparison and the traffic test-account filter do not apply to Retention.
 
 With `new-marketing-analytics-dashboard` enabled, Marketing Analytics opens directly without the product welcome screen or its setup reminder. Existing setup status and local skip preferences remain unchanged; disabling the flag restores the previous onboarding behavior. Configuration remains available in Setup.
