@@ -358,8 +358,24 @@ const getFieldType = (field: any) => {
     return field.type ?? 'string'
 }
 
-const getFieldDescription = (description: string) => {
-    return description.replaceAll(/\[([^\]]+)\]\(https?:\/\/[^\/]*segment\.com[^)]*\)(\s*\{:.*?\})?/g, '$1') // Remove segment.com links completely, keeping only the link text
+const getFieldDescription = (field: any): string => {
+    const description: string = (field.description ?? '').replaceAll(
+        /\[([^\]]+)\]\(https?:\/\/[^\/]*segment\.com[^)]*\)(\s*\{:.*?\})?/g,
+        '$1'
+    ) // Remove segment.com links completely, keeping only the link text
+
+    // The dictionary input takes any key the user types, but a destination that declares its keys
+    // reads back only those, so say so rather than dropping the rest without a word.
+    if (getFieldType(field) !== 'dictionary' || field.additionalProperties) {
+        return description
+    }
+    if (Object.keys(field.properties ?? {}).length === 0) {
+        return description
+    }
+
+    const sentence = 'This destination ignores any key you add to this list.'
+    const trimmed = description.trim()
+    return trimmed ? `${trimmed.replace(/[.?!]+$/, '')}. ${sentence}` : sentence
 }
 
 const SECRET_FIELD_NAMES = [
@@ -393,7 +409,7 @@ const translateInputsSchema = (
             key,
             label: field.label,
             type: getFieldType(field),
-            description: getFieldDescription(field.description),
+            description: getFieldDescription(field),
             default: getDefaultValue(key, field, mapping),
             required: field.required ?? false,
             secret: field.type === 'password' || SECRET_FIELD_NAMES.includes(key.toLowerCase()) ? true : false,
