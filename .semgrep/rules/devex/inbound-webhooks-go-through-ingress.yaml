@@ -1,27 +1,32 @@
 rules:
     - id: inbound-webhooks-go-through-ingress
       message: |
-          Inbound webhook signature verification goes through `posthog.ingress` —
-          never a hand-rolled `hmac` check in a view or a per-product helper.
-
+          Inbound webhook signature verification goes through `posthog.ingress`, never a
+          hand-rolled `hmac` check in a view or a per-product helper.
           Add a `<provider>/` incarnation under `posthog/ingress/` carrying the signature
           scheme and the delivery parsing, hand it to `build_webhook_view()` in the URLconf,
           and register the handlers in `products/<product>/backend/webhook_consumers.py`.
           An endpoint that genuinely needs DRF team scoping (Customer.io) keeps its view and
           subclasses `posthog.auth.WebhookSignatureAuthentication`, which verifies through the
-          same code.
+          same code. `docs/internal/inbound-webhooks.md` holds the transport contract.
 
-          Why: a hand-rolled verifier repeats the parts that are easy to get wrong — the
-          constant-time compare, the replay window, the exact signed input — and it lands
+          Why: a hand-rolled verifier repeats the parts that are easy to get wrong, the
+          constant-time compare, the replay window and the exact signed input, and it lands
           outside the shared dedup, delivery budget, and delivery metrics, so a wedged
           consumer is invisible and holds the connection open.
-          See `docs/internal/inbound-webhooks.md` and `posthog/ingress/README.md`.
 
-          The rule fires on any `hmac` digest or compare in a module that also reads one of the
-          known signature headers, on `hmac` inside a function named like a signature verifier,
-          and on a vendor SDK call that verifies an inbound signature.
+          The rule fires on three shapes: an `hmac` digest or compare in a module that also
+          reads one of the known signature headers, `hmac` inside a function named like a
+          signature verifier, and a vendor SDK call that verifies an inbound signature.
+          What it misses follows from those three. The header list is closed, so a provider
+          whose header is not in it is caught only by the other two branches. A verifier with
+          a name outside the regex, in a module that reads no known header, passes. So does a
+          vendor SDK the third branch does not name, and a verifier in another language.
+
           Suppress a legitimate exception with
           `# nosemgrep: inbound-webhooks-go-through-ingress -- <reason>`.
+
+          See `posthog/ingress/README.md` and `posthog/ingress/<provider>/README.md`.
       languages: [python]
       severity: ERROR
       patterns:
