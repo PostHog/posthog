@@ -864,10 +864,9 @@ impl FeatureFlagMatcher {
     /// Resolves cohort memberships for every cohort filter on the flag, for detailed condition
     /// analysis.
     ///
-    /// `evaluate_cohort_filters` resolves dynamic cohorts into a map it then discards, so the
-    /// memberships cached on the evaluation state cover static and realtime cohorts only. Reading
-    /// that cache alone would report every dynamic cohort as a non-match and contradict the
-    /// condition outcome the matcher already computed.
+    /// The evaluation state caches static and realtime memberships only, because
+    /// `evaluate_cohort_filters` discards the dynamic ones it resolves. Reading that cache alone
+    /// would report every dynamic cohort as a non-match.
     fn cohort_matches_for_analysis(
         &self,
         flag: &FeatureFlag,
@@ -908,12 +907,10 @@ impl FeatureFlagMatcher {
 
     /// Resolves each cohort filter on its own, keeping every membership that resolves.
     ///
-    /// Analysis explains every condition, including ones the matcher short-circuited past, so it
-    /// reaches cohorts the matcher never needed. A condition can name a cohort the flags payload
-    /// no longer carries, because Django omits deleted and cross-team cohorts while keeping the
-    /// filters that name them. Resolving the set as a unit would drop the memberships of every
-    /// other condition on the first such cohort. A cohort left out of the map reads as unknown,
-    /// not as a non-match.
+    /// A condition can name a cohort the flags payload no longer carries, because Django omits
+    /// deleted and cross-team cohorts but keeps the filters that name them. Resolving the set as a
+    /// unit would drop every other condition's membership on the first such cohort. A cohort left
+    /// out of the map reads as unknown, not as a non-match.
     fn resolve_cohort_matches_best_effort(
         cohort_property_filters: &[&PropertyFilter],
         target_properties: &HashMap<String, Value>,
@@ -1240,8 +1237,6 @@ impl FeatureFlagMatcher {
                     // filters resolve against the group rather than the person.
                     let merged_group_props =
                         self.merged_group_properties_for_flag(flag, group_property_overrides);
-                    // Cohort membership as the matcher resolved it, so cohort-typed condition
-                    // filters report the same outcome the flag actually evaluated to.
                     let cohort_matches =
                         self.cohort_matches_for_analysis(flag, merged_person_props.as_ref());
                     FlagDetails::create_with_analysis(
@@ -3044,10 +3039,8 @@ mod tests {
     #[test]
     fn test_cohort_analysis_keeps_resolved_memberships_when_another_cohort_fails() {
         // A flag can name a cohort the flags payload no longer carries, because Django omits
-        // deleted and cross-team cohorts while keeping the filters that name them. Condition
-        // analysis explains every condition, so it reaches that cohort even when the matcher won
-        // on an earlier one. Resolving the set as a unit dropped the winning condition's
-        // membership too, which then rendered as MATCHED above "did not match properties".
+        // deleted and cross-team cohorts but keeps the filters that name them. Resolving the set as
+        // a unit drops the memberships that did resolve along with it.
         let cohort: Cohort = serde_json::from_value(serde_json::json!({
             "id": 1,
             "team_id": 1,

@@ -615,12 +615,9 @@ mod tests {
         assert_eq!(industry_analysis.actual_value, Some(json!("tech")));
     }
 
-    /// Regression test: detailed condition analysis must resolve a cohort filter against the
-    /// membership the matcher computed. `match_property` cannot evaluate a cohort filter, so
-    /// every one of them used to report `matched: false`, which made a winning condition claim
-    /// its own properties did not match. The cohort here is dynamic on purpose: the evaluation
-    /// state caches static and realtime memberships only, so a dynamic cohort is the case that
-    /// needs resolving rather than reading back from the cache.
+    /// `match_property` cannot evaluate a cohort filter, so a winning condition used to claim its
+    /// own properties did not match. The cohort is dynamic on purpose, because the evaluation state
+    /// caches static and realtime memberships only.
     #[tokio::test]
     async fn test_detailed_analysis_resolves_cohort_filters_against_cohort_membership() {
         let context = TestContext::new(None).await;
@@ -700,7 +697,6 @@ mod tests {
             }
         );
 
-        // (distinct_id, in the cohort, expected membership sentence)
         for (distinct_id, is_member) in [("cohort_member", true), ("non_member", false)] {
             let mut matcher = FeatureFlagMatcher::new(
                 distinct_id.to_string(),
@@ -729,16 +725,14 @@ mod tests {
                 .expect("detailed_analysis(true) should populate conditions");
             assert_eq!(conditions.len(), 1);
 
-            // The contradiction being fixed: the condition analysis must agree with the
-            // condition's own outcome instead of reporting the cohort filter as unmatched.
             assert_eq!(conditions[0].matched, is_member, "user {distinct_id}");
             assert_eq!(
                 conditions[0].properties_matched, is_member,
                 "user {distinct_id}"
             );
 
-            // The sentence the person reads under the badge. A matched condition used to
-            // render the "did not match properties" branch here, directly below MATCHED.
+            // The sentence under the badge, which used to read "did not match properties" below
+            // MATCHED.
             let expected_condition = if is_member {
                 "Condition 1 matched and passed 100% rollout"
             } else {

@@ -701,13 +701,9 @@ impl FlagDetails {
                         continue;
                     }
 
-                    // Cohort filters resolve against cohort membership, not against person
-                    // properties. match_property() cannot evaluate them: In/NotIn returns Err,
-                    // and Exact looks up a person property named `id`. Both make every cohort
-                    // filter report matched=false, which contradicts the condition-level outcome
-                    // the matcher computed. Resolve them against the membership results instead,
-                    // through the same helper the matcher uses, so this explanation cannot drift
-                    // from the outcome it explains.
+                    // match_property() cannot evaluate a cohort filter, so it reports every one
+                    // as unmatched and contradicts the condition outcome. Resolve against
+                    // membership through the same helper the matcher uses.
                     if property.is_cohort() {
                         let empty = HashMap::new();
                         let matches = cohort_matches.unwrap_or(&empty);
@@ -716,12 +712,9 @@ impl FlagDetails {
                             Some(id) => format!("cohort {id}"),
                             None => "the targeted cohort".to_string(),
                         };
-                        // A missing entry means the membership was never resolved, not that the
-                        // person is outside the cohort. `apply_cohort_membership_logic` reads it as
-                        // a non-match, so a `not in` filter would report a match the matcher never
-                        // made: an evaluation at a past timestamp reuses the supplied person
-                        // properties and skips the DB preparation that loads cohorts, which leaves
-                        // this map empty while the matcher fails the condition closed.
+                        // A missing entry means membership was never resolved, not that the person
+                        // is outside the cohort. `apply_cohort_membership_logic` reads it as a
+                        // non-match, so a `not in` filter would claim a match the matcher never made.
                         let membership = cohort_id.and_then(|id| matches.get(&id).copied());
                         let (property_matched, explanation) = match membership {
                             Some(is_member) => {
@@ -730,10 +723,8 @@ impl FlagDetails {
                                     matches,
                                 )
                                 .unwrap_or(false);
-                                // State the membership rather than the verdict. The frontend renders
-                                // this line with no pass/fail marker, so on a `not in` filter "did
-                                // not match" alone would leave the reader guessing which way
-                                // membership went.
+                                // State membership, not the verdict: the frontend renders this line
+                                // with no pass or fail marker.
                                 let line = if is_member {
                                     format!("Person is in {cohort_label}")
                                 } else {
@@ -1870,9 +1861,7 @@ mod tests {
         use std::collections::HashMap;
 
         // An evaluation at a past timestamp skips the DB preparation that loads cohorts, so the
-        // membership map arrives empty and the matcher fails the condition closed. Reading the
-        // absent entry as "not a member" would make a `not in` filter claim a match the matcher
-        // never made, under a sentence asserting a membership nobody resolved.
+        // membership map arrives empty and the matcher fails the condition closed.
         let flag: FeatureFlag = serde_json::from_value(json!(
             {
                 "id": 1,
