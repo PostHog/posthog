@@ -360,7 +360,7 @@ const meta: Meta = {
                 },
                 '/api/projects/:team_id/notebooks/:short_id': ({ params }) => [
                     200,
-                    notebooks[params.short_id as keyof typeof notebooks],
+                    { ...notebooks[params.short_id as keyof typeof notebooks], short_id: params.short_id },
                 ],
                 [`/api/projects/:team_id/feature_flags/${FEATURE_FLAG_ID}/`]: featureFlag,
                 [`/api/projects/:team_id/feature_flags/${FEATURE_FLAG_ID}/status`]: {
@@ -439,6 +439,7 @@ const meta: Meta = {
             patch: {
                 '/api/projects/:team_id/notebooks/:short_id': async ({ params, request }) => ({
                     ...notebooks[params.short_id as keyof typeof notebooks],
+                    short_id: params.short_id,
                     ...((await request.json()) as Record<string, unknown>),
                 }),
                 '/api/projects/:team_id/session_recording_playlists/:playlist_id': async ({ request }) => {
@@ -451,6 +452,7 @@ const meta: Meta = {
                     const body = (await request.json()) as Record<string, unknown> & { version: number }
                     return {
                         ...notebooks[params.short_id as keyof typeof notebooks],
+                        short_id: params.short_id,
                         ...body,
                         version: body.version + 1,
                     }
