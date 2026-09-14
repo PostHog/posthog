@@ -20,7 +20,7 @@ import { ConversationQueueMessage } from '~/types'
 
 import { ContextDisplay } from '../Context'
 import { handsFreeLogic } from '../handsFreeLogic'
-import { MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, messageLength } from '../max-constants'
+import { MAX_MESSAGE_LENGTH, messageLength, messageTooLongError } from '../max-constants'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
@@ -34,7 +34,7 @@ import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
  * Show the character counter only once the message gets close to the limit. A permanent counter
  * under every composer would be noise: almost every message is a couple of hundred characters.
  */
-const LENGTH_COUNTER_THRESHOLD = MAX_MESSAGE_LENGTH * 0.9
+const LENGTH_COUNTER_RATIO = 0.9
 
 interface QuestionInputProps {
     submission?: {
@@ -43,6 +43,11 @@ interface QuestionInputProps {
         disabledReason?: string
         dataAttr: string
         context: ReactNode
+        /**
+         * Longest prompt this submission's endpoint accepts, when it is stricter than
+         * `MAX_MESSAGE_LENGTH`. Without it an over-limit prompt only fails at the API.
+         */
+        maxLength?: number
     }
     isSticky?: boolean
     placeholder?: string
@@ -243,9 +248,18 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         }
     }
 
+    const lengthLimit = submission?.maxLength ?? MAX_MESSAGE_LENGTH
+    // Counting code points is O(n), so only pay for it near the limit. A string's UTF-16 length is
+    // never below its code point count, so a shorter one can't be over the limit.
+    const promptLength = useMemo(
+        () => (inputValue.length >= lengthLimit * LENGTH_COUNTER_RATIO ? messageLength(inputValue) : null),
+        [inputValue, lengthLimit]
+    )
+    const isOverLengthLimit = promptLength !== null && promptLength > lengthLimit
+
     const submit = (prompt: string): void => {
         if (submission) {
-            if (!submission.loading && !submission.disabledReason && prompt.trim()) {
+            if (!submission.loading && !submission.disabledReason && !isOverLengthLimit && prompt.trim()) {
                 debouncedSetQuestion.cancel()
                 setQuestion(prompt)
                 submission.onSend(prompt)
@@ -268,14 +282,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         askMax(content)
     }
 
-    // Counting code points is O(n), so only pay for it near the limit. A string's UTF-16 length is
-    // never below its code point count, so a shorter one can't be over the limit.
-    const promptLength = useMemo(
-        () => (inputValue.length >= LENGTH_COUNTER_THRESHOLD ? messageLength(inputValue) : null),
-        [inputValue]
-    )
-    const isOverLengthLimit = promptLength !== null && promptLength > MAX_MESSAGE_LENGTH
-
     const hasQuestion = inputValue.trim().length > 0
     // A fill-in suggestion typed its prefix in and is waiting for the user to complete it.
     const showFillInHint = !!fillInHint
@@ -293,7 +299,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
             : !inputValue
               ? 'I need some input first'
               : isOverLengthLimit
-                ? MESSAGE_TOO_LONG
+                ? messageTooLongError(lengthLimit)
                 : queueDisabledReason
 
     // Update autocomplete visibility when the input changes
@@ -539,7 +545,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                 isOverLengthLimit ? 'text-error' : 'text-secondary'
                                             )}
                                         >
-                                            {promptLength.toLocaleString()} / {MAX_MESSAGE_LENGTH.toLocaleString()}
+                                            {promptLength.toLocaleString()} / {lengthLimit.toLocaleString()}
                                         </div>
                                     )}
                                 </div>

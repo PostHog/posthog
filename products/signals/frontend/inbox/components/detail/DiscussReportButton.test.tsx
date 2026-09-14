@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -8,7 +8,11 @@ import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
-import { inboxTaskKickoffLogic, REPORT_AI_PANEL } from '../../inboxTaskKickoffLogic'
+import {
+    inboxTaskKickoffLogic,
+    REPORT_AI_PANEL,
+    REPORT_DISCUSSION_QUESTION_MAX_LENGTH,
+} from '../../inboxTaskKickoffLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { DiscussReportButton } from './DiscussReportButton'
 import { ReportDiscussionComposer } from './ReportDiscussionComposer'
@@ -132,6 +136,23 @@ describe('DiscussReportButton', () => {
         expect(screen.getByTestId('inbox-report-ask-ai-submit')).toHaveAttribute('aria-disabled', 'true')
         fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' })
         await user.click(screen.getByText(SUGGESTION))
+
+        expect(discussReport).not.toHaveBeenCalled()
+    })
+
+    it('blocks a question longer than the task API accepts', async () => {
+        // The question field is capped server-side, so sending an over-long one only ever comes back
+        // as a bare 400 with no task started.
+        render(<ReportDiscussionComposer report={makeReport()} reportUrl="https://app/report-1" />)
+        fireEvent.change(screen.getByRole('textbox'), {
+            target: { value: 'x'.repeat(REPORT_DISCUSSION_QUESTION_MAX_LENGTH + 1) },
+        })
+
+        await waitFor(() =>
+            expect(screen.getByTestId('inbox-report-ask-ai-submit')).toHaveAttribute('aria-disabled', 'true')
+        )
+        expect(screen.getByText('4,001 / 4,000')).toBeInTheDocument()
+        fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' })
 
         expect(discussReport).not.toHaveBeenCalled()
     })
