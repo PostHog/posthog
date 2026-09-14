@@ -77,7 +77,9 @@ const getFunnelResultsPersonsTotal =
         }
 
         let sum = 0
-        result.insight.forEach((variantResult) => {
+        // The new ExperimentQueryResponse reuses this `kind` but reports results as `baseline` and
+        // `variant_results`, so `insight` is absent on it.
+        result.insight?.forEach((variantResult) => {
             if (variantResult[0]?.count) {
                 sum += variantResult[0].count
             }

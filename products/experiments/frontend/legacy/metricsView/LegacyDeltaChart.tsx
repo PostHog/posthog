@@ -172,8 +172,8 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
     let hasEnoughData: boolean
 
     if (metricType === InsightType.TRENDS) {
-        const controlVariant = result.variants.find((v: any) => v.key === 'control')
-        const variantData = result.variants.find((v: any) => v.key === variant.key)
+        const controlVariant = result.variants?.find((v: any) => v.key === 'control')
+        const variantData = result.variants?.find((v: any) => v.key === variant.key)
 
         if (
             !variantData?.count ||
@@ -186,7 +186,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
             hasEnoughData = hasEnoughDataForResults(variantData.absolute_exposure, variantData.count)
         }
     } else {
-        const variantData = result.variants.find((v: any) => v.key === variant.key)
+        const variantData = result.variants?.find((v: any) => v.key === variant.key)
         if (!variantData) {
             hasEnoughData = false
         } else {
@@ -372,19 +372,28 @@ function ChartSVG({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement>
 
 // Chart controls component
 function ChartControls(): JSX.Element {
-    const { displayOrder, isSecondary, primaryMetricsLengthWithSharedMetrics, setIsModalOpen, metric } =
+    const { displayOrder, isSecondary, primaryMetricsLengthWithSharedMetrics, setIsModalOpen, metric, result } =
         useDeltaChartContext()
+
+    // The significance badge and every child of the details modal read the legacy per-variant
+    // fields. The new ExperimentQueryResponse reuses this `kind` but carries `baseline` and
+    // `variant_results` instead, so neither has anything to report. The badge reads the
+    // top-level `significant`, which is absent there, and would state "Not significant" for a
+    // metric the statistics engine may have marked significant.
+    const hasLegacyVariants = Array.isArray(result?.variants)
 
     return (
         <>
             {/* Chart is z-index 100, so we need to be above it */}
-            <div className="absolute top-2 left-2 z-[102]">
-                <LegacySignificanceHighlight
-                    displayOrder={displayOrder}
-                    isSecondary={isSecondary}
-                    metricUuid={metric?.uuid}
-                />
-            </div>
+            {hasLegacyVariants && (
+                <div className="absolute top-2 left-2 z-[102]">
+                    <LegacySignificanceHighlight
+                        displayOrder={displayOrder}
+                        isSecondary={isSecondary}
+                        metricUuid={metric?.uuid}
+                    />
+                </div>
+            )}
             {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
                 <div
                     className="absolute bottom-2 left-2 flex justify-center bg-[var(--color-bg-table)] z-[101]"
@@ -395,6 +404,9 @@ function ChartControls(): JSX.Element {
                         size="xsmall"
                         icon={<IconGraph />}
                         onClick={() => setIsModalOpen(true)}
+                        disabledReason={
+                            hasLegacyVariants ? undefined : 'Detailed results are not available for this metric'
+                        }
                     >
                         Details
                     </LemonButton>
