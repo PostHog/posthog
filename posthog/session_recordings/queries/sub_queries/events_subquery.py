@@ -24,8 +24,7 @@ from posthog.hogql.query import execute_hogql_query, tracer
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
-from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
-from posthog.models import Entity, EventProperty, Team
+from posthog.models import EventProperty, Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import resolved_group_key_expr
@@ -34,6 +33,7 @@ from posthog.session_recordings.queries.utils import (
     NEGATIVE_OPERATORS,
     SessionRecordingQueryResult,
     _entity_to_expr,
+    _node_from_entity,
     is_anonymous_cohort_fix_enabled,
     is_cohort_property,
     is_event_property,
@@ -78,30 +78,6 @@ HYBRID_QUERY_ELIGIBLE_PROPERTIES = {
 
 def _event_session_id_field() -> ast.Field:
     return ast.Field(chain=["properties", "$session_id"])
-
-
-def _node_from_entity(raw_entity: dict[str, Any]) -> EventsNode | ActionsNode | DataWarehouseNode:
-    entity = Entity(raw_entity)
-    # Replay selects sessions and never aggregates, so the entity's math fields have no effect on
-    # the node and are left out.
-    shared: dict[str, Any] = {
-        "name": entity.name,
-        "custom_name": entity.custom_name,
-        "properties": clean_entity_properties(raw_entity.get("properties")),
-    }
-
-    if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        return ActionsNode(id=entity.id, **shared)
-    if entity.type == TREND_FILTER_TYPE_DATA_WAREHOUSE:
-        return DataWarehouseNode(
-            id=entity.id,
-            id_field=entity.id_field,
-            distinct_id_field=entity.distinct_id_field,
-            timestamp_field=entity.timestamp_field,
-            table_name=entity.table_name,
-            **shared,
-        )
-    return EventsNode(event=entity.id, **shared)
 
 
 def get_negative_entity_properties(
