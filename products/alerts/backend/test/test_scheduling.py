@@ -5,7 +5,7 @@ import pytest
 
 from parameterized import parameterized
 
-from products.alerts.backend.scheduling import (
+from products.alerts.backend.facade.scheduling import (
     BlockedWindow,
     CalendarInterval,
     is_weekend,

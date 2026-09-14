@@ -62,6 +62,9 @@ class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
             # used up, the date range predates the raw-data lookback limit, or the row cap is
             # invalid. None of those change if we send the identical call again.
             "400 Client Error: Bad Request for url: https://hq1.appsflyer.com": "AppsFlyer rejected the report request. Your account's daily quota for this report may be used up, which resets at 00:00 UTC. Otherwise please check that your subscription includes this report.",
+            # Raw-data pulls redirect to a signed download URL on this host once the request is
+            # accepted, so a raw-data rejection surfaces here instead of on hq1.appsflyer.com.
+            "400 Client Error: Bad Request for url: https://rawdata.appsflyer.com": "AppsFlyer rejected the report request. Your account's daily quota for this report may be used up, which resets at 00:00 UTC. Otherwise please check that your subscription includes this report.",
             # AppsFlyer overloads 416 as a catch-all for request/authorization validation failures on
             # the aggregate Pull API (e.g. the account isn't authorized for this report or app id). The
             # request shape is fixed, so retrying the identical call can never satisfy it.

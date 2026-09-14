@@ -1,14 +1,26 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
-import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import { AttributionTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTable'
+import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
+import {
+    MarketingAnalyticsTab,
+    SetupSection,
+    marketingAnalyticsLogic,
+} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import { marketingAttributionLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAttributionLogic'
+import { BREAKDOWN_LABELS } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingBreakdown'
+import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 import { MarketingAnalyticsCell } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/shared'
 import { webAnalyticsDataTableQueryContext } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
@@ -18,6 +30,7 @@ import { labelFromKey } from '~/queries/nodes/WebOverview/WebOverview'
 import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
+    MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsDrillDownLevel,
     NodeKind,
@@ -25,6 +38,8 @@ import {
     WebOverviewQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
+
+import { SuggestionRow } from './Setup/SuggestionRow'
 
 // Channel is the top level because it covers all traffic, not just the platforms with a
 // connected ad source. Source is the second column so a channel breaks down into the
@@ -82,9 +97,29 @@ const QUERY_CONTEXT: QueryContext = {
 // Scaffold for the redesigned marketing analytics dashboard, gated behind the
 // `new-marketing-analytics-dashboard` feature flag.
 export function NewMarketingAnalyticsDashboard(): JSX.Element {
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { revenueGoals, selectedRevenueGoalId, revenueQuery, breakdownBy } = useValues(marketingAttributionLogic)
+    const { setRevenueGoalId, setBreakdownBy } = useActions(marketingAttributionLogic)
     const { dateFilter, compareFilter, shouldFilterTestAccounts } = useValues(marketingAnalyticsLogic)
-    const { setDates, setCompareFilter } = useActions(marketingAnalyticsLogic)
+    const { setDates, setCompareFilter, setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
+    const { setupPlan, setupPlanLoading, visibleSuggestions } = useValues(setupPlanLogic)
+    const { loadSetupPlan, reviewSuggestion } = useActions(setupPlanLogic)
+    const [sourcesExpanded, setSourcesExpanded] = useLocalStorage('marketing-source-suggestions-expanded', true)
+    const sourceSuggestions = visibleSuggestions.filter((suggestion) => suggestion.kind === 'connect_source')
+    const reviewSources = (): void => {
+        setSetupSection(SetupSection.SOURCES)
+        setActiveTab(MarketingAnalyticsTab.SETUP)
+    }
+
+    const requestedSetupPlan = useRef(false)
+    useEffect(() => {
+        if (!setupPlan && !setupPlanLoading && !requestedSetupPlan.current) {
+            requestedSetupPlan.current = true
+            loadSetupPlan()
+        }
+    }, [setupPlan, setupPlanLoading, loadSetupPlan])
+
     const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
     const query: WebOverviewQuery = {
         kind: NodeKind.WebOverviewQuery,
@@ -108,6 +143,38 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                     Reload summary
                 </LemonButton>
             </div>
+            {sourceSuggestions.length > 0 && (
+                <div className="border rounded">
+                    <div className="flex justify-end p-2">
+                        <LemonButton size="small" onClick={reviewSources}>
+                            Review in Setup
+                        </LemonButton>
+                    </div>
+                    <LemonCollapse
+                        embedded
+                        size="small"
+                        activeKey={sourcesExpanded ? 'sources' : null}
+                        onChange={(key) => setSourcesExpanded(key !== null)}
+                        panels={[
+                            {
+                                key: 'sources',
+                                header: `Suggested ad sources (${sourceSuggestions.length})`,
+                                content: sourceSuggestions.map((suggestion) => (
+                                    <SuggestionRow
+                                        key={suggestion.id}
+                                        suggestion={suggestion}
+                                        currentSection={SetupSection.SOURCES}
+                                        onReview={(item) => {
+                                            reviewSources()
+                                            reviewSuggestion(item)
+                                        }}
+                                    />
+                                )),
+                            },
+                        ]}
+                    />
+                </div>
+            )}
             {responseError ? (
                 <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadData('force_async') }}>
                     Could not load traffic metrics. Try again.
@@ -139,6 +206,72 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                 <section aria-label="Conversion" className="flex flex-col gap-2">
                     <h2 className="mb-0">Conversion</h2>
                     <AttributionTab />
+                </section>
+            )}
+            {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION] && (
+                <section aria-label="Retention" className="flex flex-col gap-2">
+                    <h2 className="mb-0">Retention</h2>
+                    <p className="text-secondary mb-0">
+                        Follow visitors acquired in the selected date range across subsequent periods.
+                    </p>
+                    <RetentionTab />
+                </section>
+            )}
+            {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION] && (
+                <section aria-label="Revenue" className="flex flex-col gap-4">
+                    <h2 className="mb-0">Revenue</h2>
+                    {currentTeamLoading || !currentTeam ? (
+                        <LemonSkeleton className="h-40" />
+                    ) : revenueQuery ? (
+                        <>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <DateFilter
+                                    dateFrom={dateFilter.dateFrom}
+                                    dateTo={dateFilter.dateTo}
+                                    onChange={setDates}
+                                />
+                                <LemonSelect
+                                    value={selectedRevenueGoalId}
+                                    onChange={(value) => value && setRevenueGoalId(value)}
+                                    options={revenueGoals.map((goal) => ({
+                                        value: goal.conversion_goal_id,
+                                        label: goal.conversion_goal_name,
+                                    }))}
+                                    data-attr="marketing-revenue-goal"
+                                />
+                                <LemonSelect
+                                    value={breakdownBy}
+                                    onChange={setBreakdownBy}
+                                    options={Object.values(MarketingAnalyticsAttributionBreakdown).map((value) => ({
+                                        value,
+                                        label: BREAKDOWN_LABELS[value],
+                                    }))}
+                                    data-attr="marketing-revenue-breakdown"
+                                />
+                            </div>
+                            <p className="text-secondary mb-0">
+                                Compare attributed value across models for one revenue goal at a time.
+                            </p>
+                            <AttributionTable
+                                metric="revenue"
+                                query={revenueQuery}
+                                attachTo={marketingAnalyticsLogic}
+                            />
+                        </>
+                    ) : (
+                        <LemonBanner
+                            type="info"
+                            action={{
+                                children: 'Review in Setup',
+                                onClick: () => {
+                                    setSetupSection(SetupSection.CONVERSION_GOALS)
+                                    setActiveTab(MarketingAnalyticsTab.SETUP)
+                                },
+                            }}
+                        >
+                            Choose an event or action goal that sums an amount and mark it as Revenue in Setup.
+                        </LemonBanner>
+                    )}
                 </section>
             )}
             <Query

@@ -184,6 +184,7 @@ class TestGetDagStructureActivity:
 
         assert dag.suspended_nodes["clickhouse"] == ([str(suspended_node.id)] if enforced else [])
         assert dag.suspended_nodes["duckgres"] == []
+        assert dag.suspended_nodes["managed_warehouse"] == []
 
     @pytest.mark.usefixtures("dag_edges")  # avoids type checking unused arg
     async def test_excludes_source_table_edges(self, activity_environment, ateam, adag):
@@ -700,15 +701,19 @@ class TestExecuteDAGWorkflowWithMocks:
     async def test_serving_engine_determines_suspension(self):
         dag_id = "test-dag"
         node_ch_id = str(uuid.uuid4())
-        node_duck_id = str(uuid.uuid4())
+        node_managed_warehouse_id = str(uuid.uuid4())
 
         @temporal_activity.defn(name="get_dag_structure_activity")
         async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
             return DAGPlan(
-                nodes=[node_ch_id, node_duck_id],
-                executable_nodes=[node_ch_id, node_duck_id],
+                nodes=[node_ch_id, node_managed_warehouse_id],
+                executable_nodes=[node_ch_id, node_managed_warehouse_id],
                 edges=[],
-                suspended_nodes={"clickhouse": [node_ch_id], "duckgres": [node_duck_id]},
+                suspended_nodes={
+                    "clickhouse": [node_ch_id],
+                    "duckgres": [],
+                    "managed_warehouse": [node_managed_warehouse_id],
+                },
             )
 
         async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -726,14 +731,14 @@ class TestExecuteDAGWorkflowWithMocks:
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
                     ExecuteDAGWorkflow.run,
-                    ExecuteDAGInputs(team_id=1, dag_id=dag_id, duckgres_only=True),
+                    ExecuteDAGInputs(team_id=1, dag_id=dag_id, managed_warehouse_only=True),
                     id=f"test-serving-engine-{uuid.uuid4()}",
                     task_queue="test-queue",
                     execution_timeout=dt.timedelta(seconds=30),
                 )
 
         assert node_ch_id in _mock_workflow_calls
-        assert node_duck_id not in _mock_workflow_calls
+        assert node_managed_warehouse_id not in _mock_workflow_calls
         assert result.successful_nodes == 1
         assert result.skipped_nodes == 1
 

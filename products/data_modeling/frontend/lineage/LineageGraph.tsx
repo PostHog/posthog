@@ -4,6 +4,7 @@ import {
     Background,
     BackgroundVariant,
     Controls,
+    FitViewOptions,
     MiniMap,
     Panel,
     PanelPosition,
@@ -34,6 +35,7 @@ export interface LineageGraphProps {
     direction?: ElkDirection
     /** Enable zoom/pan. Off by default for inline previews */
     interactive?: boolean
+    fitViewOptions?: FitViewOptions
     showMinimap?: boolean
     minimapPosition?: PanelPosition
     showControls?: boolean
@@ -95,6 +97,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             nodesDraggable={false}
             nodesConnectable={false}
             fitView
+            fitViewOptions={props.fitViewOptions}
             minZoom={0.1}
             maxZoom={2}
             zoomOnScroll={props.interactive ?? false}
