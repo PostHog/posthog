@@ -212,6 +212,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
             (
+                Matcher::Full("personhog_leader_fenced_producer_window_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
                 Matcher::Full("grpc_server_request_duration_ms".into()),
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),

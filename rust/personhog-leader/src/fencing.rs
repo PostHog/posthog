@@ -36,6 +36,12 @@ use std::{fmt, mem};
 
 use common_kafka::config::KafkaConfig;
 use common_kafka::transaction::{ConnectedTransactionalProducer, TransactionalProducer};
+
+use crate::producer_stats::FencedProducerContext;
+
+/// The fenced producers report their statistics through one context.
+type ConnectedFencedProducer = ConnectedTransactionalProducer<FencedProducerContext>;
+type FencedProducer = TransactionalProducer<FencedProducerContext>;
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use metrics::{counter, histogram};
@@ -161,9 +167,9 @@ impl Gate {
 /// there too — librdkafka teardown blocks — and only the error comes
 /// back.
 async fn init_producer(
-    connected: ConnectedTransactionalProducer,
+    connected: ConnectedFencedProducer,
     timeout: Duration,
-) -> Result<TransactionalProducer, String> {
+) -> Result<FencedProducer, String> {
     match spawn_blocking(move || connected.init(timeout)).await {
         Ok(Ok(ready)) => Ok(ready),
         Ok(Err((e, connected))) => {
@@ -185,7 +191,7 @@ fn drop_fence_off_worker(fence: Arc<PartitionFence>) {
 }
 
 struct PartitionFence {
-    producer: TransactionalProducer,
+    producer: FencedProducer,
     /// Makes the next commit task panic, so tests can reach the arm that
     /// handles a committer which never reports. Scoped to the fence
     /// rather than a global: the tests in this binary run concurrently.
@@ -476,7 +482,7 @@ enum Prepared {
     /// churn the claim exists to prevent.
     Connecting { token: u64, since: Instant },
     /// A finished dial, parked for the next acquire to consume.
-    Ready(ConnectedTransactionalProducer),
+    Ready(ConnectedFencedProducer),
 }
 
 /// Per-partition fenced producers for the changelog. Constructed once
@@ -756,7 +762,7 @@ impl FencedChangelogProducers {
     /// finding a replacement dial's claim here must not usurp it, or
     /// the replacement's own park would discard the newer connection
     /// while later convergence passes see whatever raced in.
-    fn park(&self, partition: u32, token: u64, connected: ConnectedTransactionalProducer) {
+    fn park(&self, partition: u32, token: u64, connected: ConnectedFencedProducer) {
         match self.prepared.entry(partition) {
             Entry::Occupied(mut slot) if matches!(slot.get(), Prepared::Connecting { token: t, .. } if *t == token) =>
             {
@@ -772,10 +778,7 @@ impl FencedChangelogProducers {
 
     /// Build the partition's connected-but-uninitialized producer on the
     /// blocking pool.
-    async fn connect_producer(
-        &self,
-        partition: u32,
-    ) -> Result<ConnectedTransactionalProducer, String> {
+    async fn connect_producer(&self, partition: u32) -> Result<ConnectedFencedProducer, String> {
         #[cfg(any(test, feature = "test-support"))]
         self.connect_attempts.fetch_add(1, Ordering::SeqCst);
         let kafka = self.kafka.clone();
@@ -783,11 +786,12 @@ impl FencedChangelogProducers {
         let timeout = self.init_timeout;
         let broker_txn_timeout = self.broker_txn_timeout;
         spawn_blocking(move || {
-            ConnectedTransactionalProducer::connect_bounded(
+            ConnectedFencedProducer::connect_bounded_with_context(
                 &kafka,
                 &tid,
                 timeout,
                 broker_txn_timeout,
+                FencedProducerContext::default(),
             )
         })
         .await
