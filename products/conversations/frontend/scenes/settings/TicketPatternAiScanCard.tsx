@@ -1,26 +1,45 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonCard, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { ticketPatternAiScanLogic } from '../../components/TicketPatterns/ticketPatternAiScanLogic'
 
-export function TicketPatternAiScanCard(): JSX.Element {
-    const { status, statusLoading, toggling } = useValues(ticketPatternAiScanLogic)
-    const { enableScan, disableScan } = useActions(ticketPatternAiScanLogic)
+export function TicketPatternAiScanCard({ detectionEnabled }: { detectionEnabled: boolean }): JSX.Element {
+    const { status, statusLoading, statusFailed, toggling } = useValues(ticketPatternAiScanLogic)
+    const { enableScan, disableScan, loadStatus } = useActions(ticketPatternAiScanLogic)
+    // The popover reads consent from this logic, so the switch has to read the same source, or
+    // a consent granted a moment ago leaves the two disagreeing until the page reloads.
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
 
     const enabled = status?.enabled ?? false
-    const consentGranted = status?.ai_consent_granted ?? false
+    // Both endpoints need ticket editor. Creating a scout also needs skill editor, which the
+    // server checks, so a person without it gets the toast rather than a dead switch.
+    const accessDisabledReason =
+        getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
+    const disabledReason = statusLoading
+        ? 'Loading'
+        : statusFailed
+          ? "Couldn't load the scan status"
+          : accessDisabledReason
+            ? accessDisabledReason
+            : !enabled && !detectionEnabled
+              ? 'Turn on ticket pattern detection first'
+              : undefined
 
     const onToggle = (next: boolean): void => {
         if (!next) {
             disableScan()
-        } else if (consentGranted) {
+        } else if (dataProcessingAccepted) {
             enableScan()
         } else {
             setConsentRequested(true)
@@ -55,11 +74,26 @@ export function TicketPatternAiScanCard(): JSX.Element {
                         checked={enabled}
                         onChange={onToggle}
                         loading={statusLoading || toggling}
-                        disabledReason={statusLoading ? 'Loading' : undefined}
+                        disabledReason={disabledReason}
+                        aria-label="AI scan"
                         data-attr="ticket-pattern-ai-scan-toggle"
                     />
                 </AIConsentPopoverWrapper>
             </div>
+            {statusFailed ? (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-alt">
+                    <span>Couldn't load the scan status.</span>
+                    <LemonButton size="xsmall" type="secondary" onClick={() => loadStatus()}>
+                        Try again
+                    </LemonButton>
+                </div>
+            ) : null}
+            {enabled && !detectionEnabled ? (
+                <p className="text-xs text-warning mb-0">
+                    Ticket pattern detection is off, but the AI scan still runs every hour and uses AI credits. Turn the
+                    scan off here if you do not want that.
+                </p>
+            ) : null}
             {status?.skill_name ? (
                 <p className="text-xs text-muted-alt mb-0">
                     {/* Each branch keeps its own element, so a switch removes an element rather than a

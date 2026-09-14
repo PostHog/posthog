@@ -54,6 +54,31 @@ describe('ticketPatternAiScanLogic', () => {
         expect(logic.values.toggling).toEqual(false)
     })
 
+    it('shows the scan as off straight from the disable response', async () => {
+        logic.actions.loadStatusSuccess(ON)
+        useMocks({
+            get: { '/api/projects/:team_id/conversations/pattern_ai_scan/status/': () => [500, { detail: 'boom' }] },
+            post: { '/api/projects/:team_id/conversations/pattern_ai_scan/disable/': () => [200, OFF] },
+        })
+
+        logic.actions.disableScan()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.status).toEqual(OFF)
+        expect(logic.values.statusFailed).toEqual(false)
+    })
+
+    it('keeps a failed status load apart from a scan that was never turned on', async () => {
+        useMocks({
+            get: { '/api/projects/:team_id/conversations/pattern_ai_scan/status/': () => [500, { detail: 'boom' }] },
+        })
+
+        logic.actions.loadStatus()
+        await expectLogic(logic).toDispatchActions(['loadStatusFailure'])
+
+        expect(logic.values.statusFailed).toEqual(true)
+    })
+
     it('keeps a failed reports load apart from a scan that found nothing', async () => {
         useMocks({
             get: { '/api/projects/:team_id/conversations/pattern_ai_scan/reports/': () => [500, { detail: 'boom' }] },

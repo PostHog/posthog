@@ -148,7 +148,7 @@ export function TicketPatternsSection(): JSX.Element {
                             />
                         </div>
                     </LemonCard>
-                    {settings.enabled ? <TicketPatternAiScanCard /> : null}
+                    <TicketPatternAiScanCard detectionEnabled={settings.enabled} />
                 </div>
             </SceneSection>
 

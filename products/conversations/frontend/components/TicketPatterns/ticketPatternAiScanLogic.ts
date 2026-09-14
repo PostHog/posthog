@@ -13,6 +13,7 @@ export interface ticketPatternAiScanLogicValues {
     reportsFailed: boolean
     reportsLoading: boolean
     status: AiScanStatusApi | null
+    statusFailed: boolean
     statusLoading: boolean
     toggling: boolean
 }
@@ -93,6 +94,16 @@ export const ticketPatternAiScanLogic = kea<ticketPatternAiScanLogicType>([
                 loadReportsFailure: () => true,
             },
         ],
+        // A failed status load leaves `status` null, the same shape as "never enabled". The switch
+        // must not read that as off and offer to turn on a scan that may already be running.
+        statusFailed: [
+            false,
+            {
+                loadStatus: () => false,
+                loadStatusSuccess: () => false,
+                loadStatusFailure: () => true,
+            },
+        ],
         toggling: [
             false,
             {
@@ -119,8 +130,8 @@ export const ticketPatternAiScanLogic = kea<ticketPatternAiScanLogicType>([
         },
         disableScan: async () => {
             try {
-                await api.conversationsPatternAiScanDisableCreate(String(getCurrentTeamId()))
-                actions.loadStatus()
+                const status = await api.conversationsPatternAiScanDisableCreate(String(getCurrentTeamId()))
+                actions.loadStatusSuccess(status)
             } catch (error: any) {
                 lemonToast.error(error?.detail ?? "Couldn't turn off the AI scan. Try again.")
             } finally {
