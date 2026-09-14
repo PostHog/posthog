@@ -268,9 +268,9 @@ The Rust reader (`rust/common/hypercache`) has an opt-in variant, deliberately m
 - Writes with `SET NX`, so a repair never overwrites an existing entry and concurrent repairs of one cold key collapse into one write.
 - Uses a short TTL (`HYPERCACHE_READ_REPAIR_TTL_SECONDS`, default 600) and does not register the entry in the expiry sorted set, so the Django refresh job stays the only owner of an entry's real lifetime. The short TTL also bounds how long a resurrected entry lingers in the `HyperCacheWriter::delete` race, where a reader that read S3 just before the delete writes the key back afterwards.
 - Is detached and best-effort: a Redis failure cannot fail a request that already has its value.
-- Refuses etag-enabled namespaces at reader construction (with a startup warning), because the payload and its companion `:etag` key are written atomically by the writer and a payload-only repair would leave the pair inconsistent.
+- On an etag-enabled namespace, stamps the companion `:etag` key too, hashed from the same S3 bytes the way Django hashes it (`_compute_etag`). A payload repaired alone would keep the key warm and unrevalidatable: the reader hands out no etag, so every later poll transfers the full payload and no client can ever get a 304. The etag is written only for a payload this repair installed, so a write that lost the race never stamps an etag over someone else's bytes.
 
-Enabled by default for the readers with no in-process cache in front of them: `array/config.json` in the feature-flags service, and `surveys` and `array/config.json` in hypercache-server. The `feature_flags` readers are excluded: they are etag-paired, and `FlagDefinitionsCache` already absorbs repeat reads of a cold key in process. `team_metadata` is excluded too: a hit there is trusted as proof of a valid token with no Postgres re-check, and team deletion clears Redis before S3, so a repair landing in that gap would resurrect a deleted team in Redis for up to the repair TTL.
+Enabled by default for the readers with no in-process cache in front of them: both `feature_flags` readers and `array/config.json` in the feature-flags service, and `surveys` and `array/config.json` in hypercache-server. `team_metadata` is excluded: a hit there is trusted as proof of a valid token with no Postgres re-check, and team deletion clears Redis before S3, so a repair landing in that gap would resurrect a deleted team in Redis for up to the repair TTL.
 
 Operational controls:
 
@@ -304,7 +304,7 @@ Operational controls:
 | `posthog_hypercache_sync`                  | `result`, `namespace`, `value` | Cache sync task outcomes        |
 | `posthog_hypercache_sync_duration_seconds` | `result`, `namespace`, `value` | Cache sync timing               |
 | `posthog_remote_config_via_cache`          | `result`                       | Remote config cache performance |
-| `posthog_hypercache_read_repair`           | `result`, `namespace`, `value` | Rust reader repair outcomes     |
+| `posthog_hypercache_read_repair`           | `result`, `namespace`, `value`, `key` | Rust reader repair outcomes     |
 | `flags_flag_definitions_etag_total`        | `result`                       | Rust reader ETag read outcomes  |
 
 Result labels: `hit_redis`, `hit_s3`, `hit_db`, `missing`, `batch_miss`
@@ -315,7 +315,7 @@ ETag result labels: `hit` (client ETag matched, 304), `miss` (client sent a stal
 
 `hit`, `miss`, and `none` partition every request. The two failure labels sit on top of that partition, and do not slice it. A failed ETag read increments `redis_missing` or `redis_error`, then falls through and increments `none` or `miss` as well. So read a failure label as a ratio over `hit + miss + none`, and never as a share of a stacked total. Stacked, the total exceeds the request rate, and `none` climbs in step with `redis_missing` for the same underlying cause.
 
-Read repair result labels: `success`, `skipped` (key already existed, repair deferred to it), `error`
+Read repair result labels: `success`, `skipped` (key already existed, repair deferred to it), `error`. The `key` label separates the payload write (`payload`) from the companion etag write (`etag`), which only an etag-enabled namespace emits.
 
 `skipped` also covers replica lag: reads go to the replica and repairs to the primary, so a key written to the primary but not yet replicated reads as cold and its repair is correctly refused.
 
@@ -397,14 +397,18 @@ Read the branches below per key.
 An absent payload beside a present ETag on the endpoint the reader served is the reading that
 every ETag-only check calls healthy. The handler reads the ETag key on every request and answers
 304 before it fetches the payload, so a team whose SDKs poll with a matching `If-None-Match`
-keeps the ETag key recent while the payload ages toward eviction. Read repair is disabled for
-this namespace, so the S3 hit does not rewarm the payload. Rebuild it with `update_flag_caches`.
+keeps the ETag key recent while the payload ages toward eviction. Read repair rewarms the payload
+from S3 on the first poll that misses it, so this state clears itself within one poll. A team that
+stays in it has repair off (`HYPERCACHE_READ_REPAIR_TTL_SECONDS=0` or `SKIP_WRITES`) or no S3 copy
+either; rebuild it with `update_flag_caches`.
 
 An absent ETag beside a present payload serves a 200 with the full payload on every poll, so
 it writes no `source="s3"` record and raises no alert. `redis_missing` climbing with no matching
-rise in S3 reads is that state. It does not repair itself: `verify_team_flag_definitions`
-compares the payload only, so the hourly verifier reads the team as clean and the ETag stays
-missing until the team's next flag change or its TTL refresh. The counter carries no `team_id`,
+rise in S3 reads is that state. It does not repair itself: the payload hit never reaches S3, so
+read repair never runs, and `verify_team_flag_definitions` compares the payload only, so the
+hourly verifier reads the team as clean and the ETag stays missing until the team's next flag
+change or its TTL refresh. An absent ETag beside an absent payload is the other reading, and
+that one does clear itself: the S3 hit repairs both keys, so the next poll carries a validator. The counter carries no `team_id`,
 so set `TEAM_IDS_TO_TRACK` to name a suspected team, or rebuild with `update_flag_caches`.
 
 Absent on the replica of the cluster the reader served, and present on that cluster's primary,

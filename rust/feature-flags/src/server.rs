@@ -329,14 +329,26 @@ pub async fn serve_with_rate_limiter_clock<C>(
         .clone()
         .unwrap_or_else(|| redis_client.clone());
 
+    // Read repair for the hypercaches that are read straight through to Redis on every
+    // request. team_metadata is left out, below: it gates token authentication.
+    let read_repair_ttl_seconds =
+        if config.hypercache_read_repair_ttl_seconds == 0 || *config.skip_writes {
+            None
+        } else {
+            Some(config.hypercache_read_repair_ttl_seconds)
+        };
+
     let mut flags_hypercache_config = HyperCacheConfig::new(
         "feature_flags".to_string(),
         "flags.json".to_string(),
         config.object_storage_region.clone(),
         config.object_storage_bucket.clone(),
     );
-    // Etag-paired on the Django writer side, which makes HyperCacheReader refuse read repair.
+    // Etag-paired on the Django writer side, so a repair here restores the payload and its
+    // companion `:etag`. Without the etag, FlagDefinitionsCache has no version key to cache
+    // under and every request recompiles the definitions.
     flags_hypercache_config.enable_etag = true;
+    flags_hypercache_config.read_repair_ttl_seconds = read_repair_ttl_seconds;
 
     if !config.object_storage_endpoint.is_empty() {
         flags_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
@@ -353,18 +365,6 @@ pub async fn serve_with_rate_limiter_clock<C>(
                 handles.fail_init(format!("flags hypercache init failed: {e:?}"));
                 return;
             }
-        };
-
-    // Read repair for the hypercaches that are read straight through to Redis on every
-    // request. Both feature_flags readers are left out: each carries a companion `:etag` key
-    // that a payload-only repair would leave stale, and FlagDefinitionsCache already absorbs
-    // repeat reads of a cold flags.json in process. team_metadata is left out too, below,
-    // for a different reason: it gates token authentication.
-    let read_repair_ttl_seconds =
-        if config.hypercache_read_repair_ttl_seconds == 0 || *config.skip_writes {
-            None
-        } else {
-            Some(config.hypercache_read_repair_ttl_seconds)
         };
 
     // Create HyperCacheReader for team metadata at startup
@@ -411,8 +411,11 @@ pub async fn serve_with_rate_limiter_clock<C>(
         config.object_storage_region.clone(),
         config.object_storage_bucket.clone(),
     );
-    // Etag-paired, same as flags.json above.
+    // Etag-paired, same as flags.json above. An entry that reaches Redis expiry is served
+    // from S3 with no etag beside it, so /flags/definitions answers 200 with no validator
+    // and a polling SDK can never get a 304 again. The repair restores both keys.
     flags_with_cohorts_config.enable_etag = true;
+    flags_with_cohorts_config.read_repair_ttl_seconds = read_repair_ttl_seconds;
 
     if !config.object_storage_endpoint.is_empty() {
         flags_with_cohorts_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
