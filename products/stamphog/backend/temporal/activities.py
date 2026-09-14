@@ -700,8 +700,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         run.save(update_fields=["output", "updated_at"])
 
         # Sandbox creation draws on the same budget as the steps below it, so a slow provision
-        # leaves the clone, the prefetch and the reviewer correspondingly less. The policy, engine
-        # and context writes in between keep their own fixed small timeouts.
+        # leaves the clone, the prefetch and the reviewer correspondingly less.
         try:
             # Raises when the budget is already gone, so an activity with no time left does not pay
             # for a box the first step would only reject.
@@ -710,6 +709,11 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
             try:
                 _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token, deadline)
                 _prefetch_review_blobs(sandbox, base_sha, run.head_sha, token, _blame_paths(files), deadline)
+                # The prefetch swallows its own failure, including a timeout that consumed the rest
+                # of the budget. Re-check here, because the three steps below write through the
+                # sandbox filesystem API and cannot take a deadline: passing one would switch them
+                # to an exec-based write, which is a different mechanism, not a bounded one.
+                _step_timeout(deadline, REVIEWER_TIMEOUT_SECONDS)
                 _inject_policy_files(sandbox, policy_files)
                 _ship_engine(sandbox)
                 _write_context(sandbox, invocation)
