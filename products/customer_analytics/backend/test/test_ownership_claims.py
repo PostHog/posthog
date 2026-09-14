@@ -12,7 +12,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
-from temporalio.client import ScheduleState
+from temporalio.client import ScheduleOverlapPolicy, ScheduleState
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy
@@ -31,7 +31,9 @@ from products.customer_analytics.backend.models import (
     TeamCustomerAnalyticsConfig,
 )
 from products.customer_analytics.backend.temporal.ownership_claims import (
+    OWNERSHIP_CLAIMS_COORDINATOR_EXECUTION_TIMEOUT,
     OWNERSHIP_CLAIMS_COORDINATOR_SCHEDULE_ID,
+    OWNERSHIP_CLAIMS_INTERVAL,
     OwnershipClaimsCoordinatorInput,
     OwnershipClaimsCoordinatorOutput,
     OwnershipClaimsCoordinatorWorkflow,
@@ -422,6 +424,27 @@ async def test_coordinator_starts_one_sweep_per_project_and_leaves_a_running_one
     for call in start_child_workflow.await_args_list:
         assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
         assert call.kwargs["parent_close_policy"] == ParentClosePolicy.ABANDON
+
+
+@pytest.mark.asyncio
+async def test_a_coordinator_run_expires_before_the_next_tick() -> None:
+    client = MagicMock()
+    with (
+        patch(
+            "products.customer_analytics.backend.temporal.ownership_claims.a_schedule_exists",
+            new=AsyncMock(return_value=False),
+        ),
+        patch(
+            "products.customer_analytics.backend.temporal.ownership_claims.a_create_schedule", new=AsyncMock()
+        ) as create_schedule,
+    ):
+        await create_ownership_claims_coordinator_schedule(client)
+
+    assert create_schedule.await_args is not None
+    schedule = create_schedule.await_args.args[2]
+    assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
+    assert schedule.action.execution_timeout == OWNERSHIP_CLAIMS_COORDINATOR_EXECUTION_TIMEOUT
+    assert OWNERSHIP_CLAIMS_COORDINATOR_EXECUTION_TIMEOUT < OWNERSHIP_CLAIMS_INTERVAL
 
 
 @pytest.mark.asyncio

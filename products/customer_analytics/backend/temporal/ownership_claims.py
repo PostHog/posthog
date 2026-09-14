@@ -47,6 +47,11 @@ OWNERSHIP_CLAIMS_SWEEP_WORKFLOW_NAME = "customer-analytics-ownership-claims-swee
 # Every sweep reads each bound view to the end, so the cadence trades delivery latency against
 # repeated reads of views that have not changed since the last tick.
 OWNERSHIP_CLAIMS_INTERVAL = timedelta(minutes=15)
+# The coordinator abandons its children, so its own budget is the collect activity's three attempts
+# of two minutes plus queue wait. It must stay under the interval: an exception that is not a
+# FailureError fails the workflow task, which the server retries without limit, and the SKIP policy
+# then drops every later tick for as long as that run stays open.
+OWNERSHIP_CLAIMS_COORDINATOR_EXECUTION_TIMEOUT = timedelta(minutes=10)
 
 
 @frozen
@@ -175,6 +180,7 @@ def _build_ownership_claims_coordinator_schedule(state: ScheduleState) -> Schedu
             OwnershipClaimsCoordinatorInput(),
             id=OWNERSHIP_CLAIMS_COORDINATOR_WORKFLOW_NAME,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            execution_timeout=OWNERSHIP_CLAIMS_COORDINATOR_EXECUTION_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=1),
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=OWNERSHIP_CLAIMS_INTERVAL)]),
