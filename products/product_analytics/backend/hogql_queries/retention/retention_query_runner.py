@@ -416,12 +416,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         if self.query.properties is not None and self.query.properties != []:
             events_where.append(property_to_expr(self.query.properties, self.team))
 
-        if (
-            self.query.filterTestAccounts
-            and isinstance(self.team.test_account_filters, list)
-            and len(self.team.test_account_filters) > 0
-        ):
-            for prop in self.team.test_account_filters:
+        if self.query.filterTestAccounts and self.team.resolvable_test_account_filters:
+            for prop in self.team.resolvable_test_account_filters:
                 events_where.append(property_to_expr(prop, self.team))
 
         if not is_first_occurrence_matching_filters and not is_first_ever_occurrence:

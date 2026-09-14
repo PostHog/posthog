@@ -157,7 +157,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
         return False
 
     def _get_test_account_filters(self) -> list:
-        return self.team.test_account_filters or []
+        return self.team.resolvable_test_account_filters
 
     def _transform_person_property_col(self, col: str) -> str:
         """Transform person.properties.X to use __person_lookup alias."""

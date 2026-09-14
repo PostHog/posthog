@@ -79,7 +79,7 @@ class TraceNeighborsQueryRunner(AnalyticsQueryRunner[TraceNeighborsQueryResponse
         # Test accounts filter
         if self.query.filterTestAccounts:
             with self.timings.measure("test_account_filters"):
-                for prop in self.team.test_account_filters or []:
+                for prop in self.team.resolvable_test_account_filters:
                     exprs.append(property_to_expr(prop, self.team))
 
         # Support traces filter

@@ -1,6 +1,9 @@
 from datetime import timedelta
 from decimal import Decimal
-from functools import lru_cache
+from functools import (
+    cached_property as instance_cached_property,
+    lru_cache,
+)
 from typing import TYPE_CHECKING, Any, Optional, cast
 from zoneinfo import ZoneInfo
 
@@ -24,6 +27,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.property.property import cohort_property_id
 from posthog.models.signals import mutable_receiver, secret_api_token_rotated
 from posthog.models.utils import (
     UUIDTClassicModel,
@@ -794,6 +798,34 @@ class Team(UUIDTClassicModel):
         from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 
         return get_or_create_team_extension(self, TeamFeatureFlagPolicyConfig)
+
+    # Per instance, unlike the `cached_property` above it: two Team objects for the same row are
+    # equal, and that shared cache would hand one of them the other's filters.
+    @instance_cached_property
+    def resolvable_test_account_filters(self) -> list[dict]:
+        """`test_account_filters` without the cohort filters whose cohort is gone.
+
+        A cohort filter holds the cohort id by value, and nothing keeps that reference in sync when
+        the cohort is deleted. A stale id resolves nowhere, so keeping it would fail every query that
+        has "filter test accounts" on, not only the ones the cohort was meant to narrow.
+        """
+        from products.cohorts.backend.models.cohort import Cohort  # noqa: PLC0415 — breaks a circular import
+
+        filters = self.test_account_filters
+        if not isinstance(filters, list):
+            return []
+
+        cohort_ids = [cohort_property_id(filter) for filter in filters]
+        referenced_ids = {id for id in cohort_ids if id is not None}
+        if not referenced_ids:
+            return filters
+
+        live_ids = set(
+            Cohort.objects.filter(id__in=referenced_ids, team__project_id=self.project_id, deleted=False).values_list(
+                "id", flat=True
+            )
+        )
+        return [filter for filter, id in zip(filters, cohort_ids) if id is None or id in live_ids]
 
     @property
     def default_modifiers(self) -> dict:

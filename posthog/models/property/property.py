@@ -89,6 +89,23 @@ NEGATED_OPERATORS = ["is_not", "not_icontains", "not_starts_with", "not_ends_wit
 # Single source of truth for the starts_with/ends_with operator family, so each backend
 # allowlist (feature flags, logs, tracing, sessions) stays in sync without hand-copying.
 STRING_PREFIX_SUFFIX_OPERATORS: tuple[str, ...] = ("starts_with", "not_starts_with", "ends_with", "not_ends_with")
+# The cohort-backed property types `property_to_expr` resolves against a Cohort row.
+COHORT_PROPERTY_TYPES: tuple[str, ...] = ("cohort", "static-cohort", "precalculated-cohort")
+
+
+def cohort_property_id(property: object) -> Optional[int]:
+    """The cohort a property filter points at, or None when the filter is not a cohort filter."""
+    if not isinstance(property, dict) or property.get("type") not in COHORT_PROPERTY_TYPES:
+        return None
+    value = property.get("value")
+    if isinstance(value, bool) or not isinstance(value, int | str):
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 CLICKHOUSE_ONLY_PROPERTY_TYPES = [
     "static-cohort",
     "dynamic-cohort",

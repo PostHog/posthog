@@ -408,12 +408,8 @@ class TrendsActorsQueryBuilder:
         conditions: list[ast.Expr] = []
 
         # Filter Test Accounts
-        if (
-            self.trends_query.filterTestAccounts
-            and isinstance(self.team.test_account_filters, list)
-            and len(self.team.test_account_filters) > 0
-        ):
-            for property in self.team.test_account_filters:
+        if self.trends_query.filterTestAccounts and self.team.resolvable_test_account_filters:
+            for property in self.team.resolvable_test_account_filters:
                 conditions.append(property_to_expr(property, self.team))
 
         # Properties

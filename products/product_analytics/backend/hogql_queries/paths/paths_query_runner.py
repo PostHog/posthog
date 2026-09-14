@@ -365,12 +365,8 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         if self.query.properties is not None and self.query.properties != []:
             event_filters.append(property_to_expr(self.query.properties, self.team))
 
-        if (
-            self.query.filterTestAccounts
-            and isinstance(self.team.test_account_filters, list)
-            and len(self.team.test_account_filters) > 0
-        ):
-            for prop in self.team.test_account_filters:
+        if self.query.filterTestAccounts and self.team.resolvable_test_account_filters:
+            for prop in self.team.resolvable_test_account_filters:
                 event_filters.append(property_to_expr(prop, self.team))
 
         date_filter_expr = self.date_filter_expr()

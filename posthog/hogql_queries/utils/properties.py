@@ -71,12 +71,8 @@ class Properties:
         team, query = self.context.team, self.context.query
 
         # Filter Test Accounts
-        if (
-            query.filterTestAccounts
-            and isinstance(team.test_account_filters, list)
-            and len(team.test_account_filters) > 0
-        ):
-            for property in team.test_account_filters:
+        if query.filterTestAccounts and team.resolvable_test_account_filters:
+            for property in team.resolvable_test_account_filters:
                 exprs.append(property_to_expr(property, team))
 
         # Properties

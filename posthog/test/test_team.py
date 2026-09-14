@@ -132,6 +132,29 @@ class TestTeam(BaseTest):
             [{"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}],
         )
 
+    @parameterized.expand(
+        [
+            ("live_cohort_is_kept", False, True),
+            ("deleted_cohort_is_dropped", True, False),
+        ]
+    )
+    def test_resolvable_test_account_filters_drops_gone_cohorts(
+        self, _name: str, cohort_deleted: bool, expect_cohort_filter: bool
+    ):
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        test_users_cohort = Cohort.objects.get(team=team, kind=CohortKind.INTERNAL_TEST_USERS)
+        host_filter = {"key": "$host", "type": "event", "value": "localhost", "operator": "is_not"}
+        team.test_account_filters = [*team.test_account_filters, host_filter]
+        team.save()
+
+        if cohort_deleted:
+            test_users_cohort.deleted = True
+            test_users_cohort.save()
+
+        cohort_filter = {"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}
+        expected = [cohort_filter, host_filter] if expect_cohort_filter else [host_filter]
+        self.assertEqual(Team.objects.get(pk=team.pk).resolvable_test_account_filters, expected)
+
     def test_create_team_with_generic_email_skips_domain_filter(self):
         user = User.objects.create(email="test@gmail.com")
         organization = Organization.objects.create()

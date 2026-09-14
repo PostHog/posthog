@@ -215,8 +215,8 @@ def get_test_accounts_filter(
 
     filter_test_accounts = criteria.filterTestAccounts if criteria else False
 
-    if filter_test_accounts and isinstance(team.test_account_filters, list) and len(team.test_account_filters) > 0:
-        return [property_to_expr(property, team) for property in team.test_account_filters]
+    if filter_test_accounts and team.resolvable_test_account_filters:
+        return [property_to_expr(property, team) for property in team.resolvable_test_account_filters]
     return []
 
 
