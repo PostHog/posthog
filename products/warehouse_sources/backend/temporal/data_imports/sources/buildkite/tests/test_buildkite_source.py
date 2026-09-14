@@ -31,17 +31,32 @@ class TestBuildkiteSource:
 
     @parameterized.expand(
         [
-            # Only builds exposes a server-side timestamp filter, so it's the only incremental endpoint.
-            ("builds", True),
-            ("organizations", False),
-            ("pipelines", False),
-            ("agents", False),
+            # Builds exposes a server-side timestamp filter, and jobs inherit it through the build
+            # fan-out that drives them. Nothing else has one.
+            ("builds", True, True),
+            ("jobs", True, False),
+            ("organizations", False, False),
+            ("pipelines", False, False),
+            ("agents", False, False),
+            ("teams", False, False),
+            ("test_suites", False, False),
+            ("test_suite_runs", False, False),
+            ("test_suite_tests", False, False),
         ]
     )
-    def test_incremental_support_per_endpoint(self, endpoint: str, expected: bool) -> None:
+    def test_incremental_support_per_endpoint(self, endpoint: str, incremental: bool, append: bool) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
-        assert schemas[endpoint].supports_incremental is expected
-        assert schemas[endpoint].supports_append is expected
+        assert schemas[endpoint].supports_incremental is incremental
+        # A job restates after it is created (state, finished_at) and each incremental run re-walks
+        # the trailing build window, so append would materialize the re-pulled rows as duplicates.
+        assert schemas[endpoint].supports_append is append
+
+    def test_jobs_is_off_by_default_and_says_why(self) -> None:
+        # One request per build is enough API cost that the schema picker must not pre-select it.
+        schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
+        assert schemas["jobs"].should_sync_default is False
+        assert schemas["jobs"].description is not None
+        assert all(s.should_sync_default for s in schemas.values() if s.name != "jobs")
 
     @parameterized.expand(
         [
