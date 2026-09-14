@@ -6,6 +6,15 @@ import { ModelMetadata } from './ModelMetadata'
 const meta: Meta<typeof ModelHealthSummary> = {
     title: 'Products/Data modeling/Model health summary',
     component: ModelHealthSummary,
+    decorators: [
+        (Story) => (
+            // The card is width-filling by design, so a story needs a definite column to sit in:
+            // Storybook's padded root is shrink-to-fit and collapses it to nothing otherwise.
+            <div className="w-[56rem]">
+                <Story />
+            </div>
+        ),
+    ],
     args: {
         status: 'Completed',
         suspended: false,

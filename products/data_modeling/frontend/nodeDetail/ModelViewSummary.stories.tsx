@@ -5,6 +5,15 @@ import { ModelViewSummary } from './ModelViewSummary'
 const meta: Meta<typeof ModelViewSummary> = {
     title: 'Products/Data modeling/Model view summary',
     component: ModelViewSummary,
+    decorators: [
+        (Story) => (
+            // The card is width-filling by design, so a story needs a definite column to sit in:
+            // Storybook's padded root is shrink-to-fit and collapses it to nothing otherwise.
+            <div className="w-[56rem]">
+                <Story />
+            </div>
+        ),
+    ],
     args: { downstreamCount: 3, lineageUrl: '#lineage' },
     parameters: { testOptions: { snapshotBrowsers: ['chromium'] } },
 }

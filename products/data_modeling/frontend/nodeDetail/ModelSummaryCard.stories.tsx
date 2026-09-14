@@ -6,6 +6,15 @@ import { ModelSummaryCard } from './ModelSummaryCard'
 const meta: Meta<typeof ModelSummaryCard> = {
     title: 'Products/Data modeling/Model summary card',
     component: ModelSummaryCard,
+    decorators: [
+        (Story) => (
+            // The card is width-filling by design, so a story needs a definite column to sit in:
+            // Storybook's padded root is shrink-to-fit and collapses it to nothing otherwise.
+            <div className="w-[56rem]">
+                <Story />
+            </div>
+        ),
+    ],
     args: {
         dataAttr: 'model-summary-card-story',
         children: <span className="font-semibold">Runs on demand</span>,
