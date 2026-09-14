@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
-exports[`CdpCyclotronWorkerPlugins onEvent should handle and collect errors 2`] = `
+exports[`CdpCyclotronWorkerPlugins onEvent should handle and collect errors once the retries are spent 2`] = `
 [
   {
     "headers": undefined,

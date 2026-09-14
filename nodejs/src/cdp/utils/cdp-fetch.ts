@@ -80,6 +80,45 @@ export function isConnectionLevelError(error: any): boolean {
     )
 }
 
+// Request failures a later attempt could clear: the request never reached the destination, or the
+// destination dropped it mid-flight. `AbortSignal.timeout` rejects with a `TimeoutError`, and undici
+// reports connect and DNS failures as an error code, or as an AggregateError of per-address failures
+// when every address for a host fails.
+const RETRIABLE_REQUEST_ERROR_CODES = [
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'EAI_AGAIN',
+    'EHOSTUNREACH',
+    'ENETUNREACH',
+    'ENOTFOUND',
+    'EPIPE',
+    'ETIMEDOUT',
+    'UND_ERR_BODY_TIMEOUT',
+    'UND_ERR_CONNECT_TIMEOUT',
+    'UND_ERR_HEADERS_TIMEOUT',
+    'UND_ERR_SOCKET',
+]
+
+export function isRetriableRequestError(error: unknown): boolean {
+    // An SSRF or URL-validation refusal fails the same way on every attempt.
+    if (isBlockedRequestError(error)) {
+        return false
+    }
+
+    const { name, code } = (error ?? {}) as { name?: string; code?: string }
+
+    // `FetchError` and `AbortError` predate the move to undici, so keep matching them.
+    if (name === 'TimeoutError' || name === 'AbortError' || name === 'FetchError') {
+        return true
+    }
+
+    if (code && RETRIABLE_REQUEST_ERROR_CODES.includes(code)) {
+        return true
+    }
+
+    return error instanceof AggregateError && error.errors.some((e) => isRetriableRequestError(e))
+}
+
 // An AggregateError's own message is usually empty — undici throws it when every connection
 // attempt to a host fails, and the per-address reasons (ECONNREFUSED, ETIMEDOUT, ...) live in
 // `errors`. Without unpacking them, the customer-facing log reads "AggregateError: " with no way

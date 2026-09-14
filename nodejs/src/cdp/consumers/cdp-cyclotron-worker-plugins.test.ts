@@ -181,18 +181,43 @@ describe('CdpCyclotronWorkerPlugins', () => {
             ])
         })
 
-        it('should handle and collect errors', async () => {
-            jest.spyOn(intercomPlugin as any, 'onEvent')
-
+        const failingInvocation = (tries: number) => {
             const invocation = createExampleInvocation(fn, globals)
             invocation.state.globals.event.event = 'mycustomevent'
             invocation.state.globals.event.properties = {
                 email: 'test@posthog.com',
             }
-
+            invocation.queueMetadata = { tries }
             mockFetch.mockRejectedValue(new Error('Test error'))
+            return invocation
+        }
 
-            const { invocationResults, backgroundTask } = await processor.processBatch([invocation])
+        it('should requeue a retriable failure instead of dropping the event', async () => {
+            jest.spyOn(intercomPlugin as any, 'onEvent')
+
+            const { invocationResults, backgroundTask } = await processor.processBatch([failingInvocation(0)])
+            await backgroundTask
+
+            expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
+
+            expect(invocationResults[0].error).toBeUndefined()
+            expect(forSnapshot(invocationResults[0].logs.map((x) => x.message))).toMatchInlineSnapshot(`
+                [
+                  "Plugin execution failed, retrying: Service is down, retry later",
+                ]
+            `)
+
+            const queued = jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0]
+            expect(queued).toMatchObject([{ finished: false }])
+            expect(queued[0].invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
+        })
+
+        it('should handle and collect errors once the retries are spent', async () => {
+            jest.spyOn(intercomPlugin as any, 'onEvent')
+
+            const { invocationResults, backgroundTask } = await processor.processBatch([
+                failingInvocation(hub.CDP_FETCH_RETRIES - 1),
+            ])
             await backgroundTask
 
             expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)

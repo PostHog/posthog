@@ -86,6 +86,8 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             topic: config.CDP_LEGACY_EVENT_CONSUMER_TOPIC,
         })
 
+        // No retry settings: this consumer only records metrics for a result, so it has nowhere to
+        // put a rescheduled invocation. Retries belong to the cyclotron worker.
         this.legacyPluginExecutor = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
         this.legacyWebhookService = new LegacyWebhookService(deps.postgres, deps.teamManager, deps.pubSub)
 
