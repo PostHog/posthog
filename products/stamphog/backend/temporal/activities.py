@@ -25,6 +25,7 @@ import base64
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -545,6 +546,26 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
     return {"in_flight": in_flight}
 
 
+def _sandbox_deadline() -> float:
+    """Monotonic time the sandbox phase has to finish by, measured from Temporal's own clock.
+
+    Temporal starts RUN_REVIEW_TIMEOUT when it hands the activity task to the worker, which can be
+    well before this code runs: ``@asyncify`` queues the synchronous body on an executor, and the
+    run load, token fetch and invocation build all happen before a sandbox exists. Anchoring on
+    ``started_time`` charges every one of those to the budget, so no step is granted time the
+    activity itself does not have. A missing or implausible ``started_time`` falls back to the full
+    budget, which is the behaviour of a worker that is not queueing.
+    """
+    budget = RUN_REVIEW_TIMEOUT.total_seconds() - SANDBOX_PHASE_RESERVE_SECONDS
+    try:
+        elapsed = (datetime.now(UTC) - activity.info().started_time).total_seconds()
+    except Exception:
+        elapsed = 0.0
+    if not 0.0 <= elapsed < budget:
+        elapsed = 0.0
+    return time.monotonic() + budget - elapsed
+
+
 def _step_timeout(deadline: float, ceiling_seconds: int) -> int:
     """Seconds the next sandbox step may take: its own ceiling, or the rest of the budget.
 
@@ -563,9 +584,7 @@ def _step_timeout(deadline: float, ceiling_seconds: int) -> int:
 @asyncify
 def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     """Provision a sandbox, clone the PR, run the full engine offline, stash its raw output."""
-    # Temporal starts RUN_REVIEW_TIMEOUT at activity entry, so the budget starts here too. The run
-    # load, the token fetch and the invocation build all draw on it before a sandbox exists.
-    deadline = time.monotonic() + RUN_REVIEW_TIMEOUT.total_seconds() - SANDBOX_PHASE_RESERVE_SECONDS
+    deadline = _sandbox_deadline()
     run = _load_run(input)
 
     # A newer relevant delivery for the same PR may have superseded this run while it queued — even
@@ -1344,7 +1363,13 @@ def _clone_pr(
     fetch_specs = f"{auth} fetch origin {shlex.quote(f'pull/{pr_number}/head')}"
     if base_sha:
         fetch_specs = f"{auth} fetch origin {shlex.quote(base_sha)} && {fetch_specs}"
-    checkout = f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {fetch_specs} && git checkout {shlex.quote(head_sha)}"
+    # The checkout carries the credential because it materializes the head tree: on a filtered
+    # clone that reads blobs the fetches above deliberately left on the remote, and git hands the
+    # -c settings to the promisor fetch it spawns. Without it that fetch is anonymous, which a
+    # private repository refuses.
+    checkout = (
+        f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {fetch_specs} && {auth} checkout {shlex.quote(head_sha)}"
+    )
     _execute_or_raise(checkout, f"Failed to check out {head_sha}")
 
 

@@ -143,6 +143,11 @@ def test_clone_is_blobless_and_blame_blobs_are_prefetched_in_one_fetch() -> None
     assert "--filter=blob:none" in clone
     assert "--depth" not in clone
 
+    # The checkout materializes the head tree, so its promisor fetch needs the credential that
+    # every other GitHub-facing command in the clone carries.
+    checkout = next(cmd for cmd in executed if " checkout " in cmd)
+    assert "http.extraheader" in checkout.split(" checkout ")[0]
+
     prefetch = next(cmd for cmd in executed if "rev-list" in cmd)
     assert "--missing=print" in prefetch
     assert "src/old_name.py" in prefetch
