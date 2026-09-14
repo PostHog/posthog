@@ -2,13 +2,19 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { expectLogic } from 'kea-test-utils'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { initKeaTests } from '~/test/init'
 
+import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+
+import { mockTask } from '../../__mocks__/inboxMocks'
 import { captureInboxReportAction } from '../../inboxAnalytics'
-import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { inboxTaskKickoffLogic, REPORT_AI_PANEL_ID } from '../../inboxTaskKickoffLogic'
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { ImplementButton } from './ImplementButton'
 
@@ -71,6 +77,32 @@ describe('ImplementButton', () => {
         expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
         expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({ has_feedback: false })
     })
+
+    it.each([TaskRunStatus.QUEUED, TaskRunStatus.IN_PROGRESS])(
+        'opens the existing %s task instead of starting another',
+        async (status) => {
+            const user = userEvent.setup()
+            const report = makeReport()
+            const detail = inboxReportDetailLogic({ reportId: report.id, report })
+            detail.mount()
+            await expectLogic(detail).toFinishAllListeners()
+            const task = mockTask('implementation-task', status)
+            detail.actions.loadReportTasksSuccess([
+                { task, purpose: 'implementation', purposeLabel: 'Implementation', startedAt: task.created_at },
+            ])
+            render(<ImplementButton report={report} />)
+
+            expect(screen.queryByTestId('inbox-report-create-pr')).not.toBeInTheDocument()
+            await user.click(screen.getByTestId('inbox-report-open-task'))
+
+            expect(createPrFromReport).not.toHaveBeenCalled()
+            expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toMatchObject({
+                taskId: task.id,
+                runId: task.latest_run.id,
+            })
+            detail.unmount()
+        }
+    )
 
     it('opens both implementation options without starting work', async () => {
         await openMenu()
