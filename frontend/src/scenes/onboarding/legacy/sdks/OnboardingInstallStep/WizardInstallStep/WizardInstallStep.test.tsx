@@ -1,13 +1,16 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { activeCloudRunLogic } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
+import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { PreflightStatus } from '~/types'
 
 import { VERIFY_AI_EVENTS } from '../../hooks/useInstallationComplete'
 import { VariantProps } from '../types'
@@ -26,11 +29,13 @@ jest.mock('../../../OnboardingStep', () => ({
     OnboardingStep: ({
         children,
         continueDisabledReason,
+        continueDisabledHint,
         actions,
         title,
     }: {
         children: React.ReactNode
         continueDisabledReason?: string
+        continueDisabledHint?: string
         actions?: React.ReactNode
         title: string
     }) => (
@@ -38,6 +43,7 @@ jest.mock('../../../OnboardingStep', () => ({
             <h1>{title}</h1>
             {actions}
             {children}
+            {continueDisabledReason && <p data-attr="mock-continue-blocked">{continueDisabledHint}</p>}
             <button data-attr="mock-continue" aria-disabled={continueDisabledReason ? 'true' : undefined}>
                 Continue
             </button>
@@ -115,7 +121,7 @@ describe('WizardInstallStep with wizardOverrides', () => {
         cleanup()
     })
 
-    it('without an active cloud run: shows the ai-observability command and blocks Continue', async () => {
+    it('without an active cloud run: shows the ai-observability command and says why Continue is blocked', async () => {
         render(
             <Provider>
                 <WizardInstallStep {...AIO_PROPS} />
@@ -126,6 +132,9 @@ describe('WizardInstallStep with wizardOverrides', () => {
         expect(document.querySelector('[data-attr="mock-cloud-run-block"]')).toBeNull()
 
         expect(document.querySelector('[data-attr="mock-continue"]')).toHaveAttribute('aria-disabled', 'true')
+        expect(document.querySelector('[data-attr="mock-continue-blocked"]')).toHaveTextContent(
+            'Finish the setup above. This step unlocks when your first LLM generation arrives.'
+        )
     })
 
     it('ignores a cloud run queued on an earlier install step: command stays, Continue stays blocked', async () => {
@@ -148,5 +157,27 @@ describe('WizardInstallStep with wizardOverrides', () => {
         expect(document.querySelector('[data-attr="mock-cloud-run-block"]')).toBeNull()
 
         expect(document.querySelector('[data-attr="mock-continue"]')).toHaveAttribute('aria-disabled', 'true')
+    })
+
+    it('on self-hosted: points at manual setup, because no install command is rendered', async () => {
+        // Let the mount-time preflight settle first, so the self-hosted values are not overwritten
+        // by the fetch the fixture kicked off.
+        await waitFor(() => expect(preflightLogic.values.preflight).not.toBeNull())
+        preflightLogic.actions.loadPreflightSuccess({
+            ...preflightJson,
+            cloud: false,
+            is_debug: false,
+        } as unknown as PreflightStatus)
+
+        render(
+            <Provider>
+                <WizardInstallStep {...AIO_PROPS} />
+            </Provider>
+        )
+
+        expect(screen.queryByText((t) => t.includes('npx'))).toBeNull()
+        expect(document.querySelector('[data-attr="mock-continue-blocked"]')).toHaveTextContent(
+            'Set up the SDK manually. This step unlocks when your first LLM generation arrives.'
+        )
     })
 })

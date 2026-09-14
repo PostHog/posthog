@@ -26,6 +26,7 @@ export const OnboardingStep = ({
     onContinue,
     continueText,
     continueDisabledReason,
+    continueDisabledHint,
     hideHeader,
     hideTitle = false,
     fullWidth = false,
@@ -42,6 +43,8 @@ export const OnboardingStep = ({
     onContinue?: () => void
     continueText?: string
     continueDisabledReason?: string
+    /** Sentence shown next to the buttons while Continue is gated. Name the action that clears the gate. */
+    continueDisabledHint?: string
     hideHeader?: boolean
     /** Hide just the <h1> title (keeps breadcrumbs and the actions slot). */
     hideTitle?: boolean
@@ -108,7 +111,15 @@ export const OnboardingStep = ({
                     </div>
                 )}
                 {children}
-                <div className="mt-8 flex justify-end gap-x-2">
+                <div className="mt-8 flex flex-wrap items-center justify-end gap-2">
+                    {showContinue && continueDisabledReason && !pendingAdvance && (
+                        <p
+                            className="text-secondary text-sm m-0 flex-1 min-w-0"
+                            data-attr="onboarding-continue-blocked"
+                        >
+                            {continueDisabledHint ?? continueDisabledReason}
+                        </p>
+                    )}
                     {showHelpButton && (
                         <LemonButton type="secondary" onClick={() => openSupportForm({ kind: 'support' })}>
                             Need help?
