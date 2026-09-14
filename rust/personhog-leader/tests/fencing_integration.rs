@@ -88,12 +88,29 @@ fn fenced_producers_with_window_and_fill(
         broker_txn_timeout: BROKER_TXN_TIMEOUT,
         window,
         window_max_writes,
+        lanes: 1,
         settle_budget: window + Duration::from_secs(5),
     })
 }
 
 fn fenced_producers_with_window(topic: &str, window: Duration) -> FencedChangelogProducers {
     fenced_producers_with_window_and_fill(topic, window, 32)
+}
+
+fn fenced_producers_with_lanes(topic: &str, lanes: usize) -> FencedChangelogProducers {
+    let mut kafka = test_kafka_config();
+    kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
+    FencedChangelogProducers::new(FencedProducerConfig {
+        kafka,
+        topic: topic.to_string(),
+        init_timeout: Duration::from_secs(10),
+        commit_timeout: Duration::from_secs(10),
+        broker_txn_timeout: BROKER_TXN_TIMEOUT,
+        window: Duration::from_millis(5),
+        window_max_writes: 32,
+        lanes,
+        settle_budget: Duration::from_secs(5),
+    })
 }
 
 fn fenced_producers(topic: &str) -> FencedChangelogProducers {
@@ -107,6 +124,7 @@ fn fenced_producers(topic: &str) -> FencedChangelogProducers {
         broker_txn_timeout: BROKER_TXN_TIMEOUT,
         window: Duration::from_millis(5),
         window_max_writes: 32,
+        lanes: 1,
         settle_budget: Duration::from_secs(5),
     })
 }
@@ -233,6 +251,7 @@ async fn a_failed_preconnect_releases_its_claim() {
         broker_txn_timeout: BROKER_TXN_TIMEOUT,
         window: Duration::from_millis(5),
         window_max_writes: 32,
+        lanes: 1,
         settle_budget: Duration::from_secs(5),
     });
 
@@ -265,6 +284,7 @@ async fn a_stale_dials_failure_leaves_the_replacements_claim() {
         broker_txn_timeout: BROKER_TXN_TIMEOUT,
         window: Duration::from_millis(5),
         window_max_writes: 32,
+        lanes: 1,
         settle_budget: Duration::from_secs(5),
     }));
 
@@ -343,6 +363,63 @@ async fn second_acquisition_fences_the_first_producer() {
         match first.produce(0, &test_person(3)).await {
             Err(FencedProduceError::Fenced) | Err(FencedProduceError::NotAcquired) => {}
             other => panic!("stale owner must be fenced, got {other:?}"),
+        }
+    })
+    .await
+    .expect("writes parked forever — a window_closed wakeup was lost");
+}
+
+/// Successive writes on a partition rotate across its lanes, so the
+/// second does not wait on the coordinator finishing the first's commit
+/// on the same transactional id.
+#[tokio::test]
+async fn successive_writes_rotate_across_lanes() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let topic = format!("fence_test_{}", uuid::Uuid::new_v4().simple());
+        let producers = fenced_producers_with_lanes(&topic, 2);
+        producers.acquire(0).await.expect("acquires");
+        producers
+            .produce(0, &test_person(1))
+            .await
+            .expect("first write");
+        producers
+            .produce(0, &test_person(2))
+            .await
+            .expect("second write");
+        let marks = producers.lane_commit_marks_for_test(0);
+        assert_eq!(marks.len(), 2);
+        assert!(
+            marks.iter().all(|mark| *mark > 0),
+            "each write committed on its own lane: {marks:?}"
+        );
+    })
+    .await
+    .expect("writes parked forever — a window_closed wakeup was lost");
+}
+
+/// A successor claims every lane's id whatever lane count it runs, so a
+/// predecessor's producer on a lane the successor never uses is fenced
+/// too.
+#[tokio::test]
+async fn a_successor_fences_every_lane_of_the_predecessor() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let topic = format!("fence_test_{}", uuid::Uuid::new_v4().simple());
+
+        let first = fenced_producers_with_lanes(&topic, 2);
+        first.acquire(0).await.expect("first owner acquires");
+        first
+            .produce_on_lane_for_test(0, 1, &test_person(1))
+            .await
+            .expect("first owner produces on lane 1 while unfenced");
+
+        let second = fenced_producers_with_lanes(&topic, 1);
+        second.acquire(0).await.expect("second owner acquires");
+
+        match first.produce_on_lane_for_test(0, 1, &test_person(2)).await {
+            Err(FencedProduceError::Fenced)
+            | Err(FencedProduceError::FencedUncertain(_))
+            | Err(FencedProduceError::NotAcquired) => {}
+            other => panic!("the stale lane must be fenced, got {other:?}"),
         }
     })
     .await
@@ -1518,6 +1595,7 @@ async fn a_heal_that_cannot_acquire_does_not_fail_the_run() {
         broker_txn_timeout: BROKER_TXN_TIMEOUT,
         window: Duration::from_millis(5),
         window_max_writes: 32,
+        lanes: 1,
         settle_budget: Duration::from_secs(1),
     }));
     let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
@@ -1639,6 +1717,7 @@ async fn the_derived_production_timescales_compose_against_a_real_broker() {
         window: Duration::from_millis(config.fencing_window_ms),
         window_max_writes: config.fencing_window_max_writes,
         settle_budget: config.fencing_settle_budget(),
+        lanes: config.fencing_lanes,
     }));
     producers
         .acquire(0)

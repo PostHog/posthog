@@ -48,6 +48,13 @@ pub struct Config {
     #[envconfig(default = "32")]
     pub fencing_window_max_writes: usize,
 
+    /// Transactional producers per partition. Writes rotate across them,
+    /// so a write need not wait on the coordinator finishing the previous
+    /// commit. At most `fencing::MAX_LANES`, every one of which a takeover
+    /// fences whatever this is set to.
+    #[envconfig(default = "4")]
+    pub fencing_lanes: usize,
+
     /// Timeout for transactional init (fencing acquisition) and
     /// commit/abort operations.
     #[envconfig(default = "0")]

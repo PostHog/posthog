@@ -419,6 +419,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window: Duration::from_millis(config.fencing_window_ms),
                 window_max_writes: config.fencing_window_max_writes,
                 settle_budget: config.fencing_settle_budget(),
+                lanes: config.fencing_lanes,
             })
             .with_repair_nudge(repair_nudge),
         ))

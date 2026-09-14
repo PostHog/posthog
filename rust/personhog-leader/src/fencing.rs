@@ -62,10 +62,20 @@ use crate::config::{FENCING_ABORT_ATTEMPTS, FENCING_COMMIT_ATTEMPTS};
 use crate::inflight::InflightTracker;
 use crate::kafka::changelog_message_key;
 
+/// Transactional ids per partition a takeover claims. Every id a pod may
+/// produce with must be fenced by its successor whatever lane count
+/// either side runs, so the bound is fixed here rather than configured.
+pub const MAX_LANES: usize = 4;
+
 /// The fencing scope is the partition: every owner of partition `p`
-/// shares this id, so a new owner's init fences the old one.
-fn transactional_id(topic: &str, partition: u32) -> String {
-    format!("personhog-changelog-{topic}-p{partition}")
+/// shares its ids, so a new owner's init fences the old one. Lane 0
+/// keeps the single-producer id.
+fn transactional_id(topic: &str, partition: u32, lane: usize) -> String {
+    if lane == 0 {
+        format!("personhog-changelog-{topic}-p{partition}")
+    } else {
+        format!("personhog-changelog-{topic}-p{partition}-l{lane}")
+    }
 }
 
 #[derive(Debug)]
@@ -186,12 +196,20 @@ async fn init_producer(
 /// run on async workers. Best-effort: a caller (an in-flight write, the
 /// settle wait) still holding the Arc pays the destroy wherever it drops
 /// last, which is rarer than the common case this moves.
-fn drop_fence_off_worker(fence: Arc<PartitionFence>) {
-    tokio::task::spawn_blocking(move || drop(fence));
+fn drop_off_worker<T: Send + 'static>(value: T) {
+    tokio::task::spawn_blocking(move || drop(value));
 }
+
+/// Stamps a lane when its commit finishes, so lane selection can order
+/// lanes by how long ago each last committed.
+static COMMIT_CLOCK: AtomicU64 = AtomicU64::new(0);
 
 struct PartitionFence {
     producer: FencedProducer,
+    lane: usize,
+    /// The commit clock at this lane's last finished commit; zero until
+    /// then.
+    last_commit_end: AtomicU64,
     /// Makes the next commit task panic, so tests can reach the arm that
     /// handles a committer which never reports. Scoped to the fence
     /// rather than a global: the tests in this binary run concurrently.
@@ -236,7 +254,9 @@ impl PartitionFence {
             .increment(1);
             error!(
                 partition,
-                reason, "changelog producer left unusable; awaiting re-acquisition"
+                lane = self.lane,
+                reason,
+                "changelog producer left unusable; awaiting re-acquisition"
             );
             // The only way back is a heal on a convergence to Serving, and
             // the reconcile tick that would otherwise carry it is seconds
@@ -252,6 +272,69 @@ impl PartitionFence {
 
     fn is_usable(&self) -> bool {
         !self.unusable.load(Ordering::Relaxed)
+    }
+}
+
+/// A partition's lanes: independent transactional producers on one
+/// partition. The coordinator refuses a producer's next transaction for a
+/// while after it commits, so a write takes the lane least likely to be
+/// held instead of waiting on the previous commit's wrap-up.
+struct PartitionLanes {
+    lanes: Vec<Arc<PartitionFence>>,
+}
+
+impl PartitionLanes {
+    /// One condemned lane makes the partition unusable: the repair path
+    /// re-acquires whole partitions, and a fenced lane means a newer
+    /// owner claimed every id.
+    fn is_usable(&self) -> bool {
+        self.lanes.iter().all(|lane| lane.is_usable())
+    }
+
+    fn contains(&self, fence: &Arc<PartitionFence>) -> bool {
+        self.lanes.iter().any(|lane| Arc::ptr_eq(lane, fence))
+    }
+
+    fn pick(&self) -> (Arc<PartitionFence>, &'static str) {
+        let states: Vec<LaneState> = self
+            .lanes
+            .iter()
+            .map(|lane| {
+                let gate = lane.gate.lock().unwrap();
+                LaneState {
+                    open: gate.open,
+                    committing: gate.committing,
+                    last_commit_end: lane.last_commit_end.load(Ordering::Relaxed),
+                }
+            })
+            .collect();
+        let (index, choice) = pick_lane(&states);
+        (Arc::clone(&self.lanes[index]), choice)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct LaneState {
+    open: bool,
+    committing: bool,
+    last_commit_end: u64,
+}
+
+/// The lane a write takes, with the reason for the metric: among lanes
+/// not mid-commit, the one whose last commit is oldest, joined if its
+/// window is open; when every lane is committing, the oldest is parked on.
+fn pick_lane(states: &[LaneState]) -> (usize, &'static str) {
+    let oldest = |committing: bool| {
+        states
+            .iter()
+            .enumerate()
+            .filter(|(_, state)| state.committing == committing)
+            .min_by_key(|(index, state)| (state.last_commit_end, *index))
+    };
+    match oldest(false) {
+        Some((index, state)) if state.open => (index, "join"),
+        Some((index, _)) => (index, "open"),
+        None => (oldest(true).map(|(index, _)| index).unwrap_or(0), "park"),
     }
 }
 
@@ -418,7 +501,7 @@ pub struct FenceGuard {
     /// alone would drop whatever happens to be installed at drop time,
     /// which after a release and a re-acquire is somebody else's
     /// producer — the same hazard `forget_fence` checks for.
-    taken: Option<Arc<PartitionFence>>,
+    taken: Option<Arc<PartitionLanes>>,
     /// Names the work the fence was taken for, so an abandon names the
     /// path that dropped mid-flight.
     context: &'static str,
@@ -509,7 +592,9 @@ pub struct FencedChangelogProducers {
     /// drain, so a shutdown with an open window does not truncate here
     /// and report a failed drain.
     settle_budget: Duration,
-    partitions: DashMap<u32, Arc<PartitionFence>>,
+    /// Transactional producers per partition, at most [`MAX_LANES`].
+    lanes: usize,
+    partitions: DashMap<u32, Arc<PartitionLanes>>,
     /// Nudged on condemnation, so the coordination loop can run a
     /// repair pass now instead of on its next reconcile tick. Carries no
     /// payload: the pass re-derives what needs converging, the same way
@@ -555,6 +640,7 @@ pub struct FencedProducerConfig {
     pub window: Duration,
     pub window_max_writes: usize,
     pub settle_budget: Duration,
+    pub lanes: usize,
 }
 
 impl FencedChangelogProducers {
@@ -568,7 +654,12 @@ impl FencedChangelogProducers {
             window,
             window_max_writes,
             settle_budget,
+            lanes,
         } = config;
+        assert!(
+            (1..=MAX_LANES).contains(&lanes),
+            "fencing lanes must be between 1 and {MAX_LANES}, got {lanes}"
+        );
         Self {
             kafka,
             topic,
@@ -578,6 +669,7 @@ impl FencedChangelogProducers {
             window,
             window_max_writes,
             settle_budget,
+            lanes,
             partitions: DashMap::new(),
             repair_nudge: None,
             prepared: DashMap::new(),
@@ -598,92 +690,115 @@ impl FencedChangelogProducers {
         self
     }
 
-    /// Take the partition's fence: create the transactional producer and
-    /// initialize transactions, which fences every previous owner of the
-    /// partition's transactional id. Runs on the blocking pool — init is
-    /// a synchronous broker round trip.
-    async fn acquire_installed(&self, partition: u32) -> Result<Arc<PartitionFence>, String> {
-        let timeout = self.init_timeout;
-        let mut start = Instant::now();
-        // The two acquisition shapes differ only in when the connect
-        // happened: a parked connection pays only the init round trip
-        // here, and one whose init fails (it may simply have gone
-        // stale) gets a single fresh connect-and-init rather than
-        // failing the acquisition.
-        let mut path = "cold";
-        let mut producer = None;
+    /// Take the partition's fence: claim every one of its transactional
+    /// ids, which fences every previous owner, and keep the configured
+    /// lanes' producers. The ids beyond the lane count are claimed for
+    /// the fence alone, since a predecessor may have produced on any of
+    /// them; their producers are dropped once initialized. Lane 0 may
+    /// consume a parked connection; the rest connect cold.
+    async fn acquire_installed(&self, partition: u32) -> Result<Arc<PartitionLanes>, String> {
+        let start = Instant::now();
         // The removal also clears a Connecting claim: acquisition is
         // happening now, so a dial still in flight is too late to help,
         // and losing its claim makes it discard on completion instead
         // of parking a connection nothing will consume.
-        if let Some((_, Prepared::Ready(parked))) = self.prepared.remove(&partition) {
-            match init_producer(parked, timeout).await {
-                Ok(ready) => {
-                    path = "prepared";
-                    producer = Some(ready);
-                }
+        let mut parked = match self.prepared.remove(&partition) {
+            Some((_, Prepared::Ready(parked))) => Some(parked),
+            _ => None,
+        };
+        let path = if parked.is_some() { "prepared" } else { "cold" };
+        let claims: Vec<_> = (0..MAX_LANES)
+            .map(|lane| {
+                let parked = if lane == 0 { parked.take() } else { None };
+                self.claim_lane(partition, lane, parked)
+            })
+            .collect();
+        let mut producers = Vec::with_capacity(MAX_LANES);
+        let mut failure = None;
+        for result in futures::future::join_all(claims).await {
+            match result {
+                Ok(producer) => producers.push(producer),
                 Err(e) => {
-                    counter!("personhog_leader_fence_preconnect_total", "outcome" => "init_failed")
-                        .increment(1);
-                    warn!(
-                        partition,
-                        error = %e,
-                        "prepared connection failed to init; connecting fresh"
-                    );
+                    failure.get_or_insert(e);
                 }
             }
         }
-        let producer = match producer {
-            Some(ready) => ready,
-            None => {
-                // Timed from here so a failed prepared attempt cannot
-                // contaminate the cold path's histogram.
-                start = Instant::now();
-                let count_error = |e: String| {
-                    counter!("personhog_leader_fence_init_total", "outcome" => "error")
-                        .increment(1);
-                    e
-                };
-                let connected = self
-                    .connect_producer(partition)
-                    .await
-                    .map_err(count_error)?;
-                init_producer(connected, timeout)
-                    .await
-                    .map_err(count_error)?
-            }
-        };
+        if let Some(e) = failure {
+            counter!("personhog_leader_fence_init_total", "outcome" => "error").increment(1);
+            drop_off_worker(producers);
+            return Err(e);
+        }
         counter!("personhog_leader_fence_init_total", "outcome" => "ok").increment(1);
         histogram!("personhog_leader_fence_init_ms", "path" => path)
             .record(start.elapsed().as_secs_f64() * 1000.0);
-        let installed = Arc::new(PartitionFence {
-            producer,
-            gate: Mutex::new(Gate {
-                open: false,
-                in_flight: 0,
-                joined: 0,
-                fill_tx: None,
-                poisoned: false,
-                committing: false,
-                waiters: Vec::new(),
-            }),
-            sends_settled: Notify::new(),
-            window_closed: Notify::new(),
-            #[cfg(any(test, feature = "test-support"))]
-            panic_next_commit: AtomicBool::new(false),
-            unusable: AtomicBool::new(false),
-            commit_timeout: self.commit_timeout,
-            repair_nudge: self.repair_nudge.clone(),
-        });
+        drop_off_worker(producers.split_off(self.lanes));
+        let lanes = producers
+            .into_iter()
+            .enumerate()
+            .map(|(lane, producer)| {
+                Arc::new(PartitionFence {
+                    producer,
+                    lane,
+                    last_commit_end: AtomicU64::new(0),
+                    gate: Mutex::new(Gate {
+                        open: false,
+                        in_flight: 0,
+                        joined: 0,
+                        fill_tx: None,
+                        poisoned: false,
+                        committing: false,
+                        waiters: Vec::new(),
+                    }),
+                    sends_settled: Notify::new(),
+                    window_closed: Notify::new(),
+                    #[cfg(any(test, feature = "test-support"))]
+                    panic_next_commit: AtomicBool::new(false),
+                    unusable: AtomicBool::new(false),
+                    commit_timeout: self.commit_timeout,
+                    repair_nudge: self.repair_nudge.clone(),
+                })
+            })
+            .collect();
+        let installed = Arc::new(PartitionLanes { lanes });
         if let Some(replaced) = self.partitions.insert(partition, Arc::clone(&installed)) {
             // The heal path installs over a still-present condemned
             // fence, and by then the commit task has usually dropped its
             // clones — making this insert the last reference and its
             // drop a blocking librdkafka destroy. Send it to the
             // blocking pool like every other eviction site.
-            drop_fence_off_worker(replaced);
+            drop_off_worker(replaced);
         }
         Ok(installed)
+    }
+
+    /// Claim one lane's id: init the parked connection when given one,
+    /// otherwise connect cold and init. A parked connection whose init
+    /// fails (it may simply have gone stale) gets one fresh
+    /// connect-and-init rather than failing the acquisition.
+    async fn claim_lane(
+        &self,
+        partition: u32,
+        lane: usize,
+        parked: Option<ConnectedFencedProducer>,
+    ) -> Result<FencedProducer, String> {
+        let timeout = self.init_timeout;
+        if let Some(parked) = parked {
+            match init_producer(parked, timeout).await {
+                Ok(ready) => return Ok(ready),
+                Err(e) => {
+                    counter!("personhog_leader_fence_preconnect_total", "outcome" => "init_failed")
+                        .increment(1);
+                    warn!(
+                        partition,
+                        lane,
+                        error = %e,
+                        "prepared connection failed to init; connecting fresh"
+                    );
+                }
+            }
+        }
+        let connected = self.connect_producer(partition, lane).await?;
+        init_producer(connected, timeout).await
     }
 
     /// Take the partition's fence, discarding the handle. The caller
@@ -692,16 +807,23 @@ impl FencedChangelogProducers {
         self.acquire_installed(partition).await.map(|_| ())
     }
 
-    /// The fence currently installed for a partition, if any.
-    fn installed(&self, partition: u32) -> Option<Arc<PartitionFence>> {
+    /// The lanes currently installed for a partition, if any.
+    fn installed(&self, partition: u32) -> Option<Arc<PartitionLanes>> {
         self.partitions.get(&partition).map(|f| Arc::clone(&f))
+    }
+
+    /// Lane 0, which the test hooks address.
+    #[cfg(any(test, feature = "test-support"))]
+    fn lane0(&self, partition: u32) -> Option<Arc<PartitionFence>> {
+        self.installed(partition)
+            .map(|lanes| Arc::clone(&lanes.lanes[0]))
     }
 
     /// Drop the partition's fence with ownership. The broker-side epoch
     /// survives; only a future owner's init advances it.
     pub fn release(&self, partition: u32) {
-        if let Some((_, fence)) = self.partitions.remove(&partition) {
-            drop_fence_off_worker(fence);
+        if let Some((_, lanes)) = self.partitions.remove(&partition) {
+            drop_off_worker(lanes);
         }
         self.discard_prepared(partition);
     }
@@ -733,7 +855,7 @@ impl FencedChangelogProducers {
             }
         }
         let start = Instant::now();
-        match self.connect_producer(partition).await {
+        match self.connect_producer(partition, 0).await {
             Ok(connected) => {
                 counter!("personhog_leader_fence_preconnect_total", "outcome" => "ok").increment(1);
                 histogram!("personhog_leader_fence_preconnect_ms")
@@ -778,11 +900,15 @@ impl FencedChangelogProducers {
 
     /// Build the partition's connected-but-uninitialized producer on the
     /// blocking pool.
-    async fn connect_producer(&self, partition: u32) -> Result<ConnectedFencedProducer, String> {
+    async fn connect_producer(
+        &self,
+        partition: u32,
+        lane: usize,
+    ) -> Result<ConnectedFencedProducer, String> {
         #[cfg(any(test, feature = "test-support"))]
         self.connect_attempts.fetch_add(1, Ordering::SeqCst);
         let kafka = self.kafka.clone();
-        let tid = transactional_id(&self.topic, partition);
+        let tid = transactional_id(&self.topic, partition, lane);
         let timeout = self.init_timeout;
         let broker_txn_timeout = self.broker_txn_timeout;
         spawn_blocking(move || {
@@ -902,7 +1028,7 @@ impl FencedChangelogProducers {
     pub fn holds(&self, partition: u32) -> bool {
         self.partitions
             .get(&partition)
-            .is_some_and(|fence| fence.is_usable())
+            .is_some_and(|lanes| lanes.is_usable())
     }
 
     /// Commit the partition's open window before its owner gives it up.
@@ -925,7 +1051,7 @@ impl FencedChangelogProducers {
     /// there is no branch that un-fences one whose handoff never
     /// completed.
     pub async fn settle(&self, partition: u32) {
-        let Some(fence) = self.installed(partition) else {
+        let Some(lanes) = self.installed(partition) else {
             // A write that met a condemned producer already gave the
             // fence up, which is the ordinary shape after a condemnation
             // — recorded rather than silent, or the series has no
@@ -945,27 +1071,29 @@ impl FencedChangelogProducers {
         // open window would truncate here and report a failed drain.
         let budget = self.settle_budget;
         let waited = timeout(budget, async {
-            loop {
-                // Register before inspecting, or a close landing between
-                // the two is lost and this waits on a wakeup already
-                // spent.
-                let closed = fence.window_closed.notified();
-                tokio::pin!(closed);
-                closed.as_mut().enable();
-                {
-                    let gate = fence.gate.lock().unwrap();
-                    if !gate.open && !gate.committing && gate.in_flight == 0 {
-                        return;
+            for fence in &lanes.lanes {
+                loop {
+                    // Register before inspecting, or a close landing
+                    // between the two is lost and this waits on a wakeup
+                    // already spent.
+                    let closed = fence.window_closed.notified();
+                    tokio::pin!(closed);
+                    closed.as_mut().enable();
+                    {
+                        let gate = fence.gate.lock().unwrap();
+                        if !gate.open && !gate.committing && gate.in_flight == 0 {
+                            break;
+                        }
                     }
+                    closed.await;
                 }
-                closed.await;
             }
         })
         .await;
 
         let outcome = if waited.is_err() {
             "timeout"
-        } else if !fence.is_usable() {
+        } else if !lanes.is_usable() {
             // Condemned somewhere in this partition's history, so this
             // producer has nothing left to give the changelog.
             "unusable"
@@ -1000,7 +1128,7 @@ impl FencedChangelogProducers {
     /// than statistical.
     #[cfg(any(test, feature = "test-support"))]
     pub fn begin_committing_for_test(&self, partition: u32) {
-        if let Some(fence) = self.partitions.get(&partition) {
+        if let Some(fence) = self.lane0(partition) {
             let mut gate = fence.gate.lock().unwrap();
             gate.open = false;
             gate.committing = true;
@@ -1011,7 +1139,7 @@ impl FencedChangelogProducers {
     /// commit does.
     #[cfg(any(test, feature = "test-support"))]
     pub fn finish_committing_for_test(&self, partition: u32) {
-        if let Some(fence) = self.partitions.get(&partition) {
+        if let Some(fence) = self.lane0(partition) {
             fence.gate.lock().unwrap().committing = false;
             fence.window_closed.notify_waiters();
         }
@@ -1026,7 +1154,7 @@ impl FencedChangelogProducers {
     /// window is the whole reason the flag exists.
     #[cfg(any(test, feature = "test-support"))]
     pub fn poison_window_for_test(&self, partition: u32) {
-        if let Some(fence) = self.installed(partition) {
+        if let Some(fence) = self.lane0(partition) {
             fence.gate.lock().unwrap().poisoned = true;
         }
     }
@@ -1037,7 +1165,7 @@ impl FencedChangelogProducers {
     /// stageable deterministically; what matters is the mark's cleanup.
     #[cfg(any(test, feature = "test-support"))]
     pub fn orphan_committer_for_test(&self, partition: u32) {
-        if let Some(fence) = self.installed(partition) {
+        if let Some(fence) = self.lane0(partition) {
             let mark = CommittingMark::take(Arc::clone(&fence), partition);
             let (tx, _rx) = oneshot::channel();
             fence.gate.lock().unwrap().waiters.push(tx);
@@ -1050,7 +1178,7 @@ impl FencedChangelogProducers {
     /// can arrange against a live producer.
     #[cfg(any(test, feature = "test-support"))]
     pub fn panic_next_commit_for_test(&self, partition: u32) {
-        if let Some(fence) = self.installed(partition) {
+        if let Some(fence) = self.lane0(partition) {
             fence.panic_next_commit.store(true, Ordering::SeqCst);
         }
     }
@@ -1061,7 +1189,7 @@ impl FencedChangelogProducers {
     /// dropped, so the commit it was running may well have landed.
     #[cfg(any(test, feature = "test-support"))]
     pub fn abandon_waiters_for_test(&self, partition: u32) {
-        if let Some(fence) = self.partitions.get(&partition) {
+        if let Some(fence) = self.lane0(partition) {
             let taken = mem::take(&mut fence.gate.lock().unwrap().waiters);
             drop(taken);
         }
@@ -1075,13 +1203,43 @@ impl FencedChangelogProducers {
 
     #[cfg(any(test, feature = "test-support"))]
     pub fn condemn_for_test(&self, partition: u32) {
-        if let Some(fence) = self.partitions.get(&partition) {
+        if let Some(fence) = self.lane0(partition) {
             fence.condemn(partition, "test");
         }
     }
 
     /// Produce one changelog record inside the partition's current
     /// transaction window, returning its offset once the window commits.
+    /// Produce on a specific lane, bypassing selection.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn produce_on_lane_for_test(
+        &self,
+        partition: u32,
+        lane: usize,
+        person: &Person,
+    ) -> Result<i64, FencedProduceError> {
+        let lanes = self
+            .installed(partition)
+            .ok_or(FencedProduceError::NotAcquired)?;
+        let fence = Arc::clone(&lanes.lanes[lane]);
+        self.produce_on(partition, lanes, fence, person).await
+    }
+
+    /// Each lane's commit clock stamp; zero for a lane that never
+    /// committed.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn lane_commit_marks_for_test(&self, partition: u32) -> Vec<u64> {
+        self.installed(partition)
+            .map(|lanes| {
+                lanes
+                    .lanes
+                    .iter()
+                    .map(|lane| lane.last_commit_end.load(Ordering::Relaxed))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     pub async fn produce(
         &self,
         partition: u32,
@@ -1091,15 +1249,24 @@ impl FencedChangelogProducers {
         if let Some((_, staged)) = self.staged_failures.remove(&partition) {
             return Err(staged);
         }
+        let lanes = self.installed(partition).ok_or_else(|| {
+            counter!("personhog_leader_kafka_produce_errors_total").increment(1);
+            FencedProduceError::NotAcquired
+        })?;
+        let (fence, choice) = lanes.pick();
+        counter!("personhog_leader_fence_lane_choices_total", "choice" => choice).increment(1);
+        self.produce_on(partition, lanes, fence, person).await
+    }
+
+    /// Produce on one lane of the partition.
+    async fn produce_on(
+        &self,
+        partition: u32,
+        lanes: Arc<PartitionLanes>,
+        fence: Arc<PartitionFence>,
+        person: &Person,
+    ) -> Result<i64, FencedProduceError> {
         let durable_start = Instant::now();
-        let fence = self
-            .partitions
-            .get(&partition)
-            .map(|f| Arc::clone(&f))
-            .ok_or_else(|| {
-                counter!("personhog_leader_kafka_produce_errors_total").increment(1);
-                FencedProduceError::NotAcquired
-            })?;
 
         // Join the open window, or open one. A window mid-commit admits
         // no joiners; wait for it to close and retry.
@@ -1113,8 +1280,8 @@ impl FencedChangelogProducers {
             // opens a window on a dead producer and answers with a
             // retryable failure instead of the ownership bounce that gets
             // the partition re-acquired.
-            if !fence.is_usable() {
-                self.forget_fence(partition, &fence);
+            if !lanes.is_usable() {
+                self.forget_fence(partition, &lanes);
                 counter!("personhog_leader_kafka_produce_errors_total").increment(1);
                 return Err(FencedProduceError::NotAcquired);
             }
@@ -1270,7 +1437,7 @@ impl FencedChangelogProducers {
                     e,
                     FencedProduceError::Fenced | FencedProduceError::FencedUncertain(_)
                 ) {
-                    self.forget_fence(partition, &fence);
+                    self.forget_lane(partition, &fence);
                 }
                 Err(e)
             }
@@ -1310,7 +1477,7 @@ impl FencedChangelogProducers {
                 error = %e,
                 "changelog producer fenced by a newer owner — this pod's claim is stale"
             );
-            self.forget_fence(partition, fence);
+            self.forget_lane(partition, fence);
             FencedProduceError::Fenced
         } else {
             FencedProduceError::Failed(e.to_string())
@@ -1321,12 +1488,23 @@ impl FencedChangelogProducers {
     /// one installed: a write can be in flight across a release and a
     /// re-acquire, and the stale producer's failure must not evict its
     /// live replacement.
-    fn forget_fence(&self, partition: u32, fence: &Arc<PartitionFence>) {
+    fn forget_fence(&self, partition: u32, lanes: &Arc<PartitionLanes>) {
+        self.evict(partition, |installed| Arc::ptr_eq(installed, lanes));
+    }
+
+    /// [`Self::forget_fence`] for the lane that reported the fence. One
+    /// fenced lane means a newer owner claimed every id, so the whole
+    /// partition is stale.
+    fn forget_lane(&self, partition: u32, fence: &Arc<PartitionFence>) {
+        self.evict(partition, |installed| installed.contains(fence));
+    }
+
+    fn evict(&self, partition: u32, stale: impl Fn(&Arc<PartitionLanes>) -> bool) {
         let removed = self
             .partitions
-            .remove_if(&partition, |_, installed| Arc::ptr_eq(installed, fence));
+            .remove_if(&partition, |_, installed| stale(installed));
         if let Some((_, evicted)) = removed {
-            drop_fence_off_worker(evicted);
+            drop_off_worker(evicted);
             // The escalation signal for a partition giving up its fence
             // outside the orderly release path — the series exists so a
             // deploy-window burst of these is visible.
@@ -1706,6 +1884,10 @@ async fn commit_window_after(
         }
     };
 
+    fence.last_commit_end.store(
+        COMMIT_CLOCK.fetch_add(1, Ordering::Relaxed) + 1,
+        Ordering::Relaxed,
+    );
     for waiter in waiters {
         // A dropped receiver means the writer's request already ended;
         // nothing to deliver.
@@ -1734,6 +1916,9 @@ pub fn preregister_fencing_metrics(partitions: u32) {
     }
     counter!("personhog_leader_fence_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abort_failed_total").increment(0);
+    for choice in ["join", "open", "park"] {
+        counter!("personhog_leader_fence_lane_choices_total", "choice" => choice).increment(0);
+    }
     for outcome in [
         "ok",
         "error",
@@ -1948,6 +2133,32 @@ mod tests {
 
     /// A condemn reason absent from the preregistration list first
     /// appears as a new series mid-incident instead of rising from zero.
+    #[test]
+    fn a_write_takes_the_lane_that_committed_longest_ago() {
+        let lane = |open, committing, last_commit_end| LaneState {
+            open,
+            committing,
+            last_commit_end,
+        };
+        assert_eq!(
+            pick_lane(&[lane(false, false, 5), lane(false, false, 2)]),
+            (1, "open")
+        );
+        assert_eq!(
+            pick_lane(&[lane(true, false, 1), lane(false, false, 3)]),
+            (0, "join")
+        );
+        assert_eq!(
+            pick_lane(&[lane(false, true, 1), lane(false, false, 9)]),
+            (1, "open")
+        );
+        assert_eq!(
+            pick_lane(&[lane(false, true, 4), lane(false, true, 2)]),
+            (1, "park")
+        );
+        assert_eq!(pick_lane(&[lane(false, false, 0)]), (0, "open"));
+    }
+
     #[test]
     fn every_condemn_reason_is_preregistered() {
         for outcome in [
