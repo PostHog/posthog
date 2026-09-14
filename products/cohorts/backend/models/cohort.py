@@ -710,9 +710,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # discard work ClickHouse already holds. Unlike the bookkeeping saves below it must
             # reraise, because a lost version bump leaves the cohort serving its old membership.
             save_recovery_bookkeeping(
-                lambda: Cohort.objects.filter(pk=self.pk)
-                .filter(Q(version__lt=pending_version) | Q(version__isnull=True))
-                .update(**version_update_fields),
+                lambda: (
+                    Cohort.objects.filter(pk=self.pk)
+                    .filter(Q(version__lt=pending_version) | Q(version__isnull=True))
+                    .update(**version_update_fields)
+                ),
                 cohort_id=self.pk,
                 team_id=self.team_id,
                 reraise=True,
