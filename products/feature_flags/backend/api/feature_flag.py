@@ -1631,7 +1631,7 @@ class FeatureFlagSerializer(
         # the empty-groups rule rejects them.
         if self.instance is not None and not filters:
             assert isinstance(self.instance, FeatureFlag)
-            stored = copy.deepcopy(self.instance.filters)
+            stored = copy.deepcopy(self.instance.filters or {})
             if self.instance.has_encrypted_payloads and stored.get("payloads"):
                 # update() restores ciphertext for this sentinel without encrypting it again.
                 stored["payloads"] = dict.fromkeys(stored["payloads"], REDACTED_PAYLOAD_VALUE)
@@ -2262,13 +2262,18 @@ class FeatureFlagSerializer(
                 # could still land here). Only re-inject when `filters` is
                 # being sent, so a filters-less PATCH stays a partial update.
                 if filters is not None:
-                    existing_true_payload = (instance.filters or {}).get("payloads", {}).get("true")
-                    if not existing_true_payload:
+                    stored_payloads = (instance.filters or {}).get("payloads") or {}
+                    if not stored_payloads.get("true"):
                         raise exceptions.ValidationError(
                             "An encrypted payload is required when has_encrypted_payloads is true."
                         )
                     payloads = filters.get("payloads") or {}
-                    payloads["true"] = existing_true_payload
+                    # validate_filters substitutes the sentinel for every stored key, so restoring
+                    # only "true" would persist the placeholder over the other keys' ciphertext.
+                    for key, value in payloads.items():
+                        if value == REDACTED_PAYLOAD_VALUE and key in stored_payloads:
+                            payloads[key] = stored_payloads[key]
+                    payloads["true"] = stored_payloads["true"]
                     filters["payloads"] = payloads
             else:
                 encrypt_flag_payloads(validated_data)
