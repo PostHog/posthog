@@ -48,7 +48,10 @@ _ZIP_TIMEOUT_SECONDS = 60
 # rather than made the worker's problem.
 _MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
 _MAX_INDEX_BYTES = 32 * 1024 * 1024
-_CACHE_TTL_SECONDS = 2 * 24 * 60 * 60
+# GitHub keeps the Storybook build artifact for one day, and the debt digest that reads this index
+# posts once a week. A daily task warms the cache while the artifact still exists, so an entry has
+# to outlive a full week for the next weekly post to still find it.
+_CACHE_TTL_SECONDS = 60 * 60 * 24 * 8
 
 
 @frozen
@@ -58,20 +61,42 @@ class StoryIndex:
     path_by_story_id: Mapping[str, str]
 
 
+@frozen
+class ThemeSplit:
+    """An identifier taken apart around its theme. The theme is empty when the identifier carries none."""
+
+    story_id: str
+    theme: str
+    browser_suffix: str
+
+    @property
+    def rest(self) -> str:
+        """Everything but the theme, so a chromium and a webkit snapshot of one story never share it."""
+        return f"{self.story_id}{self.browser_suffix}"
+
+
+def split_theme(identifier: str) -> ThemeSplit:
+    """Take an identifier apart into the story id, the theme and the browser suffix."""
+    rest = identifier
+    browser_suffix = ""
+    for browser in _SUFFIXED_BROWSERS:
+        if rest.endswith(f"--{browser}"):
+            browser_suffix = f"--{browser}"
+            rest = rest.removesuffix(browser_suffix)
+            break
+    for theme in _THEMES:
+        if rest.endswith(f"--{theme}"):
+            return ThemeSplit(story_id=rest.removesuffix(f"--{theme}"), theme=theme, browser_suffix=browser_suffix)
+    return ThemeSplit(story_id=identifier, theme="", browser_suffix="")
+
+
 def _strip_theme_and_browser(identifier: str) -> str | None:
     """The story id an identifier was built from, before any width suffix is considered.
 
     None when the identifier carries no theme, which means the test runner did not write it.
     """
-    rest = identifier
-    for browser in _SUFFIXED_BROWSERS:
-        if rest.endswith(f"--{browser}"):
-            rest = rest.removesuffix(f"--{browser}")
-            break
-    for theme in _THEMES:
-        if rest.endswith(f"--{theme}"):
-            return rest.removesuffix(f"--{theme}")
-    return None
+    split = split_theme(identifier)
+    return split.story_id if split.theme else None
 
 
 def story_path(index: StoryIndex, identifier: str) -> str | None:
@@ -182,6 +207,9 @@ def fetch_story_index(repo: Repo, github_run_id: str) -> StoryIndex | None:
     cache_key = f"visual_review_story_index:{repo.id}:{github_run_id}"
     cached = cache.get(cache_key)
     if isinstance(cached, dict):
+        # The artifact behind an entry is deleted after a day, so an entry that expires can never
+        # be filled again. A hit extends it, which is how the warm runs hold a long-lived baseline.
+        cache.touch(cache_key, _CACHE_TTL_SECONDS)
         return StoryIndex(path_by_story_id=cached)
 
     try:

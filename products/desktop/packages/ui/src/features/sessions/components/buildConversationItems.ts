@@ -418,7 +418,7 @@ export function buildAgentConversationItems(
   };
 }
 
-function processAgentConversationEvent(
+export function processAgentConversationEvent(
   b: ItemBuilder,
   event: AgentConversationEvent,
 ): void {

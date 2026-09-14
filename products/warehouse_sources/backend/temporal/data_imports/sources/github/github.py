@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.github.naming import normalize_repository
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import (
     ENDPOINT_REQUIRED_PERMISSION,
     GITHUB_ENDPOINTS,
@@ -383,11 +384,11 @@ def validate_credentials(
     personal_access_token: str, repository: str, api_version: str = GITHUB_DEFAULT_API_VERSION
 ) -> tuple[bool, str | None]:
     """Validate GitHub API credentials by making a test request to the repository."""
-    # A pasted clone URL (github.com/owner/repo.git) or a bare owner name otherwise reaches the API
-    # as a nonsense path, 404s, and gets reported as "not found or not accessible" — which points the
-    # user at permissions rather than the real problem, the identifier format. Catch the wrong shape
-    # before the request so the message names the fix.
-    repo = repository.strip()
+    # A bare owner name otherwise reaches the API as a nonsense path, 404s, and gets reported as
+    # "not found or not accessible" — which points the user at permissions rather than the real
+    # problem, the identifier format. Catch the wrong shape before the request so the message
+    # names the fix.
+    repo = normalize_repository(repository)
     if repo.count("/") != 1 or not all(repo.split("/")):
         # Name the offending entry, like the 404 message below. Without it, two malformed repos both
         # return this identical sentence and the caller joins them into one repeated string that names
@@ -397,7 +398,7 @@ def validate_credentials(
             f"'{repo}' isn't a valid repository. Enter it as owner/repo (for example, posthog/posthog), not a full URL or just the owner name.",
         )
 
-    url = f"{GITHUB_BASE_URL}/repos/{repository}"
+    url = f"{GITHUB_BASE_URL}/repos/{repo}"
     headers = _get_headers(personal_access_token, api_version=api_version)
 
     try:
@@ -410,7 +411,7 @@ def validate_credentials(
             return False, "Invalid personal access token"
 
         if response.status_code == 404:
-            return False, f"Repository '{repository}' {REPOSITORY_NOT_ACCESSIBLE_REASON}"
+            return False, f"Repository '{repo}' {REPOSITORY_NOT_ACCESSIBLE_REASON}"
 
         try:
             body = response.json()

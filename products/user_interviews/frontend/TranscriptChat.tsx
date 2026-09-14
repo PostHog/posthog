@@ -4,10 +4,11 @@ import * as robotPng from '@posthog/brand/hoggies/png/robot'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { asDisplay } from 'scenes/persons/person-utils'
-import { PersonIcon } from 'scenes/persons/PersonDisplay'
 
 import { PersonType } from '~/types'
+
+import { PersonIcon } from 'products/persons/frontend/components/PersonDisplay'
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { TranscriptTurn, parseTranscript } from './parseTranscript'
 

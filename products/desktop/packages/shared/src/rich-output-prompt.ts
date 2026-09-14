@@ -11,7 +11,22 @@ export const RICH_OUTPUT_TAGS_PROMPT = `Embed the PostHog objects behind your co
 - Some PostHog MCP query tools render their result as an interactive chart in the conversation, and the tool result says so. When the tool result says the user already sees the result as an interactive view, do not embed the same data again as a \`<hogql>\` chart; write the conclusion in text and let that view carry the data. When it does not, the tool renders nothing on its own, so follow the full-size chart rule above.
 - Recording card: \`<replay id="<session_id>" display="block"/>\` renders the recording's details with a link into PostHog's player. Use it when a specific session is the evidence.`;
 
-export function appendRichOutputPrompt(prompt: string): string {
+export function appendRichOutputPrompt(
+  prompt: string,
+  interactionOrigin?: string | null,
+): string {
+  if (
+    interactionOrigin &&
+    interactionOrigin !== "desktop" &&
+    interactionOrigin !== "signal_report"
+  ) {
+    return prompt
+      .replaceAll(
+        `\n\n## Rich output in replies\n${RICH_OUTPUT_TAGS_PROMPT}`,
+        "",
+      )
+      .replaceAll(RICH_OUTPUT_TAGS_PROMPT, "");
+  }
   if (prompt.includes(RICH_OUTPUT_TAGS_PROMPT)) {
     return prompt;
   }

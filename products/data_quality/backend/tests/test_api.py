@@ -14,6 +14,7 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.models import Metric
@@ -426,6 +427,61 @@ class TestDataQualityCheckAPI(APIBaseTest):
         flag = patch(FLAG, return_value=True)
         flag.start()
         self.addCleanup(flag.stop)
+
+    def test_model_history_includes_deleted_checks_without_other_models(self) -> None:
+        check = self._create_check()
+        other_view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="other_orders", query={"kind": "HogQLQuery", "query": "SELECT 1"}
+        )
+        other_check = self._create_check(url=self._checks_url(other_view.id))
+        for item_id, scope in [
+            (self.view.id, "DataWarehouseSavedQuery"),
+            (check.id, "DataQualityCheck"),
+            (other_check.id, "DataQualityCheck"),
+        ]:
+            log_activity(
+                organization_id=self.organization.id,
+                was_impersonated=False,
+                team_id=self.team.id,
+                user=self.user,
+                item_id=str(item_id),
+                scope=scope,
+                activity="created",
+                detail=Detail(name="Example"),
+            )
+        deleted = self.client.delete(f"{self.url}/{check.id}/")
+        assert deleted.status_code == 204
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/activity_log/",
+            {
+                "scopes": "DataWarehouseSavedQuery,DataQualityCheck",
+                "item_id": str(self.view.id),
+            },
+        )
+        assert response.status_code == 200, response.content
+        item_ids = {entry["item_id"] for entry in response.json()["results"]}
+        assert str(self.view.id) in item_ids
+        assert str(check.id) in item_ids
+        assert str(other_check.id) not in item_ids
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/activity_log/",
+            {"scopes": "DataWarehouseSavedQuery,DataQualityCheck", "item_id": str(check.id)},
+        )
+        assert response.status_code == 200, response.content
+        assert {entry["item_id"] for entry in response.json()["results"]} == {str(check.id)}
+
+    def test_deleting_a_check_is_logged_as_a_deletion_not_an_update(self) -> None:
+        check = self._create_check()
+        assert self.client.delete(f"{self.url}/{check.id}/").status_code == 204
+
+        entry = (
+            ActivityLog.objects.filter(team_id=self.team.id, scope="DataQualityCheck", item_id=str(check.id))
+            .order_by("-created_at")
+            .first()
+        )
+        assert entry is not None
+        assert entry.activity == "deleted"
 
     def _checks_url(self, saved_query_id) -> str:
         return f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_id}/checks"
