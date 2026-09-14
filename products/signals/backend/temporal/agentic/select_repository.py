@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 
 import structlog
@@ -36,6 +37,9 @@ GITHUB_ONLY_DOMAINS = [
     "objects.githubusercontent.com",
     "codeload.github.com",
 ]
+
+# GitHub App auth failures with these statuses (installation gone/suspended) won't recover via retry.
+PERMANENT_GITHUB_STATUS_CODES = {401, 403, 404, 410}
 
 logger = structlog.get_logger(__name__)
 
@@ -85,6 +89,50 @@ def _capture_repo_research_event(
         )
 
 
+def _activity_info() -> temporalio.activity.Info | None:
+    """Info of the running activity, or None when the function runs outside an activity context."""
+    try:
+        return temporalio.activity.info()
+    except RuntimeError:
+        return None
+
+
+def _is_last_attempt(info: temporalio.activity.Info | None) -> bool:
+    """Tell whether Temporal schedules another attempt after this one.
+
+    The completion event counts jobs, so only the attempt that decides the job must emit it.
+    An unlimited retry policy has no last attempt. Report the attempt as the last one and
+    accept a duplicate event, because a silent failure metric is worse.
+    """
+    if info is None:
+        return True
+    maximum_attempts = info.retry_policy.maximum_attempts if info.retry_policy is not None else 0
+    return maximum_attempts <= 0 or info.attempt >= maximum_attempts
+
+
+def _cancellation_failure_reason() -> str | None:
+    """Name the deadline behind a task cancel, or None when the cancel did not fail the job.
+
+    Temporal delivers a deadline, an operator pause, reset or cancel, and a worker shutdown as
+    the same task cancel. Only a deadline failed the job: pause and reset run the activity
+    again, and counting a deploy would inflate the series this event exists to measure. A cancel
+    that carries no reason still counts, because a silent failure metric is worse.
+    """
+    try:
+        details = temporalio.activity.cancellation_details()
+    except RuntimeError:
+        details = None
+    if details is None:
+        return "CancelledError"
+    if details.timed_out:
+        return "timed_out"
+    if details.not_found:
+        # A heartbeat deadline drops the activity server side, so the cancel that follows says
+        # not-found rather than timed-out.
+        return "not_found"
+    return None
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -101,6 +149,9 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
     team = await aretry_on_db_connection_drop(
         lambda: Team.objects.select_related("organization").aget(pk=input.team_id)
     )
+    info = _activity_info()
+    # Captured on every attempt, as before. The team fetch above sits outside the gate below,
+    # so an attempt that dies in that fetch would leave a job with no started event at all.
     _capture_repo_research_event(
         "signals_repo_research_started",
         team,
@@ -174,17 +225,32 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 result="selected" if result.repository is not None else "no_repo",
             )
             return result
+    except asyncio.CancelledError:
+        # A start-to-close or heartbeat deadline reaches the activity as a task cancel, which
+        # derives from BaseException, so `except Exception` below never sees a timed-out job.
+        cancellation_reason = _cancellation_failure_reason()
+        if cancellation_reason is not None and _is_last_attempt(info):
+            _capture_repo_research_event(
+                "signals_repo_research_completed",
+                team,
+                team.organization,
+                input.report_id,
+                result="failed",
+                failure_reason=cancellation_reason,
+            )
+        raise
     except Exception as e:
-        _capture_repo_research_event(
-            "signals_repo_research_completed",
-            team,
-            team.organization,
-            input.report_id,
-            result="failed",
-            failure_reason="agentic_activity_error",
-        )
-        # Permanent GitHub App auth failures (installation gone/suspended) won't recover via retry.
-        if isinstance(e, GitHubIntegrationError) and e.status_code in {401, 403, 404, 410}:
+        non_retryable = isinstance(e, GitHubIntegrationError) and e.status_code in PERMANENT_GITHUB_STATUS_CODES
+        if non_retryable or _is_last_attempt(info):
+            _capture_repo_research_event(
+                "signals_repo_research_completed",
+                team,
+                team.organization,
+                input.report_id,
+                result="failed",
+                failure_reason=type(e).__name__,
+            )
+        if non_retryable:
             raise temporalio.exceptions.ApplicationError(
                 str(e),
                 type="GitHubIntegrationError",
