@@ -1,4 +1,4 @@
-import './PersonDisplay.scss'
+import './components/PersonDisplay.scss'
 
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { NUM_LETTERMARK_STYLES } from 'lib/lemon-ui/Lettermark/Lettermark'

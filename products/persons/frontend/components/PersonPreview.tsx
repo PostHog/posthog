@@ -19,8 +19,8 @@ import { ActivityTab, PropertyDefinitionType, PropertyFilterType, PropertyOperat
 
 import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
 
-import { asDisplay, pickBestPersonDistinctId } from './person-utils'
-import { personLogic } from './personLogic'
+import { personLogic } from '../logics/personLogic'
+import { asDisplay, pickBestPersonDistinctId } from '../person-utils'
 
 export type PersonPreviewProps = {
     distinctId?: string

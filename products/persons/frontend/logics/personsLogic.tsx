@@ -9,6 +9,7 @@ import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/com
 import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { delay } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -34,18 +35,17 @@ import {
     PersonType,
     PersonsTabType,
 } from '~/types'
+import type { TeamPublicType, TeamType } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 
-import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { TeamPublicType, TeamType } from '../../types'
 import {
     asDisplay,
     coercePropertyValue,
     getHogqlQueryStringForPersonId,
     parsePersonFromHogQLRow,
     pickBestPersonDistinctId,
-} from './person-utils'
+} from '../person-utils'
 
 export interface PersonsLogicProps {
     cohort?: number | 'new'
@@ -417,6 +417,8 @@ export const personsLogic = kea<personsLogicType>([
                             newFilters.include_total = true // The total count is slow, but needed for infinite loading
                             if (props.cohort) {
                                 result = {
+                                    // This reads the cohorts API, whose generated client belongs to another product.
+                                    // nosemgrep: prefer-codegen-api
                                     ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
                                     offset: 0,
                                 }
@@ -424,6 +426,8 @@ export const personsLogic = kea<personsLogicType>([
                                 result = { ...(await api.persons.list(newFilters)), offset: 0 }
                             }
                         } else {
+                            // The URL is the pagination link from the previous response.
+                            // nosemgrep: prefer-codegen-api
                             result = { ...(await api.get(url)), offset: parseInt(decodeParams(url).offset) || 0 }
                         }
                         return result
@@ -486,6 +490,9 @@ export const personsLogic = kea<personsLogicType>([
                         if (!values.person?.id) {
                             return null
                         }
+                        // personsCohortsRetrieve returns Promise<void> because the endpoint declares no
+                        // response schema, so it cannot type the CohortType list this loader returns.
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.get(`api/person/cohorts/?person_id=${values.person?.id}`)
                         return response.results
                     },

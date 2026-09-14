@@ -7,8 +7,9 @@ import {
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { isObject } from 'lib/utils/guards'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
+
+import { PersonDisplay } from './components/PersonDisplay'
 
 export function personActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'Person') {
