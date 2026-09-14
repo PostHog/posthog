@@ -703,12 +703,13 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         # leaves the clone, the prefetch and the reviewer correspondingly less. The policy, engine
         # and context writes in between keep their own fixed small timeouts.
         try:
+            # Raises when the budget is already gone, so an activity with no time left does not pay
+            # for a box the first step would only reject.
+            _step_timeout(deadline, CLONE_STEP_TIMEOUT_SECONDS)
             sandbox = sandbox_class.create(config)
             try:
                 _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token, deadline)
-                _prefetch_review_blobs(
-                    sandbox, base_sha, run.head_sha, token, _blame_paths(files), _changed_paths(files), deadline
-                )
+                _prefetch_review_blobs(sandbox, base_sha, run.head_sha, token, _blame_paths(files), deadline)
                 _inject_policy_files(sandbox, policy_files)
                 _ship_engine(sandbox)
                 _write_context(sandbox, invocation)
@@ -1408,33 +1409,12 @@ def _blame_paths(files: list[dict]) -> list[str]:
     return paths[:_MAX_BLAME_PREFETCH_PATHS]
 
 
-def _changed_paths(files: list[dict]) -> list[str]:
-    """Base-side path of every changed file, including the ones blame skips.
-
-    The engine diffs merge-base against head before anything else, and that reads the old side of
-    every changed file, binaries and huge files included. One blob each, so the size and binary
-    bounds that keep _blame_paths cheap do not belong here — a path left out of this list has no
-    old-side content, and the diff that builds the PR data fails outright rather than degrading.
-
-    Uncapped for the same reason. The diff runs before the size gate, so capping the list would
-    turn an oversized PR's clean refusal into a failed review. The file list is already bounded by
-    the API's own paging, which is far below what an argument list holds.
-    """
-    paths = []
-    for entry in files:
-        path = entry.get("previous_filename") or entry.get("filename")
-        if path and path not in paths:
-            paths.append(path)
-    return paths
-
-
 def _prefetch_review_blobs(
     sandbox: SandboxBase,
     base_sha: str,
     head_sha: str,
     token: str,
     blame_paths: list[str],
-    changed_paths: list[str],
     deadline: float,
 ) -> None:
     """Fetch the old-side blobs the review reads, in one request.
@@ -1446,9 +1426,16 @@ def _prefetch_review_blobs(
     runs offline in seconds.
 
     Two sets, one fetch. The blame set needs every historical revision of its paths, which is why it
-    is bounded. The diff set needs one revision — the merge-base one — of every changed path, which
-    is cheap and must not be bounded, because the engine diffs merge-base against head before it
-    does anything else.
+    is bounded. The diff set needs the merge-base revision of every changed file, because the engine
+    diffs merge-base against head before it does anything else, and a missing old side there fails
+    the diff outright rather than degrading it.
+
+    ``diff --raw`` names the diff set: with rename detection off it compares tree entries, so it
+    reads no content and needs no blobs, and it reports the old-side object id of every changed
+    file. Asking git rather than the changed-file list from the API keeps this exhaustive — the API
+    pages out on a very large PR, and the diff runs before the size gate that would refuse one.
+    Gitlinks are dropped because a submodule's commit belongs to another repository and origin
+    rejects the whole batch for it; added files are dropped because they have no old side.
 
     Best effort by design. Everything here is also reachable by a lazy fetch, so a failure costs the
     review speed rather than its verdict wherever that fetch can authenticate. Anything raised is
@@ -1460,14 +1447,14 @@ def _prefetch_review_blobs(
     skips the have/want negotiation, which walks history to tell the server what the clone already
     holds — wasted work when the request names the objects it wants outright.
     """
-    if not changed_paths or not base_sha:
+    if not base_sha:
         return
 
     credential = _git_credential(token)
     oid_file = "/tmp/stamphog-review-oids"
     auth = credential.command
-    # rev-list walks history for the blame set. ls-tree reads one tree for the diff set, and
-    # cat-file reports which of those blobs are absent. The two lists overlap, hence sort -u.
+    # rev-list walks history for the blame set; diff --raw names the diff set, and cat-file reports
+    # which of those blobs are absent. The two lists overlap, hence sort -u.
     history_oids = (
         (
             f"GIT_NO_LAZY_FETCH=1 git --literal-pathspecs rev-list --full-history --objects "
@@ -1477,16 +1464,15 @@ def _prefetch_review_blobs(
         if blame_paths
         else "true"
     )
-    tree_oids = (
-        f'GIT_NO_LAZY_FETCH=1 git --literal-pathspecs ls-tree -r "$merge_base" -- '
-        f"{' '.join(shlex.quote(path) for path in changed_paths)} "
-        f"| cut -d' ' -f3 | cut -f1 "
-        f"| GIT_NO_LAZY_FETCH=1 git cat-file --batch-check | grep ' missing$' | cut -d' ' -f1"
+    diff_oids = (
+        'GIT_NO_LAZY_FETCH=1 git diff --raw --no-renames --abbrev=40 "$merge_base" HEAD '
+        "| grep -v '^:160000' | cut -d' ' -f3 | grep -v '^0*$' "
+        "| GIT_NO_LAZY_FETCH=1 git cat-file --batch-check | grep ' missing$' | cut -d' ' -f1"
     )
     command = (
         f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
         f"merge_base=$(git merge-base {shlex.quote(base_sha)} {shlex.quote(head_sha)}) && "
-        f"{{ {history_oids}; {tree_oids}; }} | sort -u > {shlex.quote(oid_file)} && "
+        f"{{ {history_oids}; {diff_oids}; }} | sort -u > {shlex.quote(oid_file)} && "
         f"if [ -s {shlex.quote(oid_file)} ]; then "
         f"{auth} -c fetch.negotiationAlgorithm=noop fetch origin --no-tags --no-write-fetch-head "
         f"--filter=blob:none --stdin < {shlex.quote(oid_file)}; fi"

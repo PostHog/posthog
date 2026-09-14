@@ -17,7 +17,6 @@ import policy  # noqa: E402
 
 from products.stamphog.backend.temporal.activities import (  # noqa: E402
     _blame_paths,
-    _changed_paths,
     _clone_pr,
     _effective_policy_files,
     _inject_policy_files,
@@ -138,15 +137,7 @@ def test_clone_is_blobless_and_blame_blobs_are_prefetched_in_one_fetch() -> None
     deadline = time.monotonic() + 600
     sandbox = _RecordingSandbox()
     _clone_pr(sandbox, "acme/widgets", "basesha", "headsha", 7, "tok", deadline)  # type: ignore[arg-type]
-    _prefetch_review_blobs(
-        sandbox,  # type: ignore[arg-type]
-        "basesha",
-        "headsha",
-        "tok",
-        ["src/old_name.py"],
-        ["src/old_name.py", "static/logo.png"],
-        deadline,
-    )
+    _prefetch_review_blobs(sandbox, "basesha", "headsha", "tok", ["src/old_name.py"], deadline)  # type: ignore[arg-type]
 
     clone = next(cmd for cmd in executed if " clone " in cmd)
     assert "--filter=blob:none" in clone
@@ -164,10 +155,11 @@ def test_clone_is_blobless_and_blame_blobs_are_prefetched_in_one_fetch() -> None
     assert "fetch origin" in prefetch and "--stdin" in prefetch
     # The enumeration must not fetch the objects it is reporting as missing.
     assert "GIT_NO_LAZY_FETCH=1" in prefetch
-    # The diff reads the old side of every changed file, binaries included, so the merge-base
-    # blob of a path blame skips still has to be fetched.
-    assert "ls-tree" in prefetch
-    assert "static/logo.png" in prefetch
+    # The diff reads the old side of every changed file, so the diff set comes from git rather
+    # than the API file list, which pages out on a large PR.
+    assert "diff --raw --no-renames" in prefetch
+    # A submodule's commit belongs to another repository; batching it makes origin reject the lot.
+    assert "grep -v '^:160000'" in prefetch
 
 
 def test_blame_paths_uses_the_base_side_path_and_skips_binaries() -> None:
@@ -177,10 +169,3 @@ def test_blame_paths_uses_the_base_side_path_and_skips_binaries() -> None:
         {"filename": "static/logo.png"},
     ]
     assert _blame_paths(files) == ["src/old_name.py", "src/plain.py"]
-    # The binary is excluded from the history walk but not from the diff set: one blob is cheap,
-    # and without it the merge-base diff fails instead of degrading.
-    assert _changed_paths(files) == ["src/old_name.py", "src/plain.py", "static/logo.png"]
-    # Uncapped: the diff runs before the size gate, so a capped list would turn an oversized PR's
-    # refusal into a failed review.
-    many = [{"filename": f"src/f{i}.py"} for i in range(250)]
-    assert len(_changed_paths(many)) == 250
