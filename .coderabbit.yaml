@@ -28,6 +28,11 @@ reviews:
         # findings are cheapest to act on.
         drafts: true
 
+        # Without this, only pull requests into the default branch are reviewed,
+        # so every layer of a stack above the first would be skipped.
+        base_branches:
+            - '.*'
+
     # Content rules shared with Greptile (.greptile/config.json "instructions"), so the two reviews can be compared.
     path_instructions:
         - path: '**/*'
