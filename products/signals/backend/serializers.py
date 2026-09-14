@@ -1678,6 +1678,29 @@ _ARTEFACT_TYPES_HELP = (
 )
 
 
+class SignalReportArtefactListQuerySerializer(serializers.Serializer):
+    """Query parameters for listing a report's artefacts."""
+
+    # Plain CharField (not a ChoiceField) for the same enum-name reason as the create body below.
+    type = serializers.CharField(
+        required=False,
+        help_text=(
+            "Comma-separated artefact types. Only rows of these types are returned and counted, so a "
+            "reader that needs one status type (a card showing the current suggested reviewers) does "
+            "not download the whole log. Omit to list every artefact. One of: "
+            + ", ".join(sorted(SignalReportArtefact.ArtefactType.values))
+            + "."
+        ),
+    )
+
+    def validate_type(self, value: str) -> list[str]:
+        types = [item.strip() for item in value.split(",") if item.strip()]
+        unknown = sorted(set(types) - set(SignalReportArtefact.ArtefactType.values))
+        if unknown:
+            raise serializers.ValidationError(f"Unknown artefact type(s): {', '.join(unknown)}.")
+        return types
+
+
 def _validate_artefact_content_is_container(value: object) -> dict | list:
     if not isinstance(value, dict | list):
         raise serializers.ValidationError("content must be a JSON object or array.")

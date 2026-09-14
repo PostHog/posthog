@@ -102,7 +102,19 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
 
     # --- GET list ---
 
-    def test_list_returns_results_envelope(self):
+    @parameterized.expand(
+        [
+            ("whole_log", {}, {"suggested_reviewers", "priority_judgment"}),
+            ("one_type", {"type": "suggested_reviewers"}, {"suggested_reviewers"}),
+            (
+                "two_types",
+                {"type": "priority_judgment,suggested_reviewers"},
+                {"suggested_reviewers", "priority_judgment"},
+            ),
+            ("type_without_rows", {"type": "note"}, set()),
+        ]
+    )
+    def test_list_returns_results_envelope(self, _name, params, expected_types):
         report = self._create_report()
         self._create_artefact(report, content=[{"github_login": "alice"}])
         self._create_artefact(
@@ -111,13 +123,19 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             content={"priority": "P1"},
         )
 
-        response = self.client.get(self._list_url(str(report.id)))
+        response = self.client.get(self._list_url(str(report.id)), params)
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["count"] == 2
-        assert len(data["results"]) == 2
-        types = {row["type"] for row in data["results"]}
-        assert types == {"suggested_reviewers", "priority_judgment"}
+        assert data["count"] == len(expected_types)
+        assert {row["type"] for row in data["results"]} == expected_types
+
+    def test_list_rejects_unknown_type(self):
+        report = self._create_report()
+
+        response = self.client.get(self._list_url(str(report.id)), {"type": "suggested_reviewers,bogus"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "type"
 
     def test_list_enriches_suggested_reviewers_with_user(self):
         member = self._create_org_member("alice@example.com", github_login="Alice")

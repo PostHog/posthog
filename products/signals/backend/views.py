@@ -101,7 +101,7 @@ from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
     fetch_implementation_prs_for_reports,
-    implementation_pr_report_filter,
+    pr_bearing_task_run_filter,
     primary_pull_request,
     pull_request_matches_id,
 )
@@ -112,6 +112,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportAction,
     SignalReportArtefact,
+    SignalReportAssignment,
     SignalReportRefund,
     SignalSourceConfig,
     SignalTeamConfig,
@@ -153,6 +154,7 @@ from products.signals.backend.serializers import (
     PullRequestReviewCommentReactionCreateSerializer,
     PullRequestReviewCommentUpdateSerializer,
     ReportSignalsResponseSerializer,
+    SignalReportArtefactListQuerySerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
@@ -1211,7 +1213,20 @@ class SignalReportViewSet(
         ).filter(~has_newer)
 
     def _implementation_pr_report_filter(self):
-        return implementation_pr_report_filter(team_id=self.team.id)
+        assignment_pr = Q(assignment__pr_url__isnull=False) & ~Q(assignment__pr_url="")
+        task_pr = SignalReport.reports_for_task_ids_filter(
+            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter()),
+            team_id=self.team.id,
+        )
+        return (
+            assignment_pr
+            | task_pr
+            | Q(
+                id__in=SignalReportArtefact.objects.filter(team_id=self.team.id, pull_request__isnull=False).values(
+                    "report_id"
+                )
+            )
+        )
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
         # `has_implementation_pr=true|false` filters reports by whether an attached
@@ -1245,7 +1260,23 @@ class SignalReportViewSet(
             wants_unclaimed = False
         else:
             raise serializers.ValidationError({"unclaimed": f"Invalid value: {raw!r}. Allowed: true, false."})
-        has_review_pr = implementation_pr_report_filter(team_id=self.team.id, active_only=True)
+        has_review_pr = Q(
+            assignment__pr_url__isnull=False,
+            assignment__pr_state__in=[
+                SignalReportAssignment.PrState.UNKNOWN,
+                SignalReportAssignment.PrState.DRAFT,
+                SignalReportAssignment.PrState.OPEN,
+            ],
+        ) & ~Q(assignment__pr_url="")
+        task_pr = SignalReport.reports_for_task_ids_filter(
+            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter()),
+            team_id=self.team.id,
+        )
+        new_links = SignalReportArtefact.objects.filter(team_id=self.team.id, pull_request__isnull=False)
+        active_prs = new_links.filter(pull_request__state__in=["unknown", "draft", "open"])
+        has_review_pr = Q(id__in=active_prs.values("report_id")) | (
+            (~Q(id__in=new_links.values("report_id")) & has_review_pr) | task_pr
+        )
         is_unclaimed = (
             ~Q(status=SignalReport.Status.RESOLVED) & ~reports_with_active_claim(team_id=self.team_id) & ~has_review_pr
         )
@@ -4174,9 +4205,10 @@ def _record_reviewer_edit(
             "behind the report), status judgments (safety / actionability / priority, repo "
             "selection, suggested reviewers — the newest row of each status type is canonical), "
             "and log entries (code references, commits, task runs, notes). "
-            "`suggested_reviewers` content is enriched with PostHog user info at read time."
+            "`suggested_reviewers` content is enriched with PostHog user info at read time. "
+            "Pass `type` to read only the rows of one or more artefact types."
         ),
-        parameters=[_REPORT_ID_PARAMETER],
+        parameters=[_REPORT_ID_PARAMETER, SignalReportArtefactListQuerySerializer],
         responses={200: SignalReportArtefactSerializer(many=True)},
         operation_id="signals_report_artefacts_list",
     ),
@@ -4251,17 +4283,27 @@ class SignalReportArtefactViewSet(
         ).exclude(report__status=SignalReport.Status.DELETED)
 
     def list(self, request, *args, **kwargs):
+        query = SignalReportArtefactListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        requested_types: list[str] = query.validated_data.get("type", [])
         queryset = self.filter_queryset(self.get_queryset())
+        if requested_types:
+            queryset = queryset.filter(type__in=requested_types)
         # Surface legacy `SignalReportTask` associations as synthetic `task_run` artefacts so a
         # report's research / implementation runs appear in the log even before the backfill has
         # converted its gate rows. Merged into the materialized log (de-duplicated against the real
         # task_run artefacts) and re-sorted newest-first so each legacy row lands at its original
         # timestamp, then paginated as one list so `count` and ordering both account for them.
         real_artefacts = list(queryset)
-        synthetic = SignalReport.synthetic_legacy_task_run_artefacts(
-            report_id=self.parents_query_dict["report_id"],
-            team_id=self.team.id,
-            existing_artefacts=real_artefacts,
+        includes_task_runs = not requested_types or SignalReportArtefact.ArtefactType.TASK_RUN in requested_types
+        synthetic = (
+            SignalReport.synthetic_legacy_task_run_artefacts(
+                report_id=self.parents_query_dict["report_id"],
+                team_id=self.team.id,
+                existing_artefacts=real_artefacts,
+            )
+            if includes_task_runs
+            else []
         )
         log = (
             sorted([*real_artefacts, *synthetic], key=lambda a: a.created_at, reverse=True)
