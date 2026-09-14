@@ -4444,7 +4444,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         with this test still passing.
         """
         self.team.survey_config = {"allowed_link_schemes": ["example-mobile"]}
-        self.team.save()
+        self.team.save(update_fields=["survey_config"])
 
         # Create 5 flags with linked surveys
         for i in range(5):
