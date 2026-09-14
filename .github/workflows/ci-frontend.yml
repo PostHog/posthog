@@ -1113,6 +1113,9 @@ jobs:
             needs.changes.outputs.frontend_code == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')) }}
+        permissions:
+            contents: read
+            actions: read
         steps:
             - name: Get telemetry app token
               id: telemetry-app-token
