@@ -137,6 +137,11 @@ export function initializePostHog(sessionId?: string) {
     metrics: {
       serviceName: "posthog-desktop",
       environment: import.meta.env.PROD ? "production" : "development",
+      // Records every fetch/XHR as an `http.client.request.duration` histogram,
+      // keyed by method/host/path (posthog-js templates numeric and uuid-like
+      // path segments to `:id`). posthog-js's own capture/flags/session-recording
+      // requests are excluded automatically.
+      network: true,
     },
     // The epoch turns capture_pageview into "history_change". This app routes via
     // createHashHistory() (packages/ui/src/router/router.ts), so the route lives in
@@ -342,21 +347,6 @@ export function track<K extends keyof EventPropertyMap>(
   posthog.capture(eventName, properties);
 }
 
-export function recordNavigationSettled(
-  durationMs: number,
-  route: string,
-  visibilityAtSettle: DocumentVisibilityState,
-): void {
-  if (!isInitialized) {
-    return;
-  }
-
-  posthog.metrics.histogram("desktop.navigation.settled.duration", durationMs, {
-    unit: "ms",
-    attributes: { route, visibility_at_settle: visibilityAtSettle },
-  });
-}
-
 /**
  * Record a survey response via posthog-js's `survey sent` event. Pass one entry
  * per answered question; they're submitted together as a single response. The
@@ -521,7 +511,6 @@ export const posthogAnalyticsTracker: AnalyticsTracker = {
   identifyUser,
   setUserGroups,
   resetUser,
-  recordNavigationSettled,
   captureSurveyResponse,
 };
 
