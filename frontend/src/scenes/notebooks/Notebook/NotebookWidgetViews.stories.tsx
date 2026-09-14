@@ -326,6 +326,25 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/notebooks/kernel/compute_options': {
+                    currency: 'USD',
+                    cpu_rate_per_core_hour: 0.2,
+                    memory_rate_per_gb_hour: 0.025,
+                    default_preset_key: 'small',
+                    presets: [
+                        {
+                            key: 'small',
+                            name: 'Small',
+                            description: 'Exploring data and working with small dataframes.',
+                            cpu_cores: 1,
+                            memory_gb: 2,
+                            hourly_price: 0.25,
+                        },
+                    ],
+                    allowed_cpu_cores: [1],
+                    allowed_memory_gb: [2],
+                    allowed_idle_timeout_seconds: [3600],
+                },
                 '/api/projects/:team_id/notebooks/:short_id': ({ params }) => [
                     200,
                     notebooks[params.short_id as keyof typeof notebooks],
@@ -405,6 +424,10 @@ const meta: Meta = {
                 '/api/environments/:team_id/default_release_conditions/': [],
             },
             patch: {
+                '/api/projects/:team_id/notebooks/:short_id': async ({ params, request }) => ({
+                    ...notebooks[params.short_id as keyof typeof notebooks],
+                    ...((await request.json()) as Record<string, unknown>),
+                }),
                 '/api/projects/:team_id/session_recording_playlists/:playlist_id': async ({ request }) => {
                     const body = (await request.json()) as Record<string, unknown>
                     return { ...playlist, ...body }
