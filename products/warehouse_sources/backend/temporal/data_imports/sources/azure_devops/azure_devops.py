@@ -53,6 +53,15 @@ class AzureDevOpsAuthError(Exception):
     pass
 
 
+@dataclasses.dataclass(frozen=True)
+class PullRequestRef:
+    """One pull request located well enough to reach its child endpoints."""
+
+    project: str
+    repository_id: str
+    pull_request_id: int
+
+
 @dataclasses.dataclass
 class AzureDevOpsResumeConfig:
     # Only the org-level work item revisions stream persists resume state —
@@ -93,6 +102,56 @@ def _flatten_revision(item: dict[str, Any]) -> dict[str, Any]:
     if changed is not None:
         return {**item, "changed_date": changed}
     return item
+
+
+def _flatten_commit(item: dict[str, Any], project: str, repository: dict[str, Any]) -> dict[str, Any]:
+    # The committer date is nested under `committer`; the pipeline needs it at the
+    # row root to partition and to track the incremental watermark.
+    return {
+        **item,
+        "project_name": project,
+        "repository_id": repository.get("id"),
+        "repository_name": repository.get("name"),
+        "committer_date": (item.get("committer") or {}).get("date"),
+    }
+
+
+def _with_pull_request_ref(item: dict[str, Any], ref: PullRequestRef) -> dict[str, Any]:
+    return {
+        **item,
+        "project_name": ref.project,
+        "repository_id": ref.repository_id,
+        "pull_request_id": ref.pull_request_id,
+    }
+
+
+def _flatten_thread_comments(thread: dict[str, Any], ref: PullRequestRef) -> list[dict[str, Any]]:
+    return [
+        {
+            **comment,
+            "project_name": ref.project,
+            "repository_id": ref.repository_id,
+            "pull_request_id": ref.pull_request_id,
+            "thread_id": thread.get("id"),
+        }
+        for comment in (thread.get("comments") or [])
+    ]
+
+
+def _flatten_team(item: dict[str, Any], project: dict[str, Any]) -> dict[str, Any]:
+    # This endpoint leaves WebApiTeam's optional project fields unset, so the
+    # fan-out parent supplies them.
+    return {**item, "project_id": project.get("id"), "project_name": project.get("name")}
+
+
+def _flatten_team_member(item: dict[str, Any], project: dict[str, Any], team: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **item,
+        "project_id": project.get("id"),
+        "team_id": team.get("id"),
+        "team_name": team.get("name"),
+        "identity_id": (item.get("identity") or {}).get("id"),
+    }
 
 
 # Actionable reasons returned by the create-time credential probe. The sync-time equivalents live in
@@ -221,25 +280,56 @@ def get_rows(
             if not token or not items:
                 return
 
-    def iterate_skip(path: str, extra: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
+    def iterate_skip(path: str, extra: dict[str, Any], use_base_params: bool = True) -> Iterator[list[dict[str, Any]]]:
         skip = 0
         while True:
-            params = {**base_params(), **extra, "$top": PAGE_SIZE, "$skip": skip}
+            params = {**(base_params() if use_base_params else {}), **extra, "$top": PAGE_SIZE, "$skip": skip}
             response = fetch(path, params)
             items = response.json().get("value", []) or []
-            if items:
-                yield items
-            if len(items) < PAGE_SIZE:
+            if not items:
                 return
-            skip += PAGE_SIZE
+            yield items
+            # Advance by what the server returned rather than by $top: several
+            # endpoints cap the page size below what we ask for, and treating a
+            # short page as the last one would silently truncate the table.
+            skip += len(items)
 
-    def project_names() -> list[str]:
+    def projects() -> list[dict[str, Any]]:
         # Project enumeration is independent of the data endpoint being synced,
         # so it must not carry that endpoint's incremental filter.
-        names: list[str] = []
+        items: list[dict[str, Any]] = []
         for page in iterate_header_token("/_apis/projects", {}, use_base_params=False):
-            names.extend(item["name"] for item in page if item.get("name"))
-        return names
+            items.extend(page)
+        return items
+
+    def project_names() -> list[str]:
+        return [item["name"] for item in projects() if item.get("name")]
+
+    def repositories_for(project: str) -> list[dict[str, Any]]:
+        path = AZURE_DEVOPS_ENDPOINTS["repositories"].path.replace("{project}", quote(project))
+        return fetch(path, {}).json().get("value", []) or []
+
+    def teams_for(project: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
+        path = AZURE_DEVOPS_ENDPOINTS["teams"].path.replace("{project}", quote(str(project["id"])))
+        yield from iterate_skip(path, {}, use_base_params=False)
+
+    def pull_request_refs() -> Iterator[PullRequestRef]:
+        pr_path = AZURE_DEVOPS_ENDPOINTS["pull_requests"].path
+        for project in project_names():
+            path = pr_path.replace("{project}", quote(project))
+            for page in iterate_skip(path, {"searchCriteria.status": "all"}, use_base_params=False):
+                for pull_request in page:
+                    repository_id = (pull_request.get("repository") or {}).get("id")
+                    pull_request_id = pull_request.get("pullRequestId")
+                    if repository_id and pull_request_id is not None:
+                        yield PullRequestRef(project, repository_id, pull_request_id)
+
+    def pull_request_child_path(ref: PullRequestRef) -> str:
+        return (
+            config.path.replace("{project}", quote(ref.project))
+            .replace("{repositoryId}", quote(str(ref.repository_id)))
+            .replace("{pullRequestId}", quote(str(ref.pull_request_id)))
+        )
 
     if endpoint == "projects":
         yield from iterate_header_token(config.path, {})
@@ -267,6 +357,63 @@ def get_rows(
             extra["searchCriteria.queryTimeRangeType"] = "created"
         for project in project_names():
             yield from iterate_skip(config.path.replace("{project}", quote(project)), extra)
+        return
+
+    if endpoint == "commits":
+        for project in project_names():
+            for repository in repositories_for(project):
+                if repository.get("isDisabled") or not repository.get("id"):
+                    continue
+                path = config.path.replace("{project}", quote(project)).replace(
+                    "{repositoryId}", quote(str(repository["id"]))
+                )
+                # Oldest-first keeps each repository's pages aligned with the
+                # fromDate filter; the stream is still declared `desc` because the
+                # fan-out interleaves repositories.
+                for page in iterate_skip(path, {"searchCriteria.showOldestCommitsFirst": "true"}):
+                    yield [_flatten_commit(item, project, repository) for item in page]
+        return
+
+    if endpoint in ("pull_request_threads", "pull_request_thread_comments"):
+        want_comments = endpoint == "pull_request_thread_comments"
+        for ref in pull_request_refs():
+            threads = fetch(pull_request_child_path(ref), {}).json().get("value", []) or []
+            if want_comments:
+                rows = [row for thread in threads for row in _flatten_thread_comments(thread, ref)]
+            else:
+                rows = [_with_pull_request_ref(thread, ref) for thread in threads]
+            if rows:
+                yield rows
+        return
+
+    if endpoint == "pull_request_reviewers":
+        for ref in pull_request_refs():
+            reviewers = fetch(pull_request_child_path(ref), {}).json().get("value", []) or []
+            if reviewers:
+                yield [_with_pull_request_ref(item, ref) for item in reviewers]
+        return
+
+    if endpoint == "teams":
+        for project_row in projects():
+            if not project_row.get("id"):
+                continue
+            for page in teams_for(project_row):
+                yield [_flatten_team(item, project_row) for item in page]
+        return
+
+    if endpoint == "team_members":
+        for project_row in projects():
+            if not project_row.get("id"):
+                continue
+            for team_page in teams_for(project_row):
+                for team in team_page:
+                    if not team.get("id"):
+                        continue
+                    path = config.path.replace("{project}", quote(str(project_row["id"]))).replace(
+                        "{teamId}", quote(str(team["id"]))
+                    )
+                    for page in iterate_skip(path, {}, use_base_params=False):
+                        yield [_flatten_team_member(item, project_row, team) for item in page]
         return
 
     # work_item_revisions: org-level reporting endpoint with a body

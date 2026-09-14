@@ -79,6 +79,7 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.ai_training",
     "products.autoresearch",
     "products.cohorts",
     "ee",
@@ -1510,4 +1511,18 @@ expose = [
 ]
 from = [
     "products.data_quality",
+]
+
+[[modules]]
+path = "products.ai_training"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.ai_training",
 ]

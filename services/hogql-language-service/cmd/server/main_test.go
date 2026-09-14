@@ -57,6 +57,9 @@ func TestAutocompleteUsesOnlyRequestedTeamAndUserCatalog(t *testing.T) {
 		if result.CatalogRevision != test.revision || !hasSuggestion(result.Suggestions, test.table) {
 			t.Fatalf("unexpected response for team %d user %d: %#v", test.teamID, test.userID, result)
 		}
+		if result.PositionEncoding != completion.PositionEncodingUTF8 {
+			t.Fatalf("unexpected position encoding: %q", result.PositionEncoding)
+		}
 		for _, otherTable := range []string{"orders", "accounts", "invoices"} {
 			if otherTable != test.table && hasSuggestion(result.Suggestions, otherTable) {
 				t.Fatalf("%s leaked into team %d user %d", otherTable, test.teamID, test.userID)

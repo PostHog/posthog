@@ -45,7 +45,6 @@ ee/hogai/core/test/test_artifacts.py::TestVisualizationArtifactContent
 ee/hogai/core/test/test_base_callback_handlers.py::TestSubagentCallbackHandler
 ee/hogai/core/test/test_dispatcher_integration.py::TestDispatcherIntegration
 ee/hogai/research_agent/test/test_runner.py::TestResearchAgentRunnerConfiguration
-ee/hogai/stream/test/test_redis_stream.py::TestGetSubagentStreamKey
 ee/hogai/summarizers/test/test_property_filters.py::TestPropertyFilterCollectionDescriber
 ee/hogai/summarizers/test/test_property_filters.py::TestPropertyFilterDescriber
 ee/hogai/test/test_registry.py::TestToolRegistry

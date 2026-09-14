@@ -20497,7 +20497,7 @@ export namespace Schemas {
        * * `snappy` - snappy */
       compression?: CompressionEnum | null;
       /**
-         * Split download into multiple files of at most this size in MB
+         * Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.
          * @minimum 0
          * @nullable
          */
@@ -49056,6 +49056,16 @@ export namespace Schemas {
       readonly has_unsafe_documents: boolean;
       /** Semantic-index state of this source. A `ready` source serves keyword (full-text) search immediately, but semantic search needs a background job to classify and embed its documents, which can take up to an hour. `pending` — at least one document is still awaiting classification or embedding. `completed` — every eligible document has been submitted to the embedding pipeline. `disabled` — the organization has not approved AI data processing, so embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`. */
       readonly embedding_status: EmbeddingStatusEnum;
+      /**
+         * Support ticket number this learned source came from. Null for sources you added yourself.
+         * @nullable
+         */
+      readonly learned_from_ticket_number: number | null;
+      /**
+         * App URL of the originating support ticket. Null for sources you added yourself.
+         * @nullable
+         */
+      readonly learned_from_ticket_url: string | null;
       readonly crawl_mode: CrawlModeEnum;
       readonly crawl_config: unknown;
       readonly original_filename: string;
@@ -49297,6 +49307,16 @@ export namespace Schemas {
       line_count: number;
       /** Number of characters in the file content. */
       char_count: number;
+      /**
+         * Size of the file content in bytes. Null on rows written before digests were stamped.
+         * @nullable
+         */
+      size: number | null;
+      /**
+         * Hex SHA-256 of the file content. Null on rows written before digests were stamped.
+         * @nullable
+         */
+      sha256: string | null;
     }
 
     export interface LLMSkillOutlineEntry {
@@ -54265,12 +54285,16 @@ export namespace Schemas {
     export interface NotebookCellState {
       /** Durable cell identity, used by the cell run and edit endpoints. */
       node_id: string;
-      /** Cell kind: 'sql', 'python', or 'saved_insight' (embedded insight, never runs). */
+      /** Cell kind: 'sql', 'python', 'saved_insight' (embedded insight, never runs), or 'markdown' (prose, a heading, or a fenced block; never runs and joins no dependency graph). */
       cell_type: string;
       /** Name other cells reference this cell's result by; blank means display-only. */
       dataframe_name: string;
-      /** The cell's source, truncated with a marker past 8KB. */
+      /** The cell's source, truncated with a marker past 8KB. For a markdown cell this is the block's markdown. */
       code: string;
+      /** Offset where the cell's source starts in the notebook's markdown, in UTF-16 code units, the same unit the collaboration diffs use. */
+      start: number;
+      /** Offset just past the cell's source, in UTF-16 code units, excluding the blank lines that separate it from the next cell. */
+      end: number;
       /** Derived cell state: 'never_run', 'running', 'done', 'failed', 'interrupted', or 'stale' — stale means re-running now would execute different code than the last completed run (the cell or an upstream dependency changed). */
       status: string;
       /** node_ids of cells whose dataframes this cell's code references. */
@@ -54996,6 +55020,27 @@ export namespace Schemas {
       emits_signals: boolean;
       /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
       scanner_config: unknown;
+      /** How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees). */
+      verify_positives: string;
+    }
+
+    /**
+     * Mirrors `temporal.types.VerificationRecord` for OpenAPI generation.
+     */
+    export interface VerificationRecord {
+      /** Verify-positives mode the scan ran with: `shadow` records the second draw only, `enforce` serves the settled verdict. */
+      mode: string;
+      /** Monitor verdicts in draw order: the pass that triggered verification, then the second draw when it ran. */
+      draws: string[];
+      /** The verdict verification settled on: the first pass when the second draw agrees, else the dissent. */
+      resolved_verdict: string;
+      /** The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`. */
+      served_verdict: string;
+      /**
+         * Why verification stopped early (`no_cache`, `no_budget`, `draw_failed`), leaving the first pass in place. Null when every draw ran.
+         * @nullable
+         */
+      skipped_reason: string | null;
     }
 
     /**
@@ -55009,6 +55054,8 @@ export namespace Schemas {
          * @minimum 0
          */
       signals_count: number;
+      /** Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one. */
+      verification: VerificationRecord | null;
     }
 
     /**
@@ -78380,6 +78427,11 @@ export namespace Schemas {
     export interface RetrieveCompletedOutput {
       status: RetrieveCompletedOutputStatus;
       files: string[];
+      /**
+         * Number of rows this run exported.
+         * @nullable
+         */
+      records_completed: number | null;
     }
 
     /**
@@ -92742,10 +92794,12 @@ export namespace Schemas {
     export interface _MetricAttributeKey {
       /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
       name: string;
+      /** Number of distinct recent series with this attribute, based on series metadata. */
+      series_count: number;
     }
 
     export interface _MetricAttributeKeysResponse {
-      /** Distinct attribute keys (datapoint and resource attributes merged), most frequent first. */
+      /** Distinct attribute keys (datapoint and resource attributes merged), ordered by series count descending. */
       results: _MetricAttributeKey[];
       /** Number of keys returned. */
       count: number;
@@ -102158,6 +102212,11 @@ export namespace Schemas {
      * @maximum 1000
      */
     limit?: number;
+    /**
+     * Exact metric name to limit attribute keys to. Omit to list keys across all metrics.
+     * @maxLength 255
+     */
+    metricName?: string;
     /**
      * Substring filter (case-insensitive) applied to attribute keys.
      * @maxLength 255

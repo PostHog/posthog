@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
@@ -504,7 +506,7 @@ class WebhookDeletionResult:
     error: str | None = None
 
 
-@dataclasses.dataclass
+@frozen
 class ExternalWebhookInfo:
     """Info about an external webhook on the source (e.g. Stripe webhook endpoint)."""
 
@@ -514,6 +516,11 @@ class ExternalWebhookInfo:
     status: str | None = None
     description: str | None = None
     created_at: str | None = None
+    # The vendor API version the endpoint delivers at, for the providers that pin one per
+    # endpoint. None means the provider has no such concept or the endpoint carries no pin, in
+    # which case the provider renders payloads at the account default and the shape can drift
+    # away from the version this source reads.
+    api_version: str | None = None
     error: str | None = None
 
 
