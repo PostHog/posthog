@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import AsyncMock, patch
 
@@ -422,7 +422,7 @@ class TestAttributionHealthPaidSignalClickhouse(ClickhouseTestMixin, BaseTest):
         assert google.events_matched_tagged_medium_last_7d == 0
 
 
-@freeze_time("2025-06-15")
+@time_machine.travel("2025-06-15", tick=False)
 class TestAttributionHealthFutureTimestampClickhouse(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
