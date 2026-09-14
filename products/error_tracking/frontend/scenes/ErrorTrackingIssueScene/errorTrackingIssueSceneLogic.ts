@@ -328,7 +328,7 @@ export interface errorTrackingIssueSceneLogicActions {
             value: true
         }
     }
-    loadSpikeEvents: () => any
+    loadSpikeEvents: (_: void) => void
     loadSpikeEventsFailure: (
         error: string,
         errorObject?: any
@@ -338,10 +338,10 @@ export interface errorTrackingIssueSceneLogicActions {
     }
     loadSpikeEventsSuccess: (
         spikeEvents: ErrorTrackingSpikeEvent[],
-        payload?: any
+        payload?: void
     ) => {
         spikeEvents: ErrorTrackingSpikeEvent[]
-        payload?: any
+        payload?: void
     }
     loadSummary: () => {
         value: true
