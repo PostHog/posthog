@@ -2,7 +2,7 @@ import './FeatureFlag.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 
 import { IconArchive, IconCopy, IconPlusSmall, IconRewind, IconTrash } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
@@ -30,7 +30,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { retryImport } from 'lib/utils/retryImport'
+import { useRetryableLazy } from 'lib/utils/retryImport'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -99,13 +99,6 @@ import { FeatureFlagUsageMetrics } from './FeatureFlagUsageMetrics'
 
 const RESOURCE_TYPE = 'feature_flag'
 
-// The edit/create form pulls in heavy deps (dnd-kit, JSON editors, sortable release conditions).
-// Lazy-mounting it lets the Edit click flip state and paint a loading skeleton before that render,
-// instead of the click blocking the main thread for seconds and reading as a dead click.
-const FeatureFlagForm = lazy(() =>
-    retryImport(() => import('./FeatureFlagForm').then((m) => ({ default: m.FeatureFlagForm })))
-)
-
 function FeatureFlagFormSkeleton(): JSX.Element {
     return (
         <div className="deprecated-space-y-2">
@@ -140,6 +133,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         dependentFlags,
         isFormDirty,
     } = useValues(featureFlagLogic)
+    // The edit/create form pulls in heavy deps (dnd-kit, JSON editors, sortable release conditions).
+    // Lazy-mounting it lets the Edit click flip state and paint a loading skeleton before that render,
+    // instead of the click blocking the main thread for seconds and reading as a dead click.
+    const { Lazy: FeatureFlagForm, retry: retryFeatureFlagForm } = useRetryableLazy(() =>
+        import('./FeatureFlagForm').then((m) => ({ default: m.FeatureFlagForm }))
+    )
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
         deleteFeatureFlag,
@@ -242,13 +241,16 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         }
         return (
             <ChunkLoadErrorBoundary
-                holdsUnsavedWork={isFormDirty}
-                fallback={(error, retry) => (
+                degradeInPlace
+                fallback={(error, clearError) => (
                     <FeatureFlagFormLoadError
                         error={error}
                         teamId={currentTeamId}
-                        onRetry={retry}
                         hasUnsavedChanges={isFormDirty}
+                        onRetry={() => {
+                            retryFeatureFlagForm()
+                            clearError()
+                        }}
                     />
                 )}
             >

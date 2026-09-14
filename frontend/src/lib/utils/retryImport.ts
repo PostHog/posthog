@@ -1,4 +1,4 @@
-import { ComponentType, LazyExoticComponent, lazy } from 'react'
+import { ComponentType, LazyExoticComponent, lazy, useCallback, useMemo, useRef, useState } from 'react'
 
 import { isChunkLoadError, isGenericNetworkTypeError, markAsChunkLoadError } from 'lib/utils/isChunkLoadError'
 
@@ -66,4 +66,22 @@ export function lazyWithRetry<T extends ComponentType<any>>(
     factory: () => Promise<{ default: T }>
 ): LazyExoticComponent<T> {
     return lazy(() => retryImport(factory))
+}
+
+/**
+ * `React.lazy` keeps a rejected import forever: it stores the rejection and re-throws it on every
+ * later render without asking for the chunk again. A module-level lazy value therefore stays broken
+ * for the rest of the page's life, so a retry has to build a new one.
+ *
+ * Returns a lazy component plus a `retry` that replaces it, which does issue a fresh import.
+ * The first `factory` wins, so an inline arrow does not rebuild the component on every render.
+ */
+export function useRetryableLazy<T extends ComponentType<any>>(
+    factory: () => Promise<{ default: T }>
+): { Lazy: LazyExoticComponent<T>; retry: () => void } {
+    const [attempt, setAttempt] = useState(0)
+    const factoryRef = useRef(factory)
+    const Lazy = useMemo(() => lazy(() => retryImport(() => factoryRef.current())), [attempt])
+    const retry = useCallback(() => setAttempt((previous) => previous + 1), [])
+    return { Lazy, retry }
 }

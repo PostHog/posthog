@@ -21,17 +21,17 @@ interface ChunkLoadErrorBoundaryProps {
     children: ReactNode
     reload?: () => void
     /**
-     * `retry` clears the caught error and re-renders `children`, which re-requests the
-     * missing chunk. State held outside this subtree survives that, so a fallback that
-     * offers `retry` lets the person carry on rather than start over.
+     * `clearError` re-renders `children`. React keeps a rejected import and re-throws it
+     * without asking for the chunk again, so a fallback that offers a retry must also
+     * rebuild the lazy value, which `useRetryableLazy` does.
      */
-    fallback?: (error: unknown, retry: () => void) => ReactNode
+    fallback?: (error: unknown, clearError: () => void) => ReactNode
     /**
-     * Set when the subtree holds state the person has typed and not yet saved, so a
-     * scripted reload would discard it. The boundary then renders `fallback` straight
-     * away and leaves the reload to the person.
+     * Set when this subtree can fail on its own without taking the page with it. The
+     * boundary renders `fallback` straight away instead of reloading, which keeps state
+     * the person has typed and leaves the reload to them.
      */
-    holdsUnsavedWork?: boolean
+    degradeInPlace?: boolean
 }
 
 export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProps, State> {
@@ -45,9 +45,9 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
         if (!isChunkLoadError(error)) {
             return
         }
-        // Reloading cannot recover this subtree: its own chunk already loaded, so only a chunk it
-        // asked for later is missing. It would just discard what the person has typed since.
-        if (this.props.holdsUnsavedWork && this.props.fallback) {
+        // The page is already interactive, so a reload cannot bring back the missing chunk any
+        // faster than a retry can, and it discards whatever the person has typed meanwhile.
+        if (this.props.degradeInPlace && this.props.fallback) {
             this.setState({ surface: true })
             return
         }
@@ -77,14 +77,14 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
         }
     }
 
-    private retry = (): void => {
+    private clearError = (): void => {
         this.setState({ error: null, surface: false })
     }
 
     override render(): ReactNode {
         const { error, surface } = this.state
         if (error && surface && isChunkLoadError(error) && this.props.fallback) {
-            return this.props.fallback(error, this.retry)
+            return this.props.fallback(error, this.clearError)
         }
         if (error && (!isChunkLoadError(error) || surface)) {
             throw error
