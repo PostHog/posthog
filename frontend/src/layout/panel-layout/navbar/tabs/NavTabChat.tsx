@@ -1,7 +1,7 @@
 import { Combobox } from '@base-ui/react/combobox'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useId, useMemo, useState } from 'react'
+import { memo, useId, useMemo, useState } from 'react'
 
 import { IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
@@ -151,6 +151,103 @@ function LoadTasksError({ onRetry }: { onRetry: () => void }): JSX.Element {
     )
 }
 
+// Every loaded row renders inside the collapsible groups, with no virtualizer, and a search opens
+// every group. Memoized so a keystroke or a status poll re-renders only the rows whose item or
+// selection changed, rather than every page the user has loaded.
+const ConversationRow = memo(function ConversationRow({
+    item,
+    active,
+    onItemClick,
+}: {
+    item: Extract<AiHistoryItem, { kind: 'conversation' }>
+    active: boolean
+    onItemClick?: () => void
+}): JSX.Element {
+    const href = AiChatListItem.getHref(item.conversation.id)
+    return (
+        <AiChatListItem.Root>
+            <AiChatListItem.Group>
+                <Combobox.Item
+                    value={item}
+                    render={(props) => (
+                        <Tooltip title={item.title} placement="right">
+                            <Link
+                                {...props}
+                                to={href}
+                                data-attr="nav-chat-history-conversation"
+                                buttonProps={{
+                                    active,
+                                    fullWidth: true,
+                                    className: 'pr-0',
+                                    menuItem: true,
+                                }}
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    router.actions.push(href)
+                                    onItemClick?.()
+                                }}
+                            >
+                                <AiChatListItem.Content
+                                    title={item.conversation.title}
+                                    status={item.conversation.status}
+                                    updatedAt={item.conversation.updated_at}
+                                />
+                            </Link>
+                        </Tooltip>
+                    )}
+                />
+                <AiChatListItem.Trigger />
+            </AiChatListItem.Group>
+            <AiChatListItem.Actions conversationId={item.conversation.id} />
+        </AiChatListItem.Root>
+    )
+})
+
+const TaskRow = memo(function TaskRow({
+    item,
+    active,
+    onItemClick,
+}: {
+    item: Extract<AiHistoryItem, { kind: 'task' }>
+    active: boolean
+    onItemClick?: () => void
+}): JSX.Element {
+    const href = TaskListItem.getHref(item.task.id)
+    return (
+        <TaskListItem.Root>
+            <TaskListItem.Group>
+                <Combobox.Item
+                    value={item}
+                    render={(props) => (
+                        <Tooltip title={item.title} placement="right">
+                            <Link
+                                {...props}
+                                to={href}
+                                data-attr="nav-chat-history-task"
+                                buttonProps={{
+                                    active,
+                                    fullWidth: true,
+                                    className: 'pr-0',
+                                    menuItem: true,
+                                }}
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    router.actions.push(href)
+                                    onItemClick?.()
+                                }}
+                            >
+                                <TaskListItem.Content task={item.task} />
+                            </Link>
+                        </Tooltip>
+                    )}
+                />
+                <TaskListItem.Trigger />
+            </TaskListItem.Group>
+            <TaskListItem.Actions taskId={item.task.id} />
+        </TaskListItem.Root>
+    )
+})
+
 export function NavTabChat({
     inPanel = false,
     onItemClick,
@@ -292,107 +389,22 @@ export function NavTabChat({
                                                     <Combobox.Collection>
                                                         {(item: AiHistoryItem) =>
                                                             item.kind === 'conversation' ? (
-                                                                <AiChatListItem.Root key={item.key}>
-                                                                    <AiChatListItem.Group>
-                                                                        <Combobox.Item
-                                                                            value={item}
-                                                                            render={(props) => (
-                                                                                <Tooltip
-                                                                                    title={item.title}
-                                                                                    placement="right"
-                                                                                >
-                                                                                    <Link
-                                                                                        {...props}
-                                                                                        to={AiChatListItem.getHref(
-                                                                                            item.conversation.id
-                                                                                        )}
-                                                                                        data-attr="nav-chat-history-conversation"
-                                                                                        buttonProps={{
-                                                                                            active:
-                                                                                                !selectedTaskId &&
-                                                                                                item.conversation.id ===
-                                                                                                    currentConversationId,
-                                                                                            fullWidth: true,
-                                                                                            className: 'pr-0',
-                                                                                            menuItem: true,
-                                                                                        }}
-                                                                                        onClick={(e) => {
-                                                                                            e.preventDefault()
-                                                                                            router.actions.push(
-                                                                                                AiChatListItem.getHref(
-                                                                                                    item.conversation.id
-                                                                                                )
-                                                                                            )
-                                                                                            onItemClick?.()
-                                                                                        }}
-                                                                                    >
-                                                                                        <AiChatListItem.Content
-                                                                                            title={
-                                                                                                item.conversation.title
-                                                                                            }
-                                                                                            status={
-                                                                                                item.conversation.status
-                                                                                            }
-                                                                                            updatedAt={
-                                                                                                item.conversation
-                                                                                                    .updated_at
-                                                                                            }
-                                                                                        />
-                                                                                    </Link>
-                                                                                </Tooltip>
-                                                                            )}
-                                                                        />
-                                                                        <AiChatListItem.Trigger />
-                                                                    </AiChatListItem.Group>
-                                                                    <AiChatListItem.Actions
-                                                                        conversationId={item.conversation.id}
-                                                                    />
-                                                                </AiChatListItem.Root>
+                                                                <ConversationRow
+                                                                    key={item.key}
+                                                                    item={item}
+                                                                    active={
+                                                                        !selectedTaskId &&
+                                                                        item.conversation.id === currentConversationId
+                                                                    }
+                                                                    onItemClick={onItemClick}
+                                                                />
                                                             ) : (
-                                                                <TaskListItem.Root key={item.key}>
-                                                                    <TaskListItem.Group>
-                                                                        <Combobox.Item
-                                                                            value={item}
-                                                                            render={(props) => (
-                                                                                <Tooltip
-                                                                                    title={item.title}
-                                                                                    placement="right"
-                                                                                >
-                                                                                    <Link
-                                                                                        {...props}
-                                                                                        to={TaskListItem.getHref(
-                                                                                            item.task.id
-                                                                                        )}
-                                                                                        data-attr="nav-chat-history-task"
-                                                                                        buttonProps={{
-                                                                                            active:
-                                                                                                item.task.id ===
-                                                                                                selectedTaskId,
-                                                                                            fullWidth: true,
-                                                                                            className: 'pr-0',
-                                                                                            menuItem: true,
-                                                                                        }}
-                                                                                        onClick={(e) => {
-                                                                                            e.preventDefault()
-                                                                                            router.actions.push(
-                                                                                                TaskListItem.getHref(
-                                                                                                    item.task.id
-                                                                                                )
-                                                                                            )
-                                                                                            onItemClick?.()
-                                                                                        }}
-                                                                                    >
-                                                                                        <TaskListItem.Content
-                                                                                            task={item.task}
-                                                                                        />
-                                                                                    </Link>
-                                                                                </Tooltip>
-                                                                            )}
-                                                                        />
-                                                                        <TaskListItem.Trigger />
-                                                                    </TaskListItem.Group>
-                                                                    <TaskListItem.Actions taskId={item.task.id} />
-                                                                </TaskListItem.Root>
+                                                                <TaskRow
+                                                                    key={item.key}
+                                                                    item={item}
+                                                                    active={item.task.id === selectedTaskId}
+                                                                    onItemClick={onItemClick}
+                                                                />
                                                             )
                                                         }
                                                     </Combobox.Collection>
