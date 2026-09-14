@@ -100,6 +100,23 @@ describe('sessionEventsDataLogic', () => {
         expect(logic.values.sessionEventsData?.find((e) => e.id === 'event-1')?.fullyLoaded).toBe(true)
     })
 
+    // A failure after the response arrives, such as a property payload that is not JSON, is a
+    // defect of ours rather than a handled server condition. The catch degrades the same way, but
+    // the failure must still reach error tracking rather than be swallowed by the fallback.
+    it('reports a malformed property payload after the query succeeds', async () => {
+        const event = makeEvent('event-1')
+        logic.actions.loadEventsSuccess([event])
+
+        jest.spyOn(api, 'queryHogQL').mockResolvedValueOnce({ results: [['not json at all', 'event-1']] } as any)
+
+        logic.actions.loadFullEventData(event)
+
+        await expectLogic(logic).toDispatchActions(['loadFullEventDataSuccess'])
+
+        expect(posthog.captureException).toHaveBeenCalledTimes(1)
+        expect(logic.values.sessionEventsData?.find((e) => e.id === 'event-1')?.fullyLoaded).toBe(true)
+    })
+
     // A failed loadEvents degrades to no events, which writes the same value a successful load
     // writes. A second load starts whenever the recording meta loads again, so without a
     // supersede check the older query's late failure empties the list the newer query filled.
