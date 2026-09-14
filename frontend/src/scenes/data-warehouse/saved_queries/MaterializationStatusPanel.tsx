@@ -422,7 +422,14 @@ export function MaterializationStatusPanel({
                         onForward: jobsPageResults?.next ? () => setJobsPage(jobsPage + 1) : undefined,
                     }}
                     size="small"
-                    loading={jobsPage === 1 ? dataModelingJobsLoading : olderJobsPageLoading}
+                    // A timer reloads page 1 in the background, and LemonTable's loading overlay blocks
+                    // pointer events over the rows and the pager, so page 1 shows the loader only before it
+                    // has rows. Only a user action loads an older page, so that loader always shows.
+                    loading={
+                        jobsPage === 1
+                            ? dataModelingJobsLoading && !jobsPageResults?.results?.length
+                            : olderJobsPageLoading
+                    }
                     dataSource={jobsPage > 1 && olderJobsPageError ? [] : jobsPageResults?.results || []}
                     columns={[
                         {
