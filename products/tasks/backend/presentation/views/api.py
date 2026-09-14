@@ -1648,6 +1648,18 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    def _cloud_run_access_response(self, task_id: str) -> Response | None:
+        user = cast(User, self.request.user)
+        if tasks_facade.task_runtime(
+            task_id, self.team_id, self._user_id(), for_control=True
+        ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, user):
+            return _pi_cloud_runtime_disabled_response()
+        if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
+            access_response := code_access_required_response(self.request, self.organization, task_id=task_id)
+        ):
+            return access_response
+        return usage_limit_response(user, self.team_id)
+
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, including exact task-bound sandbox access."""
         task_id = self._task_id()
@@ -1755,16 +1767,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if environment == tasks_facade.TaskRunEnvironment.CLOUD:
             if is_sandbox_origin_request(request):
                 return _agent_run_disabled_response()
-            if tasks_facade.task_runtime(
-                task_id, self.team_id, self._user_id(), for_control=True
-            ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
-                return _pi_cloud_runtime_disabled_response()
-            if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
-                access_response := code_access_required_response(request, self.organization, task_id=task_id)
-            ):
+            if access_response := self._cloud_run_access_response(task_id):
                 return access_response
-            if limit_response := usage_limit_response(request.user, self.team_id):
-                return limit_response
 
         result = tasks_facade.bootstrap_task_run(
             task_id, self.team_id, self._user_id(), validated_data=dict(request.validated_data)
@@ -3458,18 +3462,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             request, self.team
         ):
             return _agent_run_disabled_response()
-        if tasks_facade.task_runtime(
-            task_id, self.team_id, self._user_id(), for_control=True
-        ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
-            return _pi_cloud_runtime_disabled_response()
-
-        # A resumed run also consumes cloud capacity, so apply the cloud access gates.
-        if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
-            access_response := code_access_required_response(request, self.organization, task_id=task_id)
-        ):
+        if access_response := self._cloud_run_access_response(task_id):
             return access_response
-        if limit_response := usage_limit_response(request.user, self.team_id):
-            return limit_response
 
         if one_shot_response := self._one_shot_analysis_response(task_id):
             return one_shot_response

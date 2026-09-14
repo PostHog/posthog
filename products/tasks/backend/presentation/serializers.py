@@ -3153,7 +3153,43 @@ def get_relayed_imported_mcp_name_collision_error(attrs: dict) -> str | None:
     return None
 
 
-class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpServersFieldMixin, serializers.Serializer):
+class TaskRunPreferencesFieldMixin(serializers.Serializer):
+    rtk_enabled = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Whether rtk command-output compression is enabled for this run. Omitted or null "
+            "follows the server-side default (enabled); false opts this run out."
+        ),
+    )
+    benjamin_enabled = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted "
+            "or null lets the server decide from the feature flag; true or false pins the choice "
+            "for this run."
+        ),
+    )
+    claude_model_access = serializers.ChoiceField(
+        choices=["posthog-gateway", "own-subscription"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
+            "request a Claude token from the creating PostHog Desktop at run start; the token is "
+            "sent in flight and never stored on PostHog servers. If omitted or null, resumed runs "
+            "keep their billing choice and new runs use the PostHog gateway."
+        ),
+    )
+
+
+class TaskRunCreateRequestSerializer(
+    ImportedMcpServersFieldMixin, RelayedMcpServersFieldMixin, TaskRunPreferencesFieldMixin, serializers.Serializer
+):
     """Request body for creating a new task run"""
 
     PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
@@ -3280,37 +3316,6 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
             "Codex runtimes accept 'plan', 'auto', 'read-only', and 'full-access'."
         ),
     )
-    rtk_enabled = serializers.BooleanField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text=(
-            "Whether rtk command-output compression is enabled for this run. Omitted or null "
-            "follows the server-side default (enabled); false opts this run out."
-        ),
-    )
-    benjamin_enabled = serializers.BooleanField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text=(
-            "Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted "
-            "or null lets the server decide from the feature flag; true or false pins the choice "
-            "for this run."
-        ),
-    )
-    claude_model_access = serializers.ChoiceField(
-        choices=["posthog-gateway", "own-subscription"],
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text=(
-            "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
-            "request a Claude token from the creating PostHog Desktop at run start; the token is "
-            "sent in flight and never stored on PostHog servers. If omitted or null, resumed runs "
-            "keep their billing choice and new runs use the PostHog gateway."
-        ),
-    )
 
     def validate(self, attrs):
         _validate_subscription_caller(attrs, self.context)
@@ -3378,7 +3383,7 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
 
 
 class TaskRunBootstrapCreateRequestSerializer(
-    ImportedMcpServersFieldMixin, RelayedMcpServersFieldMixin, serializers.Serializer
+    ImportedMcpServersFieldMixin, RelayedMcpServersFieldMixin, TaskRunPreferencesFieldMixin, serializers.Serializer
 ):
     """Request body for creating a task run without starting execution yet."""
 
@@ -3489,37 +3494,6 @@ class TaskRunBootstrapCreateRequestSerializer(
             "Initial permission mode for the agent session. Claude runtimes accept PostHog permission "
             "presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', "
             "and 'read-only'."
-        ),
-    )
-    rtk_enabled = serializers.BooleanField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text=(
-            "Whether rtk command-output compression is enabled for this run. Omitted or null "
-            "follows the server-side default (enabled); false opts this run out."
-        ),
-    )
-    benjamin_enabled = serializers.BooleanField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text=(
-            "Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted "
-            "or null lets the server decide from the feature flag; true or false pins the choice "
-            "for this run."
-        ),
-    )
-    claude_model_access = serializers.ChoiceField(
-        choices=["posthog-gateway", "own-subscription"],
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text=(
-            "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
-            "request a Claude token from the creating PostHog Desktop at run start; the token is "
-            "sent in flight and never stored on PostHog servers. If omitted or null, resumed runs "
-            "keep their billing choice and new runs use the PostHog gateway."
         ),
     )
 

@@ -4803,6 +4803,23 @@ def _github_credential_source_extra_state(pr_authorship_mode, github_user_token:
     return {"github_credential_source": source.value}
 
 
+def _task_run_runtime_state_fields(validated_data: dict) -> dict[str, Any]:
+    return {
+        key: validated_data.get(key)
+        for key in (
+            "pr_authorship_mode",
+            "auto_publish",
+            "run_source",
+            "signal_report_id",
+            "runtime_adapter",
+            "model",
+            "reasoning_effort",
+            "context_window",
+            "fast_mode",
+        )
+    }
+
+
 def bootstrap_task_run(
     task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
 ) -> contracts.TaskRunCreateResult | None:
@@ -4834,14 +4851,10 @@ def bootstrap_task_run(
     branch = validated_data.get("branch")
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     pr_authorship_mode = validated_data.get("pr_authorship_mode")
-    auto_publish = validated_data.get("auto_publish")
     run_source = validated_data.get("run_source")
-    signal_report_id = validated_data.get("signal_report_id")
     runtime_adapter = validated_data.get("runtime_adapter")
     model = validated_data.get("model")
     reasoning_effort = validated_data.get("reasoning_effort")
-    context_window = validated_data.get("context_window")
-    fast_mode = validated_data.get("fast_mode")
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
     imported_mcp_servers = validated_data.get("imported_mcp_servers")
@@ -4855,17 +4868,10 @@ def bootstrap_task_run(
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)
     for key, value in {
+        **_task_run_runtime_state_fields(validated_data),
         "pr_base_branch": branch,
         "pr_authorship_mode": pr_authorship_mode,
-        "auto_publish": auto_publish,
-        "run_source": run_source,
-        "signal_report_id": signal_report_id,
-        "runtime_adapter": runtime_adapter,
         "provider": provider,
-        "model": model,
-        "reasoning_effort": reasoning_effort,
-        "context_window": context_window,
-        "fast_mode": fast_mode,
         "rtk_enabled": validated_data.get("rtk_enabled"),
         "benjamin_enabled": validated_data.get("benjamin_enabled"),
         "claude_model_access": validated_data.get("claude_model_access"),
@@ -7601,15 +7607,9 @@ def run_task(
         pr_authorship_mode = PrAuthorshipMode.BOT
 
     runtime_state_fields = {
+        **_task_run_runtime_state_fields(validated_data),
         "pr_authorship_mode": pr_authorship_mode,
-        "auto_publish": auto_publish,
         "run_source": run_source,
-        "signal_report_id": signal_report_id,
-        "runtime_adapter": runtime_adapter,
-        "model": model,
-        "reasoning_effort": reasoning_effort,
-        "context_window": context_window,
-        "fast_mode": fast_mode,
     }
 
     extra_state: dict | None = None
