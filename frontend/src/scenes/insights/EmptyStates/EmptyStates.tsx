@@ -859,6 +859,7 @@ export function InsightErrorState({
             error_type: 'server',
             query_kind: queryKindForReporting(query),
             query_id: queryId ?? null,
+            status: titleStatus ?? null,
         })
     })
 

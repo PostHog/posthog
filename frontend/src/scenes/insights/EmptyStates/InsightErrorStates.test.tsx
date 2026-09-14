@@ -61,6 +61,19 @@ describe('insight error states', () => {
             error_type: 'server',
             query_kind: null,
             query_id: 'test-query-id',
+            status: null,
+        })
+    })
+
+    it('reports the HTTP status of a server error', () => {
+        render(<InsightErrorState title="A server error occurred." queryId="test-query-id" titleStatus={513} />)
+
+        const shownCalls = captureSpy.mock.calls.filter((call) => call[0] === 'insight error message shown')
+        expect(shownCalls[0][1]).toEqual({
+            error_type: 'server',
+            query_kind: null,
+            query_id: 'test-query-id',
+            status: 513,
         })
     })
 
