@@ -403,17 +403,26 @@ class UserSerializer(serializers.ModelSerializer):
         return validate_display_name(value)
 
     def validate_email(self, value: str) -> str:
-        if self.instance and value.lower() == self.instance.email.lower():
-            # Unchanged — don't re-validate a legacy '+' address on an unrelated profile edit.
-            return value
+        normalized = EmailNormalizer.normalize(value)
+        if self.instance and normalized == EmailNormalizer.normalize(self.instance.email):
+            # Unchanged — don't re-validate a legacy '+' address on an unrelated profile edit. The
+            # stored string is returned as it is, because an edit of the case alone reaches no
+            # verification and so cannot rewrite the address a person signs in with.
+            return self.instance.email
         reject_plus_addressed_email(value)
         # Excluding the editor lets a legacy '+' account holder drop their own alias.
         if EmailValidationHelper.user_exists_with_stripped_alias(
             value, exclude_user_id=self.instance.pk if self.instance else None
         ):
             raise serializers.ValidationError("There is already an account with this email address.", code="unique")
-        # `email` is unique on the exact string, so a typed-case address twins an existing account.
-        return EmailNormalizer.normalize(value)
+        # That check reads active accounts, and `email` is unique across every account. Match what
+        # the index enforces, so the fold this returns cannot collide on a write.
+        holders = User.objects.filter(email=normalized)
+        if self.instance:
+            holders = holders.exclude(pk=self.instance.pk)
+        if holders.exists():
+            raise serializers.ValidationError("There is already an account with this email address.", code="unique")
+        return normalized
 
     def get_has_password(self, instance: User) -> bool:
         return bool(instance.password) and instance.has_usable_password()

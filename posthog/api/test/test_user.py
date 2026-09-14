@@ -1036,6 +1036,21 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.email == "beta@example.com"
 
+    @parameterized.expand([("email_configured", True), ("no_email_configured", False)])
+    def test_email_change_rejected_when_a_deactivated_account_holds_the_folded_address(self, _name, email_available):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+        User.objects.create(email="beta@example.com", first_name="Gone", is_active=False)
+
+        with patch("posthog.api.user.is_email_available", return_value=email_available):
+            response = self.client.patch("/api/users/@me/", {"email": "Beta@Example.com"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "unique"
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email is None
+
     @patch("posthog.api.user.is_email_available", return_value=False)
     def test_email_change_allowed_when_dropping_own_plus_alias(self, _mock_is_email_available):
         # The collision check must skip the editor's own row, or a legacy alias holder can never clean it up.
@@ -1292,26 +1307,28 @@ class TestUserAPI(APIBaseTest):
         assert self.user.is_email_verified is True
         mock_login.assert_not_called()
 
-    @patch("posthog.api.user.is_email_available", return_value=True)
+    @parameterized.expand([("email_configured", True), ("no_email_configured", False)])
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_no_notifications_when_user_email_is_changed_and_only_case_differs(
-        self, mock_send_email_change_emails, mock_is_email_available
+        self, _name, email_available, mock_send_email_change_emails
     ):
         self.user.email = "alpha@example.com"
         self.user.save()
 
-        response = self.client.patch(
-            "/api/users/@me/",
-            {
-                "email": "ALPHA@example.com",
-            },
-        )
+        with patch("posthog.api.user.is_email_available", return_value=email_available) as mock_is_email_available:
+            response = self.client.patch(
+                "/api/users/@me/",
+                {
+                    "email": "ALPHA@example.com",
+                },
+            )
         response_data = response.json()
         self.user.refresh_from_db()
 
         assert response.status_code == status.HTTP_200_OK
-        assert response_data["email"] == "ALPHA@example.com"
-        assert self.user.email == "ALPHA@example.com"
+        assert response_data["email"] == "alpha@example.com"
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email is None
         mock_is_email_available.assert_not_called()
         mock_send_email_change_emails.assert_not_called()
 
