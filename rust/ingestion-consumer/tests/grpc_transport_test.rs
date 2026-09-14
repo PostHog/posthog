@@ -950,7 +950,7 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
 }
 
 #[tokio::test]
-async fn key_table_parked_retry_can_recover_before_the_watchdog_deadline() {
+async fn key_table_parked_retry_drains_after_shutdown_signal() {
     let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
@@ -969,6 +969,7 @@ async fn key_table_parked_retry_can_recover_before_the_watchdog_deadline() {
         .with_trap_signals(false)
         .build();
     let handle = manager.register("batcher", ComponentOptions::new());
+    let shutdown = handle.shutdown_token();
     let _monitor = manager.monitor_background();
     let (batcher, mut outputs) = Batcher::new(
         dispatcher,
@@ -987,6 +988,7 @@ async fn key_table_parked_retry_can_recover_before_the_watchdog_deadline() {
         .expect("initial send reaches the worker")
         .expect("attempt channel stays open");
     assert!(first.reply.send(ControlledReply::Busy).is_ok());
+    shutdown.cancel();
     let retry = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
         .await
         .expect("parked retry reaches the worker")
