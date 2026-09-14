@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconChevronRight } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBadge, LemonBanner, LemonButton, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { stripMarkdown } from 'lib/utils/markdown'
@@ -16,8 +16,9 @@ interface TicketsListProps {
 }
 
 export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.Element {
-    const { tickets, filteredTickets, ticketsLoading, canCreateTicket, statusFilter } = useValues(sidepanelTicketsLogic)
-    const { setCurrentTicket, setView, setStatusFilter } = useActions(sidepanelTicketsLogic)
+    const { tickets, filteredTickets, ticketsLoading, ticketsLoadFailed, canCreateTicket, statusFilter } =
+        useValues(sidepanelTicketsLogic)
+    const { setCurrentTicket, setView, setStatusFilter, loadTickets } = useActions(sidepanelTicketsLogic)
 
     const hasIdentityMode = !!window.JS_POSTHOG_IDENTITY_DISTINCT_ID
 
@@ -41,6 +42,19 @@ export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.
 
     return (
         <div className="flex flex-col gap-2 h-full min-h-0">
+            {ticketsLoadFailed && (
+                <LemonBanner
+                    type="warning"
+                    className="shrink-0"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => loadTickets(),
+                        'data-attr': 'sidebar-retry-load-tickets',
+                    }}
+                >
+                    Couldn't load your tickets. Check your connection, then try again.
+                </LemonBanner>
+            )}
             {canCreateTicket && (
                 <LemonButton
                     type="primary"
@@ -82,12 +96,14 @@ export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.
             )}
             <div className="flex-1 min-h-0 overflow-y-auto">
                 {tickets.length === 0 ? (
-                    <div className="text-center text-muted-alt py-8">
-                        <p>No tickets yet.</p>
-                        {canCreateTicket && (
-                            <p className="text-sm">Create a new ticket to get help from our support engineers.</p>
-                        )}
-                    </div>
+                    !ticketsLoadFailed && (
+                        <div className="text-center text-muted-alt py-8">
+                            <p>No tickets yet.</p>
+                            {canCreateTicket && (
+                                <p className="text-sm">Create a new ticket to get help from our support engineers.</p>
+                            )}
+                        </div>
+                    )
                 ) : filteredTickets.length === 0 ? (
                     <div className="text-center text-muted-alt py-8">
                         <p>No tickets with this status.</p>
