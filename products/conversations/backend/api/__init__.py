@@ -1,3 +1,4 @@
+from .ticket_pattern_ai_scan import TicketPatternAiScanViewSet
 from .ticket_patterns import TicketPatternViewSet
 from .ticket_topic_overrides import TicketTopicOverrideViewSet
 from .ticket_views import TicketViewViewSet
@@ -7,6 +8,7 @@ from .zendesk_import import ZendeskImportViewSet
 
 __all__ = [
     "TicketViewSet",
+    "TicketPatternAiScanViewSet",
     "TicketPatternViewSet",
     "TicketTopicOverrideViewSet",
     "TicketViewViewSet",

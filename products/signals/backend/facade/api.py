@@ -977,6 +977,39 @@ def scout_reports_for_source(
     return reports
 
 
+@frozen
+class ScoutForSource:
+    """The one scout a product stood up for one of its objects, in the shape the product needs to
+    show a toggle and route deliveries: enough to render state and call update/delete, no model."""
+
+    config_id: str
+    skill_name: str
+    enabled: bool
+    last_run_at: datetime | None
+    slack_channel: str | None
+
+
+def scout_for_source(team_id: int, source_product: str, source_id: str) -> ScoutForSource | None:
+    """The scout owned by `(source_product, source_id)` on this team, or None. A source owns at most
+    one, so a product can answer "is my AI scan on?" without reading scout tables."""
+    config = (
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(source_product=source_product, source_id=source_id)
+        .order_by("created_at")
+        .first()
+    )
+    if config is None:
+        return None
+    slack = (config.output_destinations or {}).get("slack") or {}
+    return ScoutForSource(
+        config_id=str(config.id),
+        skill_name=config.skill_name,
+        enabled=bool(config.enabled),
+        last_run_at=config.last_run_at,
+        slack_channel=slack.get("channel") if isinstance(slack, dict) else None,
+    )
+
+
 def update_scout_for_source(
     team_id: int,
     source_product: str,
