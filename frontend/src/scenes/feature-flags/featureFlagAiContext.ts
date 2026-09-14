@@ -63,3 +63,25 @@ function targetingValue(featureFlag: FeatureFlagType): string {
         conditions_omitted: 'Too large to attach. Read the saved flag to see the property filters.',
     })
 }
+
+// `create-feature-flag` is left out because it never targets the flag on screen.
+// `delete-feature-flag` and the bulk tools can target it, and are still left out: there is nothing
+// to refresh into after a delete, and the bulk tools pass a list of ids that this matcher does not
+// read.
+export const FEATURE_FLAG_MUTATION_TOOLS = [
+    'update-feature-flag',
+    'feature-flag-enable',
+    'feature-flag-disable',
+    'feature-flag-archive',
+    'feature-flag-unarchive',
+]
+
+// The bus is global, so an unrelated flag's call arrives here too. `id` comes through as a string
+// or a number because the tools cast it, and as null args when they could not be parsed.
+export function mutationTargetsFeatureFlag(innerInput: Record<string, unknown> | null, flagId: number): boolean {
+    const id = innerInput?.id
+    if (typeof id !== 'string' && typeof id !== 'number') {
+        return false
+    }
+    return String(id) === String(flagId)
+}

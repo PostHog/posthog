@@ -1356,7 +1356,12 @@ export interface featureFlagLogicActions {
         flagId: number
         teamId: number
     }
-    refreshFeatureFlag: () => any
+    refreshFeatureFlag: (_payload?: { afterAgentChange?: boolean }) => {
+        afterAgentChange?: boolean
+    }
+    refreshFeatureFlagAfterAgentChange: () => {
+        value: true
+    }
     refreshFeatureFlagFailure: (
         error: string,
         errorObject?: any
@@ -1366,10 +1371,14 @@ export interface featureFlagLogicActions {
     }
     refreshFeatureFlagSuccess: (
         featureFlagRefresh: FeatureFlagType | null,
-        payload?: any
+        payload?: {
+            afterAgentChange?: boolean
+        }
     ) => {
         featureFlagRefresh: FeatureFlagType | null
-        payload?: any
+        payload?: {
+            afterAgentChange?: boolean
+        }
     }
     removeVariant: (index: number) => {
         index: number
@@ -2162,6 +2171,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // Re-establishes the saved-state baseline the unsaved-changes guard diffs against.
         // Only dispatch with server-authoritative state, so in-progress edits stay dirty.
         setOriginalFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
+        refreshFeatureFlagAfterAgentChange: true,
         setFeatureFlagFilters: (filters: FeatureFlagType['filters'], errors: any) => ({ filters, errors }),
         setSelectedTab: (tab: FeatureFlagsTab) => ({ tab }),
         setFeatureFlagMissing: true,
@@ -3225,11 +3235,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // cache on mount. Has its own loading key so it never triggers the page skeleton,
         // while reconciling the flag (notably `active`) with the server — otherwise a stale
         // cached `active` can make the toggle and its confirmation dialog contradict the
-        // flag's real state.
+        // flag's real state. `refreshFeatureFlagAfterAgentChange` also dispatches it.
+        // That path is not silent: it replaces the whole flag when the form is clean, and shows a
+        // notice when the form is dirty.
         featureFlagRefresh: [
             null as FeatureFlagType | null,
             {
-                refreshFeatureFlag: async () => {
+                // `afterAgentChange` is unused here; refreshFeatureFlagSuccess reads it off the payload.
+                refreshFeatureFlag: async (_payload?: { afterAgentChange?: boolean }) => {
                     if (!props.id || props.id === 'new' || props.id === 'link') {
                         return null
                     }
@@ -3888,28 +3901,52 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadFeatureFlagStatus()
             }
         },
-        refreshFeatureFlagSuccess: ({ featureFlagRefresh }) => {
-            // Reconcile the cache-painted flag with the freshly fetched server state, and keep
-            // the list cache in sync so the two views agree.
-            if (featureFlagRefresh) {
-                if (values.originalFeatureFlag) {
-                    // This refresh exists to correct a stale cached `active`, and it lands while the
-                    // page is already interactive (its own loader key means no skeleton). Replacing
-                    // the whole flag here would discard an edit made during the request and
-                    // re-baseline over it, so the guard would read clean and lose it silently.
-                    const persisted = {
-                        active: featureFlagRefresh.active,
-                        archived: featureFlagRefresh.archived,
-                        version: featureFlagRefresh.version,
-                    }
-                    actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
-                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
-                } else {
-                    actions.setFeatureFlag(featureFlagRefresh)
-                    actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagRefresh))
-                }
-                actions.updateFlag(featureFlagRefresh)
+        refreshFeatureFlagAfterAgentChange: () => {
+            actions.refreshFeatureFlag({ afterAgentChange: true })
+            // The stale banner is a server verdict, so it outlives the change without this.
+            actions.loadFeatureFlagStatus()
+        },
+        refreshFeatureFlagSuccess: ({ featureFlagRefresh, payload }) => {
+            if (!featureFlagRefresh) {
+                return
             }
+            const afterAgentChange = !!payload?.afterAgentChange
+            const baseline = values.originalFeatureFlag
+            // Replacing the whole flag would discard an edit made during the request and re-baseline
+            // over it, leaving the guard clean. An agent change on a clean form is the one refresh
+            // safe to take whole, and it has to be: it can have rewritten any field.
+            if (!baseline || (afterAgentChange && !values.isFormDirty)) {
+                actions.setFeatureFlag(featureFlagRefresh)
+                actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagRefresh))
+            } else {
+                // Keep the loaded `version` after an agent change. The server runs its stale-write
+                // check only when the submitted version is behind the stored row, and that check is
+                // what stops these unsaved edits from overwriting the fields the agent rewrote.
+                const persisted = {
+                    active: featureFlagRefresh.active,
+                    archived: featureFlagRefresh.archived,
+                    ...(afterAgentChange ? {} : { version: featureFlagRefresh.version }),
+                }
+                actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
+                actions.setOriginalFeatureFlag({ ...baseline, ...persisted })
+                if (afterAgentChange) {
+                    lemonToast.info(
+                        'PostHog AI changed this flag. The page kept your unsaved edits, so it does not show the saved version.',
+                        {
+                            // This notice is the only signal that the page and the server disagree,
+                            // so it waits to be acted on instead of closing on the container's timer.
+                            autoClose: false,
+                            button: {
+                                label: 'Discard edits and reload',
+                                action: () => actions.loadFeatureFlag(),
+                                dataAttr: 'feature-flag-agent-change-reload',
+                            },
+                        }
+                    )
+                }
+            }
+            // Keep the list cache in sync with the server state either way, so the two views agree.
+            actions.updateFlag(featureFlagRefresh)
         },
         updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {

@@ -84,6 +84,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
         success: jest.fn(),
         error: jest.fn(),
         warning: jest.fn(),
+        info: jest.fn(),
     },
 }))
 
@@ -285,8 +286,57 @@ describe('featureFlagLogic', () => {
 
             expect(logic.values.featureFlag.active).toBe(true)
             expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(true)
+            expect(lemonToast.info).not.toHaveBeenCalled()
 
             featureFlagsLogic.unmount()
+        })
+    })
+
+    describe('refresh after a PostHog AI change', () => {
+        const FLAG_URL = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`
+
+        function serverFlagMock(flag: Record<string, any>): Parameters<typeof useMocks>[0] {
+            return { get: { [FLAG_URL]: () => [200, { ...MOCK_FEATURE_FLAG, ...flag }] } }
+        }
+
+        // The agent reaches fields no manual mutation path folds, so folding only active/archived
+        // would leave the reader on the old name and rollout with nothing saying so.
+        it('shows the saved flag when the form is clean', async () => {
+            useMocks(serverFlagMock({ name: 'renamed by the agent', active: false }))
+
+            await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
+                .toDispatchActions(['refreshFeatureFlag', 'loadFeatureFlagStatus', 'refreshFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.featureFlag.name).toBe('renamed by the agent')
+            expect(logic.values.featureFlag.active).toBe(false)
+            // Re-baselined, so leaving the page must not warn about changes the reader never made.
+            expect(logic.values.isFormDirty).toBe(false)
+            expect(lemonToast.info).not.toHaveBeenCalled()
+        })
+
+        it('keeps unsaved edits, folds the state fields, and offers a reload', async () => {
+            logic.actions.setFeatureFlag({ ...logic.values.featureFlag, name: 'half-written local edit' })
+            expect(logic.values.isFormDirty).toBe(true)
+
+            useMocks(serverFlagMock({ name: 'renamed by the agent', active: false }))
+
+            await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
+                .toDispatchActions(['refreshFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.featureFlag.name).toBe('half-written local edit')
+            expect(logic.values.featureFlag.active).toBe(false)
+            expect(logic.values.isFormDirty).toBe(true)
+            expect(lemonToast.info).toHaveBeenCalledTimes(1)
+
+            const [, options] = jest.mocked(lemonToast.info).mock.calls[0]
+            await expectLogic(logic, () => void options?.button?.action())
+                .toDispatchActions(['loadFeatureFlag', 'loadFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.featureFlag.name).toBe('renamed by the agent')
+            expect(logic.values.isFormDirty).toBe(false)
         })
     })
 
@@ -2543,6 +2593,7 @@ describe('featureFlagLogic', () => {
                 () => logic.actions.updateFeatureFlagActiveSuccess({ ...MOCK_FEATURE_FLAG, active: false }),
             ],
             ['an edit is saved', () => logic.actions.saveFeatureFlagSuccess(MOCK_FEATURE_FLAG)],
+            ['PostHog AI changes the flag', () => logic.actions.refreshFeatureFlagAfterAgentChange()],
         ])('clears the stale banner when %s', async (_name, mutate) => {
             useMocks(statusMock('stale', 'Flag has not been called in 45 days'))
             await expectLogic(logic, () => logic.actions.loadFeatureFlagStatus()).toFinishAllListeners()
