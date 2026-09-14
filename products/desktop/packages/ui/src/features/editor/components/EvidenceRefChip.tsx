@@ -537,7 +537,7 @@ function EvidenceRefChipContent({
         // to PostHog instead of toggling the popover.
         onFocus={() => setOpen(true)}
         render={
-          url || taskId ? (
+          url || taskId || onOpenReport ? (
             // Keep the truthful role: Enter follows the link (opens the
             // object's page in the app, or in PostHog outside a session), it
             // does not act as a popover button.

@@ -201,6 +201,25 @@ describe("EvidenceRefChip", () => {
     },
   );
 
+  it("opens a report from Quick Ask before auth state arrives", () => {
+    // No region or project yet, so the chip has no web url to fall back on;
+    // the host route is the only way to the report and must stay clickable.
+    const openReport = vi.fn().mockResolvedValue(undefined);
+    renderInTheme(
+      <ReportReferenceNavigationContext.Provider value={openReport}>
+        <EvidenceRefChip target={{ kind: "report", id: "reference-1" }}>
+          Linked reference
+        </EvidenceRefChip>
+      </ReportReferenceNavigationContext.Provider>,
+      false,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "Linked reference" }));
+
+    expect(openReport).toHaveBeenCalledWith("reference-1");
+    expect(openExternalUrl).not.toHaveBeenCalled();
+  });
+
   it("stays plain for a kind with no canonical page even when signed in", () => {
     signIn();
     renderInTheme(
