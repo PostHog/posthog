@@ -3,7 +3,7 @@
 ## Problem
 
 <!-- Who are we building for, what are their needs, why is this important? -->
-<!-- Open with the ground: two to four sentences naming the components and concepts this PR touches and how they fit together, written for someone who has never opened this directory. Only what was already true before your change. -->
+<!-- Open with the ground: one to four sentences naming the components and concepts this PR touches and how they fit together, written for someone who has never opened this directory. One sentence for an area the team works in daily, all four for a corner nobody else opens. Only what was already true before your change. -->
 <!-- Then the effect: what is different for a person, and who they are. A fix says what breaks; a feature says what someone can now do; a chore says who is blocked. The code path goes underneath. -->
 
 <!-- Does this fix an issue? Uncomment the line below with the issue ID to automatically close it when merged -->
@@ -84,5 +84,5 @@
 - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
 - Agent-authored PRs always require human review — do not self-merge or auto-approve.
 - Do NOT claim manual testing you haven't done.
-- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: open with the components and concepts a reviewer needs, then the effect a person sees, then the code path behind it; make the body stand alone for a reader who has never worked in this area; link evidence rather than asserting what CI already reports; then hold what's left to one fact per bullet in under 25 words. Cut complexity, not context.
+- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: open with the components and concepts a reviewer needs, then the effect a person sees, then the code path behind it; make the body stand alone for a reader who has never worked in this area; link evidence rather than asserting what CI already reports; then hold what's left to one fact per bullet in 25 words or fewer. Cut complexity, not context.
 -->

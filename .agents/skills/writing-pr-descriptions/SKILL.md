@@ -4,7 +4,7 @@ description: >-
   Shapes a PR body into something a reviewer understands at a glance.
   Use ALWAYS before writing or editing a PR description, before `gh pr create` or `gh pr edit --body`, and when asked to improve one.
   Opens with the ground a reviewer needs (the components and concepts this PR touches, and how they fit), then the effect a person sees, then the mechanism.
-  Routes each remaining fact to the form that carries it fastest (bullet, table, diagram, screenshot, collapsed block), then holds it to a checkable shape: one fact per bullet, sentences under 25 words, active voice.
+  Routes each remaining fact to the form that carries it fastest (bullet, table, diagram, screenshot, collapsed block), then holds it to a checkable shape: one fact per bullet, sentences of 25 words or fewer, active voice.
   Cuts complexity rather than context: a body too short to hand over the author's model of the area fails like a bloated one.
   Makes the body stand alone for a reader who has never opened this directory, and links claims about the world to evidence or labels them unchecked.
   Ends with a scan test over the title, the ground, and the first line of Changes.
@@ -50,7 +50,8 @@ The rest of the body assumes the reviewer holds both.
 
 ### The ground
 
-Two to four sentences naming the components and concepts this PR touches, and how they fit together.
+One to four sentences naming the components and concepts this PR touches, and how they fit together.
+Take one for an area the team works in daily, and all four for a corner nobody else opens.
 Write them for a competent engineer who has never opened this directory.
 
 - Name each component and say what it is for, in the vocabulary of the product rather than of the files.
@@ -62,7 +63,7 @@ The test for that edge: a ground sentence stays true if the PR is closed. A sent
 > Workflows run an ordered list of steps. Each step holds a config, and the config's `inputs` array declares the fields a person fills in. The workflow editor renders every step's config into a preview card before the workflow runs.
 
 The ground earns its length from how unfamiliar the area is, never from how large the diff is.
-A change to a surface everyone touches needs one clause. A change inside a codec, a Temporal workflow, a pooled connection path, or a product nobody else works on needs the full paragraph.
+One sentence covers a surface everyone touches. All four go to a change inside a codec, a Temporal workflow, a pooled connection path, or a product nobody else works on.
 Cut a ground sentence because the reader already holds it, never because the body is getting long. "PostHog has feature flags" orients nobody.
 
 Do not orient with a file tour. `preview.tsx` importing from `stepConfig.ts` is a fact about the repository, and the reviewer reads it faster in the diff.
@@ -232,7 +233,7 @@ The shape is checkable. Tone is not, which is why this skill does not ask for on
 
 1. One fact per bullet.
 2. Front-load the bullet. A scanner sees the first few words, so start with the subject that carries the fact, not the condition it holds under.
-3. Sentences under 25 words.
+3. Sentences of 25 words or fewer.
 4. Active voice, with a stated subject. Use the passive only where the actor is genuinely unknown or irrelevant.
 5. Simple tenses. No perfect or progressive forms: "the builder took entry 1", not "the builder has been taking entry 1".
 6. The same word for the same thing, every time. Never vary for style.
