@@ -4,8 +4,8 @@ description: >
   Run a CodeRabbit review over the branch from the terminal, with the `coderabbit` CLI, and record the
   pass in the PR description. Use before `gh pr create`, and whenever a review of a branch is asked for:
   a local review, a self-review, a CodeRabbit review, or a pre-PR review. Run it once per branch. Checks
-  the sign-in state first and asks the person whether to sign in or skip, because a signed-out review
-  opens a browser tab on its own. When the CLI is unavailable, the PR opens without a local pass, and no
+  the sign-in state before the review and asks the person whether to sign in or skip, because a
+  signed-out review opens a browser tab on its own. When the CLI is unavailable, the PR opens without a local pass, and no
   agent review takes its place. Trigger terms: coderabbit, cr review, local review, self-review, review
   my branch, pre-PR review.
 ---
@@ -45,14 +45,16 @@ cr auth status                   # confirms the session and the organization
 
 ## The flow
 
-1. Check the sign-in state before any review command:
+1. Finish the work and commit.
+   The review reads the branch, so uncommitted edits need the matching change-scope flag (`cr review --help` lists them).
+2. Check the sign-in state before any review command:
 
    ```sh
    cr auth status --agent
    ```
 
    It prints one JSON line and never opens anything.
-   `"status":"authenticated"` means continue to step 2.
+   `"status":"authenticated"` means continue to step 3.
    `"status":"not_authenticated"` means stop here and ask the person.
 
    Do not run `cr review` while signed out.
@@ -61,14 +63,12 @@ cr auth status                   # confirms the session and the organization
 
    - **Sign in and run CodeRabbit.**
      The person runs `cr auth login` themselves (`! cr auth login` in Claude Code), then tells you it is done.
-     Re-run `cr auth status --agent` to confirm, then continue to step 2.
+     Re-run `cr auth status --agent` to confirm, then continue to step 3.
    - **Skip it this time.**
-     Skip to step 7, and record under Agent context that the CLI was signed out and the pass was skipped.
+     Skip to step 6, which records why, and continue from there.
 
    When nobody can answer, in an unattended run, skip it and record that.
 
-2. Finish the work and commit.
-   The review reads the branch, so uncommitted edits need the matching change-scope flag (`cr review --help` lists them).
 3. Run the review, scoped to the branch's base:
 
    ```sh
@@ -83,9 +83,10 @@ cr auth status                   # confirms the session and the organization
 4. Verify each finding's premise against the code before you act on it.
    Findings can be false positives, and rejecting one with a reason is a valid outcome.
 5. Fix what holds, and commit the fixes.
-6. Record the pass under Agent context in the PR description, as the PR template asks: that the CLI ran, and each finding's disposition.
+6. Record the outcome under Agent context in the PR description, as the PR template asks.
+   After a run, that is each finding's disposition.
+   After a skip, that is why: the CLI was absent, signed out, rate limited, or the person chose to skip.
 7. Continue the normal flow: `hogli ci:preflight`, then `gh pr create`.
-   When the review was skipped, Agent context says why: the CLI was absent, signed out, rate limited, or the person chose to skip.
 
 ## After the PR opens
 
