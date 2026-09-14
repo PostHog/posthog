@@ -96,7 +96,7 @@ const DashboardRelationRow = ({
                     isAlreadyOnDashboard ? removeFromDashboard(dashboard.id) : addToDashboard(dashboard.id)
                 }}
             >
-                {isAlreadyOnDashboard ? 'Remove from dashboard' : 'Add to dashboard'}
+                {isAlreadyOnDashboard ? 'Remove' : 'Add'}
             </LemonButton>
         </div>
     )
