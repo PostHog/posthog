@@ -980,14 +980,14 @@ Note: developer.brex.com serves an SPA (the openapi.json URLs return HTML), but 
 
 ## Browserbase — **thin**
 
-Today (2): `projects`, `sessions`
+Today (6): `agent_runs`, `agents`, `project_usage`, `projects`, `session_logs`, `sessions`
 
 Diffed against: <https://docs.browserbase.com/reference/api/openapi.v1.yaml>
 
-- [ ] `GET /v1/projects/{id}/usage` — browser minutes and proxy bytes per project — the vendor's headline consumption metric and the basis for cost analysis (high)
-- [ ] `GET /v1/sessions/{id}/logs` — per-session request/action log lines; the event-grain data behind every session (high)
-- [ ] `GET /v1/agents/runs` — agent run outcomes, status and duration — the core analytical object of the agent platform (high)
-- [ ] `GET /v1/agents` — lookup resolving the agentId referenced by every run (high)
+- [x] `GET /v1/projects/{id}/usage` — browser minutes and proxy bytes per project — the vendor's headline consumption metric and the basis for cost analysis (high)
+- [x] `GET /v1/sessions/{id}/logs` — per-session request/action log lines; the event-grain data behind every session (high)
+- [x] `GET /v1/agents/runs` — agent run outcomes, status and duration — the core analytical object of the agent platform (high)
+- [x] `GET /v1/agents` — lookup resolving the agentId referenced by every run (high)
 - [ ] `GET /v1/agents/runs/{runId}/messages` — per-run message transcript, the step-level detail under a run (medium)
 - [ ] `GET /v1/contexts` — lookup resolving the contextId (persistent browser profile) attached to sessions (medium)
 - [ ] `GET /v1/functions and GET /v1/functions/versions/{id}/invocations` — deployed function inventory plus per-invocation records for reliability and cost analysis (medium)
@@ -996,7 +996,7 @@ Diffed against: <https://docs.browserbase.com/reference/api/openapi.v1.yaml>
 - [ ] `GET /v1/functions/builds and /v1/functions/builds/{id}/logs` — build history and failure diagnostics for deployed functions (low)
 - [ ] `GET /v1/sessions/{id}/uploads` — files pushed into a session, completing the session artifact picture (low)
 
-Note: Fetched the official OpenAPI v1 spec (124KB, 38 paths). The connector exposes only /v1/projects and /v1/sessions — two of roughly a dozen queryable resources. Browserbase has since expanded well beyond sessions into agents/runs and functions/invocations, none of which are represented.
+Note: Fetched the official OpenAPI v1 spec (124KB, 38 paths). The agent platform (/v1/agents and /v1/agents/runs), per-project usage and per-session logs are now synced. What remains is the functions control plane, session artifacts (downloads, uploads, replays) and the contexts lookup. Every Browserbase endpoint is full refresh: only the agent endpoints accept a time filter, and it filters on creation time while the rows keep changing afterwards.
 
 ## BrowserUse — adequate
 
