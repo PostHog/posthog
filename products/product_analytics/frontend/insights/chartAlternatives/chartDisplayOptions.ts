@@ -1,7 +1,10 @@
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
+import { DISPLAY_TYPES_TO_CATEGORIES, NON_BREAKDOWN_DISPLAY_TYPES, PIE_DISPLAY_TYPES } from 'lib/constants'
+import { isPropertyValueMath } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/mathUtils'
 
-import type { AnyPropertyFilter, BreakdownFilter, TrendsQuery } from '~/queries/schema/schema-general'
-import { ChartDisplayType, PropertyMathType } from '~/types'
+import type { AnyPropertyFilter, BreakdownFilter, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
+import { hasBreakdownFilter, hasMultiBreakdown } from '~/queries/utils'
+import { ChartDisplayCategory, ChartDisplayType, PropertyMathType } from '~/types'
 
 export type ChartDisplayIcon =
     | 'area'
@@ -46,6 +49,39 @@ export interface ChartDisplayChangeWarning {
     title: string
 }
 
+const COUNTRY_PROPERTIES = new Set(['$geoip_country_code', '$geoip_country_name'])
+
+function isCountryProperty(value: unknown): boolean {
+    return typeof value === 'string' && COUNTRY_PROPERTIES.has(value)
+}
+
+export function hasTrendsFormula(trendsFilter?: TrendsFilter | null): boolean {
+    return !!trendsFilter?.formula || !!trendsFilter?.formulas?.length || !!trendsFilter?.formulaNodes?.length
+}
+
+function worldMapBreakdownFilter(query: TrendsQuery): BreakdownFilter {
+    const math = query.series?.[0]?.math ?? ''
+    return {
+        breakdown: '$geoip_country_code',
+        breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math) ? 'person' : 'event',
+    }
+}
+
+// The query a display selection produces; previews derive from it and selecting a tile applies it.
+export function applyChartDisplay(query: TrendsQuery, display: ChartDisplayType): TrendsQuery {
+    const next: TrendsQuery = { ...query, trendsFilter: { ...query.trendsFilter, display } }
+    if (NON_BREAKDOWN_DISPLAY_TYPES.includes(display)) {
+        next.breakdownFilter = undefined
+    }
+    if (display === ChartDisplayType.BoxPlot) {
+        next.trendsFilter = { ...next.trendsFilter, formula: undefined, formulas: undefined, formulaNodes: [] }
+    }
+    if (display === ChartDisplayType.WorldMap) {
+        next.breakdownFilter = worldMapBreakdownFilter(query)
+    }
+    return next
+}
+
 export function getChartDisplayOptions({
     boxPlotMissingProperty,
     hasMetricInsight,
@@ -56,8 +92,7 @@ export function getChartDisplayOptions({
     breakdowns,
 }: ChartDisplayOptionEligibility): ChartDisplayOptionGroup[] {
     const hasMultipleBreakdowns = !!breakdowns?.length
-    const hasSupportedCountryBreakdown =
-        !hasMultipleBreakdowns && (breakdown === '$geoip_country_code' || breakdown === '$geoip_country_name')
+    const hasSupportedCountryBreakdown = !hasMultipleBreakdowns && isCountryProperty(breakdown)
     const trendsOnlyDisabledReason = !isTrends ? 'This type is only available in Trends.' : undefined
     const singleSeriesOnlyDisabledReason = !hasSingleSeriesOutput
         ? 'This type currently only supports insights with one series, and this insight has multiple series.'
@@ -201,34 +236,6 @@ export function getChartDisplayOptions({
     ]
 }
 
-export const BREAKDOWN_FREE_DISPLAYS = new Set<ChartDisplayType>([
-    ChartDisplayType.BoldNumber,
-    ChartDisplayType.Metric,
-    ChartDisplayType.CalendarHeatmap,
-    ChartDisplayType.BoxPlot,
-])
-
-const COUNTRY_PROPERTIES = new Set(['$geoip_country_code', '$geoip_country_name'])
-
-const STATISTICAL_MATHS = new Set<string>([
-    PropertyMathType.Average,
-    PropertyMathType.Median,
-    PropertyMathType.Minimum,
-    PropertyMathType.Maximum,
-    PropertyMathType.P75,
-    PropertyMathType.P90,
-    PropertyMathType.P95,
-    PropertyMathType.P99,
-])
-
-const TOTAL_VALUE_DISPLAYS = new Set<ChartDisplayType>([
-    ChartDisplayType.ActionsPie,
-    ChartDisplayType.ActionsDonut,
-    ChartDisplayType.ActionsBarValue,
-    ChartDisplayType.BoldNumber,
-    ChartDisplayType.ActionsTable,
-])
-
 const DEFAULT_RECOMMENDATION_ORDER = [
     ChartDisplayType.Metric,
     ChartDisplayType.ActionsUnstackedBar,
@@ -244,13 +251,9 @@ const DEFAULT_RECOMMENDATION_ORDER = [
     ChartDisplayType.WorldMap,
 ]
 
-function isCountryProperty(value: unknown): boolean {
-    return typeof value === 'string' && COUNTRY_PROPERTIES.has(value)
-}
-
 function hasCountryContext(query: TrendsQuery): boolean {
     const breakdownFilter = query.breakdownFilter
-    if (!breakdownFilter?.breakdowns?.length && isCountryProperty(breakdownFilter?.breakdown)) {
+    if (!hasMultiBreakdown(breakdownFilter) && isCountryProperty(breakdownFilter?.breakdown)) {
         return true
     }
     const filters: AnyPropertyFilter[] = [
@@ -262,42 +265,38 @@ function hasCountryContext(query: TrendsQuery): boolean {
 
 function isStatistical(query: TrendsQuery): boolean {
     return (
-        (query.series ?? []).some((node) => STATISTICAL_MATHS.has(node.math ?? '')) ||
+        (query.series ?? []).some((node) => isPropertyValueMath(node.math) && node.math !== PropertyMathType.Sum) ||
         (query.trendsFilter?.smoothingIntervals ?? 1) > 1
     )
 }
 
 function rankRecommendations(query: TrendsQuery | null, currentDisplay: ChartDisplayType): ChartDisplayType[] {
     const boosted: ChartDisplayType[] = []
-    if (query && hasCountryContext(query)) {
-        boosted.push(ChartDisplayType.WorldMap)
+    if (query) {
+        if (hasCountryContext(query)) {
+            boosted.push(ChartDisplayType.WorldMap)
+        }
+        if (isStatistical(query)) {
+            boosted.push(ChartDisplayType.BoxPlot)
+        }
     }
-    if (query && isStatistical(query)) {
-        boosted.push(ChartDisplayType.BoxPlot)
-    }
-    if (TOTAL_VALUE_DISPLAYS.has(currentDisplay)) {
-        boosted.push(ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut, ChartDisplayType.ActionsBarValue)
+    if (DISPLAY_TYPES_TO_CATEGORIES[currentDisplay] === ChartDisplayCategory.TotalValue) {
+        boosted.push(...PIE_DISPLAY_TYPES, ChartDisplayType.ActionsBarValue)
     }
     return [...new Set([...boosted, ...DEFAULT_RECOMMENDATION_ORDER])]
 }
 
 export function getChartAlternatives(
     options: ChartDisplayOptionGroup[] | null | undefined,
-    display: ChartDisplayType | undefined,
-    query: TrendsQuery | null = null
+    query: TrendsQuery | null
 ): ChartDisplayOption[] {
     const optionsByDisplay = new Map(
         (options ?? []).flatMap((group) => group.options).map((option) => [option.display, option])
     )
-    const currentDisplay = display ?? ChartDisplayType.ActionsLineGraph
-    const breakdownFilter = query?.breakdownFilter
-    const hasBreakdown = !!breakdownFilter?.breakdown || !!breakdownFilter?.breakdowns?.length
+    const currentDisplay = query?.trendsFilter?.display ?? ChartDisplayType.ActionsLineGraph
+    const hasBreakdown = hasBreakdownFilter(query?.breakdownFilter)
     return rankRecommendations(query, currentDisplay)
-        .filter(
-            (recommended) =>
-                (!hasBreakdown || !BREAKDOWN_FREE_DISPLAYS.has(recommended)) &&
-                (recommended !== ChartDisplayType.BoldNumber || !optionsByDisplay.has(ChartDisplayType.Metric))
-        )
+        .filter((recommended) => !hasBreakdown || !NON_BREAKDOWN_DISPLAY_TYPES.includes(recommended))
         .map((recommended) => optionsByDisplay.get(recommended))
         .filter(
             (option): option is ChartDisplayOption =>
@@ -310,31 +309,24 @@ export function getChartDisplayChangeWarning(
     display: ChartDisplayType,
     query: TrendsQuery
 ): ChartDisplayChangeWarning | null {
-    const breakdownFilter = query.breakdownFilter
-    const breakdown = breakdownFilter?.breakdown
-    const trendsFilter = query.trendsFilter
-    const dropsFormula =
-        display === ChartDisplayType.BoxPlot &&
-        (!!trendsFilter?.formula || !!trendsFilter?.formulas?.length || !!trendsFilter?.formulaNodes?.length)
-    const expectedMapBreakdownType = ['dau', 'weekly_active', 'monthly_active'].includes(query.series?.[0]?.math ?? '')
-        ? 'person'
-        : 'event'
-    const changesMapBreakdown =
-        display === ChartDisplayType.WorldMap &&
-        (breakdown !== '$geoip_country_code' ||
-            !!breakdownFilter?.breakdowns?.length ||
-            breakdownFilter?.breakdown_type !== expectedMapBreakdownType)
-
-    if (dropsFormula) {
+    if (display === ChartDisplayType.BoxPlot && hasTrendsFormula(query.trendsFilter)) {
         return {
             title: 'This chart type removes the formula',
             body: 'The box plot uses the numeric property values directly.',
         }
     }
-    if (changesMapBreakdown) {
-        return {
-            title: 'This chart type changes the breakdown to Country code',
-            body: `The map uses ${expectedMapBreakdownType === 'person' ? 'person' : 'event'} properties for this metric.`,
+    if (display === ChartDisplayType.WorldMap) {
+        const current = query.breakdownFilter
+        const next = worldMapBreakdownFilter(query)
+        if (
+            hasMultiBreakdown(current) ||
+            current?.breakdown !== next.breakdown ||
+            current?.breakdown_type !== next.breakdown_type
+        ) {
+            return {
+                title: 'This chart type changes the breakdown to Country code',
+                body: `The map uses ${next.breakdown_type} properties for this metric.`,
+            }
         }
     }
     return null

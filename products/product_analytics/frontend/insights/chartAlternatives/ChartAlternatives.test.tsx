@@ -317,8 +317,6 @@ describe('ChartAlternatives', () => {
             boxPlotMissingProperty: false,
             hasMetricInsight: true,
         })
-        expect(
-            getChartAlternatives(options, query.trendsFilter?.display, query).map((option) => option.display)
-        ).toEqual(expected)
+        expect(getChartAlternatives(options, query).map((option) => option.display)).toEqual(expected)
     })
 })

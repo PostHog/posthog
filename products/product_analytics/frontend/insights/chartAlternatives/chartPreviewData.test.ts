@@ -46,35 +46,33 @@ describe('deriveChartPreview', () => {
         ['slope', ChartDisplayType.SlopeGraph, [1, 4], 10],
     ])('derives the %s series exactly from the loaded time series', (_, display, data, count) => {
         const preview = deriveChartPreview(display, query(ChartDisplayType.ActionsLineGraph), response([series({})]))
-        expect(preview.fidelity).toBe('exact')
+        expect(preview.sample).toBe(false)
         expect(results(preview)[0]).toMatchObject({ data, count })
     })
 
     it.each([
-        ['total', 'exact', 10],
-        ['sum', 'exact', 10],
-        ['dau', 'approximate', 10],
-        ['monthly_active', 'approximate', 4],
-        ['avg', 'approximate', 2.5],
-        ['min', 'approximate', 1],
-    ])('totals a %s series as %s', (math, fidelity, value) => {
+        ['total', 10],
+        ['sum', 10],
+        ['dau', 10],
+        ['monthly_active', 4],
+        ['avg', 2.5],
+        ['min', 1],
+    ])('totals a %s series as %s', (math, value) => {
         const preview = deriveChartPreview(
             ChartDisplayType.BoldNumber,
             query(ChartDisplayType.ActionsLineGraph),
             response([series({ math })])
         )
-        expect(preview.fidelity).toBe(fidelity)
         expect(results(preview)[0]).toMatchObject({ data: [], aggregated_value: value })
     })
 
-    it('folds breakdown rows into one series for single-series displays and marks it approximate', () => {
+    it('folds breakdown rows into one series for single-series displays', () => {
         const source = query(ChartDisplayType.ActionsLineGraph, {
             breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
         })
         const rows = [series({ breakdown_value: 'Chrome' }), series({ breakdown_value: 'Safari', data: [10, 0, 0, 0] })]
 
         const metric = deriveChartPreview(ChartDisplayType.Metric, source, response(rows))
-        expect(metric.fidelity).toBe('approximate')
         expect(results(metric)).toHaveLength(1)
         expect(results(metric)[0]).toMatchObject({ data: [11, 2, 3, 4] })
         expect(results(metric)[0]).not.toHaveProperty('breakdown_value')
@@ -91,7 +89,7 @@ describe('deriveChartPreview', () => {
                 query(ChartDisplayType.ActionsLineGraph),
                 response([series({})])
             )
-            expect(preview.fidelity).toBe('sample')
+            expect(preview.sample).toBe(true)
             expect(results(preview).length).toBeGreaterThan(0)
         }
     )
@@ -104,7 +102,7 @@ describe('deriveChartPreview', () => {
             }),
             response([series({ breakdown_value: 'US' }), series({ breakdown_value: 'GB', data: [5, 5, 0, 0] })])
         )
-        expect(preview.fidelity).toBe('exact')
+        expect(preview.sample).toBe(false)
         expect(results(preview).map((r) => [r.breakdown_value, r.aggregated_value])).toEqual([
             ['US', 10],
             ['GB', 10],
@@ -135,11 +133,11 @@ describe('deriveChartPreview', () => {
         expect(deriveChartPreview(ChartDisplayType.ActionsLineGraph, source, loaded)).toBeNull()
         expect(deriveChartPreview(ChartDisplayType.BoldNumber, source, loaded)).toEqual({
             response: loaded,
-            fidelity: 'exact',
+            sample: false,
         })
 
         const line = deriveChartPreview(ChartDisplayType.ActionsLineGraph, source, loaded, remembered)
-        expect(line?.fidelity).toBe('exact')
+        expect(line?.sample).toBe(false)
         expect(results(line!)).toHaveLength(1)
         expect(results(line!)[0]).toMatchObject({ data: [1, 2, 3, 4] })
 

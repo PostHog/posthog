@@ -29,7 +29,12 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../../../../frontend/src/queries/schema/schema-general'
-import { BREAKDOWN_FREE_DISPLAYS, getChartAlternatives, getChartDisplayOptions } from './chartDisplayOptions'
+import {
+    applyChartDisplay,
+    getChartAlternatives,
+    getChartDisplayOptions,
+    hasTrendsFormula,
+} from './chartDisplayOptions'
 import type { ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
 
 export type ChartAlternativeSource = 'gallery' | 'preview' | 'recommended'
@@ -139,7 +144,6 @@ export interface chartAlternativesLogicMeta {
         ) => ChartDisplayOptionGroup[]
         alternatives: (
             options: ChartDisplayOptionGroup[],
-            currentDisplay: ChartDisplayType,
             querySource:
                 | FunnelsQuery
                 | LifecycleQuery
@@ -258,11 +262,7 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
                 return getChartDisplayOptions({
                     isTrends,
                     hasSingleSeriesOutput: isSingleSeriesOutput,
-                    hasTrendsFormula: !!(
-                        trendsQuery?.trendsFilter?.formula ||
-                        trendsQuery?.trendsFilter?.formulas?.length ||
-                        trendsQuery?.trendsFilter?.formulaNodes?.length
-                    ),
+                    hasTrendsFormula: hasTrendsFormula(trendsQuery?.trendsFilter),
                     breakdown: trendsQuery?.breakdownFilter?.breakdown,
                     breakdowns: trendsQuery?.breakdownFilter?.breakdowns,
                     boxPlotMissingProperty: isBoxPlotMissingProperty(series as TrendsQuery['series']),
@@ -271,10 +271,9 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
             },
         ],
         alternatives: [
-            (s) => [s.options, s.currentDisplay, s.querySource],
+            (s) => [s.options, s.querySource],
             (
                 options: ChartDisplayOptionGroup[],
-                currentDisplay: ChartDisplayType,
                 querySource:
                     | FunnelsQuery
                     | LifecycleQuery
@@ -287,11 +286,7 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
                     | WebStatsTableQuery
                     | null
             ): ChartDisplayOption[] =>
-                getChartAlternatives(
-                    options,
-                    currentDisplay,
-                    querySource && isTrendsQuery(querySource) ? querySource : null
-                ),
+                getChartAlternatives(options, querySource && isTrendsQuery(querySource) ? querySource : null),
         ],
         currentOption: [
             (s) => [s.options, s.currentDisplay],
@@ -386,27 +381,8 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
                 return
             }
             const previousDisplay = values.currentDisplay
-            const source_ = values.querySource
-            const update: Partial<TrendsQuery> = { trendsFilter: { ...source_.trendsFilter, display } }
-            if (BREAKDOWN_FREE_DISPLAYS.has(display)) {
-                update.breakdownFilter = undefined
-            }
-            if (display === ChartDisplayType.BoxPlot) {
-                update.trendsFilter = {
-                    ...update.trendsFilter,
-                    formula: undefined,
-                    formulas: undefined,
-                    formulaNodes: [],
-                }
-            }
-            if (display === ChartDisplayType.WorldMap) {
-                const math = source_.series?.[0]?.math ?? ''
-                update.breakdownFilter = {
-                    breakdown: '$geoip_country_code',
-                    breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math) ? 'person' : 'event',
-                }
-            }
-            actions.updateQuerySource(update)
+            const next = applyChartDisplay(values.querySource, display)
+            actions.updateQuerySource({ trendsFilter: next.trendsFilter, breakdownFilter: next.breakdownFilter })
             posthog.capture('insight chart alternative selected', {
                 previous_display: previousDisplay,
                 display,
