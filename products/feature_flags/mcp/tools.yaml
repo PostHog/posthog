@@ -326,6 +326,13 @@ tools:
             variants, use `update-feature-flag`.
 
 
+            Check `experiment_set_metadata` in the definition you read. When it lists an experiment with `is_running`
+            true, ship the winner with `experiment-ship-variant`: that tool makes the same distribution change and also
+            ends the experiment and records its conclusion. This tool leaves the experiment running with no end date, so
+            every later exposure enters one variant and the comparison stops being valid. Use this tool on that flag
+            only when the user wants the audience changed and the experiment kept running.
+
+
             Read the flag first and send the `version` that read returned. Returns 409 when anyone changed the flag
             after that version, and writes nothing. Read the flag again, check what changed, and decide the rollout
             against the current definition. Do not retry with the same version: after a call writes a change that
