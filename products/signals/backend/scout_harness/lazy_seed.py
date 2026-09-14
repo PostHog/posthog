@@ -197,9 +197,7 @@ def _parse_config_tags(frontmatter: dict, skill_file: Path, *, is_scout: bool) -
     return tuple(sorted(tags))
 
 
-def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> CanonicalSkill:
-    skill_file = skill_dir / "SKILL.md"
-    raw = skill_file.read_text(encoding="utf-8")
+def _parse_frontmatter(raw: str, skill_file: Path) -> tuple[dict, int]:
     match = _FRONTMATTER_RE.match(raw)
     if not match:
         raise CanonicalSkillParseError(f"SKILL.md missing YAML frontmatter: {skill_file}")
@@ -209,7 +207,10 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         raise CanonicalSkillParseError(f"SKILL.md frontmatter is not valid YAML: {skill_file}: {e}") from e
     if not isinstance(frontmatter, dict):
         raise CanonicalSkillParseError(f"SKILL.md frontmatter must be a mapping: {skill_file}")
+    return frontmatter, match.end()
 
+
+def _parse_skill_identity(frontmatter: dict, skill_dir: Path, skill_file: Path, *, is_scout: bool) -> tuple[str, str]:
     name = frontmatter.get("name")
     description = frontmatter.get("description")
     if not isinstance(name, str) or not name:
@@ -234,7 +235,10 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
             raise CanonicalSkillParseError(
                 f"Companion skill name must match its directory: got {name!r} in {skill_file}"
             )
+    return name, description
 
+
+def _parse_allowed_tools(frontmatter: dict, skill_file: Path) -> tuple[str, ...]:
     # The agentskills.io spec uses `allowed-tools` (hyphen). We prefer the spec form, but accept
     # the underscore form too — it predated the spec alignment in this codebase and is used by
     # other PHS skills. Reject if both keys are set so a future divergence doesn't go unnoticed.
@@ -258,17 +262,14 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         raise CanonicalSkillParseError(
             f"SKILL.md frontmatter 'allowed-tools'/'allowed_tools' must be a list of strings: {skill_file}"
         )
+    return tuple(raw_allowed)
 
-    config_tags = _parse_config_tags(frontmatter, skill_file, is_scout=is_scout)
 
-    body = raw[match.end() :]
+def _parse_bundled_files(skill_dir: Path) -> tuple[CanonicalSkillFile, ...]:
     # Enforce the same per-skill limits the REST API uses (skill_services.py). The seed
     # bypasses `create_skill_file` (no service-layer "create from scratch with files"
-    # helper exists), so check at parse time — a canonical too big to seed should fail
-    # loudly in CI / local seed runs, not silently exceed the documented capacity.
-    if len(body.encode("utf-8")) > _MAX_SKILL_BODY_BYTES:
-        raise CanonicalSkillParseError(f"SKILL.md body exceeds the {_MAX_SKILL_BODY_BYTES} byte limit: {skill_file}")
-
+    # helper exists), so bundled files must fail before a database write exceeds the
+    # documented capacity.
     files: list[CanonicalSkillFile] = []
     for subdir_name in _ALLOWED_BUNDLE_SUBDIRS:
         subdir = skill_dir / subdir_name
@@ -296,13 +297,26 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         raise CanonicalSkillParseError(
             f"Canonical skill has {len(files)} bundled files, exceeding the {_MAX_SKILL_FILE_COUNT} limit: {skill_dir}"
         )
+    return tuple(files)
+
+
+def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> CanonicalSkill:
+    skill_file = skill_dir / "SKILL.md"
+    raw = skill_file.read_text(encoding="utf-8")
+    frontmatter, body_start = _parse_frontmatter(raw, skill_file)
+    name, description = _parse_skill_identity(frontmatter, skill_dir, skill_file, is_scout=is_scout)
+    allowed_tools = _parse_allowed_tools(frontmatter, skill_file)
+    config_tags = _parse_config_tags(frontmatter, skill_file, is_scout=is_scout)
+    body = raw[body_start:]
+    if len(body.encode("utf-8")) > _MAX_SKILL_BODY_BYTES:
+        raise CanonicalSkillParseError(f"SKILL.md body exceeds the {_MAX_SKILL_BODY_BYTES} byte limit: {skill_file}")
 
     return CanonicalSkill(
         name=name,
         description=description.strip(),
         body=body,
-        allowed_tools=tuple(raw_allowed),
-        files=tuple(files),
+        allowed_tools=allowed_tools,
+        files=_parse_bundled_files(skill_dir),
         source_path=skill_dir,
         config_tags=config_tags,
     )
