@@ -278,6 +278,7 @@ describe('PropertiesTable inline editor', () => {
                 expectClearFilters: true,
             },
             { name: 'no properties at all', properties: {}, filterable: false, expectClearFilters: false },
+            { name: 'no properties, filters shown', properties: {}, filterable: true, expectClearFilters: false },
         ])('$name offers "Clear filters": $expectClearFilters', ({ properties, filterable, expectClearFilters }) => {
             render(
                 <Provider>

@@ -532,6 +532,11 @@ export function PropertiesTable({
             })
         }
 
+        // "Hide null values" defaults on, so gate on the source object: a table with no properties
+        // at all is empty by itself, not emptied by a filter.
+        const emptiedByFilters =
+            filterable && (hidePostHogPropertiesInTable || hideNullValues) && Object.keys(properties).length > 0
+
         return (
             <>
                 {(searchable || filterable) && (
@@ -579,7 +584,7 @@ export function PropertiesTable({
                     className={className}
                     emptyState={
                         <>
-                            {searchTerm || (filterable && (hidePostHogPropertiesInTable || hideNullValues)) ? (
+                            {searchTerm || emptiedByFilters ? (
                                 <span className="flex gap-2">
                                     <span>No properties found</span>
                                     <LemonButton
