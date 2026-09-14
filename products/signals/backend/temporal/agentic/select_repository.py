@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 
 import structlog
@@ -200,6 +201,19 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 result="selected" if result.repository is not None else "no_repo",
             )
             return result
+    except asyncio.CancelledError as e:
+        # A start-to-close or heartbeat deadline reaches the activity as a task cancel, which
+        # derives from BaseException, so `except Exception` below never sees a timed-out job.
+        if _is_last_attempt(info):
+            _capture_repo_research_event(
+                "signals_repo_research_completed",
+                team,
+                team.organization,
+                input.report_id,
+                result="failed",
+                failure_reason=type(e).__name__,
+            )
+        raise
     except Exception as e:
         non_retryable = isinstance(e, GitHubIntegrationError) and e.status_code in PERMANENT_GITHUB_STATUS_CODES
         if non_retryable or _is_last_attempt(info):

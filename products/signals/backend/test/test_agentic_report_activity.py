@@ -1,5 +1,6 @@
 import json
 import random
+import asyncio
 import dataclasses
 from datetime import UTC, datetime
 
@@ -463,7 +464,7 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
     assert captured_user_id == [user.id], "user_id should come from the UserIntegration owner"
 
 
-async def _run_failing_select_repository(ateam, error, attempt):
+async def _run_failing_select_repository(ateam, error, attempt, expected_exception=Exception):
     environment = ActivityEnvironment()
     environment.info = dataclasses.replace(
         environment.info, attempt=attempt, retry_policy=RetryPolicy(maximum_attempts=2)
@@ -485,7 +486,7 @@ async def _run_failing_select_repository(ateam, error, attempt):
             side_effect=lambda event, **kwargs: captured.append((event, kwargs["properties"])),
         ),
     ):
-        with pytest.raises(Exception) as raised:
+        with pytest.raises(expected_exception) as raised:
             await environment.run(
                 select_repository_activity,
                 SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals()),
@@ -522,6 +523,20 @@ async def test_select_repository_activity_reports_a_non_retryable_failure_on_the
     assert isinstance(error, temporalio.exceptions.ApplicationError)
     completed = [properties for event, properties in captured if event == "signals_repo_research_completed"]
     assert [(p["result"], p["failure_reason"]) for p in completed] == [("failed", "GitHubIntegrationError")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("attempt,expected_failed", [(1, 0), (2, 1)])
+async def test_select_repository_activity_reports_a_deadline_as_a_failure(ateam, attempt, expected_failed):
+    # Temporal delivers a start-to-close or heartbeat deadline as a task cancel, so a job that
+    # runs out of time leaves no failure event at all unless the activity catches it.
+    captured, _ = await _run_failing_select_repository(
+        ateam, asyncio.CancelledError(), attempt, expected_exception=asyncio.CancelledError
+    )
+
+    completed = [properties for event, properties in captured if event == "signals_repo_research_completed"]
+    assert [(p["result"], p["failure_reason"]) for p in completed] == [("failed", "CancelledError")] * expected_failed
 
 
 @pytest.mark.asyncio
