@@ -37,10 +37,10 @@ import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
-import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 import { WorkflowSuggestions } from './WorkflowSuggestions'
 import { WorkflowSuggestionsNotice } from './WorkflowSuggestionsNotice'
 import { WorkflowSuggestionsTabLabel } from './WorkflowSuggestionsTabLabel'
+import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,

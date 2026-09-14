@@ -121,9 +121,8 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> approved a suggested change
-                    into the staged draft of the {objectNoun}:{' '}
-                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                    <ActivityLogUserName logItem={logItem} /> approved a suggested change into the staged draft of the{' '}
+                    {objectNoun}: {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
         }
