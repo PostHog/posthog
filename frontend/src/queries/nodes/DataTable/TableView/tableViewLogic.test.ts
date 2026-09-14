@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -33,16 +35,21 @@ describe('tableViewLogic', () => {
             },
         })
         initKeaTests()
-        // `currentView` persists to localStorage, so start each case as a user who has never
-        // selected a view. That is the state someone is in when a teammate created the view.
+        // Start each case as a browser that never picked a view, which is where a teammate is
+        // when someone else created the view.
         localStorage.clear()
     })
 
-    it.each<[string, string[], boolean]>([
-        ['the untouched default query', defaultSelect, true],
-        ['the default query of a team that tracks last seen at', lastSeenAtSelect, true],
-        ['a query the user already changed', [...defaultSelect, 'properties.email'], false],
-    ])('with %s', async (_label, select, shouldApply) => {
+    // `currentView` persists per team and context, so a test seeds it the way a browser that
+    // already picked a view would have it.
+    const persistSelection = (view: typeof SHARED_VIEW): void => {
+        localStorage.setItem(
+            `queries.nodes.DataTable.TableView.tableViewLogic.${MOCK_TEAM_ID}.${PEOPLE_LIST_CONTEXT_KEY}.currentView`,
+            JSON.stringify(view)
+        )
+    }
+
+    const mountLogic = (select: string[]): { logic: ReturnType<typeof tableViewLogic.build>; setQuery: jest.Mock } => {
         const setQuery = jest.fn()
         const logic = tableViewLogic({
             contextKey: PEOPLE_LIST_CONTEXT_KEY,
@@ -50,19 +57,50 @@ describe('tableViewLogic', () => {
             setQuery,
         })
         logic.mount()
+        return { logic, setQuery }
+    }
+
+    it('leaves the table and the selection alone when this user never picked a view', async () => {
+        const { logic, setQuery } = mountLogic(defaultSelect)
 
         await expectLogic(logic, () => {
             logic.actions.loadViews()
         }).toFinishAllListeners()
 
-        // The view is selected either way, which is what labels the dropdown button.
-        expect(logic.values.currentView?.id).toEqual(SHARED_VIEW.id)
+        expect(logic.values.views.map((view) => view.id)).toEqual([SHARED_VIEW.id])
+        expect(logic.values.currentView).toBeNull()
+        expect(setQuery).not.toHaveBeenCalled()
+    })
 
+    it.each<[string, string[], boolean]>([
+        ['the untouched default query', defaultSelect, true],
+        ['the default query of a team that tracks last seen at', lastSeenAtSelect, true],
+        ['a query the user already changed', [...defaultSelect, 'properties.email'], false],
+    ])('reapplies the picked view on mount with %s', async (_label, select, shouldApply) => {
+        persistSelection(SHARED_VIEW)
+        const { logic, setQuery } = mountLogic(select)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadViews()
+        }).toFinishAllListeners()
+
+        expect(logic.values.currentView?.id).toEqual(SHARED_VIEW.id)
         if (shouldApply) {
             expect(setQuery).toHaveBeenCalledTimes(1)
             expect(setQuery.mock.calls[0][0].select).toEqual(SHARED_VIEW.columns)
         } else {
             expect(setQuery).not.toHaveBeenCalled()
         }
+    })
+
+    it('clears a picked view that the list no longer returns', async () => {
+        persistSelection({ ...SHARED_VIEW, id: 'fedcba98-7654-3210-fedc-ba9876543210', name: 'Deleted view' })
+        const { logic } = mountLogic([...defaultSelect, 'properties.email'])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadViews()
+        }).toFinishAllListeners()
+
+        expect(logic.values.currentView).toBeNull()
     })
 })

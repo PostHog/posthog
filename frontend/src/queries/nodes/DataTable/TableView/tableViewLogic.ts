@@ -436,15 +436,11 @@ export const tableViewLogic = kea<tableViewLogicType>([
             {
                 setCurrentView: (_, { view }) => view,
                 applyView: (_, { view }) => view,
-                loadViewsSuccess: (state, { views }) => {
-                    if (views.length === 0) {
-                        return null
-                    }
-                    if (!state) {
-                        return views[0] || null
-                    }
-                    return state
-                },
+                // Keep only a view this user picked, and only while the list still has it. Falling
+                // back to the first view would select the shared view a teammate created most
+                // recently, because the API lists shared views newest first.
+                loadViewsSuccess: (state, { views }) =>
+                    state && views.some((view) => view.id === state.id) ? state : null,
                 deleteViewSuccess: (state, { views }) => {
                     if (state && !views.find((v) => v.id === state.id)) {
                         return null
@@ -515,25 +511,6 @@ export const tableViewLogic = kea<tableViewLogicType>([
     listeners(({ props, actions, values }) => ({
         applyView: ({ view }) => {
             props.setQuery(getQueryFromView(props.query, view))
-        },
-
-        loadViewsSuccess: ({ views }) => {
-            // The `currentView` reducer selects `views[0]` when this user has nothing persisted,
-            // which labels the button with a view whose columns never reach the table. Apply the
-            // view so the label and the table agree. This is what a user hits when someone else
-            // created the view, because the persisted selection lives in the creator's browser.
-            // The list loads after mount, so check the query again before overwriting it.
-            const view = values.currentView
-            if (!views.length || !view) {
-                return
-            }
-            if (!isUntouchedDefaultQuery(props.contextKey, props.query)) {
-                return
-            }
-            if (equal(getQueryFromView(props.query, view), props.query)) {
-                return
-            }
-            actions.applyView(view)
         },
 
         saveCurrentAsViewSuccess: () => {
