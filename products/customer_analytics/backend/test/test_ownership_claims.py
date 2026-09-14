@@ -35,6 +35,7 @@ from products.customer_analytics.backend.temporal.ownership_claims import (
     OWNERSHIP_CLAIMS_COORDINATOR_EXECUTION_TIMEOUT,
     OWNERSHIP_CLAIMS_COORDINATOR_SCHEDULE_ID,
     OWNERSHIP_CLAIMS_INTERVAL,
+    OWNERSHIP_CLAIMS_SWEEP_EXECUTION_TIMEOUT,
     OwnershipClaimsCoordinatorInput,
     OwnershipClaimsCoordinatorOutput,
     OwnershipClaimsCoordinatorWorkflow,
@@ -461,6 +462,8 @@ async def test_coordinator_starts_one_sweep_per_project_and_leaves_a_running_one
     for call in start_child_workflow.await_args_list:
         assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
         assert call.kwargs["parent_close_policy"] == ParentClosePolicy.ABANDON
+        # Without a bound, a child that never runs holds its project's id and skips every later tick.
+        assert call.kwargs["execution_timeout"] == OWNERSHIP_CLAIMS_SWEEP_EXECUTION_TIMEOUT
 
 
 @pytest.mark.asyncio

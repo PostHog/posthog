@@ -52,6 +52,12 @@ OWNERSHIP_CLAIMS_INTERVAL = timedelta(minutes=15)
 # FailureError fails the workflow task, which the server retries without limit, and the SKIP policy
 # then drops every later tick for as long as that run stays open.
 OWNERSHIP_CLAIMS_COORDINATOR_EXECUTION_TIMEOUT = timedelta(minutes=10)
+# A sweep holds its project's fixed child id until it closes, and every later tick skips a project
+# whose child is still open. The activity's own timeouts bound a sweep that runs, so this bound is
+# only for one that never runs: no worker polls its task, or the task fails on every attempt. It
+# stays far above the interval on purpose, because a bound near the activity's would also end a
+# sweep that is merely waiting behind other products on the shared queue.
+OWNERSHIP_CLAIMS_SWEEP_EXECUTION_TIMEOUT = timedelta(hours=24)
 
 
 @frozen
@@ -164,6 +170,7 @@ class OwnershipClaimsCoordinatorWorkflow:
                     id=ownership_claims_workflow_id(team_id),
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    execution_timeout=OWNERSHIP_CLAIMS_SWEEP_EXECUTION_TIMEOUT,
                 )
                 started += 1
             except WorkflowAlreadyStartedError:
