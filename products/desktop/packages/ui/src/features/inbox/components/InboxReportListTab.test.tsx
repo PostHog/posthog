@@ -40,8 +40,7 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportListSelection", () => ({
   useInboxReportListSelection: () => ({
     orderedSelectedIds: [],
     selectedCount: 0,
-    isReportSelected: () => false,
-    handleReportClick: vi.fn(),
+    getReportSelection: vi.fn(),
     clearSelection: vi.fn(),
   }),
 }));

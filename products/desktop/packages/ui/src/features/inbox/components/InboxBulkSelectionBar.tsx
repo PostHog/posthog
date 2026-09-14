@@ -80,9 +80,9 @@ export function InboxBulkSelectionBar({
           <Text className="shrink-0 font-medium text-[13px] text-gray-12">
             {selectedCount} selected
           </Text>
-          <Text className="text-[12px] text-gray-10">
-            Shift-click range · {"\u2318"}-click toggle · Esc to clear
-          </Text>
+          <span className="text-[12px] text-gray-10">
+            Click to add or remove · Shift-click a range · Esc to clear
+          </span>
         </Flex>
 
         <Flex align="center" gap="2" wrap="wrap">

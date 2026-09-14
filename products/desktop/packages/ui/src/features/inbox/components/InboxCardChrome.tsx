@@ -1,4 +1,4 @@
-import { cn } from "@posthog/quill";
+import { Checkbox, cn } from "@posthog/quill";
 import type { ReactNode } from "react";
 
 /**
@@ -22,6 +22,40 @@ export function inboxCardClassName(options: {
     options.dimmed && "opacity-90",
     options.isSelected &&
       "border-(--accent-8) bg-(--accent-2) ring-(--accent-8) ring-2 ring-inset",
+  );
+}
+
+/**
+ * Gutter checkbox that makes multi-select visible. It stays hidden until the card is hovered or
+ * focused, so a list nobody is selecting in reads the way it always did.
+ */
+export function InboxCardSelectToggle({
+  cardTitle,
+  isSelected,
+  selectionMode,
+  onToggle,
+}: {
+  cardTitle: string;
+  isSelected: boolean;
+  selectionMode: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex shrink-0 items-start pt-0.5 transition-opacity",
+        selectionMode
+          ? "opacity-100"
+          : "opacity-0 focus-within:opacity-100 group-hover:opacity-100",
+      )}
+    >
+      <Checkbox
+        checked={isSelected}
+        aria-label={`Select report: ${cardTitle}`}
+        data-attr="inbox-report-select"
+        onCheckedChange={() => onToggle()}
+      />
+    </div>
   );
 }
 
