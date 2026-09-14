@@ -146,6 +146,12 @@ def _comment_is_private(comment: Comment) -> bool:
     return isinstance(ctx, dict) and ctx.get("is_private") is True
 
 
+def _comment_is_from_customer(comment: Comment) -> bool:
+    """True for a comment the customer wrote, which routes its unread count to the agent inbox."""
+    ctx = comment.item_context
+    return isinstance(ctx, dict) and ctx.get("author_type") == "customer"
+
+
 def _process_attachments(
     client: ZendeskImportClient,
     team: Team,
@@ -232,20 +238,6 @@ class _CommentAuthor:
 
 
 @frozen(eq=False)
-class _BuiltComment:
-    comment: Comment
-    author_type: str
-    is_private: bool
-
-
-@frozen(eq=False)
-class _BuiltComments:
-    comments: list[Comment]
-    customer_message_count: int
-    agent_reply_count: int
-
-
-@frozen(eq=False)
 class _BuiltTicket:
     """One ticket built in Phase 2, ready for the Phase 3 transaction.
 
@@ -256,8 +248,6 @@ class _BuiltTicket:
     ticket: Ticket
     comments: list[Comment]
     tag_names: list[str]
-    customer_message_count: int
-    agent_reply_count: int
     created_at: datetime | None
     updated_at: datetime | None
 
@@ -378,7 +368,7 @@ def _build_comment(
     zd_comment: dict[str, Any],
     users_by_id: dict,
     customer_side_ids: set[int],
-) -> _BuiltComment | None:
+) -> Comment | None:
     """Build one Comment. A comment with no body and no rich content is dropped (returns None)."""
     author_id = zd_comment.get("author_id")
     author = users_by_id.get(int(author_id), {}) if author_id is not None else {}
@@ -420,7 +410,7 @@ def _build_comment(
     # auto_now_add clobbers created_at during bulk_create, so stash the
     # historical value on a shadow attr and re-apply it via bulk_update.
     comment_obj._zendesk_created_at = _parse_zendesk_datetime(zd_comment.get("created_at"))  # type: ignore[attr-defined]
-    return _BuiltComment(comment=comment_obj, author_type=author_type, is_private=is_private)
+    return comment_obj
 
 
 def _build_comments(
@@ -429,28 +419,13 @@ def _build_comments(
     comments: list[dict[str, Any]],
     users_by_id: dict,
     customer_side_ids: set[int],
-) -> _BuiltComments:
-    """Build a ticket's comments and count its public customer/agent messages."""
+) -> list[Comment]:
     built: list[Comment] = []
-    customer_message_count = 0
-    agent_reply_count = 0
     for zd_comment in comments:
-        built_comment = _build_comment(client, team, zd_comment, users_by_id, customer_side_ids)
-        if built_comment is None:
-            continue
-        # Mirror signals.update_ticket_on_message: private/internal notes are dropped from every
-        # denormalized widget stat (message_count, last_message_*, unread counts). Counting them
-        # would leak note text into last_message_text and inflate the customer's unread badge.
-        if built_comment.is_private:
-            pass
-        elif built_comment.author_type == "customer":
-            customer_message_count += 1
-        else:
-            agent_reply_count += 1
-        built.append(built_comment.comment)
-    return _BuiltComments(
-        comments=built, customer_message_count=customer_message_count, agent_reply_count=agent_reply_count
-    )
+        comment = _build_comment(client, team, zd_comment, users_by_id, customer_side_ids)
+        if comment is not None:
+            built.append(comment)
+    return built
 
 
 def _build_ticket(
@@ -510,13 +485,10 @@ def _build_ticket(
     zendesk_tags = {tagify(_strip_nul(str(t)))[:255] for t in (zendesk_ticket.get("tags") or [])}
     tag_names = sorted(t for t in zendesk_tags if t)
 
-    built_comments = _build_comments(client, team, thread.comments, users_by_id, _customer_side_ids(zendesk_ticket))
     return _BuiltTicket(
         ticket=ticket,
-        comments=built_comments.comments,
+        comments=_build_comments(client, team, thread.comments, users_by_id, _customer_side_ids(zendesk_ticket)),
         tag_names=tag_names,
-        customer_message_count=built_comments.customer_message_count,
-        agent_reply_count=built_comments.agent_reply_count,
         created_at=_parse_zendesk_datetime(zendesk_ticket.get("created_at")),
         updated_at=_parse_zendesk_datetime(zendesk_ticket.get("updated_at")),
     )
@@ -591,22 +563,31 @@ def _create_ticket_comments(built: list[_BuiltTicket]) -> None:
 
 def _apply_denormalized_counters(team: Team, built: list[_BuiltTicket]) -> None:
     # All of these back the customer-facing widget (message_count, last_message_*, unread badge),
-    # so they must exclude private notes — see _build_comments and signals.update_ticket_on_message.
+    # so they must exclude private notes — mirroring signals.update_ticket_on_message. Counting a
+    # note would leak its text into last_message_text and inflate the customer's unread badge.
     for b in built:
-        if not b.comments:
+        cust_count = 0
+        agent_count = 0
+        # Comments are appended in Zendesk chronological order, so the newest visible one is the
+        # last to survive the filter. last_message_* is shown to the customer, so that is the one.
+        last_visible: Comment | None = None
+        for c in b.comments:
+            if _comment_is_private(c):
+                continue
+            last_visible = c
+            if _comment_is_from_customer(c):
+                cust_count += 1
+            else:
+                agent_count += 1
+        # A ticket with nothing visible has no counter to move, so skip the write entirely.
+        if last_visible is None:
             continue
         ticket_obj = b.ticket
-        cust_count = b.customer_message_count
-        agent_count = b.agent_reply_count
         update_fields_dict: dict[str, Any] = {
             "message_count": F("message_count") + cust_count + agent_count,
+            "last_message_at": last_visible.created_at,
+            "last_message_text": (last_visible.content or "")[:500],
         }
-        # last_message_* is shown to the customer, so use the latest non-private comment. Comments
-        # are appended in Zendesk chronological order, so reverse-scan for the newest visible one.
-        last_visible = next((c for c in reversed(b.comments) if not _comment_is_private(c)), None)
-        if last_visible is not None:
-            update_fields_dict["last_message_at"] = last_visible.created_at
-            update_fields_dict["last_message_text"] = (last_visible.content or "")[:500]
         # Only still-active imported tickets should surface unread badges. Pending/on-hold/resolved
         # (Zendesk solved+closed) tickets are done or parked, so lighting up the agent inbox
         # (unread_team_count) or the customer widget (unread_customer_count) with years-old activity
