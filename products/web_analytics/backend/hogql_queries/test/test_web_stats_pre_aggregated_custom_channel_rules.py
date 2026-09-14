@@ -59,6 +59,9 @@ class TestWebStatsPreAggregatedCustomChannelRules(WebAnalyticsPreAggregatedTestB
                     ("/blog", "google.com", None),
                     # The literal string 'null' is a value sites really send.
                     ("/signup", "$direct", "null"),
+                    # A link to the bare domain. path() returns '' for it, the same as for a missing
+                    # entry URL, so the entry pathname must not treat '' as absent.
+                    ("", "$direct", None),
                 ]
             ):
                 distinct_id = f"user_{index}"
@@ -128,6 +131,14 @@ class TestWebStatsPreAggregatedCustomChannelRules(WebAnalyticsPreAggregatedTestB
                 CustomChannelField.UTM_SOURCE,
                 None,
                 "Campaign traffic",
+                CustomChannelOperator.IS_SET,
+            ),
+            # A bare-domain entry URL has an empty pathname but is still set, on both paths.
+            (
+                "pathname_is_set",
+                CustomChannelField.PATHNAME,
+                None,
+                "Landed somewhere",
                 CustomChannelOperator.IS_SET,
             ),
         ]

@@ -113,6 +113,8 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             referring_domain=_wrap_with_null_if_empty(ast.Field(chain=["referring_domain"])),
             url=ast.Constant(value=None),  # URL not available in pre-aggregated tables
             hostname=ast.Field(chain=["host"]),
+            # Not nulled when empty: path() returns '' both for a bare-domain entry URL and for a missing
+            # one, so nulling '' here would make a bare-domain session read as unset against the live path.
             pathname=ast.Field(chain=["entry_pathname"]),
             has_gclid=ast.Field(chain=["has_gclid"]),
             has_fbclid=ast.Field(chain=["has_fbclid"]),
