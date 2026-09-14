@@ -5,6 +5,7 @@ command sequence an existing execution replays against.
 import typing
 import datetime as dt
 
+from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -14,6 +15,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 from posthog.utils import get_instance_region
 
+from products.growth.backend.enrichment import gates
 from products.growth.backend.temporal.signup_enrichment import harmonic_status_poll, reenrichment
 from products.growth.backend.temporal.signup_enrichment.sweep_types import (
     SweepBatchInputs,
@@ -38,10 +40,6 @@ async def sweep_select_activity(inputs: SweepInputs) -> SweepSelection:
     """Guards live here rather than in the schedule so a config flip takes effect on the next
     run without touching Temporal state.
     """
-    from asgiref.sync import sync_to_async  # noqa: PLC0415
-
-    from products.growth.backend.enrichment import gates  # noqa: PLC0415
-
     spec = SWEEPS[inputs.kind]
     logger = LOGGER.bind(kind=str(inputs.kind))
 
@@ -63,6 +61,7 @@ async def sweep_process_batch_activity(inputs: SweepBatchInputs) -> dict[str, in
 
 @activity.defn
 def sweep_report_run_activity(report: SweepRunReport) -> dict[str, typing.Any]:
+    """A capture in the workflow body would fire again on every replay."""
     event = SWEEPS[report.kind].summarize(report)
 
     region = get_instance_region()

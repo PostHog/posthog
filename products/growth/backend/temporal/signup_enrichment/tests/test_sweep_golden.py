@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import asyncio
 import datetime as dt
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
@@ -751,7 +752,7 @@ class TestSweepGolden:
 
 @pytest.mark.parametrize("fixture", [REENRICHMENT_HISTORY, STATUS_POLL_HISTORY])
 async def test_committed_history_replays_against_the_generic_sweep(fixture: str):
-    history = WorkflowHistory.from_json("growth-sweep-golden", (FIXTURES / fixture).read_text())
+    history = WorkflowHistory.from_json("growth-sweep-golden", await asyncio.to_thread((FIXTURES / fixture).read_text))
     started = history.events[0].workflow_execution_started_event_attributes
     assert started.workflow_type.name == "growth-enrichment-sweep"
 
