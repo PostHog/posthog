@@ -214,8 +214,9 @@ Add `--tolerate-drift` to report the drift and still exit 0. Use it on the defau
 Enabled per repo with `enable_pr_comments`.
 A run that needs review posts its own comment, so GitHub notifies the reviewers and the prompt sits at the bottom of the PR with the new changes.
 GitHub sends nothing for an edit, so a run must not rewrite an earlier comment into a new prompt — a reviewer who already approved would never learn that more changes arrived.
-After the new prompt lands, the run clears the previous comment: an approval is kept and marked as covering an earlier revision, an unanswered prompt is deleted.
+After the new prompt lands, the run clears the previous comment of its own run type: an approval is kept and marked as covering an earlier revision, an unanswered prompt is deleted.
 This order keeps the existing prompt on the PR when the post fails.
+Each run type keeps its own live prompt, because each one has a separate gate and a separate approval.
 An approval updates the prompt of its own run in place, because the reviewer who approved needs no notification.
 A run that never got a prompt, because it found nothing to review or because the post failed, posts a new comment on approval instead.
 

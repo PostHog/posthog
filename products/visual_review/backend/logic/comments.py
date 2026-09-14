@@ -26,8 +26,12 @@ def _comment_id(run: Run) -> int | None:
     return None
 
 
-def _previous_comment(repo: Repo, pr_number: int, exclude_run_id: UUID) -> tuple[Run, int] | None:
-    """The run that owns the live visual-review comment on the PR, and that comment's ID.
+def _previous_comment(repo: Repo, pr_number: int, run_type: str, exclude_run_id: UUID) -> tuple[Run, int] | None:
+    """The run of this run type that owns its live visual-review comment, and that comment's ID.
+
+    Scoped to the run type because supersession and the commit status are: a PR can carry
+    an active run per run type, each with its own gate and its own approval, so another
+    type's prompt is still waiting for an answer and must not be retired.
 
     Reads the writer: ``review_decision`` decides whether the comment is rewritten or
     deleted, and a replica that still reports the pre-approval value would delete a
@@ -35,7 +39,7 @@ def _previous_comment(repo: Repo, pr_number: int, exclude_run_id: UUID) -> tuple
     """
     previous_run = (
         Run.objects.using(WRITER_DB)
-        .filter(repo=repo, pr_number=pr_number, metadata__has_key="github_comment_id")
+        .filter(repo=repo, pr_number=pr_number, run_type=run_type, metadata__has_key="github_comment_id")
         .exclude(id=exclude_run_id)
         .order_by("-created_at")
         .first()
@@ -47,7 +51,7 @@ def _previous_comment(repo: Repo, pr_number: int, exclude_run_id: UUID) -> tuple
 
 
 def _retire_previous_comment(repo: Repo, previous_run: Run, comment_id: int) -> None:
-    """Clear the previous run's comment out of the way once a new one is posted.
+    """Clear the previous run's comment of this run type out of the way once a new one is posted.
 
     An approval comment records a human decision, so it stays and says which revision
     it covered. An unanswered review prompt holds nothing worth keeping, so it goes.
@@ -82,8 +86,8 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
     Every run that needs review posts its own comment, so GitHub notifies the
     reviewers and the prompt sits at the bottom of the PR with the new changes.
     The previous run's comment is retired after the new one lands, to keep one live
-    prompt per PR. Retiring first would leave the PR with no prompt at all when the
-    post then fails.
+    prompt per run type. Retiring first would leave the PR with no prompt at all when
+    the post then fails.
     Skips non-actionable runs (observe-only, stale/superseded, already commented).
     Best-effort and never raises.
     """
@@ -103,7 +107,7 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
     previous: tuple[Run, int] | None = None
 
     try:
-        previous = _previous_comment(repo, run.pr_number, exclude_run_id=run.id)
+        previous = _previous_comment(repo, run.pr_number, run.run_type, exclude_run_id=run.id)
 
         response = github_api._github_api_request(
             method="POST",

@@ -7,7 +7,7 @@ from django.db.models import F
 from parameterized import parameterized
 
 from products.visual_review.backend.db import WRITER_DB
-from products.visual_review.backend.facade.enums import ReviewDecision, ReviewState, SnapshotResult
+from products.visual_review.backend.facade.enums import ReviewDecision, ReviewState, RunType, SnapshotResult
 from products.visual_review.backend.logic import comment_markdown, comments, github_api
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
@@ -550,7 +550,8 @@ class TestReviewPromptComment:
         Only the latest run per (repo, branch, run type) may be un-superseded, and
         `create_run` supersedes the previous one before inserting the new one.
         """
-        Run.objects.filter(repo=repo, superseded_by__isnull=True).update(superseded_by=F("id"))
+        run_type = kwargs.get("run_type", RunType.OTHER)
+        Run.objects.filter(repo=repo, run_type=run_type, superseded_by__isnull=True).update(superseded_by=F("id"))
         run = Run.objects.create(
             team_id=repo.team_id,
             repo=repo,
@@ -664,6 +665,22 @@ class TestReviewPromptComment:
         run.refresh_from_db()
         assert run.metadata["github_comment_id"] == 5002
 
+    def test_keeps_the_prompt_of_another_run_type(self, repo, mocker):
+        # Each run type has its own gate and its own approval, so the other type's
+        # run is still waiting for a reviewer.
+        other_type = self._mk_run(repo, "aaa111", run_type=RunType.STORYBOOK, metadata={"github_comment_id": 5001})
+        run = self._mk_run(repo, "bbb222", run_type=RunType.PLAYWRIGHT)
+
+        spy = mocker.patch.object(github_api, "_github_api_request", return_value=self._post_response(5002))
+
+        comments._post_review_prompt_comment(run, repo)
+
+        spy.assert_called_once()
+        assert spy.call_args.kwargs["method"] == "POST"
+        other_type.refresh_from_db()
+        assert other_type.metadata["github_comment_id"] == 5001
+        assert other_type.superseded_by_id is None
+
     def test_keeps_the_previous_comment_when_the_new_prompt_cannot_be_posted(self, repo, mocker):
         # Retiring first would take the PR down to no prompt at all.
         previous = self._mk_run(repo, "aaa111", metadata={"github_comment_id": 5001})
@@ -704,7 +721,7 @@ class TestReviewPromptComment:
         run = self._mk_run(repo, "bbb222")
         using = mocker.spy(Run.objects, "using")
 
-        previous = comments._previous_comment(repo, 42, exclude_run_id=run.id)
+        previous = comments._previous_comment(repo, 42, run.run_type, exclude_run_id=run.id)
 
         using.assert_called_once_with(WRITER_DB)
         assert previous is not None and previous[1] == 5001
