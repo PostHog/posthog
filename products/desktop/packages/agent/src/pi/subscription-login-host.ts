@@ -1,6 +1,5 @@
 import type { PiSubscriptionLoginSession } from "./subscription-login";
 import {
-  type PiSubscriptionProvider,
   piSubscriptionLoginState,
   signOutPiSubscription,
   startPiSubscriptionLogin,
@@ -9,7 +8,6 @@ import {
 interface HostRequest {
   id: string;
   type: "status" | "login" | "logout" | "cancel";
-  provider: PiSubscriptionProvider;
 }
 
 let activeLogin: PiSubscriptionLoginSession | undefined;
@@ -29,12 +27,12 @@ function fail(id: string, error: unknown): void {
 async function handleRequest(request: HostRequest): Promise<void> {
   switch (request.type) {
     case "status": {
-      const loginState = await piSubscriptionLoginState(request.provider);
+      const loginState = await piSubscriptionLoginState();
       reply(request.id, { loginState });
       return;
     }
     case "logout": {
-      await signOutPiSubscription(request.provider);
+      await signOutPiSubscription();
       reply(request.id, {});
       return;
     }
@@ -44,15 +42,11 @@ async function handleRequest(request: HostRequest): Promise<void> {
       return;
     }
     case "login": {
-      const session = await startPiSubscriptionLogin(request.provider);
+      const session = await startPiSubscriptionLogin();
       activeLogin = session;
       reply(request.id, { authUrl: session.authUrl });
       const loggedIn = await session.completed;
-      process.send?.({
-        type: "login_completed",
-        provider: request.provider,
-        loggedIn,
-      });
+      process.send?.({ type: "login_completed", loggedIn });
       return;
     }
   }
@@ -60,7 +54,7 @@ async function handleRequest(request: HostRequest): Promise<void> {
 
 process.on("message", (message: unknown) => {
   const request = message as Partial<HostRequest>;
-  if (typeof request.id !== "string" || !request.type || !request.provider) {
+  if (typeof request.id !== "string" || !request.type) {
     return;
   }
   handleRequest(request as HostRequest).catch((error) =>

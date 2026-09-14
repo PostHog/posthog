@@ -14,6 +14,7 @@ import {
   type CloudRegion,
   getCloudUrlFromRegion,
   PI_SUBSCRIPTION_DEFAULT_MODEL_ID,
+  PI_SUBSCRIPTION_PROVIDER,
   type PiSubscriptionProvider,
 } from "@posthog/shared";
 import { buildPosthogScopedPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
@@ -85,9 +86,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     );
 
     return createPiRpcClient({
-      model: subscription
-        ? PI_SUBSCRIPTION_DEFAULT_MODEL_ID[subscription]
-        : input.model,
+      model: subscription ? PI_SUBSCRIPTION_DEFAULT_MODEL_ID : input.model,
       sessionFile: input.sessionFile,
       taskContext,
       enrichment: {
@@ -116,7 +115,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     if (!requested) {
       return undefined;
     }
-    const loginState = await piSubscriptionLoginState(requested);
+    const loginState = await piSubscriptionLoginState();
     if (loginState !== "logged-in") {
       this.rootLogger
         .scope("pi-rpc-client-factory")
@@ -125,7 +124,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
         });
       return undefined;
     }
-    return requested;
+    return PI_SUBSCRIPTION_PROVIDER;
   }
 
   /**

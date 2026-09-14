@@ -92,7 +92,6 @@ import {
   type ExecutionMode,
   isAuthError,
   type ModelAccess,
-  type PiSubscriptionProvider,
   readAgentToolName,
   readMcpToolName,
   resolveCloudInitialPermissionMode,
@@ -539,21 +538,12 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private codexLogin?: CodexLoginSession;
   private codexAuthGeneration = 0;
   private claudeAuthGeneration = 0;
-  private readonly piSubscriptionLogins = new Map<
-    PiSubscriptionProvider,
-    PiSubscriptionLoginSession
-  >();
-  private readonly piSubscriptionLoginGenerations = new Map<
-    PiSubscriptionProvider,
-    number
-  >();
+  private piSubscriptionLogin?: PiSubscriptionLoginSession;
+  private piSubscriptionLoginGeneration = 0;
 
-  private bumpPiSubscriptionGeneration(
-    provider: PiSubscriptionProvider,
-  ): number {
-    const next = (this.piSubscriptionLoginGenerations.get(provider) ?? 0) + 1;
-    this.piSubscriptionLoginGenerations.set(provider, next);
-    return next;
+  private bumpPiSubscriptionGeneration(): number {
+    this.piSubscriptionLoginGeneration += 1;
+    return this.piSubscriptionLoginGeneration;
   }
 
   async getCodexSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
@@ -638,51 +628,45 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     });
   }
 
-  async getPiSubscriptionStatus(
-    provider: PiSubscriptionProvider,
-  ): Promise<PiSubscriptionStatus> {
-    if (this.piSubscriptionLogins.has(provider)) {
+  async getPiSubscriptionStatus(): Promise<PiSubscriptionStatus> {
+    if (this.piSubscriptionLogin) {
       return { loginState: "logged-out" };
     }
-    return { loginState: await piSubscriptionLoginState(provider) };
+    return { loginState: await piSubscriptionLoginState() };
   }
 
-  async startPiSubscriptionLogin(
-    provider: PiSubscriptionProvider,
-  ): Promise<{ authUrl: string }> {
-    await this.piSubscriptionLogins.get(provider)?.cancel();
-    this.piSubscriptionLogins.delete(provider);
-    const generation = this.bumpPiSubscriptionGeneration(provider);
+  async startPiSubscriptionLogin(): Promise<{ authUrl: string }> {
+    await this.piSubscriptionLogin?.cancel();
+    this.piSubscriptionLogin = undefined;
+    const generation = this.bumpPiSubscriptionGeneration();
 
-    const login = await startPiNativeSubscriptionLogin(provider);
-    if (this.piSubscriptionLoginGenerations.get(provider) !== generation) {
+    const login = await startPiNativeSubscriptionLogin();
+    if (this.piSubscriptionLoginGeneration !== generation) {
       await login.cancel();
       throw new Error("Pi sign-in was cancelled");
     }
 
-    this.piSubscriptionLogins.set(provider, login);
+    this.piSubscriptionLogin = login;
     void login.completed.then((loggedIn) => {
-      if (this.piSubscriptionLogins.get(provider) === login) {
-        this.piSubscriptionLogins.delete(provider);
+      if (this.piSubscriptionLogin === login) {
+        this.piSubscriptionLogin = undefined;
       }
-      this.log.info("Pi subscription login finished", { provider, loggedIn });
+      this.log.info("Pi subscription login finished", { loggedIn });
     });
     return { authUrl: login.authUrl };
   }
 
-  async signOutPiSubscription(provider: PiSubscriptionProvider): Promise<void> {
-    this.bumpPiSubscriptionGeneration(provider);
-    await this.piSubscriptionLogins.get(provider)?.cancel();
-    this.piSubscriptionLogins.delete(provider);
-    await signOutPiNativeSubscription(provider);
+  async signOutPiSubscription(): Promise<void> {
+    this.bumpPiSubscriptionGeneration();
+    await this.piSubscriptionLogin?.cancel();
+    this.piSubscriptionLogin = undefined;
+    await signOutPiNativeSubscription();
   }
 
-  async cancelPiSubscriptionLogin(
-    provider: PiSubscriptionProvider,
-  ): Promise<void> {
-    this.bumpPiSubscriptionGeneration(provider);
-    await this.piSubscriptionLogins.get(provider)?.cancel();
-    this.piSubscriptionLogins.delete(provider);
+  async cancelPiSubscriptionLogin(): Promise<void> {
+    this.bumpPiSubscriptionGeneration();
+    await this.piSubscriptionLogin?.cancel();
+    this.piSubscriptionLogin = undefined;
   }
 
   private async prepareCodexAccountChange(): Promise<void> {
@@ -1931,10 +1915,8 @@ For git operations while detached:
   async cleanupAll(): Promise<void> {
     await this.codexLogin?.cancel();
     this.codexLogin = undefined;
-    await Promise.all(
-      [...this.piSubscriptionLogins.values()].map((login) => login.cancel()),
-    );
-    this.piSubscriptionLogins.clear();
+    await this.piSubscriptionLogin?.cancel();
+    this.piSubscriptionLogin = undefined;
     for (const { handle } of this.idleTimeouts.values()) clearTimeout(handle);
     this.idleTimeouts.clear();
     const sessionIds = Array.from(this.sessions.keys());

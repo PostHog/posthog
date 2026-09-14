@@ -1,6 +1,6 @@
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button } from "@posthog/quill";
-import { ANALYTICS_EVENTS, type PiSubscriptionProvider } from "@posthog/shared";
+import { ANALYTICS_EVENTS, PI_SUBSCRIPTION_PROVIDER } from "@posthog/shared";
 import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
 import { usePiSubscription } from "@posthog/ui/features/settings/piSubscription";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -10,28 +10,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 
 const SIGN_IN_POLL_TIMEOUT_MS = 10 * 60_000 + 15_000;
+const CHATGPT_SUBSCRIPTION_SUMMARY =
+  "Local and worktree Pi sessions use your ChatGPT plan instead of PostHog credits. Cloud tasks use PostHog credits";
 
-interface PiSubscriptionSettingsProps {
-  provider: PiSubscriptionProvider;
-  accountLabel: string;
-  connectLabel: string;
-  summary: string;
-}
-
-export function PiSubscriptionSettings({
-  provider,
-  accountLabel,
-  connectLabel,
-  summary,
-}: PiSubscriptionSettingsProps): ReactElement | null {
-  const { flagEnabled } = usePiSubscription(provider);
+export function PiSubscriptionSettings(): ReactElement | null {
+  const { flagEnabled } = usePiSubscription();
   const hostTRPC = useHostTRPC();
   const queryClient = useQueryClient();
   const [pendingAuthUrl, setPendingAuthUrl] = useState<string | null>(null);
 
-  const statusQuery = hostTRPC.agent.piSubscriptionStatus.queryOptions({
-    provider,
-  });
+  const statusQuery = hostTRPC.agent.piSubscriptionStatus.queryOptions();
   const { data: status, isLoading: statusLoading } = useQuery({
     ...statusQuery,
     refetchInterval: (query) =>
@@ -42,10 +30,14 @@ export function PiSubscriptionSettings({
   const loggedIn = status?.loginState === "logged-in";
 
   useEffect(() => {
-    if (!pendingAuthUrl || !loggedIn) return;
+    if (!pendingAuthUrl || !loggedIn) {
+      return;
+    }
     setPendingAuthUrl(null);
-    track(ANALYTICS_EVENTS.PI_SUBSCRIPTION_CONNECTED, { provider });
-  }, [pendingAuthUrl, loggedIn, provider]);
+    track(ANALYTICS_EVENTS.PI_SUBSCRIPTION_CONNECTED, {
+      provider: PI_SUBSCRIPTION_PROVIDER,
+    });
+  }, [pendingAuthUrl, loggedIn]);
 
   const login = useMutation({
     ...hostTRPC.agent.piSubscriptionLoginStart.mutationOptions(),
@@ -54,7 +46,7 @@ export function PiSubscriptionSettings({
       openExternalUrl(authUrl);
     },
     onError: (error) =>
-      toast.error(`Couldn't start ${accountLabel} sign-in`, {
+      toast.error("Couldn't start ChatGPT sign-in", {
         description: error.message,
       }),
   });
@@ -70,20 +62,24 @@ export function PiSubscriptionSettings({
   const cancelRef = useRef(cancel);
   cancelRef.current = cancel;
   useEffect(() => {
-    if (!pendingAuthUrl) return;
+    if (!pendingAuthUrl) {
+      return;
+    }
     const timer = setTimeout(() => {
       setPendingAuthUrl(null);
-      cancelRef.current.mutate({ provider });
+      cancelRef.current.mutate();
     }, SIGN_IN_POLL_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [pendingAuthUrl, provider]);
+  }, [pendingAuthUrl]);
 
   const signOut = useMutation({
     ...hostTRPC.agent.piSubscriptionSignOut.mutationOptions(),
     onSuccess: () =>
-      track(ANALYTICS_EVENTS.PI_SUBSCRIPTION_SIGNED_OUT, { provider }),
+      track(ANALYTICS_EVENTS.PI_SUBSCRIPTION_SIGNED_OUT, {
+        provider: PI_SUBSCRIPTION_PROVIDER,
+      }),
     onError: (error) =>
-      toast.error(`Couldn't sign out of ${accountLabel}`, {
+      toast.error("Couldn't sign out of ChatGPT", {
         description: error.message,
       }),
     onSettled: () =>
@@ -96,7 +92,10 @@ export function PiSubscriptionSettings({
 
   if (statusLoading) {
     return (
-      <SettingsCardRow label={`${accountLabel} account`} description={summary}>
+      <SettingsCardRow
+        label="ChatGPT account"
+        description={CHATGPT_SUBSCRIPTION_SUMMARY}
+      >
         <span className="text-(--gray-9) text-sm">Checking…</span>
       </SettingsCardRow>
     );
@@ -106,11 +105,11 @@ export function PiSubscriptionSettings({
     const pending = login.isPending || pendingAuthUrl !== null;
     return (
       <SettingsCardRow
-        label={`${accountLabel} account`}
+        label="ChatGPT account"
         description={
           pendingAuthUrl
             ? "Finish signing in with your browser. This updates automatically"
-            : summary
+            : CHATGPT_SUBSCRIPTION_SUMMARY
         }
       >
         <span className="flex items-center gap-2">
@@ -129,17 +128,13 @@ export function PiSubscriptionSettings({
               size="sm"
               loading={cancel.isPending}
               disabled={cancel.isPending}
-              onClick={() => cancel.mutate({ provider })}
+              onClick={() => cancel.mutate()}
             >
               Cancel
             </Button>
           ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => login.mutate({ provider })}
-            >
-              {connectLabel}
+            <Button variant="outline" size="sm" onClick={() => login.mutate()}>
+              Connect ChatGPT account
             </Button>
           )}
         </span>
@@ -149,10 +144,10 @@ export function PiSubscriptionSettings({
 
   return (
     <SettingsCardRow
-      label={`${accountLabel} account`}
+      label="ChatGPT account"
       description={
         <span className="flex flex-col gap-1">
-          <span>{summary}</span>
+          <span>{CHATGPT_SUBSCRIPTION_SUMMARY}</span>
           <span className="flex items-center gap-1.5">
             <span
               className="inline-block h-1.5 w-1.5 rounded-full bg-(--green-9)"
@@ -168,7 +163,7 @@ export function PiSubscriptionSettings({
         size="sm"
         loading={signOut.isPending}
         disabled={signOut.isPending}
-        onClick={() => signOut.mutate({ provider })}
+        onClick={() => signOut.mutate()}
       >
         Sign out
       </Button>

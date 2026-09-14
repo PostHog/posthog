@@ -1,12 +1,12 @@
 import { join } from "node:path";
 import type { AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type {
-  PiSubscriptionLoginState,
-  PiSubscriptionProvider,
+import {
+  PI_SUBSCRIPTION_PROVIDER,
+  type PiSubscriptionLoginState,
 } from "@posthog/shared";
 
-export type { PiSubscriptionLoginState, PiSubscriptionProvider };
+export type { PiSubscriptionLoginState };
 
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 
@@ -24,13 +24,13 @@ async function getSharedModelRuntime(): Promise<ModelRuntime> {
   return sharedRuntime;
 }
 
-export async function piSubscriptionLoginState(
-  provider: PiSubscriptionProvider,
-): Promise<PiSubscriptionLoginState> {
+export async function piSubscriptionLoginState(): Promise<PiSubscriptionLoginState> {
   try {
     const runtime = await getSharedModelRuntime();
     const stored = await runtime.listCredentials();
-    const credential = stored.find((entry) => entry.providerId === provider);
+    const credential = stored.find(
+      (entry) => entry.providerId === PI_SUBSCRIPTION_PROVIDER,
+    );
     if (!credential) {
       return "logged-out";
     }
@@ -40,11 +40,9 @@ export async function piSubscriptionLoginState(
   }
 }
 
-export async function signOutPiSubscription(
-  provider: PiSubscriptionProvider,
-): Promise<void> {
+export async function signOutPiSubscription(): Promise<void> {
   const runtime = await getSharedModelRuntime();
-  await runtime.logout(provider);
+  await runtime.logout(PI_SUBSCRIPTION_PROVIDER);
 }
 
 function pickLoginMethod(
@@ -89,9 +87,7 @@ export interface PiSubscriptionLoginSession {
   cancel: () => void;
 }
 
-export async function startPiSubscriptionLogin(
-  provider: PiSubscriptionProvider,
-): Promise<PiSubscriptionLoginSession> {
+export async function startPiSubscriptionLogin(): Promise<PiSubscriptionLoginSession> {
   const runtime = await getSharedModelRuntime();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LOGIN_TIMEOUT_MS);
@@ -108,7 +104,7 @@ export async function startPiSubscriptionLogin(
   );
 
   const completed = runtime
-    .login(provider, "oauth", interaction)
+    .login(PI_SUBSCRIPTION_PROVIDER, "oauth", interaction)
     .then(() => true)
     .catch((error: unknown) => {
       rejectAuthUrl(error instanceof Error ? error : new Error(String(error)));

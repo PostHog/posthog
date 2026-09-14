@@ -17,6 +17,10 @@ import {
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
 import {
+  effectivePiSubscriptionProvider,
+  usePiSubscription,
+} from "@posthog/ui/features/settings/piSubscription";
+import {
   forwardRef,
   useCallback,
   useEffect,
@@ -119,6 +123,7 @@ export const ChannelHomeComposer = forwardRef<
     setLastUsedAgentRuntime,
     lastUsedPiModel,
     setLastUsedPiModel,
+    piModelAccess,
     allowBypassPermissions,
     defaultInitialTaskMode,
     lastUsedInitialTaskMode,
@@ -175,6 +180,12 @@ export const ChannelHomeComposer = forwardRef<
     workspaceMode === "cloud" &&
     !isLoadingIntegrations &&
     !hasGithubIntegration;
+  const piSubscription = usePiSubscription();
+  const piSubscriptionProvider = effectivePiSubscriptionProvider({
+    modelAccess: piModelAccess,
+    subscription: piSubscription,
+    workspaceMode,
+  });
   const { cloudTarget, setCloudTarget } = useCloudTargetSelection();
   const cloudIds = workspaceMode === "cloud" ? cloudTargetIds(cloudTarget) : {};
   const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
@@ -554,6 +565,7 @@ export const ChannelHomeComposer = forwardRef<
               menuOpen={modelMenuOpen}
               onMenuOpenChange={setModelMenuOpen}
               showBillingMenu
+              subscriptionProvider={piSubscriptionProvider}
               workspaceMode={workspaceMode}
             />
           ) : null

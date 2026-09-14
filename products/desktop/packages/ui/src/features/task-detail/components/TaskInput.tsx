@@ -45,6 +45,10 @@ import {
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import {
+  effectivePiSubscriptionProvider,
+  usePiSubscription,
+} from "@posthog/ui/features/settings/piSubscription";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToInbox } from "@posthog/ui/router/navigationBridge";
@@ -310,6 +314,7 @@ export function TaskInput({
     setLastUsedModel,
     lastUsedPiModel,
     setLastUsedPiModel,
+    piModelAccess,
     _hasHydrated: settingsHydrated,
   } = useSettingsStore();
   const spendStop = useSpendStop();
@@ -515,6 +520,12 @@ export function TaskInput({
   });
   const localWorkspaceReady =
     isWorkspaceModeResolved && workspaceMode !== "cloud";
+  const piSubscription = usePiSubscription();
+  const piSubscriptionProvider = effectivePiSubscriptionProvider({
+    modelAccess: piModelAccess,
+    subscription: piSubscription,
+    workspaceMode,
+  });
 
   const showCodexNotConnectedNotice =
     runtime !== "pi" &&
@@ -1660,6 +1671,7 @@ export function TaskInput({
                         menuOpen={modelMenuOpen}
                         onMenuOpenChange={setModelMenuOpen}
                         showBillingMenu
+                        subscriptionProvider={piSubscriptionProvider}
                         workspaceMode={workspaceMode}
                       />
                     ) : null

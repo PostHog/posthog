@@ -414,7 +414,6 @@ export interface CreateResourceCommentRequest {
   mentions?: number[];
 }
 
-/** Thrown when the backend rejects a cloud run with a 429 usage-limit error. */
 export class CloudUsageLimitError extends Error {
   limitType: UsageLimitType;
   resetAt: string | null;
@@ -6519,10 +6518,7 @@ export class PostHogAPIClient {
     }
   }
 
-  /**
-   * Run a cloud-run request, re-throwing a backend 429 usage-limit error as a
-   * typed CloudUsageLimitError so the UI can show the upgrade prompt.
-   */
+  // Use one error type so callers can show billing recovery for any supported quota response.
   private async withCloudUsageLimitCheck<T>(fn: () => Promise<T>): Promise<T> {
     try {
       return await fn();
@@ -6536,8 +6532,11 @@ export class PostHogAPIClient {
     const parsed = this.parseFetcherError(error);
     if (
       parsed &&
-      parsed.status === 429 &&
+      (parsed.status === 402 ||
+        parsed.status === 403 ||
+        parsed.status === 429) &&
       (parsed.body.code === "usage_limit_exceeded" ||
+        parsed.body.code === "quota_limit_exceeded" ||
         parsed.body.code === DESKTOP_BILLING_LIMIT_ERROR_CODE)
     ) {
       const limitType = parsed.body.limit_type;

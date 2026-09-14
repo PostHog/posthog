@@ -31,6 +31,14 @@ vi.mock("@posthog/di/react", () => ({
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPC: () => ({
     workspace: { getAll: { queryKey: () => ["workspaces"] } },
+    agent: {
+      piSubscriptionStatus: {
+        queryOptions: () => ({
+          queryKey: ["pi-subscription-status"],
+          queryFn: async () => ({ loginState: "logged-out" }),
+        }),
+      },
+    },
     additionalDirectories: {
       listDefaults: {
         queryOptions: () => ({

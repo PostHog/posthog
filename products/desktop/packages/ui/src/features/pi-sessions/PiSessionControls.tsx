@@ -21,8 +21,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import type { PiModelAccess, PiSubscriptionProvider } from "@posthog/shared";
-import { customModelMeta } from "@posthog/shared";
+import {
+  customModelMeta,
+  PI_SUBSCRIPTION_DEFAULT_MODEL_ID,
+  PI_SUBSCRIPTION_PROVIDER,
+  type PiModelAccess,
+  type PiSubscriptionProvider,
+} from "@posthog/shared";
 import {
   type AgentHarness,
   HarnessSubmenu,
@@ -38,7 +43,6 @@ import type { WorkspaceModeForAccess } from "@posthog/ui/features/settings/adapt
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
   applyPiModelAccess,
-  type PiSubscription,
   usePiSubscription,
 } from "@posthog/ui/features/settings/piSubscription";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -47,28 +51,14 @@ import { useState } from "react";
 
 const TOOLTIP_DELAY_MS = 150;
 
-const PI_BILLING_LABEL: Record<PiSubscriptionProvider, string> = {
-  anthropic: "Claude",
-  "openai-codex": "ChatGPT",
+const PI_SUBSCRIPTION_MODEL = {
+  provider: PI_SUBSCRIPTION_PROVIDER,
+  id: PI_SUBSCRIPTION_DEFAULT_MODEL_ID,
+  name: "GPT-5.6 Terra",
 };
 
-const PI_BILLING_LOGIN_NOTE: Record<
-  PiSubscriptionProvider,
-  { link: string; rest: string }
-> = {
-  anthropic: { link: "Log in to Claude", rest: " to use Claude billing." },
-  "openai-codex": {
-    link: "Connect ChatGPT",
-    rest: " to use ChatGPT billing.",
-  },
-};
-
-const PI_BILLING_CLOUD_ONLY_REASON: Record<PiSubscriptionProvider, string> = {
-  anthropic:
-    "Claude billing only works for local and worktree tasks. Cloud tasks always use PostHog.",
-  "openai-codex":
-    "ChatGPT billing only works for local and worktree tasks. Cloud tasks always use PostHog.",
-};
+const PI_BILLING_CLOUD_ONLY_REASON =
+  "ChatGPT billing only works for local and worktree tasks. Cloud tasks always use PostHog.";
 
 interface PiBillingSubmenuProps {
   workspaceMode?: WorkspaceModeForAccess;
@@ -80,42 +70,16 @@ function PiBillingSubmenu({
   closeOnChange = false,
 }: PiBillingSubmenuProps): React.JSX.Element | null {
   const modelAccess = useSettingsStore((state) => state.piModelAccess);
-  const anthropicSubscription = usePiSubscription("anthropic");
-  const codexSubscription = usePiSubscription("openai-codex");
-  const providers: {
-    provider: PiSubscriptionProvider;
-    subscription: PiSubscription;
-  }[] = [
-    ...(anthropicSubscription.flagEnabled
-      ? [
-          {
-            provider: "anthropic" as const,
-            subscription: anthropicSubscription,
-          },
-        ]
-      : []),
-    ...(codexSubscription.flagEnabled
-      ? [
-          {
-            provider: "openai-codex" as const,
-            subscription: codexSubscription,
-          },
-        ]
-      : []),
-  ];
-  if (providers.length === 0) {
+  const subscription = usePiSubscription();
+  if (!subscription.flagEnabled) {
     return null;
   }
 
   const cloudTask = workspaceMode === "cloud";
-  const activeProvider = providers.find((p) => p.provider === modelAccess);
-  const valueLabel =
-    activeProvider && !cloudTask
-      ? PI_BILLING_LABEL[activeProvider.provider]
-      : "PostHog";
-  const pendingLoginNote = providers.find(
-    (p) => p.provider === modelAccess && !p.subscription.loggedIn,
-  );
+  const chatgptBillingActive =
+    !cloudTask && modelAccess === PI_SUBSCRIPTION_PROVIDER;
+  const valueLabel = chatgptBillingActive ? "ChatGPT" : "PostHog";
+  const showLoginNote = chatgptBillingActive && !subscription.loggedIn;
 
   return (
     <DropdownMenuSub>
@@ -136,46 +100,43 @@ function PiBillingSubmenu({
           >
             PostHog
           </DropdownMenuRadioItem>
-          {providers.map(({ provider }) =>
-            cloudTask ? (
-              <TooltipProvider delay={TOOLTIP_DELAY_MS} key={provider}>
-                <Tooltip disableHoverablePopup>
-                  <TooltipTrigger render={<span className="flex" />}>
-                    <DropdownMenuRadioItem
-                      value={provider}
-                      closeOnClick={closeOnChange}
-                      disabled
-                      className="opacity-60"
-                    >
-                      {PI_BILLING_LABEL[provider]}
-                    </DropdownMenuRadioItem>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-60">
-                    {PI_BILLING_CLOUD_ONLY_REASON[provider]}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            ) : (
-              <DropdownMenuRadioItem
-                key={provider}
-                value={provider}
-                closeOnClick={closeOnChange}
-              >
-                {PI_BILLING_LABEL[provider]}
-              </DropdownMenuRadioItem>
-            ),
+          {cloudTask ? (
+            <TooltipProvider delay={TOOLTIP_DELAY_MS}>
+              <Tooltip disableHoverablePopup>
+                <TooltipTrigger render={<span className="flex" />}>
+                  <DropdownMenuRadioItem
+                    value={PI_SUBSCRIPTION_PROVIDER}
+                    closeOnClick={closeOnChange}
+                    disabled
+                    className="opacity-60"
+                  >
+                    ChatGPT
+                  </DropdownMenuRadioItem>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-60">
+                  {PI_BILLING_CLOUD_ONLY_REASON}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <DropdownMenuRadioItem
+              value={PI_SUBSCRIPTION_PROVIDER}
+              closeOnClick={closeOnChange}
+            >
+              ChatGPT
+            </DropdownMenuRadioItem>
           )}
         </DropdownMenuRadioGroup>
-        {!cloudTask && pendingLoginNote && (
+        {showLoginNote && (
           <div className="px-2 py-1.5 text-muted-foreground text-xs">
             <button
               type="button"
               className="underline underline-offset-2 hover:text-foreground"
               onClick={() => openSettings("harness")}
             >
-              {PI_BILLING_LOGIN_NOTE[pendingLoginNote.provider].link}
+              Connect ChatGPT
             </button>
-            {PI_BILLING_LOGIN_NOTE[pendingLoginNote.provider].rest}
+            {" to use ChatGPT billing."}
           </div>
         )}
       </DropdownMenuSubContent>
@@ -205,6 +166,7 @@ interface PiModelSelectorProps {
   menuOpen?: boolean;
   onMenuOpenChange?: (open: boolean) => void;
   showBillingMenu?: boolean;
+  subscriptionProvider?: PiSubscriptionProvider;
   workspaceMode?: WorkspaceModeForAccess;
 }
 
@@ -241,17 +203,27 @@ export function PiModelSelector({
   menuOpen,
   onMenuOpenChange,
   showBillingMenu,
+  subscriptionProvider,
   workspaceMode,
 }: PiModelSelectorProps) {
   const [internalMenuOpen, setInternalMenuOpen] = useState(false);
   const open = menuOpen ?? internalMenuOpen;
   const setOpen = onMenuOpenChange ?? setInternalMenuOpen;
+  const activeSubscriptionProvider =
+    subscriptionProvider ??
+    (currentModel?.provider === PI_SUBSCRIPTION_PROVIDER
+      ? PI_SUBSCRIPTION_PROVIDER
+      : undefined);
+  const subscriptionModel = activeSubscriptionProvider
+    ? PI_SUBSCRIPTION_MODEL
+    : undefined;
+  const availableModels = subscriptionModel ? [subscriptionModel] : models;
   const gatewayModelSelect =
-    modelOption?.type === "select" && onGatewayModelSelect
+    !subscriptionModel && modelOption?.type === "select" && onGatewayModelSelect
       ? modelOption
       : undefined;
 
-  if (models.length === 0) {
+  if (availableModels.length === 0) {
     if (isLoading) {
       // Keep the dropdown mounted while the Pi catalog first loads (a
       // harness switch to Pi): unmounting it closes a menu the user is
@@ -298,9 +270,8 @@ export function PiModelSelector({
     return null;
   }
 
-  const currentValue = currentModel ? modelKey(currentModel) : "";
-  const selectedModel =
-    models.find((model) => modelKey(model) === currentValue) ?? currentModel;
+  const selectedModel = subscriptionModel ?? currentModel;
+  const currentValue = selectedModel ? modelKey(selectedModel) : "";
   const currentLabel = modelLabel(selectedModel);
   const thinkingLabel = thinkingLevel
     ? (thinkingLevelLabels[thinkingLevel] ?? thinkingLevel)
@@ -364,7 +335,7 @@ export function PiModelSelector({
                 <DropdownMenuRadioGroup
                   value={currentValue}
                   onValueChange={(value) => {
-                    const model = models.find(
+                    const model = availableModels.find(
                       (candidate) => modelKey(candidate) === value,
                     );
                     if (model) {
@@ -372,7 +343,7 @@ export function PiModelSelector({
                     }
                   }}
                 >
-                  {models.map((model) => {
+                  {availableModels.map((model) => {
                     const pickerModel = toPickerOption({
                       value: model.id,
                       name: modelLabel(model),

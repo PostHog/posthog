@@ -101,6 +101,42 @@ describe("PiModelSelector", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it("uses the ChatGPT model instead of the PostHog catalog", async () => {
+    const onChange = vi.fn();
+    const onGatewayModelSelect = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <PiModelSelector
+        models={piModels}
+        currentModel={piModels[0]}
+        onChange={onChange}
+        modelOption={groupedModelOption()}
+        onGatewayModelSelect={onGatewayModelSelect}
+        subscriptionProvider="openai-codex"
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Model: GPT-5.6 Terra" }),
+    );
+    await openSub(user, /^Model/);
+
+    expect(
+      await screen.findByRole("menuitemradio", { name: "GPT-5.6 Terra" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("GPT-5.5")).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("menuitemradio", { name: "GPT-5.6 Terra" }),
+    );
+    expect(onChange).toHaveBeenCalledWith({
+      provider: "openai-codex",
+      id: "gpt-5.6-terra",
+      name: "GPT-5.6 Terra",
+    });
+    expect(onGatewayModelSelect).not.toHaveBeenCalled();
+  });
+
   it("shows the cost multiplier beside a restricted model lock", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(

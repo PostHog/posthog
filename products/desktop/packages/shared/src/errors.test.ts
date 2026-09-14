@@ -135,6 +135,10 @@ describe("classifyGatewayLimitError", () => {
       "org_limit",
     ],
     [
+      `Internal error: API Error: 403 {"error":{"code":"quota_limit_exceeded"}}`,
+      "org_limit",
+    ],
+    [
       // Per-user free valves fire only for unsubscribed orgs; the modal's
       // subscribed bit picks the free-tier copy.
       "Rate limit exceeded: User burst rate limit exceeded",

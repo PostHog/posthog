@@ -1,8 +1,8 @@
 import { useHostTRPC } from "@posthog/host-router/react";
 import {
   ANALYTICS_EVENTS,
-  CLAUDE_OWN_SUBSCRIPTION_FLAG,
   CODEX_OWN_SUBSCRIPTION_FLAG,
+  PI_SUBSCRIPTION_PROVIDER,
   type PiModelAccess,
   type PiSubscriptionProvider,
 } from "@posthog/shared";
@@ -13,53 +13,48 @@ import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { useQuery } from "@tanstack/react-query";
 
-export type PiSubscriptionLoginState = "logged-in" | "logged-out" | "unknown";
-
 export interface PiSubscription {
   flagEnabled: boolean;
   loggedIn: boolean;
-  loginState: PiSubscriptionLoginState;
 }
 
-const FLAGS: Record<PiSubscriptionProvider, string> = {
-  anthropic: CLAUDE_OWN_SUBSCRIPTION_FLAG,
-  "openai-codex": CODEX_OWN_SUBSCRIPTION_FLAG,
-};
-
-export function usePiSubscription(
-  provider: PiSubscriptionProvider,
-): PiSubscription {
-  const flagEnabled = useFeatureFlag(FLAGS[provider]) || import.meta.env.DEV;
+export function usePiSubscription(): PiSubscription {
+  const flagEnabled =
+    useFeatureFlag(CODEX_OWN_SUBSCRIPTION_FLAG) || import.meta.env.DEV;
   const { localWorkspaces } = useHostCapabilities();
   const hostTRPC = useHostTRPC();
   const { data: status } = useQuery({
-    ...hostTRPC.agent.piSubscriptionStatus.queryOptions({ provider }),
+    ...hostTRPC.agent.piSubscriptionStatus.queryOptions(),
     enabled: flagEnabled && localWorkspaces,
     staleTime: 30_000,
   });
 
-  const loginState = status?.loginState ?? "unknown";
-  return { flagEnabled, loggedIn: loginState === "logged-in", loginState };
+  return { flagEnabled, loggedIn: status?.loginState === "logged-in" };
 }
 
 export function effectivePiSubscriptionProvider(input: {
   modelAccess: PiModelAccess;
-  anthropic: PiSubscription;
-  codex: PiSubscription;
+  subscription: PiSubscription;
   workspaceMode: WorkspaceModeForAccess;
 }): PiSubscriptionProvider | undefined {
-  if (input.modelAccess === "posthog-gateway") return undefined;
-  if (input.workspaceMode === "cloud") return undefined;
-  const subscription =
-    input.modelAccess === "anthropic" ? input.anthropic : input.codex;
-  if (!subscription.flagEnabled || !subscription.loggedIn) return undefined;
-  return input.modelAccess;
+  if (input.modelAccess === "posthog-gateway") {
+    return undefined;
+  }
+  if (input.workspaceMode === "cloud") {
+    return undefined;
+  }
+  if (!input.subscription.flagEnabled || !input.subscription.loggedIn) {
+    return undefined;
+  }
+  return PI_SUBSCRIPTION_PROVIDER;
 }
 
 export function applyPiModelAccess(next: PiModelAccess): void {
   const state = useSettingsStore.getState();
   const prev = state.piModelAccess;
-  if (prev === next) return;
+  if (prev === next) {
+    return;
+  }
   state.setPiModelAccess(next);
   track(ANALYTICS_EVENTS.SETTING_CHANGED, {
     setting_name: "pi_model_access",

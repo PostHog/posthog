@@ -1,13 +1,10 @@
 import { type ChildProcess, fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import type {
-  PiSubscriptionLoginState,
-  PiSubscriptionProvider,
-} from "@posthog/shared";
+import type { PiSubscriptionLoginState } from "@posthog/shared";
 import { safePiEnvironment } from "./rpc-environment";
 
-export type { PiSubscriptionLoginState, PiSubscriptionProvider };
+export type { PiSubscriptionLoginState };
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
@@ -22,7 +19,6 @@ interface HostResponse {
 
 interface HostNotification {
   type: "login_completed";
-  provider: PiSubscriptionProvider;
   loggedIn: boolean;
 }
 
@@ -46,7 +42,9 @@ function spawnHost(): HostProcess {
 
   let stderr = "";
   child.stderr?.on("data", (chunk: Buffer) => {
-    if (stderr.length < MAX_CAPTURED_STDERR) stderr += chunk.toString("utf8");
+    if (stderr.length < MAX_CAPTURED_STDERR) {
+      stderr += chunk.toString("utf8");
+    }
   });
 
   return {
@@ -68,7 +66,6 @@ function exitError(host: HostProcess, code: number | null): Error {
 function sendRequest<T>(
   host: HostProcess,
   type: "status" | "login" | "logout" | "cancel",
-  provider: PiSubscriptionProvider,
   timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   const id = randomUUID();
@@ -81,7 +78,9 @@ function sendRequest<T>(
 
     const onMessage = (message: unknown) => {
       const response = message as Partial<HostResponse>;
-      if (response.id !== id) return;
+      if (response.id !== id) {
+        return;
+      }
       cleanup();
       if (response.type === "error") {
         reject(new Error(response.error ?? "Pi subscription request failed"));
@@ -107,18 +106,16 @@ function sendRequest<T>(
     child.on("message", onMessage);
     child.once("exit", onExit);
     child.once("error", onError);
-    child.send({ id, type, provider });
+    child.send({ id, type });
   });
 }
 
-export async function piSubscriptionLoginState(
-  provider: PiSubscriptionProvider,
-): Promise<PiSubscriptionLoginState> {
+export async function piSubscriptionLoginState(): Promise<PiSubscriptionLoginState> {
   const host = spawnHost();
   try {
     const { loginState } = await sendRequest<{
       loginState: PiSubscriptionLoginState;
-    }>(host, "status", provider);
+    }>(host, "status");
     return loginState;
   } catch {
     return "unknown";
@@ -127,12 +124,10 @@ export async function piSubscriptionLoginState(
   }
 }
 
-export async function signOutPiSubscription(
-  provider: PiSubscriptionProvider,
-): Promise<void> {
+export async function signOutPiSubscription(): Promise<void> {
   const host = spawnHost();
   try {
-    await sendRequest(host, "logout", provider);
+    await sendRequest(host, "logout");
   } finally {
     host.kill();
   }
@@ -144,9 +139,7 @@ export interface PiSubscriptionLoginSession {
   cancel: () => Promise<void>;
 }
 
-export async function startPiSubscriptionLogin(
-  provider: PiSubscriptionProvider,
-): Promise<PiSubscriptionLoginSession> {
+export async function startPiSubscriptionLogin(): Promise<PiSubscriptionLoginSession> {
   const host = spawnHost();
   const { child } = host;
   let settled = false;
@@ -155,10 +148,7 @@ export async function startPiSubscriptionLogin(
     const timeout = setTimeout(() => resolve(false), LOGIN_TIMEOUT_MS);
     const onMessage = (message: unknown) => {
       const notification = message as Partial<HostNotification>;
-      if (
-        notification.type !== "login_completed" ||
-        notification.provider !== provider
-      ) {
+      if (notification.type !== "login_completed") {
         return;
       }
       clearTimeout(timeout);
@@ -177,11 +167,7 @@ export async function startPiSubscriptionLogin(
 
   let authUrl: string;
   try {
-    const response = await sendRequest<{ authUrl: string }>(
-      host,
-      "login",
-      provider,
-    );
+    const response = await sendRequest<{ authUrl: string }>(host, "login");
     authUrl = response.authUrl;
   } catch (error) {
     host.kill();
@@ -192,9 +178,11 @@ export async function startPiSubscriptionLogin(
     authUrl,
     completed,
     cancel: async () => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
-      await sendRequest(host, "cancel", provider).catch(() => undefined);
+      await sendRequest(host, "cancel").catch(() => undefined);
       host.kill();
     },
   };

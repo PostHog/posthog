@@ -1901,16 +1901,19 @@ describe("PostHogAPIClient", () => {
       ).rejects.toThrow("Bad Request");
     });
 
-    it("maps the Desktop billing denial to a cloud usage limit", async () => {
+    it.each([
+      [429, DESKTOP_BILLING_LIMIT_ERROR_CODE],
+      [403, "quota_limit_exceeded"],
+    ])("maps %i %s to a cloud usage limit", async (status, code) => {
       const body = {
         type: "rate_limit",
-        code: DESKTOP_BILLING_LIMIT_ERROR_CODE,
+        code,
         detail: "Your organization reached its PostHog Desktop usage limit.",
       };
       const fetch = vi
         .fn()
         .mockRejectedValue(
-          new ApiRequestError(429, JSON.stringify(body), body),
+          new ApiRequestError(status, JSON.stringify(body), body),
         );
       const client = makeClient(fetch);
 

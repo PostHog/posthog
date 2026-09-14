@@ -22,7 +22,6 @@ import {
   listSessionsOutput,
   notifySessionContextInput,
   piSubscriptionLoginOutput,
-  piSubscriptionStatusInput,
   piSubscriptionStatusOutput,
   promptInput,
   promptOutput,
@@ -130,38 +129,24 @@ export const agentRouter = router({
   ),
 
   piSubscriptionStatus: publicProcedure
-    .input(piSubscriptionStatusInput)
     .output(piSubscriptionStatusOutput)
-    .query(({ ctx, input }) =>
-      ctx.container
-        .get<AgentService>(AGENT_SERVICE)
-        .getPiSubscriptionStatus(input.provider),
+    .query(({ ctx }) =>
+      ctx.container.get<AgentService>(AGENT_SERVICE).getPiSubscriptionStatus(),
     ),
 
   piSubscriptionLoginStart: publicProcedure
-    .input(piSubscriptionStatusInput)
     .output(piSubscriptionLoginOutput)
-    .mutation(({ ctx, input }) =>
-      ctx.container
-        .get<AgentService>(AGENT_SERVICE)
-        .startPiSubscriptionLogin(input.provider),
+    .mutation(({ ctx }) =>
+      ctx.container.get<AgentService>(AGENT_SERVICE).startPiSubscriptionLogin(),
     ),
 
-  piSubscriptionSignOut: publicProcedure
-    .input(piSubscriptionStatusInput)
-    .mutation(({ ctx, input }) =>
-      ctx.container
-        .get<AgentService>(AGENT_SERVICE)
-        .signOutPiSubscription(input.provider),
-    ),
+  piSubscriptionSignOut: publicProcedure.mutation(({ ctx }) =>
+    ctx.container.get<AgentService>(AGENT_SERVICE).signOutPiSubscription(),
+  ),
 
-  piSubscriptionLoginCancel: publicProcedure
-    .input(piSubscriptionStatusInput)
-    .mutation(({ ctx, input }) =>
-      ctx.container
-        .get<AgentService>(AGENT_SERVICE)
-        .cancelPiSubscriptionLogin(input.provider),
-    ),
+  piSubscriptionLoginCancel: publicProcedure.mutation(({ ctx }) =>
+    ctx.container.get<AgentService>(AGENT_SERVICE).cancelPiSubscriptionLogin(),
+  ),
 
   reconnect: publicProcedure
     .input(reconnectSessionInput)

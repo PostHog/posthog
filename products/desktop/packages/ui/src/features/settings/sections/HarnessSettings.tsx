@@ -80,10 +80,7 @@ function SettingDescription({
 export function HarnessSettings() {
   const { allowBypassPermissions, setAllowBypassPermissions } =
     useSettingsStore();
-  const piAnthropicSubscription = usePiSubscription("anthropic");
-  const piCodexSubscription = usePiSubscription("openai-codex");
-  const piSectionEnabled =
-    piAnthropicSubscription.flagEnabled || piCodexSubscription.flagEnabled;
+  const { flagEnabled: piSectionEnabled } = usePiSubscription();
 
   const [showBypassWarning, setShowBypassWarning] = useState(false);
 
@@ -231,21 +228,10 @@ export function HarnessSettings() {
       {piSectionEnabled && (
         <SettingsSection
           label="Pi"
-          description="Run Pi sessions on your own Claude or ChatGPT subscription instead of PostHog credits"
+          description="Run Pi sessions on your ChatGPT subscription instead of PostHog credits"
         >
           <SettingsCard>
-            <PiSubscriptionSettings
-              provider="anthropic"
-              accountLabel="Claude"
-              connectLabel="Connect Claude account"
-              summary="Local and worktree Pi sessions run on your Claude plan instead of PostHog credits. Cloud tasks always use PostHog credits"
-            />
-            <PiSubscriptionSettings
-              provider="openai-codex"
-              accountLabel="ChatGPT"
-              connectLabel="Connect ChatGPT account"
-              summary="Local and worktree Pi sessions run on your ChatGPT plan instead of PostHog credits. Cloud tasks always use PostHog credits"
-            />
+            <PiSubscriptionSettings />
           </SettingsCard>
         </SettingsSection>
       )}

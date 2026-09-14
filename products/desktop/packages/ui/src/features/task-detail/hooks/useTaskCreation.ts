@@ -237,8 +237,7 @@ export function useTaskCreation({
   const hostClient = useHostTRPCClient();
   const codexSubscription = useAdapterSubscription("codex");
   const claudeSubscription = useAdapterSubscription("claude");
-  const piAnthropicSubscription = usePiSubscription("anthropic");
-  const piCodexSubscription = usePiSubscription("openai-codex");
+  const piSubscription = usePiSubscription();
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const defaultAdditionalDirectoriesQuery = useQuery(
@@ -470,8 +469,7 @@ export function useTaskCreation({
             runtime === "pi"
               ? effectivePiSubscriptionProvider({
                   modelAccess: settings.piModelAccess,
-                  anthropic: piAnthropicSubscription,
-                  codex: piCodexSubscription,
+                  subscription: piSubscription,
                   workspaceMode,
                 })
               : undefined;
@@ -730,12 +728,9 @@ export function useTaskCreation({
       claudeSubscription.subscriptionOn,
       claudeSubscription,
       codexSubscription,
-      piAnthropicSubscription.flagEnabled,
-      piAnthropicSubscription.loggedIn,
-      piAnthropicSubscription,
-      piCodexSubscription.flagEnabled,
-      piCodexSubscription.loggedIn,
-      piCodexSubscription,
+      piSubscription.flagEnabled,
+      piSubscription.loggedIn,
+      piSubscription,
       claudeTokenStore,
     ],
   );

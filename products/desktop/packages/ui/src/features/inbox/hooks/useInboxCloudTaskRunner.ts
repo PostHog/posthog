@@ -23,6 +23,7 @@ import type {
 } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { useUsageLimitStore } from "@posthog/ui/features/billing/usageLimitStore";
 import { showOfflineToast } from "@posthog/ui/features/connectivity/connectivityToast";
 import { isSignalReportTaskCapError } from "@posthog/ui/features/inbox/hooks/inboxCloudTaskErrors";
 import { resolveDefaultModel } from "@posthog/ui/features/inbox/hooks/resolveDefaultModel";
@@ -318,8 +319,9 @@ export function useInboxCloudTaskRunner({
             : "task_creation_failed";
         trackActionResult("failed", failureCode);
         toast.dismiss(toastId);
-        // Usage-limit blocks already show the upgrade modal; don't double-toast.
-        if (!isUsageLimitResult(result)) {
+        if (isUsageLimitResult(result)) {
+          useUsageLimitStore.getState().show({ cause: "org_limit" });
+        } else {
           if (
             reportId &&
             copy.existingImplementationTask &&
