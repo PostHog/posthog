@@ -146,6 +146,7 @@ class TestOwnershipClaims(BaseTest):
             ("role_unbound", "blocked", "role_unbound"),
             ("unknown_organization", "blocked", "account_not_found"),
             ("region_mismatch", "blocked", "identity_mismatch"),
+            ("two_accounts_differ_only_by_case", "blocked", "identity_mismatch"),
             ("assignee_not_a_member", "blocked", "assignee_not_member"),
             ("different_case_is_the_same_identity", "accepted", None),
         ]
@@ -170,6 +171,8 @@ class TestOwnershipClaims(BaseTest):
             self.config.save(update_fields=["ae_relationship_definition"])
         elif case == "unknown_organization":
             overrides["organization_id"] = "org-2"
+        elif case == "two_accounts_differ_only_by_case":
+            create_account(team_id=self.team.id, name="Shadow", external_id="ORG-1", ae_ownership_controlled_at=FENCE)
         elif case == "region_mismatch":
             overrides["region"] = "eu"
         elif case == "assignee_not_a_member":

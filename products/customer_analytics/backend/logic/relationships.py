@@ -316,7 +316,10 @@ def claim_initial_ae(*, team: Team, decision: contracts.OwnershipClaimDecision) 
     """
     actor = Actor(source=AccountRelationshipSource.SALESFORCE_CLAIM)
     with transaction.atomic():
-        locked_account = _lock_account_by_external_id(team.id, decision.organization_id)
+        try:
+            locked_account = _lock_account_by_external_id(team.id, decision.organization_id)
+        except AmbiguousAccountIdentity:
+            return _claim_result("blocked", "identity_mismatch")
         if locked_account is None:
             return _claim_result("blocked", "account_not_found")
         accepted = _accepted_claim(team.id, decision.source_ref)
@@ -421,13 +424,23 @@ def _accepted_claim(team_id: int, source_ref: str) -> AccountRelationship | None
     )
 
 
+class AmbiguousAccountIdentity(Exception):
+    """More than one account of the team carries the external id, differing only by case."""
+
+
 def _lock_account_by_external_id(team_id: int, external_id: str) -> Account | None:
     """Lock the account linked to the organization. The link is read again under the lock, because
-    an account update between the lookup and the lock could have moved it to another organization."""
-    account_id = (
-        Account.objects.for_team(team_id).filter(external_id__iexact=external_id).values_list("id", flat=True).first()
+    an account update between the lookup and the lock could have moved it to another organization.
+
+    The unique constraint on external ids is case-sensitive while this lookup is not, so two
+    accounts that differ only by case are refused rather than resolved to whichever sorts first.
+    """
+    account_ids = list(
+        Account.objects.for_team(team_id).filter(external_id__iexact=external_id).values_list("id", flat=True)[:2]
     )
-    locked = lock_account(team_id, account_id) if account_id is not None else None
+    if len(account_ids) > 1:
+        raise AmbiguousAccountIdentity(external_id)
+    locked = lock_account(team_id, account_ids[0]) if account_ids else None
     if locked is None or (locked.external_id or "").lower() != external_id.lower():
         return None
     return locked
