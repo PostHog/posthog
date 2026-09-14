@@ -1119,15 +1119,15 @@ Note: The vendor's official API repo (github.com/Buzzsprout/buzzsprout-api) cont
 
 ## CalCom — gaps
 
-Today (6): `bookings`, `event_types`, `me`, `schedules`, `teams`, `webhooks`
+Today (12): `booking_attendees`, `bookings`, `event_types`, `me`, `organization_memberships`, `organization_users`, `routing_form_responses`, `routing_forms`, `schedules`, `team_memberships`, `teams`, `webhooks`
 
 Diffed against: <https://cal.com/docs/api-reference/v2/openapi.json>
 
-- [ ] `/v2/organizations/{orgId}/memberships and /v2/teams/{teamId}/memberships` — membership tables joining users to the teams we already sync — currently no way to attribute a booking to a team member (high)
-- [ ] `/v2/organizations/{orgId}/users` — lookup table resolving the user/host IDs carried on bookings and event types (high)
-- [ ] `/v2/bookings/{bookingUid}/attendees` — attendee-level rows for each booking — the grain needed for no-show and guest analysis (high)
-- [ ] `/v2/organizations/{orgId}/routing-forms/{routingFormId}/responses` — routing form submissions, the lead-qualification data that explains which bookings came from which route (high)
-- [ ] `/v2/organizations/{orgId}/routing-forms` — lookup resolving the routing form IDs on responses and routed bookings (medium)
+- [x] `/v2/organizations/{orgId}/memberships and /v2/teams/{teamId}/memberships` — membership tables joining users to the teams we already sync — currently no way to attribute a booking to a team member (high)
+- [x] `/v2/organizations/{orgId}/users` — lookup table resolving the user/host IDs carried on bookings and event types (high)
+- [x] `/v2/bookings/{bookingUid}/attendees` — attendee-level rows for each booking — the grain needed for no-show and guest analysis (high)
+- [x] `/v2/organizations/{orgId}/routing-forms/{routingFormId}/responses` — routing form submissions, the lead-qualification data that explains which bookings came from which route (high)
+- [x] `/v2/organizations/{orgId}/routing-forms` — lookup resolving the routing form IDs on responses and routed bookings (medium)
 - [ ] `/v2/organizations/{orgId}/teams` — org-level team list; the existing teams table is the personal-scope one and misses org teams (medium)
 - [ ] `/v2/organizations/{orgId}/attributes and /attributes/{attributeId}/options` — lookup tables for the org attributes used to segment and route users (medium)
 - [ ] `/v2/me/ooo and /v2/organizations/{orgId}/users/{userId}/ooo` — out-of-office entries, needed to interpret availability and booking gaps (medium)
