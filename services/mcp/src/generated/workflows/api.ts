@@ -881,6 +881,16 @@ export const HogFlowsInvocationResultRetrieveParams = () => zod.object({
         ),
 })
 
+export const HogFlowsInvocationResultRetrieveQueryParams = () => zod.object({
+    include_globals: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Comma-separated top-level keys of the stored run state to return in full, e.g. 'event'. Pass 'all' for the whole state. Omitted, the response stays bounded and describes the state in 'invocation_globals_summary' instead. The state holds the trigger event plus run bookkeeping such as 'personId', 'currentAction' and 'variables'. There is no top-level 'person' or 'groups' key, so ask only for the keys 'invocation_globals_summary' lists."
+        ),
+})
+
 export const HogFlowsInvocationsCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod

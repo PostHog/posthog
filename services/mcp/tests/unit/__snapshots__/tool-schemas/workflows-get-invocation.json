@@ -5,6 +5,11 @@
             "description": "A UUID string identifying this hog flow.",
             "type": "string"
         },
+        "include_globals": {
+            "description": "Comma-separated top-level keys of the stored run state to return in full, e.g. 'event'. Pass 'all' for the whole state. Omitted, the response stays bounded and describes the state in 'invocation_globals_summary' instead. The state holds the trigger event plus run bookkeeping such as 'personId', 'currentAction' and 'variables'. There is no top-level 'person' or 'groups' key, so ask only for the keys 'invocation_globals_summary' lists.",
+            "minLength": 1,
+            "type": "string"
+        },
         "invocation_id": {
             "type": "string"
         }

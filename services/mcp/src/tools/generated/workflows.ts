@@ -102,7 +102,10 @@ const workflowsGet = (): ToolBase<ReturnType<typeof WorkflowsGetSchema>, WithPos
 
 const WorkflowsGetInvocationSchema = () => {
     const HogFlowsInvocationResultRetrieveParams = orvalSchemas.HogFlowsInvocationResultRetrieveParams()
-    return HogFlowsInvocationResultRetrieveParams.omit({ project_id: true })
+    const HogFlowsInvocationResultRetrieveQueryParams = orvalSchemas.HogFlowsInvocationResultRetrieveQueryParams()
+    return HogFlowsInvocationResultRetrieveParams.omit({ project_id: true }).extend(
+        HogFlowsInvocationResultRetrieveQueryParams.shape
+    )
 }
 
 const workflowsGetInvocation = (): ToolBase<
@@ -116,6 +119,9 @@ const workflowsGetInvocation = (): ToolBase<
         const result = await context.api.request<Schemas.HogInvocationResultDetail>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/invocation_results/${encodeURIComponent(String(params.invocation_id))}/`,
+            query: {
+                include_globals: params.include_globals,
+            },
         })
         return result
     },

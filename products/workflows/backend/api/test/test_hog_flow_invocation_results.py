@@ -13,6 +13,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.hog_invocation_results.sql import INSERT_HOG_INVOCATION_RESULT_SQL
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.renderers import SafeJSONRenderer
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -66,6 +67,19 @@ def create_hog_invocation_result(
     sync_execute(INSERT_HOG_INVOCATION_RESULT_SQL, params)
 
 
+# The producer stores the persisted run state for a hog_flow, so the trigger event sits beside run
+# bookkeeping and the parked action state. There is no top-level person or groups key: the person is
+# held outside the state and is never persisted, and group properties reach the row only nested under
+# currentAction.hogFunctionState.
+SAMPLE_GLOBALS: dict[str, Any] = {
+    "event": {"event": "$pageview", "properties": {"$current_url": "https://example.com/pricing"}},
+    "personId": "0195c7aa-0000-7000-8000-000000000001",
+    "actionStepCount": 3,
+    "variables": {"plan": "enterprise"},
+    "currentAction": {"id": "send_email", "hogFunctionState": {"globals": {"event": {"uuid": "evt-1"}}}},
+}
+
+
 class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -74,9 +88,9 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
     def _list(self, params=None):
         return self.client.get(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/invocation_results/", params)
 
-    def _detail(self, invocation_id: str):
+    def _detail(self, invocation_id: str, params=None):
         return self.client.get(
-            f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/invocation_results/{invocation_id}/"
+            f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/invocation_results/{invocation_id}/", params
         )
 
     def _seed(self, invocation_id: str, **kwargs):
@@ -224,27 +238,54 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
         results = self._list({"limit": 2}).json()
         assert len(results) == 2
 
-    def test_detail_returns_invocation_globals(self):
+    def test_detail_summarizes_invocation_globals_without_returning_them(self):
         # Legacy rows predate compression and are stored as raw JSON.
-        self._seed("inv-1", invocation_status="failed", invocation_globals='{"event": {"event": "$pageview"}}')
+        self._seed("inv-1", invocation_status="failed", invocation_globals=json.dumps(SAMPLE_GLOBALS))
         res = self._detail("inv-1")
         assert res.status_code == status.HTTP_200_OK
         body = res.json()
         assert body["invocation_id"] == "inv-1"
         assert body["status"] == "failed"
-        assert body["invocation_globals"] == {"event": {"event": "$pageview"}}
+        assert body["invocation_globals"] == {}
+        summary = body["invocation_globals_summary"]
+        assert set(summary["key_sizes"]) == {"event", "personId", "actionStepCount", "variables", "currentAction"}
+        assert all(size > 0 for size in summary["key_sizes"].values())
+        assert summary["event_name"] == "$pageview"
+        assert summary["current_action_id"] == "send_email"
 
-    def test_detail_decodes_gzip_base64_invocation_globals(self):
+    @parameterized.expand(
+        [
+            ("event", {"event"}),
+            ("event,currentAction", {"event", "currentAction"}),
+            ("all", {"event", "personId", "actionStepCount", "variables", "currentAction"}),
+            ("event, currentAction ,", {"event", "currentAction"}),
+            ("person", set()),
+            ("nope", set()),
+        ]
+    )
+    def test_detail_returns_only_the_requested_globals_keys(self, include: str, expected_keys: set):
         # Current rows are gzip-compressed then base64-encoded by the producer.
-        payload = {"event": {"event": "$pageview"}, "person": {"id": "p1"}, "groups": {}}
-        encoded = base64.b64encode(gzip.compress(json.dumps(payload).encode("utf-8"))).decode("utf-8")
+        encoded = base64.b64encode(gzip.compress(json.dumps(SAMPLE_GLOBALS).encode("utf-8"))).decode("utf-8")
         self._seed("inv-1", invocation_globals=encoded)
-        body = self._detail("inv-1").json()
-        assert body["invocation_globals"] == payload
+        body = self._detail("inv-1", {"include_globals": include}).json()
+        assert set(body["invocation_globals"]) == expected_keys
+        for key in expected_keys:
+            assert body["invocation_globals"][key] == SAMPLE_GLOBALS[key]
+
+    def test_detail_reports_globals_key_sizes_as_response_bytes(self):
+        # Non-ASCII values are ordinary in event and person properties. ASCII-escaped JSON counts
+        # the escaped characters, which reports the key as larger than the response really sends.
+        payload = {"event": {"event": "购买", "properties": {"$city": "東京", "note": "🎉"}}}
+        self._seed("inv-1", invocation_globals=json.dumps(payload))
+        body = self._detail("inv-1", {"include_globals": "event"}).json()
+        rendered = SafeJSONRenderer().render(body["invocation_globals"]["event"])
+        assert body["invocation_globals_summary"]["key_sizes"]["event"] == len(rendered)
 
     def test_detail_invocation_globals_degrades_to_empty_on_garbage(self):
         self._seed("inv-1", invocation_globals="not-valid-base64-or-json")
-        assert self._detail("inv-1").json()["invocation_globals"] == {}
+        body = self._detail("inv-1", {"include_globals": "all"}).json()
+        assert body["invocation_globals"] == {}
+        assert body["invocation_globals_summary"]["key_sizes"] == {}
 
     def test_detail_404_for_unknown_invocation(self):
         assert self._detail("nope").status_code == status.HTTP_404_NOT_FOUND
