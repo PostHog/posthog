@@ -17,6 +17,7 @@ from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
+    is_mcp_request,
 )
 from posthog.models import Organization, Team, User
 from posthog.permissions import (
@@ -26,6 +27,7 @@ from posthog.permissions import (
 )
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.mcp_access import mcp_access_denial
 from products.reminders.backend.constants import MAX_ACTIVE_REMINDERS_PER_USER, RESOURCE_MODELS, RESOURCE_TYPES
 from products.reminders.backend.models import Reminder
 from products.reminders.backend.scheduling import compute_next_fire_at, exceeds_daily_frequency_cap, resolve_timezone
@@ -41,6 +43,14 @@ def token_scope_restrictions(request: Request) -> tuple[list[str] | None, list[i
         get_authenticator_scoped_organization_ids(authenticator),
         get_authenticator_scoped_team_ids(authenticator),
     )
+
+
+def deny_mcp_write(request: Request, organization: Organization) -> None:
+    """MCPAccessPermission resolves its target from routing attributes a root viewset lacks, so the
+    read_only_mcp_access cap the mixin applies has to be applied here instead."""
+    denial = mcp_access_denial(organization, is_mcp=is_mcp_request(request), writes=True)
+    if denial is not None:
+        raise PermissionDenied(denial)
 
 
 class ReminderSerializer(serializers.ModelSerializer):
@@ -147,11 +157,14 @@ class ReminderSerializer(serializers.ModelSerializer):
             if permissions.team(team).effective_membership_level is None:
                 raise ValidationError("You do not have access to this team.")
 
-        scoped_organizations, scoped_teams = token_scope_restrictions(self.context["request"])
+        request = self.context["request"]
+        scoped_organizations, scoped_teams = token_scope_restrictions(request)
         if scoped_organizations is not None and str(organization.id) not in scoped_organizations:
             raise PermissionDenied(f"This credential has no access to organization ID {organization.id}.")
         if scoped_teams is not None and (team is None or team.id not in scoped_teams):
             raise PermissionDenied("This credential is restricted to specific projects.")
+
+        deny_mcp_write(request, organization)
 
     def _validate_resource(self, attrs: dict[str, Any], team: Team | None) -> None:
         instance = self.instance
@@ -260,11 +273,13 @@ class ReminderViewSet(viewsets.ModelViewSet):
     # Root-level viewset, so TeamAndOrgViewSetMixin adds no authenticators and every accepted
     # class must be listed here. PersonalAPIKeyAuthentication returns None for a `pha_` OAuth
     # token, so without OAuthAccessTokenAuthentication an OAuth call gets a 401.
+    # Session last: DRF takes the first authenticator that returns a user, so a request carrying
+    # both a cookie and a bearer token must resolve as the token, or the token's reach goes unchecked.
     authentication_classes = [
         IDJagAccessTokenAuthentication,
-        SessionAuthentication,
         OAuthAccessTokenAuthentication,
         PersonalAPIKeyAuthentication,
+        SessionAuthentication,
     ]
     queryset = Reminder.objects.none()
 
@@ -282,5 +297,6 @@ class ReminderViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_destroy(self, instance: Reminder) -> None:
+        deny_mcp_write(self.request, instance.organization)
         instance.deleted = True
         instance.save(update_fields=["deleted"])
