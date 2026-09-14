@@ -4438,6 +4438,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         and survey.actions.all()) which caused N+1 query problems without
         proper prefetching.
         """
+        # A link question whose scheme the project registered is what makes the response resolve
+        # the allowlist at all, so without this the survey serializer never reads the team row.
+        self.team.survey_config = {"allowed_link_schemes": ["example-mobile"]}
+        self.team.save(update_fields=["survey_config"])
+
         # Create 5 flags with linked surveys
         for i in range(5):
             flag = FeatureFlag.objects.create(
@@ -4453,7 +4458,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 name=f"Survey {i}",
                 type="popover",
                 linked_flag=flag,
-                questions=[{"type": "open", "question": f"What do you think about flag {i}?"}],
+                questions=[
+                    {"type": "open", "question": f"What do you think about flag {i}?"},
+                    {"type": "link", "question": "Open the app", "link": "example-mobile://home"},
+                ],
             )
 
         # Capture query count with 5 flags
@@ -4477,7 +4485,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 name=f"Survey {i}",
                 type="popover",
                 linked_flag=flag,
-                questions=[{"type": "open", "question": f"What do you think about flag {i}?"}],
+                questions=[
+                    {"type": "open", "question": f"What do you think about flag {i}?"},
+                    {"type": "link", "question": "Open the app", "link": "example-mobile://home"},
+                ],
             )
 
         # Query count should remain similar (not scale linearly with flag count)
