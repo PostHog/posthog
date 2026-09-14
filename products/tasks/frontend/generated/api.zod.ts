@@ -865,6 +865,42 @@ export const SandboxPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Request body for creating or updating a sandbox environment.')
 
 /**
+ * Create a Markdown file in a space the requester can access.
+ * @summary Create a space file
+ */
+export const spaceFilesCreateBodyNameMax = 128
+
+export const spaceFilesCreateBodyContentDefault = ``
+export const spaceFilesCreateBodyContentMax = 100000
+
+export const SpaceFilesCreateBody = /* @__PURE__ */ zod.object({
+    channel_id: zod.uuid().describe('ID of the space that owns the file.'),
+    name: zod
+        .string()
+        .max(spaceFilesCreateBodyNameMax)
+        .describe('Flat Markdown file name ending in .md, up to 128 characters.'),
+    content: zod
+        .string()
+        .max(spaceFilesCreateBodyContentMax)
+        .default(spaceFilesCreateBodyContentDefault)
+        .describe('Complete Markdown file content, up to 100000 UTF-8 bytes.'),
+})
+
+/**
+ * Replace a Markdown file's complete content when its version matches base_version.
+ * @summary Update a space file
+ */
+export const spaceFilesPartialUpdateBodyContentMax = 100000
+
+export const SpaceFilesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    content: zod
+        .string()
+        .max(spaceFilesPartialUpdateBodyContentMax)
+        .describe('Complete replacement Markdown file content, up to 100000 UTF-8 bytes.'),
+    base_version: zod.number().min(1).describe('Version read before this update. A stale version returns 409.'),
+})
+
+/**
  * Clear collapsed task activity through task timestamps and individual comment activity through activity IDs.
  * @summary Mark task activity read
  */

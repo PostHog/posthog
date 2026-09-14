@@ -976,6 +976,69 @@ export interface PatchedSandboxEnvironmentWriteApi {
     custom_image_id?: string | null
 }
 
+export interface SpaceFileListDTOApi {
+    /** Stable ID of the file. */
+    id: string
+    /** ID of the space that owns the file. */
+    channel_id: string
+    /** Markdown file name. */
+    name: string
+    /** Current file version. */
+    version: number
+    /** When the file was created. */
+    created_at: string
+    /** When the file was last updated. */
+    updated_at: string
+}
+
+export interface PaginatedSpaceFileListDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SpaceFileListDTOApi[]
+}
+
+export interface SpaceFileCreateApi {
+    /** ID of the space that owns the file. */
+    channel_id: string
+    /**
+     * Flat Markdown file name ending in .md, up to 128 characters.
+     * @maxLength 128
+     */
+    name: string
+    /**
+     * Complete Markdown file content, up to 100000 UTF-8 bytes.
+     * @maxLength 100000
+     */
+    content?: string
+}
+
+export interface SpaceFileDTOApi {
+    /** Stable ID of the file. */
+    id: string
+    /** ID of the space that owns the file. */
+    channel_id: string
+    /** Markdown file name. */
+    name: string
+    /** Complete Markdown file content. */
+    content: string
+    /** Current file version. */
+    version: number
+    /** When the file was created. */
+    created_at: string
+    /** When the file was last updated. */
+    updated_at: string
+}
+
+export interface SpaceFileVersionConflictApi {
+    /** What changed and how to resolve the conflict. */
+    detail: string
+    /** Current version of the file. Read the file and retry. */
+    current_version: number
+}
+
 /**
  * * `awaiting_input` - awaiting_input
  * * `completed` - completed
@@ -5166,6 +5229,30 @@ export type SandboxListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type SpaceFilesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type SpaceFilesPartialUpdateBody = {
+    /**
+     * Complete replacement Markdown file content, up to 100000 UTF-8 bytes.
+     * @maxLength 100000
+     */
+    content: string
+    /**
+     * Version read before this update. A stale version returns 409.
+     * @minimum 1
+     */
+    base_version: number
 }
 
 export type TaskActivityListParams = {

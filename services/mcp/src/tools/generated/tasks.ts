@@ -528,6 +528,76 @@ const loopsRunsRetrieve = (): ToolBase<
     },
 })
 
+const SpaceFilesGetSchema = () => {
+    const SpaceFilesRetrieveParams = orvalSchemas.SpaceFilesRetrieveParams()
+    return SpaceFilesRetrieveParams.omit({ project_id: true })
+}
+
+const spaceFilesGet = (): ToolBase<ReturnType<typeof SpaceFilesGetSchema>, Schemas.SpaceFileDTO> => ({
+    name: 'space-files-get',
+    schema: SpaceFilesGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SpaceFilesGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SpaceFileDTO>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/space_files/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const SpaceFilesListSchema = () => {
+    const SpaceFilesListQueryParams = orvalSchemas.SpaceFilesListQueryParams()
+    return SpaceFilesListQueryParams
+}
+
+const spaceFilesList = (): ToolBase<
+    ReturnType<typeof SpaceFilesListSchema>,
+    WithPostHogUrl<Schemas.PaginatedSpaceFileListDTOList>
+> => ({
+    name: 'space-files-list',
+    schema: SpaceFilesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SpaceFilesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedSpaceFileListDTOList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/space_files/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/tasks')
+    },
+})
+
+const SpaceFilesUpdateSchema = () => {
+    const SpaceFilesPartialUpdateBody = orvalSchemas.SpaceFilesPartialUpdateBody()
+    const SpaceFilesPartialUpdateParams = orvalSchemas.SpaceFilesPartialUpdateParams()
+    return SpaceFilesPartialUpdateParams.omit({ project_id: true }).extend(SpaceFilesPartialUpdateBody.shape)
+}
+
+const spaceFilesUpdate = (): ToolBase<ReturnType<typeof SpaceFilesUpdateSchema>, Schemas.SpaceFileDTO> => ({
+    name: 'space-files-update',
+    schema: SpaceFilesUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SpaceFilesUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.base_version !== undefined) {
+            body['base_version'] = params.base_version
+        }
+        const result = await context.api.request<Schemas.SpaceFileDTO>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/space_files/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 const TasksConfigCreateSchema = () => {
     const TasksConfigCreateBody = orvalSchemas.TasksConfigCreateBody()
     return TasksConfigCreateBody
@@ -943,6 +1013,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'loops-retrieve': loopsRetrieve,
     'loops-run-create': loopsRunCreate,
     'loops-runs-retrieve': loopsRunsRetrieve,
+    'space-files-get': spaceFilesGet,
+    'space-files-list': spaceFilesList,
+    'space-files-update': spaceFilesUpdate,
     'tasks-config-create': tasksConfigCreate,
     'tasks-config-list': tasksConfigList,
     'tasks-create': tasksCreate,

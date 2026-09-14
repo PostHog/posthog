@@ -44,6 +44,7 @@ import type {
     PaginatedLoopDTOListApi,
     PaginatedSandboxCustomImageDTOListApi,
     PaginatedSandboxEnvironmentDTOListApi,
+    PaginatedSpaceFileListDTOListApi,
     PaginatedTaskListItemListApi,
     PaginatedTaskMentionDTOListApi,
     PaginatedTaskRunDetailDTOListApi,
@@ -71,6 +72,10 @@ import type {
     SandboxEnvironmentWriteApi,
     SandboxListParams,
     SlackThreadContextResponseApi,
+    SpaceFileCreateApi,
+    SpaceFileDTOApi,
+    SpaceFilesListParams,
+    SpaceFilesPartialUpdateBody,
     StreamReadTokenResponseApi,
     TaskActivityListParams,
     TaskActivityMarkReadApi,
@@ -733,6 +738,99 @@ export const sandboxDestroy = async (projectId: string, id: string, options?: Re
     return apiMutator<void>(getSandboxDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSpaceFilesListUrl = (projectId: string, params?: SpaceFilesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/space_files/?${stringifiedParams}`
+        : `/api/projects/${projectId}/space_files/`
+}
+
+/**
+ * List Markdown files in spaces the requester can access. Content is omitted from this response.
+ * @summary List space files
+ */
+export const spaceFilesList = async (
+    projectId: string,
+    params?: SpaceFilesListParams,
+    options?: RequestInit
+): Promise<PaginatedSpaceFileListDTOListApi> => {
+    return apiMutator<PaginatedSpaceFileListDTOListApi>(getSpaceFilesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSpaceFilesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/space_files/`
+}
+
+/**
+ * Create a Markdown file in a space the requester can access.
+ * @summary Create a space file
+ */
+export const spaceFilesCreate = async (
+    projectId: string,
+    spaceFileCreateApi: SpaceFileCreateApi,
+    options?: RequestInit
+): Promise<SpaceFileDTOApi> => {
+    return apiMutator<SpaceFileDTOApi>(getSpaceFilesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(spaceFileCreateApi),
+    })
+}
+
+export const getSpaceFilesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/space_files/${id}/`
+}
+
+/**
+ * Get one Markdown file, including its complete content and current version.
+ * @summary Get a space file
+ */
+export const spaceFilesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SpaceFileDTOApi> => {
+    return apiMutator<SpaceFileDTOApi>(getSpaceFilesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSpaceFilesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/space_files/${id}/`
+}
+
+/**
+ * Replace a Markdown file's complete content when its version matches base_version.
+ * @summary Update a space file
+ */
+export const spaceFilesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    spaceFilesPartialUpdateBody: SpaceFilesPartialUpdateBody,
+    options?: RequestInit
+): Promise<SpaceFileDTOApi> => {
+    return apiMutator<SpaceFileDTOApi>(getSpaceFilesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(spaceFilesPartialUpdateBody),
     })
 }
 

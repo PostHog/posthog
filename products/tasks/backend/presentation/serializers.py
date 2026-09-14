@@ -23,7 +23,11 @@ from posthog.models.user_integration import UserIntegration
 from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ips
 
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
+from products.tasks.backend.facade.api import (
+    CHANNEL_INSTRUCTIONS_MAX_BYTES,
+    SPACE_FILE_MAX_BYTES,
+    SPACE_FILE_MAX_NAME_LENGTH,
+)
 from products.tasks.backend.facade.client_provenance import is_sandbox_oauth_request
 from products.tasks.backend.facade.contracts import (
     ChannelDTO,
@@ -33,6 +37,8 @@ from products.tasks.backend.facade.contracts import (
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
     SlackThreadReferenceDTO,
+    SpaceFileDTO,
+    SpaceFileListDTO,
     TaskActivityDTO,
     TaskActivityPageDTO,
     TaskDetailDTO,
@@ -2405,6 +2411,76 @@ class ChannelUpdateSerializer(serializers.Serializer):
                     {"repositories": f"Not accessible via the selected GitHub integration: {', '.join(inaccessible)}"}
                 )
         return attrs
+
+
+class SpaceFileListSerializer(DataclassSerializer):
+    id = serializers.UUIDField(help_text="Stable ID of the file.")
+    channel_id = serializers.UUIDField(help_text="ID of the space that owns the file.")
+    name = serializers.CharField(help_text="Markdown file name.")
+    version = serializers.IntegerField(help_text="Current file version.")
+    created_at = serializers.DateTimeField(help_text="When the file was created.")
+    updated_at = serializers.DateTimeField(help_text="When the file was last updated.")
+
+    class Meta:
+        dataclass = SpaceFileListDTO
+        fields = ["id", "channel_id", "name", "version", "created_at", "updated_at"]
+
+
+class SpaceFileSerializer(SpaceFileListSerializer):
+    content = serializers.CharField(help_text="Complete Markdown file content.")
+
+    class Meta:
+        dataclass = SpaceFileDTO
+        fields = ["id", "channel_id", "name", "content", "version", "created_at", "updated_at"]
+
+
+class SpaceFileCreateSerializer(serializers.Serializer):
+    channel_id = serializers.UUIDField(help_text="ID of the space that owns the file.")
+    name = serializers.CharField(
+        max_length=SPACE_FILE_MAX_NAME_LENGTH,
+        help_text="Flat Markdown file name ending in .md, up to 128 characters.",
+    )
+    content = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        trim_whitespace=False,
+        max_length=SPACE_FILE_MAX_BYTES,
+        help_text="Complete Markdown file content, up to 100000 UTF-8 bytes.",
+    )
+
+    def validate_name(self, value: str) -> str:
+        if not tasks_facade.is_valid_space_file_name(value):
+            raise serializers.ValidationError("Use a flat Markdown file name ending in .md.")
+        return value
+
+    def validate_content(self, value: str) -> str:
+        if len(value.encode("utf-8")) > SPACE_FILE_MAX_BYTES:
+            raise serializers.ValidationError("Content is limited to 100000 UTF-8 bytes.")
+        return value
+
+
+class SpaceFileUpdateSerializer(serializers.Serializer):
+    content = serializers.CharField(
+        allow_blank=True,
+        trim_whitespace=False,
+        max_length=SPACE_FILE_MAX_BYTES,
+        help_text="Complete replacement Markdown file content, up to 100000 UTF-8 bytes.",
+    )
+    base_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Version read before this update. A stale version returns 409.",
+    )
+
+    def validate_content(self, value: str) -> str:
+        if len(value.encode("utf-8")) > SPACE_FILE_MAX_BYTES:
+            raise serializers.ValidationError("Content is limited to 100000 UTF-8 bytes.")
+        return value
+
+
+class SpaceFileVersionConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="What changed and how to resolve the conflict.")
+    current_version = serializers.IntegerField(help_text="Current version of the file. Read the file and retry.")
 
 
 class ChannelInstructionsSerializer(DataclassSerializer):

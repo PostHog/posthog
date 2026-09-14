@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 24 enabled ops
+ * PostHog API - MCP 27 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -732,6 +732,59 @@ export const LoopsRunsRetrieveQueryParams = () => zod.object({
         .max(loopsRunsRetrieveQueryLimitMax)
         .default(loopsRunsRetrieveQueryLimitDefault)
         .describe('Max results per page (default 50, max 100).'),
+})
+
+/**
+ * List Markdown files in spaces the requester can access. Content is omitted from this response.
+ * @summary List space files
+ */
+export const SpaceFilesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const SpaceFilesListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Get one Markdown file, including its complete content and current version.
+ * @summary Get a space file
+ */
+export const SpaceFilesRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Replace a Markdown file's complete content when its version matches base_version.
+ * @summary Update a space file
+ */
+export const SpaceFilesPartialUpdateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const spaceFilesPartialUpdateBodyContentMax = 100000
+
+export const SpaceFilesPartialUpdateBody = () => zod.object({
+    content: zod
+        .string()
+        .max(spaceFilesPartialUpdateBodyContentMax)
+        .describe('Complete replacement Markdown file content, up to 100000 UTF-8 bytes.'),
+    base_version: zod.number().min(1).describe('Version read before this update. A stale version returns 409.'),
 })
 
 /**
