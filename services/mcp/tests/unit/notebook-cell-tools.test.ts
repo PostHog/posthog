@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { TOOL_MAP } from '@/tools'
+import { GENERATED_TOOL_MAP } from '@/tools/generated'
+import { mergeToolFactories } from '@/tools/mergeToolFactories'
 import { addCellHandler } from '@/tools/notebooks/addCell'
-import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
 import { deleteCellHandler } from '@/tools/notebooks/deleteCell'
 import { setVariablesHandler } from '@/tools/notebooks/setVariables'
 import { updateCellHandler } from '@/tools/notebooks/updateCell'
@@ -583,25 +585,33 @@ describe('notebook cell tools', () => {
         expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('reader')
     })
 
-    it('create markdown notebook posts the wrapper document with a title heading', async () => {
-        const state = makeState('')
-        const context = createMockContext(state)
+    it.each([
+        ['notebooks-create-markdown', { notebook_id: 'nEw12345', title: 'Signup analysis' }],
+        ['notebooks-create', { short_id: 'nEw12345', version: 0 }],
+    ])(
+        '%s writes a markdown notebook with a title heading and rejects ProseMirror content',
+        async (toolName, expected) => {
+            const state = makeState('')
+            const context = createMockContext(state)
+            const tool = mergeToolFactories({ generated: GENERATED_TOOL_MAP, handwritten: TOOL_MAP })[toolName]!()
 
-        const result = await createMarkdownHandler(context, { title: 'Signup analysis', markdown: 'Intro.' })
+            expect(tool.schema.safeParse({ title: 'Signup analysis', content: { type: 'doc' } }).success).toBe(false)
+            const result = await tool.handler(context, { title: 'Signup analysis', markdown: 'Intro.' })
 
-        expect(result).toMatchObject({ notebook_id: 'nEw12345', title: 'Signup analysis' })
-        const body = state.createBodies[0]
-        expect(body.title).toBe('Signup analysis')
-        expect(body.content).toEqual({
-            type: 'doc',
-            content: [
-                {
-                    type: 'ph-markdown-notebook',
-                    attrs: { nodeId: 'markdown-notebook-v2', markdown: '# Signup analysis\n\nIntro.' },
-                },
-            ],
-        })
-    })
+            expect(result).toMatchObject(expected)
+            const body = state.createBodies[0]
+            expect(body.title).toBe('Signup analysis')
+            expect(body.content).toEqual({
+                type: 'doc',
+                content: [
+                    {
+                        type: 'ph-markdown-notebook',
+                        attrs: { nodeId: 'markdown-notebook-v2', markdown: '# Signup analysis\n\nIntro.' },
+                    },
+                ],
+            })
+        }
+    )
     describe('markdown cells', () => {
         const DOC = ['# Title', '', 'First paragraph.', '', 'Second paragraph.'].join('\n')
         // Spans of "First paragraph." in DOC, as the backend reports them.

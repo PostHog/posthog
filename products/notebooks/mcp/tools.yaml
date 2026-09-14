@@ -79,38 +79,11 @@ tools:
                     - shortId
                     - notebook_short_id
         feature_flag: revamped-py-notebooks
+    # Hand-written in services/mcp/src/tools/notebooks/create.ts, because the tool builds the markdown
+    # document from `title` and `markdown`, which the REST create body cannot express.
     notebooks-create:
         operation: notebooks_create
-        enabled: true
-        scopes:
-            - notebook:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: '{short_id}'
-        title: Create notebook
-        description: >
-            Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's
-            rich text document structure (ProseMirror-based). Returns the created notebook with its short_id. Embedded
-            charts use `{type: "ph-query", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a)
-            `{kind: "DataVisualizationNode", source: {kind: "HogQLQuery", query: "SELECT ..."}, display: "ActionsBar",
-            chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind: "InsightVizNode",
-            source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for
-            product-analytics insights; or (c) `{kind: "SavedInsightNode", shortId: "..."}` to embed a saved insight.
-            The server rejects other shapes and auto-corrects the common `InsightVizNode` wrapping a SQL chart. Give
-            every embedded node a short `attrs.title` saying what it shows — it renders in the node's header and is what
-            a reader skims instead of the query.
-
-            This creates a rich-text (ProseMirror) notebook — use it for document-style notebooks built around embedded
-            charts and saved insights. For step-by-step data analysis with executable SQL/Python cells, use
-            `notebooks-create-markdown` instead.
-        exclude_params:
-            - _create_in_folder
-        feature_flag: revamped-py-notebooks
-        feature_flag_behavior: disable
-        superseded_by:
-            - notebooks-create-markdown
+        enabled: false
     notebooks-destroy:
         operation: notebooks_destroy
         enabled: true

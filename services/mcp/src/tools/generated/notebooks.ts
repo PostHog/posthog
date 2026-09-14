@@ -74,44 +74,6 @@ const notebooksConfigureCompute = (): ToolBase<
     },
 })
 
-const NotebooksCreateSchema = () => {
-    const NotebooksCreateBody = orvalSchemas.NotebooksCreateBody()
-    return NotebooksCreateBody
-}
-
-const notebooksCreate = (): ToolBase<ReturnType<typeof NotebooksCreateSchema>, WithPostHogUrl<Schemas.Notebook>> => ({
-    name: 'notebooks-create',
-    schema: NotebooksCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        if (params.text_content !== undefined) {
-            body['text_content'] = params.text_content
-        }
-        if (params.version !== undefined) {
-            body['version'] = params.version
-        }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
-        if (params.variables !== undefined) {
-            body['variables'] = params.variables
-        }
-        const result = await context.api.request<Schemas.Notebook>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/notebooks/${result.short_id}`)
-    },
-})
-
 const NotebooksDestroySchema = () => {
     const NotebooksDestroyParams = orvalSchemas.NotebooksDestroyParams()
     return z.preprocess(
@@ -504,7 +466,6 @@ const notebooksWidgetStatus = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-compute-options': notebooksComputeOptions,
     'notebooks-configure-compute': notebooksConfigureCompute,
-    'notebooks-create': notebooksCreate,
     'notebooks-destroy': notebooksDestroy,
     'notebooks-get': notebooksGet,
     'notebooks-list': notebooksList,

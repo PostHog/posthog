@@ -288,6 +288,23 @@
             "readOnlyHint": false
         }
     },
+    "notebooks-create": {
+        "description": "Create a notebook from a title and a markdown body. Returns the created notebook with its short_id and a link in _posthogUrl. The title becomes the notebook's leading `# heading`, so start `markdown` at the first section below it.\n\nEmbed a chart with a `Query` tag on its own line, for example `<Query title=\"Weekly signups\" query={{\"kind\":\"SavedInsightNode\",\"shortId\":\"abc123\"}} />`. Keep the whole tag on one line, because a blank line inside a tag ends it. The `query` object must be one of: (a) `{kind: \"SavedInsightNode\", shortId: \"...\"}` to embed a saved insight; (b) `{kind: \"InsightVizNode\", source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for a product-analytics chart; or (c) `{kind: \"DataVisualizationNode\", source: {kind: \"HogQLQuery\", query: \"SELECT ...\"}, display: \"ActionsBar\"}` for a SQL chart. Do not wrap a SQL chart in an InsightVizNode. Give every chart a short `title` that says what it shows, because the title renders in the chart header and is what a reader skims instead of the query.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Create a notebook from a title and a markdown body.",
+        "title": "Create notebook",
+        "required_scopes": ["notebook:write"],
+        "feature_flag": "revamped-py-notebooks",
+        "feature_flag_behavior": "disable",
+        "superseded_by": ["notebooks-create-markdown"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-create-markdown": {
         "description": "Create a notebook for deep, step-by-step data analysis: query PostHog and connected data warehouse data with SQL (HogQL), or analyze with Python code. SQL and Python cells can also read and query dataframes fetched or created by upstream cells in the notebook. Run a cell, read its result, decide the next step; add markdown cells to explain and summarize findings, and embed saved insights. Give it a title and optionally an initial markdown body. Returns the notebook_id to use with notebooks-add-cell. This is the default artifact for an analysis with a narrative — a deep dive, a one-off investigation, a 'why did X change' — where the reader needs the reasoning and caveats, not just a number; a dashboard is for metrics tracked repeatedly over time. Reach for a notebook without being asked whenever the work needs Python, so the code, its output, and its errors are visible to the user next to the result instead of running where they can't see them.",
         "category": "Notebooks",

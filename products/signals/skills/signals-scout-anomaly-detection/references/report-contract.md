@@ -180,10 +180,12 @@ on a recurrence).
 
 ### Create it
 
-Call `notebooks-create` with a `title` and `content` (ProseMirror rich-text JSON). The response
-carries the new notebook's `short_id` and a clickable URL in `_posthogUrl` (the tool enriches the
-result with `/notebooks/{short_id}`) — surface that verbatim, don't hand-build it. If you ever
-need to build the link yourself, it is `generate-app-url` with `url=/notebooks/{shortId}`.
+Call `notebooks-create` with a `title` and a `markdown` body.
+The title becomes the notebook's leading `# heading`, so start the markdown at the first section below it.
+If the connection reports `notebooks-create` as retired, call `notebooks-create-markdown` with the same `title` and `markdown`.
+The response carries the new notebook's short id (`short_id`, or `notebook_id` from `notebooks-create-markdown`) and a clickable URL in `_posthogUrl`.
+Surface that URL verbatim, and don't hand-build it.
+If you ever need to build the link yourself, it is `generate-app-url` with `url=/notebooks/{shortId}`.
 
 - **Title** — name the metric, the direction, and the date, e.g.
   `Anomaly: daily signups dropped ~60% (2026-06-06)`.
@@ -210,60 +212,38 @@ Lead with the same hook the inbox sees, then the evidence the ~300-char preview 
 
 ### Embedded-chart recipe
 
-Charts are `{type: "ph-query", attrs: {nodeId: "<unique>", query: <query>}}` nodes inside
-`content`. `query` is one of:
+Charts are `Query` tags in the markdown, each on its own line:
+`<Query nodeId="<unique>" title="<what it shows>" query={<query JSON>} />`.
+Keep the whole tag on one line, because a blank line inside a tag ends it.
+`query` is one of:
 
 - **Embed the anomalous saved insight** —
-  `{kind: "SavedInsightNode", shortId: "<short_id>"}`. Renders the insight's _saved_ date range
-  (no override); fine when that range shows the baseline, otherwise prefer a widened node below.
+  `{"kind": "SavedInsightNode", "shortId": "<short_id>"}`.
+  Renders the insight's _saved_ date range (no override); fine when that range shows the baseline, otherwise prefer a widened node below.
 - **Chart a SQL-fallback series** —
-  `{kind: "DataVisualizationNode", source: {kind: "HogQLQuery", query: "SELECT ..."}, display: "ActionsLineGraph"}`.
+  `{"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT ..."}, "display": "ActionsLineGraph"}`.
   Do **not** wrap a `HogQLQuery` in an `InsightVizNode`.
 - **Build an ad-hoc product-analytics chart** —
-  `{kind: "InsightVizNode", source: {kind: "TrendsQuery", ...}}`.
+  `{"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}`.
 
-Prefer embedding the saved insight you scored — it stays in sync with the source and is the thing
-the human will open next. Give each `ph-query` node a distinct `nodeId`.
+Prefer embedding the saved insight you scored — it stays in sync with the source and is the thing the human will open next.
+Give each `Query` tag a distinct `nodeId`.
 
-`content` is a ProseMirror doc (the tool documents no node schema, so use this skeleton). Text is
-`paragraph` / `heading` (with `attrs.level`) / `bulletList` → `listItem` → `paragraph`; charts are
-`ph-query` nodes. A minimal working shape:
+Text is plain markdown: paragraphs, `##` headings, and `-` bullet lists.
+A minimal working `markdown` body, for a notebook whose `title` is `Anomaly: <metric> <direction> (<date>)`:
 
-```json
-{
-  "type": "doc",
-  "content": [
-    {
-      "type": "heading",
-      "attrs": { "level": 1 },
-      "content": [{ "type": "text", "text": "Anomaly: <metric> <direction> (<date>)" }]
-    },
-    { "type": "paragraph", "content": [{ "type": "text", "text": "<the quantified hook>" }] },
-    {
-      "type": "ph-query",
-      "attrs": { "nodeId": "scored-insight", "query": { "kind": "SavedInsightNode", "shortId": "<short_id>" } }
-    },
-    { "type": "heading", "attrs": { "level": 2 }, "content": [{ "type": "text", "text": "Baseline & method" }] },
-    {
-      "type": "bulletList",
-      "content": [
-        {
-          "type": "listItem",
-          "content": [
-            {
-              "type": "paragraph",
-              "content": [{ "type": "text", "text": "<baseline median + MAD, the z, partial bucket excluded>" }]
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
+```markdown
+<the quantified hook>
+
+<Query nodeId="scored-insight" title="<metric>, scored window" query={{"kind":"SavedInsightNode","shortId":"<short_id>"}} />
+
+## Baseline & method
+
+- <baseline median + MAD, the z, partial bucket excluded>
 ```
 
-For a SQL-fallback chart, swap the `ph-query` query for
-`{ "kind": "DataVisualizationNode", "source": { "kind": "HogQLQuery", "query": "SELECT ..." }, "display": "ActionsLineGraph" }`.
+For a SQL-fallback chart, swap the tag's `query` for
+`{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"SELECT ..."},"display":"ActionsLineGraph"}`.
 
 ### Clean up if the report doesn't surface
 

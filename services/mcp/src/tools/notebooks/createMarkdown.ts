@@ -20,22 +20,30 @@ export const NotebooksCreateMarkdownSchema = z
 
 type CreateMarkdownResult = WithPostHogUrl<{ notebook_id: string; title: string }>
 
+export async function createMarkdownNotebook(
+    context: Context,
+    title: string,
+    markdown: string | undefined
+): Promise<Schemas.Notebook> {
+    const projectId = await context.stateManager.getProjectId()
+    const body = markdown?.trim() ? `\n\n${markdown.trim()}` : ''
+    const document = `# ${title}${body}`
+    return await context.api.request<Schemas.Notebook>({
+        method: 'POST',
+        path: `/api/projects/${encodeURIComponent(projectId)}/notebooks/`,
+        body: {
+            title,
+            content: buildMarkdownNotebookContent(document),
+            text_content: document,
+        },
+    })
+}
+
 export const createMarkdownHandler: ToolBase<
     typeof NotebooksCreateMarkdownSchema,
     CreateMarkdownResult
 >['handler'] = async (context: Context, params: z.infer<typeof NotebooksCreateMarkdownSchema>) => {
-    const projectId = await context.stateManager.getProjectId()
-    const body = params.markdown?.trim() ? `\n\n${params.markdown.trim()}` : ''
-    const markdown = `# ${params.title}${body}`
-    const notebook = await context.api.request<Schemas.Notebook>({
-        method: 'POST',
-        path: `/api/projects/${encodeURIComponent(projectId)}/notebooks/`,
-        body: {
-            title: params.title,
-            content: buildMarkdownNotebookContent(markdown),
-            text_content: markdown,
-        },
-    })
+    const notebook = await createMarkdownNotebook(context, params.title, params.markdown)
     return await withPostHogUrl(
         context,
         { notebook_id: notebook.short_id, title: params.title },

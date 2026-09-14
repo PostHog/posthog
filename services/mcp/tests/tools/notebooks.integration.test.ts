@@ -40,6 +40,23 @@ describe('Notebooks', { concurrent: false }, () => {
         createdNotebookShortIds.length = 0
     })
 
+    // notebooks-create writes markdown notebooks, so the legacy JSON mode of notebook-edit needs a
+    // notebook created through the REST API, which still accepts a ProseMirror document.
+    async function createLegacyNotebook(title: string, content: Record<string, unknown>): Promise<any> {
+        return await context.api.request({
+            method: 'POST',
+            path: `/api/projects/${TEST_PROJECT_ID!}/notebooks/`,
+            body: { title, content },
+        })
+    }
+
+    function markdownDocument(markdown: string): Record<string, unknown> {
+        return {
+            type: 'doc',
+            content: [{ type: 'ph-markdown-notebook', attrs: { nodeId: 'markdown-notebook-v2', markdown } }],
+        }
+    }
+
     describe('notebooks-create tool', () => {
         const createTool = getToolByName('notebooks-create')
 
@@ -60,23 +77,10 @@ describe('Notebooks', { concurrent: false }, () => {
             createdNotebookShortIds.push(notebook.short_id)
         })
 
-        it('should create a notebook with content', async () => {
+        it('should create a markdown notebook with a body', async () => {
             const params = {
-                title: generateUniqueKey('Content Notebook'),
-                content: {
-                    type: 'doc',
-                    content: [
-                        {
-                            type: 'heading',
-                            attrs: { level: 1 },
-                            content: [{ type: 'text', text: 'Test heading' }],
-                        },
-                        {
-                            type: 'paragraph',
-                            content: [{ type: 'text', text: 'Test paragraph' }],
-                        },
-                    ],
-                },
+                title: generateUniqueKey('Markdown Notebook'),
+                markdown: '## Test heading\n\nTest paragraph',
             }
 
             const result = await createTool.handler(context, params)
@@ -84,8 +88,12 @@ describe('Notebooks', { concurrent: false }, () => {
 
             expect(notebook.short_id).toBeTruthy()
             expect(notebook.title).toBe(params.title)
-            expect(notebook.content).toBeTruthy()
-            expect(notebook.content.type).toBe('doc')
+            expect(notebook.content.content).toEqual([
+                expect.objectContaining({
+                    type: 'ph-markdown-notebook',
+                    attrs: expect.objectContaining({ markdown: `# ${params.title}\n\n${params.markdown}` }),
+                }),
+            ])
 
             createdNotebookShortIds.push(notebook.short_id)
         })
@@ -149,10 +157,7 @@ describe('Notebooks', { concurrent: false }, () => {
         it('should update notebook content with version for concurrency control', async () => {
             const createResult = await createTool.handler(context, {
                 title: generateUniqueKey('Version Test Notebook'),
-                content: {
-                    type: 'doc',
-                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Original' }] }],
-                },
+                markdown: 'Original',
             })
             const created = parseToolResponse(createResult)
             createdNotebookShortIds.push(created.short_id)
@@ -161,10 +166,7 @@ describe('Notebooks', { concurrent: false }, () => {
             const updateResult = await updateTool.handler(context, {
                 short_id: created.short_id,
                 version: 0,
-                content: {
-                    type: 'doc',
-                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Updated' }] }],
-                },
+                content: markdownDocument('# Version Test Notebook\n\nUpdated'),
             })
             const updated = parseToolResponse(updateResult)
 
@@ -173,22 +175,17 @@ describe('Notebooks', { concurrent: false }, () => {
     })
 
     describe('notebook-edit tool', () => {
-        const createTool = getToolByName('notebooks-create')
         const retrieveTool = getToolByName('notebooks-retrieve')
         const editTool = getToolByName('notebook-edit')
 
         it('should replace a paragraph by value and bump the version', async () => {
-            const createResult = await createTool.handler(context, {
-                title: generateUniqueKey('Edit Test Notebook'),
-                content: {
-                    type: 'doc',
-                    content: [
-                        { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Heading' }] },
-                        { type: 'paragraph', content: [{ type: 'text', text: 'Original paragraph.' }] },
-                    ],
-                },
+            const created = await createLegacyNotebook(generateUniqueKey('Edit Test Notebook'), {
+                type: 'doc',
+                content: [
+                    { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Heading' }] },
+                    { type: 'paragraph', content: [{ type: 'text', text: 'Original paragraph.' }] },
+                ],
             })
-            const created = parseToolResponse(createResult)
             createdNotebookShortIds.push(created.short_id)
 
             const editResult = await editTool.handler(context, {
@@ -206,17 +203,13 @@ describe('Notebooks', { concurrent: false }, () => {
         })
 
         it('should replace every occurrence when replace_all is true', async () => {
-            const createResult = await createTool.handler(context, {
-                title: generateUniqueKey('Edit Replace-All Notebook'),
-                content: {
-                    type: 'doc',
-                    content: [
-                        { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
-                        { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
-                    ],
-                },
+            const created = await createLegacyNotebook(generateUniqueKey('Edit Replace-All Notebook'), {
+                type: 'doc',
+                content: [
+                    { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
+                    { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
+                ],
             })
-            const created = parseToolResponse(createResult)
             createdNotebookShortIds.push(created.short_id)
 
             const editResult = await editTool.handler(context, {
@@ -233,17 +226,13 @@ describe('Notebooks', { concurrent: false }, () => {
         })
 
         it('should error when old_value matches multiple places without replace_all', async () => {
-            const createResult = await createTool.handler(context, {
-                title: generateUniqueKey('Edit Ambiguous Notebook'),
-                content: {
-                    type: 'doc',
-                    content: [
-                        { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
-                        { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
-                    ],
-                },
+            const created = await createLegacyNotebook(generateUniqueKey('Edit Ambiguous Notebook'), {
+                type: 'doc',
+                content: [
+                    { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
+                    { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
+                ],
             })
-            const created = parseToolResponse(createResult)
             createdNotebookShortIds.push(created.short_id)
 
             await expect(
@@ -261,14 +250,10 @@ describe('Notebooks', { concurrent: false }, () => {
         })
 
         it('should error when old_value is not found', async () => {
-            const createResult = await createTool.handler(context, {
-                title: generateUniqueKey('Edit Missing Notebook'),
-                content: {
-                    type: 'doc',
-                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }],
-                },
+            const created = await createLegacyNotebook(generateUniqueKey('Edit Missing Notebook'), {
+                type: 'doc',
+                content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }],
             })
-            const created = parseToolResponse(createResult)
             createdNotebookShortIds.push(created.short_id)
 
             await expect(
@@ -310,10 +295,7 @@ describe('Notebooks', { concurrent: false }, () => {
             // Create
             const createResult = await createTool.handler(context, {
                 title: generateUniqueKey('Workflow Notebook'),
-                content: {
-                    type: 'doc',
-                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Initial content' }] }],
-                },
+                markdown: 'Initial content',
             })
             const created = parseToolResponse(createResult)
             expect(created.short_id).toBeTruthy()
@@ -328,13 +310,7 @@ describe('Notebooks', { concurrent: false }, () => {
                 short_id: created.short_id,
                 title: 'Updated Workflow Notebook',
                 version: retrieved.version,
-                content: {
-                    type: 'doc',
-                    content: [
-                        { type: 'paragraph', content: [{ type: 'text', text: 'Initial content' }] },
-                        { type: 'paragraph', content: [{ type: 'text', text: 'Appended content' }] },
-                    ],
-                },
+                content: markdownDocument('# Updated Workflow Notebook\n\nInitial content\n\nAppended content'),
             })
             const updated = parseToolResponse(updateResult)
             expect(updated.title).toBe('Updated Workflow Notebook')

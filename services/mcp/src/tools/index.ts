@@ -23,8 +23,9 @@ import queryInsight from './insights/query'
 import generateAppUrl from './links/generate-app-url'
 import loopsReview from './loops/loopsReview'
 import { mergeToolFactories } from './mergeToolFactories'
-// Notebooks (edit + cell tools are hand-written — generated CRUD lives in generated/notebooks.ts)
+// Notebooks (create, edit and the cell tools are hand-written; the rest of the CRUD is codegen in generated/notebooks.ts)
 import notebookAddCell from './notebooks/addCell'
+import notebookCreate from './notebooks/create'
 import notebookCreateMarkdown from './notebooks/createMarkdown'
 import notebookDeleteCell from './notebooks/deleteCell'
 import notebookEdit from './notebooks/edit'
@@ -112,6 +113,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Notebooks
     'notebook-edit': notebookEdit,
     'notebooks-add-cell': notebookAddCell,
+    'notebooks-create': notebookCreate,
     'notebooks-create-markdown': notebookCreateMarkdown,
     'notebooks-delete-cell': notebookDeleteCell,
     'notebooks-set-variables': notebookSetVariables,

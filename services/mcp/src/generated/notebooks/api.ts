@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 14 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -41,67 +41,6 @@ export const NotebooksListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('If any value is provided for this parameter, return notebooks created by the logged in user.'),
-})
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const NotebooksCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const notebooksCreateBodyTitleMax = 256
-
-export const notebooksCreateBodyVersionMin = -2147483648
-export const notebooksCreateBodyVersionMax = 2147483647
-
-export const notebooksCreateBodyVariablesItemNameMax = 200
-
-export const NotebooksCreateBody = () => zod.object({
-    title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
-    text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
-    version: zod
-        .number()
-        .min(notebooksCreateBodyVersionMin)
-        .max(notebooksCreateBodyVersionMax)
-        .optional()
-        .describe(
-            'Version number for optimistic concurrency control. Must match the current version when updating content.'
-        ),
-    deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
-    variables: zod
-        .array(
-            zod
-                .object({
-                    name: zod
-                        .string()
-                        .max(notebooksCreateBodyVariablesItemNameMax)
-                        .describe(
-                            'Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'
-                        ),
-                    type: zod
-                        .string()
-                        .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
-                        ),
-                    value: zod
-                        .unknown()
-                        .optional()
-                        .describe(
-                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
-                        ),
-                })
-                .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
-        )
-        .optional()
-        .describe(
-            'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
-        ),
 })
 
 /**
