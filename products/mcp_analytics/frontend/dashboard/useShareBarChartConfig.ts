@@ -18,7 +18,6 @@ export function useShareBarChartConfig(rowCount: number, totalCalls: number): Ba
                 bandPadding: 0.65,
                 maxBandRange: rowCount * 40,
                 valueDomain: { min: 0, max: totalCalls || 1 },
-                track: true,
                 minBarSize: 6,
                 minBarSizeScope: 'hover',
             },

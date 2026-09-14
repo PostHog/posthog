@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconGraph } from '@posthog/icons'
-import { BarChart, type ChartTheme, type Series, type TooltipContext, useChartLayout } from '@posthog/quill-charts'
+import { type ChartTheme, type TooltipContext } from '@posthog/quill-charts'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -20,33 +20,10 @@ import { buildModelExplorationQuery, summarizeModelBreakdown } from './modelBrea
 import { modelBreakdownLogic } from './modelBreakdownLogic'
 import { ModelBreakdownTable } from './ModelBreakdownTable'
 import { modelColor } from './modelColors'
-import { useShareBarChartConfig } from './useShareBarChartConfig'
+import { ShareBarChart, type ShareBarRow } from './ShareBarChart'
 
 function modelLabel(model: string): string {
     return model === 'Other' ? 'Other models' : model
-}
-
-function ModelBarLabels({ rows, totalCalls }: { rows: ModelRow[]; totalCalls: number }): JSX.Element {
-    const { scales } = useChartLayout()
-    return (
-        <>
-            {rows.map((row) => (
-                <div
-                    key={row.model}
-                    className="absolute left-0 right-0 flex items-center justify-between gap-2 text-xs"
-                    style={{ top: (scales.x(row.model) ?? 0) - 26 }}
-                >
-                    <span className="truncate" title={modelLabel(row.model)}>
-                        {modelLabel(row.model)}
-                    </span>
-                    <span className="shrink-0 text-secondary tabular-nums">
-                        {formatPercentage(totalCalls > 0 ? (row.total_calls / totalCalls) * 100 : 0, { compact: true })}{' '}
-                        · {formatNumber(row.total_calls)} {row.total_calls === 1 ? 'call' : 'calls'}
-                    </span>
-                </div>
-            ))}
-        </>
-    )
 }
 
 function renderTooltip(ctx: TooltipContext<ModelRow & { share: number }>): JSX.Element | null {
@@ -79,23 +56,17 @@ export function ModelBarChart({
     const { expanded, modelPageLoading } = useValues(logic)
     const { setExpanded } = useActions(logic)
     const { totalCalls, unknownCalls, rankedModels: sortedRows } = useMemo(() => summarizeModelBreakdown(rows), [rows])
-    const labels = useMemo(() => sortedRows.map((row) => row.model), [sortedRows])
-    const series = useMemo<Series<ModelRow & { share: number }>[]>(
-        () => [
-            {
-                key: 'calls',
-                label: 'Calls',
-                data: sortedRows.map((row) => row.total_calls),
-                bars: sortedRows.map((row) => ({
-                    label: modelLabel(row.model),
-                    color: modelColor(theme, row.model),
-                    meta: { ...row, share: totalCalls > 0 ? (row.total_calls / totalCalls) * 100 : 0 },
-                })),
-            },
-        ],
-        [sortedRows, theme, totalCalls]
+    const chartRows = useMemo<ShareBarRow<ModelRow>[]>(
+        () =>
+            sortedRows.map((row) => ({
+                key: row.model,
+                label: modelLabel(row.model),
+                value: row.total_calls,
+                color: modelColor(theme, row.model),
+                meta: row,
+            })),
+        [sortedRows, theme]
     )
-    const config = useShareBarChartConfig(sortedRows.length, totalCalls)
 
     return (
         <LemonCard
@@ -155,25 +126,13 @@ export function ModelBarChart({
                         </Tooltip>
                     </div>
                     {sortedRows.length > 0 ? (
-                        <div
-                            className="h-80 overflow-y-auto"
-                            translate="no"
-                            tabIndex={0}
-                            role="region"
-                            aria-label="Calls by model"
-                        >
-                            <div className="flex min-h-80 flex-col" style={{ height: sortedRows.length * 40 + 20 }}>
-                                <BarChart
-                                    series={series}
-                                    labels={labels}
-                                    theme={theme}
-                                    config={config}
-                                    tooltip={renderTooltip}
-                                >
-                                    <ModelBarLabels rows={sortedRows} totalCalls={totalCalls} />
-                                </BarChart>
-                            </div>
-                        </div>
+                        <ShareBarChart
+                            rows={chartRows}
+                            totalCalls={totalCalls}
+                            theme={theme}
+                            tooltip={renderTooltip}
+                            label="Calls by model"
+                        />
                     ) : (
                         <p className="mb-0 text-xs text-secondary">
                             {totalCalls > 0
