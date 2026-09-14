@@ -274,10 +274,16 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
             response.results or [],
         )
 
-    def test_screen_count(self):
-        session_id = "session_test_screen_count"
+    @parameterized.expand(
+        [
+            ("mixed", ["$screen", "$screen", "$pageview"], 1, 2),
+            ("screen_only", ["$screen"], 0, 1),
+        ]
+    )
+    def test_screen_count(self, name, events, expected_pageview_count, expected_screen_count):
+        session_id = f"session_test_screen_count_{name}"
 
-        for event in ["$screen", "$screen", "$pageview"]:
+        for event in events:
             _create_event(
                 event=event,
                 team=self.team,
@@ -287,12 +293,19 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
 
         response = self.__execute(
             parse_select(
-                "select $pageview_count, $screen_count from sessions where session_id = {session_id}",
+                """
+                select
+                    $pageview_count,
+                    $screen_count,
+                    or($pageview_count > 0, $screen_count > 0)
+                from sessions
+                where session_id = {session_id}
+                """,
                 placeholders={"session_id": ast.Constant(value=session_id)},
             ),
         )
 
-        assert response.results == [(1, 2)]
+        assert response.results == [(expected_pageview_count, expected_screen_count, True)]
 
     def test_can_use_v1_and_v2_fields(self):
         session_id = "session_test_can_use_v1_and_v2_fields"
