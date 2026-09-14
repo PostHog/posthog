@@ -294,6 +294,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except logic.TextTooLargeError:
             raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."})
+        except logic.GeneratedSourceHasMultipleDocuments:
+            raise exceptions.ValidationError(logic.GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE)
         except logic.InvalidGeneratedKnowledgeDocument:
             raise exceptions.ValidationError("Couldn't save this learned source. Refresh the page and try again.")
         except logic.QuotaExceededError:
@@ -341,6 +343,10 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.NotFound()
         try:
             content = logic.get_source_text_for_team(source_id, self.team_id)
+        except logic.GeneratedSourceHasMultipleDocuments:
+            raise exceptions.ValidationError(logic.GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE)
+        except logic.InvalidGeneratedKnowledgeDocument:
+            raise exceptions.ValidationError("Couldn't load this learned source. Refresh the page and try again.")
         except logic.GeneratedSourceReadOnlyError:
             raise exceptions.PermissionDenied(detail="Generated sources must be read through document windows.")
         if content is None:

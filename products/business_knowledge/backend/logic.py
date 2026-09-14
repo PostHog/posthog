@@ -97,6 +97,10 @@ logger = structlog.get_logger(__name__)
 
 GENERATED_KNOWLEDGE_ORIGIN = "support_ticket"
 GENERATED_SOURCE_DISABLED_MESSAGE = "Generated source is disabled."
+GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE = (
+    "This learned source has more than one document, so it cannot be edited. "
+    "Delete it, then let PostHog learn from the ticket again."
+)
 MAX_ANALYSIS_VERSION_LENGTH = 128
 MAX_PROVIDER_LENGTH = 64
 MAX_GENERATED_DOCUMENT_TITLE_LENGTH = 512
@@ -137,6 +141,10 @@ class GeneratedSourceReadOnlyError(Exception):
 
 class InvalidGeneratedKnowledgeDocument(ValueError):
     """The generated document violates the internal write contract."""
+
+
+class GeneratedSourceHasMultipleDocuments(Exception):
+    """A learned source with several documents cannot be edited in place."""
 
 
 @frozen
@@ -291,6 +299,16 @@ def _ensure_user_managed_source(source: KnowledgeSource) -> None:
 def _ensure_editable_text_source(source: KnowledgeSource) -> None:
     if source.is_generated and source.source_type != SourceType.TEXT:
         raise GeneratedSourceReadOnlyError("Generated sources are managed by PostHog.")
+
+
+def _require_single_generated_document(*, team_id: int, source_id: UUID) -> KnowledgeDocument:
+    documents = list(KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at")[:2])
+    if not documents:
+        raise InvalidGeneratedKnowledgeDocument("generated source is missing its document")
+    if len(documents) > 1:
+        # Saving into the first row would drop the other documents from search.
+        raise GeneratedSourceHasMultipleDocuments()
+    return documents[0]
 
 
 def _is_generated_source_disabled(source: KnowledgeSource) -> bool:
@@ -510,6 +528,8 @@ def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
     except KnowledgeSource.DoesNotExist:
         return None
     _ensure_editable_text_source(source)
+    if source.is_generated:
+        return _require_single_generated_document(team_id=team_id, source_id=source_id).content
     documents = KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at")
     return "\n\n".join(d.content for d in documents)
 
@@ -822,6 +842,10 @@ def update_text_source(
     if always_include is not None:
         source.always_include = always_include
 
+    generated_document = None
+    if source.is_generated and (text is not None or name is not None):
+        generated_document = _require_single_generated_document(team_id=team_id, source_id=source_id)
+
     if text is not None:
         if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
             raise TextTooLargeError(f"Text exceeds {MAX_TEXT_SIZE_BYTES} bytes.")
@@ -842,13 +866,9 @@ def update_text_source(
         source.save(update_fields=update_fields)
 
         KnowledgeChunk.objects.filter(team_id=team_id, source_id=source_id).delete()
-        if source.is_generated:
+        if generated_document is not None:
             # Keep the document row so KnowledgeLearningRun.knowledge_document_id still points at it.
-            document = (
-                KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at").first()
-            )
-            if document is None:
-                raise InvalidGeneratedKnowledgeDocument("generated source is missing its document")
+            document = generated_document
             document.title = name if name is not None else source.name
             document.content = text
             document.content_hash = sha256_of(text)
@@ -900,11 +920,10 @@ def update_text_source(
         if always_include is not None:
             update_fields.append("always_include")
         source.save(update_fields=update_fields)
-        if name is not None and source.is_generated:
-            KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).update(
-                title=name,
-                updated_at=timezone.now(),
-            )
+        if name is not None and generated_document is not None:
+            generated_document.title = name
+            generated_document.metadata = {**(generated_document.metadata or {}), "edited_by_user": True}
+            generated_document.save(update_fields=["title", "metadata", "updated_at"])
 
     return get_for_team(source.id, team_id) or source
 

@@ -214,13 +214,43 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         source_id = self._create_generated_source()
         KnowledgeDocument.objects.unscoped().filter(source_id=source_id).delete()
 
+        text_response = self.client.get(f"{self.url}{source_id}/text/")
         response = self.client.patch(
             f"{self.url}{source_id}/",
             {"text": "Updated refund window."},
             format="json",
         )
 
+        assert text_response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_generated_source_with_multiple_documents_cannot_be_updated(self, _ff) -> None:
+        source_id = self._create_generated_source()
+        source = KnowledgeSource.objects.unscoped().get(id=source_id)
+        extra_id = UUID("30000000-0000-0000-0000-000000000003")
+        KnowledgeDocument.objects.unscoped().create(
+            id=extra_id,
+            team_id=self.team.id,
+            source=source,
+            stable_id=str(extra_id),
+            title="Second topic",
+            content="Second topic body.",
+            content_hash="abc",
+        )
+
+        text_response = self.client.get(f"{self.url}{source_id}/text/")
+        patch_response = self.client.patch(
+            f"{self.url}{source_id}/",
+            {"text": "Updated refund window."},
+            format="json",
+        )
+
+        assert text_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert text_response.json()["detail"] == logic.GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE
+        assert patch_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert patch_response.json()["detail"] == logic.GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE
+        assert KnowledgeDocument.objects.unscoped().filter(source_id=source_id).count() == 2
+        assert KnowledgeDocument.objects.unscoped().get(id=extra_id).content == "Second topic body."
 
     def test_generated_source_can_be_deleted(self, _ff) -> None:
         source_id = self._create_generated_source()
