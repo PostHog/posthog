@@ -66,8 +66,8 @@ The endpoint shares the [API rate limits](/docs/api#rate-limiting) of the projec
 
 The endpoint proxies to [Snuffle](https://github.com/PostHog/snuffle), which runs next to the logs ClickHouse cluster. Configure it with these environment variables on the web pods:
 
-| Variable                            | Purpose                                                                                              |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `SNUFFLE_URL`                       | Base URL of Snuffle. Empty turns the endpoint off and it answers `501`.                              |
-| `SNUFFLE_USER` / `SNUFFLE_PASSWORD` | ClickHouse credential that Snuffle uses. Defaults to the logs cluster user. Prefer a read-only user. |
-| `SNUFFLE_TIMEOUT_SECONDS`           | Upstream request timeout. Default `60`.                                                              |
+| Variable                                    | Purpose                                                                                              |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `SNUFFLE_APM_URL`                           | Base URL of Snuffle. Empty turns the endpoint off and it answers `501`.                              |
+| `SNUFFLE_APM_USER` / `SNUFFLE_APM_PASSWORD` | ClickHouse credential that Snuffle uses. Defaults to the logs cluster user. Prefer a read-only user. |
+| `SNUFFLE_APM_TIMEOUT_SECONDS`               | Upstream request timeout. Default `60`.                                                              |
