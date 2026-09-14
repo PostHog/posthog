@@ -193,23 +193,26 @@ NO_TIER_LIMITS = WizardTierLimits()
 
 # In code so a malformed WIZARD_GATEWAY_TIERS degrades toward the tier the
 # operator meant, not toward the flat setting, whose cap is wider than all three.
+# Caps do not pool across a run's tokens and the mint throttle is one bucket per
+# account, so mints_per_week is the hard per-account ceiling: keep the counts
+# low, since the weekly window can be spent in a day.
 _TIER_FLOORS: dict[str, WizardTierLimits] = {
     "new": WizardTierLimits(
         cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
-        mints_per_week=5,
+        mints_per_week=3,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
     "active": WizardTierLimits(
         cap_usd=Decimal("7").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("12").quantize(_CAP_QUANTUM),
-        mints_per_week=15,
+        mints_per_week=6,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
     "paid": WizardTierLimits(
         cap_usd=Decimal("10").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("12").quantize(_CAP_QUANTUM),
-        mints_per_week=30,
+        mints_per_week=12,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
 }
