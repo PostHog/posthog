@@ -5664,6 +5664,22 @@ snapshots:
         hash: v1.k794b7964.4ca1129988e8d505656c9b1f1d88398516fdb24c8ffbdabab43251369514b1e6.0jyOb_I1ghN1euG9Pq-PrpA2WhttqN8WfGn2NZvAZ1g
     products-posthog-ai-onboardingtakeover--start-step--light:
         hash: v1.k794b7964.d1fadd3c1c5f4734cf0ae54b7ddc1f64e351cbd0ef1e7b16b78968f98ad51a44.1u2R4G2yaaKLW_puoLCQrIIPiZcZYN6UMWWziknTITk
+    products-posthog-ai-optionselector--custom-answer-open--dark:
+        hash: v1.k794b7964.0fb8985f146f10b0f2d2e8e173c1b305b85ab164bd64d78aba25ca5ca38ef996.wfmmsk1cFF7HZebXlwOqc72p9YMCNT68zGklxTc5XhM
+    products-posthog-ai-optionselector--custom-answer-open--light:
+        hash: v1.k794b7964.5f65f02245f6394d84462491fec6e3908a950ffd858a479087b16043e84158b0.GKtD9N7W9Kzi75SbsPU7vfU0JNzl90cudA2nI2NzkgQ
+    products-posthog-ai-optionselector--default--dark:
+        hash: v1.k794b7964.320cb97623702ed32e7c6cf94a85010ae152c32d234102d1092c9633b0e163f6.hZMXYAwQCbQvHu2T2950pLJ-ybQ50dvZfZWjYNMWia0
+    products-posthog-ai-optionselector--default--light:
+        hash: v1.k794b7964.81dd05e1641e0b6fbff075823dc1dbce1dc3c1647d3718fe073606b0a586d507.r6xROTG-A0pvuRShovtQdtS3gebJyNn7SCmJiwUHjow
+    products-posthog-ai-optionselector--no-descriptions--dark:
+        hash: v1.k794b7964.a2f17679b586a884214c9f80f7be7022abe40006a5b05d4382297719f05e9b97.Q9pepq3rV6Dl02-X_79umoDDcydZ0LzKORoJBAMF3t8
+    products-posthog-ai-optionselector--no-descriptions--light:
+        hash: v1.k794b7964.73e156ee8d61ae4f8daa32f7fe1b7d4a11cef6056df4ef926cde18dc92e23d96.4c3SvI-f3tUMliR0EnuwuFO_h7yyyBICd8c4rBRoB9A
+    products-posthog-ai-optionselector--with-skip--dark:
+        hash: v1.k794b7964.9588d58bd88ada8f33df79fff5f4bc2d63b8d92b36d5d618bae5c0321308db56.mZM2HSmIFYWocLSCkCdXUDp9XeE5yjsEpHgDzvOE1S8
+    products-posthog-ai-optionselector--with-skip--light:
+        hash: v1.k794b7964.3e3088b0a9011240d1ea0408e7a00e93c45f6df467b0de5237b668ccc58b49d1.C0sUxwpoEuyYD9BM0daSWe9Y_Cfavx5NcMCT-znQWcw
     products-posthog-ai-permissioninput--matching-configuration--dark:
         hash: v1.k794b7964.be1eb7f0d99c67d743ea7fbc6ed8b4e0aefa7b561d30ae83b27546225b1a7703.08vwdgLYXwvFBF_mzK2cuSlZDQkpBLRDhRQY9dENK7I
     products-posthog-ai-permissioninput--matching-configuration--light:
