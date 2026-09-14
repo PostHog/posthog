@@ -19,7 +19,7 @@ def _upstream() -> MagicMock:
     return response
 
 
-@override_settings(SNUFFLE_URL="http://snuffle.test:9091", SNUFFLE_USER="reader", SNUFFLE_PASSWORD="secret")
+@override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091", SNUFFLE_APM_USER="reader", SNUFFLE_APM_PASSWORD="secret")
 class TestPrometheusQueryApi(APIBaseTest):
     def setUp(self):
         super().setUp()

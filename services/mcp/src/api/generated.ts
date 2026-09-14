@@ -10266,7 +10266,7 @@ export namespace Schemas {
       /** @nullable */
       readonly last_checked_at: string | null;
       /**
-         * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+         * Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.
          * @nullable
          */
       schedule_start_time?: string | null;
@@ -19039,7 +19039,7 @@ export namespace Schemas {
       readonly license: string;
       /** Environment requirements declared by the skill. */
       readonly compatibility: string;
-      /** Tools the skill declares it may use. Surface these to the user before install. */
+      /** Tools the skill asks to use. Surface these to the user before install. The list is a request, not a grant: a harness that loads the installed skill over MCP ignores it until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata carried from the skill's frontmatter. */
       metadata?: CommunitySkillMetadata;
@@ -19109,7 +19109,7 @@ export namespace Schemas {
       readonly license: string;
       /** Environment requirements declared by the skill. */
       readonly compatibility: string;
-      /** Tools the skill declares it may use. Surface these to the user before install. */
+      /** Tools the skill asks to use. Surface these to the user before install. The list is a request, not a grant: a harness that loads the installed skill over MCP ignores it until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata carried from the skill's frontmatter. */
       metadata?: CommunitySkillListMetadata;
@@ -22473,6 +22473,13 @@ export namespace Schemas {
       compiled_query: string | null;
       /** Async query status, when the run is not blocking. */
       query_status: unknown;
+      /** True when the query hit its row limit and more rows exist. Narrow the window or the interval and run the metric again. A HogQLQuery metric fixes its window in SQL and rejects those overrides, so report the window the definition itself covers, or ask for a parameterized metric. Either way, do not re-derive the series by hand. False whenever row_limit is null, because no row cap was reported for that run. */
+      has_more: boolean;
+      /**
+         * Row limit applied to this run. Null when no row cap was reported: a markdown metric, an insight or trends query, or a HogQL metric that sets its own LIMIT or uses a UNION. This field cannot verify the completeness of those runs.
+         * @nullable
+         */
+      row_limit: number | null;
       /**
          * Deep link to open the query in the app (SQL editor or insight).
          * @nullable
@@ -31648,7 +31655,7 @@ export namespace Schemas {
       evidence: ReportEvidence[];
       /** 2-3 sentence evidence-grounded justification for the actionability call below. */
       actionability_explanation: string;
-      /** The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless.
+      /** The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless. A root cause you have not found is not human input: a report that names the evidence, the code surface, or a reproducible failure path is `immediately_actionable`, because investigating it is the action. Reserve `requires_human_input` for a report blocked on a decision only a person can make.
        *
        * * `immediately_actionable` - immediately_actionable
        * * `requires_human_input` - requires_human_input
@@ -49361,7 +49368,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillMetadata;
@@ -49443,7 +49450,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillCreateMetadata;
@@ -49580,7 +49587,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillListMetadata;
@@ -63189,7 +63196,7 @@ export namespace Schemas {
       /** @nullable */
       readonly last_checked_at?: string | null;
       /**
-         * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+         * Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.
          * @nullable
          */
       schedule_start_time?: string | null;
@@ -66842,7 +66849,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: PatchedLLMSkillPublishMetadata;
@@ -92938,6 +92945,32 @@ export namespace Schemas {
       agrees: boolean | null;
     }
 
+    export interface _MetricCatalogValuesParams {
+      /**
+         * Substring filter (case-insensitive) applied to metric names.
+         * @maxLength 255
+         */
+      value?: string;
+      /**
+         * Max number of names to return. Defaults to 100; maximum 1000.
+         * @minimum 1
+         * @maximum 1000
+         */
+      limit?: number;
+      /**
+         * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
+         * @maxLength 1024
+         */
+      service?: string;
+      /**
+         * Exact metric names to load as a batch. Overrides value and limit.
+         * @minItems 1
+         * @maxItems 20
+         * @items.maxLength 255
+         */
+      names: string[];
+    }
+
     export interface _MetricGroupBy {
       /**
          * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
@@ -99587,7 +99620,7 @@ export namespace Schemas {
      */
     trigger?: string;
     /**
-     * Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.
+     * Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.
      */
     type?: HogFlowsListType;
     updated_at?: string;
@@ -99614,6 +99647,7 @@ export namespace Schemas {
 
     export const HogFlowsListType = {
       Automation: 'automation',
+      Loop: 'loop',
       Messaging: 'messaging',
     } as const;
 

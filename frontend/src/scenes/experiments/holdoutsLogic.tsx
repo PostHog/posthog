@@ -79,9 +79,6 @@ export interface holdoutsLogicActions {
             id: number | null
         }
     }
-    loadHoldout: (id: number | null) => {
-        id: number | null
-    }
     loadHoldouts: () => any
     loadHoldoutsFailure: (
         error: string,
@@ -138,7 +135,6 @@ export const holdoutsLogic = kea<holdoutsLogicType>([
         createHoldout: true,
         updateHoldout: (id: number | null, holdout: Partial<ExperimentHoldoutType>) => ({ id, holdout }),
         deleteHoldout: (id: number | null) => ({ id }),
-        loadHoldout: (id: number | null) => ({ id }),
     }),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentHoldoutCreated']],
