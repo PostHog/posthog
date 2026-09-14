@@ -276,6 +276,22 @@ describe('tasksLogic', () => {
             expect(logic.values.tasks.map((t) => t.id)).toEqual(['task-2'])
             expect(logic.values.tasksNext).toBeNull()
         })
+
+        // Regression coverage: the list pages by offset over an activity order, so a task that gains
+        // activity between two page requests can come back on the second page as well.
+        it('drops rows the list already holds when a page repeats them', async () => {
+            logic.actions.loadTasksSuccess([createMockTask('task-1'), createMockTask('task-2')])
+            logic.actions.setTasksNext('/api/projects/1/tasks/?offset=2')
+            jest.spyOn(api, 'get').mockResolvedValueOnce({
+                results: [createMockTask('task-2'), createMockTask('task-3')],
+                next: null,
+            })
+
+            logic.actions.loadMoreTasks()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tasks.map((t) => t.id)).toEqual(['task-1', 'task-2', 'task-3'])
+        })
     })
 
     describe('deleteTask', () => {

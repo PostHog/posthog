@@ -8,10 +8,10 @@ import { initKeaTests } from '~/test/init'
 import { Max, scene } from './Max'
 
 // The heavy runner is irrelevant here; record what the scene hands it.
-const renderedTaskIds: (string | undefined)[] = []
+const renderedSelections: { taskId?: string; chatId?: string }[] = []
 jest.mock('./components/AiFirstMaxInstance', () => ({
-    AiFirstMaxInstance: ({ taskId }: { taskId?: string }) => {
-        renderedTaskIds.push(taskId)
+    AiFirstMaxInstance: ({ taskId, chatId }: { taskId?: string; chatId?: string }) => {
+        renderedSelections.push({ taskId, chatId })
         return null
     },
 }))
@@ -20,7 +20,7 @@ describe('Max scene parameters', () => {
     const validTaskId = '0199ed4a-5c03-0000-3220-df21df612e95'
 
     beforeEach(() => {
-        renderedTaskIds.length = 0
+        renderedSelections.length = 0
         initKeaTests()
     })
 
@@ -43,14 +43,17 @@ describe('Max scene parameters', () => {
     // `taskId` prop saw `undefined` on every task link and opened the composer instead. Asserting
     // `paramsToProps` in isolation cannot catch that, because it stays correct while unused.
     it.each([
-        ['selects the task named by the URL', urls.aiTask(validTaskId), validTaskId],
-        ['selects no task for a non-UUID task param', '/ai?task=task-1', undefined],
-        ['selects no task when the URL names none', urls.ai(), undefined],
+        ['selects the task named by the URL', urls.aiTask(validTaskId), { taskId: validTaskId, chatId: undefined }],
+        ['selects no task for a non-UUID task param', '/ai?task=task-1', { taskId: undefined, chatId: undefined }],
+        ['selects nothing when the URL names nothing', urls.ai(), { taskId: undefined, chatId: undefined }],
+        // A chat link must reach the component too, or it opens the runner over the saved new view.
+        ['selects the chat named by the URL', urls.ai('chat-1'), { taskId: undefined, chatId: 'chat-1' }],
+        ['selects no chat for an empty chat param', '/ai?chat=', { taskId: undefined, chatId: undefined }],
     ])('%s', (_name, url, expected) => {
         router.actions.push(url)
 
         render(<Max />)
 
-        expect(renderedTaskIds).toEqual([expected])
+        expect(renderedSelections).toEqual([expected])
     })
 })

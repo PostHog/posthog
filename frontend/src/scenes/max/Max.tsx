@@ -68,6 +68,16 @@ function selectedTaskId(searchParams: Record<string, any>): string | undefined {
     return typeof taskId === 'string' && isUUIDLike(taskId) ? taskId : undefined
 }
 
+/**
+ * The legacy conversation `/ai?chat=` selects, or `undefined` when the URL names none. Legacy Max
+ * reads the same param to open the conversation (see `maxLogic`); this copy only picks the surface.
+ */
+function selectedChatId(searchParams: Record<string, any>): string | undefined {
+    const chatId = searchParams.chat
+
+    return typeof chatId === 'string' && chatId ? chatId : undefined
+}
+
 export const scene: SceneExport<MaxProps> = {
     component: Max,
     logic: maxLogic,
@@ -80,6 +90,7 @@ export function Max({ tabId }: MaxProps): JSX.Element {
     // the selected task has to come from the router here or every task link opens the composer.
     const { searchParams } = useValues(router)
     const taskId = selectedTaskId(searchParams)
+    const chatId = selectedChatId(searchParams)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ panelId: tabId }))
@@ -105,7 +116,7 @@ export function Max({ tabId }: MaxProps): JSX.Element {
         )
     }
 
-    return <AiFirstMaxInstance tabId={tabId ?? ''} taskId={taskId} />
+    return <AiFirstMaxInstance tabId={tabId ?? ''} taskId={taskId} chatId={chatId} />
 }
 
 export interface MaxInstanceProps {

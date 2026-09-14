@@ -235,7 +235,11 @@ export const tasksLogic = kea<tasksLogicType>([
                         return values.tasks
                     }
                     actions.setTasksNext(response.next ?? null)
-                    return [...values.tasks, ...response.results]
+                    // The server pages by offset over an activity order that streaming runs keep
+                    // moving, so a row already loaded can come back on the next page. Keep the first
+                    // copy: a repeated row would collide with its own key in the list.
+                    const loadedIds = new Set(values.tasks.map((task) => task.id))
+                    return [...values.tasks, ...response.results.filter((task) => !loadedIds.has(task.id))]
                 },
                 createTask: async ({ data }: { data: TaskUpsertProps }) => {
                     const newTask = await api.tasks.create(data)
