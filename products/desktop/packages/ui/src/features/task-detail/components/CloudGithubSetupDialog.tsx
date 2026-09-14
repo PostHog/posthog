@@ -9,7 +9,13 @@ import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useI
 import { useRendererWindowFocusStore } from "@posthog/ui/shell/rendererWindowFocusStore";
 import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { useReducedMotion } from "framer-motion";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { CloudGithubSetupDialogContent } from "./CloudGithubSetupDialogContent";
 
 const FOCUS_SUCCESS_DELAY_MS = 500;
@@ -27,7 +33,7 @@ export function CloudGithubSetupDialog({
   hasGithubIntegration,
   onConnected,
   onClose,
-}: CloudGithubSetupDialogProps) {
+}: CloudGithubSetupDialogProps): ReactElement {
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const { hasGithubIntegration: hasTeamGithubIntegration } =
@@ -111,7 +117,7 @@ export function CloudGithubSetupDialog({
       ? GITHUB_CONNECT_TIMEOUT_MESSAGE
       : isPending
         ? GITHUB_INSTALL_PENDING_MESSAGE
-        : null;
+        : undefined;
   const waitingForGithub =
     (connectionStarted || isConnecting) &&
     !hasError &&

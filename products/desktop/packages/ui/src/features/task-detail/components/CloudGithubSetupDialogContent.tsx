@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@posthog/quill";
 import { GithubConnectionIcon } from "@posthog/ui/features/integrations/components/GithubConnectionIcon";
+import type { ReactElement } from "react";
 
 interface CloudGithubSetupDialogContentProps {
   connected: boolean;
@@ -31,7 +32,7 @@ export function CloudGithubSetupDialogContent({
   onConnect,
   onOpenPermissions,
   onClose,
-}: CloudGithubSetupDialogContentProps) {
+}: CloudGithubSetupDialogContentProps): ReactElement {
   const title = connected
     ? "GitHub connected"
     : loading

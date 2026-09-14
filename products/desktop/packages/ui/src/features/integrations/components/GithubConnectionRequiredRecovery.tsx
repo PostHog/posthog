@@ -23,7 +23,7 @@ import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useI
 import { toast } from "@posthog/ui/primitives/toast";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
-import { useCallback, useMemo } from "react";
+import { type ReactElement, useCallback, useMemo } from "react";
 import { GithubConnectionRequiredDialog } from "./GithubConnectionRequiredDialog";
 
 interface GithubConnectionRequiredRecoveryProps {
@@ -44,7 +44,7 @@ export function GithubConnectionRequiredRecovery({
   task,
   open,
   onOpenChange,
-}: GithubConnectionRequiredRecoveryProps) {
+}: GithubConnectionRequiredRecoveryProps): ReactElement {
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const { localWorkspaces } = useHostCapabilities();

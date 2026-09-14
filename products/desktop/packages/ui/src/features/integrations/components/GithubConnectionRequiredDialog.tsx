@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "@posthog/quill";
 import { toast } from "@posthog/ui/primitives/toast";
-import { useCallback, useState } from "react";
+import { type ReactElement, useCallback, useState } from "react";
 
 interface GithubConnectionRequiredDialogProps {
   open: boolean;
@@ -38,7 +38,7 @@ export function GithubConnectionRequiredDialog({
   onOpenChange,
   onConnect,
   onRunLocally,
-}: GithubConnectionRequiredDialogProps) {
+}: GithubConnectionRequiredDialogProps): ReactElement {
   const [showWhy, setShowWhy] = useState(false);
   const [copied, setCopied] = useState(false);
 
