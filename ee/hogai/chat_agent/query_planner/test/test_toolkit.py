@@ -181,6 +181,31 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
         self.assertIn("This list stops at 1 properties and group has more.", result)
 
+    def test_retrieve_entity_properties_pages_past_hidden_definitions(self):
+        from ee.models.property_definition import EnterprisePropertyDefinition
+
+        for i in range(2):
+            EnterprisePropertyDefinition.objects.create(
+                team=self.team,
+                type=PropertyDefinition.Type.PERSON,
+                name=f"hidden_prop_{i}",
+                property_type=PropertyType.String,
+                hidden=True,
+            )
+            PropertyDefinition.objects.create(
+                team=self.team,
+                type=PropertyDefinition.Type.PERSON,
+                name=f"visible_prop_{i}",
+                property_type=PropertyType.String,
+            )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = toolkit.retrieve_entity_properties("person", max_properties=3)
+
+        self.assertIn("- visible_prop_0", result)
+        self.assertIn("- visible_prop_1", result)
+        self.assertNotIn("This list stops at", result)
+
     def test_retrieve_entity_properties_lists_virtual_properties_without_stored_definitions(self):
         toolkit = DummyToolkit(self.team, self.user)
         result = toolkit.retrieve_entity_properties("person")

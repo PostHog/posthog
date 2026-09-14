@@ -281,12 +281,17 @@ class TaxonomyAgentToolkit:
         Reads one row past the page to detect the overflow. A COUNT would answer the same
         question by walking the team's whole definition range, which is the cost the page
         limit is here to avoid.
+
+        Excluded names are dropped before the page is cut, so a hidden or restricted
+        definition neither takes a slot from a visible one nor counts towards the overflow.
         """
         qs = PropertyDefinition.objects.filter(team=self._team, type=property_type)
         if group_type_index is not None:
             qs = qs.filter(group_type_index=group_type_index)
+        if excluded:
+            qs = qs.exclude(name__in=excluded)
         rows = list(qs.values_list("name", "property_type")[: max_properties + 1])
-        return [row for row in rows[:max_properties] if row[0] not in excluded], len(rows) > max_properties
+        return rows[:max_properties], len(rows) > max_properties
 
     def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str | int):
         is_event = isinstance(event_name_or_action_id, str)
