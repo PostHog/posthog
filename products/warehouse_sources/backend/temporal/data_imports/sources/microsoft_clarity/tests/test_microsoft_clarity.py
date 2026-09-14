@@ -12,6 +12,9 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.microsoft_clarity import (
     BASE_URL,
     INSIGHTS_PATH,
+    TOKEN_CHECK_FAILED_ERROR,
+    TOKEN_INVALID_ERROR,
+    TOKEN_WRONG_PROJECT_ERROR,
     _build_params,
     _resolve_dimensions,
     microsoft_clarity_source,
@@ -68,10 +71,10 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, [], True, None),
-            ("unauthorized", 401, None, False, "Invalid or expired Microsoft Clarity API token."),
-            ("forbidden", 403, None, False, "This Microsoft Clarity API token is not authorized for this project."),
+            ("unauthorized", 401, None, False, TOKEN_INVALID_ERROR),
+            ("forbidden", 403, None, False, TOKEN_WRONG_PROJECT_ERROR),
             ("quota_exceeded_still_valid", 429, None, True, None),
-            ("unexpected_status", 400, None, False, "Microsoft Clarity returned status 400."),
+            ("unexpected_status", 400, None, False, TOKEN_CHECK_FAILED_ERROR),
         ]
     )
     @mock.patch(SESSION_PATCH)
