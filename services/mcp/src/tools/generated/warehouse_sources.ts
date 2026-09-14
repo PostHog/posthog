@@ -427,16 +427,14 @@ const ExternalDataSourcesBulkUpdateSchemasSchema = () => {
         orvalSchemas.ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody()
     const ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams =
         orvalSchemas.ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams()
-    const ExternalDataSourcesBulkUpdateSchemasPartialUpdateQueryParams =
-        orvalSchemas.ExternalDataSourcesBulkUpdateSchemasPartialUpdateQueryParams()
-    return ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams.omit({ project_id: true })
-        .extend(ExternalDataSourcesBulkUpdateSchemasPartialUpdateQueryParams.shape)
-        .extend(ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody.shape)
+    return ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams.omit({ project_id: true }).extend(
+        ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody.shape
+    )
 }
 
 const externalDataSourcesBulkUpdateSchemas = (): ToolBase<
     ReturnType<typeof ExternalDataSourcesBulkUpdateSchemasSchema>,
-    Schemas.PaginatedExternalDataSchemaList
+    Schemas.ExternalDataSchema[]
 > => ({
     name: 'external-data-sources-bulk-update-schemas',
     schema: ExternalDataSourcesBulkUpdateSchemasSchema(),
@@ -449,15 +447,10 @@ const externalDataSourcesBulkUpdateSchemas = (): ToolBase<
         if (params.schemas !== undefined) {
             body['schemas'] = params.schemas
         }
-        const result = await context.api.request<Schemas.PaginatedExternalDataSchemaList>({
+        const result = await context.api.request<Schemas.ExternalDataSchema[]>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/bulk_update_schemas/`,
             body,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-                search: params.search,
-            },
         })
         return result
     },

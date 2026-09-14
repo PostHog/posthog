@@ -5,14 +5,6 @@
             "description": "A UUID string identifying this external data source.",
             "type": "string"
         },
-        "limit": {
-            "description": "Number of results to return per page.",
-            "type": "number"
-        },
-        "offset": {
-            "description": "The initial index from which to return the results.",
-            "type": "number"
-        },
         "schemas": {
             "description": "Schema updates to apply in a single batch.",
             "items": {
@@ -160,12 +152,8 @@
                 "type": "object"
             },
             "type": "array"
-        },
-        "search": {
-            "description": "A search term.",
-            "type": "string"
         }
     },
-    "required": ["id"],
+    "required": ["id", "schemas"],
     "type": "object"
 }

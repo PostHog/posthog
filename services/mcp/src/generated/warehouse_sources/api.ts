@@ -1865,12 +1865,6 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = () => zod
         ),
 })
 
-export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    search: zod.string().optional().describe('A search term.'),
-})
-
 export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = () => zod.object({
     schemas: zod
         .array(
@@ -1938,7 +1932,6 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = () => zod.o
                     ),
             })
         )
-        .optional()
         .describe('Schema updates to apply in a single batch.'),
 })
 
