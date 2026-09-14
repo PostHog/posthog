@@ -10776,7 +10776,7 @@
         }
     },
     "session-recording-playlists-list": {
-        "description": "List session recording playlists in the project. Returns both user-created and synthetic (system-generated) playlists with their metadata and recording counts.",
+        "description": "List session recording playlists in the project. Returns both user-created and synthetic (system-generated) playlists with their metadata and recording counts. Each row carries list metadata only: name, type, pinned state, timestamps, counts, and a `created_by` trimmed to `{id, email}`. Call `session-recording-playlist-get` with a `short_id` for the playlist's filters, session IDs and description.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "List session recording playlists",

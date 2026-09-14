@@ -147,7 +147,22 @@ tools:
         title: List session recording playlists
         description: >
             List session recording playlists in the project. Returns both user-created and synthetic (system-generated)
-            playlists with their metadata and recording counts.
+            playlists with their metadata and recording counts. Each row carries list metadata only: name, type, pinned
+            state, timestamps, counts, and a `created_by` trimmed to `{id, email}`. Call
+            `session-recording-playlist-get` with a `short_id` for the playlist's filters, session IDs and description.
+        response:
+            include:
+                - short_id
+                - name
+                - derived_name
+                - type
+                - pinned
+                - is_synthetic
+                - recordings_counts
+                - created_at
+                - created_by.id
+                - created_by.email
+                - last_modified_at
     session-recording-playlists-recordings-create:
         operation: session_recording_playlists_recordings_create
         enabled: false
