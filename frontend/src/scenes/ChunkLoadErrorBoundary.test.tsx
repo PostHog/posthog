@@ -1,7 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
-import { Component, type ReactNode } from 'react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { Component, Suspense, type ReactNode } from 'react'
+
+import { useRetryableLazy } from 'lib/utils/retryImport'
 
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
@@ -25,6 +27,32 @@ class TestErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
 
 function ThrowChunkError(): JSX.Element {
     throw new TypeError('Failed to fetch dynamically imported module: /static/react-json-view.js')
+}
+
+// Mirrors a consumer of a chunk the mounted subtree requests later, like the Monaco editor inside
+// the feature flag form. The lazy value is real, so React caches its rejection the way it does live.
+function LazyChunkConsumer({ factory }: { factory: () => Promise<{ default: () => JSX.Element }> }): JSX.Element {
+    const { Lazy, retry } = useRetryableLazy(factory)
+    return (
+        <ChunkLoadErrorBoundary
+            reload={jest.fn()}
+            degradeInPlace
+            fallback={(_error, clearError) => (
+                <button
+                    onClick={() => {
+                        retry()
+                        clearError()
+                    }}
+                >
+                    try again
+                </button>
+            )}
+        >
+            <Suspense fallback={<div>loading</div>}>
+                <Lazy />
+            </Suspense>
+        </ChunkLoadErrorBoundary>
+    )
 }
 
 function ThrowRegularError(): JSX.Element {
@@ -108,6 +136,52 @@ describe('ChunkLoadErrorBoundary', () => {
         expect(
             screen.queryByText('Failed to fetch dynamically imported module: /static/react-json-view.js')
         ).not.toBeInTheDocument()
+    })
+
+    it('renders the fallback instead of reloading when the subtree degrades in place', () => {
+        const reload = jest.fn()
+
+        render(
+            <TestErrorBoundary>
+                <ChunkLoadErrorBoundary reload={reload} degradeInPlace fallback={() => <div>keep editing</div>}>
+                    <ThrowChunkError />
+                </ChunkLoadErrorBoundary>
+            </TestErrorBoundary>
+        )
+
+        expect(reload).not.toHaveBeenCalled()
+        expect(screen.getByText('keep editing')).toBeInTheDocument()
+        // Nothing reloaded, so the guard window must stay free for a later genuine reload.
+        expect(window.localStorage.getItem(RELOAD_GUARD_KEY)).toBeNull()
+    })
+
+    it('requests the chunk again when the fallback retries', async () => {
+        let shouldFail = true
+        const factory = jest.fn(() =>
+            shouldFail
+                ? Promise.reject(new TypeError('Failed to fetch dynamically imported module: /static/monaco.js'))
+                : Promise.resolve({ default: () => <div>editor loaded</div> })
+        )
+
+        render(
+            <TestErrorBoundary>
+                <LazyChunkConsumer factory={factory} />
+            </TestErrorBoundary>
+        )
+
+        // retryImport backs off twice before the rejection reaches the boundary.
+        const retryButton = await screen.findByText('try again', undefined, { timeout: 5000 })
+        const callsBeforeRetry = factory.mock.calls.length
+
+        shouldFail = false
+        await act(async () => {
+            fireEvent.click(retryButton)
+        })
+
+        // React keeps a rejected import, so a retry that only clears the boundary never re-imports
+        // and the person stays stuck on the fallback with no way to save.
+        await waitFor(() => expect(screen.getByText('editor loaded')).toBeInTheDocument())
+        expect(factory.mock.calls.length).toBeGreaterThan(callsBeforeRetry)
     })
 
     it('lets non-chunk errors bubble to the parent error boundary', () => {
