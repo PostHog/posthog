@@ -767,8 +767,8 @@ const TRIPWIRE_RULES = [
     // .flox/env/manifest.toml for that reason.
     ['.flox/**', UNIVERSAL],
     // The environment every suite runs inside: hogli loads .env.development and
-    // .env.services before starting anything, the sandbox image bakes the same
-    // pair, and .envrc activates the flox environment above. The two .example
+    // .env.services before starting anything, and the sandbox image bakes the
+    // same pair. The two .example
     // files ride along rather than earning a rule of their own.
     ['.env*', UNIVERSAL],
     // ClickHouse, Postgres, and Temporal configuration mounted by every
@@ -879,7 +879,7 @@ const REPO_CONFIG_DIRS = [
 // The same class of file, one per root path rather than one per tree: the
 // ignore and rule files belonging to the directories above, the VCS settings,
 // the review bot's config, and the license. No suite reads any of them. The
-// tools that do read them (direnv, watchman, the worktree helpers, the desktop
+// tools that do read them (watchman, the worktree helpers, the desktop
 // MCP client) either run outside CI or are driven by bin/, which is universal
 // and so overlaps this lane already.
 //
