@@ -1611,6 +1611,35 @@ describe('Hogflow Executor', () => {
                         )
                     })
 
+                    it('stores the output variable of a failed step so the next action can branch on it', async () => {
+                        const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
+                        action.on_error = 'continue'
+                        action.output_variable = { key: 'task' }
+
+                        const functionHandler = executor['actionHandlers']['function']
+                        jest.spyOn(functionHandler, 'execute').mockResolvedValueOnce({
+                            error: new Error('The task failed'),
+                            result: { run_id: 'r1', status: 'failed' },
+                        })
+
+                        const invocation = createExampleHogFlowInvocation(hogFlow, {
+                            event: {
+                                ...createHogExecutionGlobals().event,
+                                properties: { name: 'Test User' },
+                            },
+                        })
+                        invocation.state.currentAction = {
+                            id: 'function_id_1',
+                            startedAtTimestamp: DateTime.now().toMillis(),
+                        }
+
+                        const result = await executor.executeCurrentAction(invocation)
+
+                        expect(result.error).toBe('The task failed')
+                        expect(result.invocation.state.variables).toEqual({ task: { run_id: 'r1', status: 'failed' } })
+                        expect(result.invocation.state.currentAction?.id).toBe('middle_action')
+                    })
+
                     it('does NOT continue to next action when on_error is abort', async () => {
                         const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
                         action.on_error = 'abort'
