@@ -71,9 +71,7 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
         snooze: true,
     }),
     reducers({
-        // No source until events retention enforcement ships. The team API used to carry the window, but a
-        // read-only entitlement next to an "enforced: false" read as a setting callers could change, so it was
-        // removed until the value means something. See https://github.com/PostHog/posthog/issues/17031
+        // No source until events retention enforcement ships, see https://github.com/PostHog/posthog/issues/17031
         retentionMonths: [null as number | null, {}],
         snoozedUntil: [
             null as string | null,
