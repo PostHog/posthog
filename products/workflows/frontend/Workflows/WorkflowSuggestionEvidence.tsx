@@ -1,14 +1,15 @@
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { MIN_EVIDENCE_SAMPLE, formatValue, readGuardrails } from './suggestionEvidence'
+import { MIN_EVIDENCE_SAMPLE, formatValue, readGuardrails, readUnit } from './suggestionEvidence'
 
 export function WorkflowSuggestionEvidence({ evidence }: { evidence: Record<string, unknown> }): JSX.Element | null {
     const metric = typeof evidence.metric === 'string' ? evidence.metric : null
     if (!metric) {
         return null
     }
-    const current = formatValue(evidence.current_value)
-    const target = formatValue(evidence.target_value)
+    const unit = readUnit(evidence.unit)
+    const current = formatValue(evidence.current_value, unit)
+    const target = formatValue(evidence.target_value, unit)
     const window = typeof evidence.window === 'string' ? evidence.window : null
     const sample = typeof evidence.n === 'number' ? evidence.n : null
     const guardrails = readGuardrails(evidence)
@@ -43,7 +44,10 @@ export function WorkflowSuggestionEvidence({ evidence }: { evidence: Record<stri
                 <span className="text-secondary">
                     Alongside:{' '}
                     {guardrails
-                        .map((guardrail) => `${guardrail.metric} ${formatValue(guardrail.value) ?? 'no data'}`)
+                        .map(
+                            (guardrail) =>
+                                `${guardrail.metric} ${formatValue(guardrail.value, readUnit(guardrail.unit)) ?? 'no data'}`
+                        )
                         .join(', ')}
                     {unavailable.length > 0 ? `. Not measured: ${unavailable.join(', ')}` : ''}
                 </span>
