@@ -42,6 +42,7 @@ from ..logic import (
     repos,
     run_queries,
     runs,
+    story_index,
     thumbnails,
     toleration,
 )
@@ -523,7 +524,15 @@ def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int
         contracts.UploadTarget(content_hash=u["content_hash"], url=u["url"], fields=u["fields"]) for u in uploads
     ]
 
-    return contracts.AddSnapshotsResult(added=added, uploads=upload_targets)
+    story_index_upload = None
+    if input.story_index_hash:
+        upload = story_index.register_story_index(run_id, team_id, input.story_index_hash)
+        if upload is not None:
+            story_index_upload = contracts.UploadTarget(
+                content_hash=input.story_index_hash, url=upload.url, fields=upload.fields
+            )
+
+    return contracts.AddSnapshotsResult(added=added, uploads=upload_targets, story_index_upload=story_index_upload)
 
 
 def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:

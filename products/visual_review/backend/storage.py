@@ -91,3 +91,46 @@ class ArtifactStorage:
             return None
 
         return object_storage.read_bytes(self._key(content_hash), missing_ok=True)
+
+
+class StoryIndexStorage:
+    """
+    Object storage for the story-to-file maps the CLI uploads, one object per distinct map.
+
+    The maps sit under their own prefix rather than among the artifact keys, so a sweep of artifact
+    keys can never delete one.
+    """
+
+    MAX_SIZE_BYTES = 8 * 1024 * 1024
+    PRESIGNED_EXPIRATION = 60 * 60  # 1 hour
+
+    def __init__(self, repo_id: str):
+        self.repo_id = repo_id
+
+    def _key(self, story_index_hash: str) -> str:
+        return f"{ArtifactStorage.FOLDER}/{self.repo_id}/story-index/{story_index_hash}.json"
+
+    def get_presigned_upload_url(self, story_index_hash: str) -> dict[str, Any] | None:
+        if not settings.OBJECT_STORAGE_ENABLED:
+            return None
+
+        return object_storage.get_presigned_post(
+            file_key=self._key(story_index_hash),
+            conditions=[
+                ["content-length-range", 0, self.MAX_SIZE_BYTES],
+                ["eq", "$Content-Type", "application/json"],
+            ],
+            expiration=self.PRESIGNED_EXPIRATION,
+        )
+
+    def exists(self, story_index_hash: str) -> bool:
+        if not settings.OBJECT_STORAGE_ENABLED:
+            return False
+
+        return object_storage.head_object(file_key=self._key(story_index_hash)) is not None
+
+    def read(self, story_index_hash: str) -> bytes | None:
+        if not settings.OBJECT_STORAGE_ENABLED:
+            return None
+
+        return object_storage.read_bytes(self._key(story_index_hash), missing_ok=True)

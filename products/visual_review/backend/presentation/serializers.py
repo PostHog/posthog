@@ -197,9 +197,26 @@ class CreateRunInputSerializer(DataclassSerializer):
 class AddSnapshotsInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = AddSnapshotsInput
+        extra_kwargs = {
+            "story_index_hash": {
+                "help_text": (
+                    "SHA-256 of the story-to-file map the CLI built from the Storybook index.json of this "
+                    "run's build. Every shard of a run sends the same value. Empty when the run sends no map."
+                )
+            },
+        }
 
 
 class AddSnapshotsResultSerializer(DataclassSerializer):
+    story_index_upload = UploadTargetSerializer(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Where to upload the story-to-file map, as a presigned POST with a JSON body. Null when the "
+            "request sent no map, or the store already holds a map with that hash."
+        ),
+    )
+
     class Meta:
         dataclass = AddSnapshotsResult
 

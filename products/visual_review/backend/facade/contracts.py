@@ -150,6 +150,7 @@ class AddSnapshotsInput:
 
     snapshots: list[SnapshotManifestItem]
     baseline_hashes: dict[str, str] = field(default_factory=dict)
+    story_index_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -158,6 +159,7 @@ class AddSnapshotsResult:
 
     added: int
     uploads: list[UploadTarget]
+    story_index_upload: UploadTarget | None = None
 
 
 @dataclass(frozen=True)
