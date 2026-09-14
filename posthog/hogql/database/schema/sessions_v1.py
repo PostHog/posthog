@@ -271,13 +271,20 @@ def select_from_sessions_table_v1(
         ),
         "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
         "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
+        # v1 has no dedicated screen column, so read the count out of the event map. Reading the key per row keeps
+        # one counter per session in the group by, rather than a merged map of every event name in the session.
+        "$screen_count": ast.Call(
+            name="sum",
+            args=[
+                ast.ArrayAccess(
+                    array=ast.Field(chain=[table_name, "event_count_map"]),
+                    property=ast.Constant(value="$screen"),
+                )
+            ],
+        ),
     }
     # Some fields are calculated from others. It'd be good to actually deduplicate common sub expressions in SQL, but
     # for now just remove the duplicate definitions from the code
-    # v1 has no dedicated screen column, so read the count out of the event map
-    aggregate_fields["$screen_count"] = ast.ArrayAccess(
-        array=aggregate_fields["$event_count_map"], property=ast.Constant(value="$screen")
-    )
     aggregate_fields["$entry_pathname"] = ast.Call(
         name="path",
         args=[aggregate_fields["$entry_current_url"]],
