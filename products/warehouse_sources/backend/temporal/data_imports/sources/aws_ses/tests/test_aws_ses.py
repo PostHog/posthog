@@ -474,6 +474,41 @@ class TestGetRows:
 
         assert [row["identity_name"] for batch in batches for row in batch] == ["kept.example.com"]
 
+    def test_an_item_aws_refuses_to_describe_is_reported_from_the_list_response_alone(self) -> None:
+        # AWS lists the shared pool and the default dedicated pool, then rejects a describe on
+        # either, so the pool the account really owns must still reach the table.
+        batches, _, _ = self._run(
+            [
+                {"DedicatedIpPools": ["ses-shared-pool", "marketing-pool"]},
+                AwsSesError("BadRequestException", "shared or default pool", "dedicated_ip_pools", "/path"),
+                {"DedicatedIpPool": {"PoolName": "marketing-pool", "ScalingMode": "MANAGED"}},
+            ],
+            endpoint="dedicated_ip_pools",
+        )
+
+        assert batches == [
+            [
+                {"pool_name": "ses-shared-pool"},
+                {
+                    "pool_name": "marketing-pool",
+                    "dedicated_ip_pool_pool_name": "marketing-pool",
+                    "dedicated_ip_pool_scaling_mode": "MANAGED",
+                },
+            ]
+        ]
+
+    def test_a_detail_call_that_ran_out_of_retries_still_fails_the_table(self) -> None:
+        # Only a rejected describe produces a list-only row. Tolerating every detail failure
+        # would turn an exhausted throttle into a table of names with no detail columns.
+        with pytest.raises(AwsSesError, match="TooManyRequestsException"):
+            self._run(
+                [
+                    {"DedicatedIpPools": ["marketing-pool"]},
+                    AwsSesError("TooManyRequestsException", "Rate exceeded", "dedicated_ip_pools", "/path"),
+                ],
+                endpoint="dedicated_ip_pools",
+            )
+
     def test_an_empty_page_yields_no_batch_but_still_completes_the_walk(self) -> None:
         batches, _, manager = self._run([suppression_page([])])
 
@@ -775,3 +810,16 @@ class TestEndpointPermissions:
             reasons = probe_endpoint_permissions("key", "secret", None, "us-east-1", ["multi_region_endpoints"])
 
         assert reasons == {"multi_region_endpoints": aws_ses._BAD_REQUEST_EXPLANATION}
+
+    def test_a_rejected_detail_call_keeps_a_loadable_table_selectable(self) -> None:
+        # A sync reports an item AWS refuses to describe from the list response alone, so this
+        # table loads. Only the list call answering 400 means the region cannot serve it.
+        responses = [
+            {"DedicatedIpPools": ["ses-shared-pool"]},
+            AwsSesError("BadRequestException", "shared or default pool", "dedicated_ip_pools", "/path"),
+        ]
+
+        with mock.patch.object(aws_ses, "send_request", side_effect=responses):
+            reasons = probe_endpoint_permissions("key", "secret", None, "us-east-1", ["dedicated_ip_pools"])
+
+        assert reasons == {"dedicated_ip_pools": None}

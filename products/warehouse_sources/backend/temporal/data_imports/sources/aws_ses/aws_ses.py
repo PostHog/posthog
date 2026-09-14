@@ -238,6 +238,7 @@ def _fanout_page_rows(
         if not isinstance(name, str) or not name:
             continue
 
+        detail: dict[str, Any] = {}
         try:
             detail = send_request(
                 session,
@@ -250,7 +251,12 @@ def _fanout_page_rows(
             if error.code == "NotFoundException":
                 logger.debug(f"Skipping {endpoint_config.name} item deleted mid-sync. name={name}")
                 continue
-            raise
+            if error.code != "BadRequestException":
+                raise
+            # ListDedicatedIpPools reports the shared pool and the default dedicated pool, and
+            # GetDedicatedIpPool then rejects both. The list response alone still reports that
+            # the item exists, so one item AWS refuses to describe must not fail the table.
+            logger.debug(f"Reporting {endpoint_config.name} item from the list response alone. name={name}")
 
         row = normalize_row(endpoint_config, item) if isinstance(item, dict) else {}
         row.update(normalize_row(endpoint_config, detail))
@@ -388,13 +394,19 @@ def endpoint_permission_reason(
             for item in (body.get(endpoint_config.result_key or "") or [])[:1]:
                 name = item.get(endpoint_config.item_name_key) if isinstance(item, dict) else item
                 if isinstance(name, str) and name:
-                    send_request(
-                        session,
-                        credentials,
-                        region,
-                        endpoint_config.name,
-                        endpoint_config.detail_path.format(name=quote(name, safe="")),
-                    )
+                    try:
+                        send_request(
+                            session,
+                            credentials,
+                            region,
+                            endpoint_config.name,
+                            endpoint_config.detail_path.format(name=quote(name, safe="")),
+                        )
+                    except AwsSesError as error:
+                        # A sync reports an item AWS refuses to describe from the list response
+                        # alone, so a rejected detail call leaves the table loadable.
+                        if error.code != "BadRequestException":
+                            raise
     except AwsSesError as error:
         return _permission_reason(error)
     except Exception:
