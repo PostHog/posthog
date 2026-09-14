@@ -15,8 +15,6 @@ from posthog.hogql.printer.mysql_functions import (
 )
 from posthog.hogql.printer.postgres import PostgresPrinter
 
-_DATE_TRUNC_UNITS = {"second", "minute", "hour", "day", "week", "month", "quarter", "year"}
-
 _TIMESTAMPDIFF_UNITS = {
     "second": "SECOND",
     "minute": "MINUTE",
@@ -28,8 +26,9 @@ _TIMESTAMPDIFF_UNITS = {
     "year": "YEAR",
 }
 
-# MySQL has no date_trunc; each unit expands into native date functions. `week` and
-# `isoyear` need more than one substitution, so MySQLPrinter renders those itself.
+# MySQL has no date_trunc; each unit expands into native date functions. `week` takes an
+# extra mode argument and `isoyear` needs an intermediate expression bound to a name, so
+# MySQLPrinter renders those two itself.
 _MYSQL_START_OF_TEMPLATES: dict[str, str] = {
     "second": "DATE_ADD(DATE({arg}), INTERVAL (HOUR({arg}) * 3600 + MINUTE({arg}) * 60 + SECOND({arg})) SECOND)",
     "minute": "DATE_ADD(DATE({arg}), INTERVAL (HOUR({arg}) * 60 + MINUTE({arg})) MINUTE)",
@@ -39,6 +38,10 @@ _MYSQL_START_OF_TEMPLATES: dict[str, str] = {
     "quarter": "DATE_ADD(MAKEDATE(YEAR({arg}), 1), INTERVAL (QUARTER({arg}) - 1) QUARTER)",
     "year": "MAKEDATE(YEAR({arg}), 1)",
 }
+
+# Every unit MySQL can render, plus week. isoyear is absent because it is reachable only
+# through toStartOfISOYear, never through date_trunc().
+_DATE_TRUNC_UNITS = _MYSQL_START_OF_TEMPLATES.keys() | {"week"}
 
 # CAST target mapping: HogQL/ClickHouse/Postgres-flavored type names → MySQL CAST types.
 # MySQL CAST only accepts a small set of target types (SIGNED, UNSIGNED, CHAR, DOUBLE, ...).
