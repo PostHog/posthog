@@ -11,14 +11,20 @@ from products.ai_training.backend.models import AITrainingConsent, AITrainingPri
 
 @contextmanager
 def record_training_consent(organization_id: uuid.UUID, allowed: bool) -> Iterator[None]:
+    from posthog.models.organization import Organization  # noqa: PLC0415 - Organization.save calls this module.
+
     with transaction.atomic():
         state, created = AITrainingConsent.objects.get_or_create(organization_id=organization_id)
         state = AITrainingConsent.objects.select_for_update().get(organization_id=organization_id)
+        legacy_allowed = (
+            state.revision == 0
+            and Organization.objects.filter(id=organization_id, is_ai_training_opted_in=True).exists()
+        )
         yield
         if not created and state.revision > 0 and state.allowed == allowed:
             return
         changed_at = max(time.time_ns() // 1_000_000, state.changed_at_ms + 1)
-        if allowed:
+        if allowed and not legacy_allowed:
             state.granted_at_ms = changed_at
         state.allowed = allowed
         state.changed_at_ms = changed_at

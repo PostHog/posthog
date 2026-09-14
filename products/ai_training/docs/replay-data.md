@@ -35,12 +35,14 @@ Granting consent again permits new sessions with fresh keys.
 Sessions from an earlier consent period remain excluded, including delayed Kafka messages and retries.
 A delayed withdrawal only removes keys from the withdrawn period or earlier periods.
 
-The deployment migration job initializes existing organizations automatically when the privacy table is configured.
-Initialization runs after PostgreSQL migrations and requires no AWS access.
-A failure stops the deployment job; a retry preserves existing consent periods and requests.
-Initialization preserves consent state that a concurrent application change has already created.
-The privacy worker must publish the initial state before v2 collection starts.
-Missing consent state blocks v2 collection.
+When no v2 consent entry exists, ingestion uses the organization's existing AI training opt-in from the team lookup.
+An existing v2 entry always takes precedence, including a denial or a newer grant timestamp.
+The legacy consent period uses grant timestamp `0` because the original opt-in has no recorded timestamp.
+Ingestion conditionally saves this consent entry at the end of the batch before it publishes encrypted data.
+A concurrent consent write wins through the conditional-write retry path.
+Readers therefore require a live DynamoDB consent entry and do not need access to the application database.
+An unrelated organization save preserves the legacy period; a new opt-in records a new grant timestamp.
+No consent backfill or deployment initialization command is required.
 
 ## Keys and batch processing
 

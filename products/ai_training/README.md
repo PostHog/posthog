@@ -10,7 +10,8 @@ The models use the main PostgreSQL database to keep consent updates and team del
 Their table names remain `posthog_aitrainingconsent` and `posthog_aitrainingprivacyrequest`.
 The worker keeps its existing Celery task name so queued tasks survive deployment.
 
-The deployment migration job initializes consent automatically when the privacy table is configured.
-The management command names remain `initialize_ai_training_consent` and `delete_ai_training_month`.
+Organizations without v2 consent state use their existing AI training opt-in.
+No consent backfill or deployment command is required.
+The `delete_ai_training_month` command removes keys for a session month.
 
 See [ML replay data contracts](docs/replay-data.md) for consent, encryption, deletion, and reader behavior.

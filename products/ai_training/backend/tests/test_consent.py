@@ -2,7 +2,6 @@ from uuid import UUID
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.core.management import call_command
 from django.db import DatabaseError
 from django.test import TestCase, override_settings
 
@@ -37,33 +36,36 @@ class TestAITrainingConsentOutbox(TestCase):
             self.assertTrue(AITrainingConsent.objects.get(organization_id=organization_id).allowed)
             self.assertEqual(AITrainingPrivacyRequest.objects.unscoped().count(), 3)
 
-    def test_deployment_initialization_preserves_existing_consent_and_is_safe_to_retry(self) -> None:
-        existing_id = UUID("00000000-0000-0000-0000-000000000007")
-        missing_id = UUID("00000000-0000-0000-0000-000000000008")
-        denied_id = UUID("00000000-0000-0000-0000-000000000009")
+    @parameterized.expand([(True,), (False,)])
+    def test_first_consent_record_preserves_legacy_opt_in_until_a_new_grant(self, legacy_allowed: bool) -> None:
+        organization_id = UUID("00000000-0000-0000-0000-000000000007")
         Organization.objects.bulk_create(
-            [
-                Organization(id=existing_id, name="Existing", slug="existing", is_ai_training_opted_in=True),
-                Organization(id=missing_id, name="Missing", slug="missing", is_ai_training_opted_in=True),
-                Organization(id=denied_id, name="Denied", slug="denied", is_ai_training_opted_in=False),
-            ]
+            [Organization(id=organization_id, name="Example", slug="example", is_ai_training_opted_in=legacy_allowed)]
         )
-        with self.settings(AI_RESEARCH_REPLAY_PRIVACY_TABLE=""), record_training_consent(existing_id, True):
-            pass
-        existing = AITrainingConsent.objects.get(organization_id=existing_id)
         for _ in range(2):
-            call_command("initialize_ai_training_consent")
-            self.assertEqual(
-                AITrainingConsent.objects.get(organization_id=existing_id).granted_at_ms, existing.granted_at_ms
-            )
-            self.assertTrue(AITrainingConsent.objects.get(organization_id=missing_id).allowed)
-            self.assertFalse(AITrainingConsent.objects.get(organization_id=denied_id).allowed)
-            self.assertEqual(AITrainingPrivacyRequest.objects.unscoped().count(), 3)
-        with record_training_consent(existing_id, False):
-            Organization.objects.filter(id=existing_id).update(is_ai_training_opted_in=False)
-        call_command("initialize_ai_training_consent")
-        self.assertFalse(AITrainingConsent.objects.get(organization_id=existing_id).allowed)
-        self.assertEqual(AITrainingPrivacyRequest.objects.unscoped().count(), 4)
+            with record_training_consent(organization_id, legacy_allowed):
+                pass
+        initial = AITrainingConsent.objects.get(organization_id=organization_id)
+        self.assertEqual(initial.allowed, legacy_allowed)
+        self.assertEqual(initial.granted_at_ms, 0)
+        self.assertEqual(initial.revision, 1)
+        self.assertEqual(AITrainingPrivacyRequest.objects.unscoped().count(), 1)
+        with record_training_consent(organization_id, False):
+            Organization.objects.filter(id=organization_id).update(is_ai_training_opted_in=False)
+        with record_training_consent(organization_id, True):
+            Organization.objects.filter(id=organization_id).update(is_ai_training_opted_in=True)
+        resumed = AITrainingConsent.objects.get(organization_id=organization_id)
+        self.assertGreater(resumed.granted_at_ms, 0)
+        self.assertEqual(resumed.revision, 3 if legacy_allowed else 2)
+
+    def test_first_opt_in_does_not_inherit_a_legacy_grant(self) -> None:
+        organization_id = UUID("00000000-0000-0000-0000-000000000007")
+        Organization.objects.bulk_create(
+            [Organization(id=organization_id, name="Example", slug="example", is_ai_training_opted_in=False)]
+        )
+        with record_training_consent(organization_id, True):
+            Organization.objects.filter(id=organization_id).update(is_ai_training_opted_in=True)
+        self.assertGreater(AITrainingConsent.objects.get(organization_id=organization_id).granted_at_ms, 0)
 
     def test_queue_filters_invalid_session_ids_and_retains_distinct_ids_in_bulk(self) -> None:
         session_id = "01a09f92-e780-7000-8000-000000000001"
