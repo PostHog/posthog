@@ -230,7 +230,7 @@ async def _run_tool_call(
     if tool_calls_used >= MAX_TOOL_CALLS:
         return "[skipped — tool call budget exhausted]", tool_calls_used
     tool_calls_used += 1
-    handler = handlers.get(name)
+    handler = handlers.get(name) if isinstance(name, str) else None
     if handler is None:
         return f"Unknown tool: {name}", tool_calls_used
     try:
