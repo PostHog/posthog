@@ -553,17 +553,18 @@ def _sandbox_deadline() -> float:
     well before this code runs: ``@asyncify`` queues the synchronous body on an executor, and the
     run load, token fetch and invocation build all happen before a sandbox exists. Anchoring on
     ``started_time`` charges every one of those to the budget, so no step is granted time the
-    activity itself does not have. A missing or implausible ``started_time`` falls back to the full
-    budget, which is the behaviour of a worker that is not queueing.
+    activity itself does not have. A missing ``started_time`` falls back to the full budget, which
+    is the behaviour of a worker that is not queueing.
     """
     budget = RUN_REVIEW_TIMEOUT.total_seconds() - SANDBOX_PHASE_RESERVE_SECONDS
     try:
         elapsed = (datetime.now(UTC) - activity.info().started_time).total_seconds()
     except Exception:
         elapsed = 0.0
-    if not 0.0 <= elapsed < budget:
-        elapsed = 0.0
-    return time.monotonic() + budget - elapsed
+    # Only an absent or nonsensical start time falls back. An elapsed time past the whole budget is
+    # a real answer, and it yields a deadline in the past, so the first step refuses rather than
+    # provisioning a sandbox the activity has no time left to use.
+    return time.monotonic() + budget - max(elapsed, 0.0)
 
 
 def _step_timeout(deadline: float, ceiling_seconds: int) -> int:
@@ -705,7 +706,9 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
             sandbox = sandbox_class.create(config)
             try:
                 _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token, deadline)
-                _prefetch_blame_blobs(sandbox, base_sha, run.head_sha, token, _blame_paths(files), deadline)
+                _prefetch_review_blobs(
+                    sandbox, base_sha, run.head_sha, token, _blame_paths(files), _changed_paths(files), deadline
+                )
                 _inject_policy_files(sandbox, policy_files)
                 _ship_engine(sandbox)
                 _write_context(sandbox, invocation)
@@ -1324,7 +1327,7 @@ def _clone_pr(
     still walks it; only file contents stay on the remote until something reads them. An
     unfiltered clone of a monorepo does not finish inside the step timeout, because it carries
     every blob of every commit. The head checkout batches the blobs it needs into one fetch, and
-    _prefetch_blame_blobs batches the historical ones blame reads, because left to itself blame
+    _prefetch_review_blobs batches the old-side ones the review reads, because left to itself blame
     fetches them one object at a time.
 
     The head is fetched through ``pull/<n>/head`` rather than the bare sha: a fork PR's
@@ -1405,10 +1408,32 @@ def _blame_paths(files: list[dict]) -> list[str]:
     return paths[:_MAX_PREFETCH_PATHS]
 
 
-def _prefetch_blame_blobs(
-    sandbox: SandboxBase, base_sha: str, head_sha: str, token: str, paths: list[str], deadline: float
+def _changed_paths(files: list[dict]) -> list[str]:
+    """Base-side path of every changed file, including the ones blame skips.
+
+    The engine diffs merge-base against head before anything else, and that reads the old side of
+    every changed file, binaries and huge files included. One blob each, so the size and binary
+    bounds that keep _blame_paths cheap do not belong here — a path left out of this list has no
+    old-side content, and the diff that builds the PR data fails outright rather than degrading.
+    """
+    paths = []
+    for entry in files:
+        path = entry.get("previous_filename") or entry.get("filename")
+        if path and path not in paths:
+            paths.append(path)
+    return paths[:_MAX_PREFETCH_PATHS]
+
+
+def _prefetch_review_blobs(
+    sandbox: SandboxBase,
+    base_sha: str,
+    head_sha: str,
+    token: str,
+    blame_paths: list[str],
+    changed_paths: list[str],
+    deadline: float,
 ) -> None:
-    """Fetch the historical blobs the engine's git blame will read, in one request.
+    """Fetch the old-side blobs the review reads, in one request.
 
     On a blobless clone blame is the worst case git has: it reads the file's content at each
     candidate commit, and each miss is its own round trip — for one PR's blame set, ~400 sequential
@@ -1416,28 +1441,48 @@ def _prefetch_blame_blobs(
     trees are already local, and one batched fetch then serves the whole set, after which blame
     runs offline in seconds.
 
-    Best effort by design. Blame still works without it, just slowly, so a failure here degrades the
-    review's speed rather than its verdict. Anything raised is swallowed; the reviewer's own share
-    of the budget shrinks accordingly and the shared deadline keeps that bounded.
+    Two sets, one fetch. The blame set needs every historical revision of its paths, which is why it
+    is bounded. The diff set needs one revision — the merge-base one — of every changed path, which
+    is cheap and must not be bounded, because the engine diffs merge-base against head before it
+    does anything else.
 
-    ``GIT_NO_LAZY_FETCH`` guards the enumeration itself: without it, the rev-list walk would fetch
-    the very objects it is supposed to be listing as missing. ``fetch.negotiationAlgorithm=noop``
+    Best effort by design. Everything here is also reachable by a lazy fetch, so a failure costs the
+    review speed rather than its verdict wherever that fetch can authenticate. Anything raised is
+    swallowed; the reviewer's own share of the budget shrinks accordingly and the shared deadline
+    keeps that bounded.
+
+    ``GIT_NO_LAZY_FETCH`` guards each enumeration: without it, the reads would fetch the very
+    objects they are supposed to be reporting as missing. ``fetch.negotiationAlgorithm=noop``
     skips the have/want negotiation, which walks history to tell the server what the clone already
     holds — wasted work when the request names the objects it wants outright.
     """
-    if not paths or not base_sha:
+    if not changed_paths or not base_sha:
         return
 
     credential = _git_credential(token)
-    oid_file = "/tmp/stamphog-blame-oids"
-    pathspec = " ".join(shlex.quote(path) for path in paths)
+    oid_file = "/tmp/stamphog-review-oids"
     auth = credential.command
+    # rev-list walks history for the blame set. ls-tree reads one tree for the diff set, and
+    # cat-file reports which of those blobs are absent. The two lists overlap, hence sort -u.
+    history_oids = (
+        (
+            f"GIT_NO_LAZY_FETCH=1 git --literal-pathspecs rev-list --full-history --objects "
+            f'--no-object-names --missing=print "$merge_base" -- '
+            f"{' '.join(shlex.quote(path) for path in blame_paths)} | sed -n 's/^?//p'"
+        )
+        if blame_paths
+        else "true"
+    )
+    tree_oids = (
+        f'GIT_NO_LAZY_FETCH=1 git --literal-pathspecs ls-tree -r "$merge_base" -- '
+        f"{' '.join(shlex.quote(path) for path in changed_paths)} "
+        f"| cut -d' ' -f3 | cut -f1 "
+        f"| GIT_NO_LAZY_FETCH=1 git cat-file --batch-check | grep ' missing$' | cut -d' ' -f1"
+    )
     command = (
         f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
         f"merge_base=$(git merge-base {shlex.quote(base_sha)} {shlex.quote(head_sha)}) && "
-        f"GIT_NO_LAZY_FETCH=1 git --literal-pathspecs rev-list --full-history --objects "
-        f'--no-object-names --missing=print "$merge_base" -- {pathspec} '
-        f"| sed -n 's/^?//p' > {shlex.quote(oid_file)} && "
+        f"{{ {history_oids}; {tree_oids}; }} | sort -u > {shlex.quote(oid_file)} && "
         f"if [ -s {shlex.quote(oid_file)} ]; then "
         f"{auth} -c fetch.negotiationAlgorithm=noop fetch origin --no-tags --no-write-fetch-head "
         f"--filter=blob:none --stdin < {shlex.quote(oid_file)}; fi"
@@ -1446,14 +1491,14 @@ def _prefetch_blame_blobs(
     try:
         result = sandbox.execute(command, timeout_seconds=timeout_seconds)
     except Exception:
-        activity.logger.warning("stamphog: blame blob prefetch failed; blame will fetch as it reads")
+        activity.logger.warning("stamphog: review blob prefetch failed; git will fetch as it reads")
         return
     if result.exit_code != 0:
         # Scrubbed: the command carries the installation token in an http.extraheader, and a git
         # failure can echo the argv back.
         activity.logger.warning(
-            f"stamphog: blame blob prefetch exited {result.exit_code}; "
-            f"blame will fetch as it reads: {_scrub_credentials(result.stderr, token, credential.secret)[:300]}"
+            f"stamphog: review blob prefetch exited {result.exit_code}; "
+            f"git will fetch as it reads: {_scrub_credentials(result.stderr, token, credential.secret)[:300]}"
         )
 
 
