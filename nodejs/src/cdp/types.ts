@@ -458,6 +458,11 @@ export type HogFlowInvocationContext = {
         // it (scheduled=now). The wait handler consumes it to attribute the re-check outcome
         // (advanced vs re-parked) to the re-key, so the wasted-re-park churn is observable.
         rekeyWake?: boolean
+        // Set by the subscription matcher when a distinct_id's first mapping fills a parked wait's
+        // missing person anchor and wakes it (scheduled=now). Like rekeyWake this is a matcher wake
+        // carrying no eventMatched, so the wait handler consumes it to keep the poll-only counter
+        // from reading it as a polling re-check.
+        anchorWake?: boolean
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
         // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will

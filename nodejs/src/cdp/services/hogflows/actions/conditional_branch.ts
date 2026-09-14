@@ -52,6 +52,14 @@ export class ConditionalBranchHandler implements ActionHandler {
             invocation.state.currentAction.rekeyWake = false
         }
 
+        // The matcher also wakes a wait when a distinct_id's first mapping fills a null person anchor.
+        // That wake carries no eventMatched either, so consume it here (one-shot) and exclude it below.
+        const anchorWoken =
+            action.type === 'wait_until_condition' && invocation.state?.currentAction?.anchorWake === true
+        if (anchorWoken && invocation.state.currentAction) {
+            invocation.state.currentAction.anchorWake = false
+        }
+
         // The subscription matcher sets eventMatched when an incoming event matched this
         // step's wait condition. Honor it as a forced match and advance immediately,
         // rather than re-evaluating the stored condition against the original event.
@@ -119,9 +127,11 @@ export class ConditionalBranchHandler implements ActionHandler {
             }
             return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
         } else if (conditionResult.nextAction) {
-            // Poll-only advance: a wait whose condition matched on a re-check (not via the matcher's
-            // eventMatched short-circuit above, and not on entry). This is the wake the streams missed.
-            if (isWait && invocation.state.currentAction?.pollReparked === true) {
+            // Poll-only advance: a wait whose condition matched on a re-check that no matcher wake
+            // caused, and not on entry. This is the wake the streams missed. A matcher wake reaches
+            // here without eventMatched when it re-keyed the job onto a merge survivor or filled a
+            // missing person anchor, so both are excluded or the counter reads them as polling.
+            if (isWait && !rekeyWoken && !anchorWoken && invocation.state.currentAction?.pollReparked === true) {
                 counterHogflowWaitPollOnlyAdvance
                     .labels({ team_id: invocation.hogFlow.team_id, hog_flow_id: invocation.hogFlow.id })
                     .inc()
