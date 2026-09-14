@@ -76,13 +76,14 @@ const handleRequest = async (
         })
     }
 
-    // Static MCP UI app bundles (`/ui-apps/<app>/main.js`,
-    // `/ui-apps/<app>/styles.css`). Production's Cloudflare edge already
-    // routes these to the asset binding before the Worker runs, but
-    // `wrangler dev` invokes the Worker first — without this short-circuit,
-    // the OAuth gate below 401s the request before assets get a chance.
+    // MCP UI app bundles (`/ui-apps/<app>/main.js`, `/ui-apps/<app>/styles.css`).
+    // They come from the regional runtime, whose image carries the bundles built
+    // with the manifest and the stub that name them. The Worker's own static copy
+    // uploads on a separate schedule and can answer with an older bundle.
+    // This also keeps the bundles ahead of the OAuth gate below, which would
+    // otherwise 401 them.
     if (url.pathname.startsWith('/ui-apps/')) {
-        return env.ASSETS.fetch(request)
+        return proxyToHono(request, getRegionFromRequest(request) ?? 'us')
     }
 
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
