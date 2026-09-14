@@ -41,7 +41,7 @@ import { parseEvidenceLink } from "@posthog/ui/utils/evidenceLinks";
 import { MERMAID_LANGUAGE } from "@posthog/ui/utils/mermaidBlocks";
 import { remarkObjectTags } from "@posthog/ui/utils/remarkObjectTags";
 import { IconButton } from "@radix-ui/themes";
-import { memo, type ReactNode, useMemo, useRef } from "react";
+import { memo, type ReactNode, useEffect, useMemo, useRef } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
@@ -307,6 +307,8 @@ export const ChatStreamingMarkdown = memo(function ChatStreamingMarkdown({
   content,
   renderObjectTags,
 }: ChatMarkdownProps) {
+  // The throttle has to be sized before the split that measures the tail, so it reads the
+  // last rendered tail instead: the interval lags by at most one interval.
   const tailLengthRef = useRef(0);
   const renderedContent = useThrottledValue(
     content,
@@ -319,7 +321,9 @@ export const ChatStreamingMarkdown = memo(function ChatStreamingMarkdown({
   );
   const lastIndex = blocks.length - 1;
   const tailBlock = blocks[lastIndex];
-  tailLengthRef.current = tailBlock.length;
+  useEffect(() => {
+    tailLengthRef.current = tailBlock.length;
+  }, [tailBlock]);
   const tail = useMemo(
     () => ({
       openFence: parseOpenFence(tailBlock),
