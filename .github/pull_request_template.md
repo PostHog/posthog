@@ -1,9 +1,10 @@
-<!-- This has to stand on its own: a reader who opens no files should still know why the PR is necessary and what it does. Length tracks the change, so a small diff gets a few bullets rather than a full-length body, and a section you have nothing for gets one line or "None". -->
+<!-- This has to stand on its own: a reader who opens no files, and who has never worked in this area, should still know which parts of the system are in play, why the PR is necessary, and what it does. Length tracks how unfamiliar the area is and what the change costs if it is wrong, not the line count of the diff. A section you have nothing for gets one line or "None". -->
 
 ## Problem
 
 <!-- Who are we building for, what are their needs, why is this important? -->
-<!-- First line: what is different for a person, and who they are. A fix says what breaks; a feature says what someone can now do; a chore says who is blocked. The code path goes underneath. -->
+<!-- Open with the ground: two to four sentences naming the components and concepts this PR touches and how they fit together, written for someone who has never opened this directory. Only what was already true before your change. -->
+<!-- Then the effect: what is different for a person, and who they are. A fix says what breaks; a feature says what someone can now do; a chore says who is blocked. The code path goes underneath. -->
 
 <!-- Does this fix an issue? Uncomment the line below with the issue ID to automatically close it when merged -->
 <!-- Closes #ISSUE_ID -->
@@ -83,5 +84,5 @@
 - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
 - Agent-authored PRs always require human review — do not self-merge or auto-approve.
 - Do NOT claim manual testing you haven't done.
-- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: lead with the effect a person sees rather than the code path behind it, make the body stand alone for a reader who opens no files, size it to the change, link evidence rather than asserting what CI already reports, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
+- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: open with the components and concepts a reviewer needs, then the effect a person sees, then the code path behind it; make the body stand alone for a reader who has never worked in this area; link evidence rather than asserting what CI already reports; then hold what's left to one fact per bullet in under 25 words. Cut complexity, not context.
 -->

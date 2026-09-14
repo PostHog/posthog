@@ -2,11 +2,13 @@
 name: writing-pr-descriptions
 description: >-
   Shapes a PR body into something a reviewer understands at a glance.
-  Use ALWAYS before writing or editing a PR description, before `gh pr create` or `gh pr edit --body`, and when asked to improve an existing description.
-  Puts the effect a person sees in the first line and the mechanism under it, routes each remaining fact to the form that carries it fastest (bullet, table, diagram, screenshot, collapsed block), cuts everything a reviewer does not need, then holds what survives to a checkable shape: one fact per bullet, sentences under 25 words, active voice, no idioms.
-  Makes the body stand alone, so a reader who opens no files still knows why the PR is necessary and what it does, sizes the body to the change so a small PR reads as small, and makes every claim either linked to its evidence or labeled as unchecked.
-  Ends with a scan test over the title and the first lines of Problem and Changes.
-  Not for commit messages (see AGENTS.md, "Commit types") or user-facing product copy (see `/writing-user-facing-copy`).
+  Use ALWAYS before writing or editing a PR description, before `gh pr create` or `gh pr edit --body`, and when asked to improve one.
+  Opens with the ground a reviewer needs (the components and concepts this PR touches, and how they fit), then the effect a person sees, then the mechanism.
+  Routes each remaining fact to the form that carries it fastest (bullet, table, diagram, screenshot, collapsed block), then holds it to a checkable shape: one fact per bullet, sentences under 25 words, active voice.
+  Cuts complexity rather than context: a body too short to hand over the author's model of the area fails like a bloated one.
+  Makes the body stand alone for a reader who has never opened this directory, and links every claim to its evidence or labels it unchecked.
+  Ends with a scan test over the title, the ground, and the first line of Changes.
+  Not for commit messages or user-facing product copy (see `/writing-user-facing-copy`).
 ---
 
 # Writing PR descriptions
@@ -15,11 +17,15 @@ A reviewer scans a description in seconds and decides where to spend attention.
 The body is a scanning surface, not an essay, and it has to stand without the diff.
 A body that narrates the code, or that would fit any PR equally well, teaches its reader to skip the next one.
 
+It also has to stand without the reviewer's memory of the area.
+You spent an hour building a model of these components. The reviewer arrives from a notification holding none of it.
+A body that is too short to hand that model over fails the same way a bloated one does, and it is harder to spot, because it looks disciplined.
+
 Order decides whether they understand the change at all.
 Form and length only decide how fast.
 So get the order right first, and never buy shape at the cost of it.
 
-Work in five passes: lead, route, cut, shape, check. Run all five. When a body already exists, pass 0 comes first.
+Work in five passes: orient, route, cut, shape, check. Run all five. When a body already exists, pass 0 comes first.
 
 ## Pass 0: keep what the body already holds
 
@@ -37,17 +43,41 @@ gh pr edit <number> --body-file pr-body.md
 Carry every image, video, link and ticked box into the new body, under the heading it belongs to, and add the heading when your draft has none.
 Replace one only when the change made it wrong, and say in the body that you replaced it.
 
-## Pass 1: lead with the effect
+## Pass 1: orient, then lead with the effect
 
-The first line is the one line you can count on being read.
+Problem opens with two moves, in this order: the ground, then the effect.
+The rest of the body assumes the reviewer holds both.
+
+### The ground
+
+Two to four sentences naming the components and concepts this PR touches, and how they fit together.
+Write them for a competent engineer who has never opened this directory.
+
+- Name each component and say what it is for, in the vocabulary of the product rather than of the files.
+- Say how one component reaches the next, where the change depends on that link.
+- Stop at the edge of the change. The ground is what was already true. The mechanism is what your change does inside it.
+
+The test for that edge: a ground sentence stays true if the PR is closed. A sentence that holds only because of this change, or only because of the bug, belongs below.
+
+> Workflows run an ordered list of steps. Each step holds a config, and the config's `inputs` array declares the fields a person fills in. The workflow editor renders every step's config into a preview card before the workflow runs.
+
+The ground earns its length from how unfamiliar the area is, never from how large the diff is.
+A change to a surface everyone touches needs one clause. A change inside a codec, a Temporal workflow, a pooled connection path, or a product nobody else works on needs the full paragraph.
+Cut a ground sentence because the reader already holds it, never because the body is getting long. "PostHog has feature flags" orients nobody.
+
+Do not orient with a file tour. `preview.tsx` importing from `stepConfig.ts` is a fact about the repository, and the reviewer reads it faster in the diff.
+
+### The effect
+
+The first line after the ground is the one line you can count on being read.
 You just spent an hour inside the mechanism, so the mechanism comes out first. Push it down and spend that line on what a person experiences.
 
-- Line 1 of Problem says what is different for a person, and who that person is. Name the surface they were on. Four shapes cover almost every PR:
+- The effect line says what is different for a person, and who that person is. Name the surface they were on. Four shapes cover almost every PR:
   - A fix: what breaks, and for whom.
   - A feature: what someone could not do, and now can. "The SQL editor lets users join tables, but there is no way to attach a computed field to a table."
   - A refactor, a chore or an enabling change: who is blocked, what it costs them, or what class of failure it removes. Nobody sees it, but somebody is waiting.
   - A follow-up or a layer in a stack: what the earlier PR left undone, and what this one adds. Link that PR and assume nobody read it.
-- If line 1 opens with a symbol, a file path, a class, or a setting, you led with the mechanism. Rewrite it.
+- If the effect line opens with a symbol, a file path, a class, or a setting, you led with the mechanism. Rewrite it.
 - Size the problem in one clause where you know it: how many teams, how often, since when.
 - The mechanism follows, in the order a reviewer has to check it.
 - The first bullet of Changes is the change itself. Renames, regenerated snapshots and comment fixes go last.
@@ -57,7 +87,7 @@ You just spent an hour inside the mechanism, so the mechanism comes out first. P
 
 Most of the time you already wrote the effect and put it third. Move it up rather than writing a new sentence.
 
-Line 1 can be a bullet or a standalone sentence, whichever reads faster, but one sentence and never a paragraph.
+The effect line can be a bullet or a standalone sentence, whichever reads faster, but one sentence and never a paragraph.
 
 ### Worked example
 
@@ -67,13 +97,16 @@ Line 1 can be a bullet or a standalone sentence, whichever reads faster, but one
 > - The host delivers the MessagePort only after the artifact iframe's load event, which fires after the app's module scripts ran.
 > - A `ph.query` issued while the app mounts is dropped and rejects 30 s later with "Canvas request timed out".
 
-✅ The same three facts, reversed:
+✅ The same three facts, reversed, under the ground they need:
 
+> Canvas apps run in a sandboxed iframe and reach the host over a MessagePort. The host creates the port and hands it to the app. Every host call the app makes, `ph.query` included, goes through that port.
+>
 > - A canvas app that queries while it mounts hangs for 30 seconds, then fails with "Canvas request timed out".
 > - The host delivers the MessagePort only after the iframe's load event, which fires after the app's module scripts ran.
 > - `port?.postMessage(...)` drops anything posted before that.
 
-Nothing was added and nothing was cut. The reviewer now knows the stakes before they reach the cause.
+The three bullets are the ones the author wrote, reversed. Nothing in them was cut.
+The reviewer now knows what a port is for here before they are asked to care that one arrives late.
 
 ## Pass 2: route each fact to a form
 
@@ -119,6 +152,7 @@ Many go straight to the code and come back only if the body earned it, so write 
 
 Keep:
 
+- The ground from pass 1. It is the one part of the body the diff cannot supply, so it is never what you cut to make room.
 - Why the change is necessary.
 - What it does, at a level that needs no files open.
 - The alternative you rejected, the blast radius, what to watch after it ships, where to look first.
@@ -139,17 +173,33 @@ Delete:
 - The follow-up sentence in any "here is the reason, and here is why the reason matters" pair.
 - Any bullet whose reader you cannot name.
 
+### Cut complexity, not context
+
+What tires a reviewer is the sentences, not the count of them.
+Four clauses welded into one, a five-word noun string, a term that shifts meaning between two bullets: each of those stops the reader and makes them reconstruct.
+Ten plain bullets do not. So this pass has no word budget.
+
+Cut what the delete list names, then hand everything that survives to pass 4.
+A fact the reviewer needs to follow the change stays, however many bullets that takes.
+
+The failure runs both ways:
+
+- Too long: the reviewer cannot find the change under the narration.
+- Too short: the reviewer reads the whole body and still cannot say what the components are or why this change is the right one.
+
+The second failure has a signature. Every sentence is true, none is wasted, and the body only works for someone who already holds the author's model of the area.
+That is a description written for the person who wrote the PR.
+
 ### Size tracks the change
 
 A body that would fit any PR tells a reader nothing about this one. A reader who meets a few learns to skip them all.
-When the diff is six lines, the body has to read as the body of a six-line change.
+When the diff is six lines in an area the team knows, the body has to read as the body of a six-line change.
 
-- A one-file fix: 3 to 6 bullets across the whole body.
-- A typical PR: Problem and Changes together fit in about 10 bullets.
+- Length tracks how unfamiliar the area is and what the change costs if it is wrong, not the line count of the diff. A one-line fix in a billing path earns more body than a fifty-line rename.
 - One line or "None" under every heading that does not apply. That is a complete answer, not a gap.
 - Numbers, file paths and identifiers survive cutting. Adjectives and second explanations do not.
 
-Small does not mean partial. Three bullets still have to carry why the change is necessary and what it does.
+Small does not mean partial. A short body still carries the ground, why the change is necessary, and what it does.
 
 ### Claims a reader can check
 
@@ -174,7 +224,7 @@ When the lower half outgrows the upper half, cut the lower half.
 - Agent context: autonomy, tools, skills invoked, and what changed across the session.
 - The reason your design beats the obvious alternative belongs in Changes. A reviewer needs it to review, and nobody scrolls past the changelog checkbox to find it.
 
-The test: **the body must come out shorter than your first draft.** Pass 5 checks it.
+The test: **every sentence that survives names something the reviewer needs, and none of them needs a second reading.** Pass 5 checks it.
 
 ## Pass 4: shape what survives
 
@@ -229,35 +279,38 @@ Run both checks over the body you just wrote, before `gh pr create` or `gh pr ed
 
 ### The scan test
 
-Read only the title, the first line of Problem, and the first bullet of Changes. Cover the rest.
+Read only the title, the ground, the effect line, and the first bullet of Changes. Cover the rest.
+Answer as a reader who has never opened this directory, not as the person who wrote the diff.
 
-1. Do you know what is different now, and for whom?
-2. Do you know what this PR does about it?
-3. Did you get there without a symbol, a file path, or a class name?
+1. Do you know which parts of the system are in play, and what each is for?
+2. Do you know what is different now, and for whom?
+3. Do you know what this PR does about it?
+4. Did you reach 2 and 3 without a symbol, a file path, or a class name?
 
 A "no" anywhere means the body is ordered for the writer, not the reader. Go back to pass 1. Nothing in the line check can rescue a body that fails here.
 
 ### The line check
 
-1. Is the body shorter than your first draft? If it is longer, you split without cutting. Go back to pass 3.
-2. Does the size of the body track the size of the diff? A six-line change under a full-length body reads as filler.
-3. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
-4. Read the body with the diff closed. Can you say why the PR exists and what it does? If not, you cut something a reader needs.
-5. Read Changes alone. Can you say what a person will now see or do differently, or that nothing user-visible changed? If neither, go back to pass 1.
-6. Read each bullet and name the reader who needs it. Delete the ones you cannot.
-7. Read each bullet alone. Does it state one fact? If it states two, split it.
-8. Count the words in the longest sentence. Over 25, split it.
-9. Rewrite every passive sentence in active voice, unless the actor is genuinely unknown. Break every noun string longer than three words with a preposition.
-10. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
-11. Does the PR change anything a person sees? Include before-and-after screenshots, or say why nothing looks different.
-12. Did you rewrite an existing body? Every image, video, link and ticked box a person put there still appears.
-13. Does the PR change a flow or topology? Include branded before-and-after diagrams.
-14. Does prose compare several values across the same dimensions? Replace it with a table.
-15. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
-16. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
-17. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
-18. Does the body claim manual testing that did not happen? Delete it.
-19. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
+1. Does Problem open with the ground, before the effect line? If not, go back to pass 1.
+2. Read the body with the diff closed, as someone who has never worked in this area. Can you name the components in play, say why the PR exists, and say what it does? If not, you cut something a reader needs.
+3. Does any sentence need a second reading? Split it, or replace the word that stopped you.
+4. Does the length of the body track how unfamiliar the area is and what the change costs if it is wrong? A six-line rename under a full-length body reads as filler.
+5. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
+6. Read Changes alone. Can you say what a person will now see or do differently, or that nothing user-visible changed? If neither, go back to pass 1.
+7. Read each bullet and name the reader who needs it. Delete the ones you cannot.
+8. Read each bullet alone. Does it state one fact? If it states two, split it.
+9. Count the words in the longest sentence. Over 25, split it.
+10. Rewrite every passive sentence in active voice, unless the actor is genuinely unknown. Break every noun string longer than three words with a preposition.
+11. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
+12. Does the PR change anything a person sees? Include before-and-after screenshots, or say why nothing looks different.
+13. Did you rewrite an existing body? Every image, video, link and ticked box a person put there still appears.
+14. Does the PR change a flow or topology? Include branded before-and-after diagrams.
+15. Does prose compare several values across the same dimensions? Replace it with a table.
+16. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
+17. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
+18. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
+19. Does the body claim manual testing that did not happen? Delete it.
+20. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
 
 ## Background
 
@@ -268,6 +321,7 @@ Readers scan before they read: 15 of 19 participants in [NN/g's web writing stud
 What a scanner sees is the start of each line, so [the first words](https://www.nngroup.com/articles/first-2-words-a-signal-for-scanning/) decide whether the rest gets read at all.
 And review time goes to understanding the change rather than to finding defects ([Bacchelli and Bird, ICSE 2013](https://sback.it/publications/icse2013.pdf)), which makes handing over that understanding the body's first job.
 [Google's CL description guidance](https://google.github.io/eng-practices/review/developer/cl-descriptions.html) says the same thing, and grounds pass 3 too: the description carries the problem and the reason for this approach, with enough context for a reader who is not in the code.
+The ground is that last clause, and it is the first thing a body loses when brevity becomes the goal.
 
 Pass 4 adapts a subset of the 53 writing rules in [ASD-STE100 Simplified Technical English](https://www.asd-ste100.org/) (Issue 9, January 2025). The 25-word ceiling is the standard's limit for descriptive text; it caps procedural text at 20, which a PR body rarely contains. Rules 1 and 2 are our own: STE writes "one instruction per sentence" for procedures and "one topic per paragraph" for descriptions, and a bullet sits between the two, while front-loading comes from the scanning research above.
 

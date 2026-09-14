@@ -4,7 +4,11 @@ Three merged PRs, as shipped and after all five passes. Read these when the rule
 
 Example 1 is a reorder: the same facts, in the order a reviewer needs them.
 Examples 2 and 3 are cuts.
-All three come out shorter, because bullets are how you cut to the facts that matter, not how you restate a paragraph at greater length.
+Bullets are how you cut to the facts that matter, not how you restate a paragraph at greater length, so all three come out shorter than they shipped.
+
+None of the three opens with its ground, because all three predate pass 1's first half.
+The last section writes that ground for each, and those bodies get longer, not shorter.
+Coming out shorter is what happens when you cut narration. It is not the goal, and a body that reads as short because it assumes the reviewer's model of the area has failed.
 
 The measurements behind these rules live in the PR that introduced them, reachable from `git log` on `SKILL.md`. They are provenance for whoever edits this skill, not instructions for writing a body.
 
@@ -190,4 +194,32 @@ Nobody sees this change, which is the case pass 1 is easiest to skip on. There i
 
 > - The codecs on `flag_evaluations` take those columns out of the cluster's central compression tuning and buy nothing back.
 
-The line check's first item is what makes this a rewrite rather than a reformat: the body has to come out shorter. Both cut examples do, 297 words to 197 and 190 to 111, and the reorder in example 1 came out shorter too.
+Both cut examples lost about a third of their words, 297 to 197 and 190 to 111, and the reorder in example 1 lost words too. Every one of those words was narration, a restated claim, or an exact value the diff carries. None of them was context.
+
+---
+
+## The ground all three are missing
+
+Each body above opens on a mechanism and assumes the reviewer already knows the area. Each one is a paragraph away from not needing that assumption.
+
+The ground is what was true before the PR. Written from the body alone, without opening the diff:
+
+**Example 1, dashboard filters.**
+
+> A dashboard stores its own filter set in `Dashboard.filters`, a JSON blob written by the UI and by the REST API. Every tile refresh rebuilds a `DashboardFilter` model from that blob to resolve the tile's query. The model rejects unknown keys, and insights persist a different, older filter format.
+
+A reviewer who holds that reads "one legacy key errors every tile" as a consequence rather than a puzzle.
+
+**Example 2, the Neon pooler.**
+
+> Data warehouse sources connect to a customer Postgres over libpq, and pass server-side timeouts through the `options` startup parameter. Transaction-mode poolers, which sit in front of most managed Postgres, reject that parameter outright. `_connect_with_options_fallback` exists for exactly that case: it recognizes the rejection, drops `options`, and reconnects without them.
+
+The fallback is the subject of the whole PR, and the shipped body never says what it is for. Three sentences fix that.
+
+**Example 3, the flag evaluation codecs.**
+
+> ClickHouse compresses each column with a codec. This cluster sets compression centrally at the server level rather than per column, so a column with no explicit codec inherits that tuning. The events tables are the exception: they pin codecs per column, and new table DDL tends to copy them.
+
+Without it, "mirroring the pattern the events tables use" is a fact about another table. With it, the reviewer knows why copying that pattern was the mistake.
+
+Each ground costs three sentences and needs no diff to write. None of them describes the change.
