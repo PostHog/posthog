@@ -51,12 +51,15 @@ tools:
                channel without explicit confirmation.
 
 
-            3. Dedupe. Call `error-tracking-alerts-list` with `filters={"events": [{"id": "<trigger event>"}]}`
-               and check whether an alert for the same trigger event already exists. Skip creation if one is
-               present and enabled — call
-               `error-tracking-alerts-partial-update` to adjust an existing alert instead of creating a
-               duplicate. Several alerts on the same event for the same channel produce duplicate
-               notifications.
+            3. Dedupe. Call `error-tracking-alerts-list` with `type=["internal_destination"]` and
+               `filters={"events": [{"id": "<trigger event>"}]}`. A row is a duplicate only when all three
+               match: the same trigger event, the same delivery target (channel or webhook URL), and the
+               same per-issue `filters.properties` scope. The same event on a different channel, or with a
+               different scope, is a separate alert — create it. The response carries no `inputs`, so read
+               the delivery target from `name` and `description`. When a matching row does not name its
+               target, show the user the matching names and ask which alert they mean instead of guessing.
+               For a duplicate that is present and enabled, skip creation and call
+               `error-tracking-alerts-partial-update` to adjust the existing alert.
 
 
             4. Create. Use `type=internal_destination`, the integration's `template_id`
