@@ -55,7 +55,7 @@ const PersonRowComponent = ({
 }: PersonRowProps & { index: number; style: CSSProperties; ariaAttributes: Record<string, unknown> }): JSX.Element => {
     const person = persons[index]
     const isInCohort = existingPersonsSet?.has(person.id) ?? false
-    const isSelected = Object.prototype.hasOwnProperty.call(selectedPersons, person.id)
+    const isSelected = person.id in selectedPersons
     const personUrl = person.displayName?.id ? urls.personByUUID(person.displayName.id) : undefined
 
     return (
@@ -135,6 +135,7 @@ export function PersonSelectList({
         [dataNodeKey, query]
     )
 
+    const logic = dataNodeLogic(dataNodeLogicProps)
     const {
         response,
         responseLoading,
@@ -144,8 +145,8 @@ export function PersonSelectList({
         queryId,
         canLoadNextData,
         nextDataLoading,
-    } = useValues(dataNodeLogic(dataNodeLogicProps))
-    const { loadNextData, loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
+    } = useValues(logic)
+    const { loadNextData, loadData } = useActions(logic)
 
     const persons = useMemo(() => parseResults((response as Record<string, any> | null)?.results), [response])
 
@@ -192,8 +193,9 @@ export function PersonSelectList({
                                 title={
                                     queryCancelled
                                         ? 'The search was cancelled'
-                                        : ((response && 'error' in response ? response.error : responseError) ??
-                                          undefined)
+                                        : response && 'error' in response
+                                          ? response.error
+                                          : responseError
                                 }
                             />
                         </div>
