@@ -21,6 +21,12 @@ A near-budget fetch holds one job for ~30s, the same magnitude as the janitor's 
 - The consumer heartbeats the held job every 10s while it processes.
 - It dequeues one job at a time (`batchMaxSize: 1`). Pages are processed serially, so a bigger batch adds no throughput — it only leaves queued peers un-heartbeated behind a slow fetch.
 
+Lease heartbeats update the job's database lock; they do not refresh the worker's poll health check.
+The worker waits for page processing to finish before polling again.
+Its `heartbeatTimeoutMs` adds 30 seconds to the audience fetch budget for processing and monitoring flushes.
+The default health timeout is 60 seconds.
+This keeps an allowed slow fetch from reporting the worker as unhealthy while its lease remains valid.
+
 ## Observing
 
 - Fetch durations: `instrumented_function_duration_seconds` for `cdpBatchResolve.getBlastRadiusPersons` and `cdpBatchResolve.getAccountAudiencePage`. Watch the p99 against the budget before tuning either.

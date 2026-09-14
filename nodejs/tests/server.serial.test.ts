@@ -46,6 +46,33 @@ describe('server', () => {
         await pluginsServer.start()
     })
 
+    it('keeps batch resolver healthy for the configured audience budget plus processing headroom', async () => {
+        pluginsServer = new PluginServer({
+            LOG_LEVEL: 'debug',
+            PLUGIN_SERVER_MODE: PluginServerMode.cdp_cyclotron_worker_batch_resolve,
+            PERSONHOG_ENABLED: true,
+            PERSONHOG_ADDR: 'localhost:50052',
+            CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 45_000,
+        })
+        await pluginsServer.start()
+        expect(process.exit).not.toHaveBeenCalledWith(1)
+
+        const service = pluginsServer.lifecycle.services.find(({ id }) => id === 'CdpCyclotronWorkerBatchResolve')
+        expect(service).toBeDefined()
+
+        const now = Date.now()
+        const dateNow = jest.spyOn(Date, 'now')
+        try {
+            dateNow.mockReturnValue(now + 65_000)
+            expect((await service!.healthcheck()).isError()).toBe(false)
+
+            dateNow.mockReturnValue(now + 80_000)
+            expect((await service!.healthcheck()).isError()).toBe(true)
+        } finally {
+            dateNow.mockRestore()
+        }
+    })
+
     // Replay modes are handled by IngestionSessionReplayServer (see ingestion-session-replay-server.test.ts)
     it('should error on startup with replay mode', async () => {
         const server = new PluginServer({

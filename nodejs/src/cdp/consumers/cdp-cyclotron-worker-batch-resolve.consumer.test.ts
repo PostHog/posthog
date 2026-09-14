@@ -295,7 +295,11 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
     })
 
     describe('resolver job lock heartbeats', () => {
-        it('heartbeats during a long-running audience fetch so the cyclotron lock does not expire', async () => {
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it.each([false, true])('clears the heartbeat timer (heartbeat fails: %s)', async (heartbeatFails) => {
             jest.useFakeTimers()
             const state: BatchResolverState = {
                 batchJobId: 'batch-job-hb',
@@ -339,7 +343,9 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                     invocationResultsRowsService: { flush: jest.fn().mockResolvedValue(undefined) },
                 },
             })
-            const heartbeat = jest.fn().mockResolvedValue(undefined)
+            const heartbeat = heartbeatFails
+                ? jest.fn().mockRejectedValue(new Error('Heartbeat unavailable'))
+                : jest.fn().mockResolvedValue(undefined)
             const job = {
                 id: 'job-heartbeat',
                 teamId: team.id,
@@ -358,8 +364,12 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             await jest.advanceTimersByTimeAsync(25_000)
             await processPromise
 
-            expect(heartbeat.mock.calls.length).toBeGreaterThanOrEqual(2)
-            jest.useRealTimers()
+            expect(heartbeat).toHaveBeenCalledTimes(2)
+            expect(getBlastRadiusPersons).toHaveBeenCalledTimes(1)
+            expect(job.bulkCreateAndCheckIn).toHaveBeenCalledTimes(1)
+            expect(jest.getTimerCount()).toBe(0)
+            await jest.advanceTimersByTimeAsync(20_000)
+            expect(heartbeat).toHaveBeenCalledTimes(2)
         })
     })
 })

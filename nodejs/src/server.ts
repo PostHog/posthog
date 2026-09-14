@@ -399,6 +399,7 @@ export class PluginServer implements NodeServer {
                     },
                     queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
                     pollDelayMs: 100,
+                    heartbeatTimeoutMs: this.config.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS + 30_000,
                     // Pages are processed serially, so a bigger dequeue batch adds no throughput —
                     // it only leaves queued peers un-heartbeated behind a slow audience fetch until
                     // the janitor's stall sweep reclaims them. Same shape as the rerun worker.
