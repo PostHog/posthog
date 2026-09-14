@@ -105,6 +105,52 @@ Report triage mechanics live in `inbox-exploration`; what matters here is how ac
   A reviewer is a PostHog user: a scout routes by `user_uuid` (any org member, no GitHub account needed) or by `github_login` (matched against the member's linked GitHub identity), and `is_suggested_reviewer` flips for the viewer on either match.
   If reports for a surface keep landing unrouted or misrouted, that's fixable: correct the reviewers on the report itself (the correction is forwarded as above), leave a fleet-wide routing note (`posthog:scout-notes-create` with no `skill_name`, "route billing-adjacent reports to Dana"), or steer the scout (note or skill edit) toward the right owner for the area. A `pipeline:report-research` note steers only the reports the pipeline builds from clustered signals; a scout that authors reports directly sets `suggested_reviewers` itself and never reads that audience.
 
+## Auditing what a scout changed
+
+A scout that holds `write_scopes` (granted via `authoring-scouts`) changes real objects in the project, and each change lands in the project's **activity log** like any other edit.
+The row names the scout's **acting user**, the person whose identity the run mints its token as, and carries a small "via MCP" tag next to the timestamp.
+The row does not name the scout, the run, the skill, or the scopes it held.
+A scout editing a dashboard and the same person editing one from an MCP client produce identical rows.
+So auditing a run is a reconstruction from the run window, not a lookup by scout.
+
+To reconstruct one run's changes:
+
+1. **Read the run** (`posthog:scout-runs-retrieve`) for `started_at`, `completed_at`, `metadata.write_scopes` (present only when the run actually held a grant), and the close-out `summary`. The run prompt asks a granted scout to name every object it changed.
+2. **Bracket the window** (`posthog:advanced-activity-logs-list`) with `start_date` and `end_date` around the run, `clients: ["mcp"]`, and `scopes` for the objects the grant covers.
+   Raise `page_size`: the tool defaults to 10 rows and the endpoint takes up to 1000, so the default can hide most of a run behind one page.
+   A non-null `next` means rows are missing, and the tool cannot send that cursor back, so page through with `page` instead, which also returns the total `count`.
+3. **Read the actor off the returned rows** instead of filtering by it up front. `users` takes user UUIDs, and the acting user is derived rather than configured (the scout skill's earliest known version author, then the config's `enabled_by`, then its `created_by`), so it is easier to confirm than to predict.
+   The rows name the actor but carry no UUID, so resolve one from the email they show (`posthog:org-members-list`, which searches on name and email and needs `organization_member:read`), then add `users` to drop other people's rows.
+4. **Cross-check against the close-out.** A row the summary does not mention, or a change the summary claims with no row behind it, is the thing to look at.
+
+Which `scopes` value each granted scope writes under:
+
+| Granted write scope     | Activity `scopes` value                       |
+| ----------------------- | --------------------------------------------- |
+| `dashboard:write`       | `Dashboard`                                   |
+| `insight:write`         | `Insight`                                     |
+| `annotation:write`      | `Annotation`                                  |
+| `alert:write`           | `AlertConfiguration`                          |
+| `warehouse_view:write`  | `DataWarehouseSavedQuery`, `DataQualityCheck` |
+| `warehouse_table:write` | `DataQualityCheck`                            |
+| `llm_skill:write`       | `PersonalAPIKey`                              |
+
+Pass `Notebook` as well, whatever the grant says: notebooks are the floor write every scout holds, so any scout can leave rows under that scope.
+Some grants also reach objects they are not named for: both warehouse grants reach the data quality checks on their subject, and `llm_skill:write` reaches the skill-store install command, which mints or rotates the acting user's marketplace credential.
+The scope-named objects themselves still log nothing: a skill body edit (including another scout's) and a warehouse table write leave no row, so read the skill's version history instead.
+
+Four caveats change what the answer means:
+
+- **The window is not an attribution.** The same filter also catches the acting user's own MCP writes in that window, from Claude Code, Cursor, or any other MCP client. Narrow by scope and timestamp, then read the rows.
+- **The advanced log is gated twice.** `advanced-activity-logs-list` and `advanced-activity-logs-filters` need `activity_log:read` on the credential, and on PostHog Cloud they also need the organization's audit-logs entitlement. Self-hosted is never gated on it.
+  Without the entitlement the MCP server drops both tools from the toolset rather than failing them, so they read as tools that do not exist; a call that still reaches the backend gets a 402 asking for a paid plan. Neither outcome means you built the filter wrong.
+  With the entitlement, results are trimmed to the plan's lookback, so an older run can fall outside the window.
+  The plain side-panel feed is gated on neither, but it is a weak substitute: it filters only by user, scope, and item, so it cannot isolate MCP writes. It still shows the "via MCP" tag, so on a short run window you can read an object's own feed and narrow by eye.
+- **A dry run drops the grant, not the floor.** A scout on `emit: false` never holds the granted scopes, so it writes no rows under the scopes in the table above.
+  It keeps `notebook:write`, the floor write every scout holds, so a dry run can still create, edit, or delete a notebook.
+  Keep `Notebook` in the filter for a dry-run window.
+- **A refused write is not logged, because it never happened.** The grant is an upper bound and the acting user's own permissions still apply, so a close-out that reports a refused write will have no matching row. That is the expected pairing, not a discrepancy.
+
 ## The steering ladder
 
 When you want a scout to behave differently, climb this ladder from cheapest to most permanent — and stop at the lowest rung that does the job:
@@ -178,3 +224,4 @@ Every few weeks (or when someone says "are the scouts even worth it?"), run a ca
 | "The scouts are too noisy / too quiet"                 | Calibration pass above; then the steering ladder against the specific offender                            |
 | "Write / edit / retune a scout"                        | `authoring-scouts`                                                                                        |
 | "Why did the scout stop flagging X?"                   | Scratchpad first (`noise:` / `addressed:` / `dedupe:` / `allowlist:`), then notes, then config            |
+| "What did this scout change?"                          | "Auditing what a scout changed" above: the run window, then `advanced-activity-logs-list`                 |

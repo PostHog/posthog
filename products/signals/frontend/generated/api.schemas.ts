@@ -4343,7 +4343,7 @@ export interface EmitReportRequestApi {
     evidence: ReportEvidenceApi[]
     /** 2-3 sentence evidence-grounded justification for the actionability call below. */
     actionability_explanation: string
-    /** The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless.
+    /** The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless. A root cause you have not found is not human input: a report that names the evidence, the code surface, or a reproducible failure path is `immediately_actionable`, because investigating it is the action. Reserve `requires_human_input` for a report blocked on a decision only a person can make.
      *
      * * `immediately_actionable` - immediately_actionable
      * * `requires_human_input` - requires_human_input
