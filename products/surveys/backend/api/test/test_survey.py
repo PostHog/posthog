@@ -8289,3 +8289,20 @@ class TestSurveyQuestionLinkSanitization(SimpleTestCase):
         )
 
         assert sanitized.get("link") == expected
+
+    @parameterized.expand(
+        [
+            ("revoked_app_scheme_kept", "myapp://accueil", "myapp://accueil"),
+            ("never_registrable_scheme_dropped", "javascript:alert(1)", None),
+        ]
+    )
+    def test_the_editor_read_treats_a_translated_link_like_the_question_link(
+        self, _name: str, link: str, expected: str | None
+    ):
+        sanitized = sanitize_survey_question(
+            {"type": "link", "id": "q1", "link": "myapp://home", "translations": {"fr": {"link": link}}},
+            lambda: ["https", "mailto"],
+            keep_unregistered_schemes=True,
+        )
+
+        assert sanitized["translations"]["fr"].get("link") == expected

@@ -319,7 +319,9 @@ def sanitize_survey_question(
             sanitized_question["link"] = sanitized_link
     translations = sanitized_question.get("translations")
     if isinstance(translations, dict):
-        sanitized_question["translations"] = sanitize_survey_translations(translations, allowed_schemes)
+        sanitized_question["translations"] = sanitize_survey_translations(
+            translations, allowed_schemes, keep_unregistered_schemes
+        )
     return sanitized_question
 
 
