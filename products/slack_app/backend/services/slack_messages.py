@@ -115,6 +115,43 @@ def resolve_user_mentions_text(
     return resolved
 
 
+# A `&lt;` that would begin a mention (`<@`) or broadcast (`<!`) token stays escaped:
+# decoded user text must never mint a token that downstream mention handling or the
+# outbound relay could turn into a real ping.
+_RE_DECODABLE_LT = re.compile(r"&lt;(?![@!])")
+
+
+def decode_slack_entities(text: str) -> str:
+    """Decode the three entities Slack escapes in message text: `&`, `<`, `>`.
+
+    Slack escapes only these three
+    (https://docs.slack.dev/messaging/formatting-message-text#escaping), so three
+    targeted replaces rather than `html.unescape`, which would also decode entities
+    the user typed literally. `&amp;` decodes last so a user-typed literal `&lt;`
+    (wire form `&amp;lt;`) comes out as `&lt;` instead of double-decoding to `<`.
+    """
+    text = _RE_DECODABLE_LT.sub("<", text)
+    return text.replace("&gt;", ">").replace("&amp;", "&")
+
+
+def _resolve_and_decode(
+    slack: SlackIntegration,
+    integration: Integration,
+    text: str,
+    *,
+    strip_bot_user_id: str | None = None,
+) -> str:
+    """Resolve mentions, then decode escaped entities: the one order that is safe.
+
+    Mention resolution must run first so its regex only ever sees genuine
+    wire-format tokens; the decode guard then keeps user-typed text from minting
+    new ones behind it. Every inbound path goes through here so no path can
+    apply one step without the other.
+    """
+    resolved = resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=strip_bot_user_id)
+    return decode_slack_entities(resolved)
+
+
 def decode_slack_event_text(slack: SlackIntegration, integration: Integration, text: str) -> str:
     """Strip the bot's own self-mention from a Slack event and label the rest for the agent.
 
@@ -123,9 +160,13 @@ def decode_slack_event_text(slack: SlackIntegration, integration: Integration, t
     `<@U…>` reference with a `|displayname` label so the agent can echo the
     token verbatim to ping the user back. Centralised here so a new trigger
     handler can't drift back into the original mention-eating bug.
+
+    Also decodes Slack's escaped entities, because this text feeds task titles and
+    descriptions that render in the PostHog UI, where an undecoded `&gt;` shows up
+    literally.
     """
     bot_user_id = get_cached_bot_user_id(slack, integration)
-    return resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
+    return _resolve_and_decode(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
 
 
 def labeled_mentions_to_display_names(text: str) -> str:
@@ -543,7 +584,7 @@ def collect_thread_messages(
             SlackThreadMessage(
                 user=username,
                 user_id=user_id or "",
-                text=resolve_user_mentions_text(slack, integration, extract_message_text(msg)),
+                text=_resolve_and_decode(slack, integration, extract_message_text(msg)),
                 ts=msg.get("ts") or "",
                 files_json=encode_slack_file_refs(parse_slack_file_refs(msg.get("files"))),
             )
