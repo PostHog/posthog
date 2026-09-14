@@ -17,11 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
-    rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_chained_resource,
     build_dependent_resource,
-    rename_parent_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
@@ -190,17 +189,15 @@ def _chained_fanout_resource(
         "table_format": "delta",
     }
 
-    rest_config: RESTAPIConfig = {
-        "client": client_config,
-        "resource_defaults": {},
-        "resources": [root_resource, middle_resource, child_resource],
-    }
-    # No resume state is threaded through: `create_resources` withholds the hook from every
-    # resource of a multi-level fan-out, because one hook consumed at two levels would
-    # corrupt the saved page.
-    resources = rest_api_resources(rest_config, team_id, job_id, None)
-    child = next(r for r in resources if getattr(r, "name", None) == config.name)
-    return cast(Iterable[Any], child.add_map(rename_parent_fields(middle_config.name, chained.parent_field_renames)))
+    return build_chained_resource(
+        resources=[root_resource, middle_resource, child_resource],
+        child_name=config.name,
+        parent_name=middle_config.name,
+        parent_field_renames=chained.parent_field_renames,
+        client_config=client_config,
+        team_id=team_id,
+        job_id=job_id,
+    )
 
 
 def _make_source_response(config: BugherdEndpointConfig, items_fn: Callable[[], Iterable[Any]]) -> SourceResponse:

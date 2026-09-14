@@ -43,7 +43,7 @@ TASK_COMMENTS_FANOUT = BugherdChainedFanoutConfig(
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BugherdEndpointConfig:
     name: str
     path: str
