@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
@@ -45,9 +46,11 @@ describe('materializationJobsLogic', () => {
     function apiMocks({
         isMaterialized,
         incremental = null,
+        savedQueryExtras,
     }: {
         isMaterialized: boolean
         incremental?: Record<string, any> | null
+        savedQueryExtras?: Record<string, any>
     }): Parameters<typeof useMocks>[0] {
         return {
             get: {
@@ -61,6 +64,7 @@ describe('materializationJobsLogic', () => {
                         sync_frequency: savedSyncFrequency,
                         incremental,
                         query: { kind: 'HogQLQuery', query: 'SELECT timestamp, id FROM events' },
+                        ...savedQueryExtras,
                     },
                 ],
                 '/api/projects/:team_id/data_modeling_jobs/': { results: [], count: 0 },
@@ -188,6 +192,22 @@ describe('materializationJobsLogic', () => {
         ])
         expect(logic.values.deletingView).toBe(false)
         expect(router.values.location.pathname).toBe(path)
+    })
+
+    // Another product owns these views: a managed viewset refuses the delete outright, and deleting
+    // an endpoint-origin view breaks the endpoint it serves. The SQL editor renders the actions
+    // without the endpoint `kind`, so the saved query has to carry the signal.
+    it.each([
+        ['a managed viewset', { managed_viewset_kind: 'revenue_analytics' }],
+        ['an endpoint', { origin: DataWarehouseSavedQueryOrigin.ENDPOINT }],
+    ])('blocks deletion for a view owned by %s', async (_name, savedQueryExtras) => {
+        useMocks(apiMocks({ isMaterialized: true, savedQueryExtras }))
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess', 'loadDataModelingJobsSuccess'])
+        render(createElement(MaterializationRunActions, { viewId: 'view-1' }))
+        fireEvent.click(buttonByAttr('node-detail-materialization-actions'))
+        expect(buttonByAttr('node-detail-delete-view').getAttribute('aria-disabled')).toBe('true')
     })
 
     // Regression: the saved query reloads on every jobs poll. Without the once-per-mount guard the

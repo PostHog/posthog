@@ -14,6 +14,7 @@ import {
     modeDisabledReason,
 } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 
+import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SERVING_ENGINE } from 'products/data_modeling/frontend/suspension'
@@ -86,6 +87,14 @@ export function MaterializationRunActions({
         savedQuery.user_access_level
     )
     const refreshReason = materializationRefreshPending ? 'Refreshing materialization status' : undefined
+    // Another product owns these views, so the `kind` prop cannot decide on its own: the SQL editor
+    // renders this component without it, and an endpoint-origin view then looks like a plain one.
+    // The saved query names its owner, and deleting through it either fails or breaks that product.
+    const ownerReason = savedQuery.managed_viewset_kind
+        ? 'PostHog manages this view. Turn the managed viewset off to delete it.'
+        : savedQuery.origin === DataWarehouseSavedQueryOrigin.ENDPOINT
+          ? 'This view belongs to an endpoint. Delete the endpoint instead.'
+          : undefined
     const deleteLabel = savedQuery.is_materialized ? 'Delete materialized view' : 'Delete view'
     const deleteItem = {
         label: deleteLabel,
@@ -93,6 +102,7 @@ export function MaterializationRunActions({
         status: 'danger' as const,
         disabledReason:
             accessReason ||
+            ownerReason ||
             refreshReason ||
             (deletingView ? 'Deleting view' : undefined) ||
             (running || startingMaterialization ? 'Materialization is currently running' : undefined) ||
