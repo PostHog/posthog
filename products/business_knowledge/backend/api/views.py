@@ -247,7 +247,10 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except KnowledgeSource.DoesNotExist:
             raise exceptions.NotFound()
 
-        _ensure_user_managed_source(source)
+        if source.is_generated:
+            if source.source_type != SourceType.TEXT:
+                _ensure_user_managed_source(source)
+            return self._update_text_or_file_source(source, request)
         if source.source_type == SourceType.URL.value:
             return self._update_url_source(source, request)
         if source.source_type == SourceType.FILE.value:
@@ -291,6 +294,10 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except logic.TextTooLargeError:
             raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."})
+        except logic.GeneratedSourceHasMultipleDocuments:
+            raise exceptions.ValidationError(logic.GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE)
+        except logic.InvalidGeneratedKnowledgeDocument:
+            raise exceptions.ValidationError("Couldn't save this learned source. Refresh the page and try again.")
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
         except logic.GeneratedSourceReadOnlyError:
@@ -336,6 +343,10 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.NotFound()
         try:
             content = logic.get_source_text_for_team(source_id, self.team_id)
+        except logic.GeneratedSourceHasMultipleDocuments:
+            raise exceptions.ValidationError(logic.GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE)
+        except logic.InvalidGeneratedKnowledgeDocument:
+            raise exceptions.ValidationError("Couldn't load this learned source. Refresh the page and try again.")
         except logic.GeneratedSourceReadOnlyError:
             raise exceptions.PermissionDenied(detail="Generated sources must be read through document windows.")
         if content is None:
