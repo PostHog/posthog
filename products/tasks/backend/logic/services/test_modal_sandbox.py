@@ -13,6 +13,7 @@ from products.tasks.backend.exceptions import SandboxExecutionError
 from products.tasks.backend.logic.services.modal_sandbox import (
     DEFAULT_MODAL_APP_NAME,
     LOCAL_MODAL_AGENT_SHADOW_DIR,
+    LOCAL_MODAL_HOGLI_SHIM_SCRIPT,
     LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
     LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE,
     NOTEBOOK_MODAL_APP_NAME,
@@ -354,9 +355,10 @@ class TestSelfDrivingWorkloadMapping:
 
 
 class TestLocalModalBuildContext:
-    def test_base_context_carries_the_agent_shadow_sources(self):
-        # The base Dockerfile's first stage COPYs and builds the agent-shadow observer, so the
-        # trimmed DEBUG context must carry its sources or every local sandbox fails at image build.
+    def test_base_context_carries_the_sources_its_dockerfile_copies(self):
+        # The base Dockerfile's first stage COPYs and builds the agent-shadow observer, and it
+        # COPYs the hogli shim onto PATH, so the trimmed DEBUG context must carry both or every
+        # local sandbox fails at image build.
         _prepare_local_modal_build_context.cache_clear()
         with (
             patch("products.tasks.backend.logic.services.modal_sandbox.LocalSkillsCache"),
@@ -367,6 +369,7 @@ class TestLocalModalBuildContext:
             root = Path(context_dir)
             assert (root / LOCAL_MODAL_AGENT_SHADOW_DIR / "go.mod").is_file()
             assert (root / LOCAL_MODAL_AGENT_SHADOW_DIR / "main.go").is_file()
+            assert (root / LOCAL_MODAL_HOGLI_SHIM_SCRIPT).is_file()
         finally:
             shutil.rmtree(context_dir, ignore_errors=True)
             _prepare_local_modal_build_context.cache_clear()

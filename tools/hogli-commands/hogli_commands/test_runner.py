@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import json
 import shlex
-import socket
 import tomllib
 import platform
 import subprocess
@@ -146,24 +145,34 @@ def _in_cloud_task_sandbox() -> bool:
     return bool(os.environ.get("POSTHOG_TASK_RUN_ID")) and not os.environ.get("HOGLI_TEST_VERBOSE")
 
 
-def _postgres_reachable() -> bool:
+def _seeded_test_database_ready() -> bool:
     try:
-        with socket.create_connection(("localhost", 5432), timeout=0.3):
-            return True
-    except OSError:
+        import psycopg
+
+        with psycopg.connect(
+            host=os.environ.get("PGHOST", "localhost"),
+            port=os.environ.get("PGPORT", "5432"),
+            user=os.environ.get("PGUSER", "posthog"),
+            password=os.environ.get("PGPASSWORD", "posthog"),
+            dbname="test_posthog",
+            connect_timeout=2,
+        ) as connection:
+            row = connection.execute("SELECT to_regclass('posthog_team')").fetchone()
+            return bool(row and row[0] is not None)
+    except Exception:
         return False
 
 
 def _warn_if_dev_stack_is_down(command: list[str]) -> None:
     if command[:1] != ["pytest"] or not os.environ.get("POSTHOG_TASK_RUN_ID"):
         return
-    if not _DEV_STACK_BAKE_MANIFEST.exists() or _postgres_reachable():
+    if not _DEV_STACK_BAKE_MANIFEST.exists() or _seeded_test_database_ready():
         return
     click.secho(
-        "Postgres is not reachable, so any test that needs a database will fail. This image "
-        "ships a migrated one with a seeded test_posthog: run `bootstrap-dev-stack`, then "
-        "`hogli start -y -d && hogli wait`. Do not start your own database container. "
-        "See docs/internal/cloud-task-sandbox.md.",
+        "The migrated test_posthog database is not reachable, so a test that needs one will "
+        "fail or replay every migration. This image ships it: run `bootstrap-dev-stack`, then "
+        "`hogli start -y -d && hogli wait`. Do not start your own database container, because "
+        "it takes the port the baked stack needs. See docs/internal/cloud-task-sandbox.md.",
         fg="yellow",
     )
 

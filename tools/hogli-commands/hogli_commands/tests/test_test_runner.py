@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import contextlib
 from pathlib import Path
 
 import pytest
@@ -627,28 +629,29 @@ class TestScopedRunHints:
 
         assert ("hogli test --changed" in capsys.readouterr().out) is hinted
 
-    @pytest.mark.parametrize(
-        "command, in_sandbox, baked_image, postgres_up, warned",
+    @parameterized.expand(
         [
-            (["pytest", "a.py"], True, True, False, True),
-            (["pytest", "a.py"], True, True, True, False),
-            (["pytest", "a.py"], False, True, False, False),
-            (["pytest", "a.py"], True, False, False, False),
-            (["pnpm", "exec", "jest", "a.test.ts"], True, True, False, False),
+            ("database_down_on_a_baked_image_warns", ["pytest", "a.py"], True, True, False, True),
+            ("seeded_database_ready_is_quiet", ["pytest", "a.py"], True, True, True, False),
+            ("outside_a_sandbox_is_quiet", ["pytest", "a.py"], False, True, False, False),
+            ("unbaked_image_is_quiet", ["pytest", "a.py"], True, False, False, False),
+            ("non_pytest_runner_is_quiet", ["pnpm", "exec", "jest", "a.test.ts"], True, True, False, False),
         ],
     )
     def test_a_down_dev_stack_is_only_reported_where_the_advice_applies(
-        self, monkeypatch, capsys, command, in_sandbox, baked_image, postgres_up, warned
+        self, _name: str, command, in_sandbox, baked_image, database_ready, warned
     ):
-        if in_sandbox:
-            monkeypatch.setenv("POSTHOG_TASK_RUN_ID", "run-1")
-        else:
-            monkeypatch.delenv("POSTHOG_TASK_RUN_ID", raising=False)
-        monkeypatch.setattr("hogli_commands.test_runner._postgres_reachable", lambda: postgres_up)
-        monkeypatch.setattr(
-            "hogli_commands.test_runner._DEV_STACK_BAKE_MANIFEST", MagicMock(exists=lambda: baked_image)
-        )
+        stdout = io.StringIO()
+        with pytest.MonkeyPatch.context() as monkeypatch, contextlib.redirect_stdout(stdout):
+            if in_sandbox:
+                monkeypatch.setenv("POSTHOG_TASK_RUN_ID", "run-1")
+            else:
+                monkeypatch.delenv("POSTHOG_TASK_RUN_ID", raising=False)
+            monkeypatch.setattr("hogli_commands.test_runner._seeded_test_database_ready", lambda: database_ready)
+            monkeypatch.setattr(
+                "hogli_commands.test_runner._DEV_STACK_BAKE_MANIFEST", MagicMock(exists=lambda: baked_image)
+            )
 
-        _warn_if_dev_stack_is_down(command)
+            _warn_if_dev_stack_is_down(command)
 
-        assert ("bootstrap-dev-stack" in capsys.readouterr().out) is warned
+        assert ("bootstrap-dev-stack" in stdout.getvalue()) is warned
