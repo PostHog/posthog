@@ -924,19 +924,14 @@ def backfill_skill_digests(*, batch_size: int = 500, recompute: bool = False) ->
     pull the whole table into memory. `recompute` re-stamps rows that already carry a digest,
     for when the rendered form of a SKILL.md changes.
     """
+    skills = LLMSkill.objects.all() if recompute else LLMSkill.objects.filter(skill_md_sha256__isnull=True)
+    files = LLMSkillFile.objects.all() if recompute else LLMSkillFile.objects.filter(content_sha256__isnull=True)
     return SkillDigestBackfillCounts(
-        skills=_backfill_digests(LLMSkill, batch_size, recompute),
-        files=_backfill_digests(LLMSkillFile, batch_size, recompute),
+        skills=_backfill_digests(LLMSkill, skills, batch_size), files=_backfill_digests(LLMSkillFile, files, batch_size)
     )
 
 
-def _backfill_digests(model: type[_DigestModel], batch_size: int, recompute: bool) -> int:
-    if recompute:
-        queryset = model.objects.all()
-    elif model is LLMSkill:
-        queryset = model.objects.filter(skill_md_sha256__isnull=True)
-    else:
-        queryset = model.objects.filter(content_sha256__isnull=True)
+def _backfill_digests(model: type[_DigestModel], queryset: QuerySet[_DigestModel], batch_size: int) -> int:
     # Cursor on the primary key rather than re-running the "needs a digest" filter: under
     # `recompute` that filter matches every row, so a fixed `[:batch_size]` slice would never
     # advance and the walk would never end.
