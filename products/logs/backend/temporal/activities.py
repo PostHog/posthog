@@ -1367,6 +1367,7 @@ def _evaluate_single_alert(
     *,
     checkpoint: datetime | None = None,
     prefetched: _PrefetchedQuery | None = None,
+    record_diagnostics: bool = True,
 ) -> _AlertEvaluation:
     """Phase 1: run the CH query (or use prefetched buckets), apply the state machine, return the outcome.
 
@@ -1428,15 +1429,16 @@ def _evaluate_single_alert(
     except Exception as e:
         classified = classify_alert_error(e)
         error_category = classified.code
-        capture_exception(e, {"alert_id": str(alert.id), "classification": classified.code})
-        logger.warning(
-            "Alert check query failed",
-            alert_id=str(alert.id),
-            alert_name=alert.name,
-            team_id=alert.team_id,
-            error=str(e),
-            classification=classified.code,
-        )
+        if record_diagnostics:
+            capture_exception(e, {"alert_id": str(alert.id), "classification": classified.code})
+            logger.warning(
+                "Alert check query failed",
+                alert_id=str(alert.id),
+                alert_name=alert.name,
+                team_id=alert.team_id,
+                error=str(e),
+                classification=classified.code,
+            )
         check_result = CheckResult(
             result_count=None,
             threshold_breached=False,
@@ -1448,15 +1450,16 @@ def _evaluate_single_alert(
 
     # Eval-phase metrics: CH-side and scheduler lag. Save/dispatch metrics fire
     # later in their own phases.
-    with _safe_record_block("alert eval metrics", alert_id=str(alert.id)):
-        if check_result.query_duration_ms is not None:
-            record_clickhouse_duration(check_result.query_duration_ms)
-        if original_next_check_at is not None:
-            lag_ms = int((now - original_next_check_at).total_seconds() * 1000)
-            if lag_ms > 0:
-                record_scheduler_lag(lag_ms)
-        if error_category is not None:
-            increment_check_errors(error_category)
+    if record_diagnostics:
+        with _safe_record_block("alert eval metrics", alert_id=str(alert.id)):
+            if check_result.query_duration_ms is not None:
+                record_clickhouse_duration(check_result.query_duration_ms)
+            if original_next_check_at is not None:
+                lag_ms = int((now - original_next_check_at).total_seconds() * 1000)
+                if lag_ms > 0:
+                    record_scheduler_lag(lag_ms)
+            if error_category is not None:
+                increment_check_errors(error_category)
 
     return _AlertEvaluation(
         alert=alert,
