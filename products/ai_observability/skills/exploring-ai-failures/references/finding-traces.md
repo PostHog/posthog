@@ -48,7 +48,8 @@ same expression for any other candidate you add.
 Group by the best-covered one, and keep the unset rows visible so you see how much traffic it misses:
 
 ```sql
-SELECT coalesce(nullIf(toString(properties.$ai_product), ''), '(not set)') AS kind, count() AS n
+SELECT coalesce(nullIf(toString(properties.<best-covered property>), ''), '(not set)') AS kind,
+       count() AS n
 FROM events
 WHERE event = '$ai_generation' AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY kind ORDER BY n DESC
