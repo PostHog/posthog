@@ -216,6 +216,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             repo_id=_parse_uuid(pk),
             baseline_file_paths=body.baseline_file_paths,
             enable_pr_comments=body.enable_pr_comments,
+            debt_digest_enabled=body.debt_digest_enabled,
         )
 
         try:

@@ -47,6 +47,7 @@ export function MovingAverageIntervalsInput(): JSX.Element {
                         setLocalValue(numValue)
                         debouncedUpdate(numValue)
                     }}
+                    onBlur={() => debouncedUpdate.flush()}
                     min={2}
                     suffix={<span>{`${interval}s`}</span>}
                     step={1}

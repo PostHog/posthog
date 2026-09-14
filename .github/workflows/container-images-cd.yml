@@ -477,7 +477,7 @@ jobs:
               id: check_changes_general_purpose_temporal_worker
               run: |
                   # Changes to this detector must trigger once so newly covered code ships with the worker.
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/notebooks/backend/|^products/exports/backend/temporal/subscriptions|^products/engineering_analytics/backend/|^products/canvas/backend/|^posthog/llm/|^posthog/temporal/common|^posthog/temporal/dlq_replay|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/(ai_observability|llm_analytics)|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/delete_teams|^posthog/temporal/ingestion_acceptance_test|^posthog/temporal/backfill_group_type_created_at|^posthog/management/commands/start_temporal_worker.py$|^posthog/kafka_client/|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/' \
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/notebooks/backend/|^products/exports/backend/temporal/subscriptions|^products/engineering_analytics/backend/|^products/canvas/backend/|^posthog/llm/|^posthog/temporal/common|^posthog/temporal/dlq_replay|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/(ai_observability|llm_analytics)|^products/product_analytics/backend/temporal/|^posthog/temporal/delete_persons|^posthog/temporal/delete_teams|^posthog/temporal/ingestion_acceptance_test|^posthog/temporal/backfill_group_type_created_at|^posthog/temporal/backfill_materialized_property|^posthog/management/commands/start_temporal_worker.py$|^posthog/kafka_client/|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/' \
                       || git diff HEAD^ HEAD -- .github/workflows/container-images-cd.yml | grep -qE '^\+.*products/exports/backend/temporal/subscriptions'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
@@ -589,9 +589,9 @@ jobs:
                   fi
 
             - name: Install uv for dependency analysis
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              uses: ./.github/actions/setup-uv
               with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: false
 
             - name: Check for Python dependency changes that affect analytics platform temporal worker
               id: check_python_changes_analytics_platform_temporal_worker

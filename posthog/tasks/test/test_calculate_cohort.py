@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -103,7 +103,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
         def test_create_trends_cohort(self, _calculate_cohort_from_list: MagicMock) -> None:
             person_factory(team_id=self.team.pk, distinct_ids=["blabla"])
-            with freeze_time("2021-01-01 00:06:34"):
+            with time_machine.travel("2021-01-01 00:06:34", tick=False):
                 event_factory(
                     team=self.team,
                     event="$pageview",
@@ -112,7 +112,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                     timestamp="2021-01-01T12:00:00Z",
                 )
 
-            with freeze_time("2021-01-02 00:06:34"):
+            with time_machine.travel("2021-01-02 00:06:34", tick=False):
                 event_factory(
                     team=self.team,
                     event="$pageview",

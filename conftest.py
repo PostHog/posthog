@@ -1,8 +1,12 @@
 import gc
 import warnings
-import importlib
 
 import pytest
+import time_machine
+
+# The default MIXED mode reads naive strings as local time, so a non-UTC machine would
+# freeze at a different instant than CI does.
+time_machine.naive_mode = time_machine.NaiveMode.UTC  # ty: ignore[invalid-assignment]
 
 # Test-session boot — plugin imports and importing every collected test module —
 # allocates almost exclusively permanent objects, so automatic cyclic GC during that
@@ -204,53 +208,15 @@ def _cache_fixture_parent_nodeids() -> None:
     fixtures.FixtureManager._matchfactories = _matchfactories  # type: ignore[method-assign]
 
 
-def _cheapen_freezegun_module_hash() -> None:
-    # Every freeze_time().start() revalidates freezegun's per-module patch cache by
-    # hashing each loaded module's attribute list: hash(frozenset(dir(module))) across
-    # every module in sys.modules, per freeze. dir() sorts and materializes a list per
-    # module, so freeze-heavy suites pay seconds per run for it (2.25M hash calls in a
-    # profiled replay-listing run). tuple(module.__dict__) carries the same invalidation
-    # signal ~6x cheaper: every module attribute add/delete mutates __dict__ (dir() has
-    # no extra visibility for cache purposes — PEP 562 lazy attrs only materialize into
-    # __dict__ anyway), and both keys share the same blind spot (rebinding an existing
-    # name), so semantics are unchanged. Installed before any freeze so the cache never
-    # mixes hash schemes.
-    import types  # noqa: PLC0415 — deferred until pytest_configure
-
-    from freezegun import api  # noqa: PLC0415 — deferred until pytest_configure
-
-    def _fast_module_attributes_hash(module: types.ModuleType) -> str:
-        try:
-            keys_hash = hash(tuple(module.__dict__))
-        except (ImportError, TypeError, AttributeError):
-            keys_hash = 0
-        return f"{id(module)}-{keys_hash}"
-
-    _fast_module_attributes_hash.__wrapped__ = api._get_module_attributes_hash  # type: ignore[attr-defined]
-    api._get_module_attributes_hash = _fast_module_attributes_hash  # ty: ignore[invalid-assignment]
-
-
-def _warm_urlconf() -> None:
-    # The URLconf builds the API router lazily on the first request. Under freeze_time that
-    # build fails for any pydantic model whose base was imported before the freeze: the
-    # inherited datetime annotation no longer matches the rebound datetime.datetime.
-    from django.conf import settings  # noqa: PLC0415 — deferred until collection finishes
-
-    importlib.import_module(settings.ROOT_URLCONF)
-
-
 def pytest_configure(config) -> None:
     _cache_reverse_rel_identity()
     _cache_select_masks()
     _cache_drf_field_info()
     _cache_url_resolution()
     _cache_fixture_parent_nodeids()
-    _cheapen_freezegun_module_hash()
 
 
-def pytest_collection_finish(session) -> None:
-    if session.items and not session.config.option.collectonly:
-        _warm_urlconf()
+def pytest_collection_finish() -> None:
     _end_gc_boot_window()
 
 

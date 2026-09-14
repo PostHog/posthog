@@ -2,12 +2,13 @@ import { useValues } from 'kea'
 
 import { LemonCollapse, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { RelatedGroups } from 'scenes/groups/RelatedGroups'
-import { relatedGroupsLogic } from 'scenes/groups/relatedGroupsLogic'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 
 import { groupsModel } from '~/models/groupsModel'
 import { ActorType, Group, GroupActorType } from '~/types'
+
+import { RelatedGroups } from 'products/groups/frontend/components/RelatedGroups'
+import { relatedGroupsLogic } from 'products/groups/frontend/logics/relatedGroupsLogic'
 
 import { creationGroupLogic } from './creationGroupLogic'
 

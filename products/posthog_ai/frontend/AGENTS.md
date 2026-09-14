@@ -23,9 +23,9 @@ import rule, and copy-paste recipes live in the consumer-facing [`README.md`](./
 | **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts) |
 | **2 — Compound primitives**    | `api/primitives`                                    | `Thread` + atoms, `ThreadView`, `Composer.*`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question surfaces                  |
 | **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, status + thinking helpers; folded-thread + tool types                                                                                              |
-| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                            |
+| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                     |
 
-**Why the split, not one flat barrel:** the tool registry registers built-ins at module load — a top-level
+**Why the split, not one flat barrel:** the tool registry initializes from built-ins and the manifest at module load — a top-level
 side effect that is _not_ tree-shaken. A single barrel statically re-exports it alongside the
 markdown/virtualization-heavy thread and the headless logics, so a consumer wanting only
 `isTerminalRunStatus` for a status badge would drag the registry + presenters into its chunk. Isolating the
@@ -78,7 +78,7 @@ The headline exports per module:
   deliberate, mild deviation from the "no React" reading of this lane: they import `react` + `kea` but no
   components, so the lane stays registry- and presenter-free.
 - **`api/types`** — folded-thread + tool domain types, `AttachedContextItem`, `ToolStreamEvent` (pure types).
-- **`api/tools`** — **`toolRegistry`**, **`registerToolRenderers`** (the generic per-product seam, see §2),
+- **`api/tools`** — **`toolRegistry`**, **`ToolRegistryEntry`** (the declaration contract, see §2),
   `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, and the
   diff/exec helpers. Isolated here because importing it pulls the side-effectful registry chunk.
 
@@ -94,18 +94,24 @@ It must stay **free of the Max scene and conversation orchestration**. Do not im
 
 - `runStreamLogic` keys on a generic `streamKey` (conversation id for Max, run/task id for a task
   viewer). Keep it generic — no Max-specific branching.
-- **The PostHog product data-tool renderers live in this surface and self-register — via the generic seam.**
-  `api/tools` exposes `toolRegistry` and the convenience wrapper **`registerToolRenderers(entries)`**: the
-  generic per-product mechanism for plugging in cards that display PostHog entities. The data-tool widgets
-  (insights, dashboards, recordings, error-tracking issues, notebooks, query results) live in
-  `components/tool/widgets/` and register themselves via `widgets/registerDataToolRenderers`, which
-  `components/tool/ToolCallCard` side-effect-imports. Because that import sits at the render chokepoint,
-  **every consumer that renders a tool card — the `/tasks` runner, the signals inbox, and Max's sandbox
-  path — gets the widgets**, without the consumer having to opt in. The base `toolRegistry` module itself
-  stays product-free (built-ins, exec verbs, question card, generic MCP card, generic `EditDiffRenderer`);
-  the widgets carry no `scenes/max` import, so the grep gate below stays green. Max's frozen LangGraph path
-  is a _consumer_: it composes `VisualizationWidget` / `RecordingsWidget` / `ErrorTrackingFiltersWidget`
-  through `api/primitives`.
+- **Tool declarations load through the central manifest.** `frontend/src/posthogAiToolRenderers.ts` imports
+  lightweight product lists directly, with one import and spread per product. Insights, dashboards, recordings,
+  notebooks, and query widgets live in `components/tool/widgets/`; the frontend-root `posthogAiToolRenderers.tsx`
+  declares their keys, metadata, and lazy factories. Error tracking owns its widget family and declaration
+  list under `products/error_tracking/frontend/`; replay vision owns its scan widget and polling logic
+  under `products/replay_vision/frontend/posthogAi/`. Product adapters use the public `api/tools` contract
+  and shared helpers. Products may depend on shared frontend code; product internals stay with their owner.
+  CDP owns `products/cdp/frontend/posthogAiToolRenderers.tsx` and its lazy permission preview component.
+  Declaration modules use type-only contract imports from `api/tools`, never runtime facade imports,
+  scenes, or broad component barrels. The registry initializes once from built-ins and the manifest;
+  `toolRegistry.lookup` and `lookupToolRenderer` are synchronous. Runtime registration is not supported.
+  Every conversation, task, and inbox consumer sees the complete registry on its first render.
+  `PermissionPreview` takes `PermissionPreviewProps` (`request`, `fallback`) and returns fallback when
+  mounted state is unavailable, mismatched, or unchanged. It must not mount or fetch the product scene.
+  `PermissionInput` isolates lazy loading and rendering errors with evidence fallbacks; approval controls
+  remain outside both boundaries. The error boundary resets for a new permission request.
+  Max's frozen LangGraph path consumes `VisualizationWidget` and `RecordingsWidget` through
+  `api/primitives`, and the error-tracking and replay-vision widgets from their owning products.
 - If Max needs something the surface doesn't express generically, **lift it to a generic prop/selector here
   and have Max adapt** — never special-case Max in this directory. (The recordings "accept these filters"
   bar is one such lift: `RecordingsWidget` takes an optional `onAcceptFilters` prop; Max's LangGraph path
@@ -219,6 +225,7 @@ ingestion).
 ## 5. Layout
 
 ```text
+posthogAiToolRenderers.tsx # product declarations consumed by the central manifest
 api/                # public API facade — the contract (import api/<module>, never deep paths)
   readableRun.ts    #   Tier 1: ReadonlyRunSurface (lazy read-only embed)
   runSurface.ts     #   Tier 1: RunSurface compound (Root + slots, eager) for custom layouts
@@ -226,14 +233,14 @@ api/                # public API facade — the contract (import api/<module>, n
   primitives.ts     #   Tier 2: Composer, Thread + atoms, ThreadView, QueuedMessageList, presenters, perm/question
   logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, context store + hooks, tool-event bus (headless)
   types.ts          #   Tier 3: folded-thread + tool domain types, AttachedContextItem, ToolStreamEvent (pure types)
-  tools.ts          #   Tier 4: toolRegistry + registerToolRenderers seam (side-effectful — isolated)
+  tools.ts          #   Tier 4: lookup + declaration contract (registry isolated)
 components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); ReadonlyRunSurfaceImpl (prepackaged
                     #   read-only layout) + ReadonlyRunSurface (its lazy wrapper, replaces the old RunViewer.tsx);
                     #   RunLogSkeleton (shared loader), Thread, Composer, perm/question surfaces, activity, tool/;
                     #   AttachedContextProvider (render-null context injection wrapper)
   composer/         #   the Composer compound; AttachedContextBar (@-picker + context chips)
   tool/             #   tool registry + renderers (built-ins, generic MCP, EditDiffRenderer, diff/exec utils)
-    widgets/        #     PostHog product data-tool widgets (insight/dashboard/recordings/error-tracking/notebook/query) + registerDataToolRenderers
+    widgets/        #     PostHog product data-tool widgets (insight/dashboard/recordings/notebook/query)
 hooks/              # useAttachedContext, useToolStream — mount-scoped registration wrappers over the logics
 logics/             # runStreamLogic, runInteractionLogic, attachedContextLogic, contextPickerLogic, toolStreamEventsLogic;
                     #   tasksLogic/taskLogic data logics (+ *LogicType.ts)

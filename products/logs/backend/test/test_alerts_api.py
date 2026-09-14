@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -89,14 +89,14 @@ class TestLogsAlertAPI(APIBaseTest):
         assert mock_report.call_args.args[2]["alert_name"] == "High error rate"
         assert mock_report.call_args.args[2]["threshold_count"] == 10
 
-    @freeze_time("2026-01-01T23:00:00Z")
+    @time_machine.travel("2026-01-01T23:00:00Z", tick=False)
     def test_create_with_quiet_hours_defers_next_check(self):
         data = self._create_via_api(schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]})
 
         assert data["schedule_restriction"] == {"blocked_windows": [{"start": "22:00", "end": "07:00"}]}
         assert data["next_check_at"] == "2026-01-02T07:00:00Z"
 
-    @freeze_time("2026-01-01T23:00:00Z")
+    @time_machine.travel("2026-01-01T23:00:00Z", tick=False)
     def test_update_with_quiet_hours_defers_next_check(self):
         created = self._create_via_api()
 
@@ -110,13 +110,13 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["next_check_at"] == "2026-01-02T07:00:00Z"
 
     def test_enabling_alert_during_quiet_hours_defers_next_check(self):
-        with freeze_time("2026-01-01T16:00:00Z"):
+        with time_machine.travel("2026-01-01T16:00:00Z", tick=False):
             created = self._create_via_api(
                 schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]}
             )
             self.client.patch(f"{self.base_url}{created['id']}/", {"enabled": False}, format="json")
 
-        with freeze_time("2026-01-01T23:00:00Z"):
+        with time_machine.travel("2026-01-01T23:00:00Z", tick=False):
             response = self.client.patch(f"{self.base_url}{created['id']}/", {"enabled": True}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -1652,7 +1652,7 @@ class TestLogsAlertAPI(APIBaseTest):
         event.refresh_from_db()
         return event
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     def test_state_timeline_single_interval_for_empty_alert(self):
         created = self._create_via_api()
 
@@ -1669,7 +1669,7 @@ class TestLogsAlertAPI(APIBaseTest):
         # 24h span, ending at "now".
         assert (end - start) == timedelta(hours=24)
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     def test_state_timeline_splits_on_state_transitions(self):
         created = self._create_via_api()
         alert_id = created["id"]
@@ -1700,7 +1700,7 @@ class TestLogsAlertAPI(APIBaseTest):
             2025, 12, 16, 8, 30, tzinfo=UTC
         )
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     def test_state_timeline_collapses_same_state_checks(self):
         created = self._create_via_api()
         alert_id = created["id"]
@@ -1715,7 +1715,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert timeline[0]["state"] == "not_firing"
         assert timeline[0]["enabled"] is True
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     def test_state_timeline_tracks_enable_disable_toggles(self):
         created = self._create_via_api()
         alert_id = created["id"]
@@ -1741,7 +1741,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert [i["enabled"] for i in timeline] == [True, False, True]
         assert all(i["state"] == "not_firing" for i in timeline)
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     def test_state_timeline_seeds_enabled_from_pre_window_toggle(self):
         created = self._create_via_api()
         alert_id = created["id"]
@@ -1760,7 +1760,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert len(timeline) == 1
         assert timeline[0]["enabled"] is False
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     def test_state_timeline_excludes_events_older_than_24h(self):
         created = self._create_via_api()
         alert_id = created["id"]
@@ -1804,7 +1804,7 @@ class TestLogsAlertAPI(APIBaseTest):
         base = datetime(2025, 12, 16, 10, 0, tzinfo=UTC)
         return [BucketedCount(timestamp=base + timedelta(minutes=m), count=c) for m, c in offset_counts]
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_returns_response_shape(self, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 50), (5, 20)])
@@ -1822,7 +1822,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert "state" in bucket
         assert "notification" in bucket
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_fills_empty_minutes(self, mock_query_cls):
         # Two data points 10 minutes apart — should fill 5-min cadence gaps between them
@@ -1855,7 +1855,7 @@ class TestLogsAlertAPI(APIBaseTest):
             ),
         ]
     )
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_rolling_window(self, _name, buckets, payload_overrides, expected, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets(buckets)
@@ -1871,7 +1871,7 @@ class TestLogsAlertAPI(APIBaseTest):
         if "min_resolve_count" in expected:
             assert data["resolve_count"] >= expected["min_resolve_count"]
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_n_of_m_delays_firing(self, mock_query_cls):
         # window=5, 2-of-3 N-of-M. Cadence-spaced buckets at minute 0 and 5 each have
@@ -1899,7 +1899,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data_buckets[1]["state"] == "firing"
         assert data_buckets[1]["notification"] == "fire"
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_cooldown_suppresses_renotification(self, mock_query_cls):
         # window=5, cooldown=15 min. Two spikes 10 minutes apart: first fires at minute 0,
@@ -1926,7 +1926,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data_buckets[1]["notification"] == "none"
         assert data["fire_count"] == 1
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_empty_results(self, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = []
@@ -1962,7 +1962,7 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_echoes_threshold_config(self, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 10)])
@@ -1976,7 +1976,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["threshold_count"] == 42
         assert data["threshold_operator"] == "below"
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_rolling_window_excludes_current_bucket(self, mock_query_cls):
         # Regression test: the simulator's rolling sum at bucket time T must
@@ -2061,7 +2061,7 @@ class TestSimulateEvaluatorParity(ClickhouseTestMixin, APIBaseTest):
             ("c10_w30_m3", 10, 30, 3),
         ]
     )
-    @freeze_time("2025-12-16T11:30:00Z")
+    @time_machine.travel("2025-12-16T11:30:00Z", tick=False)
     def test_simulator_rolling_count_matches_evaluator_at_cadence_steps(
         self, _name: str, cadence: int, window: int, m: int
     ) -> None:
@@ -2197,10 +2197,8 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         start_nca: datetime,
         end_nca: datetime,
     ) -> list[tuple[datetime, str]]:
-        # Run the sync helpers directly rather than the async activities. The
-        # async path uses `database_sync_to_async_pool`, whose thread-pool
-        # dispatch loses freezegun's clock-patching for this lifecycle test.
-        # The async orchestration is covered by `test_logs_alerting_workflow.py`.
+        # Run the sync helpers directly rather than the async activities, whose
+        # orchestration is covered by `test_logs_alerting_workflow.py`.
         from products.logs.backend.temporal.activities import (
             _cohort_from_manifest,
             _discover_cohorts_sync,
@@ -2235,7 +2233,7 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
 
         nca = start_nca
         while nca <= end_nca:
-            with freeze_time(nca):
+            with time_machine.travel(nca, tick=False):
                 _one_cycle()
             nca += timedelta(minutes=alert.check_interval_minutes)
 
@@ -2350,7 +2348,7 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         start = self.BASE_TIME
         end = self.BASE_TIME + timedelta(minutes=110)
 
-        with freeze_time(end + timedelta(minutes=cadence)):
+        with time_machine.travel(end + timedelta(minutes=cadence), tick=False):
             sim_events = self._run_simulator(
                 filters={"serviceNames": [self.service]},
                 threshold=100,

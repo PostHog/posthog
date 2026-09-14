@@ -69,7 +69,7 @@ export const SlackChannelDestination: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/integrations/': () => [
+                '/api/projects/:team_id/integrations/': () => [
                     200,
                     { results: [{ id: 1, kind: 'slack', display_name: 'PostHog', config: {}, errors: null }] },
                 ],

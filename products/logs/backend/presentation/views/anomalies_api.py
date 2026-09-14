@@ -58,6 +58,13 @@ class LogsAnomalyVerdict(models.TextChoices):
 
 
 _VERDICT_CHOICES = list(LogsAnomalyVerdict.values)
+
+
+class LogsSeriesBandVerdict(models.TextChoices):
+    ABOVE = "above", "Above the band"
+    BELOW = "below", "Below the band"
+
+
 _TIER_CHOICES = ["a", "b", "c", "d"]
 _COARSENED_REASON_CHOICES = ["sparse", "quiet"]
 _CONSTRAINT_CHOICES = ["team_retention", "byte_budget"]
@@ -269,6 +276,14 @@ class LogsSeriesBandBucketSerializer(serializers.Serializer):
     upper = serializers.FloatField(
         allow_null=True,
         help_text="Upper edge of the expected band. Null while the series has too little history to band.",
+    )
+    verdict = serializers.ChoiceField(
+        choices=LogsSeriesBandVerdict.choices,
+        allow_null=True,
+        help_text=(
+            "Where the observed count sits against the band: above when it exceeds upper, below when it falls "
+            "under lower. Null while it sits inside the band, or while the band is not ready."
+        ),
     )
 
 

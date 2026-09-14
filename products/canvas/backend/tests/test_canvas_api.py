@@ -1,4 +1,5 @@
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -12,12 +13,14 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.models import Integration
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.annotations.backend.models.annotation import Annotation
@@ -25,6 +28,8 @@ from products.canvas.backend import activity_visibility, build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
+from products.tasks.backend.facade.access import DesktopAccessDecision
+from products.tasks.backend.facade.ai_run_defaults import update_team_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
 from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
 
@@ -922,6 +927,79 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         assert Canvas.objects.unscoped().get(id=canvas_id).legacy_code is None
 
 
+class TestCanvasViewEndpoint(CanvasAPIBaseTest):
+    def _view(self, canvas_id: str, **headers):
+        return self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/view/", **headers)
+
+    def _mark_published(self, canvas_id: str) -> CanvasBuild:
+        build = CanvasBuild.objects.unscoped().filter(canvas_id=canvas_id).first()
+        assert build is not None
+        build.status = CanvasBuild.STATUS_READY
+        build.artifact_object_prefix = f"canvas_artifact/team_{self.team.id}/{canvas_id}/{build.id}"
+        build.manifest = {
+            "entryHtml": "index.html",
+            "assets": [],
+            "dependencies": {},
+            "canvasSdkVersion": "0.1.0",
+            "capabilities": {},
+        }
+        build.save()
+        Canvas.objects.unscoped().filter(pk=canvas_id).update(published_build=build)
+        return build
+
+    def test_view_before_first_build_returns_source_and_active_build(self):
+        canvas_id = self._create_canvas()
+        self._publish(canvas_id, expected_current_version_id=None)
+        body = self._view(canvas_id).json()
+        assert body["canvas"]["id"] == canvas_id
+        assert body["published_build"] is None
+        assert body["has_active_build"] is True
+        assert "src/canvas.tsx" in body["source"]["files"]
+        assert body["layout"] is None
+
+    def test_view_after_build_returns_artifact_url_and_omits_source(self):
+        canvas_id = self._create_canvas()
+        self._publish(canvas_id, expected_current_version_id=None)
+        build = self._mark_published(canvas_id)
+        body = self._view(canvas_id).json()
+        assert body["published_build"]["id"] == str(build.id)
+        assert body["published_build"]["artifact_url"].endswith("/index.html")
+        assert body["source"] is None
+
+    def test_view_revalidates_with_etag(self):
+        canvas_id = self._create_canvas()
+        first = self._publish(canvas_id, expected_current_version_id=None)
+        response = self._view(canvas_id)
+        etag = response["ETag"]
+        assert self._view(canvas_id, HTTP_IF_NONE_MATCH=etag).status_code == status.HTTP_304_NOT_MODIFIED
+        # A new publish moves the head, so the cached payload is no longer current.
+        self._publish(
+            canvas_id,
+            self._project("export default function C() { return 2 }"),
+            expected_current_version_id=first.json()["current_version_id"],
+        )
+        assert self._view(canvas_id, HTTP_IF_NONE_MATCH=etag).status_code == status.HTTP_200_OK
+
+    def test_view_of_grid_returns_layout(self):
+        canvas_id = self._create_canvas(kind="grid")
+        body = self._view(canvas_id).json()
+        assert body["layout"]["placements"] == []
+        assert body["component_lifecycles"] == []
+        assert body["source"] is None
+
+    def test_view_survives_storage_outage_without_caching_the_degraded_payload(self):
+        canvas_id = self._create_canvas()
+        self._publish(canvas_id, expected_current_version_id=None)
+        with patch.object(build_service, "current_source_project", side_effect=ObjectStorageError("down")):
+            response = self._view(canvas_id)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["source"] is None
+        # No validator on a degraded payload: a later revalidation must not
+        # 304-pin the missing source after storage recovers.
+        assert not response.headers.get("ETag")
+        assert response["Cache-Control"] == "private, no-store"
+
+
 class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):
     def _published_canvas(self) -> tuple[str, str, str]:
         canvas_id = self._create_canvas()
@@ -1012,6 +1090,48 @@ class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert str(historical.id) in {build["id"] for build in response.json()["builds"]}
+
+    def test_builds_slim_scope_drops_stale_history_but_keeps_render_state(self):
+        canvas_id, v1, v2 = self._published_canvas()
+        published = CanvasBuild.objects.unscoped().get(canvas_id=canvas_id, source_version_id=v1)
+        published.status = CanvasBuild.STATUS_READY
+        published.save(update_fields=["status"])
+        Canvas.objects.unscoped().filter(pk=canvas_id).update(published_build=published)
+        # Stale history: failed builds of the old (non-head) version.
+        with team_scope(self.team.id):
+            stale_ids = [
+                str(
+                    CanvasBuild.objects.create(
+                        team_id=self.team.id,
+                        canvas_id=canvas_id,
+                        source_version_id=v1,
+                        status=CanvasBuild.STATUS_FAILED,
+                    ).id
+                )
+                for _ in range(3)
+            ]
+
+        slim = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/?scope=slim").json()
+        slim_ids = {build["id"] for build in slim["builds"]}
+        assert str(published.id) in slim_ids
+        # The head version's queued build stays because its outcome is what the author watches.
+        head_build = CanvasBuild.objects.unscoped().get(canvas_id=canvas_id, source_version_id=v2)
+        assert str(head_build.id) in slim_ids
+        assert not slim_ids.intersection(stale_ids)
+
+        full = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/").json()
+        assert set(stale_ids).issubset({build["id"] for build in full["builds"]})
+
+    def test_builds_etag_revalidation(self):
+        canvas_id, _, v2 = self._published_canvas()
+        url = f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/"
+        etag = self.client.get(url)["ETag"]
+        assert self.client.get(url, HTTP_IF_NONE_MATCH=etag).status_code == status.HTTP_304_NOT_MODIFIED
+        with team_scope(self.team.id):
+            CanvasBuild.objects.create(
+                team_id=self.team.id, canvas_id=canvas_id, source_version_id=v2, status=CanvasBuild.STATUS_FAILED
+            )
+        assert self.client.get(url, HTTP_IF_NONE_MATCH=etag).status_code == status.HTTP_200_OK
 
     def test_build_with_pruned_artifacts_advertises_no_url(self):
         canvas_id, v1, _ = self._published_canvas()
@@ -1929,12 +2049,13 @@ class TestCanvasActions(CanvasAPIBaseTest):
     @parameterized.expand(
         [
             # canvas:write alone is not consent to write other resources.
-            ("canvas_scope_only", ["canvas:write"], status.HTTP_403_FORBIDDEN),
-            ("target_scope_held", ["canvas:write", "task:write"], status.HTTP_200_OK),
+            ("canvas_scope_only", "tasks.create", ["canvas:write"], status.HTTP_403_FORBIDDEN),
+            ("target_scope_held", "tasks.create", ["canvas:write", "task:write"], status.HTTP_200_OK),
+            ("cloud_canvas_scope_only", "tasks.create_and_run", ["canvas:write"], status.HTTP_403_FORBIDDEN),
         ]
     )
-    def test_scoped_keys_need_the_verbs_target_scope(self, _name, scopes, expected_status):
-        canvas_id = self._actions_canvas()
+    def test_scoped_keys_need_the_verbs_target_scope(self, _name, verb, scopes, expected_status):
+        canvas_id = self._actions_canvas(verbs=(verb,))
         raw_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="canvas-actions", user=self.user, secure_value=hash_key_value(raw_key), scopes=scopes
@@ -1943,7 +2064,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/actions/invoke/",
-            {"verb": "tasks.create", "payload": {"title": "Scoped", "description": ""}},
+            {"verb": verb, "payload": {"title": "Scoped", "description": "", "idempotency_key": str(uuid4())}},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {raw_key}",
         )
@@ -1971,6 +2092,91 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert task.created_by_id == self.user.id
         assert task.channel_id == self.channel.id
         assert task.title == "Follow up"
+        assert not task.runs.exists()
+
+    @parameterized.expand([("without_repository", []), ("space_repositories", ["example/app", "example/api"])])
+    def test_cloud_task_uses_space_and_viewer_defaults_once(self, _name: str, repositories: list[str]) -> None:
+        canvas_id = self._actions_canvas(verbs=("tasks.create_and_run",))
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        self.channel.repositories = repositories
+        self.channel.github_integration = integration
+        self.channel.save(update_fields=["repositories", "github_integration"])
+        viewer = User.objects.create_and_join(self.organization, "viewer@example.com", None)
+        update_team_ai_run_preferences(
+            self.team.id,
+            runtime_adapter="claude",
+            model="claude-opus-4-8",
+            reasoning_effort="high",
+        )
+        update_user_ai_run_preferences(
+            self.team.id,
+            viewer.id,
+            runtime_adapter="codex",
+            model="gpt-5.5",
+            reasoning_effort="medium",
+        )
+        self.client.force_login(viewer)
+        payload = {
+            "title": "Review the signup flow",
+            "description": "Check the empty state.",
+            "idempotency_key": str(uuid4()),
+        }
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+                return_value=DesktopAccessDecision.ALLOWED,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None
+            ) as usage,
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as dispatch,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self._invoke(canvas_id, "tasks.create_and_run", payload)
+            usage.return_value = SimpleNamespace(is_rate_limited=True, limit_type="burst", reset_at=None, is_pro=False)
+            retry = self._invoke(canvas_id, "tasks.create_and_run", payload)
+            new_request = self._invoke(canvas_id, "tasks.create_and_run", {**payload, "idempotency_key": str(uuid4())})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert retry.status_code == status.HTTP_200_OK, retry.json()
+        assert response.json()["result"] == retry.json()["result"]
+        assert new_request.status_code == status.HTTP_429_TOO_MANY_REQUESTS, new_request.json()
+        task = Task.objects.get(id=response.json()["result"]["task_id"])
+        run = task.runs.get(id=response.json()["result"]["run_id"])
+        assert task.created_by_id == viewer.id
+        assert task.channel_id == self.channel.id
+        assert task.repositories == repositories
+        assert task.github_integration_id == integration.id
+        assert run.environment == TaskRun.Environment.CLOUD
+        assert run.state["model"] == "gpt-5.5"
+        assert run.state["runtime_adapter"] == "codex"
+        assert run.state["reasoning_effort"] == "medium"
+        assert task.runs.count() == 1
+        dispatch.assert_called_once()
+
+    @parameterized.expand([("access_denied", False, False, 403), ("usage_limited", True, True, 429)])
+    def test_cloud_task_checks_access_and_usage_before_creating_work(
+        self, _name: str, allowed: bool, limited: bool, expected_status: int
+    ) -> None:
+        canvas_id = self._actions_canvas(verbs=("tasks.create_and_run",))
+        usage = SimpleNamespace(
+            is_rate_limited=limited, limit_type="burst" if limited else None, reset_at=None, is_pro=False
+        )
+        with (
+            patch(
+                "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+                return_value=DesktopAccessDecision.ALLOWED if allowed else DesktopAccessDecision.STARTUP_PLAN,
+            ),
+            patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=usage),
+        ):
+            response = self._invoke(
+                canvas_id, "tasks.create_and_run", {"title": "Review", "idempotency_key": str(uuid4())}
+            )
+
+        assert response.status_code == expected_status, response.json()
+        assert not Task.objects.exists()
+        assert not TaskRun.objects.exists()
 
     def test_annotations_create_attributes_the_viewer(self):
         canvas_id = self._actions_canvas()
@@ -1991,9 +2197,12 @@ class TestCanvasActions(CanvasAPIBaseTest):
 
         undeclared = self._invoke(canvas_id, "annotations.create", {"content": "x"})
         unknown = self._invoke(canvas_id, "flags.delete", {})
+        cloud = self._invoke(canvas_id, "tasks.create_and_run", {"title": "Review", "idempotency_key": str(uuid4())})
 
         assert undeclared.status_code == status.HTTP_403_FORBIDDEN
         assert unknown.status_code == status.HTTP_400_BAD_REQUEST
+        assert cloud.status_code == status.HTTP_403_FORBIDDEN
+        assert not Task.objects.exists()
         assert Annotation.objects.count() == 0
 
     def test_kill_switch_refuses_every_verb(self):

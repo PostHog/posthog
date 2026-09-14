@@ -18,9 +18,9 @@ products.web_analytics.backend.hogql_queries so that changes to bot data do not 
 a HogQL review.
 
 A project can extend the built-in list with its own rules, which arrive as query modifiers. Each
-rule matches one event property, so the rules are checked as an ordered chain ahead of the
-built-ins rather than merged into the built-in pattern array. A project's own rule wins when both
-match.
+rule combines one or more single-property conditions, so the rules are checked as an ordered chain
+ahead of the built-ins rather than merged into the built-in pattern array. A project's own rule
+wins when both match.
 """
 
 from typing import TYPE_CHECKING, Optional
@@ -39,8 +39,11 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     IP_FIELD,
     NUMERIC_FIELDS,
     USER_AGENT_FIELD,
+    CidrCondition,
     CidrGroup,
+    CompositeGroup,
     CustomBotGroup,
+    PatternCondition,
     compile_definitions,
 )
 
@@ -55,11 +58,12 @@ def _custom_groups(modifiers: Optional["HogQLQueryModifiers"]) -> list[CustomBot
 
 
 def has_user_agent_rule(modifiers: Optional["HogQLQueryModifiers"]) -> bool:
-    """Whether the project has a rule on the user agent — the only rule kind that makes the one-arg
-    isLikelyBot expansion reference its argument twice (see the resolver's re-entrancy guard)."""
+    """Whether the project has a condition on the user agent — the only condition kind that makes
+    the one-arg isLikelyBot expansion reference its argument twice (see the resolver's re-entrancy
+    guard)."""
     if modifiers is None or not modifiers.customBotDefinitions:
         return False
-    return any(definition.key == USER_AGENT_FIELD for definition in modifiers.customBotDefinitions)
+    return any(item.key == USER_AGENT_FIELD for rule in modifiers.customBotDefinitions for item in rule.items)
 
 
 def _string_array(values: list[str]) -> ast.Array:
@@ -105,7 +109,53 @@ class CustomRuleBranch:
     label: ast.Expr
 
 
+def _safe_pattern_property(key: str, property_expr: ast.Expr) -> ast.Expr:
+    # A numeric property (screen width/height) reaches hyperscan as a string, so a pattern like
+    # "800" matches the value 800. String properties skip the cast.
+    matched_property = ast.Call(name="toString", args=[property_expr]) if key in NUMERIC_FIELDS else property_expr
+    return ast.Call(name="ifNull", args=[matched_property, ast.Constant(value="")])
+
+
+def _condition_expr(condition: PatternCondition | CidrCondition, property_expr: ast.Expr) -> ast.Expr:
+    if isinstance(condition, CidrCondition):
+        return _ip_group_match(_safe_ip_expr(property_expr), condition.prefixlen, (condition.network,))
+    # The same hyperscan family as the grouped rules, so the save-time compile probe covers this
+    # pattern too.
+    return ast.Call(
+        name="multiMatchAny",
+        args=[_safe_pattern_property(condition.key, property_expr), _string_array([condition.pattern])],
+    )
+
+
+def _composite_branch(group: CompositeGroup, args: list[ast.Expr], attr: str) -> Optional[CustomRuleBranch]:
+    condition_exprs: list[ast.Expr] = []
+    for condition in group.conditions:
+        property_expr = _property_expr(condition.key, args)
+        if property_expr is None:
+            # For AND, one unreachable property makes the rule unanswerable as written, so skip
+            # the whole rule rather than evaluate a partial version that could over-match. For OR,
+            # a reachable condition matching means the full rule would match too, so evaluating
+            # the reachable subset never over-matches and drops fewer events than skipping.
+            if group.combiner != "OR":
+                return None
+            continue
+        condition_exprs.append(_condition_expr(condition, property_expr))
+    if not condition_exprs:
+        return None
+    matched: ast.Expr
+    if len(condition_exprs) == 1:
+        matched = condition_exprs[0]
+    elif group.combiner == "OR":
+        matched = ast.Or(exprs=condition_exprs)
+    else:
+        matched = ast.And(exprs=condition_exprs)
+    return CustomRuleBranch(matched=matched, label=ast.Constant(value=getattr(group.definition, attr)))
+
+
 def _custom_group_branch(group: CustomBotGroup, args: list[ast.Expr], attr: str) -> Optional[CustomRuleBranch]:
+    if isinstance(group, CompositeGroup):
+        return _composite_branch(group, args, attr)
+
     property_expr = _property_expr(group.key, args)
     if property_expr is None:
         return None
@@ -119,12 +169,7 @@ def _custom_group_branch(group: CustomBotGroup, args: list[ast.Expr], attr: str)
         multi_if_args.append(ast.Constant(value=0))
         index_call: ast.Expr = ast.Call(name="multiIf", args=multi_if_args)
     else:
-        # A numeric property (screen width/height) reaches multiMatchAllIndices as a string, so
-        # a rule pattern like "800" matches the value 800. String properties skip the cast.
-        matched_property = (
-            ast.Call(name="toString", args=[property_expr]) if group.key in NUMERIC_FIELDS else property_expr
-        )
-        safe_property = ast.Call(name="ifNull", args=[matched_property, ast.Constant(value="")])
+        safe_property = _safe_pattern_property(group.key, property_expr)
         # arrayMin over ALL matching patterns, not multiMatchAnyIndex: when two of a project's own
         # rules match the same value, the one listed first wins. multiMatchAnyIndex would report
         # whichever pattern matches earliest in the string, so a specific rule listed above a broad

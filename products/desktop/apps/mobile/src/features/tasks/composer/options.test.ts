@@ -45,8 +45,8 @@ describe("mobile composer options", () => {
         { value: "claude-sonnet-5", name: "Claude Sonnet 5" },
         { value: "claude-opus-5", name: "Claude Opus 5" },
         {
-          value: "claude-fable-5",
-          name: "Claude Fable 5",
+          value: "claude-fable-5-1",
+          name: "Claude Fable 5.1",
           _meta: restrictedModelMeta(),
         },
       ],

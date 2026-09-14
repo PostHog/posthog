@@ -218,6 +218,49 @@ async function streamLiveText(
 }
 
 describe("assembled assistant text fallback", () => {
+  it.each([false, true])(
+    "preserves the MCP result metadata in ACP and stored notifications (isError=%s)",
+    async (isError) => {
+      const { context, updates } = createHandlerContext();
+      context.toolUseCache.toolu_query = {
+        type: "tool_use",
+        id: "toolu_query",
+        name: "mcp__posthog__exec",
+        input: {},
+      };
+      const rawResult = {
+        content: [{ type: "text", text: "3 rows" }],
+        _meta: {
+          "com.posthog.mcp/app_data": { query: { kind: "TrendsQuery" } },
+        },
+      };
+      await handleUserAssistantMessage(
+        {
+          type: "user",
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_query",
+                content: rawResult.content,
+                is_error: isError,
+              },
+            ],
+          },
+          tool_use_result: rawResult,
+        } as SDKUserMessage,
+        context,
+      );
+
+      expect(updates[0].update).toMatchObject({
+        sessionUpdate: "tool_call_update",
+        rawOutput: { ...rawResult, isError },
+      });
+      expect(context.session.notificationHistory).toEqual(updates);
+    },
+  );
+
   it("forwards assembled text that never streamed", async () => {
     const { context, updates } = createHandlerContext();
     await handleUserAssistantMessage(

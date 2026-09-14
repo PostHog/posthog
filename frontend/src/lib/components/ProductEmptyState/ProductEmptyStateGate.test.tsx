@@ -1,7 +1,9 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -11,7 +13,7 @@ import { initKeaTests } from '~/test/init'
 
 import { ProductEmptyStateGate } from './ProductEmptyStateGate'
 import { productSetupStatusLogic } from './productSetupStatusLogic'
-import type { ProductEmptyStateConfig, SceneProductEmptyState } from './types'
+import type { ProductEmptyStateConfig, ProductSetupStatus, SceneProductEmptyState } from './types'
 
 const config: ProductEmptyStateConfig = {
     productKey: ProductKey.EXPERIMENTS,
@@ -54,6 +56,61 @@ describe('ProductEmptyStateGate', () => {
 
     afterEach(() => cleanup())
 
+    it.each<ProductSetupStatus>(['loading', 'needs-setup', 'waiting-for-data'])(
+        'bypasses %s only while the configured flag is enabled',
+        (status) => {
+            const setup = productSetupStatusLogic({ productKey: ProductKey.EXPERIMENTS })
+            setup.actions.setDetectedStatus('loading')
+            setup.actions.setDetectedStatus(status)
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
+            const { rerender } = render(
+                <ProductEmptyStateGate
+                    emptyState={{ ...emptyState, bypassFeatureFlag: FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD }}
+                >
+                    <div>the real scene</div>
+                </ProductEmptyStateGate>
+            )
+            expect(screen.getByText('the real scene')).not.toBeNull()
+            expect(noopStatusLogic.findMounted()).toBeNull()
+            expect(setup.values.skipped).toBe(false)
+            expect(setup.values.status).toBe(status)
+            act(() => featureFlagLogic.actions.setFeatureFlags([], {}))
+            expect(screen.queryByText('the real scene')).toBeNull()
+            expect(noopStatusLogic.findMounted()).not.toBeNull()
+            expect(setup.values.skipped).toBe(false)
+            act(() =>
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                })
+            )
+            rerender(
+                <ProductEmptyStateGate emptyState={emptyState}>
+                    <div>the real scene</div>
+                </ProductEmptyStateGate>
+            )
+            expect(screen.queryByText('the real scene')).toBeNull()
+        }
+    )
+
+    it('waits for the bypass flag before mounting detection', () => {
+        productSetupStatusLogic({ productKey: ProductKey.EXPERIMENTS }).actions.setDetectedStatus('needs-setup')
+        render(
+            <ProductEmptyStateGate
+                emptyState={{ ...emptyState, bypassFeatureFlag: FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD }}
+            >
+                <div>the real scene</div>
+            </ProductEmptyStateGate>
+        )
+        expect(noopStatusLogic.findMounted()).toBeNull()
+        expect(screen.queryByText('Set up experiments')).toBeNull()
+        expect(screen.queryByText('the real scene')).toBeNull()
+        act(() =>
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
+        )
+        expect(screen.getByText('the real scene')).not.toBeNull()
+        expect(noopStatusLogic.findMounted()).toBeNull()
+    })
+
     // `?empty_state` exists so anyone can review the setup screen on a project that already
     // has data. Matching it too loosely would hide a real scene from a normal URL, so the
     // off cases matter as much as the on ones.
@@ -64,10 +121,13 @@ describe('ProductEmptyStateGate', () => {
         ['?empty_state=0', false],
         ['', false],
     ])('renders the setup screen for %s: %s', (search, expectedForced) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
         router.actions.push(`/experiments${search}`)
 
         render(
-            <ProductEmptyStateGate emptyState={emptyState}>
+            <ProductEmptyStateGate
+                emptyState={{ ...emptyState, bypassFeatureFlag: FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD }}
+            >
                 <div>the real scene</div>
             </ProductEmptyStateGate>
         )

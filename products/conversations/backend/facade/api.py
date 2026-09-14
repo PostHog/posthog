@@ -9,10 +9,12 @@ team's Slack credentials directly.
 import asyncio
 from datetime import datetime
 from typing import Any, Protocol, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models import CharField, Exists, F, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models.functions import Cast
 
 import structlog
 from slack_sdk.errors import SlackApiError
@@ -36,6 +38,8 @@ from products.conversations.backend.facade.types import (
     EmailThreadAddress as EmailThreadAddress,
     EmailThreadForAccountMatching as EmailThreadForAccountMatching,
     EmailThreadParticipantSummary as EmailThreadParticipantSummary,
+    PublicHumanReplies as PublicHumanReplies,
+    ResolvedTicketRevision as ResolvedTicketRevision,
     SupportChannel as SupportChannel,
     SupportTicketMessage as SupportTicketMessage,
     TicketSummary as TicketSummary,
@@ -47,8 +51,10 @@ from products.conversations.backend.models import (
     EmailThreadMessage,
     EmailThreadParticipant,
     EmailThreadParticipantKind,
+    Status,
     Ticket,
 )
+from products.conversations.backend.services.messages import public_human_ticket_replies
 from products.conversations.backend.slack import get_slack_client
 from products.conversations.backend.support_slack import get_support_slack_bot_token
 from products.conversations.backend.support_slack_channels import (
@@ -471,6 +477,107 @@ def list_account_ticket_messages(
             )
         )
     return messages, count
+
+
+def _comment_team_ids(team: Team) -> set[int]:
+    # Comments are RootTeamMixin, so save() stores them on the parent. Tickets stay on the environment.
+    team_ids = {team.id}
+    if team.parent_team_id:
+        team_ids.add(team.parent_team_id)
+    return team_ids
+
+
+def _support_learning_team(team_id: int) -> Team | None:
+    team = Team.objects.filter(id=team_id).only("id", "conversations_enabled", "parent_team_id").first()
+    if team is None or team.conversations_enabled is not True:
+        return None
+    return team
+
+
+def list_resolved_ticket_revisions(
+    team_id: int,
+    *,
+    since: datetime,
+    limit: int,
+) -> list[ResolvedTicketRevision]:
+    if limit <= 0:
+        return []
+    team = _support_learning_team(team_id)
+    if team is None:
+        return []
+
+    comment_team_ids = _comment_team_ids(team)
+    has_public_human_reply = public_human_ticket_replies(comment_team_ids).filter(
+        item_id=Cast(OuterRef("id"), output_field=CharField()),
+    )
+    tickets = list(
+        Ticket.objects.filter(
+            team_id=team.id,
+            status=Status.RESOLVED,
+        )
+        .filter(Q(updated_at__gte=since) | Q(last_message_at__gte=since))
+        .filter(Exists(has_public_human_reply))
+        .order_by("-updated_at", "-id")[:limit]
+    )
+    if not tickets:
+        return []
+
+    latest_by_item = {
+        comment.item_id: comment
+        for comment in public_human_ticket_replies(comment_team_ids, [str(ticket.id) for ticket in tickets])
+        .order_by("item_id", "-created_at", "-id")
+        .distinct("item_id")
+        .only("id", "item_id")
+    }
+    revisions: list[ResolvedTicketRevision] = []
+    for ticket in tickets:
+        resolution_comment = latest_by_item.get(str(ticket.id))
+        if resolution_comment is None:
+            continue
+        revisions.append(
+            ResolvedTicketRevision(
+                ticket_id=ticket.id,
+                ticket_number=ticket.ticket_number,
+                resolution_comment_id=resolution_comment.id,
+                source_team_id=ticket.team_id,
+                display_label=f"ticket #{ticket.ticket_number}",
+                deep_link=f"{settings.SITE_URL}/project/{ticket.team_id}/support/tickets/{ticket.ticket_number}",
+            )
+        )
+    return revisions
+
+
+def get_public_human_replies(
+    team_id: int,
+    ticket_id: UUID,
+    *,
+    resolution_comment_id: UUID | None = None,
+) -> PublicHumanReplies | None:
+    team = _support_learning_team(team_id)
+    if team is None:
+        return None
+    if not Ticket.objects.filter(team_id=team.id, id=ticket_id).exists():
+        return None
+
+    replies: list[str] = []
+    found_resolution = resolution_comment_id is None
+    comments = (
+        public_human_ticket_replies(_comment_team_ids(team), [str(ticket_id)])
+        .order_by("created_at", "id")
+        .only("id", "content")
+    )
+    for comment in comments:
+        content = comment.content or ""
+        if not content.strip():
+            continue
+        replies.append(content)
+        if resolution_comment_id is not None and comment.id == resolution_comment_id:
+            # A later public human reply is a new revision under a new evidence key.
+            found_resolution = True
+            break
+    if not found_resolution or not replies:
+        return None
+    return PublicHumanReplies(replies=tuple(replies))
 
 
 def resolve_group_keys_by_email(

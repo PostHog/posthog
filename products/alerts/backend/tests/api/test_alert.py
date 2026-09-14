@@ -2,7 +2,7 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
@@ -1151,6 +1151,41 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "alert name",
                 True,
             ),
+            (
+                "unchanged_interval_preserves_schedule",
+                {"calculation_interval": "weekly"},
+                status.HTTP_200_OK,
+                "weekly",
+                "alert name",
+                False,
+            ),
+            (
+                "condition_change_resets_schedule",
+                {
+                    "condition": {"type": AlertConditionType.RELATIVE_INCREASE},
+                    "threshold": {"configuration": {"type": InsightThresholdType.PERCENTAGE, "bounds": {"upper": 100}}},
+                },
+                status.HTTP_200_OK,
+                "weekly",
+                "alert name",
+                True,
+            ),
+            (
+                "config_change_resets_schedule",
+                {"config": {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True}},
+                status.HTTP_200_OK,
+                "weekly",
+                "alert name",
+                True,
+            ),
+            (
+                "skip_weekend_change_resets_schedule",
+                {"skip_weekend": True},
+                status.HTTP_200_OK,
+                "weekly",
+                "alert name",
+                True,
+            ),
         ]
     )
     def test_patch_calculation_interval(
@@ -1171,6 +1206,12 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "name": "alert name",
             "calculation_interval": "weekly",
         }
+        if "condition" in patch_payload:
+            time_series_insight_data = deepcopy(self.default_insight_data)
+            time_series_insight_data["query"]["trendsFilter"] = {"display": "ActionsLineGraph"}
+            creation_request["insight"] = self.client.post(
+                f"/api/projects/{self.team.id}/insights", data=time_series_insight_data
+            ).json()["id"]
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
         assert alert["calculation_interval"] == "weekly"
         scheduled_check = datetime(2027, 1, 1, tzinfo=UTC)
@@ -1187,7 +1228,11 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             assert response.json()["name"] == expected_name
 
         persisted_alert = AlertConfiguration.objects.get(id=alert["id"])
-        assert persisted_alert.next_check_at == (None if clears_next_check else scheduled_check)
+        if clears_next_check:
+            assert persisted_alert.next_check_at is not None
+            assert persisted_alert.next_check_at <= datetime.now(UTC)
+        else:
+            assert persisted_alert.next_check_at == scheduled_check
 
     @parameterized.expand(
         [
@@ -1199,7 +1244,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             ("monthly", "monthly", "2026-04-01T09:35:00+00:00"),
         ]
     )
-    @freeze_time("2026-03-18T09:30:00Z")
+    @time_machine.travel("2026-03-18T09:30:00Z", tick=False)
     def test_create_alert_with_schedule_start_time(
         self, _name: str, calculation_interval: str, expected_next_check_at: str
     ) -> None:
@@ -1239,7 +1284,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             ("monthly", "monthly"),
         ]
     )
-    @freeze_time("2026-03-18T09:00:00Z")
+    @time_machine.travel("2026-03-18T09:00:00Z", tick=False)
     def test_patch_schedule_start_time_keeps_the_current_next_check(
         self, _name: str, calculation_interval: str
     ) -> None:
@@ -1275,7 +1320,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.json()["schedule_start_time"] == "08:35"
         assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == scheduled_check
 
-    @freeze_time("2026-03-18T09:00:00Z")
+    @time_machine.travel("2026-03-18T09:00:00Z", tick=False)
     def test_patch_schedule_start_time_with_schedule_restriction_keeps_the_current_next_check(self) -> None:
         alert = self.client.post(
             f"/api/projects/{self.team.id}/alerts",
@@ -1351,7 +1396,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "name": "snap next",
             "calculation_interval": "hourly",
         }
-        with freeze_time("2026-04-06T14:00:00Z"):
+        with time_machine.travel("2026-04-06T14:00:00Z", tick=False):
             alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request, format="json").json()
             AlertConfiguration.objects.filter(pk=alert["id"]).update(
                 next_check_at=datetime(2026, 4, 6, 15, 30, tzinfo=UTC),

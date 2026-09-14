@@ -388,7 +388,6 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/llm-gateway-cd.yml', DEPLOY],
     ['.github/workflows/publish-quill-npm.yml', DEPLOY],
     ['.github/workflows/publish-symbol-data-crate.yml', DEPLOY],
-    ['.github/workflows/clickhouse-udfs.yml', DEPLOY],
     // A scheduled mirror of the upstream Playwright image; no suite runs it.
     ['.github/workflows/ci-playwright-container.yml', DEPLOY],
     // The dev-environment checks: the flox boot check and the sandbox

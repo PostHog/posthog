@@ -26,6 +26,7 @@ import { Route as TasksTaskIdRouteImport } from './routes/tasks/$taskId'
 import { Route as ReportsReportIdRouteImport } from './routes/reports/$reportId'
 import { Route as LoopsNewRouteImport } from './routes/loops/new'
 import { Route as LoopsLoopIdRouteImport } from './routes/loops/$loopId'
+import { Route as InboxTriageRouteImport } from './routes/inbox/triage'
 import { Route as InboxRunsRouteImport } from './routes/inbox/runs'
 import { Route as InboxReportsRouteImport } from './routes/inbox/reports'
 import { Route as InboxPullsRouteImport } from './routes/inbox/pulls'
@@ -151,6 +152,11 @@ const LoopsLoopIdRoute = LoopsLoopIdRouteImport.update({
   id: '/loops/$loopId',
   path: '/loops/$loopId',
   getParentRoute: () => rootRouteImport,
+} as any)
+const InboxTriageRoute = InboxTriageRouteImport.update({
+  id: '/triage',
+  path: '/triage',
+  getParentRoute: () => InboxRoute,
 } as any)
 const InboxRunsRoute = InboxRunsRouteImport.update({
   id: '/runs',
@@ -389,6 +395,7 @@ export interface FileRoutesByFullPath {
   '/inbox/pulls': typeof InboxPullsRouteWithChildren
   '/inbox/reports': typeof InboxReportsRouteWithChildren
   '/inbox/runs': typeof InboxRunsRouteWithChildren
+  '/inbox/triage': typeof InboxTriageRoute
   '/loops/$loopId': typeof LoopsLoopIdRouteWithChildren
   '/loops/new': typeof LoopsNewRoute
   '/reports/$reportId': typeof ReportsReportIdRoute
@@ -442,6 +449,7 @@ export interface FileRoutesByTo {
   '/code/$': typeof CodeSplatRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
   '/inbox/agents': typeof InboxAgentsRoute
+  '/inbox/triage': typeof InboxTriageRoute
   '/loops/new': typeof LoopsNewRoute
   '/reports/$reportId': typeof ReportsReportIdRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
@@ -502,6 +510,7 @@ export interface FileRoutesById {
   '/inbox/pulls': typeof InboxPullsRouteWithChildren
   '/inbox/reports': typeof InboxReportsRouteWithChildren
   '/inbox/runs': typeof InboxRunsRouteWithChildren
+  '/inbox/triage': typeof InboxTriageRoute
   '/loops/$loopId': typeof LoopsLoopIdRouteWithChildren
   '/loops/new': typeof LoopsNewRoute
   '/reports/$reportId': typeof ReportsReportIdRoute
@@ -564,6 +573,7 @@ export interface FileRouteTypes {
     | '/inbox/pulls'
     | '/inbox/reports'
     | '/inbox/runs'
+    | '/inbox/triage'
     | '/loops/$loopId'
     | '/loops/new'
     | '/reports/$reportId'
@@ -617,6 +627,7 @@ export interface FileRouteTypes {
     | '/code/$'
     | '/folders/$folderId'
     | '/inbox/agents'
+    | '/inbox/triage'
     | '/loops/new'
     | '/reports/$reportId'
     | '/tasks/$taskId'
@@ -676,6 +687,7 @@ export interface FileRouteTypes {
     | '/inbox/pulls'
     | '/inbox/reports'
     | '/inbox/runs'
+    | '/inbox/triage'
     | '/loops/$loopId'
     | '/loops/new'
     | '/reports/$reportId'
@@ -857,6 +869,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/loops/$loopId'
       preLoaderRoute: typeof LoopsLoopIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/inbox/triage': {
+      id: '/inbox/triage'
+      path: '/triage'
+      fullPath: '/inbox/triage'
+      preLoaderRoute: typeof InboxTriageRouteImport
+      parentRoute: typeof InboxRoute
     }
     '/inbox/runs': {
       id: '/inbox/runs'
@@ -1268,6 +1287,7 @@ interface InboxRouteChildren {
   InboxPullsRoute: typeof InboxPullsRouteWithChildren
   InboxReportsRoute: typeof InboxReportsRouteWithChildren
   InboxRunsRoute: typeof InboxRunsRouteWithChildren
+  InboxTriageRoute: typeof InboxTriageRoute
   InboxIndexRoute: typeof InboxIndexRoute
 }
 
@@ -1277,6 +1297,7 @@ const InboxRouteChildren: InboxRouteChildren = {
   InboxPullsRoute: InboxPullsRouteWithChildren,
   InboxReportsRoute: InboxReportsRouteWithChildren,
   InboxRunsRoute: InboxRunsRouteWithChildren,
+  InboxTriageRoute: InboxTriageRoute,
   InboxIndexRoute: InboxIndexRoute,
 }
 

@@ -218,6 +218,69 @@ class TestProductModelLabels:
         assert own == []
 
 
+class TestBaselineRatchet:
+    LINE_A = "alerts.AlertConfiguration posthog.api.a instance-many(all) 1"
+    LINE_B = "alerts.AlertConfiguration posthog.api.b instance-many(all) 1"
+
+    @staticmethod
+    def _use(consumer: str, count: int = 1) -> crossings.CrossingUse:
+        return crossings.CrossingUse("alerts.AlertConfiguration", consumer, "instance-many(all)", count)
+
+    def _recorded(self, tmp_path: Path, *consumers: str) -> Path:
+        path = tmp_path / "baseline.txt"
+        crossings.write_baseline([self._use(consumer) for consumer in consumers], path)
+        return path
+
+    def test_a_line_the_file_does_not_hold_is_refused(self, tmp_path: Path) -> None:
+        path = self._recorded(tmp_path, "posthog.api.a")
+        before = path.read_text()
+        with pytest.raises(crossings.BaselineWouldGrow) as refusal:
+            crossings.write_baseline([self._use("posthog.api.a"), self._use("posthog.api.b")], path)
+        assert refusal.value.added == [self.LINE_B]
+        assert self.LINE_B in str(refusal.value)
+        assert path.read_text() == before
+
+    @pytest.mark.parametrize(("recorded", "scanned", "written"), [(2, 1, True), (1, 2, False)])
+    def test_a_count_may_only_go_down(self, tmp_path: Path, recorded: int, scanned: int, written: bool) -> None:
+        path = tmp_path / "baseline.txt"
+        crossings.write_baseline([self._use("posthog.api.a", recorded)], path)
+        if written:
+            crossings.write_baseline([self._use("posthog.api.a", scanned)], path)
+            assert crossings.read_baseline(path) == [
+                f"alerts.AlertConfiguration posthog.api.a instance-many(all) {scanned}"
+            ]
+            return
+        with pytest.raises(crossings.BaselineWouldGrow) as refusal:
+            crossings.write_baseline([self._use("posthog.api.a", scanned)], path)
+        assert refusal.value.added == [f"alerts.AlertConfiguration posthog.api.a instance-many(all) {scanned}"]
+
+    def test_a_removal_is_written(self, tmp_path: Path) -> None:
+        path = self._recorded(tmp_path, "posthog.api.a", "posthog.api.b")
+        crossings.write_baseline([self._use("posthog.api.a")], path)
+        assert crossings.read_baseline(path) == [self.LINE_A]
+
+    @parameterized.expand(
+        [
+            ("an addition alone", [LINE_B], [], False),
+            ("a removal alone", [], [LINE_A], True),
+            ("both directions", [LINE_B], [LINE_A], True),
+        ]
+    )
+    def test_the_regenerate_command_appears_only_with_a_removal(
+        self, _name: str, added: list[str], removed: list[str], has_command: bool
+    ) -> None:
+        message = crossings.baseline_drift_message(added, removed)
+        assert (crossings.REGENERATE_COMMAND in message) is has_command
+        for line in [*added, *removed]:
+            assert line in message
+
+    def test_both_directions_lead_with_the_caller_instruction(self) -> None:
+        message = crossings.baseline_drift_message([self.LINE_B], [self.LINE_A])
+        assert message.index(crossings.NEW_LINE_INSTRUCTION) < message.index(f"  + {self.LINE_B}")
+        assert message.index(f"  + {self.LINE_B}") < message.index(f"  - {self.LINE_A}")
+        assert message.index(f"  - {self.LINE_A}") < message.index(crossings.REGENERATE_COMMAND)
+
+
 class TestRenderReport:
     def test_allowed_counts_sum_across_modules(self) -> None:
         uses = [

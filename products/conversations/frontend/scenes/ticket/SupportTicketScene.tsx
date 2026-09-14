@@ -103,8 +103,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         draftModeEnabled,
         replyRecipientDescription,
         snoozedUntil,
-        knowledgeGaps,
-        knowledgeGapsLoading,
         emailReplyBlockedReason,
         latestAiMessage,
         feedbackByMessageId,
@@ -131,7 +129,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setDraftContent,
         setDraftIsPrivate,
         setDraftModeEnabled,
-        dismissKnowledgeGap,
         submitAiReplyFeedback,
         startEditingMessage,
         cancelEditingMessage,
@@ -596,14 +593,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     {user?.is_staff && ticket && <StaffActionsPanel />}
 
                     {/* AI Triage Panel */}
-                    {aiSuggestionsEnabled && ticket && (
-                        <AIPanel
-                            aiTriage={ticket.ai_triage}
-                            knowledgeGaps={knowledgeGaps}
-                            knowledgeGapsLoading={knowledgeGapsLoading}
-                            onDismissGap={dismissKnowledgeGap}
-                        />
-                    )}
+                    {aiSuggestionsEnabled && ticket && <AIPanel aiTriage={ticket.ai_triage} />}
 
                     {ticket?.channel_source === 'widget' && (
                         <>

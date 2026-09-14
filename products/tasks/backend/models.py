@@ -379,8 +379,10 @@ class Task(DeletedMetaFields, models.Model):
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, related_name="+"
+    )
     task_number = models.IntegerField(null=True, blank=True)
     title = models.CharField(max_length=255)
     title_manually_set = models.BooleanField(default=False)
@@ -402,6 +404,7 @@ class Task(DeletedMetaFields, models.Model):
         blank=True,
         limit_choices_to={"kind": "github"},
         help_text="GitHub integration for this task",
+        related_name="+",
     )
     # Keep the selected personal installation as a preference for deterministic
     # authorship when a user has multiple GitHub installations. SET_NULL on
@@ -414,6 +417,7 @@ class Task(DeletedMetaFields, models.Model):
         db_index=False,
         limit_choices_to={"kind": "github"},
         help_text="User-scoped GitHub integration used for user-authored task runs",
+        related_name="+",
     )
 
     repository = models.CharField(
@@ -958,6 +962,7 @@ class Task(DeletedMetaFields, models.Model):
         runtime_adapter: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         initial_permission_mode: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
@@ -1141,6 +1146,12 @@ class Task(DeletedMetaFields, models.Model):
         if reasoning_effort:
             extra_state["reasoning_effort"] = reasoning_effort
 
+        # Codex-only: the OpenAI service tier the run's turns request. Carried in run state rather
+        # than a column because, like `fast_mode`, it is a per-run routing choice and not part of
+        # the task's identity.
+        if service_tier:
+            extra_state["service_tier"] = service_tier
+
         # Forwarded to the in-sandbox agent and lifted onto its $ai_generation traces as an
         # `ai_stage` property (see TaskProcessingContext / agent-server configureEnvironment).
         if ai_stage:
@@ -1296,6 +1307,7 @@ class Task(DeletedMetaFields, models.Model):
         runtime_adapter: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         initial_permission_mode: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
@@ -1344,6 +1356,7 @@ class Task(DeletedMetaFields, models.Model):
             runtime_adapter=runtime_adapter,
             model=model,
             reasoning_effort=reasoning_effort,
+            service_tier=service_tier,
             initial_permission_mode=initial_permission_mode,
             sandbox_resources=sandbox_resources,
             sandbox_timeout_seconds=sandbox_timeout_seconds,
@@ -2144,7 +2157,7 @@ class TaskRun(models.Model):
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     # Copy of the parent task's origin_product, populated on creation and never changed.
     # It lets the per-minute monitoring gauges group by origin_product without joining
     # posthog_task on every run row. See `collect_task_run_state_metrics`.
@@ -2634,18 +2647,20 @@ class TaskRun(models.Model):
     # expiry — user history must not silently vanish after 30 days.
     DEFAULT_LOG_TTL_DAYS = 30
 
-    def append_log(self, entries: list[dict], *, ttl_days: int | None = DEFAULT_LOG_TTL_DAYS):
+    def append_log(self, entries: list[dict], *, ttl_days: int | None = DEFAULT_LOG_TTL_DAYS, lock_attempts: int = 3):
         """Append log entries to S3 storage.
 
         `ttl_days` tags a newly-created log file for expiry; pass `None` to write a log that is
         never auto-expired. The tag is only applied on
         first write — re-tagging an existing log would not change a TTL already in flight.
+        `lock_attempts` is how often to wait for the per-log append lock before raising
+        TaskRunLogAppendUnserialized; a caller that retries the append itself passes 1.
         """
         entries = [e for e in entries if not self._is_agent_message_chunk(e)]
         if not entries:
             return
 
-        is_new_file = append_jsonl_object(self.log_url, entries)
+        is_new_file = append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts)
 
         self._mirror_logs_to_posthog_logs(entries)
 
@@ -2788,6 +2803,30 @@ class TaskRun(models.Model):
             props["benjamin_version"] = benjamin_version
         return props
 
+    def analytics_properties(self) -> dict:
+        """Run context shared by run events and GitHub PR attribution."""
+        return {
+            "task_id": str(self.task_id),
+            "run_id": str(self.id),
+            "team_id": self.team_id,
+            "repository": self.task.repository,
+            "repositories": (self.state or {}).get("repositories")
+            or self.task.repositories
+            or ([self.task.repository] if self.task.repository else []),
+            "origin_product": self.task.origin_product,
+            "title": self.task.title,
+            "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
+            "loop_id": (self.state or {}).get("loop_id"),
+            "loop_trigger_id": (self.state or {}).get("loop_trigger_id"),
+            "environment": self.environment,
+            # The bare `environment` property gets clobbered by the analytics
+            # client's deployment-region super-property, so ship the run's
+            # local/cloud value under an unclobbered name too.
+            "run_environment": self.environment,
+            "mode": self.mode,
+            **self._analytics_usage_properties(),
+        }
+
     def capture_event(
         self,
         event: str,
@@ -2808,27 +2847,7 @@ class TaskRun(models.Model):
                 if self.task.created_by_id and self.task.created_by
                 else str(self.team.uuid)
             )
-            all_properties: dict = {
-                "task_id": str(self.task_id),
-                "run_id": str(self.id),
-                "team_id": self.team_id,
-                "repository": self.task.repository,
-                "repositories": (self.state or {}).get("repositories")
-                or self.task.repositories
-                or ([self.task.repository] if self.task.repository else []),
-                "origin_product": self.task.origin_product,
-                "title": self.task.title,
-                "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
-                "loop_id": (self.state or {}).get("loop_id"),
-                "loop_trigger_id": (self.state or {}).get("loop_trigger_id"),
-                "environment": self.environment,
-                # The bare `environment` property gets clobbered by the analytics
-                # client's deployment-region super-property, so ship the run's
-                # local/cloud value under an unclobbered name too.
-                "run_environment": self.environment,
-                "mode": self.mode,
-                **self._analytics_usage_properties(),
-            }
+            all_properties = self.analytics_properties()
             if properties:
                 all_properties.update(properties)
             capture_kwargs: dict = {
@@ -3129,7 +3148,9 @@ class TaskWorkflowDispatch(TeamScopedRootMixin):
         DEAD = "dead", "dead"
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False)
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
     task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="workflow_dispatches", db_index=False)
     workflow_id = models.CharField(max_length=512)
     dispatch_kind = models.CharField(max_length=16, choices=Kind.choices)
@@ -3446,7 +3467,7 @@ class SandboxSnapshot(UUIDModel):
     integration = models.ForeignKey(
         Integration,
         on_delete=models.SET_NULL,
-        related_name="snapshots",
+        related_name="+",
         null=True,
         blank=True,
     )
@@ -3551,8 +3572,8 @@ class SandboxEnvironment(UUIDModel):
         FULL = "full", "Full"
         CUSTOM = "custom", "Custom"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     name = models.CharField(max_length=255)
 
@@ -3777,10 +3798,7 @@ class SandboxCustomImage(TeamScopedRootMixin):
 
 class DesktopBetaTermsAcceptance(models.Model):
     organization = models.OneToOneField(
-        "posthog.Organization",
-        on_delete=models.CASCADE,
-        primary_key=True,
-        db_constraint=False,
+        "posthog.Organization", on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+"
     )
     accepted_by_user_id = models.BigIntegerField()
     accepted_at = models.DateTimeField(auto_now_add=True)

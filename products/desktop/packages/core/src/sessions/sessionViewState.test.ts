@@ -1,7 +1,10 @@
 import type { AgentSession } from "@posthog/shared";
 import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
-import { deriveSessionViewState } from "./sessionViewState";
+import {
+  deriveSessionLifecycleState,
+  deriveSessionViewState,
+} from "./sessionViewState";
 
 function makeTask(runStatus: TaskRunStatus, runId = "run-1"): Task {
   return {
@@ -193,16 +196,26 @@ describe("deriveSessionViewState", () => {
     expect(state.isInitializing).toBe(false);
   });
 
-  it("shows loading while a local session reconnects after reload", () => {
-    const task = makeTask("in_progress");
-    if (task.latest_run) {
-      task.latest_run.environment = "local";
-    }
+  it.each(["queued", "in_progress", "completed"] as const)(
+    "keeps an unopened local %s run idle while its chat waits to reconnect",
+    (status) => {
+      const task = makeTask(status);
+      if (task.latest_run) {
+        task.latest_run.environment = "local";
+      }
 
-    expect(
-      deriveSessionViewState(undefined, task, null, false).isInitializing,
-    ).toBe(true);
-  });
+      expect(
+        deriveSessionLifecycleState(undefined, task, false).isInitializing,
+      ).toBe(false);
+      expect(
+        deriveSessionLifecycleState(undefined, task, false, true)
+          .isInitializing,
+      ).toBe(true);
+      expect(
+        deriveSessionViewState(undefined, task, null, false).isInitializing,
+      ).toBe(true);
+    },
+  );
 
   it("keeps a local session loading until its first prompt", () => {
     const task = makeTask("in_progress");
