@@ -337,7 +337,10 @@ ACTIVE_CUSTOMERS_METRIC_DESCRIPTION = (
 ACTIVE_CUSTOMERS_METRIC_DEFINITION: dict = {
     "kind": "HogQLQuery",
     "query": (
-        "SELECT count(DISTINCT distinct_id) AS active_customers\nFROM events\nWHERE timestamp >= now() - INTERVAL 30 DAY"
+        "SELECT count(DISTINCT distinct_id) AS active_customers\n"
+        "FROM events\n"
+        "WHERE event IN ('uploaded_file', 'downloaded_file', 'deleted_file', 'shared_file_link', 'logged_in')\n"
+        "  AND timestamp >= now() - INTERVAL 30 DAY"
     ),
 }
 
@@ -363,14 +366,20 @@ YOY_MRR_GROWTH_METRIC_DEFINITION: dict = {
 
 LONG_SERIES_METRIC_NAME = "daily_uploads_three_years"
 LONG_SERIES_METRIC_DISPLAY_NAME = "Daily file uploads (three years)"
-LONG_SERIES_METRIC_DESCRIPTION = "Daily count of Hedgebox file uploads for the trailing three years, one row per day."
+LONG_SERIES_METRIC_DESCRIPTION = (
+    "Daily count of Hedgebox file uploads for the trailing three years, one row per day that had an upload."
+)
 LONG_SERIES_METRIC_DEFINITION: dict = {
     "kind": "HogQLQuery",
     "query": (
         "SELECT\n"
-        "    toStartOfDay(now() - toIntervalDay(number)) AS day,\n"
-        "    number AS uploads\n"
-        "FROM numbers(1095)\n"
+        "    toStartOfDay(timestamp) AS day,\n"
+        "    count() AS uploads\n"
+        "FROM events\n"
+        "WHERE event = 'uploaded_file'\n"
+        "  AND timestamp >= now() - INTERVAL 3 YEAR\n"
+        "  AND timestamp < now()\n"
+        "GROUP BY day\n"
         "ORDER BY day DESC"
     ),
 }

@@ -481,7 +481,7 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
         ),
         SandboxedEvalCase(
             name="metric_phrase_web_sessions_daily",
-            prompt="How many sessions did the site get each day last month, and what was the bounce rate?",
+            prompt="How many sessions did the site get each day over the last 30 days, and what was the bounce rate?",
             expected={
                 "metrics_catalog_before_data_discovery": {},
                 "canonical_metric_run": {
@@ -607,7 +607,7 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                 "governed_behavior_correctness": {
                     "expected_behavior": (
                         f"Ran the approved metric '{LONG_SERIES_METRIC_NAME}' through data-catalog-metric-run and "
-                        "answered the trend from the rows it returned. The run returns the full three-year daily "
+                        "answered the trend from the rows it returned. The run returns the metric's complete "
                         "series, so re-deriving those rows with execute-sql against the same data is a failure. "
                         "Calling execute-sql for anything the metric already returned counts as re-deriving."
                     )
