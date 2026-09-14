@@ -588,6 +588,10 @@ class AssistantDateRange(BaseModel):
     )
     date_from: str = Field(..., description="ISO8601 date string.")
     date_to: str | None = Field(default=None, description="ISO8601 date string.")
+    explicitDate: bool | None = Field(
+        default=None,
+        description=("Use the date range exactly as provided, without rounding to interval boundaries."),
+    )
 
 
 class AssistantDurationRange(BaseModel):
@@ -603,6 +607,10 @@ class AssistantDurationRange(BaseModel):
             " now, `-180d` last 180 days from now, `mStart` this month start,"
             " `-1dStart` yesterday's start."
         ),
+    )
+    explicitDate: bool | None = Field(
+        default=None,
+        description=("Use the rolling duration exactly as provided, without rounding to interval boundaries."),
     )
 
 
