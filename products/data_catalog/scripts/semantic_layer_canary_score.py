@@ -24,10 +24,11 @@ import json
 import argparse
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
 from products.data_catalog.evals.scorers import CANARY_ROUTING_SCORERS
 from products.data_catalog.scripts.semantic_layer_canary import (
@@ -58,6 +59,7 @@ EXPERIMENT_NAME = "semantic-layer-canary"
 BATCH_ID_PREFIX = "tasks"
 CANARY_ORIGIN_PRODUCT = "posthog_ai"
 PERMISSION_REQUEST_METHOD = "session/request_permission"
+SESSION_UPDATE_METHOD = "session/update"
 
 CANONICAL_ROUTINGS = frozenset(
     {
@@ -84,6 +86,7 @@ COMPLETED_STATUS = "completed"
 CANCELLED_STATUS = "cancelled"
 FAILED_STATUS = "failed"
 MISSING_STATUS = "missing"
+UNAVAILABLE_STATUS = "unavailable"
 INCOMPLETE_STATUS = "incomplete"
 DUPLICATE_STATUS = "duplicate"
 UNSCORED_VERDICT = "unscored"
@@ -108,6 +111,12 @@ class BatchWindow(BaseModel):
 
     start: datetime
     end: datetime
+
+    @model_validator(mode="after")
+    def _start_must_not_follow_end(self) -> BatchWindow:
+        if self.start > self.end:
+            raise ValueError("batch window start must not be after its end")
+        return self
 
     @property
     def batch_id(self) -> str:
@@ -135,6 +144,7 @@ class _TaskRun(BaseModel):
 
 
 class _TaskRunPage(BaseModel):
+    next: str | None = None
     results: list[_TaskRun]
 
 
@@ -273,10 +283,14 @@ class CanaryApiClient:
         return matches
 
     def list_runs(self, task_id: str) -> list[_TaskRun]:
-        response = self._get(
-            f"/api/projects/{self.project_id}/tasks/{task_id}/runs/", params={"limit": TASK_RUN_PAGE_SIZE}
-        )
-        return _TaskRunPage.model_validate(response.json()).results
+        runs: list[_TaskRun] = []
+        url: str | None = f"/api/projects/{self.project_id}/tasks/{task_id}/runs/"
+        params: Mapping[str, str | int] | None = {"limit": TASK_RUN_PAGE_SIZE}
+        while url:
+            page = _TaskRunPage.model_validate(self._get(url, params).json())
+            runs.extend(page.results)
+            url, params = page.next, None
+        return runs
 
     def task_url(self, task_id: str, run_id: str) -> str:
         return f"{self.host}/project/{self.project_id}/tasks/{task_id}?runId={run_id}"
@@ -289,11 +303,18 @@ def _as_stream_payload(entry: dict) -> dict:
     return {"type": "permission_request", **(notification.get("params") or {})}
 
 
+def _is_agent_activity(entry: dict) -> bool:
+    notification = entry.get("notification")
+    return isinstance(notification, dict) and notification.get("method") == SESSION_UPDATE_METHOD
+
+
 def clarification_questions(entries: Sequence[dict]) -> list[str] | None:
-    for entry in entries:
+    for index in reversed(range(len(entries))):
         try:
-            is_completed_turn(_as_stream_payload(entry))
+            is_completed_turn(_as_stream_payload(entries[index]))
         except ClarificationRequested as clarification:
+            if any(_is_agent_activity(entry) for entry in entries[index + 1 :]):
+                return None
             return clarification.questions
         except CanaryError:
             continue
@@ -357,33 +378,73 @@ def reconstruct_case(client: CanaryApiClient, case: CanaryCase, window: BatchWin
     return row | _attempt_fields(client, attempts[-1]) | {"status": status}
 
 
+def _reconstruct_case_or_mark_unavailable(
+    client: CanaryApiClient, case: CanaryCase, window: BatchWindow
+) -> dict[str, Any]:
+    try:
+        return reconstruct_case(client, case, window)
+    except (httpx.HTTPError, ValueError) as error:
+        return {
+            "case_id": case.case_id,
+            "category": case.category,
+            "expected_metric": case.expected_metric,
+            "expected_routing": case.expected_routing,
+            "question": case.question,
+            "task_id": None,
+            "task_run_id": None,
+            "task_url": None,
+            "clarification_questions": [],
+            "status": UNAVAILABLE_STATUS,
+            "status_detail": str(error),
+        }
+
+
 def reconstruct_batch(
-    client: CanaryApiClient, *, dataset_name: str, revision: int, window: BatchWindow
+    client: CanaryApiClient,
+    *,
+    dataset_name: str,
+    revision: int,
+    window: BatchWindow,
+    case_ids: Sequence[str] = (),
 ) -> dict[str, Any]:
     snapshot = client.load_dataset_snapshot(dataset_name, revision)
     return {
         "run_id": window.batch_id,
         "dataset_revision": snapshot.revision,
-        "cases": [reconstruct_case(client, case, window) for case in snapshot.cases],
+        "cases": [
+            _reconstruct_case_or_mark_unavailable(client, case, window)
+            for case in snapshot.cases
+            if not case_ids or case.case_id in case_ids
+        ],
     }
 
 
-def score_case(case: dict[str, Any], raw_log: str) -> dict[str, Any]:
-    routing = case.get("expected_routing") or ""
-    status = case.get("status")
-    row: dict[str, Any] = {
+def _case_row(case: dict[str, Any]) -> dict[str, Any]:
+    return {
         "case_id": case.get("case_id"),
         "category": case.get("category"),
         "expected_metric": case.get("expected_metric"),
-        "expected_routing": routing,
-        "status": status,
+        "expected_routing": case.get("expected_routing") or "",
+        "status": case.get("status"),
         "task_id": case.get("task_id"),
         "task_run_id": case.get("task_run_id"),
         "task_url": case.get("task_url"),
         "clarification_questions": case.get("clarification_questions") or [],
     }
+
+
+def unscored_case(case: dict[str, Any], reason: str) -> dict[str, Any]:
+    return _case_row(case) | {"verdict": UNSCORED_VERDICT, "reason": reason}
+
+
+def score_case(case: dict[str, Any], raw_log: str) -> dict[str, Any]:
+    routing = case.get("expected_routing") or ""
+    status = case.get("status")
+    row = _case_row(case)
     if status != COMPLETED_STATUS:
-        return row | {"verdict": UNSCORED_VERDICT, "reason": f"case status is {status}, not {COMPLETED_STATUS}"}
+        detail = case.get("status_detail")
+        reason = f"case status is {status}, not {COMPLETED_STATUS}"
+        return row | {"verdict": UNSCORED_VERDICT, "reason": f"{reason}: {detail}" if detail else reason}
     try:
         expectations = expectations_for(routing, case.get("expected_metric"))
     except UnknownRouting as error:
@@ -392,6 +453,9 @@ def score_case(case: dict[str, Any], raw_log: str) -> dict[str, Any]:
     output = {"raw_log": raw_log, "prompt": case.get("question", "") or ""}
     scores = [scorer.eval(output, expectations) for scorer in CANARY_ROUTING_SCORERS]
     checks = {score.name: score.score for score in scores if score.score is not None}
+    unscored_hard = sorted((set(expectations) & HARD_CHECKS) - set(checks))
+    if unscored_hard:
+        return row | {"verdict": UNSCORED_VERDICT, "reason": f"required checks returned no score: {unscored_hard}"}
     failed_hard = sorted(name for name, value in checks.items() if name in HARD_CHECKS and value < 1.0)
     failed_soft = sorted(name for name, value in checks.items() if name not in HARD_CHECKS and value < 1.0)
     return row | {
@@ -412,7 +476,11 @@ def score_results(
             continue
         task_id, run_id = case.get("task_id"), case.get("task_run_id")
         scorable = case.get("status") == COMPLETED_STATUS and task_id and run_id
-        raw_log = client.read_full_log(task_id, run_id) if scorable else ""
+        try:
+            raw_log = client.read_full_log(task_id, run_id) if scorable else ""
+        except (httpx.HTTPError, ValueError) as error:
+            rows.append(unscored_case(case, f"session log could not be read: {error}"))
+            continue
         rows.append(score_case(case, raw_log))
     return rows
 
@@ -492,21 +560,37 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--revision", type=int, help="Dataset revision to score against; required with --batch")
     parser.add_argument("--dataset-name", default=DEFAULT_DATASET_NAME)
     parser.add_argument("--host", default=DEFAULT_HOST)
-    parser.add_argument("--project-id", type=int, default=DEFAULT_PROJECT_ID)
+    parser.add_argument(
+        "--project-id",
+        type=int,
+        help=f"Overrides the result file's project_id; defaults to {DEFAULT_PROJECT_ID}",
+    )
     parser.add_argument("--case-id", action="append", dest="case_ids", default=[])
     parser.add_argument("--emit", action="store_true", help="Publish an $ai_evaluation event per case")
     args = parser.parse_args(argv)
-    if args.batch and args.revision is None:
-        parser.error("--batch requires --revision")
+    args.window = None
+    if args.batch:
+        if args.revision is None:
+            parser.error("--batch requires --revision")
+        try:
+            args.window = BatchWindow(start=parse_batch_moment(args.batch[0]), end=parse_batch_moment(args.batch[1]))
+        except ValidationError as error:
+            parser.error(f"--batch window is invalid: {error}")
     return args
 
 
-def _load_results(args: argparse.Namespace, client: CanaryApiClient) -> dict[str, Any]:
+def read_results_file(args: argparse.Namespace) -> dict[str, Any] | None:
     if args.batch:
-        window = BatchWindow(start=parse_batch_moment(args.batch[0]), end=parse_batch_moment(args.batch[1]))
-        return reconstruct_batch(client, dataset_name=args.dataset_name, revision=args.revision, window=window)
-    raw_results = sys.stdin.read() if args.results == "-" else open(args.results).read()
+        return None
+    raw_results = sys.stdin.read() if args.results == "-" else Path(args.results).read_text()
     return json.loads(raw_results)
+
+
+def resolve_project_id(args: argparse.Namespace, results: dict[str, Any] | None) -> int:
+    if args.project_id is not None:
+        return args.project_id
+    recorded = (results or {}).get("project_id")
+    return recorded if isinstance(recorded, int) else DEFAULT_PROJECT_ID
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -520,8 +604,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("POSTHOG_CAPTURE_TOKEN is required with --emit", file=sys.stderr)
         return 2
 
-    with CanaryApiClient(host=args.host, project_id=args.project_id, api_key=api_key) as client:
-        results = _load_results(args, client)
+    results = read_results_file(args)
+    with CanaryApiClient(host=args.host, project_id=resolve_project_id(args, results), api_key=api_key) as client:
+        if results is None:
+            results = reconstruct_batch(
+                client,
+                dataset_name=args.dataset_name,
+                revision=args.revision,
+                window=args.window,
+                case_ids=args.case_ids,
+            )
         rows = score_results(client, results, args.case_ids)
 
     run_id = results["run_id"]

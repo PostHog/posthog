@@ -128,12 +128,12 @@ Each case is graded against its dataset `expected_routing`:
 The catalog tool surface is `metric-list` (paginated, no search parameter, not data-bearing), `metric-describe` (one stored definition, not data-bearing), `data-catalog-metric-run` (executes a governed metric; its response repeats `status` and `is_drifted`), and `execute-sql` over `system.information_schema.metrics`, which still counts as consulting the catalog. A data-bearing call is `execute-sql`, any `query-*` tool, `read-data-schema`, or a typed domain tool. Tool discovery (`info`, `search`, `schema`) is neither.
 
 - `metrics_catalog_before_data_discovery`: a successful catalog lookup precedes the first data-bearing call.
+- `metrics_catalog_not_queried`: a discovery-only routing never made a successful catalog lookup.
 - `canonical_metric_run`: `data-catalog-metric-run` ran `expected_metric` successfully, or was never called where the routing forbids it.
 - `clarification_asked`: a question tool call precedes any data-bearing call.
-- `proposed_metric_not_run`: a `derive_from_approved` case never executed the named proposed metric.
 - `metric_describe_before_adapted_sql`: advisory, see below.
 
-An unrecognized `expected_routing` and a run without a confirmed terminal status both come back as `unscored` rather than a guess. `metric_describe_before_adapted_sql` is advisory: it never fails a case on its own, because a run that listed the catalog and then wrote its own SQL did consult the catalog.
+An unrecognized `expected_routing`, a run without a confirmed terminal status, a session log the API would not serve, and a required check that produced no score all come back as `unscored` rather than a guess. `metric_describe_before_adapted_sql` is advisory: it never fails a case on its own, because a run that listed the catalog and then wrote its own SQL did consult the catalog.
 
 It reads whole logs, paginating at 5000 entries from offset zero. A partial log cannot show what a run did before the slice, so there is no tail-reading mode.
 

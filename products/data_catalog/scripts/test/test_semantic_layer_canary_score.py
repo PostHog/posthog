@@ -7,12 +7,15 @@ import pytest
 import httpx
 
 from products.data_catalog.scripts.semantic_layer_canary_score import (
+    DEFAULT_PROJECT_ID,
     BatchWindow,
     CanaryApiClient,
     UnknownRouting,
+    _parse_args,
     evaluation_event,
     expectations_for,
     reconstruct_batch,
+    resolve_project_id,
     score_case,
     score_results,
 )
@@ -145,6 +148,7 @@ def _batch_client(
     runs_by_task: dict[str, list[dict]],
     logs_by_run: dict[str, list[dict]],
     expected_routing: str = "canonical_metric",
+    unreadable_logs: frozenset[str] = frozenset(),
 ) -> CanaryApiClient:
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -164,6 +168,8 @@ def _batch_client(
             return httpx.Response(200, json={"results": runs_by_task[runs_match.group(1)]})
         log_match = re.fullmatch(r".*/tasks/[^/]+/runs/([^/]+)/session_logs/", path)
         assert log_match, path
+        if log_match.group(1) in unreadable_logs:
+            return httpx.Response(500, json={"error": "session log unavailable"})
         return httpx.Response(200, json=logs_by_run[log_match.group(1)], headers={"X-Has-More": "false"})
 
     return CanaryApiClient(
@@ -322,6 +328,12 @@ class TestScoreCase:
         assert row["verdict"] == "unscored"
         assert "failed_checks" not in row
 
+    def test_a_completed_run_with_an_empty_log_is_not_scored_as_a_pass(self) -> None:
+        row = score_case(_case(), "")
+
+        assert row["verdict"] == "unscored"
+        assert "required checks returned no score" in row["reason"]
+
 
 class TestBatchReconstruction:
     def test_scores_the_single_completed_run_from_its_full_log(self) -> None:
@@ -390,6 +402,20 @@ class TestBatchReconstruction:
         assert row["task_run_id"] == expected_run_id
         assert (row["verdict"] == "unscored") == (expected_status != "completed")
 
+    def test_a_session_log_the_api_will_not_serve_leaves_the_case_unscored(self) -> None:
+        client = _batch_client(
+            tasks=[_task("task-1")],
+            runs_by_task={"task-1": [_run("run-1", "completed")]},
+            logs_by_run={},
+            unreadable_logs=frozenset({"run-1"}),
+        )
+
+        _results, row = _score_batch(client)
+
+        assert row["status"] == "completed"
+        assert row["verdict"] == "unscored"
+        assert "session log could not be read" in row["reason"]
+
     def test_a_run_cancelled_behind_a_clarifying_question_is_scored_as_a_clarification(self) -> None:
         client = _batch_client(
             tasks=[_task("task-1")],
@@ -407,6 +433,26 @@ class TestBatchReconstruction:
         assert row["status"] == "completed"
         assert row["verdict"] == "pass"
         assert row["clarification_questions"] == ["Which customers?"]
+
+
+class TestCliArguments:
+    @pytest.mark.parametrize(
+        "argv,results,expected",
+        [
+            (["--results", "run.json"], {"project_id": 77}, 77),
+            (["--results", "run.json"], {}, DEFAULT_PROJECT_ID),
+            (["--results", "run.json", "--project-id", "5"], {"project_id": 77}, 5),
+        ],
+        ids=["from_results", "no_recorded_project", "explicit_override"],
+    )
+    def test_project_id_prefers_an_override_then_the_results_file(
+        self, argv: list[str], results: dict, expected: int
+    ) -> None:
+        assert resolve_project_id(_parse_args(argv), results) == expected
+
+    def test_a_reversed_batch_window_is_rejected(self) -> None:
+        with pytest.raises(SystemExit):
+            _parse_args(["--batch", "2026-09-10T17:17:23Z", "2026-09-10T16:54:23Z", "--revision", "42"])
 
 
 class TestEvaluationEvent:
