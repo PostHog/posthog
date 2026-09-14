@@ -43,6 +43,7 @@ export function KnowledgeSourceNameCell({ source }: { source: KnowledgeSource })
                         // pinned: autocapture / Playwright key. Do not rename.
                         data-attr="business-knowledge-learned-ticket"
                         onClick={(e) => e.stopPropagation()}
+                        target="_blank"
                     >
                         Learned from ticket #{source.learned_from_ticket_number}
                     </Link>

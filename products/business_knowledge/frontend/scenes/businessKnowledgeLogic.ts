@@ -17,6 +17,7 @@ import {
 } from '../api'
 import type { CreateUrlSourcePayload, RefreshIntervalOption, RefreshIntervalValue, UpdateSourcePayload } from '../api'
 import type { KnowledgeSourceApi } from '../generated/api.schemas'
+import { filterKnowledgeSources, type SourceTypeFilter } from './filterKnowledgeSources'
 
 export type KnowledgeSource = KnowledgeSourceApi
 export type CrawlMode = 'single' | 'sitemap' | 'same_origin' | 'github_repo'
@@ -142,6 +143,7 @@ export interface businessKnowledgeLogicValues {
     fileSourceTouched: boolean
     fileSourceTouches: Record<string, boolean>
     fileSourceValidationErrors: DeepPartialMap<FileSourceFormValues, ValidationErrorType>
+    filteredSources: KnowledgeSource[]
     isCreateModalOpen: boolean
     isEditModalOpen: boolean
     isEditSourceSubmitting: boolean
@@ -154,13 +156,16 @@ export interface businessKnowledgeLogicValues {
     isTextSourceValid: boolean
     isUrlSourceSubmitting: boolean
     isUrlSourceValid: boolean
+    learnedOnly: boolean
     readyCount: number
     refreshingIds: string[]
+    searchTerm: string
     showEditSourceErrors: boolean
     showEditUrlSourceErrors: boolean
     showFileSourceErrors: boolean
     showTextSourceErrors: boolean
     showUrlSourceErrors: boolean
+    sourceTypeFilter: SourceTypeFilter
     sources: KnowledgeSource[]
     sourcesLoading: boolean
     textSource: TextSourceFormValues
@@ -369,6 +374,15 @@ export interface businessKnowledgeLogicActions {
     setFileSourceValues: (values: DeepPartial<FileSourceFormValues>) => {
         values: DeepPartial<FileSourceFormValues>
     }
+    setLearnedOnly: (learnedOnly: boolean) => {
+        learnedOnly: boolean
+    }
+    setSearchTerm: (searchTerm: string) => {
+        searchTerm: string
+    }
+    setSourceTypeFilter: (sourceTypeFilter: SourceTypeFilter) => {
+        sourceTypeFilter: SourceTypeFilter
+    }
     setTextSourceManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
@@ -498,6 +512,12 @@ export interface businessKnowledgeLogicMeta {
         readyCount: (sources: KnowledgeSourceApi[]) => number
         totalChunks: (sources: KnowledgeSourceApi[]) => number
         isEditModalOpen: (editingSource: KnowledgeSourceApi | null) => boolean
+        filteredSources: (
+            sources: KnowledgeSourceApi[],
+            searchTerm: string,
+            sourceTypeFilter: SourceTypeFilter,
+            learnedOnly: boolean
+        ) => KnowledgeSource[]
     }
 }
 
@@ -519,6 +539,9 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         deleteSource: (id: string) => ({ id }),
         refreshSource: (id: string) => ({ id }),
         refreshSourceDone: (id: string) => ({ id }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setSourceTypeFilter: (sourceTypeFilter: SourceTypeFilter) => ({ sourceTypeFilter }),
+        setLearnedOnly: (learnedOnly: boolean) => ({ learnedOnly }),
     }),
     reducers({
         isCreateModalOpen: [
@@ -547,6 +570,24 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             {
                 refreshSource: (state, { id }) => (state.includes(id) ? state : [...state, id]),
                 refreshSourceDone: (state, { id }) => state.filter((x) => x !== id),
+            },
+        ],
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        sourceTypeFilter: [
+            [] as SourceTypeFilter,
+            {
+                setSourceTypeFilter: (_, { sourceTypeFilter }) => sourceTypeFilter,
+            },
+        ],
+        learnedOnly: [
+            false,
+            {
+                setLearnedOnly: (_, { learnedOnly }) => learnedOnly,
             },
         ],
     }),
@@ -865,6 +906,15 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             (sources: KnowledgeSource[]) => sources.reduce((sum, s) => sum + (s.chunk_count || 0), 0),
         ],
         isEditModalOpen: [(s) => [s.editingSource], (editingSource: KnowledgeSource | null) => editingSource !== null],
+        filteredSources: [
+            (s) => [s.sources, s.searchTerm, s.sourceTypeFilter, s.learnedOnly],
+            (
+                sources: KnowledgeSource[],
+                searchTerm: string,
+                sourceTypeFilter: SourceTypeFilter,
+                learnedOnly: boolean
+            ): KnowledgeSource[] => filterKnowledgeSources(sources, { searchTerm, sourceTypeFilter, learnedOnly }),
+        ],
     }),
     afterMount(({ actions }) => {
         actions.loadSources()

@@ -84,13 +84,20 @@ describe('BusinessKnowledgeScene', () => {
             openEditModal,
             deleteSource: jest.fn(),
             refreshSource: jest.fn(),
+            setSearchTerm: jest.fn(),
+            setSourceTypeFilter: jest.fn(),
+            setLearnedOnly: jest.fn(),
         })
         ;(useValues as jest.Mock).mockReturnValue({
             sources: [makeSource()],
+            filteredSources: [makeSource()],
             sourcesLoading: false,
             readyCount: 1,
             totalChunks: 3,
             refreshingIds: [],
+            searchTerm: '',
+            sourceTypeFilter: [],
+            learnedOnly: false,
         })
     })
 
@@ -106,12 +113,58 @@ describe('BusinessKnowledgeScene', () => {
             'href',
             '/project/1/support/tickets/42'
         )
-        expect(screen.getByText('Learned')).toBeInTheDocument()
+        expect(
+            screen.getByTitle('PostHog added this from a resolved support ticket. You can edit or delete it.')
+        ).toBeInTheDocument()
         expect(screen.getByLabelText('Edit')).toBeInTheDocument()
         expect(screen.getByLabelText('Delete')).toBeInTheDocument()
 
         fireEvent.click(screen.getByText('Refund policy'))
 
         expect(openEditModal).toHaveBeenCalledWith(expect.objectContaining({ id: makeSource().id }))
+    })
+
+    it('tells you to clear filters when they hide every source', () => {
+        ;(useValues as jest.Mock).mockReturnValue({
+            sources: [makeSource()],
+            filteredSources: [],
+            sourcesLoading: false,
+            readyCount: 1,
+            totalChunks: 3,
+            refreshingIds: [],
+            searchTerm: 'does-not-match',
+            sourceTypeFilter: [],
+            learnedOnly: false,
+        })
+
+        render(<BusinessKnowledgeScene />)
+
+        expect(
+            screen.getByText('No sources match these filters. Clear search or filters to see all sources.')
+        ).toBeInTheDocument()
+        expect(screen.queryByText('Refund policy')).not.toBeInTheDocument()
+    })
+
+    it('still shows the first-run empty copy when there are no sources', () => {
+        ;(useValues as jest.Mock).mockReturnValue({
+            sources: [],
+            filteredSources: [],
+            sourcesLoading: false,
+            readyCount: 0,
+            totalChunks: 0,
+            refreshingIds: [],
+            searchTerm: '',
+            sourceTypeFilter: [],
+            learnedOnly: true,
+        })
+
+        render(<BusinessKnowledgeScene />)
+
+        expect(
+            screen.getByText("No knowledge sources yet. Click 'Add source' to index your first.")
+        ).toBeInTheDocument()
+        expect(
+            screen.queryByText('No sources match these filters. Clear search or filters to see all sources.')
+        ).not.toBeInTheDocument()
     })
 })
