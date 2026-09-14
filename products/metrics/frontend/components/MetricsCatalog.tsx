@@ -2,7 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { IconSearch } from '@posthog/icons'
-import { LemonInput, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -34,7 +34,7 @@ const typeTagLabel = (metricType: string): string =>
     metricType === 'sum' ? 'counter' : metricType === 'exponential_histogram' ? 'histogram' : metricType || 'unknown'
 
 const CatalogCard = ({ item }: { item: MetricCatalogItem }): JSX.Element => {
-    const { openMetric, loadSparkline } = useActions(metricsCatalogLogic)
+    const { openMetric, loadSparkline, retrySparkline } = useActions(metricsCatalogLogic)
     const { catalogItemDetails, catalogItemDetailsFailed, catalogItemDetailsLoading } = useValues(metricsCatalogLogic)
     const cardRef = useRef<HTMLButtonElement>(null)
     const detail = catalogItemDetails[item.name]
@@ -68,39 +68,48 @@ const CatalogCard = ({ item }: { item: MetricCatalogItem }): JSX.Element => {
     }, [detail, item, loadSparkline, loading])
 
     return (
-        <button
-            ref={cardRef}
-            type="button"
-            onClick={() => openMetric(item)}
-            data-attr={`metrics-catalog-card-${item.name}`}
-            className="flex flex-col gap-2 border rounded p-3 text-left hover:border-accent-primary focus:border-accent-primary transition-colors bg-bg-3000"
-        >
-            <div className="flex items-start justify-between gap-2 min-w-0">
-                <span className="font-mono text-sm truncate" title={item.name}>
-                    {item.name}
-                </span>
-                <LemonTag type="muted" size="small">
-                    {typeTagLabel(item.metric_type)}
-                </LemonTag>
-            </div>
-            <div className="h-10 w-full">
-                {detail?.sparkline && detail.sparkline.length > 1 ? (
-                    <Sparkline data={detail.sparkline} type="line" />
-                ) : loading ? (
-                    <LemonSkeleton className="h-full" />
-                ) : failed ? (
-                    <div className="h-full flex items-center text-xs text-muted">Could not load recent data</div>
-                ) : (
-                    <div className="h-full flex items-center text-xs text-muted">No recent data to draw</div>
+        <div className="flex flex-col border rounded hover:border-accent-primary focus-within:border-accent-primary transition-colors bg-bg-3000">
+            <button
+                ref={cardRef}
+                type="button"
+                onClick={() => openMetric(item)}
+                data-attr={`metrics-catalog-card-${item.name}`}
+                className="flex flex-col gap-2 p-3 text-left"
+            >
+                <div className="flex items-start justify-between gap-2 min-w-0">
+                    <span className="font-mono text-sm truncate" title={item.name}>
+                        {item.name}
+                    </span>
+                    <LemonTag type="muted" size="small">
+                        {typeTagLabel(item.metric_type)}
+                    </LemonTag>
+                </div>
+                <div className="h-10 w-full">
+                    {detail?.sparkline && detail.sparkline.length > 1 ? (
+                        <Sparkline data={detail.sparkline} type="line" />
+                    ) : loading ? (
+                        <LemonSkeleton className="h-full" />
+                    ) : failed ? (
+                        <div className="h-full flex items-center text-xs text-muted">Could not load recent data</div>
+                    ) : (
+                        <div className="h-full flex items-center text-xs text-muted">No recent data to draw</div>
+                    )}
+                </div>
+                <p className="text-xs text-secondary mb-0">{describeMetric(item, detail?.unit)}</p>
+                {detail?.last_seen && (
+                    <span className="text-xs text-muted">
+                        Last seen <TZLabel time={detail.last_seen} />
+                    </span>
                 )}
-            </div>
-            <p className="text-xs text-secondary mb-0">{describeMetric(item, detail?.unit)}</p>
-            {detail?.last_seen && (
-                <span className="text-xs text-muted">
-                    Last seen <TZLabel time={detail.last_seen} />
-                </span>
+            </button>
+            {failed && (
+                <div className="px-3 pb-3">
+                    <LemonButton size="xsmall" type="secondary" onClick={() => retrySparkline(item)}>
+                        Retry
+                    </LemonButton>
+                </div>
             )}
-        </button>
+        </div>
     )
 }
 

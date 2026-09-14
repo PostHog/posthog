@@ -81,6 +81,27 @@ describe('metricsCatalogLogic', () => {
         expect(logic.values.catalogItemDetails['http.server.duration']).toEqual(SPARKLINE_ITEM)
     })
 
+    it('retries a sparkline after a transient failure', async () => {
+        jest.mocked(metricsValuesRetrieve)
+            .mockRejectedValueOnce(new Error('temporary error'))
+            .mockResolvedValueOnce({ results: [SPARKLINE_ITEM] } as any)
+        logic = metricsCatalogLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadCatalogSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSparkline(CATALOG_ITEMS[0])
+        }).toDispatchActions(['loadSparklineFailure'])
+        expect(logic.values.catalogItemDetailsFailed['http.server.duration']).toBe(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.retrySparkline(CATALOG_ITEMS[0])
+        }).toDispatchActions(['loadSparklineSuccess'])
+
+        expect(logic.values.catalogItemDetailsFailed['http.server.duration']).toBe(false)
+        expect(jest.mocked(metricsValuesRetrieve)).toHaveBeenCalledTimes(2)
+    })
+
     it('narrows the visible cards by a search substring', async () => {
         logic = metricsCatalogLogic()
         logic.mount()

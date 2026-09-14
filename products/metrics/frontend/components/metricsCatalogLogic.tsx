@@ -62,6 +62,9 @@ export interface metricsCatalogLogicActions {
     openMetric: (item: MetricCatalogItem) => {
         item: _MetricPickerNameApi;
     };
+    retrySparkline: (item: MetricCatalogItem) => {
+        item: MetricCatalogItem;
+    };
     setSearch: (search: string) => {
         search: string;
     };
@@ -98,6 +101,7 @@ export const metricsCatalogLogic = kea<metricsCatalogLogicType>([
         setSparklineLoading: (name: string) => ({ name }),
         loadSparklineSuccess: (name: string, item: _MetricNameApi) => ({ name, item }),
         loadSparklineFailure: (name: string) => ({ name }),
+        retrySparkline: (item: MetricCatalogItem) => ({ item }),
         // A card click hands the metric to the viewer and switches to it.
         openMetric: (item: MetricCatalogItem) => ({ item }),
     }),
@@ -118,6 +122,7 @@ export const metricsCatalogLogic = kea<metricsCatalogLogicType>([
             {
                 loadCatalog: () => ({}),
                 loadSparklineFailure: (state, { name }) => ({ ...state, [name]: true }),
+                retrySparkline: (state, { item }) => ({ ...state, [item.name]: false }),
             },
         ],
         catalogItemDetailsLoading: [
@@ -202,6 +207,9 @@ export const metricsCatalogLogic = kea<metricsCatalogLogicType>([
             } catch {
                 actions.loadSparklineFailure(item.name)
             }
+        },
+        retrySparkline: ({ item }) => {
+            actions.loadSparkline(item)
         },
         openMetric: ({ item }) => {
             // Set the type first so it latches: a metric name reused across OTel
