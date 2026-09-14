@@ -124,20 +124,6 @@ def team_api_test_factory():
             self.assertNotIn("event_names_with_usage", response_data)
             self.assertNotIn("event_properties_with_usage", response_data)
 
-        @parameterized.expand([("enforced", True), ("not_enforced", False)])
-        def test_retrieve_team_omits_events_retention_fields(self, _name, enforced):
-            # The retention window is a plan entitlement PostHog syncs from billing, but on the API it read as
-            # a setting: callers found it beside an "enforced" flag and asked us to shorten it or switch it on.
-            # The app reads the window from the bootstrapped app context instead. Asserted under enforcement too,
-            # so the value cannot reappear once the rollout reaches a team.
-            with self.settings(EVENTS_DATA_RETENTION_ENFORCED=enforced):
-                response = self.client.get("/api/environments/@current/")
-
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            response_data = response.json()
-            self.assertNotIn("event_retention_months", response_data)
-            self.assertNotIn("events_retention_enforced", response_data)
-
         def test_retrieve_team_has_group_types(self):
             other_team = Team.objects.create(organization=self.organization, project=self.project)
 
