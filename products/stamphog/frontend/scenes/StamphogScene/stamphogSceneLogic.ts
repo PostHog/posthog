@@ -414,6 +414,10 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             // GitHub sends the user back with ?error=access_denied when they hit Cancel on the
             // authorize screen — a normal action on the primary connect flow, not a failure. Land
             // them back on the plain page instead of a silent dead-end on the callback URL.
+            // Read and clear the stashed pick before any early return, so a stale id cannot bind the wrong
+            // installation on a later code-only callback.
+            const stashedInstallationId = sessionStorage.getItem(PENDING_INSTALLATION_STORAGE_KEY)
+            sessionStorage.removeItem(PENDING_INSTALLATION_STORAGE_KEY)
             if (searchParams.error) {
                 router.actions.replace(urls.stamphog())
                 if (searchParams.error === 'access_denied') {
@@ -434,8 +438,6 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             }
             // A stashed pick fills in for the missing installation_id on the authorize redirect; an explicit
             // URL param wins.
-            const stashedInstallationId = sessionStorage.getItem(PENDING_INSTALLATION_STORAGE_KEY)
-            sessionStorage.removeItem(PENDING_INSTALLATION_STORAGE_KEY)
             const installationId = searchParams.installation_id || stashedInstallationId || undefined
             const code = searchParams.code
             const state = searchParams.state
@@ -447,6 +449,9 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 })
             } else if (installationId && state) {
                 actions.connectInstallation(String(installationId))
+            } else {
+                // Backing out of GitHub's install page returns only the state, so there is nothing to connect.
+                router.actions.replace(urls.stamphog())
             }
         },
     })),

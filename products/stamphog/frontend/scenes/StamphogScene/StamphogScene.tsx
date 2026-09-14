@@ -43,19 +43,21 @@ export const scene: SceneExport = {
 }
 
 function ConnectRepositoryButton(): JSX.Element {
-    const { installUrl, installInfoLoading, stamphogAccessLevel } = useValues(stamphogSceneLogic)
+    const { installInfo, installUrl, installInfoLoading, stamphogAccessLevel } = useValues(stamphogSceneLogic)
+    // The callback finishes through the authorize URL, so an install link alone cannot connect anything.
+    const canConnect = !!installUrl && !!installInfo?.authorize_url
     return (
         <LemonButton
             type="primary"
             icon={<IconGithub />}
-            to={installUrl || undefined}
+            to={canConnect ? installUrl : undefined}
             disableClientSideRouting
             data-attr="stamphog-connect-repository"
             disabledReason={
                 editorDisabledReason(stamphogAccessLevel) ??
                 (installInfoLoading
                     ? 'Loading install details'
-                    : installUrl
+                    : canConnect
                       ? undefined
                       : 'GitHub App not configured yet')
             }
@@ -294,17 +296,14 @@ function RepoConfigsTable(): JSX.Element {
             />
             {filteredRepoConfigs.length > visibleRepoConfigs.length && (
                 <div className="flex items-center gap-2 flex-wrap text-secondary">
-                    <span>
-                        Showing {visibleRepoConfigs.length} of {filteredRepoConfigs.length}. Search to find a
-                        repository, or show the full list.
-                    </span>
+                    <span>{`Showing ${visibleRepoConfigs.length} of ${filteredRepoConfigs.length}. Search to find a repository, or show the full list.`}</span>
                     <LemonButton
                         size="small"
                         type="secondary"
                         onClick={showAllRepos}
                         data-attr="stamphog-repo-show-all"
                     >
-                        Show all {filteredRepoConfigs.length}
+                        {`Show all ${filteredRepoConfigs.length}`}
                     </LemonButton>
                 </div>
             )}
