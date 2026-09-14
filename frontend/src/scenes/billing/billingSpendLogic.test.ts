@@ -1,9 +1,13 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -56,6 +60,37 @@ describe('billingSpendLogic chart type', () => {
 
         expect(logic.values.teamIdOptions).toEqual([3, 17])
         expect(logic.values.teamIdOptionsLoading).toBe(false)
+    })
+
+    it('leaves the project options alone for a person who may not read spend', async () => {
+        // The logic also mounts outside the billing pages, for people the endpoint answers 403.
+        let teamOptionsRequests = 0
+        const base = mocks()
+        useMocks({
+            ...base,
+            get: {
+                ...base.get,
+                '/api/billing/usage/team_options/': () => {
+                    teamOptionsRequests += 1
+                    return [200, { team_id_options: [3, 17] }]
+                },
+            },
+        })
+        organizationLogic.mount()
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            membership_level: OrganizationMembershipLevel.Member,
+        })
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        logic = billingSpendLogic()
+        logic.mount()
+        await expectLogic(logic)
+            .toDispatchActions(['loadTeamIdOptions', 'loadTeamIdOptionsSuccess'])
+            .toFinishAllListeners()
+
+        expect(teamOptionsRequests).toBe(0)
+        expect(logic.values.teamIdOptions).toEqual([])
     })
 
     it('always allows stacking, because spend is dollars in every breakdown', async () => {
