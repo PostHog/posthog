@@ -3,7 +3,7 @@
 Django mints a `phe_` off the PostHog-owned wizard team's `phs_`
 (WIZARD_GATEWAY_MINT_KEY) rather than sending the user's OAuth token to the
 gateway. The mint pins what the caller must not control (product=wizard, obo=the
-customer organization, the acting user) plus a per-run cap and an expiry, and the
+customer's team id, the acting user) plus a per-run cap and an expiry, and the
 debit lands on the wizard team, never the customer's wallet. Kept separate from
 products/tasks' sandbox mint (ai_gateway_token.py): the wizard needs
 `expires_at` back for CLI-side refresh, and an interactive mint answers one
