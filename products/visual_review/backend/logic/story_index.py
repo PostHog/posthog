@@ -13,6 +13,7 @@ import re
 import json
 import hashlib
 from collections.abc import Mapping
+from typing import TypeGuard
 from uuid import UUID
 
 from django.db import transaction
@@ -40,6 +41,10 @@ _VIEWPORT_WIDTHS = ("narrow", "medium", "wide", "superwide")
 METADATA_KEY = "story_index_hash"
 _MAP_VERSION = 1
 _HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+# The owners lookup walks every parent directory of a path, so a path longer or deeper than any real
+# story file is refused rather than handed to it.
+_MAX_PATH_CHARS = 512
+_MAX_PATH_SEGMENTS = 32
 
 
 @frozen
@@ -134,6 +139,13 @@ def register_story_index(run_id: UUID, team_id: int, story_index_hash: str) -> S
     return StoryIndexUpload(url=post["url"], fields=post["fields"])
 
 
+def _is_repository_path(path: object) -> TypeGuard[str]:
+    if not isinstance(path, str) or not path or len(path) > _MAX_PATH_CHARS or path.startswith("/"):
+        return False
+    segments = path.split("/")
+    return len(segments) <= _MAX_PATH_SEGMENTS and ".." not in segments
+
+
 def _read_paths(repo: Repo, story_index_hash: str) -> dict[str, str] | None:
     """Story id to repository path, from the stored map. None when the map cannot be trusted."""
     log = logger.bind(repo_id=str(repo.id), story_index_hash=story_index_hash)
@@ -158,7 +170,9 @@ def _read_paths(repo: Repo, story_index_hash: str) -> dict[str, str] | None:
     if not isinstance(paths, dict):
         log.warning("visual_review.story_index_invalid")
         return None
-    return {story_id: path for story_id, path in paths.items() if isinstance(story_id, str) and isinstance(path, str)}
+    return {
+        story_id: path for story_id, path in paths.items() if isinstance(story_id, str) and _is_repository_path(path)
+    }
 
 
 def latest_story_index(repo: Repo, newest_run_by_type: Mapping[str, Run]) -> StoryIndex | str:

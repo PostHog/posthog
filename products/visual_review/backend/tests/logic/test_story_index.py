@@ -33,6 +33,13 @@ def _map_bytes(paths: dict[str, str]) -> bytes:
 _MAP = _map_bytes({"scenes-app-button--primary": "frontend/src/scenes/Button.stories.tsx"})
 _MAP_HASH = hashlib.sha256(_MAP).hexdigest()
 _OTHER_HASH = hashlib.sha256(b"another build").hexdigest()
+_DEEP_MAP = _map_bytes(
+    {
+        "scenes-app-button--primary": "frontend/src/scenes/Button.stories.tsx",
+        "scenes-app-deep--primary": "/".join(["nested"] * 200) + "/Deep.stories.tsx",
+    }
+)
+_DEEP_HASH = hashlib.sha256(_DEEP_MAP).hexdigest()
 
 
 class TestStoryPath:
@@ -132,6 +139,14 @@ class TestUploadedStoryIndex:
                 f"the story index {_MAP_HASH[:12]} could not be read",
             ),
             ({}, _MAP, "the newest default branch Storybook run recorded no story index"),
+            # The owners lookup walks every parent directory, so a path deeper than any real file is dropped.
+            (
+                {story_index.METADATA_KEY: _DEEP_HASH},
+                _DEEP_MAP,
+                story_index.StoryIndex(
+                    path_by_story_id={"scenes-app-button--primary": "frontend/src/scenes/Button.stories.tsx"}
+                ),
+            ),
             # A storage outage reads as an unknown owner rather than failing the page or the digest.
             (
                 {story_index.METADATA_KEY: _MAP_HASH},
@@ -140,11 +155,12 @@ class TestUploadedStoryIndex:
             ),
         ],
     )
-    def test_reads_the_map_the_newest_run_recorded(self, repo, metadata: dict, stored: bytes, expected) -> None:
+    def test_reads_the_map_the_newest_run_recorded(
+        self, repo, metadata: dict, stored: bytes | Exception, expected
+    ) -> None:
         run = self._run(repo, metadata)
 
-        stored_read = {"side_effect": stored} if isinstance(stored, Exception) else {"return_value": stored}
-        with patch.object(story_index.StoryIndexStorage, "read", **stored_read):
+        with patch.object(story_index.StoryIndexStorage, "read", side_effect=[stored]):
             result = story_index.latest_story_index(repo, {RunType.STORYBOOK: run})
 
         assert result == expected

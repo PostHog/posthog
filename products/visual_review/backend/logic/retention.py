@@ -10,6 +10,7 @@ from uuid import UUID
 
 from django.db import connections, transaction
 from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
 import structlog
@@ -19,8 +20,8 @@ from posthog.dataclasses import frozen
 from ..db import WRITER_DB
 from ..facade.enums import RunStatus
 from ..models import Artifact, Repo, Run, RunSnapshot
-from ..storage import ArtifactStorage
-from . import artifact_store, run_queries
+from ..storage import ArtifactStorage, StoryIndexStorage
+from . import artifact_store, run_queries, story_index
 
 logger = structlog.get_logger(__name__)
 
@@ -105,6 +106,7 @@ class RetentionSweepResult:
     runs_deleted: int
     artifacts_deleted: int
     objects_leaked: int
+    story_indexes_deleted: int = 0
 
 
 class RetentionSweep:
@@ -275,6 +277,40 @@ class RetentionSweep:
             )
         return ArtifactSweepResult(deleted=deleted, objects_leaked=objects_leaked)
 
+    def delete_unreferenced_story_indexes(self) -> int:
+        """Delete the story-to-file maps that no remaining run of the repo names.
+
+        A map is stored once per distinct content, named by its hash, and no row tracks it, so this is
+        the only thing that removes one. The listing comes before the run query: a run records its
+        hash before its shards upload the map, so a run created while the sweep runs still counts.
+        """
+        if self._out_of_time():
+            return 0
+
+        storage = StoryIndexStorage(str(self.repo.id))
+        stored = set(storage.list_hashes())
+        if not stored:
+            return 0
+        referenced = set(
+            self._runs()
+            .filter(metadata__has_key=story_index.METADATA_KEY)
+            .values_list(KeyTextTransform(story_index.METADATA_KEY, "metadata"), flat=True)
+        )
+        unreferenced = sorted(stored - referenced)
+        if not unreferenced:
+            return 0
+
+        failed_paths = storage.delete_hashes(unreferenced)
+        deleted = len(unreferenced) - len(failed_paths)
+        logger.info(
+            "visual_review.retention_story_indexes_deleted",
+            repo_id=str(self.repo.id),
+            team_id=self.team_id,
+            deleted=deleted,
+            failed=len(failed_paths),
+        )
+        return deleted
+
 
 def rotate_for_day(items: list[T], day: date) -> list[T]:
     """Move the start of the list on by one place a day.
@@ -300,8 +336,11 @@ def sweep_repo(repo: Repo, now: datetime | None = None, deadline: float | None =
     # holds most artifacts in use.
     runs_deleted = sweep.delete_expired_runs()
     artifacts = sweep.delete_orphaned_artifacts()
+    # Last, because the runs this sweep deleted are what frees a map.
+    story_indexes_deleted = sweep.delete_unreferenced_story_indexes()
     return RetentionSweepResult(
         runs_deleted=runs_deleted,
         artifacts_deleted=artifacts.deleted,
         objects_leaked=artifacts.objects_leaked,
+        story_indexes_deleted=story_indexes_deleted,
     )
