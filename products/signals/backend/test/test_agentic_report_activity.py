@@ -19,6 +19,7 @@ from posthog.temporal.oauth import grants_scratchpad_write
 
 from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, Dismissal
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
+from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
@@ -620,6 +621,41 @@ async def test_run_agentic_report_activity_detects_task_attributed_wrong_repo_di
         )
     )()
     assert selections == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_agentic_report_activity_keeps_a_scout_repository_correction(monkeypatch, ateam):
+    # A scout repointing a live report through `edit_report` writes the selection under its own task,
+    # so the row carries a null created_by and no dismissal is filed — neither of the guard's other
+    # shapes sees it. Selections are latest-wins, so a run appending its own stale selection on top
+    # would hand the repository the scout rejected back to settle-time auto-start.
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    as_of = datetime.now(UTC)
+    task = await database_sync_to_async(Task.objects.create)(team=ateam, title="scout", description="d")
+    await database_sync_to_async(SignalReportArtefact.append_status)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=RepoSelectionResult(repository="acme/other", reason=SCOUT_REPOSITORY_REASON),
+        attribution=ArtefactAttribution.from_task(str(task.id)),
+        reevaluate_autostart=False,
+    )
+
+    await _run_activity_with_output(monkeypatch, ateam, report, _build_research_output(), repo_selection_as_of=as_of)
+
+    selections = await database_sync_to_async(
+        lambda: list(
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+            ).order_by("created_at")
+        )
+    )()
+    assert [json.loads(selection.content)["repository"] for selection in selections] == ["acme/other"]
 
 
 @pytest.mark.asyncio

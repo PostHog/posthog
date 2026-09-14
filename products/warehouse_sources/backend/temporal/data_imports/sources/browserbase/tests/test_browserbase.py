@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.browserbas
     browserbase_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClient,
     RESTClientRetryableError,
@@ -84,15 +83,22 @@ class TestGetRows:
 
         assert _rows(browserbase_source("bb_key", "sessions", team_id=1, job_id="j")) == []
 
+    @parameterized.expand(
+        [
+            ("bare_list_endpoint", "sessions", "Required a list response body"),
+            ("enveloped_endpoint", "agents", "matched nothing in the response"),
+        ]
+    )
     @mock.patch(SESSION_PATCH)
-    def test_non_list_response_raises(self, MockSession) -> None:
-        # Browserbase list endpoints return arrays; a dict means an unexpected/error shape. Raise so
-        # the sync fails loudly instead of finishing "successfully" with zero rows.
+    def test_unexpected_response_shape_raises(self, _name: str, endpoint: str, message: str, MockSession) -> None:
+        # Browserbase answers either with a bare array or with rows under `data`; neither shape is
+        # present here. Raise so the sync fails loudly instead of finishing "successfully" with
+        # zero rows.
         session = MockSession.return_value
         _wire(session, [_response(200, {"statusCode": 500})])
 
-        with pytest.raises(ValueError, match="Required a list response body"):
-            _rows(browserbase_source("bb_key", "sessions", team_id=1, job_id="j"))
+        with pytest.raises(ValueError, match=message):
+            _rows(browserbase_source("bb_key", endpoint, team_id=1, job_id="j"))
 
     @mock.patch(SESSION_PATCH)
     def test_requests_the_endpoint_path(self, MockSession) -> None:
@@ -205,14 +211,90 @@ class TestValidateCredentials:
         assert validate_credentials("bb_key") is False
 
 
-class TestBrowserbaseSource:
-    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
+class TestCursorPagination:
     @mock.patch(SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, MockSession) -> None:
+    def test_follows_next_cursor_until_it_is_null(self, MockSession) -> None:
+        # Without the cursor wired to `nextCursor`/`cursor` a sync silently stops after one page.
+        session = MockSession.return_value
+        prepared = _wire(
+            session,
+            [
+                _response(200, {"data": [{"runId": "run_1"}], "limit": 1000, "nextCursor": "cur_2"}),
+                _response(200, {"data": [{"runId": "run_2"}], "limit": 1000, "nextCursor": None}),
+            ],
+        )
+
+        rows = _rows(browserbase_source("bb_key", "agent_runs", team_id=1, job_id="j"))
+
+        assert rows == [{"runId": "run_1"}, {"runId": "run_2"}]
+        assert session.send.call_count == 2
+        assert "cursor=" not in (prepared[0].url or "")
+        assert "cursor=cur_2" in (prepared[1].url or "")
+        # Ask for the largest page the endpoint allows, so a sync makes as few round trips as it can.
+        assert "limit=1000" in (prepared[0].url or "")
+
+
+class TestFanout:
+    @mock.patch(SESSION_PATCH)
+    def test_project_usage_yields_one_row_per_project_keyed_by_project(self, MockSession) -> None:
+        # The usage body is a bare object with no id of its own, so without the parent id copied
+        # down the table has no key and no way to tell whose usage a row is.
+        session = MockSession.return_value
+        prepared = _wire(
+            session,
+            [
+                _response(200, [{"id": "proj_1"}, {"id": "proj_2"}]),
+                _response(200, {"browserMinutes": 12, "proxyBytes": 345}),
+                _response(200, {"browserMinutes": 67, "proxyBytes": 890}),
+            ],
+        )
+
+        rows = _rows(browserbase_source("bb_key", "project_usage", team_id=1, job_id="j"))
+
+        assert rows == [
+            {"browserMinutes": 12, "proxyBytes": 345, "projectId": "proj_1"},
+            {"browserMinutes": 67, "proxyBytes": 890, "projectId": "proj_2"},
+        ]
+        assert prepared[1].url == f"{BROWSERBASE_BASE_URL}/projects/proj_1/usage"
+        assert prepared[2].url == f"{BROWSERBASE_BASE_URL}/projects/proj_2/usage"
+
+    @mock.patch(SESSION_PATCH)
+    def test_session_logs_fan_out_binds_the_session_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        prepared = _wire(
+            session,
+            [
+                _response(200, [{"id": "sess_1"}]),
+                _response(200, [{"sessionId": "sess_1", "pageId": 1, "method": "Page.navigate"}]),
+            ],
+        )
+
+        rows = _rows(browserbase_source("bb_key", "session_logs", team_id=1, job_id="j"))
+
+        assert rows == [{"sessionId": "sess_1", "pageId": 1, "method": "Page.navigate"}]
+        assert prepared[1].url == f"{BROWSERBASE_BASE_URL}/sessions/sess_1/logs"
+
+
+class TestBrowserbaseSource:
+    @parameterized.expand(
+        [
+            ("sessions", ["id"], "createdAt"),
+            ("projects", ["id"], "createdAt"),
+            ("agents", ["agentId"], "createdAt"),
+            ("agent_runs", ["runId"], "createdAt"),
+            # Fan-out children carry no id of their own, so the parent id is part of the key.
+            ("project_usage", ["projectId"], None),
+            ("session_logs", ["sessionId", "pageId", "method", "timestamp"], None),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_source_response_shape(
+        self, endpoint: str, primary_keys: list[str], partition_key: str | None, MockSession
+    ) -> None:
         response = browserbase_source("bb_key", endpoint, team_id=1, job_id="j")
 
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == primary_keys
         # Partition on the stable creation timestamp, never updatedAt.
-        assert response.partition_keys == ["createdAt"]
-        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ([partition_key] if partition_key else None)
+        assert response.partition_mode == ("datetime" if partition_key else None)

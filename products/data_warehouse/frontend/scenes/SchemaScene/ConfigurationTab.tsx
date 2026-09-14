@@ -221,6 +221,9 @@ function DetailsSection({
                             checked={schema.should_sync}
                             label={schema.should_sync ? 'Syncing' : 'Disabled'}
                             onChange={(active) => {
+                                // A blocked table is not routed away here on purpose. An operator who fixed
+                                // the duplicates or added the key at the source has to be able to turn the
+                                // table back on themselves; the banner above says what the last run found.
                                 if (active && !schema.sync_type) {
                                     // No sync method saved yet — open the sync method section to set one up.
                                     onConfigureSyncMethod()

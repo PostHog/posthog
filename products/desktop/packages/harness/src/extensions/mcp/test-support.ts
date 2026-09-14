@@ -23,6 +23,8 @@ export interface MockToolSpec {
   handler: (args: Record<string, unknown>) => {
     content: Array<Record<string, unknown>>;
     isError?: boolean;
+    structuredContent?: Record<string, unknown>;
+    _meta?: Record<string, unknown>;
   };
 }
 

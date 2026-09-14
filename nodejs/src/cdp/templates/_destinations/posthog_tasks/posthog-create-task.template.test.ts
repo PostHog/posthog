@@ -19,6 +19,7 @@ describe('posthog create task template', () => {
         skills: ['error-triage', 'db-runbook'],
         posthog_mcp_scopes: 'full',
         max_parallel_tasks: 3,
+        channel: '0198c9f1-bbbb-0000-0000-000000000001|growth',
     }
     // Mirrors the default event in createGlobals; the request must always carry the trigger event.
     const defaultEventBody = {
@@ -81,6 +82,7 @@ describe('posthog create task template', () => {
             skills: ['error-triage', 'db-runbook'],
             posthog_mcp_scopes: 'full',
             max_parallel_tasks: 3,
+            channel: '0198c9f1-bbbb-0000-0000-000000000001|growth',
             event: defaultEventBody,
             idempotency_key: `${invocation.id}:action_1:0`,
         })

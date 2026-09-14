@@ -3630,6 +3630,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["fb.1.1735689600000.IwAR2xY9zAbCdEf"],
             "type": "String",
         },
+        "$fbp": {
+            "label": "Facebook browser ID (fbp)",
+            "description": "The Facebook browser ID that Meta's Conversions API uses to match a conversion to a browser, read from the `_fbp` cookie the Meta pixel sets.",
+            "examples": ["fb.1.1735689600000.1098115397"],
+            "type": "String",
+        },
     },
     "session_properties": {
         "$session_duration": {
