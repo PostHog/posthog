@@ -1,9 +1,9 @@
 # Mobile replay capture mode
 
 Replay ingestion sends `snapshot_mode` in its Kafka metadata payload.
-The materialized view casts that value to `Nullable(String)` and stores its aggregate state in `snapshot_mode_v2`, so recordings can be counted by rendering mode without downloading replay blobs.
+The materialized view stores that value as a nullable string aggregate state in `snapshot_mode_v2`, so recordings can be counted by rendering mode without downloading replay blobs.
 This field only applies to events with `$snapshot_source = 'mobile'`.
-The stored `snapshot_mode` column is deprecated for reads; use `snapshot_mode_v2` instead.
+The aggregate table stores capture mode only in `snapshot_mode_v2`.
 
 ## Classification
 
@@ -22,7 +22,7 @@ A recording uses one mode throughout its lifetime.
 The recorder stops inspecting wireframes once it identifies the mode for its in-memory storage block.
 Each new block can identify the mode independently, without a shared cache or a ClickHouse lookup.
 ClickHouse stores `AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))` and retains the first non-null mode across blocks.
-The explicit cast before `argMinState` prevents the Kafka column's `LowCardinality` wrapper from entering the new aggregate state.
+The materialized views and destination tables use matching plain nullable aggregate states for `snapshot_source`, `snapshot_library`, and `snapshot_mode_v2`.
 Blocks without visual evidence cannot overwrite a known mode.
 
 ## Querying daily recording counts
@@ -68,13 +68,17 @@ Keep the `unknown` count visible to distinguish missing classifications from wir
 
 ## Deployment and historical data
 
+Existing installations need schema cleanup before deploying this change.
+Coordinate with the ClickHouse team to remove the old stored `snapshot_mode` column and align `snapshot_source` to `AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))` on the sharded, writable, and read tables.
+Verify these prerequisites before replacing the materialized views; incompatible columns can reject replay metadata inserts.
+Changes to historical migrations apply to fresh installations and do not repair tables on installations that already ran them.
+The replacement-column migration does not perform this cleanup or convert existing source aggregate states.
+
 The replacement-column migration adds `snapshot_mode_v2` to the sharded, read, and writable tables before recreating the active MSK or WarpStream materialized view.
 The producer's `snapshot_mode` payload and the Kafka table remain unchanged, so the ingestion classifier does not need a coordinated deployment.
 Old producers can omit the nullable field during rollout.
 
-The migration does not drop, convert, or backfill the deprecated stored `snapshot_mode` column.
-Both materialized views continue to populate it until the ClickHouse team coordinates its removal: omitting it can trigger a failing implicit default on ClickHouse 26.6.
-Its cleanup must also remove the legacy projection and schema declarations.
+The migration does not backfill `snapshot_mode_v2`.
 Do not remove the Kafka payload field; it supplies `snapshot_mode_v2`.
 
 Only blocks ingested through the updated materialized view populate `snapshot_mode_v2`.
