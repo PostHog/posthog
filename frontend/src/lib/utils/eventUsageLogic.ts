@@ -236,8 +236,11 @@ export interface ExperimentWatchShelfContext {
      * nothing to compare that variant against, and zero means no variant had a session-linked
      * person. */
     compared_variants: number
-    /** Hours of enrollment the comparison covered. What the person cap and the day budget bind, so
-     * a busy experiment reads hours here and one that stopped enrolling reads its last day. */
+    /** Hours of enrollment the comparison covered, from its oldest compared exposure to its newest.
+     * A span rather than the time the scan read, because a gap between enrolling minutes costs the
+     * day budget nothing, so sparse enrollment reports more hours than the budget allows. Read
+     * sessions_truncated for whether a cap bound. Fractional, so an experiment that enrolled a
+     * whole comparison inside one hour does not read the same as one that enrolled nobody. */
     compared_enrollment_hours: number
     /** More people were exposed than one comparison covers, so the oldest enrollees were left out.
      * The precondition for 'one_sided_enrollment', and how often the cap binds at all. */

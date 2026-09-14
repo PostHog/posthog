@@ -847,7 +847,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                         compared_variants: response.variants.filter(
                             (variant) => variant.persons >= response.min_variant_persons
                         ).length,
-                        compared_enrollment_hours: dayjs(response.date_to).diff(dayjs(response.date_from), 'hour'),
+                        compared_enrollment_hours: dayjs(response.date_to).diff(
+                            dayjs(response.date_from),
+                            'hour',
+                            true
+                        ),
                         sessions_truncated: response.sessions_truncated,
                         events_truncated: response.events_truncated,
                     })
