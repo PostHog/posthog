@@ -48,7 +48,11 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
+import {
+    filtersPlaceholderBindings,
+    parseQueryTablesAndColumns,
+    queryUsesFiltersPlaceholder,
+} from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
@@ -576,6 +580,7 @@ export interface sqlEditorLogicValues {
     exportContext: ExportContext
     finishedLoading: boolean
     fixErrorsError: string | null
+    filtersPlaceholderBindings: string[] | null
     hasFiltersPlaceholder: boolean
     hasQueryInput: boolean
     hoveredNode: string | null
@@ -1151,6 +1156,7 @@ export interface sqlEditorLogicMeta {
             sourceQuery: DataVisualizationNode,
             splitQueryRanges: QueryRange[]
         ) => boolean
+        filtersPlaceholderBindings: (queryInput: string | null) => string[] | null
         hasFiltersPlaceholder: (queryInput: string | null) => boolean
         hasQueryInput: (queryInput: string | null) => boolean
         isEmbeddedMode: (arg: SQLEditorMode | undefined) => boolean
@@ -3278,6 +3284,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             (queryInput: string | null) => {
                 return queryUsesFiltersPlaceholder(queryInput)
             },
+        ],
+        filtersPlaceholderBindings: [
+            (s) => [s.queryInput],
+            (queryInput: string | null): string[] | null => filtersPlaceholderBindings(queryInput),
+            { resultEqualityCheck: objectsEqual },
         ],
         hasQueryInput: [(s) => [s.queryInput], (queryInput: string | null) => !!queryInput],
         isEmbeddedMode: [
