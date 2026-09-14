@@ -3775,8 +3775,8 @@ def mint_audience_confirm_token(
             OpenApiParameter(
                 "type",
                 OpenApiTypes.STR,
-                enum=["messaging", "automation"],
-                description="Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.",
+                enum=["messaging", "automation", "loop"],
+                description="Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.",
             ),
             OpenApiParameter(
                 "origin_product",
@@ -3932,14 +3932,21 @@ class HogFlowViewSet(
 
             workflow_type = self.request.GET.get("type")
             if workflow_type:
-                if workflow_type not in ("messaging", "automation"):
-                    raise exceptions.ValidationError({"type": "Must be one of: messaging, automation"})
-                messaging_q = Q()
-                for action_type in MESSAGING_ACTION_TYPES:
-                    messaging_q |= Q(actions__contains=[{"type": action_type}])
-                queryset = (
-                    queryset.filter(messaging_q) if workflow_type == "messaging" else queryset.exclude(messaging_q)
-                )
+                if workflow_type not in ("messaging", "automation", "loop"):
+                    raise exceptions.ValidationError({"type": "Must be one of: messaging, automation, loop"})
+                if workflow_type == "loop":
+                    queryset = queryset.filter(origin_product=HogFlow.OriginProduct.LOOPS)
+                else:
+                    # A loop-origin workflow renders a "Loop" tag regardless of its actions (see
+                    # WorkflowTypeTag), so it must not also match messaging/automation - otherwise
+                    # picking one of those filters could return rows the UI still labels "Loop".
+                    messaging_q = Q()
+                    for action_type in MESSAGING_ACTION_TYPES:
+                        messaging_q |= Q(actions__contains=[{"type": action_type}])
+                    queryset = queryset.exclude(origin_product=HogFlow.OriginProduct.LOOPS)
+                    queryset = (
+                        queryset.filter(messaging_q) if workflow_type == "messaging" else queryset.exclude(messaging_q)
+                    )
 
             origin_product = self.request.GET.get("origin_product")
             if origin_product:
