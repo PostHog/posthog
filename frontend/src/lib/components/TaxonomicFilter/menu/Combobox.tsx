@@ -710,7 +710,9 @@ export function MenuFilterCombobox({
     const barrierClosed = searching && !revealBarrierOpen
     const displayedItems = barrierClosed ? NO_ENTRIES : filtered
 
-    // Empty-state message. Three branches:
+    // Empty-state message. Four branches:
+    //   - "search too long" — the active chip resolves to a single group
+    //     whose endpoint caps the query length, and the query is past it.
     //   - "needs more characters" — when the active chip resolves to a
     //     single group with `minSearchQueryLength` and the search query
     //     is shorter than that. Shows the group's `searchDescription`
@@ -735,7 +737,15 @@ export function MenuFilterCombobox({
                 ? (groups.find((g) => g.type === activeScope) ?? null)
                 : null
         const minLen = singleGroup?.minSearchQueryLength ?? 0
+        const maxLen = singleGroup?.maxSearchQueryLength ?? 0
         const trimmedLen = searchQuery.trim().length
+        if (singleGroup && maxLen > 0 && trimmedLen > maxLen) {
+            const description = singleGroup.searchDescription ?? singleGroup.name.toLowerCase()
+            return {
+                title: 'Your search is too long',
+                body: `Search ${description} with ${maxLen} characters or fewer.`,
+            }
+        }
         if (singleGroup && minLen > 0 && trimmedLen < minLen) {
             const description = singleGroup.searchDescription ?? singleGroup.name.toLowerCase()
             return {

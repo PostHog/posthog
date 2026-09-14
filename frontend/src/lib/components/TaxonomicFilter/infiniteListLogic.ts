@@ -313,6 +313,7 @@ export interface infiniteListLogicValues {
     limit: number
     listGroupType: TaxonomicFilterGroupType
     localItems: ListStorage
+    maxSearchQueryLength: number
     minSearchQueryLength: any
     needsMoreSearchCharacters: boolean
     pinnedRowIndex: number | null
@@ -326,6 +327,7 @@ export interface infiniteListLogicValues {
     results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
     rowCount: number
     scopedRemoteEndpoint: string | null
+    searchQueryTooLong: boolean
     selectedItem: TaxonomicDefinitionTypes | undefined
     selectedItemInView: boolean
     selectedItemValue: number | string | null
@@ -594,6 +596,8 @@ export interface infiniteListLogicMeta {
         remoteEndpoint: (group: TaxonomicFilterGroup | undefined) => string | null
         minSearchQueryLength: (group: TaxonomicFilterGroup | undefined, arg: any) => any
         needsMoreSearchCharacters: (minSearchQueryLength: any, searchQuery: string) => boolean
+        maxSearchQueryLength: (group: TaxonomicFilterGroup | undefined) => number
+        searchQueryTooLong: (maxSearchQueryLength: any, searchQuery: string) => boolean
         excludedProperties: (group: TaxonomicFilterGroup | undefined) => string[] | undefined
         propertyAllowList: (group: TaxonomicFilterGroup | undefined) => string[] | undefined
         scopedRemoteEndpoint: (group: TaxonomicFilterGroup | undefined) => string | null
@@ -640,6 +644,7 @@ export interface infiniteListLogicMeta {
             hasRemoteDataSource: boolean,
             showNonCapturedEventOption: boolean,
             needsMoreSearchCharacters: boolean,
+            searchQueryTooLong: any,
             remoteResultsAreFresh: boolean,
             showErrorState: boolean
         ) => boolean
@@ -891,6 +896,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         listGroupType,
                         propertyAllowList,
                         minSearchQueryLength,
+                        searchQueryTooLong,
                     } = values
 
                     if (!remoteEndpoint) {
@@ -898,6 +904,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
 
                     if (minSearchQueryLength > 0 && searchQuery.length < minSearchQueryLength) {
+                        return createEmptyListStorage(searchQuery)
+                    }
+
+                    if (searchQueryTooLong) {
                         return createEmptyListStorage(searchQuery)
                     }
 
@@ -1274,6 +1284,20 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return searchQuery.trim().length < minSearchQueryLength
             },
         ],
+        maxSearchQueryLength: [
+            (s) => [s.group],
+            (group: TaxonomicFilterGroup | undefined) => group?.maxSearchQueryLength ?? 0,
+        ],
+        searchQueryTooLong: [
+            (s) => [s.maxSearchQueryLength, s.searchQuery],
+            (maxSearchQueryLength: number, searchQuery: string) => {
+                if (maxSearchQueryLength <= 0) {
+                    return false
+                }
+
+                return searchQuery.trim().length > maxSearchQueryLength
+            },
+        ],
         excludedProperties: [(s) => [s.group], (group: TaxonomicFilterGroup | undefined) => group?.excludedProperties],
         propertyAllowList: [(s) => [s.group], (group: TaxonomicFilterGroup | undefined) => group?.propertyAllowList],
         scopedRemoteEndpoint: [
@@ -1400,6 +1424,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.hasRemoteDataSource,
                 s.showNonCapturedEventOption,
                 s.needsMoreSearchCharacters,
+                s.searchQueryTooLong,
                 s.remoteResultsAreFresh,
                 s.showErrorState,
             ],
@@ -1411,6 +1436,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 hasRemoteDataSource: boolean,
                 showNonCapturedEventOption: boolean,
                 needsMoreSearchCharacters: boolean,
+                searchQueryTooLong: boolean,
                 remoteResultsAreFresh: boolean,
                 showErrorState: boolean
             ): boolean =>
@@ -1425,7 +1451,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     !suggestedFiltersSettling &&
                     (!!searchQuery || !hasRemoteDataSource) &&
                     !showNonCapturedEventOption) ||
-                needsMoreSearchCharacters,
+                needsMoreSearchCharacters ||
+                searchQueryTooLong,
         ],
         showLoadingState: [
             (s) => [

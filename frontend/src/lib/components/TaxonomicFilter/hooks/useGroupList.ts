@@ -104,6 +104,8 @@ export interface UseGroupListResult {
     isLoading: boolean
     isFetching: boolean
     needsMoreSearchCharacters: boolean
+    /** The typed query is past the group's `maxSearchQueryLength`, so no remote search runs. */
+    searchQueryTooLong: boolean
     hasRemoteDataSource: boolean
     showEmptyState: boolean
     showLoadingState: boolean
@@ -202,8 +204,13 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     const minSearchQueryLength = minSearchOverride ?? group.minSearchQueryLength ?? 0
     const trimmedSearch = searchQuery.trim()
     const needsMoreSearchCharacters = minSearchQueryLength > 0 && trimmedSearch.length < minSearchQueryLength
+    // Endpoints that search with trigrams reject a query past their cap with a 400, so a long
+    // pasted string would fail the request on every keystroke. Skip the request and tell the
+    // user in the dropdown instead.
+    const maxSearchQueryLength = group.maxSearchQueryLength ?? 0
+    const searchQueryTooLong = maxSearchQueryLength > 0 && trimmedSearch.length > maxSearchQueryLength
 
-    const remoteEnabled = hasRemoteDataSource && !needsMoreSearchCharacters
+    const remoteEnabled = hasRemoteDataSource && !needsMoreSearchCharacters && !searchQueryTooLong
 
     // `clientFilterFirstPage` groups (e.g. Cohorts) pin the remote query to
     // the empty-search first page and let local Fuse handle keystroke
@@ -291,7 +298,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     // for typed queries; the snappy local path still serves the common case
     // where the whole list fits in the first page.
     const firstPageIncomplete = clientFilter && remoteItemsRaw.count > remoteItemsRaw.results.length
-    const serverSearchEnabled = firstPageIncomplete && !!trimmedSearch && !needsMoreSearchCharacters
+    const serverSearchEnabled =
+        firstPageIncomplete && !!trimmedSearch && !needsMoreSearchCharacters && !searchQueryTooLong
 
     const serverSearchKey = useMemo(
         () => [
@@ -488,7 +496,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     // page, and we don't want to flash an empty state during that window.
     const showEmptyState =
         (items.length === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption) ||
-        needsMoreSearchCharacters
+        needsMoreSearchCharacters ||
+        searchQueryTooLong
 
     const showLoadingState = isLoading && items.length === 0
 
@@ -530,6 +539,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         isLoading,
         isFetching,
         needsMoreSearchCharacters,
+        searchQueryTooLong,
         hasRemoteDataSource,
         showEmptyState,
         showLoadingState,

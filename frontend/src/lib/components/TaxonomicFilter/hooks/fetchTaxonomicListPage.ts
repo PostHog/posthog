@@ -47,6 +47,11 @@ export async function fetchTaxonomicListPage({
         return { ...EMPTY_LIST, searchQuery }
     }
 
+    const maxSearchQueryLength = group.maxSearchQueryLength ?? 0
+    if (maxSearchQueryLength > 0 && searchQuery.trim().length > maxSearchQueryLength) {
+        return { ...EMPTY_LIST, searchQuery }
+    }
+
     const searchAlias = group.searchAlias || 'search'
     const excluded =
         group.excludedProperties && group.excludedProperties.length > 0

@@ -712,8 +712,15 @@ function InfiniteListEmptyState(): JSX.Element {
     const { setIncludeStaleEvents, setActiveTab } = useActions(taxonomicFilterLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
-    const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters, listGroupType } =
-        useValues(infiniteListLogic)
+    const {
+        group,
+        needsMoreSearchCharacters,
+        minSearchQueryLength,
+        searchQueryTooLong,
+        maxSearchQueryLength,
+        isSuggestedFilters,
+        listGroupType,
+    } = useValues(infiniteListLogic)
 
     const emptySearchQuery = searchQuery.trim().length === 0
     const suggestedFiltersBeforeSearching = isSuggestedFilters && emptySearchQuery
@@ -761,6 +768,16 @@ function InfiniteListEmptyState(): JSX.Element {
                     <IconSearch className="text-5xl text-tertiary" />
                     <span className="text-secondary text-center">Start searching and we'll suggest filters...</span>
                     <SuggestedFiltersSearchHint taxonomicGroupTypes={taxonomicGroupTypes} />
+                </>
+            ) : searchQueryTooLong ? (
+                <>
+                    <IconSearch className="text-5xl text-tertiary" />
+                    <span className="text-secondary text-center">Your search is too long</span>
+                    <span className="max-w-80 text-center text-secondary">
+                        Search{' '}
+                        {group?.searchDescription || group?.searchPlaceholder || group?.name?.toLowerCase() || 'items'}{' '}
+                        with {maxSearchQueryLength} characters or fewer.
+                    </span>
                 </>
             ) : needsMoreSearchCharacters ? (
                 <>

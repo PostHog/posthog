@@ -22,6 +22,10 @@ import {
 
 import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
+/** Mirrors MAX_SEARCH_LENGTH in posthog/helpers/trigram_search.py. Endpoints that search
+ *  with trigrams reject a longer query with a 400. */
+export const TRIGRAM_SEARCH_MAX_QUERY_LENGTH = 200
+
 export interface SimpleOption {
     name: string
     propertyFilterType?: PropertyFilterType
@@ -275,6 +279,9 @@ export interface TaxonomicFilterGroup {
     componentProps?: Record<string, any>
     /** Minimum number of characters before a remote search is issued. */
     minSearchQueryLength?: number
+    /** Maximum number of characters a remote search is issued with. Set it on groups whose
+     *  endpoint rejects longer queries, so the picker never sends a request it knows will fail. */
+    maxSearchQueryLength?: number
     /** Description shown in the empty state when minSearchQueryLength is set. */
     searchDescription?: string
     /** Synthetic results surfaced inline when the search query matches a keyword.

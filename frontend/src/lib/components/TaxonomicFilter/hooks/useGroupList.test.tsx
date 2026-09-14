@@ -156,6 +156,17 @@ describe('useGroupList', () => {
             expect(apiGet).not.toHaveBeenCalled()
         })
 
+        it.each([
+            ['at the maximum length', 200, false],
+            ['past the maximum length', 201, true],
+        ])('%s, searchQueryTooLong is %s', (_name, queryLength, tooLong) => {
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+            const group = makeGroup({ endpoint: 'api/projects/1/cohorts/', maxSearchQueryLength: 200 })
+            const { result } = renderHook(() => useGroupList({ group, searchQuery: 'x'.repeat(queryLength) }))
+            expect(result.current.searchQueryTooLong).toBe(tooLong)
+            expect(apiGet).toHaveBeenCalledTimes(tooLong ? 0 : 1)
+        })
+
         it('drops the previous page when the query falls below the minimum length', async () => {
             apiGet.mockResolvedValue({ results: [{ name: 'checkout' }], count: 1 })
             const group = makeGroup({ endpoint: 'api/projects/1/whatever', minSearchQueryLength: 3 })

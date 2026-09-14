@@ -657,6 +657,48 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('a search past the endpoint cap', () => {
+        // The cohorts endpoint rejects a search over 200 characters with a 400, and a kea loader
+        // failure raises a toast on every keystroke.
+        it.each([
+            ['sends a search at the cap', 200, 1],
+            ['skips a search past the cap', 201, 0],
+        ])('%s', async (_name, queryLength, expectedRequests) => {
+            const searches: (string | null)[] = []
+            useMocks({
+                get: {
+                    '/api/projects/:team/cohorts/': ({ request }) => {
+                        searches.push(new URL(request.url).searchParams.get('search'))
+                        return [200, { results: [], count: 0 }]
+                    },
+                },
+            })
+            initKeaTests()
+            const cohortLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'cohortList',
+                listGroupType: TaxonomicFilterGroupType.Cohorts,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts],
+                showNumericalPropsOnly: false,
+            })
+            cohortLogic.mount()
+            await expectLogic(cohortLogic).toFinishAllListeners()
+            searches.length = 0
+
+            const query = 'x'.repeat(queryLength)
+            await expectLogic(cohortLogic, () => {
+                cohortLogic.actions.setSearchQuery(query)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    searchQueryTooLong: expectedRequests === 0,
+                    showErrorState: false,
+                    showEmptyState: true,
+                })
+
+            expect(searches.filter((search) => search === query)).toHaveLength(expectedRequests)
+        })
+    })
+
     describe('remote fetch failure settles the list', () => {
         // Every fetch deliberately 500s — silence the loader error log.
         beforeEach(silenceKeaLoadersErrors)

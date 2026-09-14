@@ -11,6 +11,7 @@ import { RECENT_PINNED_TAB_DEFINITIONS } from 'lib/components/TaxonomicFilter/re
 import {
     DataWarehousePopoverField,
     SimpleOption,
+    TRIGRAM_SEARCH_MAX_QUERY_LENGTH,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -776,6 +777,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Cohorts',
             searchPlaceholder: 'cohorts',
             type: TaxonomicFilterGroupType.Cohorts,
+            maxSearchQueryLength: TRIGRAM_SEARCH_MAX_QUERY_LENGTH,
             endpoint: combineUrl(`api/projects/${projectId}/cohorts/`, cohortsEndpointParams).url,
             value: 'cohorts',
             // See taxonomicFilterLogic — cohort populations comfortably fit
@@ -800,6 +802,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Cohorts',
             searchPlaceholder: 'cohorts',
             type: TaxonomicFilterGroupType.CohortsWithAllUsers,
+            maxSearchQueryLength: TRIGRAM_SEARCH_MAX_QUERY_LENGTH,
             endpoint: combineUrl(`api/projects/${projectId}/cohorts/`, cohortsEndpointParams).url,
             clientFilterFirstPage: true,
             options: COHORTS_WITH_ALL_USERS_OPTIONS,
@@ -922,6 +925,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Insights',
             searchPlaceholder: 'insights',
             type: TaxonomicFilterGroupType.Insights,
+            maxSearchQueryLength: TRIGRAM_SEARCH_MAX_QUERY_LENGTH,
             endpoint: combineUrl(`api/environments/${teamId}/insights/`, {
                 saved: true,
             }).url,
