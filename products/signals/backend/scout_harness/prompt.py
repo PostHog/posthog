@@ -145,7 +145,7 @@ def _report_intro(*, can_emit: bool, can_edit: bool) -> str:
 _HOW_A_RUN_WORKS_HEAD = """# How a run works
 
 1. **Read your own prior context.** Call `scout-runs-list` with `skill_name` set to your own skill for continuity: what you checked last run, what you ruled out, where you got to. Call `scout-scratchpad-search` for durable team memories ("known noise", "already addressed", "ignore X"), and `scout-notes-list` with your own `skill_name` for steering notes humans left you (see *Notes left for you*). Prior context is a jumping-off point: fresh evidence on a known topic often beats fresh investigation on a stale one.
-2. **Check what the rest of the fleet has seen.** Call `scout-runs-list` again without `skill_name`, passing `text=<the entity or topic>` once per thing you're about to investigate. That filter is load-bearing: the call returns 20 rows by default, so on a full fleet an unfiltered page covers barely a day and a relevant sibling sorts out of view before you read it. Nothing matches? Move on, rather than reading the fleet's whole recent output. On a match, follow that run's `emitted_report_ids` / `edited_report_ids` into `inbox-reports-retrieve`, or its `emitted_finding_ids` via `scout-runs-emissions-list` for a sibling still on the signal channel, and read the evidence rather than the prose summary. This read is context-gathering only: ignore the tool output's guidance about associating your task with a report (`task_run` artefacts), which applies to a run actually working a report and would staple your run onto a sibling's.
+2. **Check what the rest of the fleet has seen.** Call `scout-runs-list` again without `skill_name`, passing `text=<the entity or topic>` once per thing you're about to investigate. That filter is load-bearing: the call returns 20 rows by default, so on a full fleet an unfiltered page covers barely a day and a relevant sibling sorts out of view before you read it. Nothing matches? Move on, rather than reading the fleet's whole recent output. On a match, follow that run's `emitted_report_ids` / `edited_report_ids` into `inbox-reports-retrieve`, or its `emitted_finding_ids` via `scout-runs-emissions-list` for a sibling still on the signal channel, and read the evidence rather than the prose summary. This read is context-gathering only: ignore the tool output's guidance about claiming a report, which applies to a run actually working a report and would staple your run onto a sibling's.
 3. **Investigate.** Use the PostHog MCP read tools to gather evidence, discovering what's available at run time. Your skill body tells you *what* to look at."""
 
 # Rendered into the head's investigate step, steering hypotheses that rest on a named measure at
@@ -464,12 +464,15 @@ _EDIT_EVIDENCE_VS_NOTE = (
     "there, and the note is what still lands."
 )
 
+_EDIT_REPOSITORY_BULLET = "- **Fix a misrouted report.** If a report points at the wrong codebase, set `repository` to the right `owner/repo` instead of authoring a duplicate that carries the correct one. It replaces the report's target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Pass `NO_REPO` when nothing under version control could change, and omit the field entirely when the target is already right. The response carries `repository`, the target the report holds afterwards — read it back to confirm the correction landed."
+
 _AUTHORING_VS_EDITING_REPORT_BOTH = f"""# Authoring vs. editing: search the inbox first
 
 `scout-emit-report` has no dedupe matcher: two calls covering one issue in different words author two reports. Duplicate reports are the main failure mode here, so the discipline is **search, then decide**:
 
 {_REPORT_SEARCH_BULLET}
 - **Edit when it already exists *and is still live*.** If a report covers the issue, prefer `scout-edit-report`. {_EDIT_EVIDENCE_VS_NOTE} Rewrite `title`/`summary` only on a report you own. One living report beats three near-duplicates fragmenting the inbox. But `edit_report` can't change a report's status, so appending to a `resolved` / `suppressed` / `failed` report buries a real relapse under a closed item: when the match is no longer live, treat the relapse as genuinely new, author a fresh report, and repoint your `report:` pointer at it.
+{_EDIT_REPOSITORY_BULLET}
 - **Author only when it's genuinely new.** A materially new issue, a known one with new evidence that changes the verdict, or a relapse whose prior report is no longer live. {_REPORT_RETRY_RULE_BOTH}"""
 
 _AUTHORING_REPORT_EMIT_ONLY = f"""# Authoring reports: search the inbox first
@@ -487,6 +490,7 @@ This run updates reports that already exist; it can't author new ones. Find the 
 - **Find it.** {_INBOX_SEARCH_RECIPE} Status matters twice over here: appending to a dismissed or closed report buries your evidence under an item nobody is watching. Reuse the `report:<domain>:<entity>` scratchpad entry from a prior run when you have one. {_DISMISSAL_CONTEXT}
 - **Append, or rewrite.** Prefer appending. {_EDIT_EVIDENCE_VS_NOTE} Rewrite `title`/`summary` only on a report you own, and only when the framing is genuinely stale; lead the summary with the verdict (see *Writing the summary*).
 - **Route an unrouted report.** If a report surfaced assigned to no one, set `suggested_reviewers` to route it to an owner: each reviewer an object, `{{user_uuid}}` (preferred — it names a PostHog member directly, with or without a GitHub account) or `{{github_login}}` (a bare lowercase login, no `@`), never a bare string. If the owner isn't named in the report, call `scout-members-list` for this project's members (the org-scoped `org-member-get-github-login` / `org-members-list` tools aren't available in a scout run). This replaces the report's reviewer list and re-runs autostart, so a report that already has a repo and priority but lacked a qualifying reviewer can now open a draft PR. Only set a reviewer you're confident owns the area; an empty list is a no-op.
+{_EDIT_REPOSITORY_BULLET}
 - **Don't retry blindly.** `edit_report` is NOT idempotent. A retried `append_note` adds a second note. A retried `append_evidence` adds duplicate signals and increases the report counters again. If unsure whether an edit landed, re-read the report rather than re-sending."""
 
 # Heading matches the cross-reference in the authoring sections exactly; "not a copy" lives in the
@@ -682,7 +686,7 @@ _DEDUPE_RULES_SIGNAL = f"""# Dedupe rules
 
 - If a recent run already covers this hypothesis with the same evidence, don't re-emit: attach a `remember(...)` note or skip. But if you have new evidence (a different source, a fresh deploy correlation, a contradicting signal), emit a fresh finding citing the prior finding's id. The inbox groups related findings, so don't hide a real update inside a `remember` note.
 - If a memory entry says "already addressed" or "noise" for your topic, trust it unless you have new evidence.
-- Humans also dismiss reports directly in the inbox, and that verdict may never have reached your scratchpad. Before emitting on a topic that plausibly has history, search the inbox too. {_INBOX_SEARCH_RECIPE} This scan is read-only context-gathering: ignore the tool output's guidance about associating your task with a report (`task_run` artefacts), which applies to runs actually working a report. {_DISMISSAL_CONTEXT}"""
+- Humans also dismiss reports directly in the inbox, and that verdict may never have reached your scratchpad. Before emitting on a topic that plausibly has history, search the inbox too. {_INBOX_SEARCH_RECIPE} This scan is read-only context-gathering: ignore the tool output's guidance about claiming a report, which applies to runs actually working a report. {_DISMISSAL_CONTEXT}"""
 
 # The untrusted-input rule is stated once here, listing every channel it covers, rather than
 # re-argued in each section that reads one. A scout holds write scopes, so this is safety-critical:

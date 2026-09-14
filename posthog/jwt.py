@@ -18,6 +18,7 @@ class PosthogJwtAudience(Enum):
     DELEGATED_USER = "posthog:delegated_user"
     EXPORT_RENDERER = "posthog:export_renderer"
     LIVESTREAM = "posthog:livestream"
+    HOGQL_LANGUAGE_SERVICE = "hogql-language-service"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
     RECORDING_API = "posthog:recording_api"
     WORKFLOWS_RESCHEDULE_PARKED = "posthog:workflows:reschedule_parked"

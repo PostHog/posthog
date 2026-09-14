@@ -1,4 +1,4 @@
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, Protocol
@@ -291,6 +291,36 @@ def build_dependent_resource(
             )
         child = child.add_filter(_not_newer_than(cursor_field, parent_snapshot_at))
     return child
+
+
+def build_chained_resource(
+    *,
+    resources: Sequence[EndpointResource],
+    child_name: str,
+    parent_name: str,
+    parent_field_renames: dict[str, str],
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+) -> Iterable[Any]:
+    """Build a multi-level fan-out from a caller-assembled resource list and return the child.
+
+    `build_dependent_resource` covers one hop bound by one resolved param. A child whose path
+    binds several ids from the same parent row, or whose parent is itself a fan-out child,
+    needs its own resource list, which the caller assembles and passes here.
+
+    Such a chain carries no resume state: `create_resources` withholds the hook from every
+    resource once more than one is dependent, because one hook consumed at two levels would
+    corrupt the saved page.
+    """
+    config: RESTAPIConfig = {
+        "client": client_config,
+        "resource_defaults": {},
+        "resources": list(resources),
+    }
+    built = rest_api_resources(config, team_id, job_id, None)
+    child = next(r for r in built if getattr(r, "name", None) == child_name)
+    return child.add_map(rename_parent_fields(parent_name, parent_field_renames))
 
 
 def _not_newer_than(field: str, snapshot_at: datetime) -> Callable[[dict[str, Any]], bool]:

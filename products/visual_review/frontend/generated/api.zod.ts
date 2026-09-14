@@ -22,7 +22,16 @@ export const VisualReviewReposCreateBody = /* @__PURE__ */ zod.object({
  */
 export const VisualReviewReposPartialUpdateBody = /* @__PURE__ */ zod.object({
     baseline_file_paths: zod.record(zod.string(), zod.string()).nullish(),
-    enable_pr_comments: zod.boolean().nullish(),
+    enable_pr_comments: zod
+        .boolean()
+        .nullish()
+        .describe('Post a pull request comment when a run finds visual changes to review.'),
+    debt_digest_enabled: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Post the visual review debt digest to the Slack channels of the teams that own the snapshots. Off by default. The digest goes out every Monday morning.'
+        ),
 })
 
 /**

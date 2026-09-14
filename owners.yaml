@@ -43,6 +43,7 @@ rules:
           - tach.toml
           - CLAUDE.md
           - AGENTS.md
+          - '/.coderabbit.yaml'
           - '/.greptile/'
           # Every owners.yaml routes to devex (unanchored: matches at any depth)
           # unless a nearer file or rule claims it — ownership-policy edits must
