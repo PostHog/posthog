@@ -1,13 +1,14 @@
-"""Report-level embeddings: one `document_embeddings` row per `SignalReport`.
+"""Report-level embeddings: one `document_embeddings` row per rendering of a `SignalReport`.
 
 The grouping pipeline already embeds each *signal* that backs a report (`document_type='signal'`).
 This module embeds the *report itself*, the LLM-written title and summary the inbox shows, so a
-report has a vector of its own instead of only a cloud of constituent-signal vectors that every
-reader has to re-aggregate.
+report has vectors of its own instead of only a cloud of constituent-signal vectors that every
+reader has to re-aggregate. Each rendering in `EMBEDDING_RENDERINGS` is a separate row, under the
+report's id.
 
-That vector is the feature-side building block for the inbox ranking model. The label side already
-exists: `capture_status_change_analytics` in `receivers.py` emits `signal_report_status_changed` for
-every resolve, dismissal, and snooze.
+Those vectors are the feature-side building block for the inbox ranking model. The label side
+already exists: `capture_status_change_analytics` in `receivers.py` emits
+`signal_report_status_changed` for every resolve, dismissal, and snooze.
 """
 
 from collections.abc import Mapping
