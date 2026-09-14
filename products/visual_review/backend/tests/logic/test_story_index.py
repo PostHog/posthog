@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
+from posthog.storage.object_storage import ObjectStorageError
+
 from products.visual_review.backend.facade.contracts import CreateRunInput
 from products.visual_review.backend.facade.enums import RunType
 from products.visual_review.backend.logic import repos, runs, story_index
@@ -94,12 +96,14 @@ class TestUploadedStoryIndex:
             ),
         ):
             first = story_index.register_story_index(run.id, repo.team_id, _MAP_HASH)
-            # A later shard reporting a different build must not replace what the first one recorded.
-            story_index.register_story_index(run.id, repo.team_id, _OTHER_HASH)
+            # A later shard reporting a different build must not replace what the first one recorded,
+            # or get an upload target for a map no reader will use.
+            conflicting = story_index.register_story_index(run.id, repo.team_id, _OTHER_HASH)
 
         run.refresh_from_db()
         assert run.metadata[story_index.METADATA_KEY] == _MAP_HASH
         assert (first is not None) is asks_for_upload
+        assert conflicting is None
 
     def test_a_value_that_is_not_a_sha256_is_ignored(self, repo) -> None:
         run = self._run(repo)
@@ -128,12 +132,19 @@ class TestUploadedStoryIndex:
                 f"the story index {_MAP_HASH[:12]} could not be read",
             ),
             ({}, _MAP, "the newest default branch Storybook run recorded no story index"),
+            # A storage outage reads as an unknown owner rather than failing the page or the digest.
+            (
+                {story_index.METADATA_KEY: _MAP_HASH},
+                ObjectStorageError("read failed"),
+                f"the story index {_MAP_HASH[:12]} could not be read",
+            ),
         ],
     )
     def test_reads_the_map_the_newest_run_recorded(self, repo, metadata: dict, stored: bytes, expected) -> None:
         run = self._run(repo, metadata)
 
-        with patch.object(story_index.StoryIndexStorage, "read", return_value=stored):
+        stored_read = {"side_effect": stored} if isinstance(stored, Exception) else {"return_value": stored}
+        with patch.object(story_index.StoryIndexStorage, "read", **stored_read):
             result = story_index.latest_story_index(repo, {RunType.STORYBOOK: run})
 
         assert result == expected

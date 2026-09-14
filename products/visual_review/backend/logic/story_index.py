@@ -20,6 +20,7 @@ from django.db import transaction
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.storage.object_storage import ObjectStorageError
 
 from ..db import WRITER_DB
 from ..facade.enums import RunType
@@ -114,13 +115,20 @@ def register_story_index(run_id: UUID, team_id: int, story_index_hash: str) -> S
             run.metadata = {**metadata, METADATA_KEY: story_index_hash}
             run.save(using=WRITER_DB, update_fields=["metadata"])
         elif recorded != story_index_hash:
-            # Shards of one run test one build, so two maps mean two builds fed the same run.
+            # Shards of one run test one build, so two maps mean two builds fed the same run. The
+            # recorded map stays, so there is nothing to upload for this one.
             logger.warning("visual_review.story_index_hash_conflict", run_id=str(run_id))
+            return None
 
     storage = StoryIndexStorage(str(run.repo_id))
-    if storage.exists(story_index_hash):
+    # The map only attributes snapshots to teams, so a storage failure must not fail the shard's upload.
+    try:
+        if storage.exists(story_index_hash):
+            return None
+        post = storage.get_presigned_upload_url(story_index_hash)
+    except ObjectStorageError:
+        logger.warning("visual_review.story_index_storage_unavailable", run_id=str(run_id), exc_info=True)
         return None
-    post = storage.get_presigned_upload_url(story_index_hash)
     if post is None:
         return None
     return StoryIndexUpload(url=post["url"], fields=post["fields"])
@@ -129,7 +137,12 @@ def register_story_index(run_id: UUID, team_id: int, story_index_hash: str) -> S
 def _read_paths(repo: Repo, story_index_hash: str) -> dict[str, str] | None:
     """Story id to repository path, from the stored map. None when the map cannot be trusted."""
     log = logger.bind(repo_id=str(repo.id), story_index_hash=story_index_hash)
-    raw = StoryIndexStorage(str(repo.id)).read(story_index_hash)
+    try:
+        raw = StoryIndexStorage(str(repo.id)).read(story_index_hash)
+    except ObjectStorageError:
+        # None is never cached, so a storage outage reads as an unknown owner until the store recovers.
+        log.warning("visual_review.story_index_storage_unavailable", exc_info=True)
+        return None
     if raw is None:
         log.info("visual_review.story_index_missing")
         return None

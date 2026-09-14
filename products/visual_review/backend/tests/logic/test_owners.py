@@ -1,5 +1,3 @@
-"""Unit tests for logic/owners.py — the owning team of each snapshot."""
-
 import pytest
 from unittest.mock import MagicMock, patch
 
