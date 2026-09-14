@@ -5,6 +5,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { cn } from 'lib/utils/css-classes'
+import { isMobile } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 import { dashboardTemplateChooserLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
@@ -58,7 +59,9 @@ export function NewDashboardModal(): JSX.Element {
                     onChange={setTemplateFilter}
                     value={templateFilter}
                     fullWidth={true}
-                    autoFocus
+                    // On a phone, a focused input makes iOS pan the whole viewport on swipe,
+                    // so the template list can't be scrolled until the keyboard is dismissed.
+                    autoFocus={!isMobile()}
                     className="min-w-0 flex-1"
                 />
                 <LemonButton

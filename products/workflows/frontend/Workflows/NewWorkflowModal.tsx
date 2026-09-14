@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { isMobile } from 'lib/utils/dom'
 
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { WorkflowTemplateChooser } from './templates/WorkflowTemplateChooser'
@@ -37,7 +38,9 @@ export function NewWorkflowModal(): JSX.Element {
                             onChange={setTemplateFilter}
                             value={templateFilter}
                             fullWidth={true}
-                            autoFocus
+                            // On a phone, a focused input makes iOS pan the whole viewport on swipe,
+                            // so the template list can't be scrolled until the keyboard is dismissed.
+                            autoFocus={!isMobile()}
                         />
                         {availableTags.length > 0 && (
                             <LemonSelect

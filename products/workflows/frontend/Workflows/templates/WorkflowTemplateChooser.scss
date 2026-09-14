@@ -1,8 +1,9 @@
 .WorkflowTemplateChooser {
     display: grid;
 
-    // Wide enough that a template description reads in two lines without being cut
-    grid-template-columns: repeat(auto-fill, minmax(26rem, 1fr));
+    // Wide enough that a template description reads in two lines without being cut. The min() lets
+    // the column shrink on screens narrower than 26rem, where it would otherwise overflow sideways.
+    grid-template-columns: repeat(auto-fill, minmax(min(26rem, 100%), 1fr));
     gap: 0.5rem;
     align-items: stretch;
 }
