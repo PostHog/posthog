@@ -169,7 +169,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
         openPersonsModalForStep: ({ step, stepIndex, converted }) => {
             // Note - when in a legend the step.order is always 0 so we use stepIndex instead
             const stepNo = typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1
-            // A first-step drop-off (funnelStep -1) is invalid — the backend rejects it with a 500. No UI
+            // A first-step drop-off (funnelStep -1) is invalid — the backend rejects it with a 400. No UI
             // exposes one (the footer/legend hide the drop-off control on step 1, and compare's first-step
             // volume gap is non-interactive), but guard the listener so any invalid call opens nothing.
             if (!converted && stepNo === 1) {

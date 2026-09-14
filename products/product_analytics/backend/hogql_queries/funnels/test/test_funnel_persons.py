@@ -204,6 +204,28 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(expected_count, len(results))
 
+    @parameterized.expand(
+        [
+            ("dropoff_at_first_step", -1),
+            ("step_zero", 0),
+        ]
+    )
+    def test_invalid_step_actors_return_bad_request(self, _name: str, funnel_step: int) -> None:
+        query = FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            dateRange=DateRange(date_from="2021-05-01 00:00:00", date_to="2021-05-07 00:00:00"),
+        )
+        actors_query = ActorsQuery(
+            source=FunnelsActorsQuery(source=query, funnelStep=funnel_step),
+            select=["id"],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/query/", {"query": actors_query.model_dump()}, format="json"
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+
     def _create_sample_data(self):
         for i in range(110):
             _create_person(distinct_ids=[f"user_{i}"], team=self.team)

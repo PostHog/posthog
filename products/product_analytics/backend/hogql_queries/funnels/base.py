@@ -17,6 +17,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import get_breakdown_limit_for_context
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.clickhouse.materialized_columns import ColumnName
@@ -248,13 +249,13 @@ class FunnelBase(ABC):
         target_step = self.context.actorsQuery.funnelStep
         if target_step < 0:
             if target_step == -1:
-                raise ValueError(
+                raise ExposedHogQLError(
                     "The first valid drop-off argument for funnelStep is -2. -2 refers to persons who performed "
                     "the first step but never made it to the second."
                 )
             return abs(target_step) - 2
         elif target_step == 0:
-            raise ValueError("Funnel steps are 1-indexed, so step 0 doesn't exist")
+            raise ExposedHogQLError("Funnel steps are 1-indexed, so step 0 doesn't exist")
         else:
             return target_step - 1
 
@@ -345,7 +346,7 @@ class FunnelBase(ABC):
         funnelStepBreakdown = actorsQuery.funnelStepBreakdown
 
         if funnelStep is None:
-            raise ValueError("Missing funnelStep in actors query")
+            raise ExposedHogQLError("Missing funnelStep in actors query")
 
         conditions: list[ast.Expr] = []
 
@@ -384,7 +385,7 @@ class FunnelBase(ABC):
 
             absolute_actors_step = self._absolute_actors_step
             if absolute_actors_step is None:
-                raise ValueError("Missing funnelStep actors query property")
+                raise ExposedHogQLError("Missing funnelStep actors query property")
             return [parse_expr(f"step_{absolute_actors_step}_matching_events as matching_events")]
         return []
 
@@ -474,7 +475,9 @@ class FunnelBase(ABC):
 
         if self.context.includePrecedingTimestamp:
             if target_step == 0:
-                raise ValueError("Cannot request preceding step timestamp if target funnel step is the first step")
+                raise ExposedHogQLError(
+                    "Cannot request preceding step timestamp if target funnel step is the first step"
+                )
 
             return (
                 [ast.Field(chain=[f"latest_{target_step}"]), ast.Field(chain=[f"latest_{target_step - 1}"])],
