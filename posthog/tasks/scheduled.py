@@ -1086,12 +1086,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="sweep visual review retention",
     )
 
-    # The digest itself posts weekly, but it reads a Storybook build artifact GitHub keeps for one
-    # day. Running twice a day pulls that story index into the cache while the artifact still
-    # exists; the task posts only on the Monday morning run.
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="7,19", minute="30"),
+        crontab(day_of_week="mon", hour="7", minute="30"),
         send_visual_review_debt_digests.s(),
         name="send visual review debt digests",
         expires_seconds=60 * 60,
