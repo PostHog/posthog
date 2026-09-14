@@ -6,8 +6,10 @@ import { getCloudUrlFromRegion } from "@posthog/shared";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  createContext,
   type MouseEvent,
   type ReactNode,
+  useContext,
   useEffect,
   useId,
   useRef,
@@ -430,11 +432,21 @@ interface EvidenceRefChipProps {
   children: ReactNode;
 }
 
+export const ReportReferenceNavigationContext = createContext<
+  ((reportId: string) => Promise<void>) | null
+>(null);
+
 export function EvidenceRefChip(props: EvidenceRefChipProps) {
-  return props.target.kind === "report" ? (
+  const openReport = useContext(ReportReferenceNavigationContext);
+  return props.target.kind === "report" && !openReport ? (
     <InboxReportRefChip {...props} />
   ) : (
-    <EvidenceRefChipContent {...props} />
+    <EvidenceRefChipContent
+      {...props}
+      onOpenReport={
+        props.target.kind === "report" ? (openReport ?? undefined) : undefined
+      }
+    />
   );
 }
 

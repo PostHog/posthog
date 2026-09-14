@@ -20,6 +20,8 @@ Links can also be dispatched from inside the app: the `deepLink.open` tRPC route
 
 Report references in agent messages open the full report page in the current app, including inside task chats. They do not open a general object preview or an external browser. The hover card's explicit **Open in PostHog** action still opens the web page.
 
+Quick Ask sends report navigation to the main Desktop window through `deepLink.openAgentAction`. Its separate window does not use the main window's router or tab services.
+
 ## User-facing links
 
 These are the deep links you would share with someone or wire up from another tool.

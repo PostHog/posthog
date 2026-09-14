@@ -1,28 +1,35 @@
 import { POSTHOG_OBJECT_KINDS } from "@posthog/core/message-editor/content";
+import { ServiceProvider } from "@posthog/di/react";
+import { BROWSER_TABS_CLIENT } from "@posthog/ui/features/browser-tabs/browserTabsClient";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { Theme } from "@radix-ui/themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  openReport: vi.fn().mockResolvedValue(undefined),
+  openReport: vi.fn(),
+  getSignalReport: vi.fn(async (id: string) => ({ id })),
 }));
 
-vi.mock("@posthog/ui/features/inbox/hooks/useOpenInboxReport", () => ({
-  useOpenInboxReport: () => mocks.openReport,
+vi.mock("@posthog/ui/router/navigationBridge", () => ({
+  navigateToReport: mocks.openReport,
 }));
 
 vi.mock("../../../shell/openExternal", () => ({
   openExternalUrl: vi.fn(),
 }));
 
-// The hover card resolves its preview through the app shell; without it the
-// loader renders the static card, which is all the chip tests need.
+vi.mock("../useEvidencePreviewPrefetch", () => ({
+  useEvidencePreviewPrefetch: () => {},
+}));
+
 vi.mock("../../auth/authClient", () => ({
-  useOptionalAuthenticatedClient: () => null,
+  useOptionalAuthenticatedClient: () => ({
+    getSignalReport: mocks.getSignalReport,
+  }),
 }));
 vi.mock("../../../hooks/useAuthenticatedQuery", () => ({
   useAuthenticatedQuery: () => ({
@@ -39,17 +46,29 @@ import { ANALYTICS_TRACKER } from "../../../shell/analytics";
 import { openExternalUrl } from "../../../shell/openExternal";
 import { ANONYMOUS_AUTH_STATE, useAuthStore } from "../../auth/store";
 import { evidencePreviewQueryKey } from "../evidencePreview";
-import { EvidenceHoverCard, EvidenceRefChip } from "./EvidenceRefChip";
+import {
+  EvidenceHoverCard,
+  EvidenceRefChip,
+  ReportReferenceNavigationContext,
+} from "./EvidenceRefChip";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
 });
 
-function renderInTheme(node: React.ReactNode) {
+function renderInTheme(node: React.ReactNode, withServices = true) {
+  const container = new Container();
+  container.bind(BROWSER_TABS_CLIENT).toConstantValue({});
   return render(
     <QueryClientProvider client={queryClient}>
-      <Theme>{node}</Theme>
+      <Theme>
+        {withServices ? (
+          <ServiceProvider container={container}>{node}</ServiceProvider>
+        ) : (
+          node
+        )}
+      </Theme>
     </QueryClientProvider>,
   );
 }
@@ -101,7 +120,7 @@ describe("EvidenceRefChip", () => {
     { kind: "insight", taskId: null, destination: "external" },
   ] as const)(
     "opens $kind in $destination with task context $taskId",
-    ({ kind, taskId, destination }) => {
+    async ({ kind, taskId, destination }) => {
       signIn();
       const openObjectTab = vi
         .spyOn(usePanelLayoutStore.getState(), "openPostHogObjectTab")
@@ -124,7 +143,13 @@ describe("EvidenceRefChip", () => {
       fireEvent.click(screen.getByRole("link", { name: "Linked reference" }));
 
       if (destination === "report") {
-        expect(mocks.openReport).toHaveBeenCalledWith("reference-1");
+        await waitFor(() =>
+          expect(mocks.openReport).toHaveBeenCalledWith(
+            "reference-1",
+            undefined,
+          ),
+        );
+        expect(mocks.getSignalReport).toHaveBeenCalledWith("reference-1");
         expect(openObjectTab).not.toHaveBeenCalled();
         expect(openExternalUrl).not.toHaveBeenCalled();
       } else if (destination === "tab") {
@@ -142,6 +167,37 @@ describe("EvidenceRefChip", () => {
         expect(mocks.openReport).not.toHaveBeenCalled();
         expect(openObjectTab).not.toHaveBeenCalled();
       }
+    },
+  );
+
+  it.each(["report", "insight"] as const)(
+    "opens a %s from Quick Ask without main-window services",
+    (kind) => {
+      signIn();
+      const openReport = vi.fn().mockResolvedValue(undefined);
+      renderInTheme(
+        <ReportReferenceNavigationContext.Provider value={openReport}>
+          <MarkdownRenderer
+            content={`Open <${kind} id="reference-1">Linked reference</${kind}>.`}
+            renderObjectTags
+          />
+        </ReportReferenceNavigationContext.Provider>,
+        false,
+      );
+
+      fireEvent.click(screen.getByRole("link", { name: "Linked reference" }));
+
+      if (kind === "report") {
+        expect(openReport).toHaveBeenCalledWith("reference-1");
+        expect(openExternalUrl).not.toHaveBeenCalled();
+      } else {
+        expect(openReport).not.toHaveBeenCalled();
+        expect(openExternalUrl).toHaveBeenCalledWith(
+          "https://us.posthog.com/project/2/insights/reference-1",
+        );
+      }
+      expect(mocks.openReport).not.toHaveBeenCalled();
+      expect(mocks.getSignalReport).not.toHaveBeenCalled();
     },
   );
 
