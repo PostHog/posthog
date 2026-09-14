@@ -2767,12 +2767,12 @@ class TestSavedQueryStateComesFromTheServingRun(APIBaseTest):
 
         self.assertEqual(self._detail(view)["status"], "Completed")
 
-    def test_modified_survives_when_the_view_has_never_run(self):
+    def test_modified_survives_when_the_view_has_never_run(self) -> None:
         view = self._view("never_ran", status=DataWarehouseSavedQuery.Status.MODIFIED)
 
         self.assertEqual(self._detail(view)["status"], "Modified")
 
-    def test_cancelled_survives_when_the_view_has_never_run(self):
+    def test_cancelled_survives_when_the_view_has_never_run(self) -> None:
         view = self._view("cancelled_never_ran", status=DataWarehouseSavedQuery.Status.CANCELLED)
 
         self.assertEqual(self._detail(view)["status"], "Cancelled")
@@ -2784,7 +2784,7 @@ class TestSavedQueryStateComesFromTheServingRun(APIBaseTest):
             (DataWarehouseSavedQuery.Status.COMPLETED,),
         ]
     )
-    def test_a_run_state_no_code_path_writes_any_more_is_not_reported(self, frozen_status):
+    def test_a_run_state_no_code_path_writes_any_more_is_not_reported(self, frozen_status: str) -> None:
         view = self._view(
             f"frozen_{frozen_status}",
             status=frozen_status,

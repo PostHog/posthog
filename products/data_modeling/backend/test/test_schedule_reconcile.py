@@ -32,7 +32,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
-from products.data_modeling.backend.models.node import NodeType
+from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW
 from products.data_modeling.backend.test.helpers import (
     no_existing_schedules,
@@ -486,7 +486,9 @@ class TestMaybeReconcileDag(BaseTest):
 
 @pytest.mark.django_db
 class TestPromoteDagViewNodesToMatview(BaseTest):
-    def _backed(self, dag, name, node_type, *, with_table=True, origin=None):
+    def _backed(
+        self, dag: DAG, name: str, node_type: str, *, with_table: bool = True, origin: str | None = None
+    ) -> Node:
         node = _saved_query_node(self.team, dag, name, node_type)
         saved_query = node.saved_query
         assert saved_query is not None
@@ -498,7 +500,7 @@ class TestPromoteDagViewNodesToMatview(BaseTest):
         saved_query.save()
         return node
 
-    def test_retypes_only_the_view_nodes_that_materialize(self):
+    def test_retypes_only_the_view_nodes_that_materialize(self) -> None:
         dag = DAG.get_or_create_default(self.team)
         stranded = self._backed(dag, "stranded", NodeType.VIEW)
         endpoint = self._backed(dag, "endpoint_backed", NodeType.ENDPOINT)
@@ -517,7 +519,7 @@ class TestPromoteDagViewNodesToMatview(BaseTest):
         assert ephemeral.type == NodeType.VIEW
         assert endpoint.type == NodeType.ENDPOINT
 
-    def test_a_managed_view_is_promoted_on_its_table_not_its_flag(self):
+    def test_a_managed_view_is_promoted_on_its_table_not_its_flag(self) -> None:
         # Revenue Analytics sets is_materialized when it provisions a view, before anything runs,
         # so the flag there is not a request to materialize and thousands carry it untruthfully.
         dag = DAG.get_or_create_default(self.team)

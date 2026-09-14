@@ -151,8 +151,8 @@ class TestSyncSavedQueryToDag(BaseTest):
         ]
     )
     def test_node_type_follows_the_request_to_materialize(
-        self, name: str, is_materialized: bool, with_table: bool, origin, expected: str
-    ):
+        self, name: str, is_materialized: bool, with_table: bool, origin: str | None, expected: str
+    ) -> None:
         saved_query = DataWarehouseSavedQuery.objects.create(
             name=name,
             team=self.team,
