@@ -284,6 +284,20 @@ mod tests {
     #[test]
     fn ref_matches_consumer_shape() {
         let hash = hash_image_bytes(TEST_KEY, b"x");
+        for prefix in ["image:v2", "imageurl:v2"] {
+            assert!(is_image_ref_strict(&format!("{prefix}:42:2026-09:{hash}")));
+            for invalid in [
+                "42:2026-13",
+                "42:2026-00",
+                "42:202-09",
+                "42:2026-9",
+                "0:2026-09",
+                "42:2026_09",
+                "42",
+            ] {
+                assert!(!is_image_ref_strict(&format!("{prefix}:{invalid}:{hash}")));
+            }
+        }
         for team in ["42", "9007199254740991", "0123456789abcdef0123456789abcdef"] {
             assert!(is_image_ref_strict(&image_ref(team, &hash)));
         }

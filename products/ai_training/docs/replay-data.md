@@ -14,7 +14,7 @@ The session UUIDv7 timestamp selects the version:
 
 - Before the cutoff: v1 uses HMAC team and session IDs.
 - At or after the cutoff: v2 uses raw team and session IDs and encrypted payloads.
-- An invalid UUIDv7 timestamp selects v1.
+- An invalid UUIDv7 timestamp or a start year beyond 9999 selects v1.
 
 Event timestamps, arrival times, retries, and flushes do not change the version.
 Both versions can occur in one ingestion batch.
@@ -186,6 +186,13 @@ When both aliases are set, the `AI_RESEARCH_REPLAY_*` value takes precedence, in
 The wrapped HMAC secret keeps the single name `SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY` in both the environment and secret store.
 It has no new alias.
 Renaming configuration must not rotate that key.
+
+The shared ML server configuration applies the legacy aliases before explicit server overrides.
+An image scrubber with privacy enabled must configure `SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC` before startup.
+Malformed encrypted images retain their original payload and headers in the dead-letter queue.
+The scrubber retries failed dead-letter writes and interrupts retry waits during shutdown.
+The image fetch consumer dead-letters unsupported ingestion version headers while processing other valid records in the batch.
+A v2 message without privacy configuration still fails the batch because it needs the missing encryption settings.
 
 V2 data uses `YYYY-MM` directories from the session UUIDv7 start timestamp in UTC.
 Recording blocks, metadata, image shards, image lookups and URL images retain that month across late arrivals.

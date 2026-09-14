@@ -6,7 +6,7 @@ import {
     getDefaultSessionRecordingConfig,
     getDefaultSessionReplayOutputsConfig,
 } from '~/ingestion/pipelines/sessionreplay/config'
-import { MlMirrorConfig, getDefaultMlMirrorConfig } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
+import { MlMirrorConfig, getMlMirrorConfig } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { getDefaultKafkaSessionreplayProducerEnvConfig } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
 import type { IngestionSessionReplayServerConfig } from './ingestion-session-replay-server'
@@ -31,7 +31,7 @@ export function buildMlMirrorServerConfig(
         }),
         ...overrideConfigWithEnv(getDefaultSessionRecordingApiConfig()),
         ...overrideConfigWithEnv(getDefaultSessionReplayOutputsConfig()),
-        ...overrideConfigWithEnv(getDefaultMlMirrorConfig()),
+        ...getMlMirrorConfig(),
         ...config,
     }
 }

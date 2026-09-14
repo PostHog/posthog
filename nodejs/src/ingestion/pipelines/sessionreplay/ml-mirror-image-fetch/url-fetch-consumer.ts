@@ -71,7 +71,16 @@ export class UrlFetchConsumer {
         const decoded = this.privacy
             ? await this.privacy.read(messages, 'image-frontier')
             : messages.map((message) => {
-                  if (ingestionVersion(message) === 2) {
+                  let version: 1 | 2
+                  try {
+                      version = ingestionVersion(message)
+                  } catch (error) {
+                      if (error instanceof Error && error.message === 'Unsupported ML ingestion version') {
+                          return { message, original: message, key: undefined, invalid: true }
+                      }
+                      throw error
+                  }
+                  if (version === 2) {
                       throw new Error('ML v2 frontier requires privacy configuration')
                   }
                   return { message, original: message, key: undefined, invalid: undefined }

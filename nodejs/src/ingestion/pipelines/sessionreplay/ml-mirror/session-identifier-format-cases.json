@@ -48,6 +48,18 @@
             "rawIdentifiers": false,
             "storedSessionId": "7a7990c03b4abd6f26136d0ffb45cab9",
             "storedTeamId": "a725cc999d0421ba516777bc3c460c8d"
+        },
+        {
+            "sessionId": "ffffffff-ffff-7000-8000-000000000007",
+            "rawIdentifiers": false,
+            "storedSessionId": "4f55f5e61c2120dca9aa8d3be6dead49",
+            "storedTeamId": "a725cc999d0421ba516777bc3c460c8d"
+        },
+        {
+            "sessionId": "e677d21f-dc00-7000-8000-000000000007",
+            "rawIdentifiers": false,
+            "storedSessionId": "bd06d56b33907c2971f5fdf25a5e396d",
+            "storedTeamId": "a725cc999d0421ba516777bc3c460c8d"
         }
     ]
 }

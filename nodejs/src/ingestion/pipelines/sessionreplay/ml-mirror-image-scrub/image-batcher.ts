@@ -1,4 +1,5 @@
 import { LibrdKafkaError, Message, TopicPartitionOffset } from 'node-rdkafka'
+import { setTimeout as waitForRetry } from 'node:timers/promises'
 
 import { findOffsetsToCommit, parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
@@ -198,6 +199,23 @@ export class ImageBatcher {
         if (this.stopping) {
             return
         }
+        const controller = new AbortController()
+        this.activeBatch = controller
+        this.partitionsRevoked = false
+        try {
+            await this.handleActiveBatch(messages, nowMs, controller)
+        } catch (error) {
+            if (!(this.stopping && error instanceof ScrubAborted)) {
+                throw error
+            }
+        } finally {
+            // Cleared here rather than on the success path: a throwing batch that left this set would
+            // have shutdown abort a controller belonging to a batch that is already over.
+            this.activeBatch = null
+        }
+    }
+
+    private async handleActiveBatch(messages: Message[], nowMs: number, controller: AbortController): Promise<void> {
         // Skips resolve up front so the window only ever holds real work: a duplicate admitted into a
         // slot would occupy it and complete instantly, spending the pod's concurrency on no-ops.
         if (messages.length) {
@@ -215,17 +233,20 @@ export class ImageBatcher {
             if (!this.deadLetters) {
                 throw new Error('Invalid encrypted ML image requires a dead-letter destination')
             }
-            await this.deadLetters.park({
-                ref: entry.original.key?.toString() ?? '',
-                bytes: entry.original.value ?? Buffer.alloc(0),
-                headers: parseKafkaHeaders(entry.original.headers),
-                detail: {
-                    reason: 'invalid_encryption',
-                    sourceTopic: entry.original.topic,
-                    sourcePartition: entry.original.partition,
-                    sourceOffset: entry.original.offset,
+            await this.parkImageUntilAccepted(
+                {
+                    ref: entry.original.key?.toString() ?? '',
+                    bytes: entry.original.value ?? Buffer.alloc(0),
+                    headers: parseKafkaHeaders(entry.original.headers),
+                    detail: {
+                        reason: 'invalid_encryption',
+                        sourceTopic: entry.original.topic,
+                        sourcePartition: entry.original.partition,
+                        sourceOffset: entry.original.offset,
+                    },
                 },
-            })
+                controller.signal
+            )
         }
         const byOriginal = new Map(
             decoded.filter((entry) => !entry.invalid).map((entry) => [entry.original, entry.message])
@@ -252,9 +273,6 @@ export class ImageBatcher {
         // so the batch takes as long as the sidecar needs and the next consume() happens that much
         // later, which is the whole backpressure mechanism. Every message this batch took is finished
         // before any offset moves past it.
-        const controller = new AbortController()
-        this.activeBatch = controller
-        this.partitionsRevoked = false
         const startedAt = performance.now()
         if (planned.length > 0) {
             ImageScrubConsumerMetrics.startBatch()
@@ -272,9 +290,6 @@ export class ImageBatcher {
                     (performance.now() - startedAt) / 1000
                 )
             }
-            // Cleared here rather than on the success path: a throwing batch that left this set would
-            // have shutdown abort a controller belonging to a batch that is already over.
-            this.activeBatch = null
         }
     }
 
@@ -589,37 +604,54 @@ export class ImageBatcher {
         poisoned: ScrubPoisoned,
         signal: AbortSignal
     ): Promise<void> {
+        await this.parkImageUntilAccepted(
+            {
+                ref: planned.ref,
+                bytes: planned.encryptedValue ?? planned.value,
+                headers: planned.transportHeaders,
+                detail: {
+                    ...poisoned.detail,
+                    ...(planned.teamId ? { teamId: planned.teamId } : { pseudoTeam: planned.pseudoTeam }),
+                    hash: planned.hash,
+                    sourceTopic: planned.sourceTopic,
+                    sourcePartition: planned.sourcePartition,
+                    sourceOffset: planned.sourceOffset,
+                    // Carried back out, or the count restarts on every pass and the cap that
+                    // bounds replay round trips never binds.
+                    [REPLAY_COUNT_HEADER]: planned.replayCount,
+                },
+            },
+            signal
+        )
+    }
+
+    private async parkImageUntilAccepted(
+        image: Parameters<DeadLetterSink['park']>[0],
+        signal: AbortSignal
+    ): Promise<void> {
         for (let attempt = 0; ; attempt++) {
             if (signal.aborted) {
                 throw new ScrubAborted('scrub batch aborted')
             }
             try {
-                await this.deadLetters!.park({
-                    ref: planned.ref,
-                    bytes: planned.encryptedValue ?? planned.value,
-                    headers: planned.transportHeaders,
-                    detail: {
-                        ...poisoned.detail,
-                        ...(planned.teamId ? { teamId: planned.teamId } : { pseudoTeam: planned.pseudoTeam }),
-                        hash: planned.hash,
-                        sourceTopic: planned.sourceTopic,
-                        sourcePartition: planned.sourcePartition,
-                        sourceOffset: planned.sourceOffset,
-                        // Carried back out, or the count restarts on every pass and the cap that
-                        // bounds replay round trips never binds.
-                        [REPLAY_COUNT_HEADER]: planned.replayCount,
-                    },
-                })
+                await this.deadLetters!.park(image)
                 return
             } catch (error) {
                 ImageScrubConsumerMetrics.incDeadLetterFailed()
                 logger.error('☠️', 'image_scrub_dead_letter_failed', {
-                    ref: planned.ref,
-                    bytes: planned.value.length,
+                    ref: image.ref,
+                    bytes: image.bytes.length,
                     attempts: attempt + 1,
                     error: String(error),
                 })
-                await new Promise((resolve) => setTimeout(resolve, Math.min(30_000, 500 * 2 ** attempt)).unref())
+                try {
+                    await waitForRetry(Math.min(30_000, 500 * 2 ** attempt), undefined, { signal, ref: false })
+                } catch (retryError) {
+                    if (signal.aborted) {
+                        throw new ScrubAborted('scrub batch aborted')
+                    }
+                    throw retryError
+                }
             }
         }
     }

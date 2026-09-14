@@ -151,6 +151,8 @@ export function initAnonymizer(allow: AllowListsInput): void {
  * `urlKey` enables the URL-collection lane independently. It is the global URL HMAC key. A remote
  * image's `src` keeps the media placeholder, a namespaced sibling attribute carries its ref, and
  * its original URL comes back in `meta.urls` for the caller to hand to the fetch lane.
+ * `referenceNamespace` scopes URL refs as `imageurl:<namespace>:<hash>`; omitting it produces
+ * `imageurl:<hash>`. For v2, pass `v2:<raw team id>:<YYYY-MM>` as both `teamId` and `referenceNamespace`.
  *
  * The two lanes are independent: either, both, or neither. Only `contentKey` needs `teamId`.
  */

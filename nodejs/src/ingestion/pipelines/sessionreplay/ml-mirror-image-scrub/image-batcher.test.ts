@@ -1,6 +1,11 @@
 import { Message, MessageHeader, TopicPartitionOffset } from 'node-rdkafka'
 import { gzipSync } from 'node:zlib'
 
+import { MlKeyReader } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/reader'
+import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
+import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/schema'
+import { MlKafkaEncryption } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/transport'
+
 import { hashImageBytes, imageRef, urlRef } from './content-ref'
 import { ImageBatcher, OffsetStore } from './image-batcher'
 import { ImageShardStore, ScrubbedImage, ScrubbedUrlImage, UrlImageWriteOutcome } from './image-shard-store'
@@ -79,6 +84,63 @@ const options = {
 
 describe('ImageBatcher', () => {
     afterEach(() => jest.restoreAllMocks())
+
+    it.each([false, true])(
+        'retries malformed encrypted image parking and supports shutdown (stop: %s)',
+        async (stop) => {
+            jest.useFakeTimers()
+            try {
+                const store = new FakeStore()
+                const offsets = new FakeOffsets()
+                const park = jest.fn().mockRejectedValueOnce(new Error('dlq unavailable')).mockResolvedValue(undefined)
+                const privacy = {
+                    kafka: new MlKafkaEncryption({
+                        read: jest.fn().mockResolvedValue(new Map()),
+                    } as unknown as MlKeyReader),
+                } as MlPrivacyRuntime
+                const batcher = new ImageBatcher(
+                    store as unknown as ImageShardStore,
+                    offsets,
+                    scrubClient,
+                    options,
+                    0,
+                    { park },
+                    privacy
+                )
+                const invalid = msg(0, 0, pt(1), Buffer.from('invalid envelope'), undefined, [
+                    { [INGESTION_VERSION_HEADER]: Buffer.from('2') },
+                ])
+                const batch = batcher.handleBatch([invalid], 1)
+                await jest.advanceTimersByTimeAsync(0)
+                expect(park).toHaveBeenCalledTimes(1)
+                expect(offsets.received).toEqual([])
+                if (stop) {
+                    batcher.stop()
+                } else {
+                    await jest.advanceTimersByTimeAsync(500)
+                }
+                await expect(batch).resolves.toBeUndefined()
+                expect(park).toHaveBeenCalledTimes(stop ? 1 : 2)
+                expect(park.mock.calls[0][0]).toEqual({
+                    ref: invalid.key!.toString(),
+                    bytes: invalid.value,
+                    headers: { [INGESTION_VERSION_HEADER]: '2' },
+                    detail: {
+                        reason: 'invalid_encryption',
+                        sourceTopic: invalid.topic,
+                        sourcePartition: 0,
+                        sourceOffset: 0,
+                    },
+                })
+                expect(store.writes).toEqual([])
+                if (!stop) {
+                    expect(offsets.received.flat().map((offset) => offset.offset)).toEqual([1])
+                }
+            } finally {
+                jest.useRealTimers()
+            }
+        }
+    )
 
     it.each([false, true])('scrubs mixed teams and separates legacy records (mixed formats: %s)', async (mixed) => {
         const store = new FakeStore()

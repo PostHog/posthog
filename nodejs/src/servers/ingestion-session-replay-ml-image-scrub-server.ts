@@ -51,6 +51,12 @@ export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerSe
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
 
     protected async startServices(): Promise<void> {
+        if (
+            this.config.AI_RESEARCH_REPLAY_PRIVACY_TABLE &&
+            !this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC.trim()
+        ) {
+            throw new Error('ML privacy-enabled image scrubber requires SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC')
+        }
         if (this.config.AI_RESEARCH_REPLAY_PRIVACY_TABLE) {
             this.privacy = new MlPrivacyRuntime(this.config)
             await this.privacy.start()
