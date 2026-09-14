@@ -16,8 +16,8 @@ describe("GithubRefChip", () => {
     expect(carrier?.getAttribute(GITHUB_REF_URL_ATTR)).toBe(href);
   });
 
-  it("truncates a pull request label from the start so its number survives", () => {
-    render(
+  it("keeps the whole pull request number outside the truncating span", () => {
+    const { container } = render(
       <GithubRefChip
         href="https://github.com/PostHog/posthog/pull/123456789"
         kind="pr"
@@ -26,10 +26,28 @@ describe("GithubRefChip", () => {
       </GithubRefChip>,
     );
 
-    const label = screen.getByText("PostHog/posthog#123456789");
-    expect(label).toHaveAttribute("dir", "ltr");
-    expect(label.parentElement).toHaveAttribute("dir", "rtl");
-    expect(label.parentElement).toHaveClass("truncate");
+    const label = container.querySelector(".truncate");
+    expect(label).toHaveTextContent("PostHog/posthog");
+    expect(label).not.toHaveAttribute("dir");
+    expect(label).toHaveStyle({
+      maxWidth: "min(16rem, calc(100% - 1rem - 10ch))",
+    });
+    const number = screen.getByText("#123456789");
+    expect(number).toHaveClass("shrink-0");
+    expect(number.parentElement).not.toHaveAttribute("dir");
+  });
+
+  it("clips the chip so a long preserved number cannot paint past the edge", () => {
+    const { container } = render(
+      <GithubRefChip
+        href="https://github.com/PostHog/posthog/pull/123456789"
+        kind="pr"
+      >
+        PostHog/posthog#123456789
+      </GithubRefChip>,
+    );
+
+    expect(container.querySelector("a")).toHaveClass("overflow-hidden");
   });
 
   it("leaves a label that puts its number first alone", () => {

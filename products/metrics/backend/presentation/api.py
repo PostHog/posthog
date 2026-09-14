@@ -35,6 +35,7 @@ from products.metrics.backend.facade.api import (
     list_metric_error_spikes,
     list_metric_event_samples,
     list_metric_names,
+    list_metric_picker_names,
     run_metric_query,
     team_has_metrics,
 )
@@ -481,8 +482,19 @@ class _MetricNameSerializer(serializers.Serializer):
     )
 
 
+class _MetricPickerNameSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Metric name as it appears in the team's data.")
+    metric_type = serializers.CharField(
+        help_text="OTel metric type (gauge, sum, histogram, summary, exponential_histogram)."
+    )
+
+
 class _MetricNamesResponseSerializer(serializers.Serializer):
     results = _MetricNameSerializer(many=True, help_text="Distinct metric names ordered by recent activity.")
+
+
+class _MetricPickerNamesResponseSerializer(serializers.Serializer):
+    results = _MetricPickerNameSerializer(many=True, help_text="Distinct metric names ordered by recent activity.")
 
 
 class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
@@ -891,7 +903,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
     def values(self, request: Request, *args, **kwargs) -> Response:
-        """Distinct metric names for the team. Backs the picker UI."""
+        """Distinct metric names for the team. Backs the catalog UI."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         params = _MetricValuesParamsSerializer(data=request.query_params)
@@ -899,6 +911,35 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         try:
             results = list_metric_names(
+                team=self.team,
+                search=params.validated_data["value"],
+                limit=params.validated_data["limit"],
+                services=params.validated_data["service"],
+            )
+        except ValueError as exc:
+            raise ParseError(str(exc))
+
+        return Response({"results": results}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        parameters=[_MetricValuesParamsSerializer],
+        responses={200: _MetricPickerNamesResponseSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["GET"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def names(self, request: Request, *args, **kwargs) -> Response:
+        """Distinct metric names for the viewer picker, without sparklines or caching."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        params = _MetricValuesParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        try:
+            results = list_metric_picker_names(
                 team=self.team,
                 search=params.validated_data["value"],
                 limit=params.validated_data["limit"],

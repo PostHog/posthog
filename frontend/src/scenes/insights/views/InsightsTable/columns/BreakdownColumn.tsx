@@ -6,9 +6,10 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { isURL } from 'lib/utils/url'
 import { formatBreakdownType } from 'scenes/insights/utils'
-import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { BreakdownFilter } from '~/queries/schema/schema-general'
+
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 interface BreakdownColumnTitleProps {
     breakdownFilter: BreakdownFilter

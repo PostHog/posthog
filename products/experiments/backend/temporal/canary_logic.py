@@ -285,7 +285,9 @@ def evaluate_canary_runs(
     under the per-query byte cap: stability is still checked, and a clean pair verdicts as
     uncheckable rather than pass because correctness stays unverified."""
     runs = tuple(run for run in (run_a, run_b, run_c) if run is not None)
-    if any(not run.variants for run in runs):
+    # Skip only when every run is empty. A run that is empty while a sibling has data is a broken
+    # read, not a young experiment — fall through so the path-flip and variant-set checks classify it.
+    if all(not run.variants for run in runs):
         return CanaryVerdict(outcome=OUTCOME_SKIPPED, detail="empty results (no exposures yet)")
 
     # Checked before the variant-set comparison: a flipped run compares live vs frozen data, so it can

@@ -1969,21 +1969,6 @@
                      AND "posthog_exportedasset"."export_context" IS NOT NULL))) subquery
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.49
-  '''
-  SELECT COUNT(*)
-  FROM
-    (SELECT DISTINCT ("posthog_exportedasset"."export_context" -> 'session_recording_id') AS "export_context__session_recording_id"
-     FROM "posthog_exportedasset"
-     WHERE (("posthog_exportedasset"."expires_after" >= '2025-01-01 12:00:00+00:00'::timestamptz
-             OR "posthog_exportedasset"."expires_after" IS NULL)
-            AND "posthog_exportedasset"."team_id" = 99999
-            AND "posthog_exportedasset"."export_context" ? 'session_recording_id'
-            AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') IS NULL)
-            AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') = '""'::jsonb
-                     AND "posthog_exportedasset"."export_context" IS NOT NULL))) subquery
-  '''
-# ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.5
   '''
   SELECT "posthog_team"."id",

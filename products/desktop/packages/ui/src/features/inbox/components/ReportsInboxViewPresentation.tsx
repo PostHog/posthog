@@ -18,14 +18,6 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
-import {
-  PageHeader,
-  PageHeaderActions,
-  PageHeaderDescription,
-  PageHeaderHeading,
-  PageHeaderTitle,
-  PageHeaderTitleRow,
-} from "@posthog/ui/primitives/PageHeader";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import type { ReactNode } from "react";
 
@@ -72,34 +64,21 @@ export function ReportsInboxViewPresentation({
 }: ReportsInboxViewPresentationProps): React.JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col bg-gray-1">
-      <PageHeader>
-        <PageHeaderHeading>
-          <PageHeaderTitleRow>
-            <PageHeaderTitle>Self-driving</PageHeaderTitle>
-            {!showConfigureAgentsEmptyState && (
-              <PageHeaderActions>
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  onClick={onConfigureAgents}
-                >
-                  Configure agents
-                </Button>
-              </PageHeaderActions>
-            )}
-          </PageHeaderTitleRow>
-          <PageHeaderDescription>
-            Issues and opportunities found in your product, ready to review
-          </PageHeaderDescription>
-        </PageHeaderHeading>
-      </PageHeader>
-
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-4">
           <div className="flex w-full flex-wrap items-center justify-between gap-2">
             {filterControl}
             <div className="flex flex-wrap items-center justify-end gap-2">
+              {!showConfigureAgentsEmptyState && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="default"
+                  onClick={onConfigureAgents}
+                >
+                  Configure agents
+                </Button>
+              )}
               {triageEnabled && (
                 <Tooltip>
                   <TooltipTrigger

@@ -130,6 +130,11 @@ aggregates data that is not represented as a team-scoped PostHog table,
 or returns a curated API shape that would be awkward or unsafe to rebuild in SQL.
 For these tools, keep the surface narrow and document the source and shape in the YAML description.
 
+For proxy endpoints that can fail because of either user permissions or request scope,
+return distinct API-visible error details. Agents should stop on true authorization
+failures, but they can often recover from a bad project/team filter if the response says
+the requested scope is unavailable.
+
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
 
@@ -311,6 +316,11 @@ Product teams own their definitions and control which operations are exposed as 
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
+   For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
+   `detail_args` keys against the tool's input schema snapshot, so a wrong argument
+   name fails generation instead of silently dropping the argument at runtime.
+   See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
+
    #### Custom input schemas
 
    By default, tool input schemas are auto-derived from OpenAPI via Orval.
@@ -423,6 +433,41 @@ and [`services/mcp/scripts/yaml-config-schema.ts`](https://github.com/PostHog/po
 
 See [How to develop and test](/handbook/engineering/ai/implementation#how-to-develop-and-test)
 for instructions on running the MCP server locally and verifying tools end-to-end.
+
+### Structured data for native tool widgets
+
+For the `posthog_ai` consumer, tool responses carry the handler's returned data in
+`_meta["com.posthog.mcp/app_data"]`, including tools without an MCP UI resource.
+This applies to direct calls and calls through `exec`. The metadata excludes the
+internal formatted-results override. The model receives the formatted text in `content`;
+an explicit JSON output request still controls that text independently of widget data.
+These responses omit the duplicate `structuredContent`. MCP tool spans exclude the
+app-data metadata for this consumer while retaining model-visible output.
+
+The agent forwards the MCP result through ACP's `rawOutput`. Claude and Codex adapters
+preserve its metadata in live updates and history. When rebuilding a Claude model
+transcript from ACP logs, the agent removes MCP result metadata before applying the
+resume context budget. Metadata is available to widgets without becoming model input.
+If widget metadata makes a task event exceed the transport size limit, the agent
+removes that metadata and retries the size check. Text and status still reach the
+client when the remaining event fits; events that remain oversized are dropped.
+
+Native widgets read app data, existing `structuredContent`, or a direct result object.
+They never decode TOON or JSON from result text.
+The `execute-sql` backend returns the executed query in `structured_content` alongside its formatted text.
+The MCP handler forwards that query as widget metadata, preserving resolved saved-variable definitions, `connectionId`, and `sendRawQuery`.
+The widget renders it through the shared Query component in a `DataVisualizationNode`.
+The Query component fetches the results for this visualization.
+All query widgets require the executed query from the tool result. Old transcripts containing only text show the generic tool card.
+Failed calls and missing or malformed widget data also use that fallback.
+The web client resolves tool identity from ACP `_meta.posthog`, with legacy
+`_meta.claudeCode` support. Non-exec MCP tools retain their qualified metadata names
+to avoid collisions with built-in renderers. It retains `rawOutput` from both live updates and completed
+`tool_call` frames in history.
+
+Deploy MCP and agent transport support before deploying a frontend that requires
+structured widget data. Verify both live calls and history replay, and inspect the
+next model request to confirm that app metadata is absent.
 
 ## Serializer best practices
 

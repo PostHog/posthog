@@ -1,11 +1,21 @@
 ---
 name: writing-skills
-description: 'Guide for writing PostHog agent skills — job-to-be-done templates that teach agents how to use MCP tools to achieve a goal. Use when adding new product functionality that agents should know how to work with, creating a new skill, or updating existing skills in products/*/skills/.'
+description: 'Guide for writing PostHog agent skills — job-to-be-done templates that teach agents how to use MCP tools to achieve a goal. Use when adding new product functionality that agents should know how to work with, creating a new skill, or updating existing skills in products/*/skills/ or .agents/skills/.'
 ---
 
 # Writing skills for PostHog agents
 
 Read the full guide at [docs/published/handbook/engineering/ai/writing-skills.md](../../../docs/published/handbook/engineering/ai/writing-skills.md).
+
+## Choose a location
+
+- Use `products/<product>/skills/` for work through PostHog tools, APIs, or customer code. These skills are published.
+- Use `.agents/skills/` for work that requires a checkout of the PostHog repository. These skills stay in the repository.
+- Staff-only access is not a reason to move a skill. An MCP workflow without a checkout stays published.
+- For mixed skills, keep customer diagnosis published and move PostHog development steps into an existing internal skill or reference.
+- Published workflows must not depend on internal skill files.
+
+`hogli lint:skills` checks both locations. The scaffold, build, and sync commands below apply to published product skills.
 
 ## Quick workflow
 

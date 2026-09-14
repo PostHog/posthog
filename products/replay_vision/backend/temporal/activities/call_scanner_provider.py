@@ -7,12 +7,13 @@ Each step validates its own output and re-prompts once on failure; required step
 """
 
 import re
+import math
 import time
 import asyncio
 import functools
 from collections import Counter
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, TypeVar
 from uuid import UUID, uuid4
@@ -44,6 +45,7 @@ from products.replay_vision.backend.temporal.gemini import classify_gemini_error
 from products.replay_vision.backend.temporal.metrics import record_mission_pass, record_provider_call
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
+    STEP_SIGNALS,
     TIMESTAMP_CITATION_RE,
     BaseScanner,
     BaseScannerOutput,
@@ -51,6 +53,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     MissionStep,
     Segment,
     SignalFinding,
+    SignalsResponse,
     TextSegment,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
@@ -384,11 +387,22 @@ async def _run_mission(
         return dispatch_events_tool(call, events_index)
 
     cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text)
+    steps = [
+        replace(
+            step,
+            validate=functools.partial(
+                _validate_signal_timestamps, duration_seconds=llm_inputs.metadata.duration_seconds
+            ),
+        )
+        if step.name == STEP_SIGNALS
+        else step
+        for step in scanner.mission_steps()
+    ]
     run = functools.partial(
         _run_steps,
         client=client,
         model=model,
-        steps=scanner.mission_steps(),
+        steps=steps,
         video_part=video_part,
         preamble_text=preamble_text,
         dispatch=dispatch,
@@ -403,6 +417,19 @@ async def _run_mission(
             await _delete_video_cache(cache_client, cache.name)
 
     return scanner.assemble(step_outputs)
+
+
+def _validate_signal_timestamps(output: BaseModel, *, duration_seconds: float | None) -> str | None:
+    if not isinstance(output, SignalsResponse) or not output.signals:
+        return None
+    if duration_seconds is None or not math.isfinite(duration_seconds) or duration_seconds <= 0:
+        return "Recording duration is unavailable. Return an empty signals list."
+    if any(signal.end_time > duration_seconds for signal in output.signals):
+        return (
+            f"Signal timestamps must not exceed REC_T {math.floor(duration_seconds)}. "
+            "Use timestamps visible in the recording, or omit the finding. Do not clamp timestamps."
+        )
+    return None
 
 
 async def _run_mission_attempts(*, run: Any, cache: Any | None, model: str) -> dict[str, BaseModel]:

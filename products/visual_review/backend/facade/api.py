@@ -260,6 +260,7 @@ def _to_repo(repo) -> contracts.Repo:
         repo_full_name=repo.repo_full_name,
         baseline_file_paths=repo.baseline_file_paths,
         enable_pr_comments=repo.enable_pr_comments,
+        debt_digest_enabled=repo.debt_digest_enabled,
         created_at=repo.created_at,
     )
 
@@ -319,9 +320,9 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         run = snapshot.run
         artifact = snapshot.current_artifact
         thumbnail = artifact.thumbnail if artifact is not None else None
-        # `(run_type, identifier)` keys because the same identifier in
-        # different run types is a different baseline.
-        key = (run.run_type, identifier)
+        # Keyed per identity because the same identifier in different run types
+        # is a different baseline.
+        key = run_queries.SnapshotKey(run_type=run.run_type, identifier=identifier)
         metadata = snapshot.metadata or {}
         active_quarantine = raw.active_quarantines_by_key.get(key)
         entries.append(
@@ -334,6 +335,7 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
                 height=artifact.height if artifact is not None else None,
                 tolerate_count_30d=raw.tolerate_30d_by_id.get(identifier, 0),
                 tolerate_count_90d=raw.tolerate_90d_by_id.get(identifier, 0),
+                active_variants_current_baseline=raw.active_variants_by_key.get(key, 0),
                 is_quarantined=active_quarantine is not None,
                 last_run_at=run.completed_at or run.created_at,
                 baseline_change_count=raw.change_count_by_key.get(key, 0),
@@ -351,6 +353,7 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         recently_tolerated=raw.totals_recent,
         frequently_tolerated=raw.totals_frequent,
         currently_quarantined=raw.totals_quarantined,
+        variant_pileups=raw.totals_variant_pileups,
         by_run_type=raw.by_run_type,
     )
 

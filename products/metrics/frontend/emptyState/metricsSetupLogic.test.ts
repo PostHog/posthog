@@ -11,6 +11,11 @@ import { metricsSetupLogic } from './metricsSetupLogic'
 
 jest.mock('../metricsAccess', () => ({ canViewMetrics: jest.fn() }))
 jest.mock('../generated/api', () => ({ metricsHasMetricsRetrieve: jest.fn() }))
+// Real backoff waits would put the error cases over the 5s test limit; the retry policy is not what these assert.
+jest.mock('lib/utils/async', () => ({
+    ...jest.requireActual('lib/utils/async'),
+    retryWithBackoff: (fn: () => Promise<unknown>) => fn(),
+}))
 
 describe('metricsSetupLogic', () => {
     beforeEach(() => {
