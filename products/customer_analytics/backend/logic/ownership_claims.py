@@ -25,6 +25,7 @@ account's relationships and audit trail, and every outcome is counted and logged
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 import structlog
@@ -244,7 +245,13 @@ def _identifier(value: object) -> str:
 
 
 def _user_id(value: object) -> int:
-    if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
+    # A warehouse column with decimal places is read as Decimal, which has no is_integer(), so a
+    # fractional value would reach int() and truncate onto another user's id.
+    if (
+        isinstance(value, bool)
+        or (isinstance(value, float) and not value.is_integer())
+        or (isinstance(value, Decimal) and not (value.is_finite() and value == value.to_integral_value()))
+    ):
         raise ValueError(f"user id is not integral: {value!r}")
     return int(value)  # type: ignore[call-overload]
 

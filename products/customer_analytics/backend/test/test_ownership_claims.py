@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
@@ -254,12 +255,13 @@ class TestOwnershipClaims(BaseTest):
         rows.append([TASK + "-bad", "org-1", "us", "not-a-user-id", "x", FENCE, None, None])
         rows.append([None, "org-1", "us", self.user.id, "x", FENCE, None, None])
         rows.append([TASK + "-fractional", "org-1", "us", self.user.id + 0.5, "x", FENCE, None, None])
+        rows.append([TASK + "-decimal", "org-1", "us", Decimal(f"{self.user.id}.5"), "x", FENCE, None, None])
 
         with patch.object(ownership_claims, "execute_hogql_query", return_value=SimpleNamespace(results=rows)) as read:
             result = ownership_claims.reconcile_ownership_claims(self.team)
 
         assert read.call_count == 1
-        assert (result.decisions, result.outcomes) == (5, {"accepted": 1, "not_held": 1, "invalid": 3})
+        assert (result.decisions, result.outcomes) == (6, {"accepted": 1, "not_held": 1, "invalid": 4})
         holder = self._active_ae()
         assert holder is not None and holder.source_ref == TASK
 
