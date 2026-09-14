@@ -4,11 +4,13 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import {
+    createPollBackoff,
     createPollLoop,
     isPermanentPollError,
     resolvePollingIntervalMs,
     resolveWizardSyncMode,
     sseReconnectDelayMs,
+    type PollBackoff,
     type WizardSyncMode,
 } from 'lib/wizard-sync/pollLoop'
 import { logSyncDebug } from 'lib/wizard-sync/wizardSyncDebugLogic'
@@ -81,11 +83,13 @@ export type wizardSessionStreamLogicType = MakeLogicType<
  * When the `onboarding-wizard-sync-mode` flag resolves to `polling` (GROW-118), the
  * EventSource is replaced by a poll loop that re-fetches the latest session via
  * `wizard/sessions/latest/` and feeds it through the same `sessionUpdated` action.
- * The loop (shared with `taskRunStreamLogic`) backs off on consecutive errors, stops on
- * permanent ones (401/403/404), and backs off on consecutive empty responses — so an
- * endpoint with no session (not started yet, or killswitched to 204) winds down instead
- * of being polled at full cadence forever. Consumers stop it via `disconnect`;
- * `installationProgressLogic` does so once a cloud run reaches a terminal state.
+ * The loop backs off on consecutive errors, stops on permanent ones (401/403/404), backs
+ * off on consecutive empty responses — so an endpoint with no session (not started yet, or
+ * killswitched to 204) winds down instead of being polled at full cadence forever — and
+ * skips ticks entirely while the browser reports itself offline. Its backoff is kept on the
+ * cache, so a reconnect resumes the wind-down instead of restarting at full cadence.
+ * Consumers stop it via `disconnect`; `installationProgressLogic` does so once a cloud run
+ * reaches a terminal state.
  *
  * Usage:
  *
@@ -182,9 +186,14 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
                     mode: 'polling',
                     intervalMs,
                 })
+                // Backoff rides the cache, not the loop: every connect builds a new loop (a
+                // scheduled retry, a mid-outage flag flip, a remount), and counters that reset with
+                // it would put a client whose requests keep failing back to full cadence each time.
+                cache.pollBackoff = (cache.pollBackoff as PollBackoff | undefined) ?? createPollBackoff()
                 cache.disposables.add(
                     createPollLoop({
                         intervalMs,
+                        backoff: cache.pollBackoff,
                         tick: async () => {
                             // 204 (no session yet, or killswitched) resolves to null — classify as
                             // empty so the loop backs off instead of polling at full cadence forever.
@@ -299,6 +308,16 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
             cache.disposables.dispose('session-reconnect')
             // The next connect is a new cycle, not a continuation of the one that was torn down.
             cache.reconnectScheduled = false
+            // A consumer stopping the transport ends the "nothing to report yet" story, so the next
+            // connect gets a fresh empty cadence: the person has usually acted in between (this
+            // fires when the install step unmounts), and the kea cache outlives an unmount, so the
+            // counter would otherwise carry a minute-long gap into a run that is about to start.
+            // Failure backoff deliberately survives — a client whose requests keep failing has to
+            // keep winding down across exactly this mount churn.
+            const backoff = cache.pollBackoff as PollBackoff | undefined
+            if (backoff) {
+                backoff.consecutiveEmpty = 0
+            }
         },
         sessionUpdated: () => {
             if (cache.transportReadyReported || cache.connectStartedAt === undefined) {
@@ -321,6 +340,20 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
                 workflow_id: props.workflowId,
                 error,
             })
+        },
+        // A connect before the project resolves bails out before it picks a transport, and nothing
+        // else retries it: the flag listener below needs a resolved `cache.syncMode`, and a later
+        // consumer mounting no longer reconnects now that `installationProgressLogic` refcounts its
+        // shares. So the project arriving is the retry. Narrow on purpose — an unset `syncMode` means
+        // no transport was ever opened, which an outage (where the loop is alive and backing off)
+        // never looks like.
+        [projectLogic.actionTypes.loadCurrentProjectSuccess]: () => {
+            if (cache.syncMode !== undefined || values.currentProjectId === null) {
+                return
+            }
+            if (values.connectionStatus === 'error') {
+                actions.connect()
+            }
         },
         // Flags can resolve after a cold-cache connect (posthog-js loads them async), and ops can flip
         // the mode mid-incident. Reconnect when the resolved mode differs from the running transport —
