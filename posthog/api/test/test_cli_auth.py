@@ -11,7 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.cli_auth import CLI_SCOPES, DEVICE_CODE_EXPIRY_SECONDS, get_device_cache_key, get_user_code_cache_key
-from posthog.models import PersonalAPIKey, Team, User
+from posthog.models import CLIDeviceAuthorization, PersonalAPIKey, Team, User
 from posthog.models.organization import Organization
 from posthog.models.utils import hash_key_value
 
@@ -77,6 +77,26 @@ class TestCLIAuthDeviceCodeEndpoint(APIBaseTest):
         self.client.logout()
         response = self.client.post("/api/cli-auth/device-code/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_device_code_cleans_up_expired_authorizations(self):
+        expired = CLIDeviceAuthorization.objects.create(
+            device_code="expired-device-code",
+            user_code="EXPR-0001",
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
+
+        response = self.client.post("/api/cli-auth/device-code/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(CLIDeviceAuthorization.objects.filter(pk=expired.pk).exists())
+
+    def test_device_code_is_rate_limited_by_ip(self):
+        for _ in range(10):
+            response = self.client.post("/api/cli-auth/device-code/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.post("/api/cli-auth/device-code/")
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
 
 class TestCLIAuthAuthorizeEndpoint(APIBaseTest):

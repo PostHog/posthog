@@ -359,6 +359,13 @@ class SignupIPThrottle(IPThrottle):
     rate = settings.SIGNUP_IP_THROTTLE_RATE
 
 
+class CLIDeviceCodeThrottle(IPThrottle):
+    """Limit unauthenticated CLI device-code creation by client IP."""
+
+    scope = "cli_device_code"
+    rate = "10/minute"
+
+
 class WebAuthnSignupRegistrationThrottle(IPThrottle):
     """
     Rate limit passkey signup registrations by IP address to avoid a single IP address from initiating too many signups.

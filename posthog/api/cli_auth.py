@@ -31,6 +31,7 @@ from posthog.auth import SessionAuthentication
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.cli_device_authorization import CLIDeviceAuthorization
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
+from posthog.rate_limit import CLIDeviceCodeThrottle
 from posthog.scopes import UNPRIVILEGED_SCOPES
 from posthog.session.activity import request_session_is_live
 
@@ -39,6 +40,7 @@ DEVICE_CODE_EXPIRY_SECONDS = 600
 
 # CLI polling interval (5 seconds)
 CLI_POLL_INTERVAL_SECONDS = 5
+MAX_EXPIRED_DEVICE_AUTHORIZATIONS_CLEANED = 1000
 
 # Scopes granted to CLI
 CLI_SCOPES = [
@@ -157,7 +159,12 @@ class CLIAuthViewSet(viewsets.ViewSet):
         return []
 
     @extend_schema(request=None, responses={200: DeviceCodeResponseSerializer})
-    @action(methods=["POST"], detail=False, url_path="device-code")
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="device-code",
+        throttle_classes=[CLIDeviceCodeThrottle],
+    )
     def device_code(self, request):
         """
         Step 1: CLI requests device code
@@ -167,7 +174,16 @@ class CLIAuthViewSet(viewsets.ViewSet):
         device_code = generate_device_code()
         user_code = generate_user_code()
 
-        expires_at = timezone.now() + timedelta(seconds=DEVICE_CODE_EXPIRY_SECONDS)
+        now = timezone.now()
+        expired_ids = list(
+            CLIDeviceAuthorization.objects.filter(expires_at__lt=now)
+            .order_by("expires_at")
+            .values_list("id", flat=True)[:MAX_EXPIRED_DEVICE_AUTHORIZATIONS_CLEANED]
+        )
+        if expired_ids:
+            CLIDeviceAuthorization.objects.filter(id__in=expired_ids).delete()
+
+        expires_at = now + timedelta(seconds=DEVICE_CODE_EXPIRY_SECONDS)
         CLIDeviceAuthorization.objects.create(
             device_code=device_code,
             user_code=user_code,
