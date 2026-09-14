@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
 from django.db.models import Q
 
 import humanize
+
+from posthog.utils import ensure_utc
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
@@ -30,16 +32,12 @@ _BILLING_LIMIT_REASONS: dict[str, str] = {
 }
 
 
-def _ensure_utc(dt: datetime) -> datetime:
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
-
-
 def _is_stale(schema: ExternalDataSchema, now: datetime) -> bool:
     """Stale once the last sync is older than 2x the cadence; unknown cadence or never-synced is not stale."""
     interval = schema.sync_frequency_interval
     if interval is None or schema.last_synced_at is None:
         return False
-    return (now - _ensure_utc(schema.last_synced_at)) > interval * STALE_RUNNING_MULTIPLIER
+    return (now - ensure_utc(schema.last_synced_at)) > interval * STALE_RUNNING_MULTIPLIER
 
 
 def _active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[ExternalDataSchema]:
@@ -57,22 +55,21 @@ def _active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[E
 
 def _failed_sync_message(table_name: str, source_type: str, last_synced_at: datetime | None, now: datetime) -> str:
     sync_detail = (
-        f" Results reflect data from {humanize.naturaltime(now - _ensure_utc(last_synced_at))}."
+        f" Results reflect data from {humanize.naturaltime(now - ensure_utc(last_synced_at))}."
         if last_synced_at
         else " No successful sync has completed yet — the table may be empty or incomplete."
     )
     return f"Last sync of `{table_name}` (from {source_type}) failed.{sync_detail} Check the data warehouse source for details."
 
 
-def _paused_sync_message(table_name: str, schema: ExternalDataSchema, now: datetime) -> str:
-    source_type = schema.source.source_type if schema.source_id else "unknown"
+def _paused_sync_message(table_name: str, source_type: str, schema: ExternalDataSchema, now: datetime) -> str:
     if schema.last_synced_at is None:
         return (
             f"Sync of `{table_name}` (from {source_type}) is paused and hasn't completed a sync yet "
             "— the table may be empty or incomplete."
         )
 
-    ago = humanize.naturaltime(now - _ensure_utc(schema.last_synced_at))
+    ago = humanize.naturaltime(now - ensure_utc(schema.last_synced_at))
     if _is_stale(schema, now):
         return (
             f"Sync of `{table_name}` (from {source_type}) is paused. "
@@ -138,7 +135,7 @@ def _build_warning_for_schema(
     if schema_status == ExternalDataSchemaStatus.PAUSED or not schema.should_sync:
         return build(
             status=ExternalDataSchemaStatus.PAUSED,
-            message=_paused_sync_message(table_name, schema, now),
+            message=_paused_sync_message(table_name, source_type, schema, now),
         )
 
     # Enabled and healthy: warn only once data is actually stale (covers RUNNING and idle COMPLETED).
@@ -152,7 +149,7 @@ def _build_warning_for_schema(
             table_name,
             source_type,
             schema_status,
-            humanize.naturaltime(now - _ensure_utc(last_synced)),
+            humanize.naturaltime(now - ensure_utc(last_synced)),
         ),
     )
 
