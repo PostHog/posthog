@@ -8,8 +8,10 @@ import {
     RecordingUniversalFilters,
 } from '~/types'
 
+import { isValidRecordingFilters } from '../playlist/sessionRecordingsPlaylistLogic'
 import {
     convertUniversalFiltersToRecordingsQuery,
+    normalizeMaxRecordingFilters,
     recordingsQueryToUniversalFilters,
 } from './recordingsQueryConversions'
 
@@ -61,6 +63,16 @@ const durationFilter = (key: 'duration' | 'active_seconds' | 'inactive_seconds')
     value: 5,
     operator: PropertyOperator.GreaterThan,
 })
+
+const MAX_FILTERS = {
+    date_from: '-3d',
+    date_to: null,
+    duration: [],
+    filter_group: EMPTY_GROUP,
+    filter_test_accounts: true,
+    order: 'start_time',
+    order_direction: 'DESC',
+}
 
 describe('recordingsQueryToUniversalFilters', () => {
     describe('empty / nullish input', () => {
@@ -265,5 +277,29 @@ describe('convertUniversalFiltersToRecordingsQuery operand derivation', () => {
         ['outer group only', FilterLogicalOperator.Or, FilterLogicalOperator.And, FilterLogicalOperator.Or],
     ])('match-any on %s yields operand %s/%s -> %s', (_name, outer, inner, expected) => {
         expect(convertUniversalFiltersToRecordingsQuery(uf(outer, inner)).operand).toBe(expected)
+    })
+})
+
+describe('normalizeMaxRecordingFilters', () => {
+    // The tool prompt offers null for these, so a complete agent payload can carry them.
+    it.each([
+        ['filter_test_accounts', null, false],
+        ['order', null, 'start_time'],
+        ['order_direction', null, 'DESC'],
+    ])('replaces a null %s with the value the tool documents as its default', (key, input, expected) => {
+        const normalized = normalizeMaxRecordingFilters({ ...MAX_FILTERS, [key as string]: input })
+        expect(normalized[key as string]).toBe(expected)
+        expect(isValidRecordingFilters(normalized)).toBe(true)
+    })
+
+    it('leaves omitted keys omitted, so a partial apply keeps what the viewer set', () => {
+        expect(normalizeMaxRecordingFilters({ filter_group: EMPTY_GROUP, duration: [] })).toEqual({
+            filter_group: EMPTY_GROUP,
+            duration: [],
+        })
+    })
+
+    it('passes a payload with no nulls through unchanged', () => {
+        expect(normalizeMaxRecordingFilters(MAX_FILTERS)).toEqual(MAX_FILTERS)
     })
 })
