@@ -253,30 +253,32 @@ def main() -> int:
     scan_failed = False
     with tempfile.TemporaryDirectory(prefix="jscpd-") as tmp:
         tmp_path = Path(tmp)
+        current_worktree = tmp_path / "current-worktree"
         baseline_worktree = tmp_path / "baseline-worktree"
+        scan_worktrees = ((current_worktree, "HEAD"), (baseline_worktree, baseline))
         # Registrations from runs killed mid-scan point at paths that no
         # longer exist; drop them before adding a fresh one.
         subprocess.run(["git", "worktree", "prune"], capture_output=True, cwd=repo)
-        add = subprocess.run(
-            ["git", "worktree", "add", "--detach", str(baseline_worktree), baseline],
-            capture_output=True,
-            text=True,
-            cwd=repo,
-        )
-        if add.returncode != 0:
-            print(add.stderr[-2000:])
-            print(f"duplication lint could not check out the baseline {baseline}")
-            return 2
         try:
-            current_clones = run_jscpd(repo, tmp_path / "current-report")
+            for worktree, revision in scan_worktrees:
+                add = subprocess.run(
+                    ["git", "worktree", "add", "--detach", str(worktree), revision],
+                    capture_output=True,
+                    text=True,
+                    cwd=repo,
+                )
+                if add.returncode != 0:
+                    print(add.stderr[-2000:])
+                    print(f"duplication lint could not check out {revision}")
+                    return 2
+            current_clones = run_jscpd(current_worktree, tmp_path / "current-report")
             baseline_clones = run_jscpd(baseline_worktree, tmp_path / "baseline-report")
         except SystemExit:
             scan_failed = True
             current_clones = []
         finally:
-            subprocess.run(
-                ["git", "worktree", "remove", "--force", str(baseline_worktree)], capture_output=True, cwd=repo
-            )
+            for worktree, _ in scan_worktrees:
+                subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], capture_output=True, cwd=repo)
 
     if scan_failed:
         return 2
