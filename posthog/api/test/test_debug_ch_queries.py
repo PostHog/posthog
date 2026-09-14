@@ -178,6 +178,50 @@ class TestDebugCHQuery(APIBaseTest):
         self.assertEqual(reads["fully_precomputed_avg_read_bytes"][i], 2048)
         self.assertEqual(sum(reads["precomputed_p50_duration_ms"]), 120)
 
+    def test_precompute_overview_counts_every_runner_skip_reason(self):
+        # A reason the runner emits but the breakdown omits leaves those reads counted in the
+        # totals while appearing in no skip_reasons bucket. Literal strings on purpose: the
+        # values are persisted in query_log log_comment, so a renamed enum member must fail here.
+        self.user.is_staff = True
+        self.user.save()
+        skip_counts = {
+            reason: i + 1
+            for i, reason in enumerate(
+                (
+                    "override_direct",
+                    "team_disabled",
+                    "min_runtime",
+                    "activation_config",
+                    "cohort_not_calculated",
+                    "data_warehouse",
+                    "group_aggregation",
+                )
+            )
+        }
+        reads_row = (
+            "direct_scan",
+            sum(skip_counts.values()),  # reads
+            0,  # failed_reads
+            *skip_counts.values(),
+            0,  # attempted
+            0,  # me_precomputed
+            sum(skip_counts.values()),  # me_direct_scan
+            0,  # me_not_applicable
+            10.0,  # avg_duration_ms
+            10.0,  # p50_duration_ms
+            20.0,  # p90_duration_ms
+            1024.0,  # avg_read_bytes
+            4096,  # total_read_bytes
+        )
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=[[reads_row], []]):
+            resp = self.client.get("/api/debug_ch_queries/precompute_overview/?hours=24")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        data = resp.json()
+        self.assertEqual(data["reads"]["by_exposures_path"]["direct_scan"]["skip_reasons"], skip_counts)
+        self.assertEqual(data["reads"]["total"], sum(skip_counts.values()))
+
     @patch("posthog.api.debug_ch_queries.sync_execute", return_value=[])
     def test_slowest_queries_pat_with_scope_and_staff_allowed(self, _mock_execute):
         self.user.is_staff = True
