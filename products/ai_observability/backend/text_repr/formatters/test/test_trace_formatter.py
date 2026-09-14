@@ -694,6 +694,45 @@ class TestFormatTraceWithinBudget:
 
         assert len(result) <= self.BUDGET
 
+    def test_a_span_wrapping_the_closing_generation_does_not_take_its_budget(self) -> None:
+        answer = "ANSWER_START" + "a" * 3_000 + "ANSWER_MIDDLE" + "b" * 3_000 + "ANSWER_END"
+        hierarchy = [
+            {
+                "event": {
+                    "id": "answer",
+                    "event": "$ai_generation",
+                    # The generation ends before the span that wraps it, but starts after it.
+                    "timestamp": "2026-09-14T12:01:40+00:00",
+                    "properties": {
+                        "$ai_latency": 5,
+                        "$ai_input": [{"role": "user", "content": "final question"}],
+                        "$ai_output_choices": [{"role": "assistant", "content": answer}],
+                    },
+                },
+                "children": [],
+            },
+            {
+                "event": {
+                    "id": "wrap",
+                    "event": "$ai_span",
+                    "timestamp": "2026-09-14T12:01:41+00:00",
+                    "properties": {
+                        "$ai_latency": 95,
+                        "$ai_span_name": "agent run",
+                        "$ai_input_state": "s" * 80_000,
+                        "$ai_output_state": "t" * 80_000,
+                    },
+                },
+                "children": [],
+            },
+        ]
+        trace = {"properties": {"$ai_span_name": "wrapped"}}
+        options: FormatterOptions = {"include_markers": False, "include_line_numbers": True}
+        result = format_trace_within_budget(trace, hierarchy, self.BUDGET, options)
+
+        assert len(result) <= self.BUDGET
+        assert "ANSWER_MIDDLE" in result
+
 
 class TestEdgeCases:
     """Test edge cases and error handling."""

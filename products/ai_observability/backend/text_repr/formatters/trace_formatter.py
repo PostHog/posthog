@@ -58,24 +58,24 @@ def _normalize_hierarchy_id(value: Any) -> str | None:
     return None
 
 
-def _latency_ms(event: LLMTraceEvent) -> float:
+def _latency_ms(properties: dict[str, Any]) -> float:
     try:
-        latency = float(event.properties.get("$ai_latency", 0))
+        latency = float(properties.get("$ai_latency", 0))
     except (TypeError, ValueError):
         return 0.0
     return latency * 1000 if latency > 0 else 0.0
 
 
-def _operation_start_ms(event: LLMTraceEvent) -> float:
+def _operation_start_ms(created_at: Any, properties: dict[str, Any]) -> float:
     """Epoch ms the event's operation began. PostHog AI SDKs capture an event when the operation
     finishes, so its timestamp is the end; OTel-ingested spans already carry the start."""
     try:
-        end_ms = isoparse(event.createdAt).timestamp() * 1000
+        end_ms = isoparse(created_at).timestamp() * 1000
     except (TypeError, ValueError):
         return 0.0
-    if event.properties.get("$ai_ingestion_source") == "otel":
+    if properties.get("$ai_ingestion_source") == "otel":
         return end_ms
-    return end_ms - _latency_ms(event)
+    return end_ms - _latency_ms(properties)
 
 
 def _to_formatter_event(event: LLMTraceEvent) -> dict[str, Any]:
@@ -109,7 +109,8 @@ def _nest_events(llm_trace: LLMTrace) -> list[dict[str, Any]]:
         event = events_by_node_id[node_id]
         # Siblings that began together are ordered longest first, matching the timeline.
         return _TraceEventSortKey(
-            operation_start_ms=_operation_start_ms(event), negative_latency_ms=-_latency_ms(event)
+            operation_start_ms=_operation_start_ms(event.createdAt, event.properties),
+            negative_latency_ms=-_latency_ms(event.properties),
         )
 
     emitted_node_ids: set[str] = set()
@@ -616,6 +617,11 @@ def _allocate_event_buffers(hierarchy: list[dict[str, Any]], budget: int, option
         for event in _iter_events(hierarchy)
         if _is_expandable_event(event.get("event", ""))
     ]
+    # Events arrive in completion order, so a span that wraps the closing generation arrives after
+    # it and would take the spare budget first. Order by when each operation began instead, which
+    # puts the turn under judgement last. The sort is stable, so events with no latency to subtract
+    # keep the order they arrived in.
+    measured.sort(key=lambda pair: _operation_start_ms(pair[0].get("timestamp"), pair[0].get("properties", {})))
 
     buffers: dict[str, int] = {}
     spare = max(0, budget - sum(floor_length for _, floor_length in measured))
