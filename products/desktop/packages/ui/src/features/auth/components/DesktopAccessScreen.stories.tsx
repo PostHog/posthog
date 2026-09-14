@@ -51,3 +51,14 @@ export const TechnicalError: Story = {
     access: { projectId: 1, status: "error", reason: null },
   },
 };
+
+export const OnlyOrganizationBlocked: Story = {
+  args: {
+    orgProjectsMap: {
+      "org-1": {
+        orgName: "Example organization",
+        projects: [{ id: 1, name: "Website" }],
+      },
+    },
+  },
+};
