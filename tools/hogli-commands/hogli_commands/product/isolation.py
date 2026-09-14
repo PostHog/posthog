@@ -306,11 +306,14 @@ def contract_check_inputs(product_dir: Path) -> list[str]:
 
 
 # A contract-check input is "on the public surface" when it targets the facade, the presentation
-# layer, or the routes registration module. Anchored on the path separator so a near-miss like
-# backend/facade_legacy/** can't pass.
+# layer, the routes registration module, or the webhook consumer declarations. Anchored on the path
+# separator so a near-miss like backend/facade_legacy/** can't pass.
 _FACADE_PREFIX = "backend/facade/"
 _FACADE_PRESENTATION_PREFIXES = (_FACADE_PREFIX, "backend/presentation/")
 _ROUTES_PREFIXES = ("backend/routes.py", "backend/routes/")
+# posthog/ingress/ imports this module by name on the first delivery, and an import-linter contract
+# holds it to its own product's facade, so a change to it has to re-run that lane.
+_WEBHOOK_CONSUMERS_PREFIXES = ("backend/webhook_consumers.py",)
 
 # The wiring locations; the identifiers below call them garages. A prefix is either a directory
 # (trailing slash) or a single-file module. A class re-exported from one of these is accepted
@@ -378,6 +381,7 @@ def has_narrowed_turbo_inputs(
     accepted = (
         _FACADE_PRESENTATION_PREFIXES
         + _ROUTES_PREFIXES
+        + _WEBHOOK_CONSUMERS_PREFIXES
         + GARAGE_PREFIXES
         + permanent_prefixes
         + tuple(carveout_modules)

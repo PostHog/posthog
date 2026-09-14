@@ -17,19 +17,26 @@ rules:
           consumer is invisible and holds the connection open.
           See `docs/internal/inbound-webhooks.md` and `posthog/ingress/README.md`.
 
-          The rule fires on `hmac.compare_digest` in a module that also reads one of the known
-          signature headers, on `hmac` inside a function named like a signature verifier, and
-          on a vendor SDK call that verifies an inbound signature.
+          The rule fires on any `hmac` digest or compare in a module that also reads one of the
+          known signature headers, on `hmac` inside a function named like a signature verifier,
+          and on a vendor SDK call that verifies an inbound signature.
           Suppress a legitimate exception with
           `# nosemgrep: inbound-webhooks-go-through-ingress -- <reason>`.
       languages: [python]
       severity: ERROR
       patterns:
           - pattern-either:
-                # A module that reads a signature header and compares a digest verifies by hand.
-                # `hmac.new` alone is not enough: signing an outbound request is legitimate.
+                # A module that reads a signature header and builds or compares a digest
+                # verifies by hand. Every `hmac` entry point counts, not just the compare:
+                # `hmac.new(secret, body, sha256).hexdigest() == header` is the non-constant-time
+                # mistake the rule exists to catch, and it never reaches `compare_digest`.
+                # Signing an outbound request is legitimate, and stays out because a module that
+                # only signs does not read an inbound signature header.
                 - patterns:
-                      - pattern: hmac.compare_digest(...)
+                      - pattern-either:
+                            - pattern: hmac.compare_digest(...)
+                            - pattern: hmac.new(...)
+                            - pattern: hmac.digest(...)
                       # Both header mappings, and both ways of reading one. The attribute
                       # names are spelled out rather than bound to a metavariable, because a
                       # generic `$REQ.$ATTR.get(...)` makes semgrep time out on a large
@@ -59,10 +66,13 @@ rules:
                 # first (`verify_signature`), or a predicate (`signature_ok`,
                 # `_is_valid_signature`). A name that only signs (`compute_signature`,
                 # `build_test_signature`) carries no validity word and stays out.
+                # `hmac.digest` is the stdlib one-shot form of `hmac.new(...).digest()`; a
+                # verifier that reaches for it skips `hmac.new` entirely.
                 - patterns:
                       - pattern-either:
                             - pattern: hmac.compare_digest(...)
                             - pattern: hmac.new(...)
+                            - pattern: hmac.digest(...)
                       - pattern-inside: |
                             def $VERIFY(...):
                                 ...
