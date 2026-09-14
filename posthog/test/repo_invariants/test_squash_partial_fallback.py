@@ -13,10 +13,11 @@ Two rules keep that fallback graph valid:
   the app, and `migrate` stops with "Conflicting migrations detected".
 """
 
+from django.db.migrations import Migration
 from django.db.migrations.loader import MigrationLoader
 
 
-def _disk_migrations() -> dict:
+def _disk_migrations() -> dict[tuple[str, str], Migration]:
     loader = MigrationLoader(connection=None, load=False)
     loader.load_disk()
     return loader.disk_migrations
@@ -37,7 +38,7 @@ def test_replacing_squash_migrations_declare_no_run_before() -> None:
 
 def test_replaced_roots_depend_on_the_squash_same_app_dependencies() -> None:
     disk = _disk_migrations()
-    missing = []
+    missing: list[str] = []
     for (app, name), squash in sorted(disk.items()):
         replaced = set(squash.replaces)
         same_app_dependencies = [dep for dep in squash.dependencies if dep[0] == app]
