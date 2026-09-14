@@ -1,7 +1,7 @@
 import datetime as dt
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import ClickhouseTestMixin, _create_event
 
 from posthog.schema import (
@@ -232,8 +232,12 @@ def test_matches_on_events_covers_test_account_filters(team) -> None:
 # Integration: actual ClickHouse query.
 
 
-@freeze_time(_FROZEN_TIME)
 class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(_FROZEN_TIME, tick=False):
+            yield
+
     def setup_method(self, _method) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
 
@@ -782,8 +786,12 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         ).run()
 
 
-@freeze_time(_FROZEN_TIME)
 class TestWindowedCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(_FROZEN_TIME, tick=False):
+            yield
+
     def setup_method(self, _method) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
 

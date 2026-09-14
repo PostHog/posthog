@@ -30,6 +30,7 @@ const columns: ColumnDef<Person>[] = [
   stickyHeader                   // or "page" to stick to document scroll
   fullWidth
   size="sm"                      // tighten cell padding; pair with Card size="sm"
+  onRowClick={(row) => open(row)} // ignores links, buttons, and form controls inside the row
 />
 ```
 
@@ -40,6 +41,7 @@ Rules:
 - Sorting is client-side and on by default — click header toggles asc → desc → off. Opt out per column with `enableSorting: false`.
 - Pagination is opt-in via `pageSize`; the component owns page state and resets to page 0 when `pageSize` changes. The pager is suppressed when the table has no rows — an empty table shows only its empty state, never a "0–0 of 0" pager.
 - Custom empty state via the `empty` prop (ReactNode); default is a minimal "No results".
+- `onRowClick` makes non-interactive parts of each row clickable and keyboard accessible. Links, buttons, form controls, editable content, and custom controls keep their own behavior. Add `data-row-click-ignore` to a custom descendant that must not activate the row.
 - Don't rebuild tables from `Table` primitives when the data is row/column shaped and needs sorting or pagination — that's what DataTable is for. Drop to the `Table` primitive only for fully custom layouts.
 
 ## DateTimePicker

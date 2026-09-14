@@ -1264,7 +1264,11 @@ export class ApiRequest {
     }
 
     public task(id: Task['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.tasks(teamId).addPathComponent(id)
+        if (id === '.' || id === '..') {
+            throw new Error('Invalid task ID')
+        }
+
+        return this.tasks(teamId).addEncodedPathComponent(id)
     }
 
     public taskRuns(taskId: Task['id'], teamId?: TeamType['id']): ApiRequest {
@@ -3617,7 +3621,7 @@ const api = {
 
         async listForOrg(
             organizationId: OrganizationType['id'],
-            params: { limit?: number; offset?: number; search?: string } = {}
+            params: { limit?: number; offset?: number; search?: string; levels?: string; ordering?: string } = {}
         ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user' | 'level' | 'last_login'>>> {
             return await new ApiRequest()
                 .organizationMembersForAccount()
@@ -6576,7 +6580,7 @@ const api = {
             search?: string
             status?: HogFlow['status']
             created_by?: string
-            type?: 'messaging' | 'automation'
+            type?: 'messaging' | 'automation' | 'loop'
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
             limit?: number

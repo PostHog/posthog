@@ -156,22 +156,11 @@ tools:
                     End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user
                     did not name one.
             team_ids:
-                description: >
-                    JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as
-                    e.g. `[1,2]`. Omit for every project this request can see: all org teams for full billing-access
-                    callers, or the member's visible/project-scoped teams for member read-only callers.
+                input_schema: BillingTeamIdsSchema
             usage_types:
-                description: >
-                    JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as
-                    e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit
-                    for all usage types.
+                input_schema: BillingUsageTypesSchema
             breakdowns:
-                description: >
-                    JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions
-                    are "type" (by product) and "team" (by project). Pass `["type"]` for per-product series, `["team"]`
-                    for one series per project summed across products, or `["type","team"]` for per-project series
-                    within each product. Omit for a single aggregate series. Sending a bare string like "type,team" will
-                    fail with a 400 error.
+                input_schema: BillingSpendBreakdownsSchema
             interval:
                 description: Time bucket size, one of "day", "week" or "month". Default "day".
             top_projects:
@@ -233,22 +222,11 @@ tools:
                     End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user
                     did not name one.
             team_ids:
-                description: >
-                    JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as
-                    e.g. `[1,2]`. Omit for every project this request can see: all org teams for full billing-access
-                    callers, or the member's visible/project-scoped teams for member read-only callers.
+                input_schema: BillingTeamIdsSchema
             usage_types:
-                description: >
-                    JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as
-                    e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit
-                    for all usage types.
+                input_schema: BillingUsageTypesSchema
             breakdowns:
-                description: >
-                    JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions
-                    are "type" (by usage type) and "team" (by project). Pass `["type"]` for per-usage-type series, or
-                    `["type","team"]` for per-project series within each usage type. Team breakdowns require "type"; do
-                    not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like
-                    "type,team" will fail with a 400 error.
+                input_schema: BillingUsageBreakdownsSchema
             interval:
                 description: Time bucket size, one of "day" or "week". Default "day".
             top_projects:

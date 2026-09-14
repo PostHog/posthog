@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import (
+    ANOMALIES_PAGE_SIZE,
     APPDYNAMICS_ENDPOINTS,
     MAX_METRIC_PATHS,
     MAX_ROWS_PER_TIME_WINDOW,
@@ -286,7 +287,7 @@ class TestAppdynamicsClient:
         with _patch_session(session):
             client = AppdynamicsClient(BASE_URL, OAUTH_AUTH, mock.MagicMock())
 
-        with freeze_time("2024-01-31T00:00:00Z") as frozen:
+        with time_machine.travel("2024-01-31T00:00:00Z", tick=False) as frozen:
             client.get_json("/controller/rest/applications", {})
             client.get_json("/controller/rest/applications", {})
             assert len(session.post_calls) == 1
@@ -306,7 +307,7 @@ class TestAppdynamicsClient:
         with _patch_session(session):
             client = AppdynamicsClient(BASE_URL, OAUTH_AUTH, mock.MagicMock())
 
-        with freeze_time("2024-01-31T00:00:00Z") as frozen:
+        with time_machine.travel("2024-01-31T00:00:00Z", tick=False) as frozen:
             client.get_json("/controller/rest/applications", {})
             assert len(session.post_calls) == 1
             frozen.move_to("2024-01-31T00:00:06Z")  # past the 5s cache window (10 - min(60, 5))
@@ -415,14 +416,21 @@ def _application_list_responder(tree: dict[str, Any], application_ids: list[int]
 
 
 class TestGetRows:
-    def test_applications_yields_rows_without_state(self) -> None:
+    @parameterized.expand(
+        [
+            ("applications", "/controller/rest/applications"),
+            ("database_servers", "/controller/rest/databases/servers"),
+        ]
+    )
+    def test_account_level_endpoint_is_read_without_fanning_out(self, endpoint: str, expected_path: str) -> None:
         manager = FakeResumeManager()
-        batches, _ = _run_get_rows(
-            lambda path, params: FakeResponse(json_data=[{"id": 1, "name": "app"}]),
-            "applications",
+        batches, session = _run_get_rows(
+            lambda path, params: FakeResponse(json_data=[{"id": 1, "name": "thing"}]),
+            endpoint,
             manager,
         )
-        assert batches == [[{"id": 1, "name": "app"}]]
+        assert batches == [[{"id": 1, "name": "thing"}]]
+        assert [path for path, _, _ in session.get_calls] == [expected_path]
         assert manager.saved == []
 
     def test_too_many_applications_is_rejected(self) -> None:
@@ -496,7 +504,7 @@ class TestGetRows:
         batches, _ = _run_get_rows(responder, "tiers", manager)
         assert [row["application_id"] for batch in batches for row in batch] == [1]
 
-    @freeze_time("2024-01-31T00:00:00Z")
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_windowed_full_refresh_uses_lookback_and_chunks(self) -> None:
         def responder(path: str, params: dict[str, Any]) -> FakeResponse:
             if path == "/controller/rest/applications":
@@ -518,7 +526,7 @@ class TestGetRows:
         # each window's state is saved after its rows are yielded
         assert [s.window_start for s in manager.saved] == [end for _, end in window_calls]
 
-    @freeze_time("2024-01-31T00:00:00Z")
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_windowed_incremental_starts_one_ms_after_watermark(self) -> None:
         watermark = FROZEN_NOW_MS - MILLIS_PER_DAY
 
@@ -541,7 +549,7 @@ class TestGetRows:
         assert params["end-time"] == FROZEN_NOW_MS
         assert len(session.get_calls) == 2
 
-    @freeze_time("2024-01-31T00:00:00Z")
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_windowed_resume_uses_saved_window_for_bookmarked_app_only(self) -> None:
         resume_start = FROZEN_NOW_MS - MILLIS_PER_DAY
 
@@ -567,7 +575,7 @@ class TestGetRows:
         assert "/applications/2/" in app_2_call[0]
         assert app_2_call[1]["start-time"] == FROZEN_NOW_MS - 2 * MILLIS_PER_DAY + 1
 
-    @freeze_time("2024-01-31T00:00:00Z")
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_metric_data_flattens_metric_values_per_path(self) -> None:
         metric = {
             "metricId": 42,
@@ -611,7 +619,7 @@ class TestGetRows:
         assert rows[0]["metricId"] == 42
         assert rows[0]["value"] == 12
 
-    @freeze_time("2024-01-31T00:00:00Z")
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_capped_window_is_bisected_until_every_slice_fits(self) -> None:
         # `events` returns at most 600 rows for a window and offers no cursor to reach the rest,
         # so a full response means rows were dropped: the window has to be halved and refetched.
@@ -650,7 +658,7 @@ class TestGetRows:
         assert event_times == sorted(event_times)
         assert len(event_times) == 8
 
-    @freeze_time("2024-01-31T00:00:00Z")
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_window_that_cannot_be_split_further_warns_and_keeps_its_rows(self) -> None:
         def responder(path: str, params: dict[str, Any]) -> FakeResponse:
             if path == "/controller/rest/applications":
@@ -673,7 +681,7 @@ class TestGetRows:
         assert len(batches[0]) == MAX_ROWS_PER_TIME_WINDOW
         assert logger.warning.call_count == 1
 
-    @freeze_time("2024-01-31T00:00:00Z")
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_splitting_draws_from_the_sync_wide_request_allowance(self) -> None:
         # Splitting is per window but the fan-out limit is per sync, so a controller that
         # returns a full response every time must not multiply an accepted sync by the
@@ -703,9 +711,10 @@ class TestGetRows:
         [
             ("events", {"event-types": "APPLICATION_DEPLOYMENT,APP_SERVER_RESTART", "severities": "INFO,WARN,ERROR"}),
             ("request_snapshots", {"maximum-results": MAX_ROWS_PER_TIME_WINDOW}),
+            ("anomalies", {"fetchSuspectedCause": "false"}),
         ]
     )
-    @freeze_time("2024-01-31T00:00:00Z")
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_windowed_endpoint_sends_its_required_params(self, endpoint: str, expected: dict[str, Any]) -> None:
         # The Controller rejects an events request with no `event-types`/`severities`, and caps
         # snapshots at its own default unless `maximum-results` is asked for.
@@ -737,6 +746,84 @@ class TestGetRows:
         assert list_params["output"] == "JSON"
         assert rules_path == "/controller/alerting/rest/v1/applications/7/health-rules"
         assert "output" not in rules_params
+
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
+    def test_anomalies_sends_epoch_window_bounds_and_unwraps_the_response(self) -> None:
+        # The anomaly API takes bare epoch-ms bounds instead of the Controller REST
+        # `time-range-type` triple, serves JSON with no `output` param, and returns its rows
+        # wrapped in an object rather than as a bare array.
+        watermark = FROZEN_NOW_MS - MILLIS_PER_DAY
+
+        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
+            if path == "/controller/rest/applications":
+                return FakeResponse(json_data=[{"id": 3}])
+            return FakeResponse(json_data={"violationListItem": [{"id": 9, "startTime": params["startTime"]}]})
+
+        batches, session = _run_get_rows(
+            responder,
+            "anomalies",
+            FakeResumeManager(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
+        )
+
+        path, params, _ = session.get_calls[1]
+        assert path == "/controller/anomaly/rest/api/v1/applications/3/anomalies"
+        assert params["startTime"] == watermark + 1
+        assert params["endTime"] == FROZEN_NOW_MS
+        assert "time-range-type" not in params
+        assert "output" not in params
+        assert batches == [[{"id": 9, "startTime": watermark + 1, "application_id": 3}]]
+
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
+    def test_anomalies_walks_pages_until_one_comes_back_short(self) -> None:
+        # A full page means anomalies are still waiting, and the API documents no default page
+        # size, so the stream sends one and pages on rather than trusting a single response.
+        pages: dict[int, list[dict[str, Any]]] = {
+            0: [{"id": index} for index in range(ANOMALIES_PAGE_SIZE)],
+            1: [{"id": 999}],
+        }
+
+        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
+            if path == "/controller/rest/applications":
+                return FakeResponse(json_data=[{"id": 1}])
+            return FakeResponse(json_data={"violationListItem": pages.get(params["pageNumber"], [])})
+
+        batches, session = _run_get_rows(
+            responder,
+            "anomalies",
+            FakeResumeManager(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=FROZEN_NOW_MS - MILLIS_PER_DAY,
+        )
+
+        assert [params["pageNumber"] for _, params, _ in session.get_calls[1:]] == [0, 1]
+        assert all(params["pageSize"] == ANOMALIES_PAGE_SIZE for _, params, _ in session.get_calls[1:])
+        assert [row["id"] for batch in batches for row in batch][-1] == 999
+
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
+    def test_anomalies_paging_draws_from_the_sync_wide_request_allowance(self) -> None:
+        # Paging is per window but the fan-out limit is per sync, so a controller that returns
+        # a full page every time can't multiply an accepted sync by the per-window page cap.
+        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
+            if path == "/controller/rest/applications":
+                return FakeResponse(json_data=[{"id": 1}])
+            return FakeResponse(json_data={"violationListItem": [{"id": n} for n in range(ANOMALIES_PAGE_SIZE)]})
+
+        logger = mock.MagicMock()
+        # One window is estimated, so an allowance of one leaves room for a single extra page.
+        with mock.patch.object(appdynamics_module, "MAX_FANOUT_REQUESTS", 2):
+            _, session = _run_get_rows(
+                responder,
+                "anomalies",
+                FakeResumeManager(),
+                logger=logger,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=FROZEN_NOW_MS - MILLIS_PER_DAY,
+            )
+
+        assert [params["pageNumber"] for _, params, _ in session.get_calls[1:]] == [0, 1]
+        assert logger.warning.call_count == 1
 
     def test_metric_tree_walk_builds_reusable_paths_and_skips_leaves(self) -> None:
         tree = {

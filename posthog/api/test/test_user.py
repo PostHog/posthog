@@ -6,7 +6,7 @@ from typing import cast
 from urllib.parse import quote, unquote, urlparse
 
 import pytest
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
@@ -240,7 +240,7 @@ class TestUserAPI(APIBaseTest):
         from posthog.models import OrganizationInvite
 
         other_org = Organization.objects.create(name="Other Org For Pending Invites Test")
-        with freeze_time(timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 1)):
+        with time_machine.travel(timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 1), tick=False):
             OrganizationInvite.objects.create(
                 organization=other_org,
                 target_email=self.user.email,
@@ -938,7 +938,7 @@ class TestUserAPI(APIBaseTest):
         self.user.is_email_verified = True
         self.user.save()
         with self.is_cloud(True):
-            with freeze_time("2020-01-01T21:37:00+00:00"):
+            with time_machine.travel("2020-01-01T21:37:00+00:00", tick=False):
                 response = self.client.patch(
                     "/api/users/@me/",
                     {
@@ -957,7 +957,7 @@ class TestUserAPI(APIBaseTest):
             mock_is_email_available.assert_called_once()
             mock_send_code.assert_called_once_with(self.user.pk, ANY, "beta@example.com")
 
-            with freeze_time("2020-01-01T21:37:00+00:00"):
+            with time_machine.travel("2020-01-01T21:37:00+00:00", tick=False):
                 response = self.client.post(
                     f"/api/users/verify_email/",
                     {"uuid": self.user.uuid, "code": mock_send_code.call_args[0][1]},
@@ -3249,7 +3249,7 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
     def test_expired_code_is_rejected(self):
         code = self._request_code()
 
-        with freeze_time(timezone.now() + datetime.timedelta(minutes=31)):
+        with time_machine.travel(timezone.now() + datetime.timedelta(minutes=31), tick=False):
             response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "invalid_code")

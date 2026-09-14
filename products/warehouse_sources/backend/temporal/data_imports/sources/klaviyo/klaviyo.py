@@ -537,6 +537,25 @@ def _build_timeframe(report: KlaviyoValuesReportConfig, now: datetime) -> tuple[
     return {"start": start.isoformat(), "end": end.isoformat()}, f"last_{report.timeframe_weeks}_weeks"
 
 
+def _no_activity_statistics(statistics: list[str]) -> dict[str, Any]:
+    return {statistic: None if statistic.endswith("_rate") else 0 for statistic in statistics}
+
+
+def _rows_for_ids_the_report_omitted(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    report: KlaviyoValuesReportConfig,
+    reported_ids: set[str],
+    common: dict[str, Any],
+) -> Iterator[dict[str, Any]]:
+    assert report.list_all_ids_path is not None
+    id_column = report.group_by[0]
+    for entity_id in _iter_resource_ids(session, headers, logger, report.list_all_ids_path, page_size=100):
+        if entity_id not in reported_ids:
+            yield {id_column: entity_id, **_no_activity_statistics(report.statistics), **common}
+
+
 def _get_values_report_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -591,6 +610,9 @@ def _get_values_report_rows(
     if metric_id:
         common["conversion_metric_id"] = metric_id
 
+    lists_all_ids = report.list_all_ids_path is not None and not report.interval and len(report.group_by) == 1
+    reported_ids: set[str] = set()
+
     try:
         while True:
             data = _fetch_page(session, url, post_headers, logger, json_body=body)
@@ -603,6 +625,8 @@ def _get_values_report_rows(
                 rows = ({**r.get("groupings", {}), **r.get("statistics", {}), **common} for r in results)
 
             for row in rows:
+                if lists_all_ids and row.get(report.group_by[0]) is not None:
+                    reported_ids.add(str(row[report.group_by[0]]))
                 batcher.batch(row)
                 if batcher.should_yield():
                     yield batcher.get_table()
@@ -611,6 +635,12 @@ def _get_values_report_rows(
             if not next_url:
                 break
             url = next_url
+
+        if lists_all_ids:
+            for row in _rows_for_ids_the_report_omitted(session, headers, logger, report, reported_ids, common):
+                batcher.batch(row)
+                if batcher.should_yield():
+                    yield batcher.get_table()
     except requests.HTTPError as exc:
         if (
             exc.response is not None

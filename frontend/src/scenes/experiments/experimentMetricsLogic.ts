@@ -54,8 +54,6 @@ export const RECALCULATION_STATUSES = {
     failed: 'failed',
 } as const
 
-export type RecalculationStatuses = (typeof RECALCULATION_STATUSES)[keyof typeof RECALCULATION_STATUSES]
-
 /** Transient per-metric retry state written by the calc activity between failed attempts. */
 export interface MetricRetryInfo {
     attempt: number

@@ -13,14 +13,19 @@ from parameterized import parameterized
 from posthog.models.integration import Integration
 from posthog.temporal.common.errors import NonReportableError
 
-from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
+    MISSING_INTEGRATION_MESSAGE,
+    Any_Source_Errors,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HostNotAllowedError,
     OAuthMixin,
     SSHTunnelMixin,
+    TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
     _is_host_safe,
+    check_resolved_addresses,
     make_ssh_tunnel_factory,
     open_ssh_tunnel,
     resolve_safe_host,
@@ -107,6 +112,60 @@ class TestIsHostSafe(SimpleTestCase):
         valid, _ = _is_host_safe(host, team_id=999)
         assert valid
 
+    @parameterized.expand(
+        [
+            ("comma_joined_postwh", "10.0.0.5,x.postwh.com", 999),
+            ("comma_joined_allowlisted_team", "10.0.0.5,db.example.com", 2),
+            ("space_joined_postwh", "10.0.0.5 x.postwh.com", 999),
+            ("socket_path_postwh", "/var/run/x.postwh.com", 999),
+            ("port_suffix_postwh", "x.postwh.com:5432", 999),
+            ("leading_space_postwh", " x.postwh.com", 999),
+            ("trailing_dot_postwh", "x.postwh.com.", 999),
+            ("newline_label_postwh", "evil.example.com\n.postwh.com", 999),
+            ("ipv6_scope_id_hiding_a_host_list", "fe80::1%x,10.0.0.1,x.postwh.com", 999),
+            ("ipv6_scope_id", "fe80::1%eth0", 999),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_blocks_hosts_that_are_not_one_name_before_any_exemption(self, _name: str, host: str, team_id: int):
+        with patch(f"{_MIXINS_MODULE}.socket.getaddrinfo") as getaddrinfo_mock:
+            valid, error = _is_host_safe(host, team_id=team_id)
+
+        assert not valid
+        assert error is not None and "single hostname" in error
+        getaddrinfo_mock.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("try_again", socket.EAI_AGAIN, "Temporary failure in name resolution"),
+            ("system_error", socket.EAI_SYSTEM, "System error"),
+            ("out_of_memory", socket.EAI_MEMORY, "Memory allocation failure"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_resolver_failure_is_reported_as_try_again(self, _name: str, errno: int, message: str) -> None:
+        with patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=socket.gaierror(errno, message)):
+            valid, error = _is_host_safe("db.example.com", team_id=999)
+
+        assert not valid
+        assert error is not None and "Try again" in error
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_host_with_characters_outside_ascii_is_refused_before_any_lookup(self) -> None:
+        with patch(f"{_MIXINS_MODULE}.socket.getaddrinfo") as getaddrinfo_mock:
+            valid, error = _is_host_safe("täst.example.com", team_id=999)
+
+        assert not valid
+        assert error is not None and "punycode" in error
+        getaddrinfo_mock.assert_not_called()
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_allows_the_punycode_form_of_a_hostname(self) -> None:
+        with patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=[(None, None, None, None, ("52.1.2.3", 0))]):
+            valid, _ = _is_host_safe("xn--tst-qla.example.com", team_id=999)
+
+        assert valid
+
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_blocks_fake_postwh_suffix(self):
         with patch(
@@ -155,14 +214,19 @@ class TestIsHostSafe(SimpleTestCase):
             resolution = resolve_safe_host("dual-stack.example.com", team_id=999)
 
         assert resolution.connect_host == "52.1.2.3"
+        assert resolution.addresses == ("52.1.2.3",)
 
+    @parameterized.expand(
+        [
+            ("no_errno", socket.gaierror("Name or service not known")),
+            ("name_or_service_not_known", socket.gaierror(socket.EAI_NONAME, "Name or service not known")),
+        ]
+    )
     @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_unresolvable_host_blocked(self):
-        import socket
-
+    def test_unresolvable_host_blocked(self, _name: str, lookup_error: socket.gaierror):
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.socket.getaddrinfo",
-            side_effect=socket.gaierror("Name or service not known"),
+            side_effect=lookup_error,
         ):
             valid, error = _is_host_safe("nonexistent.invalid", team_id=999)
             assert not valid
@@ -172,12 +236,10 @@ class TestIsHostSafe(SimpleTestCase):
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_malformed_host_label_blocked(self):
-        # A single DNS label over 63 bytes makes getaddrinfo's IDNA encoding raise UnicodeError,
-        # not gaierror — this must be handled gracefully instead of crashing.
         valid, error = _is_host_safe("a" * 92, team_id=999)
         assert not valid
         assert error is not None
-        assert "resolve" in error
+        assert "single hostname" in error
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_blocked_host_logs_warning(self):
@@ -496,6 +558,37 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
 
         assert get.call_count == 2
 
+    @parameterized.expand(
+        [
+            ("deleted_integration", Integration.DoesNotExist(), 4212),
+            ("unset_integration_id", None, 0),
+        ]
+    )
+    def test_lookup_failure_is_classified_for_every_oauth_source(
+        self, _name: str, side_effect: Exception | None, integration_id: int
+    ):
+        # Every OAuth source shares this lookup, so its two failure messages have to be in the
+        # all-source map: unclassified they get retried to exhaustion and then shown to the
+        # customer raw, with the integration id in them.
+        get = mock.Mock(side_effect=side_effect)
+
+        with (
+            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.close_old_connections"),
+            patch(f"{_MIXINS_MODULE}.time.sleep"),
+        ):
+            with pytest.raises(ValueError) as raised:
+                OAuthMixin().get_oauth_integration(integration_id=integration_id, team_id=2)
+
+        assert error_message_matches(str(raised.value), Any_Source_Errors.keys())
+        friendly = next(
+            message
+            for pattern, message in Any_Source_Errors.items()
+            if error_message_matches(str(raised.value), [pattern])
+        )
+        assert friendly == MISSING_INTEGRATION_MESSAGE
+        assert str(integration_id) not in MISSING_INTEGRATION_MESSAGE
+
 
 class TestDirectHostIsCheckedAtConnect(SimpleTestCase):
     # A direct database connection is a raw socket that the HTTP egress proxy never sees, and the
@@ -534,6 +627,21 @@ class TestDirectHostIsCheckedAtConnect(SimpleTestCase):
                 with self._connection_cm(entrypoint, config, 999):
                     pass
 
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_resolver_blip_is_a_retryable_error_not_a_rejection(self, entrypoint: str) -> None:
+        config = FakeConfig(host="db.example.com", ssh_tunnel=None)
+        blip = socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
+        with (
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=blip),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            with pytest.raises(TemporaryHostResolutionError) as exc:
+                with self._connection_cm(entrypoint, config, 999):
+                    pass
+
+        assert not error_message_matches(str(exc.value), Any_Source_Errors.keys())
+
 
 class TestDirectHostRejectionIsNonRetryable(SimpleTestCase):
     # The rejection is a config problem only the customer can fix, so it has to stop the schedule
@@ -555,3 +663,76 @@ class TestDirectHostRejectionIsNonRetryable(SimpleTestCase):
 
         assert isinstance(exc.value, NonReportableError)
         assert error_message_matches(str(exc.value), Any_Source_Errors.keys())
+
+
+class TestCheckResolvedAddresses(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("internal_first", ["10.0.0.5", "203.0.113.5"]),
+            ("internal_second", ["203.0.113.5", "169.254.169.254"]),
+            ("ipv6_mapped_internal", ["::ffff:10.0.0.1"]),
+            ("nat64_imds", ["64:ff9b::169.254.169.254"]),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_any_internal_address_in_the_set_is_refused(self, _name: str, addresses: list[str]) -> None:
+        with patch(f"{_MIXINS_MODULE}.logger"):
+            resolution = check_resolved_addresses("db.example.com", addresses, team_id=999)
+
+        assert resolution.connect_host is None
+        assert resolution.addresses == ()
+        assert resolution.error is not None
+
+    @parameterized.expand(
+        [("postwh_suffix", "10.0.0.5,x.postwh.com", 999), ("allowlisted_team", "10.0.0.5,db.example.com", 2)]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_host_that_is_not_one_name_is_refused_despite_an_exemption(
+        self, _name: str, host: str, team_id: int
+    ) -> None:
+        with patch(f"{_MIXINS_MODULE}.logger"):
+            resolution = check_resolved_addresses(host, ["10.0.0.5"], team_id=team_id)
+
+        assert resolution.connect_host is None
+        assert resolution.addresses == ()
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_public_set_is_returned_whole_in_resolver_order(self) -> None:
+        with (
+            patch(f"{_MIXINS_MODULE}.logger"),
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
+        ):
+            resolution = check_resolved_addresses("db.example.com", ["2600:1f18::1", "52.1.2.3"], team_id=999)
+
+        assert resolution.error is None
+        assert resolution.connect_host == "2600:1f18::1"
+        assert resolution.addresses == ("2600:1f18::1", "52.1.2.3")
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_an_empty_set_is_a_failed_lookup_and_is_refused(self) -> None:
+        with patch(f"{_MIXINS_MODULE}.logger"):
+            resolution = check_resolved_addresses("db.example.com", [], team_id=999)
+
+        assert resolution.connect_host is None
+        assert resolution.error is not None
+        assert "resolve" in resolution.error
+
+    @parameterized.expand(
+        [
+            ("team_allowlist", "US", "db.internal.example.com", 2),
+            ("not_cloud", None, "db.internal.example.com", 999),
+            ("posthog_managed", "US", "warehouse.postwh.com", 999),
+        ]
+    )
+    def test_exemptions_skip_the_check_and_keep_the_set(
+        self, _name: str, deployment: str | None, host: str, team_id: int
+    ) -> None:
+        with (
+            override_settings(CLOUD_DEPLOYMENT=deployment),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            resolution = check_resolved_addresses(host, ["10.0.0.5"], team_id=team_id)
+
+        assert resolution.error is None
+        assert resolution.connect_host == host
+        assert resolution.addresses == ("10.0.0.5",)

@@ -1,10 +1,11 @@
 import json
 import uuid
+import tracemalloc
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from asgiref.sync import async_to_sync
@@ -158,12 +159,22 @@ class TestFormatTraceForJudge:
 
         assert "search_docs" in transcript
 
-    def test_truncates_long_event_io(self):
-        trace = create_trace([create_trace_event("$ai_generation", **{"$ai_input": "x" * 50_000})])
+    @pytest.mark.parametrize("content_length,should_truncate", [(50_000, False), (200_000, True)])
+    def test_truncates_long_event_io_only_when_the_trace_exceeds_budget(
+        self, content_length: int, should_truncate: bool
+    ) -> None:
+        content = "start " + "x" * (content_length // 2) + " critical evidence " + "y" * (content_length // 2) + " end"
+        trace = create_trace(
+            [create_trace_event("$ai_generation", **{"$ai_input": [{"role": "user", "content": content}]})]
+        )
 
         transcript = format_trace_for_judge(trace)
 
-        assert "chars truncated" in transcript
+        assert ("chars truncated" in transcript) == should_truncate
+        assert ("critical evidence" in transcript) == (not should_truncate)
+        assert "start " in transcript
+        assert " end" in transcript
+        assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
 
     def test_bounds_output_to_max_chars(self):
         # 200 large generations would blow well past the cap without sampling.
@@ -174,6 +185,26 @@ class TestFormatTraceForJudge:
         transcript = format_trace_for_judge(create_trace(events))
 
         assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
+        assert "SAMPLED VIEW" in transcript
+
+    @pytest.mark.parametrize("event_count,message_count", [(50, 1), (1, 50)])
+    def test_oversized_messages_do_not_allocate_the_full_transcript(self, event_count: int, message_count: int) -> None:
+        content = "start " + "x" * 500_000 + " end"
+        messages = [{"role": "user", "content": content} for _ in range(message_count)]
+        trace = create_trace(
+            [create_trace_event("$ai_generation", **{"$ai_input": messages}) for _ in range(event_count)]
+        )
+
+        tracemalloc.start()
+        try:
+            transcript = format_trace_for_judge(trace)
+            _, peak_bytes = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+
+        assert "chars truncated" in transcript
+        assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
+        assert peak_bytes < 10_000_000
 
     def test_marks_errored_events(self):
         trace = create_trace(
@@ -292,7 +323,7 @@ class TestFetchTraceForEvaluation:
         trace = create_trace([create_trace_event("$ai_generation", **{"$ai_input": "q", "$ai_output": "a"})])
 
         with (
-            freeze_time(FROZEN_NOW),
+            time_machine.travel(FROZEN_NOW, tick=False),
             patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", return_value=1),
             patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
         ):
@@ -331,7 +362,7 @@ class TestFetchTraceForEvaluation:
         # bounded runner can return a trace row with no transcript to grade. A live run keeps
         # whatever it did with that row before, so only the backfilled run skips.
         with (
-            freeze_time(FROZEN_NOW),
+            time_machine.travel(FROZEN_NOW, tick=False),
             patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", return_value=2),
             patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
         ):
@@ -386,7 +417,7 @@ class TestRunHogEvalOverRecentTraces:
         rewritten_condition = where_clause.exprs[-1]
         assert rewritten_condition.left.chain == ["input"]
 
-    @freeze_time(FROZEN_NOW)
+    @time_machine.travel(FROZEN_NOW, tick=False)
     def test_uses_the_sampled_trigger_and_configured_aggregation_window(self):
         team = MagicMock(spec=Team)
         trigger_timestamp = FROZEN_NOW - timedelta(hours=2)
@@ -660,7 +691,7 @@ class TestEmitTraceEvaluationEventActivity:
         }
 
         with (
-            freeze_time(FROZEN_NOW),
+            time_machine.travel(FROZEN_NOW, tick=False),
             patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token),
             patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture,
         ):
@@ -741,7 +772,6 @@ class TestEmitTraceEvaluationEventActivity:
                     await emit_trace_evaluation_event_activity(inputs)
 
 
-@freeze_time(FROZEN_NOW)
 class TestEmitSessionEvaluationEvent:
     @pytest.mark.parametrize(
         "target,ai_session_id,expected_target_type,expected_target_id",
@@ -777,7 +807,7 @@ class TestEmitSessionEvaluationEvent:
                     distinct_id="user-1",
                     session_id="ph-session-1",
                     result={"verdict": True, "reasoning": "", "result_type": "boolean"},
-                    start_time=datetime.now(UTC),
+                    start_time=FROZEN_NOW,
                     target=target,
                     ai_session_id=ai_session_id,
                 )
@@ -814,7 +844,7 @@ class TestEmitSessionEvaluationEvent:
                     distinct_id="user-1",
                     session_id=None,
                     result={"verdict": True, "reasoning": "", "result_type": "boolean"},
-                    start_time=datetime.now(UTC),
+                    start_time=FROZEN_NOW,
                     target="session",
                     ai_session_id="session-abc",
                 )

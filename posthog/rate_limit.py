@@ -732,6 +732,19 @@ class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
+# The watch feed windows, ranks and hydrates a slice of the team's observation history per call, and
+# its primary caller is the session-authenticated home tab, which the default Burst/Sustained
+# throttles bypass. Team-wide bucket so minting keys doesn't multiply the budget.
+class ReplayVisionWatchFeedBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_watch_feed_burst"
+    rate = "60/minute"
+
+
+class ReplayVisionWatchFeedSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_watch_feed_sustained"
+    rate = "600/hour"
+
+
 # Each observation search makes a synchronous embedding request and a brute-force cosine scan over
 # the team's embedding rows, and its primary caller is the session-authenticated Search tab, which
 # the default Burst/Sustained throttles bypass. The burst bucket is per credential so one user

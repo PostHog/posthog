@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -29,8 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.kl
     klaviyo_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.settings import (
+    FORM_REPORT_STATISTICS,
     KLAVIYO_ENDPOINTS,
     SERIES_REPORT_TIMEFRAME_WEEKS,
+    VALUES_REPORT_TIMEFRAME_KEY,
     KlaviyoEndpointConfig,
     KlaviyoValuesReportConfig,
 )
@@ -116,7 +118,7 @@ class TestBuildInitialParams:
         assert "+00:00" not in params["filter"]
         assert params["filter"].endswith("Z)")
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_cursor_is_clamped_to_now(self) -> None:
         # A future-dated cursor would otherwise build greater-than(datetime,<future>),
         # which Klaviyo rejects with a 400 and wedges every subsequent sync.
@@ -129,7 +131,7 @@ class TestBuildInitialParams:
         )
         assert params["filter"] == "greater-than(datetime,2026-06-15T12:00:00.000Z)"
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_past_cursor_is_not_modified(self) -> None:
         config = KLAVIYO_ENDPOINTS["events"]
         params = _build_initial_params(
@@ -164,7 +166,7 @@ class TestBuildInitialParams:
         )
         assert "filter" not in params
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_lookback_applies_after_future_clamp(self) -> None:
         # Clamping after the lookback would erase the overlap window for a future-dated cursor.
         config = KLAVIYO_ENDPOINTS["list_profiles"]
@@ -178,28 +180,28 @@ class TestBuildInitialParams:
 
 
 class TestClampFutureValueToNow:
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_datetime_is_clamped(self) -> None:
         assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42, tzinfo=UTC)) == datetime(
             2026, 6, 15, 12, 0, 0, tzinfo=UTC
         )
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_naive_future_datetime_is_clamped(self) -> None:
         assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42)) == datetime(
             2026, 6, 15, 12, 0, 0, tzinfo=UTC
         )
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_past_datetime_is_unchanged(self) -> None:
         value = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
         assert _clamp_future_value_to_now(value) == value
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_date_is_clamped(self) -> None:
         assert _clamp_future_value_to_now(date(2027, 2, 5)) == date(2026, 6, 15)
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_past_date_is_unchanged(self) -> None:
         assert _clamp_future_value_to_now(date(2026, 3, 4)) == date(2026, 3, 4)
 
@@ -1102,7 +1104,7 @@ class TestValuesReports:
 class TestReportVariants:
     # Monday 03:30 UTC, which is still Sunday evening in the account's timezone. A window computed in
     # UTC would open a week later and end seven hours ahead of the account's clock.
-    @freeze_time("2026-09-14T03:30:00Z")
+    @time_machine.travel("2026-09-14T03:30:00Z", tick=False)
     def test_series_report_carries_interval_and_expands_each_bucket_into_a_row(self, monkeypatch: Any) -> None:
         # Series reports return each statistic as an array aligned to a top-level date_times list;
         # keeping the arrays nested would leave the table unqueryable and collapse the weekly rows.
@@ -1197,7 +1199,8 @@ class TestReportVariants:
             fetched_urls.append(url)
             if json_body is not None:
                 captured["body"] = json_body
-            return {"data": {"attributes": {"results": []}}, "links": {}}
+                return {"data": {"attributes": {"results": []}}, "links": {}}
+            return {"data": [], "links": {}}
 
         with patch.object(klaviyo, "_fetch_page", fake_fetch):
             list(
@@ -1212,11 +1215,80 @@ class TestReportVariants:
         attributes = captured["body"]["data"]["attributes"]
         assert captured["body"]["data"]["type"] == report_type
         assert "conversion_metric_id" not in attributes
-        assert fetched_urls == [f"https://a.klaviyo.com/api{path}"]
+        assert fetched_urls[0] == f"https://a.klaviyo.com/api{path}"
+        assert all("/metrics" not in url for url in fetched_urls)
         if expected_group_by is None:
             assert "group_by" not in attributes
         else:
             assert attributes["group_by"] == expected_group_by
+
+    def test_form_values_report_lists_every_form_and_zero_fills_the_quiet_ones(self) -> None:
+        fetched_urls: list[str] = []
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            fetched_urls.append(url)
+            if json_body is not None:
+                return {
+                    "data": {
+                        "attributes": {
+                            "results": [
+                                {
+                                    "groupings": {"form_id": "FORM_ACTIVE"},
+                                    "statistics": {"viewed_form": 40, "submits": 4, "submit_rate": 0.1},
+                                }
+                            ]
+                        }
+                    },
+                    "links": {},
+                }
+            assert url.startswith("https://a.klaviyo.com/api/forms?")
+            return {"data": [{"id": "FORM_ACTIVE"}, {"id": "FORM_QUIET"}], "links": {}}
+
+        with patch.object(klaviyo, "_fetch_page", fake_fetch):
+            rows = [
+                row
+                for table in get_rows(
+                    api_key="pk_test",
+                    endpoint="form_values_reports",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+                for row in table.to_pylist()
+            ]
+
+        by_form = {row["form_id"]: row for row in rows}
+        assert set(by_form) == {"FORM_ACTIVE", "FORM_QUIET"}
+        assert (by_form["FORM_ACTIVE"]["viewed_form"], by_form["FORM_ACTIVE"]["submits"]) == (40, 4)
+        assert by_form["FORM_ACTIVE"]["submit_rate"] == 0.1
+        quiet = by_form["FORM_QUIET"]
+        assert quiet["timeframe_key"] == VALUES_REPORT_TIMEFRAME_KEY
+        assert quiet["submit_rate"] is None
+        assert all(quiet[statistic] == 0 for statistic in FORM_REPORT_STATISTICS if statistic != "submit_rate")
+        assert len(fetched_urls) == 2
+
+    def test_a_report_without_a_list_all_ids_path_stays_empty(self) -> None:
+        fetched_urls: list[str] = []
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            fetched_urls.append(url)
+            return {"data": {"attributes": {"results": []}}, "links": {}}
+
+        with patch.object(klaviyo, "_fetch_page", fake_fetch):
+            tables = list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint="segment_values_reports",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
+        assert tables == []
+        assert fetched_urls == ["https://a.klaviyo.com/api/segment-values-reports"]
 
     @parameterized.expand(
         [

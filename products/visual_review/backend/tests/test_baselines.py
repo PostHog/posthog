@@ -75,6 +75,7 @@ def _mk_snapshot(
     identifier: str,
     result: str = SnapshotResult.UNCHANGED,
     artifact: Artifact | None = None,
+    baseline_hash: str = "",
     is_quarantined: bool = False,
     tolerated_match: ToleratedHash | None = None,
     metadata: dict | None = None,
@@ -87,6 +88,7 @@ def _mk_snapshot(
         identifier=identifier,
         current_hash=artifact.content_hash if artifact else "",
         current_artifact=artifact,
+        baseline_hash=baseline_hash,
         result=result,
         is_quarantined=is_quarantined,
         tolerated_hash_match=tolerated_match,
@@ -226,7 +228,7 @@ class TestBaselinesOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
     def test_tolerate_counts_respect_30d_and_90d_windows(self):
         run = _mk_run(self.repo)
-        _mk_snapshot(run, identifier="flake")
+        _mk_snapshot(run, identifier="flake", baseline_hash="b")
 
         # 1 tolerate within 30d, 4 within 90d (so 3 are 30-90d old).
         for offset_days in (5, 40, 60, 80):
@@ -256,6 +258,10 @@ class TestBaselinesOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert entry.tolerate_count_90d == 4
         assert result.totals.recently_tolerated == 1  # ≥1 in last 30d
         assert result.totals.frequently_tolerated == 1  # ≥3 in last 90d
+        # No window on the variants: every live row recorded against the hash the baseline holds
+        # now still matches, however old it is.
+        assert entry.active_variants_current_baseline == 4
+        assert result.totals.variant_pileups == 1
 
     def test_tolerate_counts_exclude_auto_threshold(self):
         """AUTO_THRESHOLD rows are auto-minted by the diff pipeline for

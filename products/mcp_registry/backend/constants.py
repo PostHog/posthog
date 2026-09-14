@@ -23,6 +23,14 @@ MEASURED_TEAM_LIMIT = 500
 # Shallow-probe batch size per scheduled run: stalest servers first, so the whole index
 # converges over successive days without one giant sweep.
 PROBE_BATCH_SIZE = 500
+# Probes wait on third-party servers, so they run in parallel. Kept modest because the
+# index spreads over many hosts and the sweep is background work, not a load test.
+PROBE_CONCURRENCY = 20
 PROBE_TIMEOUT_SECONDS = 10
+# Hard cap on a single probe response body. A registry publisher can point an entry at an
+# endpoint that streams an unbounded body; up to PROBE_CONCURRENCY of those buffered at once
+# would OOM the scheduled worker. Probes only need the JSON-RPC envelope, so anything past
+# this is treated as a failed probe rather than read.
+PROBE_RESPONSE_MAX_BYTES = 1_000_000
 PROBE_TOOL_LIMIT = 100
 PROBE_TOOL_DESCRIPTION_MAX_CHARS = 500

@@ -14,8 +14,8 @@ import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/in
 import type { GoalLineLike } from 'products/product_analytics/frontend/insights/trends/shared/trendsChartDisplayOptions'
 
 // Dependency-neutral shape both the kea `RetentionTrendPayload` and lighter fixtures (e.g. the MCP
-// UI app) satisfy. Declared structurally rather than imported from `scenes/retention/types` so this
-// module stays free of `~/`/`scenes/` deps and compiles in the MCP Vite bundle, which only resolves
+// UI app) satisfy. Declared structurally rather than imported from `../types`, which pulls in
+// `lib/dayjs` and `~/types`, so this module compiles in the MCP Vite bundle, which only resolves
 // `products/*` and `@posthog/*`. The real `RetentionTrendPayload` is assignable to this (asserted in
 // retentionChartTransforms.test.ts), so web callers pass it unchanged.
 export interface RetentionResultLike {

@@ -93,9 +93,11 @@ class DeletionTarget:
     node_role: NodeRole = NodeRole.DATA
     # Guarded on system.tables: the table sits behind a migration that may not have run everywhere.
     optional: bool = False
-    # The schema a HogQL predicate compiles against here, None where no HogQL table definition
-    # exists. A compiled fragment names physical columns (mat_*, the property-group maps, or JSON
-    # subcolumns), so it only runs against the schema it was compiled for.
+    # Which events-schema variant compile_hogql_predicate emits for this table, None where no
+    # variant is known to run against its physical columns. Every predicate resolves against the
+    # events HogQL table, and the only choice is legacy versus native-JSON. A fragment names
+    # physical columns (mat_*, the property-group maps, or JSON subcolumns), so it only runs
+    # against the schema it was compiled for.
     hogql_schema: HogQLSchema | None = None
     # properties/person_properties can be rewritten in place. True needs both halves: the property
     # columns are DEFAULT-kind (assignable by ALTER UPDATE, as materialize() mints them), and the

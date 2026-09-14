@@ -10,6 +10,7 @@ import {
     SignalReportPriority,
     SignalRunKind,
 } from './types'
+import { reportPullRequests } from './utils/reportPullRequests'
 
 /**
  * Inbox telemetry. Mirrors the desktop "Code" app's inbox analytics (event names + property
@@ -34,6 +35,7 @@ export const INBOX_EVENTS = {
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_SCROLLED: 'Inbox report scrolled',
     REPORT_ACTION: 'Inbox report action',
+    SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
     REPORT_FEEDBACK: 'Inbox report feedback',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
@@ -71,6 +73,12 @@ export type InboxReportActionSurface =
     | 'bulk_bar'
     | 'triage_mode'
     | 'context_menu'
+
+/**
+ * Affordance that put the first report into a multi-select. Tells us which ones people find, so
+ * the ones nobody uses can go.
+ */
+export type InboxSelectionEntryMethod = 'long_press' | 'meta_click' | 'shift_click' | 'checkbox' | 'context_menu'
 
 /** How a report detail was opened. `triage` is the open-report shortcut in triage mode. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
@@ -163,7 +171,8 @@ export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'repl
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is
  * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the
- * scratchpad callout, and the roster's on/off filter, owner filter, and search).
+ * scratchpad callout, the roster's on/off filter, owner filter, and search, and opening a folded
+ * run group).
  */
 export type ScoutActionType =
     | 'open_settings'
@@ -183,6 +192,8 @@ export type ScoutActionType =
     | 'copy_finding_link'
     | 'open_task_run'
     | 'open_linked_report'
+    | 'switch_detail_tab'
+    | 'open_detail_tab'
     | 'open_create_modal'
     | 'create_scout'
     | 'delete_scout'
@@ -190,6 +201,7 @@ export type ScoutActionType =
     | 'filter_enabled'
     | 'filter_owner'
     | 'search_scouts'
+    | 'expand_run_group'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -227,7 +239,7 @@ function baseReportProperties(report: SignalReport): BaseReportProperties {
         report_age_hours: reportAgeHours(report),
         priority: report.priority ?? null,
         actionability: report.actionability ?? null,
-        has_pr: !!report.implementation_pr_url,
+        has_pr: reportPullRequests(report).length > 0,
     }
 }
 
@@ -472,6 +484,11 @@ export function captureInboxReportAction(params: {
  * ranking work trains against, so it carries the same report classification as the impression and
  * open events. `note` is optional — the thumbs submit on one click, with no note.
  */
+/** Fired once per selection, when an empty selection gains its first report. */
+export function captureInboxSelectionModeEntered(params: { method: InboxSelectionEntryMethod }): void {
+    captureInboxEvent(INBOX_EVENTS.SELECTION_MODE_ENTERED, { entry_method: params.method })
+}
+
 export function captureInboxReportFeedback(params: {
     report: SignalReport
     sentiment: InboxReportFeedbackSentiment
@@ -481,7 +498,7 @@ export function captureInboxReportFeedback(params: {
     captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK, {
         ...baseReportProperties(params.report),
         sentiment: params.sentiment,
-        has_pr: !!params.report.implementation_pr_url,
+        has_pr: reportPullRequests(params.report).length > 0,
         ...(params.note ? { note: params.note } : {}),
         surface: params.surface,
     })
@@ -502,7 +519,7 @@ export function captureInboxReportFeedbackNote(params: {
     captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK_NOTE, {
         ...baseReportProperties(params.report),
         sentiment: params.sentiment,
-        has_pr: !!params.report.implementation_pr_url,
+        has_pr: reportPullRequests(params.report).length > 0,
         note: params.note,
         surface: params.surface,
     })

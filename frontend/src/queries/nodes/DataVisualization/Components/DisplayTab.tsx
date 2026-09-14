@@ -21,6 +21,7 @@ import {
     METRIC_SHOW_CHANGE_DEFAULT,
     type MetricSummary,
 } from 'lib/components/Metric/metricSummary'
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
 
 import { ChartDisplayType } from '~/types'
 
@@ -63,7 +64,8 @@ export const DisplayTab = (): JSX.Element => {
     const { addGoalLine, updateGoalLine, removeGoalLine, updateChartSettings } = useActions(displayLogic)
 
     const isStackedBarChart = effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
-    const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
+    const isPieChart = PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)
+    const isDonutChart = effectiveVisualizationType === ChartDisplayType.ActionsDonut
     const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
     const isBoxPlot = effectiveVisualizationType === ChartDisplayType.BoxPlot
     const isMetric = effectiveVisualizationType === ChartDisplayType.Metric
@@ -313,7 +315,7 @@ export const DisplayTab = (): JSX.Element => {
                                         </div>
                                         <LemonSwitch
                                             className="flex-1 w-full"
-                                            label="Show total below chart"
+                                            label={isDonutChart ? 'Show total in center' : 'Show total below chart'}
                                             checked={
                                                 chartSettings.pie?.showTotal ??
                                                 (chartSettings.pie?.sliceContent ?? 'values') === 'values'

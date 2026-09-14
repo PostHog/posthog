@@ -5,7 +5,7 @@ from typing import Optional
 from uuid import uuid4
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
@@ -428,7 +428,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         else:
             self.mock_temporal_client.start_workflow.assert_not_called()
 
-    @freeze_time("2026-06-15T10:00:00Z")  # Monday — weekly (Sat) is 5 days away, daily is 1 day
+    @time_machine.travel("2026-06-15T10:00:00Z", tick=False)  # Monday — weekly (Sat) is 5 days away, daily is 1 day
     def test_schedule_only_update_still_recomputes_next_delivery_date(self):
         # A schedule edit must not fire a delivery but MUST still reschedule — the model
         # save() recomputes next_delivery_date; this guards that the no-fire short-circuit

@@ -54,6 +54,7 @@ use crate::lifecycle::engine::{
     advance_step_in_tx, complete_op_in_tx, Engine, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
     STEP_COMPLETED,
 };
+use crate::storage::postgres::begin_timed;
 
 // Derived from the shared enum so the op-type string cannot drift from
 // the leader's fence records or the lifecycle_op CHECK constraint.
@@ -208,10 +209,6 @@ const STATUS_SKIPPED_CONFLICT: &str = "skipped_conflict";
 const ROLE_TARGET: &str = "target";
 const ROLE_SOURCE: &str = "source";
 
-/// Cap on concurrent leader RPCs per fan-out (fence, release): a bulk
-/// merge must not burst the router with one in-flight call per source.
-const LEADER_CALL_CONCURRENCY: usize = 8;
-
 const STEPS_TOTAL: &str = "personhog_lifecycle_merge_steps_total";
 const OUTCOMES_TOTAL: &str = "personhog_lifecycle_merge_outcomes_total";
 /// Pre-flip aborts by refusal slug.
@@ -319,12 +316,22 @@ struct SealedSnapshot {
 pub struct MergeDriver {
     leader: Arc<dyn LifecycleLeader>,
     tables: IdentityTables,
+    leader_call_concurrency: usize,
 }
 
 impl MergeDriver {
-    pub fn new(leader: Arc<dyn LifecycleLeader>, tables: IdentityTables) -> Self {
+    pub fn new(
+        leader: Arc<dyn LifecycleLeader>,
+        tables: IdentityTables,
+        leader_call_concurrency: usize,
+    ) -> Self {
         tables.validate().expect("invalid identity table set");
-        Self { leader, tables }
+        Self {
+            leader,
+            tables,
+            // Clamped to 1: a zero-width buffered stream never polls.
+            leader_call_concurrency: leader_call_concurrency.max(1),
+        }
     }
 }
 
@@ -382,10 +389,7 @@ impl MergeOpExecutor {
     // See `find` for why result_large_err is allowed.
     #[allow(clippy::result_large_err)]
     pub async fn discard_claim_abort(&self, op_id: Uuid) -> Result<(), Status> {
-        let mut tx = self
-            .engine
-            .pool()
-            .begin()
+        let mut tx = begin_timed(self.engine.pool())
             .await
             .map_err(|e| Status::internal(format!("discard begin failed: {e}")))?;
         let deleted = sqlx::query!(
@@ -589,7 +593,7 @@ impl MergeDriver {
         let team_id = op.team_id as i32;
         // Conflict reasons emit only after a commit (see record_conflicts).
         let mut conflicts: Vec<(&'static str, u64)> = Vec::new();
-        let mut tx = pool.begin().await?;
+        let mut tx = begin_timed(pool).await?;
 
         // Authoritative resolution: the handler's classification aged while
         // the op row traveled here.
@@ -993,7 +997,7 @@ impl MergeDriver {
             })
             .collect();
         let fence_results: Vec<_> = stream::iter(fence_calls)
-            .buffer_unordered(LEADER_CALL_CONCURRENCY)
+            .buffer_unordered(self.leader_call_concurrency)
             .collect()
             .await;
         for (person_id, result) in fence_results {
@@ -1063,7 +1067,7 @@ impl MergeDriver {
                 .map(|s| (s.person_id, s.person_uuid))
                 .collect();
             self.release_fences(op, &remaining).await?;
-            let mut tx = pool.begin().await?;
+            let mut tx = begin_timed(pool).await?;
             settle_drops(&mut tx, op, &vanished, &identified).await?;
             sqlx::query!(
                 r#"
@@ -1103,7 +1107,7 @@ impl MergeDriver {
             return Ok(());
         }
 
-        let mut tx = pool.begin().await?;
+        let mut tx = begin_timed(pool).await?;
         settle_drops(&mut tx, op, &vanished, &identified).await?;
         let sealed_ids: Vec<i64> = sealed.iter().map(|(id, _)| *id).collect();
         let sealed_jsons: Vec<Value> = sealed
@@ -1167,7 +1171,7 @@ impl MergeDriver {
         .await?;
         let pairs: Vec<(i64, Uuid)> = live.iter().map(|s| (s.person_id, s.person_uuid)).collect();
 
-        let mut tx = pool.begin().await?;
+        let mut tx = begin_timed(pool).await?;
         sqlx::query!(
             r#"
             UPDATE lifecycle_op_person SET status = $2
@@ -1249,7 +1253,7 @@ impl MergeDriver {
             })
             .collect();
         let results: Vec<_> = stream::iter(calls)
-            .buffer_unordered(LEADER_CALL_CONCURRENCY)
+            .buffer_unordered(self.leader_call_concurrency)
             .collect()
             .await;
         for result in results {
@@ -1457,7 +1461,7 @@ impl MergeDriver {
             "version": folded.version,
         });
 
-        let mut tx = pool.begin().await?;
+        let mut tx = begin_timed(pool).await?;
         sqlx::query!(
             "UPDATE lifecycle_op_person SET sealed = $2 WHERE op_id = $1 AND role = $3",
             op.op_id,
@@ -1521,7 +1525,7 @@ fn encode_json_map(value: &Value) -> Result<Vec<u8>, SagaError> {
 /// source marks stay: they are the fences' durable record until release.
 async fn flip(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
     let team_id = op.team_id as i32;
-    let mut tx = pool.begin().await?;
+    let mut tx = begin_timed(pool).await?;
 
     let target = {
         let row = sqlx::query!(
@@ -1852,14 +1856,14 @@ impl MergeDriver {
             })
             .collect();
         let release_results: Vec<_> = stream::iter(release_calls)
-            .buffer_unordered(LEADER_CALL_CONCURRENCY)
+            .buffer_unordered(self.leader_call_concurrency)
             .collect()
             .await;
         for (_, result) in release_results {
             result?;
         }
 
-        let mut tx = pool.begin().await?;
+        let mut tx = begin_timed(pool).await?;
         sqlx::query!(
             r#"
             UPDATE lifecycle_op_person SET status = $2

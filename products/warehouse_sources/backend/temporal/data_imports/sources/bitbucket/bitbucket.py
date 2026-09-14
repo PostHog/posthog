@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -27,7 +27,7 @@ class BitbucketRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class BitbucketResumeConfig:
     # Full URL of the next page to fetch. None means "start the current bookmark's list
     # from its first page" (the URL is built fresh when the loop reaches it).
@@ -36,6 +36,10 @@ class BitbucketResumeConfig:
     # (not a positional index) so repos added/removed between a crash and the retry
     # can't resume us into the wrong repo. None for top-level endpoints.
     repo_slug: str | None = None
+    # Second-level bookmark for endpoints that fan out over pull requests. Ids are
+    # assigned in creation order within a repo, so the walk resumes by skipping every
+    # pull request below it, so a deleted bookmark lands on the next one up.
+    pull_request_id: int | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -225,6 +229,58 @@ def _normalize_member_row(row: dict[str, Any]) -> dict[str, Any]:
     return {**row, "user_uuid": user.get("uuid"), "user_display_name": user.get("display_name")}
 
 
+# The kinds of entry the v2.0 activity feed returns; each row carries exactly one of them
+# alongside the pull request it belongs to.
+_ACTIVITY_TYPES = ("comment", "update", "approval", "changes_requested")
+
+
+def _normalize_activity_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Lift the activity kind, its timestamp and its actor to top-level columns. The entry
+    itself is polymorphic and carries no id, so the primary key and the incremental cursor
+    have nothing stable to read without this."""
+    pull_request = row.get("pull_request") or {}
+    activity_type = next((kind for kind in _ACTIVITY_TYPES if kind in row), None)
+    detail = (row.get(activity_type) or {}) if activity_type else {}
+    # Comments date themselves with created_on; updates and approvals use date. Updates
+    # name their actor `author`, the rest `user`.
+    actor = detail.get("user") or detail.get("author") or {}
+    return {
+        **row,
+        "pull_request_id": pull_request.get("id"),
+        "activity_type": activity_type,
+        "activity_date": detail.get("date") or detail.get("created_on"),
+        "actor_uuid": actor.get("uuid"),
+        "actor_display_name": actor.get("display_name"),
+    }
+
+
+def _normalize_comment_row(row: dict[str, Any]) -> dict[str, Any]:
+    pull_request = row.get("pullrequest") or {}
+    user = row.get("user") or {}
+    return {**row, "pull_request_id": pull_request.get("id"), "user_uuid": user.get("uuid")}
+
+
+_ROW_MAPPERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "workspace_members": _normalize_member_row,
+    "pull_request_activity": _normalize_activity_row,
+    "pull_request_comments": _normalize_comment_row,
+}
+
+# A pending comment is an unpublished draft that only its author can read, and the API
+# returns the connector identity's own drafts. Syncing them would put one person's private
+# drafts in front of everyone with warehouse query access, so they are dropped.
+_ROW_FILTERS: dict[str, Callable[[dict[str, Any]], bool]] = {
+    "pull_request_comments": lambda row: not row.get("pending"),
+}
+
+
+def _map_rows(endpoint: str, items: list[dict[str, Any]], repo: dict[str, Any] | None) -> list[dict[str, Any]]:
+    mapper = _ROW_MAPPERS.get(endpoint)
+    row_filter = _ROW_FILTERS.get(endpoint)
+    rows = (item for item in items if row_filter is None or row_filter(item))
+    return [_normalize_row(mapper(row) if mapper else row, repo) for row in rows]
+
+
 def _iter_repositories(
     session: requests.Session, workspace: str, logger: FilteringBoundLogger
 ) -> Iterator[dict[str, Any]]:
@@ -267,14 +323,13 @@ def _get_top_level_rows(
     else:
         url = _build_url(config.path.format(workspace=workspace), params)
 
-    is_members = config.name == "workspace_members"
     while True:
         data = _fetch_page(session, url, logger)
         items = data.get("values", [])
         next_url = data.get("next")
 
         if items:
-            yield [_normalize_member_row(item) if is_members else item for item in items]
+            yield _map_rows(config.name, items, None)
             # Save AFTER yielding (and only when more pages remain) so a crash re-yields
             # the last page rather than skipping it — merge dedupes on the primary key.
             if next_url:
@@ -321,13 +376,14 @@ def _get_fan_out_rows(
                 if next_url and config.rebuild_page_urls:
                     next_url = _increment_page_url(url, int(data.get("page") or 1))
 
-                if cutoff is not None and cursor_field and _page_predates_cutoff(items, cursor_field, cutoff):
+                rows = _map_rows(config.name, items, repo)
+                if cutoff is not None and cursor_field and _page_predates_cutoff(rows, cursor_field, cutoff):
                     # Newest-first scroll walked past the watermark: everything from here
                     # back is already synced, so stop without yielding this page.
                     break
 
-                if items:
-                    yield [_normalize_row(item, repo) for item in items]
+                if rows:
+                    yield rows
                     if next_url:
                         resumable_source_manager.save_state(
                             BitbucketResumeConfig(next_url=next_url, repo_slug=repo["slug"])
@@ -352,6 +408,131 @@ def _get_fan_out_rows(
             )
 
 
+def _iter_pull_requests(
+    session: requests.Session,
+    workspace: str,
+    repo_slug: str,
+    logger: FilteringBoundLogger,
+    since: datetime | None,
+) -> Iterator[dict[str, Any]]:
+    """Page a repository's pull requests to seed a two-level fan-out. Reuses the
+    pull_requests endpoint's own state params and page size so the list stays defined in
+    one place, and sorts on the immutable created_on so ids arrive ascending, which is
+    what lets the resume bookmark skip by id."""
+    parent = BITBUCKET_ENDPOINTS["pull_requests"]
+    params = [("pagelen", str(parent.page_size)), *parent.extra_params, ("sort", "created_on")]
+    if since is not None:
+        params.append(("q", f'updated_on > "{_format_bbql_datetime(since)}"'))
+
+    url = _build_url(parent.path.format(workspace=workspace, repo_slug=repo_slug), params)
+    while True:
+        data = _fetch_page(session, url, logger)
+        yield from data.get("values", [])
+        next_url = data.get("next")
+        if not next_url:
+            break
+        url = next_url
+
+
+def _get_pull_request_fan_out_rows(
+    session: requests.Session,
+    config: BitbucketEndpointConfig,
+    workspace: str,
+    resumable_source_manager: ResumableSourceManager[BitbucketResumeConfig],
+    logger: FilteringBoundLogger,
+    params: list[tuple[str, str]],
+    parent_since: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """Two-level fan-out: every repository in the workspace, then every pull request in it.
+
+    An incremental sync narrows the pull request walk to those updated since the watermark,
+    which is sound because posting, editing or deleting a comment bumps the pull request's
+    own updated_on. Without that bound every sync would issue one request per pull request
+    that ever existed, which no workspace's rate budget survives."""
+    repos = [repo for repo in _iter_repositories(session, workspace, logger) if repo.get("slug")]
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    remaining = repos
+    resume_pull_request: int | None = None
+    resume_url: str | None = None
+    if resume is not None and resume.repo_slug is not None:
+        slugs = [repo["slug"] for repo in repos]
+        if resume.repo_slug in slugs:
+            remaining = repos[slugs.index(resume.repo_slug) :]
+            resume_pull_request = resume.pull_request_id
+            resume_url = resume.next_url
+            logger.debug(
+                f"Bitbucket: resuming {config.name} from repo={resume.repo_slug}, "
+                f"pull_request={resume_pull_request}, url={resume_url}"
+            )
+
+    for index, repo in enumerate(remaining):
+        # The bookmark only describes the repo it was taken in; later repos start fresh.
+        bookmark_pull_request = resume_pull_request if index == 0 else None
+        bookmark_url = resume_url if index == 0 else None
+
+        try:
+            for pull_request in _iter_pull_requests(session, workspace, repo["slug"], logger, parent_since):
+                pull_request_id = pull_request.get("id")
+                if (
+                    bookmark_pull_request is not None
+                    and isinstance(pull_request_id, int)
+                    and pull_request_id < bookmark_pull_request
+                ):
+                    continue
+
+                if bookmark_url and pull_request_id == bookmark_pull_request:
+                    url = bookmark_url
+                else:
+                    url = _build_url(
+                        config.path.format(
+                            workspace=workspace, repo_slug=repo["slug"], pull_request_id=pull_request_id
+                        ),
+                        params,
+                    )
+                bookmark_url = None
+
+                try:
+                    while True:
+                        data = _fetch_page(session, url, logger)
+                        items = data.get("values", [])
+                        next_url = data.get("next")
+
+                        rows = _map_rows(config.name, items, repo)
+                        if rows:
+                            yield rows
+                            resumable_source_manager.save_state(
+                                BitbucketResumeConfig(
+                                    next_url=next_url, repo_slug=repo["slug"], pull_request_id=pull_request_id
+                                )
+                            )
+
+                        if not next_url:
+                            break
+                        url = next_url
+                except requests.HTTPError as exc:
+                    # The pull request was deleted between the listing and this fetch. Skip
+                    # it and keep going through the repo's remaining pull requests.
+                    if exc.response is not None and exc.response.status_code == 404:
+                        logger.warning(
+                            f"Bitbucket: {config.name} not available for "
+                            f"{repo['slug']} pull request {pull_request_id}, skipping"
+                        )
+                        continue
+                    raise
+        except requests.HTTPError as exc:
+            # The repository was deleted between enumeration and the pull request walk.
+            if exc.response is not None and exc.response.status_code == 404:
+                logger.warning(f"Bitbucket: {config.name} not available for repo {repo['slug']}, skipping")
+            else:
+                raise
+
+        if index + 1 < len(remaining):
+            resumable_source_manager.save_state(
+                BitbucketResumeConfig(next_url=None, repo_slug=remaining[index + 1]["slug"])
+            )
+
+
 def get_rows(
     auth: BitbucketAuth,
     workspace: str,
@@ -370,7 +551,17 @@ def get_rows(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
 
-    if config.fan_out_over_repos:
+    if config.fan_out_over_pull_requests:
+        yield from _get_pull_request_fan_out_rows(
+            session,
+            config,
+            workspace,
+            resumable_source_manager,
+            logger,
+            params,
+            db_incremental_field_last_value if should_use_incremental_field else None,
+        )
+    elif config.fan_out_over_repos:
         cutoff = _client_side_cutoff(config, should_use_incremental_field, db_incremental_field_last_value)
         cursor_field = incremental_field or config.default_incremental_field
         yield from _get_fan_out_rows(
@@ -409,7 +600,9 @@ def bitbucket_source(
         # ascending — desc defers the incremental watermark to successful job end (max
         # seen), instead of checkpointing per batch as asc would. Top-level endpoints
         # request an ascending server sort, so asc checkpointing is safe there.
-        sort_mode="desc" if endpoint_config.fan_out_over_repos else "asc",
+        sort_mode="desc"
+        if (endpoint_config.fan_out_over_repos or endpoint_config.fan_out_over_pull_requests)
+        else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,
