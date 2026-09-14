@@ -126,7 +126,7 @@ class TestResolver(BaseTest):
     @parameterized.expand(
         [
             ("bare string column", "distinct_id", "'distinct_id' is of type String"),
-            ("bare event property", "properties.$browser", "'$browser' is of type JSON"),
+            ("bare event property", "properties.$browser", "'properties.$browser' is of type JSON"),
             ("bare timestamp column", "timestamp", "'timestamp' is of type DateTime"),
             ("string literal", "'anything'", "An expression of type String can't be used as a condition"),
         ]
@@ -144,6 +144,21 @@ class TestResolver(BaseTest):
         expr = self._select("SELECT 1 FROM events WHERE 1 AND event = 'test' AND NOT (event = 'other')")
 
         resolve_types(expr, self.context, dialect="clickhouse")
+
+    def test_condition_operand_error_suggests_a_field_that_resolves(self) -> None:
+        # The resolver names a nested property access `a__b`, which the user cannot write, so the
+        # example has to name the chain instead.
+        expr = self._select("SELECT 1 FROM events WHERE properties.a.b AND event = 'test'")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        assert str(context.exception) == (
+            "'properties.a.b' is of type JSON, so it can't be used as a condition. "
+            "Compare it to something, for example: properties.a.b = 'some value'"
+        )
+
+        suggested = self._select("SELECT 1 FROM events WHERE properties.a.b = 'some value' AND event = 'test'")
+        resolve_types(suggested, self.context, dialect="clickhouse")
 
     def test_condition_operand_dialect_guard(self) -> None:
         # A direct query resolves against its target dialect. MySQL coerces a value in a condition

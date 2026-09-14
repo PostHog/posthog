@@ -238,7 +238,15 @@ def resolve_condition_operand_type(expr: ast.Expr, context: HogQLContext, dialec
         if isinstance(expr, ast.Field):
             name = ".".join(str(part) for part in expr.chain)
         elif isinstance(expr, ast.Alias):
-            name = expr.alias
+            # A hidden alias carries the resolver's own name for the access, which the user often
+            # cannot write: `properties.a.b` resolves to an alias named `a__b`. Read the chain under
+            # it, so that the example stays a query the user can run.
+            inner = expr.expr
+            name = (
+                ".".join(str(part) for part in inner.chain)
+                if expr.hidden and isinstance(inner, ast.Field)
+                else expr.alias
+            )
         if name is not None:
             raise QueryError(
                 f"'{name}' is of type {printed_type}, so it can't be used as a condition. "
