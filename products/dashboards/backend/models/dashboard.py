@@ -66,7 +66,7 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     pinned = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
     last_accessed_at = models.DateTimeField(blank=True, null=True)
     last_refresh = models.DateTimeField(blank=True, null=True)
@@ -74,10 +74,7 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
     variables = models.JSONField(default=dict, null=True, blank=True)
     breakdown_colors = models.JSONField(default=list, null=True, blank=True)
     data_color_theme = models.ForeignKey(
-        "posthog.DataColorTheme",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        "posthog.DataColorTheme", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode)
     restriction_level = models.PositiveSmallIntegerField(

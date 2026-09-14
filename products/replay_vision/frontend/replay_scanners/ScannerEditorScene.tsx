@@ -11,6 +11,7 @@ import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconSparkles } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCard,
     LemonInput,
@@ -49,6 +50,7 @@ import { ScannerGoalOverview } from './components/ScannerGoalOverview'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
+import { parseExperimentScannerParams } from './experimentTargeting'
 import { replayScannerLogic } from './replayScannerLogic'
 import {
     SCANNER_EDITOR_STEPS,
@@ -111,7 +113,8 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     // Multivariate flag; a truthy check would turn the goal flow on for control too.
     const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW] === 'test'
     const [manualMode, setManualMode] = useState(false)
-    const showGoalEntry = step === 'template' && goalFlow && !manualMode
+    // Read once on mount, because the wizard strips the deep-link params as soon as it consumes them.
+    const [experimentDeepLink] = useState(() => parseExperimentScannerParams(router.values.searchParams) !== null)
     // Reached a form step by clicking Edit on the goal overview: the overview is home, not a wizard
     // stop, so the linear stepper is hidden and the footer returns there instead of marching on.
     const fromOverview = searchParams.from === 'overview'
@@ -126,8 +129,16 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         scannerValidationErrors,
         showScannerErrors,
         durationValidationError,
+        experimentContext,
     } = useValues(scannerLogic)
     const { submitScanner } = useActions(scannerLogic)
+
+    // An experiment cross-sell entry point has already said what to watch and deep-linked the
+    // targeting. Asking for that goal again as free text loses the prefill from view and makes the
+    // user restate it, so those entries get the template picker with the prefill already applied.
+    // Only the deep link decides this. A context that arrives later (the experiment fetch, or a
+    // restored draft that carries targeting) would swap the layout under someone already typing.
+    const showGoalEntry = step === 'template' && goalFlow && !manualMode && !experimentDeepLink
 
     if (step !== 'template' && (scannerLoading || !scanner)) {
         return (
@@ -220,10 +231,12 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                         scanner from scratch.
                                     </p>
                                 </div>
+                                <ExperimentScopeNote experimentName={experimentContext?.experiment.name} />
                                 <ScannerTemplatePicker />
                                 {/* The goal flow supersedes this box, so someone who has already
-                                    turned it down to build by hand should not be offered it again. */}
-                                {!goalFlow && <ScannerGoalDraft />}
+                                    turned it down to build by hand should not be offered it again.
+                                    An experiment entry never saw the goal flow, so it keeps the box. */}
+                                {(!goalFlow || experimentDeepLink) && <ScannerGoalDraft />}
                             </>
                         )
                     ) : step === 'overview' ? (
@@ -269,6 +282,20 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                 </div>
             </div>
         </SceneContent>
+    )
+}
+
+/** Tells an experiment entry that the targeting came with it, so the template step doesn't read as
+ * a blank start that dropped the experiment. The variant picker itself lives on the Recordings step. */
+function ExperimentScopeNote({ experimentName }: { experimentName?: string }): JSX.Element | null {
+    if (!experimentName) {
+        return null
+    }
+    return (
+        <LemonBanner type="info">
+            This scanner watches sessions of people exposed to {experimentName}. That holds whichever way you set it up
+            below, and you can narrow it to one variant on the Recordings step.
+        </LemonBanner>
     )
 }
 

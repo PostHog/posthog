@@ -17,6 +17,7 @@ export interface AnonymizeEventMeta {
     flags: number
     /** Post-scrub `hrefFrom(event)` (`data.href` / `data.payload.href`, trimmed), when present. */
     href?: string
+    jsonLd?: { rootTypes: string[]; fullSnapshotTimestamp?: number }
 }
 
 /** One collected original image: `offset..offset+len` in {@link AnonymizeKafkaPayloadResult.images}. */

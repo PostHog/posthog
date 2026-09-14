@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -111,25 +111,25 @@ class TestRequestParams:
         params = _request_params(FINNHUB_ENDPOINTS["basic_financials"], "AAPL", "US", False, None)
         assert params == {"symbol": "AAPL", "metric": "all"}
 
-    @freeze_time("2024-06-15")
+    @time_machine.travel("2024-06-15", tick=False)
     def test_calendar_window_is_full_rolling_window_when_not_incremental(self) -> None:
         # Calendars are full refresh: a backwards lookback plus a forward window, ignoring any cursor.
         params = _request_params(FINNHUB_ENDPOINTS["ipo_calendar"], None, "US", False, None)
         assert params == {"from": "2023-06-16", "to": "2024-12-12"}
 
-    @freeze_time("2024-06-15")
+    @time_machine.travel("2024-06-15", tick=False)
     def test_company_news_window_uses_incremental_cursor(self) -> None:
         params = _request_params(FINNHUB_ENDPOINTS["company_news"], "AAPL", "US", True, 1704067200)  # 2024-01-01
         assert params == {"symbol": "AAPL", "from": "2024-01-01", "to": "2024-06-15"}
 
-    @freeze_time("2024-06-15")
+    @time_machine.travel("2024-06-15", tick=False)
     def test_company_news_window_falls_back_to_lookback_without_cursor(self) -> None:
         params = _request_params(FINNHUB_ENDPOINTS["company_news"], "AAPL", "US", True, None)
         assert params == {"symbol": "AAPL", "from": "2023-06-16", "to": "2024-06-15"}
 
 
 class TestWindow:
-    @freeze_time("2024-06-15")
+    @time_machine.travel("2024-06-15", tick=False)
     def test_forward_days_extends_into_future(self) -> None:
         window = _window(FINNHUB_ENDPOINTS["earnings_calendar"], None)
         assert window.start == "2023-06-16"

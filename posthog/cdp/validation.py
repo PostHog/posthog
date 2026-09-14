@@ -244,6 +244,7 @@ TRANSFORMATION_RUNTIME_FUNCTIONS = {
     "cleanNullValues",
     "isKnownBotUserAgent",
     "isKnownBotIp",
+    "parseUserAgent",
 }
 
 

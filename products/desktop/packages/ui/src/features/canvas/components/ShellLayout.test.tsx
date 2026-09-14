@@ -30,6 +30,7 @@ const {
 vi.mock("@tanstack/react-router", () => ({
   Outlet: () => null,
   useNavigate: () => vi.fn(),
+  useSearch: () => ({}),
   useParams: (opts?: {
     select?: (p: Record<string, string | undefined>) => unknown;
   }) => {
@@ -40,13 +41,13 @@ vi.mock("@tanstack/react-router", () => ({
     select,
   }: {
     select: (s: {
-      location: { pathname: string };
+      location: { pathname: string; href: string };
       matches: { routeId: string }[];
     }) => unknown;
   }) => {
     const pathname = usePathname();
     return select({
-      location: { pathname },
+      location: { pathname, href: pathname },
       matches: [{ routeId: "/spaces/$channelId/tasks/$taskId" }],
     });
   },

@@ -1,7 +1,7 @@
 """Collate gates must run on every completed run and fail closed on every dependency.
 
 A "collate gate" is the job that emits a required status check by inspecting its
-dependencies' ``needs.*.result``. Two properties keep it honest:
+dependencies' ``needs.*.result``. Three properties keep it honest:
 
 1. ``if: !cancelled()`` — the gate must emit an explicit verdict on every run that
    is not superseded. On a cancelled run a ``!cancelled()`` job records conclusion
@@ -22,6 +22,17 @@ dependencies' ``needs.*.result``. Two properties keep it honest:
    cleared with a bare ``== 'failure'`` test: ``cancelled`` passes it, the gate
    then reads ``needs.changes.outputs.*``, which is empty on a cancelled job, and
    takes its "nothing to test" exit — green, with zero tests run.
+
+3. ``needs`` closed over the upstreams that can skip a dependency — the gate must name
+   every job whose failure would skip a job it does test, not only the ones it needs
+   directly. GitHub skips a job when a job in its ``needs:`` fails, and the gate reads a
+   skip as a pass, so a change detector one step further up produces a green check with
+   zero tests behind it. Measured on ci-nodejs in run 32472790735: change detection
+   failed, every Node.js job skipped, and "Node.js Tests Pass" reported success.
+
+   Only edges that carry the skip count. A test selector whose failure leaves the suite
+   running in full is not gate-critical, and demanding it would turn a recovered run
+   into a red required check.
 
 Gates are found two ways, because the "name it ``… Pass``" convention is not
 universally followed: by that name, and structurally when a step reads
@@ -55,6 +66,25 @@ GATE_NAME = re.compile(r"\bpass$", re.IGNORECASE)
 ALWAYS = re.compile(r"always\s*\(\s*\)")
 NOT_CANCELLED = re.compile(r"!\s*cancelled\s*\(\s*\)")
 READS_RESULT = re.compile(r"needs\.(?P<dep>[A-Za-z0-9_\-]+)\.result")
+STATUS_CALL = re.compile(r"(?P<negated>!\s*)?\b(?P<name>always|cancelled|failure|success)\s*\(\s*\)")
+
+# Status calls that are true in the state this module reasons about: an upstream job
+# failed and the run itself was not cancelled. `success()` and `cancelled()` are false
+# there, so a job conditioned on either is skipped exactly like a job with no status
+# call at all.
+TRUE_AFTER_UPSTREAM_FAILURE = frozenset({("always", False), ("cancelled", True), ("failure", False), ("success", True)})
+
+# What a failed job's own references read as. Outputs are empty because the job never
+# set them; `result` carries the failure itself, which is why the two cannot share a rule.
+FAILED_RESULT = "failure"
+FAILED_OUTPUT = ""
+
+COMPARISON = re.compile(
+    r"""(?P<left>needs\.(?P<ldep>[A-Za-z0-9_\-]+)\.(?P<lkind>outputs\.[A-Za-z0-9_\-]+|result)|'[^']*'|"[^"]*")"""
+    r"""\s*(?P<op>==|!=)\s*"""
+    r"""(?P<right>needs\.(?P<rdep>[A-Za-z0-9_\-]+)\.(?P<rkind>outputs\.[A-Za-z0-9_\-]+|result)|'[^']*'|"[^"]*")"""
+)
+
 
 # `foo() {` / `function foo() {`, whose body ends at the first `}` sitting at or
 # left of the definition's own indentation. Brace counting would be the general
@@ -363,6 +393,13 @@ def _reachable(start: str, edges: dict[str, set[str]]) -> Iterable[str]:
                 queue.append(nxt)
 
 
+def _declared_needs(job: Job) -> set[str]:
+    """The job ids in ``needs:``, whether written as one string or a list."""
+    declared = job.raw.get("needs") or []
+    declared = [declared] if isinstance(declared, str) else declared
+    return {dep for dep in declared if isinstance(dep, str)}
+
+
 def _dependencies(job: Job) -> set[str]:
     """Every dependency the gate is answerable for.
 
@@ -371,14 +408,105 @@ def _dependencies(job: Job) -> set[str]:
     reading only the body would judge the assertions that were written and stay
     silent about the one that was forgotten.
     """
-    declared = job.raw.get("needs") or []
-    declared = [declared] if isinstance(declared, str) else declared
-    named = {dep for dep in declared if isinstance(dep, str)}
     referenced = {dep for source in _result_sources(job) for dep in READS_RESULT.findall(source)}
-    return named | referenced
+    return _declared_needs(job) | referenced
 
 
-def _problems(job: Job) -> Iterator[str]:
+def _runs_past_an_upstream_failure(condition: str) -> bool:
+    """Does this ``if`` still dispatch its job after a job it needs failed?
+
+    GitHub runs a job only when every job in its ``needs:`` succeeded, unless the
+    job's own ``if`` calls a status function. Calling one is not enough on its own:
+    the call also has to be true in that state, which `success()` and `cancelled()`
+    are not.
+
+    A condition that carries both kinds is read as skipping, without solving the
+    boolean expression: `!cancelled() && success()` is false in that state, and the
+    conjunction is the only composition of the two anyone writes. Reading it the
+    other way would drop a skip-propagating edge and let the gate go green with the
+    worker skipped.
+    """
+    calls = {(call.group("name"), call.group("negated") is not None) for call in STATUS_CALL.finditer(condition)}
+    return bool(calls & TRUE_AFTER_UPSTREAM_FAILURE) and not (calls - TRUE_AFTER_UPSTREAM_FAILURE)
+
+
+def _falsified_by(condition: str, upstream: str) -> bool:
+    """Does any comparison in this ``if`` turn false once ``upstream`` fails?
+
+    Each comparison against the failed job is evaluated with the value it really
+    reads back: an empty string for an output, and `failure` for `result`. So
+    `outputs.x == 'true'` and `result == 'success'` both go false and skip the job,
+    while `outputs.mode != 'none'` and a recovery path's `result == 'failure'` stay
+    true and let it run.
+
+    A false term is read as a skip without solving the whole boolean expression. That
+    over-reports a condition where a disjunct unrelated to the upstream can still
+    carry the job, which fails the gate closed rather than open.
+
+    The empty-output model assumes a failed job published nothing. A job that sets an
+    output from a `failure()`-guarded step breaks that assumption, and a consumer
+    testing the value it did publish would skip without this seeing it. Reading those
+    outputs as unknown instead would make every inequality against a selector look
+    false, which is what makes a recovered selector gate-critical, so the assumption
+    stays and the narrower miss is the accepted cost.
+    """
+    for comparison in COMPARISON.finditer(condition):
+        for side, other in (("l", "right"), ("r", "left")):
+            if comparison.group(f"{side}dep") != upstream:
+                continue
+            literal = comparison.group(other)
+            if literal.startswith("needs."):
+                continue
+            actual = FAILED_RESULT if comparison.group(f"{side}kind") == "result" else FAILED_OUTPUT
+            equal = literal[1:-1] == actual
+            if equal is (comparison.group("op") == "!="):
+                return True
+    return False
+
+
+def _skips_when_upstream_fails(job: Job, upstream: str) -> bool:
+    """Would ``job`` be skipped if ``upstream`` failed?
+
+    This is what separates a detector from a selector. `ci-e2e-playwright` reads
+    `needs.changes.outputs.shouldRun == 'true'`, so a failed `changes` skips the
+    suite. It never reads `select-specs`, and an empty selection makes the suite run
+    in full, so a failed selector costs runner time and no coverage.
+    """
+    condition = job.raw.get("if")
+    if not isinstance(condition, str):
+        return True
+    if not _runs_past_an_upstream_failure(condition):
+        return True
+    return _falsified_by(condition, upstream)
+
+
+def _upstream_gaps(job: Job, jobs: dict[str, Job]) -> Iterator[str]:
+    """Jobs that a gate dependency needs, whose failure the gate would read as a pass.
+
+    GitHub skips a job when a job in its ``needs:`` fails, and the gate reads a
+    skip as a pass. A failure one step further up the graph therefore arrives at
+    the gate as a green verdict with no tests behind it. The gate has to name every
+    job that can skip one of its dependencies this way.
+
+    Only edges that propagate a skip count. An upstream a dependency recovers from
+    stays out, because failing the gate on it turns a recovered run into a red
+    required check.
+    """
+    dependencies = _dependencies(job) & jobs.keys()
+    skip_graph = {
+        name: {up for up in _declared_needs(other) & jobs.keys() if _skips_when_upstream_fails(other, up)}
+        for name, other in jobs.items()
+    }
+    reached = {upstream for dep in dependencies for upstream in _reachable(dep, skip_graph)}
+    for missing in sorted(reached - dependencies):
+        yield (
+            f"upstream '{missing}' is not a dependency of this gate. A failure there skips a job the "
+            f"gate does test, and the gate reads that skip as a pass. Add '{missing}' to `needs:` "
+            "and test its result"
+        )
+
+
+def _problems(job: Job, jobs: dict[str, Job]) -> Iterator[str]:
     if not _gate_condition_ok(job.raw.get("if")):
         yield (
             "required-check gate must use `if: ${{ !cancelled() }}` so it emits a verdict on every "
@@ -396,6 +524,8 @@ def _problems(job: Job) -> Iterator[str]:
                 f'cancelled \'{dep}\'. Test `!= "success" && != "skipped"`, then exit nonzero'
             )
 
+    yield from _upstream_gaps(job, jobs)
+
 
 class RequiredGateCheck(WorkflowCheck):
     id = "WF007-required-check-gates"
@@ -409,7 +539,8 @@ class RequiredGateCheck(WorkflowCheck):
             "`&&`-ing it, and test every dependency as "
             '`!= "success" && != "skipped"` rather than `== "failure"`. Inline tests, an `env:` '
             "block and a shared shell helper all work, so long as the failing branch exits nonzero. "
-            "A job that reads results without gating anything opts out with "
+            "`needs:` every job your dependencies need, so an upstream failure meets a guard "
+            "instead of a skip. A job that reads results without gating anything opts out with "
             f"`# {ALLOW_MARKER} — <reason>`. See .agents/skills/authoring-ci-workflows/SKILL.md."
         )
 
@@ -421,9 +552,10 @@ class RequiredGateCheck(WorkflowCheck):
                 continue
             # Only worth re-reading the file once we know there's a gate to exempt.
             exempt = _exempt_jobs(wf.path, frozenset(job.name for job in wf.jobs))
+            jobs = {job.name: job for job in wf.jobs}
             for job in gates:
                 if job.name in exempt:
                     continue
-                for message in _problems(job):
+                for message in _problems(job, jobs):
                     result.issues.append(Issue(workflow=wf.path.name, job=job.name, message=message, file=str(wf.path)))
         return result

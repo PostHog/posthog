@@ -306,6 +306,7 @@ export function useInboxCloudTaskRunner({
             : { cloud_run_source: "manual" }),
           adapter,
           ...analyticsExtras,
+          space_context_mode: "none",
         });
       } else {
         const failureCode: InboxReportActionFailureCode = isUsageLimitResult(

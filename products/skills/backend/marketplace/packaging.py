@@ -15,9 +15,11 @@ the spec serialization and tree assembly unit-testable without booting the app.
 import io
 import re
 import json
+import hashlib
 import zipfile
 import mimetypes
 from dataclasses import dataclass, field
+from typing import Any
 
 import yaml
 
@@ -72,6 +74,19 @@ class SkillExport:
     files: list[SkillFileExport] = field(default_factory=list)
 
 
+def _key_sorted(value: Any) -> Any:
+    """The same value with every object's keys in sorted order, at every depth.
+
+    Sorted by the string form of the key, which is what the renderer writes out. List order is
+    left alone, because a JSON array is ordered and storage keeps it that way.
+    """
+    if isinstance(value, dict):
+        return {key: _key_sorted(value[key]) for key in sorted(value, key=str)}
+    if isinstance(value, list):
+        return [_key_sorted(item) for item in value]
+    return value
+
+
 def render_frontmatter(skill: SkillExport) -> str:
     """Serialize a skill's spec fields as a YAML frontmatter block (with delimiters).
 
@@ -87,7 +102,12 @@ def render_frontmatter(skill: SkillExport) -> str:
 
     # Spec metadata is a string->string map. Stored metadata first, then the platform version
     # last so it always wins — a user-stored metadata["version"] must not clobber the real one.
-    metadata: dict[str, str] = {str(k): str(v) for k, v in skill.metadata.items()}
+    # The keys are sorted because the digest of this file is stamped from the in-memory row before
+    # the insert, while every later render reads the value back out of a `jsonb` column, which
+    # keeps object keys sorted by length and then bytewise. Rendering in whatever order the dict
+    # carries would make the two describe different bytes, which is what a verifying host rejects.
+    # The sort goes to every depth, because a nested object reaches the frontmatter through `str`.
+    metadata: dict[str, str] = {str(k): str(v) for k, v in _key_sorted(skill.metadata).items()}
     metadata["version"] = str(skill.version)
     document["metadata"] = metadata
 
@@ -100,6 +120,16 @@ def render_frontmatter(skill: SkillExport) -> str:
 
 def render_skill_md(skill: SkillExport) -> str:
     return render_frontmatter(skill) + "\n" + skill.body
+
+
+def utf8_digest(content: str) -> tuple[str, int]:
+    """Return the bare hex SHA-256 and the byte length of ``content`` encoded as UTF-8.
+
+    Bytes, not characters: the MCP Skills extension makes a host reject any file whose bytes do not
+    match the reported digest and size, so one multibyte character must count as its several bytes.
+    """
+    encoded = content.encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest(), len(encoded)
 
 
 @dataclass(frozen=True)

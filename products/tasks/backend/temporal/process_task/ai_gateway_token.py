@@ -40,6 +40,7 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "signals_scout": "signals",
     "slack": "slack_app",
     "support_reply": "conversations",
+    "workflow": "workflows",
 }
 
 # Mirrors SIGNALS_STAGE_PRODUCTS + SCOUT_STAGE_PREFIX in gateway.ts.
@@ -69,6 +70,7 @@ MINTABLE_PRODUCTS = frozenset(
         "signals_implementation",
         "signals_repo_selection",
         "signals_custom_agent",
+        "workflows",
         "signals_inbox",
         "signals_chat",
         "signals_scout_suggestions",

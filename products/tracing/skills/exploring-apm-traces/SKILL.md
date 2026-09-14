@@ -14,6 +14,10 @@ PostHog captures distributed traces from OpenTelemetry. Each trace is a tree of 
 
 **Disambiguation:** This skill is for **APM / OpenTelemetry traces**. Do not confuse with **AI observability traces** (agent/model `$ai_*` events) or **logs** (`posthog:query-logs`, `posthog:logs-*`).
 
+## Governed metric first
+
+When the question asks for SLO burn, call `posthog:metric-list` before the APM tools and look for `slo_explicit_burn_by_operation`. Run an approved, non-drifted match with `posthog:data-catalog-metric-run` for the canonical headline. If the user also asks which operation drives the burn, answer the headline first, then use the aggregate and trace workflows below for a noncanonical breakdown. If no governed metric matches, say so and label the derived measure noncanonical.
+
 ## Available tools
 
 | Tool                                   | Purpose                                           |

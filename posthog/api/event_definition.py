@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import functools
 from collections import defaultdict
 from typing import Any, Literal, Optional, cast
 
@@ -14,6 +15,7 @@ import orjson
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_serializer
+from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.settings import api_settings
 
@@ -24,6 +26,7 @@ from posthog.api.event_definition_generators.typescript import TypeScriptGenerat
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.statement_timeout import statement_timeout
 from posthog.api.tagged_item import (
     BULK_UPDATE_TAGS_MAX_IDS,
     BulkTagActivityContext,
@@ -45,11 +48,40 @@ from posthog.models.activity_logging.activity_log import Detail, dict_changes_be
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
+from posthog.taxonomy.definition_listing import (
+    DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
+    DefinitionListTimedOut,
+    definition_read_db_alias,
+)
 from posthog.taxonomy.definition_search import search_plan
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
+
+EVENT_DEFINITIONS_TIMED_OUT_COUNTER = Counter(
+    "event_definitions_list_timed_out_total",
+    "Event definition list requests cancelled by the statement timeout.",
+)
+
+
+class EventDefinitionsTimedOut(DefinitionListTimedOut):
+    default_code = "event_definitions_timeout"
+    default_detail = "Loading events took too long. Try a narrower search, or try again in a moment."
+
+
+@functools.cache
+def event_definition_model(is_enterprise: bool) -> type[EventDefinition]:
+    """The model the list query runs through, which the enterprise extension replaces."""
+    if is_enterprise:
+        from ee.models.event_definition import EnterpriseEventDefinition
+
+        return EnterpriseEventDefinition
+    return EventDefinition
+
+
+def read_db_alias() -> str:
+    return definition_read_db_alias(event_definition_model(EE_AVAILABLE))
 
 
 def _event_definitions_source_sql(
@@ -107,22 +139,13 @@ def create_event_definitions_sql(
     is_enterprise: bool = False,
     conditions: str = "",
     order_expressions: Optional[list[tuple[str, Literal["ASC", "DESC"]]]] = None,
-    paginated: bool = True,
 ) -> str:
     if order_expressions is None:
         order_expressions = []
-    if is_enterprise:
-        from ee.models import EnterpriseEventDefinition
-
-        ee_model = EnterpriseEventDefinition
-    else:
-        # telling mypy to ignore this...
-        # it's fine to assign EventDefinition
-        ee_model = EventDefinition  # type: ignore
 
     event_definition_fields = {
         f'"{f.column}"'
-        for f in ee_model._meta.get_fields()
+        for f in event_definition_model(is_enterprise)._meta.get_fields()
         if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]
     }
     # Django relies on PK being present in the result set to tell if it's a saved instance
@@ -142,13 +165,11 @@ def create_event_definitions_sql(
     # A `RawQuerySet` has no `count()`, so DRF's paginator counts it with `len()` and slices the
     # result in Python. Without this clause one page of 100 costs a read of every event definition
     # the project has, wide columns included.
-    limit_clause = "LIMIT %(limit)s OFFSET %(offset)s" if paginated else ""
-
     return f"""
             SELECT {",".join(selected_fields)}
             {_event_definitions_source_sql(event_type, is_enterprise, conditions)}
             ORDER BY {",".join(additional_ordering)}
-            {limit_clause}
+            LIMIT %(limit)s OFFSET %(offset)s
         """
 
 
@@ -380,13 +401,7 @@ class EventDefinitionViewSet(
         # Allows this endpoint to return lists of event definitions, actions, or both.
         event_type = EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))
 
-        event_definition_object_manager: Manager
-        if EE_AVAILABLE:
-            from ee.models.event_definition import EnterpriseEventDefinition
-
-            event_definition_object_manager = EnterpriseEventDefinition.objects
-        else:
-            event_definition_object_manager = EventDefinition.objects
+        event_definition_object_manager: Manager = event_definition_model(EE_AVAILABLE).objects
 
         search = self.request.GET.get("search", None)
         has_search_terms = bool(search and search.strip())
@@ -450,19 +465,24 @@ class EventDefinitionViewSet(
             params["names"] = list(set(names))
 
         tags_list = self._tags_filter_from_request()
+        if tags_list:
+            # EXISTS, not a join: it keeps one row per definition, so the page stays a page and
+            # the count stays a count, with no DISTINCT over the whole result set.
+            search_query = (
+                search_query
+                + " AND EXISTS (SELECT 1 FROM posthog_taggeditem"
+                + " JOIN posthog_tag ON posthog_tag.id = posthog_taggeditem.tag_id"
+                + " WHERE posthog_taggeditem.event_definition_id = posthog_eventdefinition.id"
+                + " AND posthog_tag.name = ANY(%(tags)s))"
+            )
+            params["tags"] = tags_list
+
         sql = create_event_definitions_sql(
             event_type,
             is_enterprise=EE_AVAILABLE,
             conditions=search_query,
             order_expressions=order_expressions,
-            paginated=not tags_list,
         )
-
-        if tags_list:
-            # The tags filter has to see every match before it can page, so this path keeps the
-            # unbounded fetch and lets the paginator page the resulting ORM queryset instead.
-            ids = [obj.id for obj in event_definition_object_manager.raw(sql, params=params)]
-            return event_definition_object_manager.filter(id__in=ids, tagged_items__tag__name__in=tags_list).distinct()
 
         paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
         query = EventDefinitionQuerySerializer(data=self.request.query_params)
@@ -477,7 +497,7 @@ class EventDefinitionViewSet(
         )
         # The count has to run on the connection the page fetch will use, or it describes a
         # different row set than the one it bounds.
-        with connections[event_definition_object_manager.db].cursor() as cursor:
+        with connections[read_db_alias()].cursor() as cursor:
             cursor.execute(count_sql, params)
             paginator.set_count(cursor.fetchone()[0])
 
@@ -567,29 +587,35 @@ class EventDefinitionViewSet(
         extensions={"x-product": "event_definitions"},
     )
     def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
-        objects = page if page is not None else list(queryset)
+        with statement_timeout(
+            read_db_alias(),
+            DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
+            EventDefinitionsTimedOut,
+            EVENT_DEFINITIONS_TIMED_OUT_COUNTER,
+        ):
+            queryset = self.filter_queryset(self.get_queryset())
+            page = self.paginate_queryset(queryset)
+            objects = page if page is not None else list(queryset)
 
-        # Batch-fetch media preview URLs to avoid N+1 queries in the serializer
-        event_ids = [obj.id for obj in objects]
-        media_map: dict[str, list[str]] = defaultdict(list)
-        if event_ids:
-            previews = (
-                ObjectMediaPreview.objects.filter(event_definition_id__in=event_ids)
-                .select_related("uploaded_media", "exported_asset")
-                .order_by("-updated_at")
-            )
-            for p in previews:
-                if p.media_url:
-                    media_map[str(p.event_definition_id)].append(p.media_url)
+            # Batch-fetch media preview URLs to avoid N+1 queries in the serializer
+            event_ids = [obj.id for obj in objects]
+            media_map: dict[str, list[str]] = defaultdict(list)
+            if event_ids:
+                previews = (
+                    ObjectMediaPreview.objects.filter(event_definition_id__in=event_ids)
+                    .select_related("uploaded_media", "exported_asset")
+                    .order_by("-updated_at")
+                )
+                for p in previews:
+                    if p.media_url:
+                        media_map[str(p.event_definition_id)].append(p.media_url)
 
-        serializer = self.get_serializer(objects, many=True)
-        serializer.context["media_preview_urls_map"] = media_map
+            serializer = self.get_serializer(objects, many=True)
+            serializer.context["media_preview_urls_map"] = media_map
 
-        if page is not None:
-            return self.get_paginated_response(serializer.data)
-        return response.Response(serializer.data)
+            if page is not None:
+                return self.get_paginated_response(serializer.data)
+            return response.Response(serializer.data)
 
     def dangerously_get_object(self):
         # A non-UUID lookup (e.g. the literal "undefined" from a link built without a saved

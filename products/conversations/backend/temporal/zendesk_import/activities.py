@@ -633,8 +633,6 @@ def _persist_ticket_batch(team: Team, built: list[_BuiltTicket], tags_by_name: d
     # triggering workflows and re-sending replies to real customers for years-old tickets. Don't.
     with transaction.atomic():
         Ticket.objects.lock_ticket_number_allocation(team.id)
-        # nosemgrep: hot-parent-row-select-for-update -- preserves compatibility with Team-lock-only import allocators
-        Team.objects.select_for_update().get(id=team.id)
         max_num = Ticket.objects.filter(team_id=team.id).aggregate(Max("ticket_number"))["ticket_number__max"] or 0
         tickets_to_create = [b.ticket for b in built]
         for offset, ticket_to_number in enumerate(tickets_to_create):

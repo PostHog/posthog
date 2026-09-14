@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from itertools import batched
+from typing import TypeVar
 from uuid import UUID
 
 from django.db import connections, transaction
@@ -22,6 +23,8 @@ from ..storage import ArtifactStorage
 from . import artifact_store, run_queries
 
 logger = structlog.get_logger(__name__)
+
+T = TypeVar("T")
 
 # A superseded run on a PR branch is history that no page reads after the next
 # push replaces it. Its last readers are the "stale" review-state filter and the
@@ -45,9 +48,9 @@ ARTIFACT_ORPHAN_GRACE_DAYS = 7
 
 ARTIFACT_SWEEP_BATCH = 500
 
-# Caps per invocation. The task runs daily and catches up over several days,
-# which keeps the first sweep of a large backlog off one long transaction.
-MAX_RUNS_PER_SWEEP = 2_000
+# Caps per invocation. The task runs daily and catches up over several days, so
+# a large backlog does not have to clear in one night.
+MAX_RUNS_PER_SWEEP = 10_000
 MAX_ARTIFACTS_PER_SWEEP = 20_000
 
 # The caps above bound rows, not wall clock. Deletes over the backlog are slow
@@ -168,6 +171,16 @@ class RetentionSweep:
             .values_list("id", flat=True)[:limit]
         )
 
+    def _splice_out_of_chain(self, run_id: UUID) -> None:
+        """Give the runs that name this run its own successor instead."""
+        successor_id = self._runs().filter(id=run_id).values_list("superseded_by_id", flat=True).first()
+        if successor_id is None:
+            # The run is the group's latest. Only the quiet-branch pass deletes
+            # one of those, and it takes a group where no run is superseded, so
+            # there is nothing to re-point.
+            return
+        self._runs().filter(superseded_by_id=run_id).update(superseded_by_id=successor_id)
+
     def _delete_runs(self, run_ids: list[UUID]) -> int:
         deleted = 0
         # One run per DELETE, in the order given (oldest first). Django applies
@@ -175,10 +188,18 @@ class RetentionSweep:
         # anything, so a batch that holds two links of one supersession chain
         # would set the older link to NULL while the group's latest run still
         # exists and break the unique_latest_run_per_group index.
+        #
+        # Oldest first is not enough on its own, because the retention class is
+        # a property of the row, not of its age: a run with no PR number counts
+        # as protected history and gets 180 days while the runs after it on the
+        # same branch get 30. Such a run survives the sweep that deletes the run
+        # it names, so it has to be re-pointed before the DELETE runs.
         for run_id in run_ids:
             if self._out_of_time():
                 break
-            _total, per_model = self._runs().filter(id=run_id).delete()
+            with transaction.atomic(using=WRITER_DB):
+                self._splice_out_of_chain(run_id)
+                _total, per_model = self._runs().filter(id=run_id).delete()
             deleted += per_model.get(Run._meta.label, 0)
         return deleted
 
@@ -253,6 +274,20 @@ class RetentionSweep:
                 objects_leaked=objects_leaked,
             )
         return ArtifactSweepResult(deleted=deleted, objects_leaked=objects_leaked)
+
+
+def rotate_for_day(items: list[T], day: date) -> list[T]:
+    """Move the start of the list on by one place a day.
+
+    The repos share one time budget, so a repo with a backlog big enough to
+    spend it keeps the repos behind it from being swept at all. A fixed order
+    starves the same repos every night, and rotating the start gives each of
+    them the front of the queue in turn.
+    """
+    if not items:
+        return items
+    offset = day.toordinal() % len(items)
+    return items[offset:] + items[:offset]
 
 
 def sweep_repo(repo: Repo, now: datetime | None = None, deadline: float | None = None) -> RetentionSweepResult:

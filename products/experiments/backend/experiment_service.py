@@ -104,6 +104,7 @@ from products.feature_flags.backend.facade.filters import (
     strip_group_cohort_restriction,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
+from products.feature_flags.backend.ownership import FLAG_OWNER_EXPERIMENT, assert_flag_available_for
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -1545,6 +1546,9 @@ class ExperimentService:
         existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team.id).first()
 
         if existing_flag:
+            # Not in _validate_existing_flag: launch calls that too, on a flag this experiment
+            # already owns.
+            assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT)
             self._validate_existing_flag(existing_flag)
             variants = existing_flag.variants or list(DEFAULT_VARIANTS)
             return existing_flag, variants

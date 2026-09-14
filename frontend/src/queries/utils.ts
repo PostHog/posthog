@@ -50,7 +50,6 @@ import {
     MetricsQuery,
     Node,
     NodeKind,
-    NonIntegratedConversionsTableQuery,
     PathsQuery,
     PathsV2Query,
     PersonsNode,
@@ -292,12 +291,6 @@ export function isMarketingAnalyticsAggregatedQuery(
     return node?.kind === NodeKind.MarketingAnalyticsAggregatedQuery
 }
 
-export function isNonIntegratedConversionsTableQuery(
-    node?: Record<string, any> | null
-): node is NonIntegratedConversionsTableQuery {
-    return node?.kind === NodeKind.NonIntegratedConversionsTableQuery
-}
-
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
     return node?.kind === NodeKind.TracesQuery
 }
@@ -491,6 +484,10 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
     }
     return undefined
 }
+
+export const isMetricInsightQuery = (query?: Record<string, any> | null): boolean =>
+    (isDataVisualizationNode(query) && query.display === ChartDisplayType.Metric) ||
+    (isInsightVizNode(query) && isTrendsQuery(query.source) && getDisplay(query.source) === ChartDisplayType.Metric)
 
 // Display types whose viz paints to a <canvas> (Chart.js / quill-charts), which repaints on every resize
 // frame. Everything else renders as DOM/SVG and is cheap to keep mounted while a tile is resized.

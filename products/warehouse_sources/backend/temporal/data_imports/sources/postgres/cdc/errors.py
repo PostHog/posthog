@@ -15,6 +15,10 @@ import psycopg.errors
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
+    HostNotAllowedError,
+)
 
 # Server requires (or rejects) an encrypted connection. Kept specific so a transient
 # "SSL connection has been closed unexpectedly" stays a retryable connection failure.
@@ -66,6 +70,14 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
         if _SSH_GATEWAY_SESSION_ERROR_MARKER in str(exc).lower():
             return CDCErrorCategory.SSH_TUNNEL_FAILED
         return None
+
+    # The host policy refused a host before any socket opened. Deterministic for the configured
+    # host, so it stops the run like an unroutable address does. One type covers the bastion and
+    # the database, and each needs its own guidance, so the prefix picks the category.
+    if isinstance(exc, HostNotAllowedError):
+        if str(exc).startswith(SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR):
+            return CDCErrorCategory.SSH_TUNNEL_FAILED
+        return CDCErrorCategory.HOST_UNREACHABLE
 
     # Guard all string-based checks: only psycopg exceptions carry these message patterns.
     # A non-psycopg exception whose message happens to contain e.g. "does not exist" would

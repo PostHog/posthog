@@ -49,10 +49,10 @@ def test_json_error_message_is_surfaced():
 @pytest.mark.parametrize(
     "repository",
     [
-        "https://github.com/owner/repo.git",  # pasted clone URL
         "owner",  # bare owner, no repo
         "owner/repo/extra",  # too many path segments
         "/repo",  # missing owner
+        "https://gitlab.com/owner/repo.git",  # a URL for another host names no GitHub repo
     ],
 )
 def test_malformed_repository_gets_format_guidance(repository):
@@ -65,3 +65,25 @@ def test_malformed_repository_gets_format_guidance(repository):
     # Naming the offending entry keeps two malformed repos from collapsing into one repeated
     # sentence when the source layer joins their failures.
     assert repository.strip() in message
+
+
+@pytest.mark.parametrize(
+    "repository",
+    [
+        "https://github.com/owner/repo.git",
+        "https://github.com/owner/repo/tree/main",
+        "git@github.com:owner/repo.git",
+        "https://github.com/owner/repo.GIT",
+        "github.com/owner/repo",
+    ],
+)
+def test_repository_url_is_read_as_owner_repo(repository):
+    # A pasted GitHub URL names the repo unambiguously, so it must reach the API as owner/repo
+    # instead of being rejected for its format.
+    session = mock.Mock()
+    session.get.return_value = _response(200, json_body={})
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        is_valid, message = github.validate_credentials("token", repository)
+
+    assert (is_valid, message) == (True, None)
+    assert session.get.call_args.args[0].endswith("/repos/owner/repo")

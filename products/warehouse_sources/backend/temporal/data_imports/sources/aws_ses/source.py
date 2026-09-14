@@ -58,7 +58,7 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
             "Amazon SES request failed: SignatureDoesNotMatch": "AWS rejected the request signature. Please re-enter the secret access key.",
             "Amazon SES request failed: InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
             "Amazon SES request failed: ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
-            "Amazon SES request failed: AccessDeniedException": "These AWS credentials are missing SES read permissions. Grant ses:GetAccount, ses:ListConfigurationSets, ses:GetConfigurationSet, ses:ListEmailIdentities, ses:GetEmailIdentity and ses:ListSuppressedDestinations to the IAM user or role.",
+            "Amazon SES request failed: AccessDeniedException": "These AWS credentials are missing SES read permissions. Grant ses:GetAccount, ses:ListConfigurationSets, ses:GetConfigurationSet, ses:ListEmailIdentities, ses:GetEmailIdentity, ses:ListSuppressedDestinations, ses:ListEmailTemplates, ses:GetEmailTemplate, ses:ListContactLists, ses:GetContactList, ses:ListDedicatedIpPools, ses:GetDedicatedIpPool, ses:GetDedicatedIps, ses:ListCustomVerificationEmailTemplates, ses:GetCustomVerificationEmailTemplate and ses:ListMultiRegionEndpoints to the IAM user or role.",
             "Invalid AWS region": "Enter a valid AWS region code like us-east-1.",
             "AWS access key ID and secret access key are required": "Enter both an AWS access key ID and a secret access key.",
         }
@@ -138,7 +138,7 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
             label="Amazon SES",
             caption="""Sync your Amazon SES account data into the PostHog Data warehouse.
 
-Create an IAM user or role with the `ses:GetAccount`, `ses:ListConfigurationSets`, `ses:GetConfigurationSet`, `ses:ListEmailIdentities`, `ses:GetEmailIdentity` and `ses:ListSuppressedDestinations` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
+Create an IAM user or role with the `ses:GetAccount`, `ses:ListConfigurationSets`, `ses:GetConfigurationSet`, `ses:ListEmailIdentities`, `ses:GetEmailIdentity`, `ses:ListSuppressedDestinations`, `ses:ListEmailTemplates`, `ses:GetEmailTemplate`, `ses:ListContactLists`, `ses:GetContactList`, `ses:ListDedicatedIpPools`, `ses:GetDedicatedIpPool`, `ses:GetDedicatedIps`, `ses:ListCustomVerificationEmailTemplates`, `ses:GetCustomVerificationEmailTemplate` and `ses:ListMultiRegionEndpoints` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
 
 SES data is regional, so connect one source per AWS Region you send email from. This source syncs account-level data. Per-message send, bounce, and complaint events are only available through SES event destinations, not the SES API.""",
             iconPath="/static/services/aws_ses.png",

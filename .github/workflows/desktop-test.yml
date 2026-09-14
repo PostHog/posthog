@@ -11,14 +11,13 @@ on:
                 required: false
             POSTHOG_CODE_E2E_GATEWAY_URL:
                 required: false
-    # A cron carries master coverage for this suite. Pull requests and merge queue
-    # batches run it per change, so the only gap left on master is drift from outside
-    # the repo: a new Electron, Playwright or runner-image version. Daily is enough for
-    # that, and it keeps demand on depot-macos-26 low, which is a fixed pool shared
-    # across Depot customers that cannot autoscale for a runner. 05:03 UTC holds this
-    # run clear of desktop-update-e2e.yml, the other daily job on that pool, at 07:00.
+    # Master coverage comes from this cron and from the release tag job, which
+    # dispatches this workflow on the tree it tags. Pull requests and merge queue
+    # batches run the suite per change, so the cron is here to catch drift from
+    # outside the repo: a new Electron, Playwright or runner-image version.
     schedule:
         - cron: '3 5 * * *'
+    workflow_dispatch:
 
 concurrency:
     group: desktop-test-${{ github.head_ref || github.ref }}
@@ -60,10 +59,14 @@ jobs:
                   predicate-quantifier: every
                   filters: |
                       # Wider excludes than desktop-quality.yml, which keeps .vscode and
-                      # .claude in scope because Biome lints them.
+                      # .claude in scope because Biome lints them. Only documentation
+                      # markdown is excluded: the app loads markdown under src/ at runtime.
                       code:
                         - "products/desktop/**"
-                        - "!products/desktop/**/*.md"
+                        - "!products/desktop/*.md"
+                        - "!products/desktop/**/README.md"
+                        - "!products/desktop/**/AGENTS.md"
+                        - "!products/desktop/**/CLAUDE.md"
                         - "!products/desktop/docs/**"
                         - "!products/desktop/.vscode/**"
                         - "!products/desktop/.claude/**"
@@ -130,28 +133,12 @@ jobs:
               id: run-tests
               run: pnpm test
 
-    integration-test:
+    electron-test:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        #
-        # A draft pull request skips this job. depot-macos-26 is a fixed pool that Depot
-        # shares between customers, and Apple's 24-hour minimum lease stops it from
-        # autoscaling, so a runner requested per draft push can wait many times longer
-        # than the job runs. The author gets the signal back on ready_for_review, which
-        # desktop-ci.yml dispatches on for this reason, the same way desktop-build.yml
-        # does.
-        #
-        # trunk-merge/** heads are exempt because Trunk opens its batch pull requests as
-        # drafts. Without that clause, the draft check would skip the one run that gates
-        # master.
-        if: >-
-            !cancelled() &&
-            github.event_name != 'merge_group' &&
-            (github.event.pull_request.draft != true ||
-            startsWith(github.head_ref, 'trunk-merge/')) &&
-            (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true')
-        runs-on: depot-macos-26
-        timeout-minutes: 45
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 30
         permissions:
             contents: read
         defaults:
@@ -191,7 +178,7 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: playwright-cache
               with:
-                  path: ~/Library/Caches/ms-playwright
+                  path: ~/.cache/ms-playwright
                   key: playwright-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: |
                       playwright-${{ runner.os }}-
@@ -199,7 +186,7 @@ jobs:
             - name: Restore Electron binary cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: ~/Library/Caches/electron
+                  path: ~/.cache/electron
                   key: electron-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: |
                       electron-${{ runner.os }}-
@@ -215,16 +202,27 @@ jobs:
               env:
                   NODE_OPTIONS: '--max-old-space-size=6144'
 
+            - name: Install xvfb and the Chromium system libraries
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y --no-install-recommends xvfb fluxbox
+                  # Electron ships Chromium, so it needs the same system libraries as the
+                  # Playwright browser, on a cache hit as much as on a miss.
+                  pnpm --filter code exec playwright install-deps chromium
+
             - name: Install Playwright
               if: steps.playwright-cache.outputs.cache-hit != 'true'
-              run: pnpm --filter code exec playwright install --with-deps chromium
+              run: pnpm --filter code exec playwright install chromium
 
-            - name: Run E2E smoke tests
+            - name: Run Electron e2e tests
               id: run-e2e
               # continue-on-error so the web host below still runs and the "Fail on E2E failure"
               # step at the end is the verdict for both hosts.
               continue-on-error: true
-              run: pnpm --filter code run test:e2e
+              # The app starts maximized, and maximize() needs a window manager. On a bare
+              # Xvfb the framed default window keeps less than the 600px of content the
+              # smoke suite asserts, so fluxbox runs inside the session.
+              run: xvfb-run -a -s "-screen 0 1920x1080x24" bash -c 'fluxbox >/dev/null 2>&1 & sleep 2; pnpm --filter code run test:e2e'
               env:
                   CI: true
 
@@ -265,15 +263,15 @@ jobs:
 
     e2e:
         # Live-model e2e for the @posthog/agent adapters (claude + codex). Runs only
-        # after the unit + integration jobs pass — a red tree never reaches the
+        # after the unit + Electron jobs pass — a red tree never reaches the
         # gateway — and only when a products/desktop/packages/ file changed. Each arm still
         # self-skips unless the POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY secret is
         # present (fork PRs never see it) and POSTHOG_CODE_E2E_GATEWAY_URL points at
         # a runner-reachable gateway. Drives cheap models (claude-haiku-4-5 /
         # gpt-5-mini), so a run is a handful of short turns.
-        needs: [changes, unit-test, integration-test]
+        needs: [changes, unit-test, electron-test]
         # Always run on any products/desktop/packages/ change (or a change to this workflow),
-        # once unit-test + integration-test have passed. There is intentionally NO
+        # once unit-test + electron-test have passed. There is intentionally NO
         # gate on the gateway config being present: if the POSTHOG_CODE_E2E_*
         # secret/vars are missing, the fail-loud guard
         # (products/desktop/packages/agent/e2e/guard.e2e.test.ts) REDS the run rather than
@@ -361,7 +359,7 @@ jobs:
     # Collation job for the required status check; must be registered as the
     # required check instead of the individual jobs.
     desktop-tests-pass:
-        needs: [changes, unit-test, integration-test, e2e]
+        needs: [changes, unit-test, electron-test, e2e]
         name: Desktop Tests Pass
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
@@ -377,8 +375,8 @@ jobs:
                     echo "The desktop unit-test job did not succeed (result: ${{ needs.unit-test.result }})."
                     exit 1
                   fi
-                  if [[ "${{ needs.integration-test.result }}" != "success" && "${{ needs.integration-test.result }}" != "skipped" ]]; then
-                    echo "The desktop integration-test job did not succeed (result: ${{ needs.integration-test.result }})."
+                  if [[ "${{ needs.electron-test.result }}" != "success" && "${{ needs.electron-test.result }}" != "skipped" ]]; then
+                    echo "The desktop electron-test job did not succeed (result: ${{ needs.electron-test.result }})."
                     exit 1
                   fi
                   if [[ "${{ needs.e2e.result }}" != "success" && "${{ needs.e2e.result }}" != "skipped" ]]; then

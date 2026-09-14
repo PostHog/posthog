@@ -11,11 +11,12 @@ import { average, median } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { formatAggregationValue } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { TrendsFilter } from '~/queries/schema/schema-general'
 import { TrendsFilterType } from '~/types'
+
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { CalcColumnState } from '../InsightsTable'
 

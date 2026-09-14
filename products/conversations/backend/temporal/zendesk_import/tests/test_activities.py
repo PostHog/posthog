@@ -623,49 +623,52 @@ class TestZendeskImportBatchActivity(BaseTest):
         self.assertFalse(Ticket.objects.filter(team=self.team, zendesk_ticket_id=404).exists())
 
 
+def _zendesk_allocation_ticket(team: Team) -> _BuiltTicket:
+    return _BuiltTicket(
+        ticket=Ticket(
+            team=team,
+            widget_session_id="zendesk-allocation",
+            distinct_id="requester@example.com",
+            channel_source=Channel.EMAIL,
+        ),
+        comments=[],
+        tag_names=[],
+        customer_message_count=0,
+        agent_reply_count=0,
+        created_at=None,
+        updated_at=None,
+    )
+
+
 class TestZendeskTicketNumberAllocationConcurrency(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    @parameterized.expand([("advisory",), ("team_row",)])
-    def test_import_waits_for_each_bridge_lock(self, held_lock: str) -> None:
+    def test_import_waits_for_the_allocation_lock(self) -> None:
         lock_acquired = Event()
         release_lock = Event()
 
         def hold_allocation_lock() -> None:
             close_old_connections()
             try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '10s'")
+                    cursor.execute("SET statement_timeout = '15s'")
                 with transaction.atomic():
-                    if held_lock == "advisory":
-                        Ticket.objects.lock_ticket_number_allocation(self.team.id)
-                    else:
-                        Team.objects.select_for_update().get(id=self.team.id)
+                    Ticket.objects.lock_ticket_number_allocation(self.team.id)
                     lock_acquired.set()
                     if not release_lock.wait(timeout=5):
                         raise TimeoutError("test did not release the allocation lock")
             finally:
                 close_old_connections()
 
-        built = _BuiltTicket(
-            ticket=Ticket(
-                team=self.team,
-                widget_session_id="zendesk-lock-bridge",
-                distinct_id="requester@example.com",
-                channel_source=Channel.EMAIL,
-            ),
-            comments=[],
-            tag_names=[],
-            customer_message_count=0,
-            agent_reply_count=0,
-            created_at=None,
-            updated_at=None,
-        )
+        built = _zendesk_allocation_ticket(self.team)
 
         with ThreadPoolExecutor(max_workers=1) as executor:
             lock_future = executor.submit(hold_allocation_lock)
             if not lock_acquired.wait(timeout=5):
                 release_lock.set()
                 lock_future.result(timeout=1)
-                self.fail(f"allocator did not acquire the {held_lock} lock")
+                self.fail("allocator did not acquire the allocation lock")
             try:
                 with connection.cursor() as cursor:
                     cursor.execute("SET lock_timeout = '250ms'")
@@ -673,9 +676,51 @@ class TestZendeskTicketNumberAllocationConcurrency(NonAtomicBaseTest):
                     _persist_ticket_batch(self.team, [built], {})
             finally:
                 with connection.cursor() as cursor:
-                    cursor.execute("SET lock_timeout = 0")
+                    cursor.execute("RESET lock_timeout")
                 release_lock.set()
             lock_future.result(timeout=5)
+
+    def test_import_does_not_lock_the_team_row(self) -> None:
+        # A ticket insert takes KEY SHARE on the Team row for its FK. Pause before bulk_create
+        # so that lock does not make the Team FOR UPDATE probe fail.
+        paused = Event()
+        resume = Event()
+        real_bulk_create = type(Ticket.objects).bulk_create
+
+        def pausing_bulk_create(manager, *args, **kwargs):
+            paused.set()
+            if not resume.wait(timeout=5):
+                raise TimeoutError("test did not resume persist")
+            return real_bulk_create(manager, *args, **kwargs)
+
+        def persist() -> None:
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '10s'")
+                    cursor.execute("SET statement_timeout = '15s'")
+                _persist_ticket_batch(self.team, [_zendesk_allocation_ticket(self.team)], {})
+            finally:
+                close_old_connections()
+
+        with patch.object(type(Ticket.objects), "bulk_create", pausing_bulk_create):
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(persist)
+                if not paused.wait(timeout=5):
+                    resume.set()
+                    future.result(timeout=1)
+                    self.fail("persist did not pause before insert")
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute("SET lock_timeout = '250ms'")
+                    with transaction.atomic():
+                        Team.objects.select_for_update().get(id=self.team.id)
+                finally:
+                    with connection.cursor() as cursor:
+                        cursor.execute("RESET lock_timeout")
+                    resume.set()
+                future.result(timeout=5)
+        self.assertTrue(Ticket.objects.filter(team=self.team, widget_session_id="zendesk-allocation").exists())
 
 
 class TestZendeskImportJobUpdates(BaseTest):

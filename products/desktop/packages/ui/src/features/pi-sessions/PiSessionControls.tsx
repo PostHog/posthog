@@ -1,6 +1,5 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { CaretDown, Lightning, PiIcon, Stack } from "@phosphor-icons/react";
-import { toModelPickerOption } from "@posthog/core/billing/modelPricing";
 import type {
   PiModelSelection,
   PiThinkingLevel,
@@ -29,6 +28,7 @@ import {
 } from "@posthog/ui/features/sessions/components/ModelCostChip";
 import { ModelSelectList } from "@posthog/ui/features/sessions/components/ModelSelectList";
 import type { MessagingMode } from "@posthog/ui/features/sessions/messagingModeStore";
+import { toPickerOption } from "@posthog/ui/features/sessions/modelPickerOption";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
 
@@ -218,7 +218,7 @@ export function PiModelSelector({
                   }}
                 >
                   {models.map((model) => {
-                    const pickerModel = toModelPickerOption({
+                    const pickerModel = toPickerOption({
                       value: model.id,
                       name: modelLabel(model),
                       ...(model.provider === "posthog"

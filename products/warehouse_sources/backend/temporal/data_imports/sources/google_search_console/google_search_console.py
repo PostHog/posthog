@@ -6,7 +6,6 @@ import collections.abc
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse, urlunparse
 
-from django.conf import settings
 from django.db import OperationalError, close_old_connections
 
 import requests
@@ -18,6 +17,7 @@ from google.oauth2.credentials import Credentials as OAuthCredentials
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -104,7 +104,9 @@ class GoogleSearchConsoleQuotaExceededError(Exception):
 
     Deliberately NOT matched by `get_non_retryable_errors` so Temporal retries
     the activity later (the resumable source picks up from the last saved date),
-    which is the right recovery for the longer 10-minute / daily load quotas.
+    which is the right recovery for the longer 10-minute / daily load quotas. Its
+    messages carry a `(retryable)` marker that `get_retryable_errors` matches, so
+    the self-recovering failure is logged as a warning instead of tracked as noise.
     """
 
 
@@ -207,11 +209,14 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
 
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
     integration = _get_integration(integration_id, team_id)
+    resolved = integration_secrets.get_secrets(
+        ["GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID", "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET"]
+    )
     return OAuthCredentials(
         token=None,
         refresh_token=integration.refresh_token,
-        client_id=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID,
-        client_secret=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET,
+        client_id=resolved["GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID"],
+        client_secret=resolved["GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET"],
         token_uri="https://oauth2.googleapis.com/token",
         # No `scopes=` on purpose. With a refresh-token grant, google-auth forwards the
         # requested scopes to Google's token endpoint, which rejects anything that isn't an
@@ -407,7 +412,7 @@ def _query_search_analytics(
 
         if _is_daily_quota_error(response):
             raise GoogleSearchConsoleQuotaExceededError(
-                f"Search Analytics daily quota for '{site_url}' exhausted; retrying at the activity level"
+                f"Search Analytics daily quota for '{site_url}' exhausted; retrying at the activity level (retryable)"
             )
 
         # Quota (403 usageLimits / 429) and transient Google-side 5xx both clear on their own,
@@ -423,7 +428,7 @@ def _query_search_analytics(
                 # retries the activity (resuming from the last saved date).
                 response.raise_for_status()
             raise GoogleSearchConsoleQuotaExceededError(
-                f"Search Analytics quota for '{site_url}' still exhausted after {QUOTA_MAX_RETRIES} retries"
+                f"Search Analytics quota for '{site_url}' still exhausted after {QUOTA_MAX_RETRIES} retries (retryable)"
             )
 
         wait = _quota_backoff_seconds(response, attempt)
@@ -437,7 +442,7 @@ def _query_search_analytics(
         time.sleep(wait)
 
     # Unreachable: the loop either returns, raises for status, or raises the quota error.
-    raise GoogleSearchConsoleQuotaExceededError(f"Search Analytics quota for '{site_url}' exhausted")
+    raise GoogleSearchConsoleQuotaExceededError(f"Search Analytics quota for '{site_url}' exhausted (retryable)")
 
 
 def _parse_api_datetime(value: Any) -> dt.datetime | None:

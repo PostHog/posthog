@@ -63,7 +63,24 @@ export function ConsentStep({
             </AnimatePresence>
           </div>
         </div>
-        <StepActions>
+        <StepActions
+          primaryAction={
+            <Button
+              variant="primary"
+              size="lg"
+              className="h-10 px-4 text-sm"
+              disabled={
+                isSubmitting ||
+                consent.status !== "resolved" ||
+                !consent.satisfied
+              }
+              onClick={onNext}
+            >
+              Next
+              <ArrowRight size={16} />
+            </Button>
+          }
+        >
           {onBack && (
             <Button
               variant="outline"
@@ -76,20 +93,6 @@ export function ConsentStep({
               Back
             </Button>
           )}
-          <Button
-            variant="primary"
-            size="lg"
-            className="h-10 px-4 text-sm"
-            disabled={
-              isSubmitting ||
-              consent.status !== "resolved" ||
-              !consent.satisfied
-            }
-            onClick={onNext}
-          >
-            Next
-            <ArrowRight size={16} />
-          </Button>
         </StepActions>
       </div>
     </div>
