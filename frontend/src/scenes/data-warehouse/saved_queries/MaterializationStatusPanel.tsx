@@ -414,14 +414,12 @@ export function MaterializationStatusPanel({
                         pageSize: DEFAULT_JOBS_PAGE_SIZE,
                         currentPage: jobsPage,
                         entryCount: jobsPageResults?.count,
-                        onBackward:
-                            jobsPage > 1 && !olderJobsPageLoading && !dataModelingJobsLoading
-                                ? () => setJobsPage(jobsPage - 1)
-                                : undefined,
-                        onForward:
-                            jobsPageResults?.next && !olderJobsPageLoading && !dataModelingJobsLoading
-                                ? () => setJobsPage(jobsPage + 1)
-                                : undefined,
+                        // PaginationControl decides whether an arrow is enabled from the entry count, not
+                        // from these handlers, so withholding one while a page loads would leave a live
+                        // arrow that does nothing. Let the click through: the page loader breakpoints, so
+                        // the superseded response is discarded.
+                        onBackward: jobsPage > 1 ? () => setJobsPage(jobsPage - 1) : undefined,
+                        onForward: jobsPageResults?.next ? () => setJobsPage(jobsPage + 1) : undefined,
                     }}
                     size="small"
                     loading={jobsPage === 1 ? dataModelingJobsLoading : olderJobsPageLoading}

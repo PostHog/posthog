@@ -152,7 +152,7 @@ describe('materializationJobsLogic', () => {
     })
 
     it.each([false, true])(
-        'offers deletion for a materialized=%s view and leaves after success',
+        'offers deletion for a materialized=%s view and clears the pending state after success',
         async (isMaterialized) => {
             const mocks = apiMocks({ isMaterialized })
             mocks.delete = { '/api/environments/:team_id/warehouse_saved_queries/:id/': [204] }
@@ -169,7 +169,6 @@ describe('materializationJobsLogic', () => {
             await expectLogic(logic, () => {
                 fireEvent.click(screen.getAllByText(label).at(-1)!)
             }).toDispatchActions(['deleteDataWarehouseSavedQuerySuccess'])
-            expect(router.values.location.pathname).toBe('/project/997/models')
             expect(logic.values.deletingView).toBe(false)
         }
     )

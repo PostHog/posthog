@@ -13,7 +13,6 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -21,7 +20,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { urls } from 'scenes/urls'
 
 import { DataModelingSyncInterval, DataWarehouseSavedQuery, DataWarehouseSavedQueryIncrementalCheck } from '~/types'
 
@@ -584,7 +582,6 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         deleteDataWarehouseSavedQuerySuccess: ({ payload }) => {
             if (payload === props.viewId && values.deletingView) {
                 actions.finishDeletingView()
-                router.actions.push(urls.models())
             }
         },
         deleteDataWarehouseSavedQueryFailure: () => actions.finishDeletingView(),

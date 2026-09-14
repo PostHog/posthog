@@ -5,6 +5,7 @@ import { createElement } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { urls } from 'scenes/urls'
 
@@ -194,6 +195,19 @@ describe('nodeDetailSceneLogic', () => {
 
         expect(logic.values.effectiveLastRunAt).toEqual('2026-08-24T15:36:00Z')
         expect(logic.values.effectiveLastRunStatus).toEqual('Completed')
+    })
+
+    // The delete runs from a shared component that also renders in the SQL editor, so the page the
+    // deleted view owns is the one that has to leave — and only for its own view.
+    it.each([
+        ['its own view', SAVED_QUERY_ID, '/project/997/models'],
+        ['another view', 'saved-query-2', `/project/997${urls.nodeDetail(NODE_ID, 'query')}`],
+    ])('leaves for Models when %s is deleted', async (_name, deletedId, expectedPath) => {
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        dataWarehouseViewsLogic.actions.deleteDataWarehouseSavedQuerySuccess([], deletedId)
+
+        expect(router.values.location.pathname).toEqual(expectedPath)
     })
 
     it('keeps a tab mounted once it has been visited', async () => {
