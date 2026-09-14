@@ -269,9 +269,9 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
     body?: string,
     draft?: boolean,
     env?: Record<string, string>,
+    taskUrl?: string,
   ): Promise<{ success: boolean; message: string; prUrl: string | null }> {
-    const prFooter =
-      "\n\n---\n*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*";
+    const prFooter = `\n\n---\n*Created with [PostHog Desktop](${taskUrl ?? "https://posthog.com/desktop?ref=pr"})*`;
     const args = ["pr", "create"];
     if (title) {
       args.push("--title", title);

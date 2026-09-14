@@ -110,6 +110,7 @@ export {
 export {
   buildLoopDeeplink,
   buildScoutDeeplink,
+  buildTaskShareUrl,
   decodePlanBase64,
   getDeeplinkProtocol,
   isPostHogCodeDeeplink,

@@ -1,3 +1,5 @@
+import { buildTaskShareUrl } from "@posthog/shared";
+
 export interface TaskContextInput {
   taskId: string;
   cwd: string;
@@ -39,7 +41,10 @@ This is task ${taskId}. Keep material provided as task context, including custom
 export function buildAttributionPrompt(
   taskId: string,
   environment: TaskContext["environment"],
+  apiHost?: string,
 ): string {
+  const attributionUrl =
+    buildTaskShareUrl(apiHost, taskId) ?? "https://posthog.com/desktop?ref=pr";
   const commitInstructions =
     environment === "cloud"
       ? `In cloud tasks, call \`git_signed_commit\` to create commits. It automatically adds these trailers:
@@ -70,7 +75,7 @@ When creating new branches, prefix them with \`posthog/\` (e.g. \`posthog/fix-lo
 When creating pull requests, add the following footer at the end of the PR description:
 \`\`\`
 ---
-*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*
+*Created with [PostHog Desktop](${attributionUrl})*
 \`\`\``;
 }
 
@@ -152,7 +157,11 @@ export function buildTaskSystemPrompt(
   ];
 
   sections.push(
-    buildAttributionPrompt(context.taskId, context.environment),
+    buildAttributionPrompt(
+      context.taskId,
+      context.environment,
+      context.apiHost,
+    ),
     buildQuestionsPrompt(capabilities.structuredInput === true),
     buildPullRequestLinksPrompt(),
     buildShellEfficiencyPrompt(),

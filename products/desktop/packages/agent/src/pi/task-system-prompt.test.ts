@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { buildTaskSystemPrompt } from "./task-system-prompt";
+import {
+  buildLocalAttributionPrompt,
+  buildTaskSystemPrompt,
+} from "./task-system-prompt";
 
 describe("buildTaskSystemPrompt", () => {
+  it("keeps the product link when the instance is unavailable", () => {
+    expect(buildLocalAttributionPrompt("task-123")).toContain(
+      "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
+    );
+  });
+
   it("builds durable local task instructions", () => {
     const prompt = buildTaskSystemPrompt({
       projectId: 42,
@@ -18,6 +27,9 @@ describe("buildTaskSystemPrompt", () => {
     expect(prompt).toContain("This is task task-123");
     expect(prompt).toContain("Generated-By: PostHog Desktop");
     expect(prompt).toContain("Task-Id: task-123");
+    expect(prompt).toContain(
+      "*Created with [PostHog Desktop](https://us.posthog.com/code/task/task-123)*",
+    );
     expect(prompt).toContain("Keep the patch small.");
     expect(prompt).toContain("<directory>/tmp/a&amp;b</directory>");
     expect(prompt).toContain("<directory>/tmp/&lt;shared&gt;</directory>");
@@ -54,6 +66,9 @@ describe("buildTaskSystemPrompt", () => {
     expect(prompt).toContain("git_signed_commit");
     expect(prompt).toContain("Generated-By: PostHog Desktop");
     expect(prompt).toContain("Task-Id: task-123");
+    expect(prompt).toContain(
+      "*Created with [PostHog Desktop](https://us.posthog.com/code/task/task-123)*",
+    );
     expect(prompt).not.toContain('git commit -m "$(cat');
     expect(prompt).toContain("Use the existing pull request.");
   });

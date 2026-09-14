@@ -3,8 +3,14 @@ import {
   type RootLogger,
   type ScopedLogger,
 } from "@posthog/di/logger";
-import { TypedEventEmitter } from "@posthog/shared";
+import {
+  buildTaskShareUrl,
+  getCloudUrlFromRegion,
+  TypedEventEmitter,
+} from "@posthog/shared";
 import { inject, injectable } from "inversify";
+import type { AuthService } from "../auth/auth";
+import { AUTH_SERVICE } from "../auth/auth.module";
 import type { GitPrService } from "../git-pr/git-pr";
 import type { CreatePrHost } from "../git-pr/identifiers";
 import { GIT_PR_SERVICE } from "../git-pr/identifiers";
@@ -41,6 +47,8 @@ export class GitHostService extends TypedEventEmitter<GitServiceEvents> {
     private readonly workspaceLookup: GitWorkspaceLookup,
     @inject(ROOT_LOGGER)
     logger: RootLogger,
+    @inject(AUTH_SERVICE)
+    private readonly authService: AuthService,
   ) {
     super();
     this.log = logger.scope("git-host");
@@ -89,7 +97,7 @@ export class GitHostService extends TypedEventEmitter<GitServiceEvents> {
         taskId: input.taskId,
         conversationContext: input.conversationContext,
       },
-      this.buildCreatePrHost(),
+      this.buildCreatePrHost(input.taskId),
       (step, message, prUrl) => {
         this.emit(GitServiceEvent.CreatePrProgress, {
           flowId,
@@ -147,8 +155,13 @@ export class GitHostService extends TypedEventEmitter<GitServiceEvents> {
     };
   }
 
-  private buildCreatePrHost(): CreatePrHost {
+  private buildCreatePrHost(taskId?: string): CreatePrHost {
     const git = this.git;
+    const region = this.authService.getState().cloudRegion;
+    const taskUrl = buildTaskShareUrl(
+      region ? getCloudUrlFromRegion(region) : null,
+      taskId,
+    );
     return {
       getSessionEnvForTask: (taskId) => this.getSessionEnv(taskId),
       getCurrentBranch: (dir) =>
@@ -182,6 +195,7 @@ export class GitHostService extends TypedEventEmitter<GitServiceEvents> {
           body,
           draft,
           env,
+          taskUrl: taskUrl ?? undefined,
         }),
       linkBranch: (taskId, branch, source) =>
         this.workspaceLookup.linkBranch(taskId, branch, source),

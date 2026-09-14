@@ -541,6 +541,7 @@ export const resetSoftInput = z.object({
 });
 
 export const createPrViaGhInput = z.object({
+  taskUrl: z.url().optional(),
   directoryPath: z.string(),
   title: z.string().optional(),
   body: z.string().optional(),

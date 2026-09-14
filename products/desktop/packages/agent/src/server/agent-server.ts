@@ -22,6 +22,7 @@ import {
   type AcpMcpServer,
   type Adapter,
   buildPrOutput,
+  buildTaskShareUrl,
   getErrorMessage,
   isIgnoredSkillPath,
   isSkillBundleArtifactMetadata,
@@ -4750,9 +4751,13 @@ When you create a non-code file the user should be able to download (such as a r
     // Slack- and inbox-originated PRs are attributed to PostHog, not the
     // PostHog Desktop app — they come from the Slack app / Self-driving
     // inbox, which users know as "PostHog".
+    const taskUrl =
+      !slackThreadUrl && !inboxReportUrl
+        ? buildTaskShareUrl(this.config.apiUrl, this.config.taskId)
+        : null;
     const createdWith = this.isAutomatedOrigin()
-      ? "Created with [PostHog](https://posthog.com?ref=pr)"
-      : "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)";
+      ? `Created with [PostHog](${taskUrl ?? "https://posthog.com?ref=pr"})`
+      : `Created with [PostHog Desktop](${taskUrl ?? "https://posthog.com/desktop?ref=pr"})`;
     const prFooter = slackThreadUrl
       ? `*${createdWith} from a [Slack thread](${slackThreadUrl})*`
       : inboxReportUrl

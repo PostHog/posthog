@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ContentBlock, RequestError } from "@agentclientprotocol/sdk";
+import { readGithubTokenFromEnv } from "@posthog/git/signed-commit";
 import type { Adapter } from "@posthog/shared";
 import { zipSync } from "fflate";
 import jwt from "jsonwebtoken";
@@ -41,6 +42,7 @@ import {
 } from "../test/fixtures/api";
 import { createPostHogHandlers } from "../test/mocks/msw-handlers";
 import type { StoredEntry, TaskRun } from "../types";
+import * as githubToken from "../utils/github-token";
 import {
   AgentServer,
   isTurnCompleteNotification,
@@ -6612,7 +6614,14 @@ describe("AgentServer HTTP Mode", () => {
   });
 
   describe("buildCloudSystemPrompt", () => {
+    beforeEach(() => {
+      vi.spyOn(githubToken, "resolveGithubToken").mockImplementation(() =>
+        readGithubTokenFromEnv(),
+      );
+    });
+
     afterEach(() => {
+      vi.mocked(githubToken.resolveGithubToken).mockRestore();
       vi.unstubAllEnvs();
     });
 
@@ -6764,7 +6773,7 @@ describe("AgentServer HTTP Mode", () => {
         "If the user explicitly asks you to open a pull request",
       );
       expect(prompt).toContain(
-        "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
+        "*Created with [PostHog Desktop](http://localhost:8000/code/task/test-task-id)*",
       );
       expect(prompt).toContain(".github/pull_request_template.md");
       expect(prompt).toContain("gh issue list --search");
@@ -6867,7 +6876,7 @@ describe("AgentServer HTTP Mode", () => {
       expect(prompt).toContain("Task-Id: test-task-id");
       // Slack-origin PRs are attributed to PostHog, not the PostHog Desktop app.
       expect(prompt).toContain(
-        "Created with [PostHog](https://posthog.com?ref=pr)",
+        "Created with [PostHog](http://localhost:8000/code/task/test-task-id)",
       );
       // PR template detection (repo first, org `.github` fallback)
       expect(prompt).toContain(".github/pull_request_template.md");
@@ -6947,7 +6956,7 @@ describe("AgentServer HTTP Mode", () => {
       expect(prompt).not.toContain("stop with local changes ready for review");
       // Manual runs keep the PostHog Desktop attribution.
       expect(prompt).toContain(
-        "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)",
+        "Created with [PostHog Desktop](http://localhost:8000/code/task/test-task-id)",
       );
     });
 
@@ -7361,7 +7370,7 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     describe("PR body guidance (why context + brevity + footer)", () => {
-      it("instructs Why, brevity, and the plain footer (no Slack link) when auto-creating a Slack PR without a thread URL", () => {
+      it("instructs Why, brevity, and the task footer when auto-creating a Slack PR without a thread URL", () => {
         process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
         try {
           const prompt = (
@@ -7376,7 +7385,7 @@ describe("AgentServer HTTP Mode", () => {
           expect(prompt).toContain("do NOT enumerate every change");
           // plain footer, no Slack link; Slack-origin PRs are branded "PostHog"
           expect(prompt).toContain(
-            "*Created with [PostHog](https://posthog.com?ref=pr)*",
+            "*Created with [PostHog](http://localhost:8000/code/task/test-task-id)*",
           );
           expect(prompt).not.toContain("from a [Slack thread]");
           expect(prompt).not.toContain("PostHog Desktop](https://posthog.com");
@@ -7442,7 +7451,7 @@ describe("AgentServer HTTP Mode", () => {
         }
       });
 
-      it("instructs Why, brevity, and the plain footer on the non-Slack no-repository path", () => {
+      it("instructs Why, brevity, and the task footer on the non-Slack no-repository path", () => {
         delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
         const prompt = (
           createServer({
@@ -7453,7 +7462,7 @@ describe("AgentServer HTTP Mode", () => {
         expect(prompt).toContain("**Why**");
         expect(prompt).toContain("Keep the PR description brief");
         expect(prompt).toContain(
-          "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
+          "*Created with [PostHog Desktop](http://localhost:8000/code/task/test-task-id)*",
         );
         expect(prompt).not.toContain("from a [Slack thread]");
       });
