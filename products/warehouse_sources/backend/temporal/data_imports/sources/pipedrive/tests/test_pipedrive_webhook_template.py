@@ -87,12 +87,27 @@ class TestPipedriveWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
 
         self.mock_produce_to_warehouse_webhooks.assert_called_once_with(globals["request"]["body"], expected_schema_id)
 
+    def test_missing_http_auth_credentials_drops_delivery(self) -> None:
+        # PostHog creates the subscription before the credentials are stored, so a delivery can
+        # arrive with nothing to check it against. A 4xx would only start Pipedrive's retry loop.
+        globals = self._request(self._payload(), headers={"authorization": "Basic x"})
+
+        res = self.run_function(self._inputs(http_auth_password=""), globals=globals)
+
+        assert res.result == {
+            "httpResponse": {
+                "status": 200,
+                "body": "HTTP auth credentials not configured, delivery dropped",
+            },
+            "appMetric": "missing_credential",
+        }
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()
+
     @parameterized.expand(
         [
             ("wrong_password", {"authorization": _basic(AUTH_USER, "not-the-password")}, {}, 401),
             ("wrong_user", {"authorization": _basic("someone-else", AUTH_PASSWORD)}, {}, 401),
             ("missing_header", {}, {}, 401),
-            ("no_credentials_configured", {"authorization": "Basic x"}, {"http_auth_password": ""}, 400),
         ]
     )
     def test_unverified_delivery_is_rejected(
