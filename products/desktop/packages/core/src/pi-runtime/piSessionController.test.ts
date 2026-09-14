@@ -1549,21 +1549,33 @@ describe("PiSessionController", () => {
   });
 
   it.each([
-    ["the prior sandbox is gone", "No active sandbox for this task run"],
-    ["the prior workflow has ended", "Task run workflow has ended"],
+    ["the prior run is terminal", "", true],
+    ["the prior sandbox is gone", "No active sandbox for this task run", false],
+    ["the prior workflow has ended", "Task run workflow has ended", false],
   ])(
-    "resumes and retries a message when %s",
-    async (_condition, errorMessage) => {
+    "resumes and sends a message when %s",
+    async (_condition, errorMessage, resumeRequired) => {
       const staleSession = {
         ...createSession(),
         taskRunId: "run-1",
+        resumeRequired,
         sendUserMessage: vi.fn(async () => {
           throw new Error(errorMessage);
         }),
       };
-      const resumedSession = {
+      let resentMessageId = "";
+      const resumedSession: PiSession = {
         ...createSession(),
-        sendUserMessage: vi.fn(async () => {}),
+        sendUserMessage: vi.fn(
+          async (_type, _content, _artifacts, messageId) => {
+            resentMessageId = messageId;
+            onEvent({
+              type: "turn_completed",
+              timestamp: 2,
+              stopReason: "stop",
+            });
+          },
+        ),
       };
       let onEvent: (event: AgentConversationEvent) => void = () => {};
       vi.mocked(resumedSession.onConversationEvent).mockImplementation(
@@ -1610,6 +1622,23 @@ describe("PiSessionController", () => {
         expect.any(String),
       );
       expect(notifier.notify).not.toHaveBeenCalled();
+      onEvent({
+        type: "user_message",
+        id: "previous-message",
+        timestamp: 3,
+        content: [{ type: "text", text: "old prompt" }],
+      });
+      onEvent({ type: "turn_completed", timestamp: 4, stopReason: "stop" });
+      expect(notifier.notify).not.toHaveBeenCalled();
+      expect(
+        controller.store.getState().sessions["task-1"].status?.isStreaming,
+      ).toBe(true);
+      onEvent({
+        type: "user_message",
+        id: resentMessageId,
+        timestamp: 5,
+        content: [{ type: "text", text: "continue" }],
+      });
       onEvent({
         type: "turn_completed",
         timestamp: Date.now(),

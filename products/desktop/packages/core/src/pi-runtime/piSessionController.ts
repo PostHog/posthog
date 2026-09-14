@@ -126,6 +126,7 @@ type TextEvent = Extract<
 const STREAM_BATCH_MS = 16;
 
 type PiTurnState =
+  | { phase: "pending"; messageId: string; startedAt: number }
   | { phase: "active"; startedAt?: number; stopReason?: string }
   | { phase: "completed" };
 
@@ -598,7 +599,10 @@ export class PiSessionController {
       try {
         const session = await this.getWritablePiSession(taskId);
         await this.applyDeferredConfig(session, deferredConfig);
-        this.markTurnPending(taskId);
+        this.markTurnPending(
+          taskId,
+          currentSession.resumeRequired ? messageId : undefined,
+        );
         if (session.sendUserMessage && messageId) {
           const taskRunId = this.taskRunIds.get(taskId);
           const prepared = taskRunId
@@ -1102,7 +1106,11 @@ export class PiSessionController {
     if (status && hasTurnActivity) {
       status = { ...status, isStreaming: true };
     }
-    if (status && event.type === "turn_completed") {
+    if (
+      status &&
+      event.type === "turn_completed" &&
+      this.turnStates.get(taskId)?.phase !== "pending"
+    ) {
       status = { ...status, isStreaming: false };
     }
 
@@ -1172,6 +1180,15 @@ export class PiSessionController {
     isLive: boolean,
   ): void {
     const current = this.turnStates.get(taskId);
+    if (current?.phase === "pending") {
+      if (event.type === "user_message" && event.id === current.messageId) {
+        this.turnStates.set(taskId, {
+          phase: "active",
+          startedAt: current.startedAt,
+        });
+      }
+      return;
+    }
     const activeTurn = current?.phase === "active" ? current : undefined;
     const isDirectBash =
       (event.type === "tool_call_started" ||
@@ -1524,11 +1541,16 @@ export class PiSessionController {
     );
   }
 
-  private markTurnPending(taskId: string): void {
+  private markTurnPending(taskId: string, messageId?: string): void {
     const current = this.turnStates.get(taskId);
     const startedAt =
       current?.phase === "active" ? current.startedAt : Date.now();
-    this.turnStates.set(taskId, { phase: "active", startedAt });
+    this.turnStates.set(
+      taskId,
+      messageId
+        ? { phase: "pending", messageId, startedAt: startedAt ?? Date.now() }
+        : { phase: "active", startedAt },
+    );
     this.setTurnStreaming(taskId, true);
   }
 
@@ -1628,7 +1650,7 @@ export class PiSessionController {
       if (!resumedSession.sendUserMessage) {
         throw new Error("Resumed cloud Pi session cannot send messages");
       }
-      this.markTurnPending(taskId);
+      this.markTurnPending(taskId, messageId);
       await resumedSession.sendUserMessage(
         type,
         content,
@@ -1691,6 +1713,7 @@ export class PiSessionController {
       this.submissionsInFlight.has(taskId) ||
       session.isBashRunning ||
       session.authRestoring ||
+      turnState?.phase === "pending" ||
       // A turn that already recorded a failure receives no turn_completed, so it
       // is finished, not in flight. A recovering turn clears the failure on its
       // next activity event.
