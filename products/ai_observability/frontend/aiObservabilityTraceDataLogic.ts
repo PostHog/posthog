@@ -337,6 +337,7 @@ export interface aiObservabilityTraceDataLogicValues {
     hasScrolledToEvent: boolean
     highlightedEventId: string | null
     initialFocusEventId: string | null
+    lastLoadedTrace: LLMTrace | null
     metricEvents: LLMTraceEvent[]
     metricsAndFeedbackEvents: {
         metric: string
@@ -349,6 +350,7 @@ export interface aiObservabilityTraceDataLogicValues {
     showableEvents: LLMTraceEvent[]
     singleTraceLoadReported: boolean
     trace: LLMTrace | undefined
+    traceFromResponse: LLMTrace | undefined
     traceGitMetadata: TraceGitMetadata | null
     tree: TraceTreeNode[]
 }
@@ -358,6 +360,9 @@ export interface aiObservabilityTraceDataLogicActions {
     setEventId: (eventId: string | null) => {
         eventId: string | null
     } // aiObservabilityTraceLogic
+    rememberLoadedTrace: (trace: LLMTrace) => {
+        trace: LLMTrace
+    }
     reportSingleTraceLoadIfReady: () => {
         value: true
     }
@@ -373,7 +378,7 @@ export interface aiObservabilityTraceDataLogicActions {
 export interface aiObservabilityTraceDataLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        trace: (
+        traceFromResponse: (
             response:
                 | ErrorTrackingQueryResponse
                 | HogQLAutocompleteResponse
@@ -390,6 +395,7 @@ export interface aiObservabilityTraceDataLogicMeta {
                 | TraceSpansQueryResponse
                 | null
         ) => LLMTrace | undefined
+        trace: (traceFromResponse: LLMTrace | undefined, lastLoadedTrace: LLMTrace | null) => LLMTrace | undefined
         showableEvents: (trace: LLMTrace | undefined) => LLMTraceEvent[]
         filteredEvents: (showableEvents: LLMTraceEvent[], searchQuery: string, traceId: string) => LLMTraceEvent[]
         filteredTree: (
@@ -467,8 +473,20 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
         reportSingleTraceLoadIfReady: true,
         setSingleTraceLoadReported: true,
         setHasScrolledToEvent: true,
+        rememberLoadedTrace: (trace: LLMTrace) => ({ trace }),
     }),
     reducers({
+        // The trace query re-runs whenever the URL gains a param or its one-minute cache entry
+        // ages out, and the response is the scene's only source of the trace. One re-run that
+        // comes back empty would otherwise replace a trace already on screen with "Trace not
+        // found", so the last trace we did load is kept. The logic is keyed by trace ID, so
+        // this cannot carry one trace into another's scene.
+        lastLoadedTrace: [
+            null as LLMTrace | null,
+            {
+                rememberLoadedTrace: (_, { trace }) => trace,
+            },
+        ],
         singleTraceLoadReported: [
             false,
             {
@@ -483,7 +501,7 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
         ],
     }),
     selectors({
-        trace: [
+        traceFromResponse: [
             (s) => [s.response],
             (
                 response:
@@ -505,6 +523,11 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
                 const traceResponse = response as TraceQueryResponse | null
                 return traceResponse?.results?.[0]
             },
+        ],
+        trace: [
+            (s) => [s.traceFromResponse, s.lastLoadedTrace],
+            (traceFromResponse: LLMTrace | undefined, lastLoadedTrace: LLMTrace | null): LLMTrace | undefined =>
+                traceFromResponse ?? lastLoadedTrace ?? undefined,
         ],
         showableEvents: [
             (s) => [s.trace],
@@ -802,6 +825,11 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
             // When search finds a most relevant event, navigate to it
             if (mostRelevantEvent && values.searchQuery.trim()) {
                 actions.setEventId(mostRelevantEvent.id)
+            }
+        },
+        traceFromResponse: (traceFromResponse: LLMTrace | undefined) => {
+            if (traceFromResponse) {
+                actions.rememberLoadedTrace(traceFromResponse)
             }
         },
         trace: (trace: LLMTrace | undefined, oldTrace: LLMTrace | undefined) => {

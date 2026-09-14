@@ -47,14 +47,15 @@ function citationTarget(c: EvaluationReportCitation): { citedId: string; url: st
         }
         return { citedId: c.session_id, url: urls.aiObservabilitySession(c.session_id), label: 'session' }
     }
-    const citedId = c.generation_id || c.trace_id
-    const traceId = c.trace_id || c.generation_id
-    if (!citedId || !traceId) {
+    // The trace route resolves a trace ID. A generation-target citation that carries no trace ID
+    // has no destination, so it stays plain text rather than linking a generation ID into the
+    // route, where it can never resolve.
+    if (!c.trace_id) {
         return null
     }
     return {
-        citedId,
-        url: urls.aiObservabilityTrace(traceId, c.generation_id && c.trace_id ? { event: c.generation_id } : undefined),
+        citedId: c.generation_id || c.trace_id,
+        url: urls.aiObservabilityTrace(c.trace_id, c.generation_id ? { event: c.generation_id } : undefined),
         label: c.generation_id ? 'generation' : 'trace',
     }
 }

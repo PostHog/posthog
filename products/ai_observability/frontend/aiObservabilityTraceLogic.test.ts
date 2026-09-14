@@ -8,6 +8,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import type { TraceQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
@@ -118,6 +119,32 @@ describe('aiObservabilityTraceLogic', () => {
             dateRange: { dateFrom: timestamp, dateTo: null },
             viewMode: 'conversation',
         })
+    })
+
+    // Regression: the query capped date_to at date_from plus ten minutes. The anchor is already
+    // five minutes before the trace starts, so the window covered the trace's first five minutes
+    // and dropped everything a longer trace did after that. An anchor-only URL now leaves the
+    // upper end to the query runner, which bounds it by one trace's plausible duration.
+    it.each<{ name: string; params: Record<string, string>; expected: Record<string, string> }>([
+        {
+            name: 'leaves the upper end open for a timestamp anchor',
+            params: { timestamp: '2024-01-01T00:00:00Z' },
+            expected: { date_from: '2024-01-01T00:00:00Z' },
+        },
+        {
+            name: 'keeps both bounds for an exception window',
+            params: { exception_ts: '2024-01-02T00:00:00Z' },
+            expected: { date_from: '2024-01-01T23:40:00.000Z', date_to: '2024-01-02T00:20:00.000Z' },
+        },
+    ])('$name', async ({ params, expected }) => {
+        const traceId = 'test-trace-id'
+        const traceUrl = combineUrl(urls.aiObservabilityTrace(traceId, params))
+
+        router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.query.source).toMatchObject({ traceId, dateRange: expected })
+        expect(Object.keys((logic.values.query.source as TraceQuery).dateRange ?? {})).toEqual(Object.keys(expected))
     })
 
     it('does not write the search query back to the URL when it originates from the URL', async () => {
