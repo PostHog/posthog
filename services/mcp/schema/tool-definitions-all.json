@@ -5063,6 +5063,20 @@
             "readOnlyHint": true
         }
     },
+    "external-data-sources-bulk-update-schemas": {
+        "description": "Apply sync configuration to several of a source's table schemas at once: enable or disable syncing (should_sync), sync_type, sync frequency and UTC time of day, incremental field, and primary key columns. Each entry needs the schema id plus the fields to change. Prefer this over looping 'external-data-schemas-partial-update' when reconfiguring more than a couple of tables of the same source, such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before anything is written, and a schema that fails is reported by name while the rest of the batch is saved. Changes take effect on the next sync, not retroactively.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Update many table schemas in one request",
+        "title": "Update many table schemas in one request",
+        "required_scopes": ["external_data_source:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "external-data-sources-check-cdc-prerequisites-create": {
         "description": "Validate that a live Postgres database meets Change Data Capture prerequisites — logical replication enabled (wal_level=logical), replication slot available, publication present, and required permissions. Postgres-only. Returns {valid, errors[]}. Use this before configuring a schema with sync_type=cdc, or to diagnose why an existing CDC sync has started failing.",
         "category": "Warehouse sources",
