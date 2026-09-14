@@ -28,15 +28,17 @@ type server struct {
 }
 
 type completionRequest struct {
-	Query    string `json:"query"`
-	Position *int   `json:"position,omitempty"`
-	Cursor   string `json:"cursor,omitempty"`
+	Query            string                      `json:"query"`
+	Position         *int                        `json:"position,omitempty"`
+	PositionEncoding completion.PositionEncoding `json:"positionEncoding,omitempty"`
+	Cursor           string                      `json:"cursor,omitempty"`
 }
 
 type completionResponse struct {
 	completion.Result
-	CatalogRevision string `json:"catalogRevision"`
-	DurationMicros  int64  `json:"durationMicros"`
+	CatalogRevision  string                      `json:"catalogRevision"`
+	DurationMicros   int64                       `json:"durationMicros"`
+	PositionEncoding completion.PositionEncoding `json:"positionEncoding"`
 }
 
 type validationRequest struct {
@@ -186,17 +188,26 @@ func (s *server) autocomplete(w http.ResponseWriter, r *http.Request, authorizat
 		http.Error(w, "catalog not found", http.StatusNotFound)
 		return
 	}
-	position := len(input.Query)
+	position := -1
 	if input.Position != nil {
 		position = *input.Position
 	}
+	positionEncoding := input.PositionEncoding
+	if positionEncoding == "" {
+		positionEncoding = completion.PositionEncodingUTF8
+	}
 	started := time.Now()
-	result, err := completion.Complete(current, input.Query, position, input.Cursor)
+	result, err := completion.Complete(current, input.Query, position, positionEncoding, input.Cursor)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, http.StatusOK, completionResponse{Result: result, CatalogRevision: revision, DurationMicros: time.Since(started).Microseconds()})
+	writeJSON(w, http.StatusOK, completionResponse{
+		Result:           result,
+		CatalogRevision:  revision,
+		DurationMicros:   time.Since(started).Microseconds(),
+		PositionEncoding: positionEncoding,
+	})
 }
 
 func (s *server) validate(w http.ResponseWriter, r *http.Request, authorization serviceauth.Authorization) {

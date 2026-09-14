@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework.exceptions import AuthenticationFailed
@@ -13,9 +13,8 @@ from posthog.auth import InternalAPIAuthentication
 from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
 
 
-class TestInternalAPIAuth(APIBaseTest):
+class TestInternalAPIAuthWithoutDatabase(SimpleTestCase):
     def setUp(self):
-        super().setUp()
         self.factory = RequestFactory()
         self.authentication = InternalAPIAuthentication()
 
@@ -94,6 +93,13 @@ class TestInternalAPIAuth(APIBaseTest):
     def test_authenticate_header(self):
         request = self.factory.get("/internal/endpoint")
         self.assertEqual(self.authentication.authenticate_header(request), "InternalApiSecret")
+
+
+class TestInternalAPIAuth(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.factory = RequestFactory()
+        self.authentication = InternalAPIAuthentication()
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_sets_org_and_team_from_team_id_route_param(self):
