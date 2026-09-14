@@ -35,7 +35,9 @@ export function isGenericNetworkTypeError(error: unknown): boolean {
     if (!info || info.name !== 'TypeError') {
         return false
     }
-    return info.message.includes('Load failed') || info.message.includes('NetworkError when attempting to fetch resource')
+    return (
+        info.message.includes('Load failed') || info.message.includes('NetworkError when attempting to fetch resource')
+    )
 }
 
 export function isChunkLoadError(error: unknown): boolean {
@@ -45,7 +47,7 @@ export function isChunkLoadError(error: unknown): boolean {
     }
     const isTypeError = info.name === 'TypeError'
     return (
-        markedChunkLoadErrors.has(error) ||
+        markedChunkLoadErrors.has(error as object) ||
         info.name === 'ChunkLoadError' ||
         info.message.includes('Failed to fetch dynamically imported module') ||
         info.message.includes('Importing a module script failed') ||
