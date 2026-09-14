@@ -311,6 +311,35 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert refused.json()["code"] == "throttled"
         assert mock_mint.call_count == 2
 
+    @override_settings(
+        DEBUG=False,
+        WIZARD_GATEWAY_TIERS={"new": {"mints_per_week": 2}},
+        WIZARD_GATEWAY_PROGRAM_IDS=["integration", "ai-observability", "events-audit"],
+    )
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_the_mint_bucket_is_shared_across_programs(
+        self, mock_authentication, mock_flag, mock_mint, mock_authorized
+    ):
+        """The ceiling is per account, not per program: a second program does not
+        get a fresh quota, or the per-account bound would scale with the program count."""
+        self._mock_oauth(mock_authentication)
+
+        for program in ("integration", "ai-observability"):
+            ok = self.client.post(
+                self.GATEWAY_TOKEN_URL, {"program": program}, headers={"authorization": "Bearer pha_test"}
+            )
+            assert ok.status_code == status.HTTP_201_CREATED, ok.content
+        refused = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "events-audit"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert refused.json()["code"] == "throttled"
+        assert mock_mint.call_count == 2
+
     @override_settings(DEBUG=False, WIZARD_GATEWAY_TIERS={"new": {"mints_per_week": 2}})
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)

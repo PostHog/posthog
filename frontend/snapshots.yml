@@ -2284,6 +2284,26 @@ snapshots:
         hash: v1.k794b7964.88c3253cfe129808e538e59d6eb8eb8fa948540042edd8248e9836cccce1a4af.RnBgBRDh8HKCK7PYoGDeuXTEbHHl5vnlNpU9IGLwFyk
     customer-analytics-google-account-backfill--invalid-range--light:
         hash: v1.k794b7964.7eb703bdf24bb2b8adcb1f8d90097dec56b85e0e0b6778e0ea0c68a9c6d9fbb0.W0aCVMrWUlFruWBqwJYpotdaFJ3BfR9P16qCdJn5jBc
+    data-catalog-metric-tests--empty--dark:
+        hash: v1.k794b7964.8c5bed6e45ecc0ce83e4fcb37057c6d87aad0a974e8ed035b9fc9e67a8c1dbd9.jNr2vi0P9-nEfiRddJJjwFg4ZekchSpeyXxdxNfAF1E
+    data-catalog-metric-tests--empty--light:
+        hash: v1.k794b7964.b61938eeec6c181dfa050f12aaa37dc28886fb46c05f44a166bd561a11e2bbeb.7FGTvZJQ_iQjTcZhVgp1_aPfdNLp44ci8ekVdwJhOnQ
+    data-catalog-metric-tests--narrow--dark:
+        hash: v1.k794b7964.d50892989be22e09d9f3c359e9cb103ac6e114962f0e5880227e7609e1bcfa6c.fo2ci86vxhqiY9M38jTh2o5FDYfZRVUR1c4DBzAMLDY
+    data-catalog-metric-tests--narrow--light:
+        hash: v1.k794b7964.5c3ea3639e9b94b99e126c1abcb7b1e3a3e4a4e6a47be4e96a5b41439a78a168.2Im9zIVH4nxRFBuQ85boAvduBL9OO0-B1RsOeb-T9Ew
+    data-catalog-metric-tests--scheduled--dark:
+        hash: v1.k794b7964.9bef386d6e9f5d180e1b2d4b5d0e6102fe89c762a7c072f01bc15fde7bf48822.KWnM7bOkYeokuww7iiq7dzouT0ap4H31-nVXPzHyyvU
+    data-catalog-metric-tests--scheduled--light:
+        hash: v1.k794b7964.79c70c6686bde7329b41b0bd75ee7cc686f4ca29a228267e099883bba29d4c34.WmwUmOEhHrBrfYBE7RAgFDVncjFTUP9FbqMXBIndH24
+    data-catalog-metric-tests--unsupported--dark:
+        hash: v1.k794b7964.7115929e94c0ba820dac20a4dab696f15e2cb0e612412b58ad690d67d31ba492.SMCtOwtSj6eBt2XXEVskBE-TRKLhc9HHwI9omv89eHs
+    data-catalog-metric-tests--unsupported--light:
+        hash: v1.k794b7964.ad9a5d7d21f92578fdfb8e2a50f1e11f57398eaf5b1b96241fc5d4ac09b22882.v1PBeMuXRe8sB14acADHS32KwpKXYIL0jW1DYk9a5Tw
+    data-catalog-metric-tests--unsupported-with-checks--dark:
+        hash: v1.k794b7964.3f134e3ce25e5070006cb36e69e4d2fba535b95516be1287f6571275970002fa.XEAgwRGf86ilBY4t6jX0KgGm6b9BHon8bcQwFzMSUBU
+    data-catalog-metric-tests--unsupported-with-checks--light:
+        hash: v1.k794b7964.64e9162a5dd7bc47a1667f13d8c77b4d1f00c6e15c70169ab4d4ffc588dd2112.j2HS8sjcKIg0QXaZ9PLel28BVD4vayBEBRzrHVO-dlI
     data-warehouse-destinationlist--both-selected--dark:
         hash: v1.k794b7964.5da0169833ea8b87e6d903cb4fc0f4d629a1b1db09149c5fb7c450ef312641a0.MH4OyaTjM18a4cpxtpCHPVm1QWWajZL5cz4NlzbJag0
     data-warehouse-destinationlist--both-selected--light:
@@ -5704,6 +5724,14 @@ snapshots:
         hash: v1.k794b7964.7c7d0d318d47ab1aaabaeeffa5cfae450ea600f2c8cdfda0dc8e9fccb86bff2f.5Jz5nz-ow5GYNJ2Em60NDBw258PubMRxJgwf8nS4jI4
     products-posthog-ai-debuglogsmenu--staff-primitive--light:
         hash: v1.k794b7964.f19770892ea0bf6cae9997d6e364c4694a74f607e4e087d83c850a92cbaaae75.FxREU9FWVvU9WvA0uMJYiYzrSDQDhi_TBKi4lAV_pq8
+    products-posthog-ai-markdownmessage--desktop-conversation--dark:
+        hash: v1.k794b7964.c908676310f415537ca83ea9cb4dfe0c2b85ff894d3984bbdb519ab27734f134.qC_FMYS0XvdgxK8zkBTol3af8o9B1yt50Bvw_Hqh3A4
+    products-posthog-ai-markdownmessage--desktop-conversation--light:
+        hash: v1.k794b7964.84bc67ddb80ff9e45ac761ffd252c65dac81d831f9e49ba41c337662efd32c4e.C3ZqsqW7xcq0Jhl5bjN_wINP4Idp0eDaDY_TFBGTul0
+    products-posthog-ai-markdownmessage--narrow--dark:
+        hash: v1.k794b7964.e77e2f37b19e26eca8b5e52be9831d0429294d63f305ee16fb641d5e6d842c5a.QIidfBcNV5M3O5MBQuehpK8R9g_B0VpGgK8I6PtvnPg
+    products-posthog-ai-markdownmessage--narrow--light:
+        hash: v1.k794b7964.e0e85811ba4860e1f5f0facc9a069a3acda781e9e8cddf50378a23171e4866ad.1SQK2-d5PrZQBx0GSvO2qRv8n4tgM5X4qYQ34NjLWTo
     products-posthog-ai-onboardingtakeover--awaiting-clip--dark:
         hash: v1.k794b7964.ce34e421ee0ac8dc6b49c9bc2d52791298561b4ab0ae74add1780c7b1e82114f.QZzI-wxiMSzGEymlFhQuyVyPBJs10NJUpnH6GOxDlO0
     products-posthog-ai-onboardingtakeover--awaiting-clip--light:

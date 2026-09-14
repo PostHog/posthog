@@ -22984,6 +22984,30 @@ export namespace Schemas {
       gate_materialization_on_checks: boolean;
     }
 
+    export interface DataQualityMetricSubject {
+      /** Metric identifier used by the nested check endpoints. */
+      id: string;
+      /** Queryable metric name. */
+      name: string;
+      /** Metric label shown in the data catalog. */
+      display_name: string;
+    }
+
+    export interface DataQualityOutputColumn {
+      /** Output column name available through the {metric} relation. */
+      name: string;
+      /**
+         * ClickHouse type, or null when it could not be inferred.
+         * @nullable
+         */
+      type: string | null;
+    }
+
+    export interface DataQualityOutputSchema {
+      /** Columns returned by the saved metric query. */
+      columns: DataQualityOutputColumn[];
+    }
+
     /**
      * Type-specific configuration, validated against the check type's JSON schema.
      */
@@ -37843,6 +37867,11 @@ export namespace Schemas {
       row_filters?: ExternalDataSourceBulkUpdateSchemaRowFiltersItem[] | null;
       /** When true and the schema has no sync method configured yet (and this update does not set one), discover the table on the source and fill in default sync settings: incremental sync with an auto-selected tracking column where supported, otherwise append, otherwise full refresh. Ignored for schemas that already have a sync method. */
       apply_sync_defaults?: boolean;
+    }
+
+    export interface ExternalDataSourceBulkUpdateSchemas {
+      /** Schema updates to apply in a single batch. */
+      schemas: ExternalDataSourceBulkUpdateSchema[];
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -65771,11 +65800,6 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
-    export interface PatchedExternalDataSourceBulkUpdateSchemas {
-      /** Schema updates to apply in a single batch. */
-      schemas?: ExternalDataSourceBulkUpdateSchema[];
-    }
-
     export type PatchedExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
 
     /**
@@ -68779,10 +68803,6 @@ export namespace Schemas {
       onboarding_tasks?: unknown;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly event_retention_months?: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly events_retention_enforced?: boolean;
     }
 
     export interface PatchedProjectSecretAPIKey {
@@ -73130,10 +73150,6 @@ export namespace Schemas {
       onboarding_tasks?: unknown;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly event_retention_months: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly events_retention_enforced: boolean;
     }
 
     /**
@@ -98863,21 +98879,6 @@ export namespace Schemas {
     };
 
     export type ExternalDataSourcesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
     /**
      * Number of results to return per page.
      */
