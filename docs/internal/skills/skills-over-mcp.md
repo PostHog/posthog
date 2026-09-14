@@ -5,6 +5,7 @@ A stored skill carries an `allowed_tools` list.
 
 The list means different things on different delivery paths.
 A harness that reads a skill from a file treats the list as pre-approved tools.
+The Agent Skills spec marks `allowed-tools` experimental and says support may vary between agent implementations, so a file harness without support for the field ignores it.
 A host that loads a skill over MCP must ignore the list until the user approves that grant.
 So `allowed_tools` is a request for access, not a grant of it.
 
