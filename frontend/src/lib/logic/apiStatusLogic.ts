@@ -3,6 +3,7 @@ import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isBrowserNetworkFailure, isRequestTimeoutFailure } from 'lib/api-error'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -18,8 +19,10 @@ export interface apiStatusLogicValues {
 export interface apiStatusLogicActions {
     onApiResponse: (
         response?: Response,
-        error?: any
+        error?: any,
+        durationMs?: number
     ) => {
+        durationMs: number | undefined
         error: any
         response: Response | undefined
     }
@@ -39,10 +42,17 @@ export interface apiStatusLogicActions {
 
 export type apiStatusLogicType = MakeLogicType<apiStatusLogicValues, apiStatusLogicActions>
 
+/** How long the connection warning stays up when nothing else reports back. */
+const INTERNET_CONNECTION_ISSUE_TIMEOUT_MS = 15000
+
 export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
     actions({
-        onApiResponse: (response?: Response, error?: any) => ({ response, error }),
+        onApiResponse: (response?: Response, error?: any, durationMs?: number) => ({
+            response,
+            error,
+            durationMs,
+        }),
         setInternetConnectionIssue: (issue: boolean) => ({ issue }),
         setTimeSensitiveAuthenticationRequired: (
             required: boolean | [onSuccess: () => void, onFailure: () => void]
@@ -86,11 +96,23 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         ],
     }),
     listeners(({ cache, actions, values }) => ({
-        onApiResponse: async ({ response, error }, breakpoint) => {
+        setInternetConnectionIssue: async ({ issue }, breakpoint) => {
+            if (!issue) {
+                return
+            }
+            // A scene that runs one request has nothing left to answer OK, so without this the
+            // warning stays up for a failure the user has already moved past. Each new failure
+            // re-arms the timer, so a connection that is really down keeps the warning up.
+            await breakpoint(INTERNET_CONNECTION_ISSUE_TIMEOUT_MS)
+            actions.setInternetConnectionIssue(false)
+        },
+        onApiResponse: async ({ response, error, durationMs }, breakpoint) => {
             if (error || !response?.status) {
                 await breakpoint(50)
                 // Likely CORS headers errors (i.e. request failing without reaching Django))
-                if (error?.message === 'Failed to fetch') {
+                // A request the edge drops for running too long fails the same way, so exclude it:
+                // the connection is fine, and the query is what has to change.
+                if (isBrowserNetworkFailure(error) && !isRequestTimeoutFailure(null, durationMs)) {
                     actions.setInternetConnectionIssue(true)
                 }
             }

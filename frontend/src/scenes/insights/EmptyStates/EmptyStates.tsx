@@ -13,7 +13,7 @@ import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-contro
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
+import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE, isRequestTimeoutFailure } from 'lib/api-error'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
@@ -712,6 +712,7 @@ export function isRawServerErrorTitle(title: string, status?: number | null): bo
 type InsightErrorKind =
     | 'rate_limit'
     | 'memory_limit'
+    | 'query_timeout'
     | 'invalid_query'
     | 'permission'
     | 'transient'
@@ -721,6 +722,7 @@ type InsightErrorKind =
 const ERROR_HOGGIES: Record<InsightErrorKind, React.ComponentType<{ className?: string }>> = {
     rate_limit: HedgehogTrafficController,
     memory_limit: HedgehogMagnifyingGlass,
+    query_timeout: HedgehogMagnifyingGlass,
     invalid_query: HedgehogMagnifyingGlass,
     permission: HedgehogStampDenied,
     transient: HedgehogConstruction2,
@@ -733,9 +735,12 @@ function InsightErrorHoggie({ kind }: { kind: InsightErrorKind }): JSX.Element {
     return <Hoggie className="w-24 h-24 mb-2" />
 }
 
-function getInsightErrorKind(status?: number | null): InsightErrorKind {
+function getInsightErrorKind(status?: number | null, elapsedMs?: number | null): InsightErrorKind {
     if (status === 429) {
         return 'rate_limit'
+    }
+    if (isRequestTimeoutFailure(status, elapsedMs)) {
+        return 'query_timeout'
     }
     // 513 covers every ClickHouse memory failure: the query's own limit, cluster-wide pressure, and
     // the failure breaker holding a query that already failed this way. The status cannot tell them
@@ -749,7 +754,7 @@ function getInsightErrorKind(status?: number | null): InsightErrorKind {
     if (status === 401 || status === 403) {
         return 'permission'
     }
-    if (status === 502 || status === 503 || status === 504) {
+    if (status === 502 || status === 503) {
         return 'transient'
     }
     if (status != null && status >= 500) {
@@ -769,6 +774,9 @@ function getInsightErrorTitle(
     if (kind === 'invalid_query') {
         return "We couldn't run this query"
     }
+    if (kind === 'query_timeout') {
+        return 'This query took too long to finish'
+    }
     if (kind === 'transient') {
         return "This query couldn't run right now"
     }
@@ -784,6 +792,8 @@ function getInsightErrorTitle(
     return fallback ?? 'There was a problem completing this query'
 }
 
+const ASK_FOR_LESS_DATA_REMEDIATION = 'Try a shorter date range or narrower filters, then run it again.'
+
 function getInsightErrorRemediation(
     kind: InsightErrorKind,
     retryAfter?: string | null,
@@ -795,7 +805,9 @@ function getInsightErrorRemediation(
         case 'memory_limit':
             // Only the backend copy knows whether to shrink this query, wait out cluster load, or
             // how long the breaker holds the query for.
-            return backendDetail ?? 'Try a shorter date range or narrower filters, then run it again.'
+            return backendDetail ?? ASK_FOR_LESS_DATA_REMEDIATION
+        case 'query_timeout':
+            return ASK_FOR_LESS_DATA_REMEDIATION
         case 'invalid_query':
             return 'Open the query debugger and correct the query.'
         case 'permission':
@@ -814,6 +826,8 @@ export interface InsightErrorStateProps {
     title?: string | JSX.Element | null
     /** HTTP status of the failed response a string `title` came from, used to tell raw errors from user-facing copy */
     titleStatus?: number | null
+    /** How long the failed query ran, which tells a dropped long query from an unreachable server */
+    elapsedMs?: number | null
     query?: Record<string, any> | Node | null
     queryId?: string | null
     retryAfter?: string | null
@@ -829,6 +843,7 @@ export interface InsightErrorStateProps {
 export function InsightErrorState({
     title,
     titleStatus,
+    elapsedMs,
     query,
     queryId,
     retryAfter,
@@ -840,7 +855,7 @@ export function InsightErrorState({
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
-    const errorKind = getInsightErrorKind(titleStatus)
+    const errorKind = getInsightErrorKind(titleStatus, elapsedMs)
     const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
     const safeTitle = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? null : title
     const displayTitle = getInsightErrorTitle(errorKind, safeTitle, titleStatus)

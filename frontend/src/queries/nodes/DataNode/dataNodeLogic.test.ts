@@ -756,6 +756,70 @@ describe('dataNodeLogic', () => {
         )
     })
 
+    it.each([
+        {
+            name: 'a gateway timeout',
+            failure: Object.assign(new Error('Gateway timeout'), { status: 504 }),
+            expectedRefresh: 'force_async',
+        },
+        {
+            // Only a query something already gave up on is worth the extra round trips of polling.
+            name: 'a server error',
+            failure: Object.assign(new Error('Boom'), { status: 500 }),
+            expectedRefresh: 'force_blocking',
+        },
+    ])('retries with $expectedRefresh after $name', async ({ failure, expectedRefresh }) => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        })
+        mockedQuery.mockRejectedValueOnce(failure)
+
+        logic = dataNodeLogic({ key: testUniqueKey, query })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataFailure'])
+
+        mockedQuery.mockResolvedValue({ results: [] })
+        logic.actions.loadData('force_async')
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+
+        expect(performQuery).toHaveBeenLastCalledWith(
+            query,
+            expect.anything(),
+            expectedRefresh,
+            expect.any(String),
+            expect.any(Function),
+            undefined,
+            undefined,
+            false,
+            undefined
+        )
+    })
+
+    it('keeps the retry polling when another failure lands in between', async () => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        })
+        mockedQuery.mockClear()
+        mockedQuery
+            .mockRejectedValueOnce(Object.assign(new Error('Gateway timeout'), { status: 504 }))
+            .mockRejectedValueOnce(Object.assign(new Error('Service unavailable'), { status: 503 }))
+            .mockResolvedValue({ results: [] })
+
+        logic = dataNodeLogic({ key: testUniqueKey, query })
+        logic.mount()
+        await expectLogic(logic).toFinishListeners()
+        await expectLogic(logic, () => logic.actions.loadData('force_async')).toFinishListeners()
+        await expectLogic(logic, () => logic.actions.loadData('force_async')).toFinishListeners()
+
+        expect(mockedQuery.mock.calls.map(([, , refresh]) => refresh)).toEqual([
+            'blocking',
+            'force_async',
+            'force_async',
+        ])
+    })
+
     it('drops a non-RefreshType refresh argument', async () => {
         // A caller that wires loadData straight to onClick passes a React MouseEvent as refresh;
         // it must never reach performQuery, or the query request body fails to serialize.

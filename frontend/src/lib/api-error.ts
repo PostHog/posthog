@@ -113,6 +113,25 @@ export const BROWSER_FETCH_FAILURE_MESSAGES: readonly string[] = [
 ]
 
 /**
+ * How long a failed request must have run before a status-less failure reads as a request that
+ * something gave up on, rather than a connection that is down. A browser that cannot reach the
+ * server fails in well under a second; a long query the edge drops runs for a minute or more.
+ */
+const REQUEST_TIMEOUT_ELAPSED_THRESHOLD_MS = 10000
+
+/**
+ * A request that ran until something gave up on it. The edge answers 504, and a request it drops
+ * carries no status at all, so how long the request ran is what tells that apart from a browser
+ * that never reached the server. Repeating the request cannot help; asking for less data can.
+ */
+export function isRequestTimeoutFailure(status?: number | null, elapsedMs?: number | null): boolean {
+    if (status === 504) {
+        return true
+    }
+    return status == null && elapsedMs != null && elapsedMs >= REQUEST_TIMEOUT_ELAPSED_THRESHOLD_MS
+}
+
+/**
  * A module the browser could not load, which is a defect of ours rather than connectivity: a chunk
  * an open tab still asks for went missing in a deploy. Chromium and Gecko word this by extending
  * one of the messages above, so a module failure has to be recognized before a connectivity one.
