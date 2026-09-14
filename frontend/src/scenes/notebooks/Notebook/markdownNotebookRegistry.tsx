@@ -253,6 +253,12 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         label: 'Python',
         ToolbarComponent: NotebookCodeCellRunButton,
         insertCommand: {
+            // Sits next to SQL in the menu's top group, because the two cells do the same job in
+            // a notebook. A separate "Code" group sits below the fold, where a person who is not
+            // already looking for Python does not find it. Only the menu grouping moves. The
+            // definition's category still drives the node's styling in the editor.
+            category: COMMON_INSERT_COMMAND_CATEGORY,
+            badge: 'New',
             aliases: ['python', 'py'],
             defaultProps: () => ({
                 ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),

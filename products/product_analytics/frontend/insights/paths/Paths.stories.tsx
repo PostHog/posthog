@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { waitFor } from '@testing-library/dom'
+import { waitFor } from '@testing-library/react'
 
 import {
     createInsightStory,
