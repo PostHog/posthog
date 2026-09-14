@@ -97,18 +97,42 @@ class UpsertHashKeyOverridesResponse(_message.Message):
 
     def __init__(self, inserted_count: _Optional[int] = ...) -> None: ...
 
+class HashKeyOverrideCursor(_message.Message):
+    __slots__ = ("team_id", "person_id", "feature_flag_key")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    FEATURE_FLAG_KEY_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_id: int
+    feature_flag_key: str
+
+    def __init__(
+        self, team_id: _Optional[int] = ..., person_id: _Optional[int] = ..., feature_flag_key: _Optional[str] = ...
+    ) -> None: ...
+
 class DeleteHashKeyOverridesByTeamsRequest(_message.Message):
-    __slots__ = ("team_ids", "batch_size")
+    __slots__ = ("team_ids", "batch_size", "cursor")
     TEAM_IDS_FIELD_NUMBER: _ClassVar[int]
     BATCH_SIZE_FIELD_NUMBER: _ClassVar[int]
+    CURSOR_FIELD_NUMBER: _ClassVar[int]
     team_ids: _containers.RepeatedScalarFieldContainer[int]
     batch_size: int
+    cursor: HashKeyOverrideCursor
 
-    def __init__(self, team_ids: _Optional[_Iterable[int]] = ..., batch_size: _Optional[int] = ...) -> None: ...
+    def __init__(
+        self,
+        team_ids: _Optional[_Iterable[int]] = ...,
+        batch_size: _Optional[int] = ...,
+        cursor: _Optional[_Union[HashKeyOverrideCursor, _Mapping]] = ...,
+    ) -> None: ...
 
 class DeleteHashKeyOverridesByTeamsResponse(_message.Message):
-    __slots__ = ("deleted_count",)
+    __slots__ = ("deleted_count", "cursor")
     DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
+    CURSOR_FIELD_NUMBER: _ClassVar[int]
     deleted_count: int
+    cursor: HashKeyOverrideCursor
 
-    def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
+    def __init__(
+        self, deleted_count: _Optional[int] = ..., cursor: _Optional[_Union[HashKeyOverrideCursor, _Mapping]] = ...
+    ) -> None: ...

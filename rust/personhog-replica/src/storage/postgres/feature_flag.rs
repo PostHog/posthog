@@ -8,7 +8,9 @@ use personhog_common::grpc::{current_client_name, current_method_name};
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::FeatureFlagStorage;
-use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext};
+use crate::storage::types::{
+    HashKeyOverride, HashKeyOverrideContext, HashKeyOverrideCursor, HashKeyOverrideDeleteBatch,
+};
 
 // Kept as an intermediate struct because the rows are aggregated into
 // HashKeyOverrideContext via HashMap grouping logic. All field types already
@@ -193,9 +195,13 @@ impl FeatureFlagStorage for PostgresStorage {
         &self,
         team_ids: &[i64],
         batch_size: i64,
-    ) -> StorageResult<i64> {
+        cursor: Option<&HashKeyOverrideCursor>,
+    ) -> StorageResult<HashKeyOverrideDeleteBatch> {
         if team_ids.is_empty() || batch_size <= 0 {
-            return Ok(0);
+            return Ok(HashKeyOverrideDeleteBatch {
+                deleted_count: 0,
+                cursor: None,
+            });
         }
 
         let client = current_client_name();
@@ -212,21 +218,49 @@ impl FeatureFlagStorage for PostgresStorage {
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let team_ids_i32: Vec<i32> = team_ids.iter().map(|&id| id as i32).collect();
+        // No cursor means start at the beginning. Team ids are positive, so this
+        // sentinel sorts before every row.
+        let (from_team_id, from_person_id, from_feature_flag_key) = match cursor {
+            Some(c) => (c.team_id as i32, c.person_id, c.feature_flag_key.as_str()),
+            None => (0, 0, ""),
+        };
 
-        let result = sqlx::query!(
+        // ctid keeps the delete off a second primary key lookup per row, and the row
+        // comparison against the cursor keeps the scan on the tail of the unique index.
+        let row = sqlx::query!(
             r#"
-            DELETE FROM posthog_featureflaghashkeyoverride
-            WHERE id IN (
-                SELECT id FROM posthog_featureflaghashkeyoverride
+            WITH doomed AS MATERIALIZED (
+                SELECT ctid, team_id, person_id, feature_flag_key
+                FROM posthog_featureflaghashkeyoverride
                 WHERE team_id = ANY($1)
+                  AND (team_id, person_id, feature_flag_key) > ($3::int4, $4::int8, $5::varchar)
+                ORDER BY team_id, person_id, feature_flag_key
                 LIMIT $2
-                FOR UPDATE SKIP LOCKED
+            ),
+            last_row AS (
+                SELECT team_id, person_id, feature_flag_key
+                FROM doomed
+                ORDER BY team_id DESC, person_id DESC, feature_flag_key DESC
+                LIMIT 1
+            ),
+            deleted AS (
+                DELETE FROM posthog_featureflaghashkeyoverride
+                WHERE ctid IN (SELECT ctid FROM doomed)
+                RETURNING 1
             )
+            SELECT
+                (SELECT count(*) FROM deleted) AS "deleted_count!",
+                (SELECT team_id FROM last_row) AS "next_team_id?",
+                (SELECT person_id FROM last_row) AS "next_person_id?",
+                (SELECT feature_flag_key FROM last_row) AS "next_feature_flag_key?"
             "#,
             &team_ids_i32,
-            batch_size
+            batch_size,
+            from_team_id,
+            from_person_id,
+            from_feature_flag_key
         )
-        .execute(&self.bulk_primary_pool)
+        .fetch_one(&self.bulk_primary_pool)
         .await?;
 
         common_metrics::histogram(
@@ -240,9 +274,27 @@ impl FeatureFlagStorage for PostgresStorage {
                 ("client".to_string(), client.to_string()),
                 ("method".to_string(), method.to_string()),
             ],
-            result.rows_affected() as f64,
+            row.deleted_count as f64,
         );
 
-        Ok(result.rows_affected() as i64)
+        let next_cursor = match (
+            row.next_team_id,
+            row.next_person_id,
+            row.next_feature_flag_key,
+        ) {
+            (Some(team_id), Some(person_id), Some(feature_flag_key)) => {
+                Some(HashKeyOverrideCursor {
+                    team_id: team_id as i64,
+                    person_id,
+                    feature_flag_key,
+                })
+            }
+            _ => None,
+        };
+
+        Ok(HashKeyOverrideDeleteBatch {
+            deleted_count: row.deleted_count,
+            cursor: next_cursor,
+        })
     }
 }

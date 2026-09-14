@@ -1185,6 +1185,7 @@ async fn test_delete_hash_key_overrides_by_teams_single_team() {
         .delete_hash_key_overrides_by_teams(Request::new(DeleteHashKeyOverridesByTeamsRequest {
             team_ids: vec![ctx.team_id],
             batch_size: 1000,
+            cursor: None,
         }))
         .await
         .expect("RPC failed");
@@ -1219,6 +1220,7 @@ async fn test_delete_hash_key_overrides_by_teams_empty_returns_zero() {
         .delete_hash_key_overrides_by_teams(Request::new(DeleteHashKeyOverridesByTeamsRequest {
             team_ids: vec![],
             batch_size: 1000,
+            cursor: None,
         }))
         .await
         .expect("RPC failed");
@@ -1241,6 +1243,7 @@ async fn test_delete_hash_key_overrides_by_teams_invalid_batch_size(#[case] batc
         .delete_hash_key_overrides_by_teams(Request::new(DeleteHashKeyOverridesByTeamsRequest {
             team_ids: vec![ctx.team_id],
             batch_size,
+            cursor: None,
         }))
         .await;
 

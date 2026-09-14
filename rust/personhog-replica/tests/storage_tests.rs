@@ -1009,13 +1009,13 @@ async fn test_delete_hash_key_overrides_by_teams_single_team() {
         .unwrap();
 
     // Delete by team
-    let deleted_count = ctx
+    let batch = ctx
         .storage
-        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 1000)
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 1000, None)
         .await
         .expect("Failed to delete hash key overrides");
 
-    assert_eq!(deleted_count, 2);
+    assert_eq!(batch.deleted_count, 2);
 
     // Verify they're gone
     let result = ctx
@@ -1039,13 +1039,14 @@ async fn test_delete_hash_key_overrides_by_teams_single_team() {
 async fn test_delete_hash_key_overrides_by_teams_empty_returns_zero() {
     let ctx = TestContext::new().await;
 
-    let deleted_count = ctx
+    let batch = ctx
         .storage
-        .delete_hash_key_overrides_by_teams(&[], 1000)
+        .delete_hash_key_overrides_by_teams(&[], 1000, None)
         .await
         .expect("Failed to delete hash key overrides");
 
-    assert_eq!(deleted_count, 0);
+    assert_eq!(batch.deleted_count, 0);
+    assert!(batch.cursor.is_none());
 
     ctx.cleanup().await.ok();
 }
@@ -1054,13 +1055,14 @@ async fn test_delete_hash_key_overrides_by_teams_empty_returns_zero() {
 async fn test_delete_hash_key_overrides_by_teams_nonexistent_team() {
     let ctx = TestContext::new().await;
 
-    let deleted_count = ctx
+    let batch = ctx
         .storage
-        .delete_hash_key_overrides_by_teams(&[999999999], 1000)
+        .delete_hash_key_overrides_by_teams(&[999999999], 1000, None)
         .await
         .expect("Failed to delete hash key overrides");
 
-    assert_eq!(deleted_count, 0);
+    assert_eq!(batch.deleted_count, 0);
+    assert!(batch.cursor.is_none());
 
     ctx.cleanup().await.ok();
 }
@@ -1079,34 +1081,59 @@ async fn test_delete_hash_key_overrides_by_teams_bounded_by_batch_size() {
             .unwrap();
     }
 
-    // batch_size=2 deletes 2 of the 5, then the loop drains the rest.
-    let deleted = ctx
-        .storage
-        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
-        .await
-        .expect("Failed to delete hash key overrides");
-    assert_eq!(deleted, 2);
+    // batch_size=2 deletes 2 of the 5, then the loop drains the rest by
+    // resuming from the cursor the previous batch returned.
+    let mut cursor = None;
+    for expected in [2, 2, 1, 0] {
+        let batch = ctx
+            .storage
+            .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2, cursor.as_ref())
+            .await
+            .expect("Failed to delete hash key overrides");
+        assert_eq!(batch.deleted_count, expected);
+        if expected == 0 {
+            assert!(batch.cursor.is_none());
+        } else {
+            assert!(batch.cursor.is_some());
+        }
+        cursor = batch.cursor;
+    }
 
-    let deleted = ctx
-        .storage
-        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
-        .await
-        .expect("Failed to delete hash key overrides");
-    assert_eq!(deleted, 2);
+    ctx.cleanup().await.ok();
+}
 
-    let deleted = ctx
-        .storage
-        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
-        .await
-        .expect("Failed to delete hash key overrides");
-    assert_eq!(deleted, 1);
+#[tokio::test]
+async fn test_delete_hash_key_overrides_by_teams_cursor_drains_every_row() {
+    let ctx = TestContext::new().await;
 
-    let deleted = ctx
-        .storage
-        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
-        .await
-        .expect("Failed to delete hash key overrides");
-    assert_eq!(deleted, 0);
+    for p in 0..3 {
+        let person = ctx
+            .insert_person(&format!("cursor_drain_user_{p}"), None)
+            .await
+            .expect("Failed to insert person");
+        for f in 0..3 {
+            ctx.insert_hash_key_override(person.id, &format!("flag-{f}"), "hash")
+                .await
+                .unwrap();
+        }
+    }
+
+    let mut cursor = None;
+    let mut total = 0;
+    loop {
+        let batch = ctx
+            .storage
+            .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2, cursor.as_ref())
+            .await
+            .expect("Failed to delete hash key overrides");
+        if batch.deleted_count == 0 {
+            break;
+        }
+        total += batch.deleted_count;
+        cursor = batch.cursor;
+    }
+
+    assert_eq!(total, 9);
 
     ctx.cleanup().await.ok();
 }
@@ -1123,12 +1150,12 @@ async fn test_delete_hash_key_overrides_by_teams_zero_batch_size() {
         .await
         .unwrap();
 
-    let deleted = ctx
+    let batch = ctx
         .storage
-        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 0)
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 0, None)
         .await
         .expect("Failed to delete hash key overrides");
-    assert_eq!(deleted, 0);
+    assert_eq!(batch.deleted_count, 0);
 
     ctx.cleanup().await.ok();
 }
