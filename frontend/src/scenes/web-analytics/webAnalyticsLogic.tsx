@@ -2033,7 +2033,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           sessionsSeries,
                                       ])
                                     : null,
-                                !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_SESSION_PROPERTY_CHARTS]
+                                !conversionGoal
                                     ? createGraphsTrendsTab(
                                           GraphsTab.SESSION_DURATION,
                                           'Average session duration',
@@ -2041,7 +2041,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           [sessionDurationSeries]
                                       )
                                     : null,
-                                !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_SESSION_PROPERTY_CHARTS]
+                                !conversionGoal
                                     ? createGraphsTrendsTab(
                                           GraphsTab.BOUNCE_RATE,
                                           'Average bounce rate',
