@@ -784,12 +784,15 @@ function useChannelActions(channel: Channel): {
   const insideChannel = useRouterState({
     select: (s) => s.location.pathname.startsWith(`/spaces/${channel.id}`),
   });
-  const {
-    deleteChannel,
-    isDeleting,
-    updateAutoArchive,
-    isUpdatingAutoArchive,
-  } = useChannelMutations();
+  const { deleteChannel, updateAutoArchive, isUpdatingAutoArchive } =
+    useChannelMutations();
+  // The cleanup round trips run before the delete mutation reports itself
+  // pending, so the mutation's own flag leaves the button live for two
+  // requests' worth of time. The ref refuses a second press inside the same
+  // tick, before any re-render; the state keeps the button loading for all of
+  // `confirmDelete`.
+  const deletingRef = useRef(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const { isStarred, toggleStar } = useChannelStarToggle(channel);
   // A boolean rather than the channel, so the action list below survives the
   // new channel object every list poll hands this row.
@@ -799,6 +802,9 @@ function useChannelActions(channel: Channel): {
   // refusal the server means, such as no permission or a space that still
   // holds tasks, closes behind its toast instead of inviting endless retries.
   const confirmDelete = async (): Promise<boolean> => {
+    if (deletingRef.current) return false;
+    deletingRef.current = true;
+    setIsDeleting(true);
     try {
       // Unfile the channel's dashboards + filed tasks first. The folder delete
       // would also cascade, but doing it explicitly via the typed endpoints
@@ -856,6 +862,9 @@ function useChannelActions(channel: Channel): {
       const serverRefused =
         status !== undefined && status >= 400 && status < 500;
       return serverRefused;
+    } finally {
+      deletingRef.current = false;
+      setIsDeleting(false);
     }
   };
 

@@ -35,6 +35,10 @@ const mocks = vi.hoisted(() => ({
   blockedSessions: {} as Record<string, number>,
   channelsLayout: true,
   navigate: vi.fn(),
+  // Held open by the double-press test so it can act while the cleanup
+  // listings are still in flight. `await null` resolves at once, so every
+  // other test still sees immediate lists.
+  cleanupGate: null as Promise<void> | null,
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
@@ -64,11 +68,21 @@ vi.mock("@posthog/ui/primitives/toast", () => ({
 vi.mock("../hostClient", () => ({
   hostClient: () => ({
     dashboards: {
-      list: { query: async () => [] },
+      list: {
+        query: async () => {
+          await mocks.cleanupGate;
+          return [];
+        },
+      },
       delete: { mutate: vi.fn() },
     },
     channelTasks: {
-      list: { query: async () => [] },
+      list: {
+        query: async () => {
+          await mocks.cleanupGate;
+          return [];
+        },
+      },
       unfile: { mutate: vi.fn() },
     },
   }),
@@ -253,6 +267,7 @@ describe("ChannelsList", () => {
     mocks.blockedSessions = {};
     mocks.channelsLayout = true;
     mocks.deleteChannel.mockReset();
+    mocks.cleanupGate = null;
     // The pane store is module state: reset to its resting value so a test that
     // slides the slider can't hand the next one a pre-focused search box.
     showChannelPane();
@@ -780,6 +795,34 @@ describe("ChannelsList", () => {
         "Couldn't delete space",
         expect.objectContaining({ description: detail }),
       );
+    });
+
+    // The delete mutation reports itself pending only after the cleanup
+    // listings return, so a button bound to that flag alone stays live through
+    // them. A second press in that window repeats the cleanup and loses the
+    // delete race, which shows the reader a failure for a space that went.
+    it("takes one Delete press while the cleanup is still running", async () => {
+      let releaseCleanup = (): void => {};
+      mocks.cleanupGate = new Promise<void>((resolve) => {
+        releaseCleanup = resolve;
+      });
+      mocks.deleteChannel.mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      renderList();
+
+      fireEvent.contextMenu(screen.getByText("engineering"));
+      await user.click(await screen.findByText("Delete space…"));
+      const confirm = await screen.findByText("Delete space");
+      await user.click(confirm);
+
+      const button = confirm.closest("button");
+      await waitFor(() => expect(button?.ariaBusy).toBe("true"));
+      fireEvent.click(confirm);
+
+      await act(async () => {
+        releaseCleanup();
+      });
+      await waitFor(() => expect(mocks.deleteChannel).toHaveBeenCalledTimes(1));
     });
   });
 });
