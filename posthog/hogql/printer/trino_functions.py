@@ -3,6 +3,8 @@ from math import factorial
 
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
+from posthog.dataclasses import frozen
+
 TRINO_AGGREGATE_COMBINATORS = {
     f"{base}{array}{empty}{condition}".lower(): (base, array, empty, bool(condition))
     for base in ("avg", "sum", "min", "max", "count", "countDistinct", "median")
@@ -1120,19 +1122,25 @@ def _initcap(args: list[str]) -> str:
     )
 
 
-def _ipv4_string_parts(value: str) -> tuple[str, str]:
+@frozen
+class _IPv4StringParts:
+    valid: str
+    number: str
+
+
+def _ipv4_string_parts(value: str) -> _IPv4StringParts:
     strict = r"'^[0-9]{1,3}(?:\.[0-9]{1,3}){3}$'"
     octets = f"transform(split({value}, '.'), __hogql_octet -> TRY_CAST(__hogql_octet AS BIGINT))"
     valid = f"regexp_like({value}, {strict}) AND all_match({octets}, __hogql_octet -> __hogql_octet <= 255)"
     number = f"reduce({octets}, BIGINT '0', (__hogql_total, __hogql_octet) -> __hogql_total * 256 + __hogql_octet, __hogql_total -> __hogql_total)"
-    return valid, number
+    return _IPv4StringParts(valid=valid, number=number)
 
 
 def _is_ipv4_string(args: list[str]) -> str:
     _require_args("isIPv4String", args, 1)
     value = "__hogql_ip"
-    valid, _ = _ipv4_string_parts(value)
-    return f"element_at(transform(ARRAY[{args[0]}], {value} -> IF({value} IS NULL, NULL, {valid})), 1)"
+    parts = _ipv4_string_parts(value)
+    return f"element_at(transform(ARRAY[{args[0]}], {value} -> IF({value} IS NULL, NULL, {parts.valid})), 1)"
 
 
 def _is_ipv6_string(args: list[str]) -> str:
@@ -1153,10 +1161,10 @@ def _ipv4_string_to_num(name: str, fallback: str) -> Callable[[list[str]], str]:
     def handler(args: list[str]) -> str:
         _require_args(name, args, 1)
         value = "__hogql_ip"
-        valid, number = _ipv4_string_parts(value)
-        result = number if not fallback else f"IF({valid}, {number}, {fallback})"
+        parts = _ipv4_string_parts(value)
+        result = parts.number if not fallback else f"IF({parts.valid}, {parts.number}, {fallback})"
         if not fallback:
-            result = f"IF({valid}, {number}, fail('Invalid IPv4 address'))"
+            result = f"IF({parts.valid}, {parts.number}, fail('Invalid IPv4 address'))"
         return f"element_at(transform(ARRAY[{args[0]}], {value} -> IF({value} IS NULL, NULL, {result})), 1)"
 
     return handler
@@ -1183,7 +1191,7 @@ def _to_ipv4(name: str, fallback: str | None) -> Callable[[list[str]], str]:
         if len(args) not in ({1, 2} if name == "toIPv4OrDefault" else {1}):
             raise _invalid_arguments(name, f"{name} received an invalid number of arguments.")
         value = "__hogql_ipv4"
-        valid, number = _ipv4_string_parts(value)
+        parts = _ipv4_string_parts(value)
         if name == "toIPv4OrDefault":
             default = f"CAST({args[1]} AS IPADDRESS)" if len(args) == 2 else "CAST('0.0.0.0' AS IPADDRESS)"
         elif fallback is None:
@@ -1192,7 +1200,7 @@ def _to_ipv4(name: str, fallback: str | None) -> Callable[[list[str]], str]:
             default = "CAST(NULL AS IPADDRESS)"
         else:
             default = "CAST('0.0.0.0' AS IPADDRESS)"
-        result = f"IF({valid}, CAST({_ipv4_number_to_string(number)} AS IPADDRESS), {default})"
+        result = f"IF({parts.valid}, CAST({_ipv4_number_to_string(parts.number)} AS IPADDRESS), {default})"
         return f"element_at(transform(ARRAY[CAST({args[0]} AS VARCHAR)], {value} -> IF({value} IS NULL, NULL, {result})), 1)"
 
     return handler
@@ -1202,15 +1210,15 @@ def _ipv4_cidr_to_range(args: list[str]) -> str:
     _require_args("IPv4CIDRToRange", args, 2)
     value = "__hogql_ipv4_cidr[1]"
     prefix = "__hogql_ipv4_cidr[2]"
-    valid, number = _ipv4_string_parts(value)
+    parts = _ipv4_string_parts(value)
     host_mask = f"bitwise_left_shift(BIGINT '1', CAST(32 - {prefix} AS INTEGER)) - 1"
-    lower = f"({number} - bitwise_and({number}, {host_mask}))"
+    lower = f"({parts.number} - bitwise_and({parts.number}, {host_mask}))"
     upper = f"({lower} + {host_mask})"
     result = (
         f"ROW(CAST({_ipv4_number_to_string(lower)} AS IPADDRESS), CAST({_ipv4_number_to_string(upper)} AS IPADDRESS))"
     )
     checked = (
-        f"IF(NOT ({valid}), fail('Invalid IPv4 address'), "
+        f"IF(NOT ({parts.valid}), fail('Invalid IPv4 address'), "
         f"IF({prefix} BETWEEN 0 AND 32, {result}, fail('IPv4 CIDR prefix must be between 0 and 32')))"
     )
     return (
