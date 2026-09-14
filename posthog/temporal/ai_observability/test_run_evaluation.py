@@ -19,6 +19,7 @@ from posthog.api.capture import CaptureInternalError
 from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
+from posthog.temporal.common.errors import NonReportableError
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
@@ -1751,16 +1752,21 @@ class TestRunEvaluationWorkflow:
             mock_logger.exception.assert_not_called()
 
     @pytest.mark.parametrize(
-        "raised_exception, expect_captured",
+        "raised_exception, expected_raised, expect_captured",
         [
-            pytest.param(ProviderConnectionError("connection reset"), False, id="connection_error"),
-            pytest.param(CancelledError("Cancelled"), False, id="cancellation"),
-            pytest.param(RuntimeError("boom"), True, id="unhandled_error"),
+            pytest.param(ProviderConnectionError("connection reset"), NonReportableError, False, id="connection_error"),
+            pytest.param(CancelledError("Cancelled"), CancelledError, False, id="cancellation"),
+            pytest.param(RuntimeError("boom"), RuntimeError, True, id="unhandled_error"),
         ],
     )
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_reports_only_actionable_errors(
-        self, raised_exception: Exception, expect_captured: bool, setup_data, active_key_config
+        self,
+        raised_exception: Exception,
+        expected_raised: type[Exception],
+        expect_captured: bool,
+        setup_data,
+        active_key_config,
     ):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -1786,7 +1792,7 @@ class TestRunEvaluationWorkflow:
             mock_client_class.return_value = mock_client
             mock_client.complete.side_effect = raised_exception
 
-            with pytest.raises(type(raised_exception)):
+            with pytest.raises(expected_raised):
                 execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             assert mock_capture_exception.called is expect_captured

@@ -33,6 +33,7 @@ from posthog.temporal.ai_observability.metrics import (
     increment_user_errors,
 )
 from posthog.temporal.ai_observability.model_resolution import model_spec
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
@@ -66,26 +67,37 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
 )
 
 
-# Transport resets and worker drains interrupt the judge at whatever line it reached, so each
-# occurrence fingerprints differently and error tracking files a new issue for it. The Temporal
-# retry policy already covers both, so `call_llm_judge` counts them and re-raises them quietly.
-QUIET_JUDGE_ERRORS: tuple[type[Exception], ...] = (ProviderConnectionError, temporalio.exceptions.CancelledError)
+class TransientJudgeError(NonReportableError):
+    """A transient transport failure that reached the judge, re-raised so it stays retryable.
+
+    A connection reset interrupts the judge at whatever line it reached, so each occurrence
+    fingerprints differently and error tracking files a new issue for it. The Temporal retry
+    policy already covers it.
+
+    The marker class is what keeps it quiet. The worker interceptor wraps the activity from
+    outside its decorators and reports every exception it does not recognise, so opting the
+    activity out of automatic capture is not enough on its own. `NonReportableError` is one of the
+    types the interceptor re-raises untouched.
+    """
 
 
 def capture_judge_exceptions(activity: Callable[P, T]) -> Callable[P, T]:
-    """Report every judge failure except the quiet ones to error tracking.
+    """Report every judge failure except the transient ones to error tracking.
 
     Pair it with `@posthoganalytics.scoped(capture_exceptions=False)`. A scoped context captures
-    every exception that leaves it, which reports the quiet errors however `call_llm_judge` handles
-    them, so the activity has to decide what to capture itself.
+    every exception that leaves it, which reports the transient errors however `call_llm_judge`
+    handles them, so the activity has to decide what to capture itself.
     """
 
     @wraps(activity)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
         try:
             return activity(*args, **kwargs)
-        except QUIET_JUDGE_ERRORS:
+        except temporalio.exceptions.CancelledError:
+            # A worker drain needs no marker: the interceptor skips cancellations already.
             raise
+        except ProviderConnectionError as error:
+            raise TransientJudgeError(str(error)) from error
         except Exception as error:
             posthoganalytics.capture_exception(error)
             raise
@@ -448,15 +460,15 @@ def call_llm_judge(
 
     except ProviderConnectionError:
         # Transient transport failure (connection reset, read timeout). Retrying usually succeeds,
-        # so track it as a metric and re-raise for the retry policy. It stays out of error tracking
-        # because it is in QUIET_JUDGE_ERRORS.
+        # so track it as a metric and re-raise for the retry policy. `capture_judge_exceptions`
+        # re-raises it as `TransientJudgeError`, which keeps it out of error tracking.
         increment_errors("connection_error", provider=provider)
         raise
 
     except temporalio.exceptions.CancelledError:
         # A worker drain or a workflow cancel is not a judge failure, so track it as a metric and
-        # re-raise for the retry policy. It stays out of error tracking because it is in
-        # QUIET_JUDGE_ERRORS.
+        # re-raise for the retry policy. The worker interceptor skips cancellations, so it stays
+        # out of error tracking.
         increment_errors("cancelled", provider=provider)
         raise
 
