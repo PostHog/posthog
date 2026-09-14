@@ -26,7 +26,6 @@ import structlog
 from asgiref.sync import sync_to_async
 
 from posthog.dataclasses import frozen
-from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -264,12 +263,20 @@ def _read_copy_progress(run_state: dict[str, Any]) -> CopyProgress:
     )
 
 
-def _copy_progress_matches(progress: CopyProgress, messages: list[dict[str, Any]]) -> bool:
-    if progress.message_count > len(messages):
-        return False
-    if progress.message_count == 0 or progress.last_message_id is None:
-        return True
-    return messages[progress.message_count - 1].get("id") == progress.last_message_id
+def _uncopied_messages(progress: CopyProgress, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The messages after the last copied one.
+
+    The anchor is the last copied message's id, not its position: LangGraph compaction replaces
+    the stored list with a shorter window, so positions move. An anchor still in the list means
+    everything after it is new. An anchor that is gone means the window starts after it, so
+    everything in the list is new.
+    """
+    if progress.last_message_id is None:
+        return messages
+    for index in range(len(messages) - 1, -1, -1):
+        if messages[index].get("id") == progress.last_message_id:
+            return messages[index + 1 :]
+    return messages
 
 
 def _ensure_import_target(
@@ -336,20 +343,13 @@ async def amirror_conversation(conversation_id: UUID | str, team_id: int, user_i
         conversation, team, user, created_at=created_at, updated_at=updated_at
     )
     progress = _read_copy_progress(run.state)
-    if not _copy_progress_matches(progress, messages):
-        # The checkpoint history no longer matches what was copied (rewritten or compacted past
-        # the copied prefix). The log is append-only, so copying again would duplicate turns; surface it.
-        capture_exception(
-            RuntimeError("conversation mirror history mismatch"),
-            {"conversation_id": str(conversation.id), "task_id": str(task_id), "copied": progress.message_count},
-        )
-        return MirrorResult(skipped_reason="history_mismatch", task_id=task_id, run_id=run.id, appended_frames=0)
-
-    new_messages = messages[progress.message_count :]
+    new_messages = _uncopied_messages(progress, messages)
     if not new_messages:
         return MirrorResult(skipped_reason=None, task_id=task_id, run_id=run.id, appended_frames=0)
 
-    frames = project_legacy_messages(new_messages, run_id=str(run.id), include_run_start=progress.message_count == 0)
+    frames = project_legacy_messages(
+        new_messages, run_id=str(run.id), include_run_start=progress.last_message_id is None
+    )
     appended = await sync_to_async(tasks_facade.append_imported_task_run_log)(
         run.id,
         task_id,
@@ -357,7 +357,10 @@ async def amirror_conversation(conversation_id: UUID | str, team_id: int, user_i
         entries=frames,
         batch_id=f"after:{progress.message_count}",
         expected_state={MESSAGES_COPIED_KEY: progress.message_count},
-        state_updates={MESSAGES_COPIED_KEY: len(messages), LAST_MESSAGE_ID_KEY: messages[-1].get("id")},
+        state_updates={
+            MESSAGES_COPIED_KEY: progress.message_count + len(new_messages),
+            LAST_MESSAGE_ID_KEY: new_messages[-1].get("id"),
+        },
         completed_at=updated_at,
     )
     if not appended:

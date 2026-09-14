@@ -258,16 +258,37 @@ class TestMirrorConversation(APIBaseTest):
         assert result.appended_frames == 7
         assert "session/update:tool_call_update" in self._log_methods()
 
-    def test_history_mismatch_skips_instead_of_duplicating(self) -> None:
-        self.state_messages = [HumanMessage(content="hello", id="h1"), AssistantMessage(content="hi", id="a1")]
+    def test_compaction_that_keeps_the_last_copied_message_copies_only_what_follows(self) -> None:
+        self.state_messages = [
+            HumanMessage(content="one", id="h1"),
+            AssistantMessage(content="1", id="a1"),
+            HumanMessage(content="two", id="h2"),
+            AssistantMessage(content="2", id="a2"),
+        ]
         first = self._mirror()
-        self.state_messages = [HumanMessage(content="rewritten", id="h9"), AssistantMessage(content="hi", id="a9")]
-        with patch(f"{MIRROR}.capture_exception") as capture:
-            second = self._mirror()
-        assert second.skipped_reason == "history_mismatch"
-        assert second.run_id == first.run_id
-        assert len(self._log_methods()) == 4
-        capture.assert_called_once()
+        # Compaction dropped the first turn from the stored list; the anchor a2 is still there.
+        self.state_messages = [
+            HumanMessage(content="two", id="h2"),
+            AssistantMessage(content="2", id="a2"),
+            HumanMessage(content="three", id="h3"),
+            AssistantMessage(content="3", id="a3"),
+        ]
+        second = self._mirror()
+        assert second.appended_frames == 3
+        assert self._log_methods().count("session/update:user_message_chunk") == 3
+        run = TaskRun.objects.get(id=first.run_id)
+        assert run.state[LAST_MESSAGE_ID_KEY] == "a3"
+        assert run.state[MESSAGES_COPIED_KEY] == 6
+
+    def test_compaction_that_dropped_the_last_copied_message_copies_the_whole_window(self) -> None:
+        self.state_messages = [HumanMessage(content="one", id="h1"), AssistantMessage(content="1", id="a1")]
+        self._mirror()
+        # Everything copied so far was compacted away; the window holds only newer turns.
+        self.state_messages = [HumanMessage(content="four", id="h4"), AssistantMessage(content="4", id="a4")]
+        second = self._mirror()
+        assert second.appended_frames == 3
+        assert self._log_methods().count("session/update:user_message_chunk") == 2
+        assert TaskRun.objects.get(id=second.run_id).state[LAST_MESSAGE_ID_KEY] == "a4"
 
     def test_a_concurrent_copy_that_already_moved_the_run_on_is_not_appended_again(self):
         self.state_messages = [HumanMessage(content="hello", id="h1"), AssistantMessage(content="hi", id="a1")]
