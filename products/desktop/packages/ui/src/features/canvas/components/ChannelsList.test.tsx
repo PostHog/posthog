@@ -1,3 +1,4 @@
+import { ApiRequestError } from "@posthog/api-client/fetcher";
 import { Theme } from "@radix-ui/themes";
 import {
   act,
@@ -14,10 +15,13 @@ const mocks = vi.hoisted(() => ({
     id: string;
     name: string;
     channelType: "public" | "personal" | "private";
+    systemRole?: "personal" | "general" | null;
     starred: boolean;
     repositories: string[];
     createdBy: null;
   }[],
+  deleteChannel: vi.fn(),
+  toastError: vi.fn(),
   tasks: [] as {
     id: string;
     title: string;
@@ -37,13 +41,36 @@ vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => mocks.channelsLayout,
 }));
-vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
-  useChannels: () => ({ channels: mocks.channels, isLoading: false }),
-  useChannelMutations: () => ({
-    deleteChannel: vi.fn(),
-    isDeleting: false,
-    updateAutoArchive: vi.fn(),
-    isUpdatingAutoArchive: false,
+vi.mock(
+  "@posthog/ui/features/canvas/hooks/useChannels",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@posthog/ui/features/canvas/hooks/useChannels")
+    >()),
+    useChannels: () => ({ channels: mocks.channels, isLoading: false }),
+    useChannelMutations: () => ({
+      deleteChannel: mocks.deleteChannel,
+      isDeleting: false,
+      updateAutoArchive: vi.fn(),
+      isUpdatingAutoArchive: false,
+    }),
+  }),
+);
+vi.mock("@posthog/ui/primitives/toast", () => ({
+  toast: { error: mocks.toastError, success: vi.fn() },
+}));
+// The delete unfiles the space's dashboards and tasks over tRPC first; this
+// file renders without a host, so both lists come back empty.
+vi.mock("../hostClient", () => ({
+  hostClient: () => ({
+    dashboards: {
+      list: { query: async () => [] },
+      delete: { mutate: vi.fn() },
+    },
+    channelTasks: {
+      list: { query: async () => [] },
+      unfile: { mutate: vi.fn() },
+    },
   }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
@@ -198,6 +225,17 @@ const DESIGN = {
   repositories: [],
   createdBy: null,
 };
+// The team's provisioned space. Public like any other shared space, so only
+// its system role separates it.
+const GENERAL = {
+  id: "general-id",
+  name: "general",
+  channelType: "public" as const,
+  systemRole: "general" as const,
+  starred: false,
+  repositories: [],
+  createdBy: null,
+};
 
 function renderList() {
   return render(
@@ -214,6 +252,7 @@ describe("ChannelsList", () => {
     mocks.unreadSessions = {};
     mocks.blockedSessions = {};
     mocks.channelsLayout = true;
+    mocks.deleteChannel.mockReset();
     // The pane store is module state: reset to its resting value so a test that
     // slides the slider can't hand the next one a pre-focused search box.
     showChannelPane();
@@ -696,6 +735,51 @@ describe("ChannelsList", () => {
         expect(screen.queryByLabelText("Search spaces")).toBeNull(),
       );
       expect(document.activeElement).toBe(document.body);
+    });
+  });
+  describe("space row actions", () => {
+    // The backend answers 403 to renaming or deleting #general, so a menu that
+    // offers either walks the user into a dead end.
+    it("offers Rename and Delete on a shared space but not on #general", async () => {
+      mocks.channels = [ME, ENG, GENERAL];
+      const user = userEvent.setup();
+      renderList();
+
+      fireEvent.contextMenu(screen.getByText("engineering"));
+      expect(await screen.findByText("Rename space…")).toBeTruthy();
+      expect(screen.getByText("Delete space…")).toBeTruthy();
+      await user.keyboard("{Escape}");
+
+      fireEvent.contextMenu(screen.getByText("general"));
+      // Copy link proves the menu opened, so the two absences below are the
+      // gate working rather than a menu that never rendered.
+      expect(await screen.findByText("Copy link")).toBeTruthy();
+      expect(screen.queryByText("Rename space…")).toBeNull();
+      expect(screen.queryByText("Delete space…")).toBeNull();
+    });
+
+    // A refusal the server means cannot be retried away, so the dialog closes
+    // behind the toast rather than leaving a live button to press again.
+    it("closes the confirm dialog on a rejected delete and says why", async () => {
+      const detail =
+        "Remove this space's tasks and canvases before deleting it.";
+      mocks.deleteChannel.mockRejectedValue(
+        new ApiRequestError(409, JSON.stringify({ detail }), { detail }),
+      );
+      const user = userEvent.setup();
+      renderList();
+
+      fireEvent.contextMenu(screen.getByText("engineering"));
+      await user.click(await screen.findByText("Delete space…"));
+      await user.click(await screen.findByText("Delete space"));
+
+      await waitFor(() =>
+        expect(screen.queryByText("Delete space")).toBeNull(),
+      );
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "Couldn't delete space",
+        expect.objectContaining({ description: detail }),
+      );
     });
   });
 });
