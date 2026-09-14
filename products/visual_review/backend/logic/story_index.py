@@ -41,10 +41,13 @@ _VIEWPORT_WIDTHS = ("narrow", "medium", "wide", "superwide")
 METADATA_KEY = "story_index_hash"
 _MAP_VERSION = 1
 _HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-# The owners lookup walks every parent directory of a path, so a path longer or deeper than any real
-# story file is refused rather than handed to it.
+# The owners lookup reads two ownership files in every parent directory of a path, so a path longer
+# or deeper than any real story file is refused rather than handed to it.
 _MAX_PATH_CHARS = 512
-_MAX_PATH_SEGMENTS = 32
+_MAX_PATH_SEGMENTS = 16
+# A caller with write access controls the map, and readers parse and cache all of it. A map with more
+# entries than any real Storybook build has is refused, so it cannot fill the shared cache.
+_MAX_STORIES = 20_000
 
 
 @frozen
@@ -195,6 +198,9 @@ def _read_paths(repo: Repo, story_index_hash: str) -> dict[str, str] | None:
     paths = document.get("paths") if isinstance(document, dict) and document.get("version") == _MAP_VERSION else None
     if not isinstance(paths, dict):
         log.warning("visual_review.story_index_invalid")
+        return None
+    if len(paths) > _MAX_STORIES:
+        log.warning("visual_review.story_index_too_large", stories=len(paths))
         return None
     return {
         story_id: path for story_id, path in paths.items() if isinstance(story_id, str) and _is_repository_path(path)

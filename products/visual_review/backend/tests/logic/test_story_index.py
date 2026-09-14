@@ -40,6 +40,10 @@ _DEEP_MAP = _map_bytes(
     }
 )
 _DEEP_HASH = hashlib.sha256(_DEEP_MAP).hexdigest()
+_HUGE_MAP = _map_bytes(
+    {f"scenes-app-story-{i}--primary": "frontend/src/scenes/Story.stories.tsx" for i in range(20_001)}
+)
+_HUGE_HASH = hashlib.sha256(_HUGE_MAP).hexdigest()
 
 
 class TestStoryPath:
@@ -154,6 +158,12 @@ class TestUploadedStoryIndex:
                 story_index.StoryIndex(
                     path_by_story_id={"scenes-app-button--primary": "frontend/src/scenes/Button.stories.tsx"}
                 ),
+            ),
+            # A map with more entries than any real build is refused before it reaches the cache.
+            (
+                {story_index.METADATA_KEY: _HUGE_HASH},
+                _HUGE_MAP,
+                f"the story index {_HUGE_HASH[:12]} could not be read",
             ),
             # A storage outage reads as an unknown owner rather than failing the page or the digest.
             (

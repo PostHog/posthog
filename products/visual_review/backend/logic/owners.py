@@ -14,6 +14,11 @@ from .run_queries import SnapshotKey
 
 logger = structlog.get_logger(__name__)
 
+# Each distinct story file adds the ownership files of its parent directories to one batch of GitHub
+# reads. A snapshot set that names more story files than a real Storybook build has is left without
+# owners, so a crafted story index cannot turn one page load into thousands of fetches.
+_MAX_OWNED_PATHS = 2_000
+
 
 def owner_teams(
     repo: Repo, keys: Iterable[SnapshotKey], newest_run_by_type: Mapping[str, Run]
@@ -40,7 +45,12 @@ def owner_teams(
     if not path_by_key:
         return {}
 
-    ownership = resolve_path_owners(repo.repo_full_name, sorted(set(path_by_key.values())))
+    paths = sorted(set(path_by_key.values()))
+    if len(paths) > _MAX_OWNED_PATHS:
+        logger.warning("visual_review.owner_teams_too_many_paths", repo_id=str(repo.id), paths=len(paths))
+        return {}
+
+    ownership = resolve_path_owners(repo.repo_full_name, paths)
     if not ownership.resolved:
         logger.info("visual_review.owner_teams_unresolved", repo_id=str(repo.id))
         return {}
