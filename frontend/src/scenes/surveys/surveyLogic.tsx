@@ -290,9 +290,8 @@ const isChoiceSurveyQuestion = (question: SurveyQuestion): question is MultipleS
 const isLinkSurveyQuestion = (question: SurveyQuestion): question is LinkSurveyQuestion =>
     question.type === SurveyQuestionType.Link
 
-// Which app schemes a project may deep link into is the API's decision, from its
-// survey_config.allowed_link_schemes setting, so the editor cannot know. It checks only what is
-// wrong for every project, and an app scheme the project has not enabled surfaces on save.
+// The API decides which app schemes a project may deep link into, so the editor checks only what
+// is wrong for every project. An app scheme the project has not registered surfaces on save.
 const NEVER_VALID_LINK_SCHEME_RE = /^(https?|javascript|vbscript|data|file|blob|smb|cifs|nfs):/i
 const APP_LINK_SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/*[^\s]/i
 

@@ -107,11 +107,9 @@ DISPLAY_LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$")
 
 DEFAULT_LINK_URL_SCHEMES = ("https", "mailto")
 
-# A project registers its own app scheme to deep link into its mobile app, but cannot register
-# these however deliberately it tries. javascript, vbscript, data, file and blob run script or read
-# local content in the page showing the survey; http is plain-text transport; smb, cifs and nfs hand
-# the respondent's NTLM credentials to whoever runs the share. None is an app scheme, so there is no
-# product reason to allow one.
+# A project cannot register these however deliberately it tries. The script and local-content
+# schemes run in the page showing the survey, http is plain-text transport, and the network
+# filesystem schemes hand the respondent's NTLM credentials to whoever runs the share.
 NEVER_REGISTRABLE_LINK_SCHEMES = frozenset(
     {"javascript", "vbscript", "data", "file", "blob", "http", "smb", "cifs", "nfs"}
 )
@@ -1117,7 +1115,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         elif parsed_url.scheme == "https":
             if not parsed_url.netloc:
                 raise serializers.ValidationError("Invalid HTTPS URL. Please enter a valid HTTPS link.")
-        # An app scheme has to address a screen, or the SDK opens the app at nothing
         elif not _link_has_destination(parsed_url):
             raise serializers.ValidationError(f"Add a destination after {parsed_url.scheme}://")
 

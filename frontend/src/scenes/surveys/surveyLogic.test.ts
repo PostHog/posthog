@@ -232,8 +232,6 @@ describe('translation validation', () => {
         ).toBe(false)
     })
 
-    // An app scheme the project registered is only known to the API, so the editor lets any
-    // scheme through except the ones that are wrong for every project.
     it.each([
         ['a scheme-only https link', 'https:not-valid', true],
         ['a script link', 'javascript:alert(1)', true],
