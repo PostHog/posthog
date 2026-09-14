@@ -252,7 +252,10 @@ class PostHogCanaryClient:
             params=dataset_search_params(dataset_name),
         )
         dataset_response.raise_for_status()
-        dataset = select_dataset(dataset_response.json(), dataset_name)
+        try:
+            dataset = select_dataset(dataset_response.json(), dataset_name)
+        except (json.JSONDecodeError, ValidationError) as error:
+            raise RetryableCanaryError("invalid_dataset_response") from error
         selected_revision = revision if revision is not None else dataset.current_revision
         if selected_revision is None:
             raise PermanentCanaryError("dataset_has_no_revision")
@@ -276,7 +279,10 @@ class PostHogCanaryClient:
                 params=dataset_items_params(dataset_id, revision, offset),
             )
             response.raise_for_status()
-            page = parse_dataset_item_page(response.json(), seen_case_ids)
+            try:
+                page = parse_dataset_item_page(response.json(), seen_case_ids)
+            except (json.JSONDecodeError, ValidationError) as error:
+                raise RetryableCanaryError("invalid_dataset_item_response") from error
             cases.extend(page.cases)
             if page.next_page is None:
                 return cases

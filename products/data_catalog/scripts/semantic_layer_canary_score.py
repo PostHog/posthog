@@ -367,7 +367,7 @@ def reconstruct_case(client: CanaryApiClient, case: CanaryCase, window: BatchWin
         return row | {"status": MISSING_STATUS}
     winners = _winning_attempts(client, attempts)
     if len(winners) > 1:
-        return row | _attempt_fields(client, attempts[-1]) | {"status": DUPLICATE_STATUS}
+        return row | _attempt_fields(client, winners[-1][0]) | {"status": DUPLICATE_STATUS}
     if len(winners) == 1:
         attempt, questions = winners[0]
         return (

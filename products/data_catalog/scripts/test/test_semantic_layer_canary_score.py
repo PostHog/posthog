@@ -382,10 +382,25 @@ class TestBatchReconstruction:
                 "run-2",
             ),
             ([_run("run-1", "completed"), _run("run-2", "completed")], "duplicate", "run-2"),
+            (
+                [
+                    _run("run-1", "completed", created_at="2026-09-10T17:00:00Z"),
+                    _run("run-2", "completed", created_at="2026-09-10T17:05:00Z"),
+                    _run("run-3", "failed", created_at="2026-09-10T17:10:00Z"),
+                ],
+                "duplicate",
+                "run-2",
+            ),
             ([_run("run-1", "in_progress")], "incomplete", "run-1"),
             ([_run("run-1", "failed")], "failed", "run-1"),
         ],
-        ids=["retry_then_completed", "two_completed", "still_running", "all_failed"],
+        ids=[
+            "retry_then_completed",
+            "two_completed",
+            "two_completed_then_failed",
+            "still_running",
+            "all_failed",
+        ],
     )
     def test_classifies_attempts_by_terminal_status(
         self, runs: list[dict], expected_status: str, expected_run_id: str
