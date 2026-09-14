@@ -39,7 +39,7 @@ from products.metrics.backend.metric_attributes_query_runner import (
     MetricAttributeValuesQueryRunner,
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
-from products.metrics.backend.metric_names_query_runner import cached_metric_names
+from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 
@@ -235,6 +235,24 @@ def list_metric_names(
     searches are not.
     """
     return cached_metric_names(team=team, search=search, limit=limit, services=services)
+
+
+def list_metric_picker_names(
+    *,
+    team: Team,
+    search: str = "",
+    limit: int = 100,
+    services: Sequence[str] = (),
+) -> list[dict[str, Any]]:
+    """List current metric names for the viewer picker without sparklines or caching."""
+    rows = MetricNamesQueryRunner(
+        team=team,
+        search=search,
+        limit=limit,
+        services=services,
+        include_sparklines=False,
+    ).run()
+    return [{"name": row["name"], "metric_type": row["metric_type"]} for row in rows]
 
 
 def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) -> MetricsOverview:
