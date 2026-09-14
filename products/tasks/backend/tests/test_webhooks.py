@@ -1229,7 +1229,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
                 team=self.team, report=self.report, actor_kind=actor_kind, actor_agent="test-agent"
             )
 
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as close_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as close_task:
             with self.captureOnCommitCallbacks(execute=True):
                 response = self._post_pr_webhook(action="closed", merged=merged)
 
