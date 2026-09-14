@@ -519,16 +519,13 @@ const externalDataSourcesCreate = (): ToolBase<
 })
 
 const ExternalDataSourcesCreateWebhookCreateSchema = () => {
-    const ExternalDataSourcesCreateWebhookCreateBody = orvalSchemas.ExternalDataSourcesCreateWebhookCreateBody()
     const ExternalDataSourcesCreateWebhookCreateParams = orvalSchemas.ExternalDataSourcesCreateWebhookCreateParams()
-    return ExternalDataSourcesCreateWebhookCreateParams.omit({ project_id: true }).extend(
-        ExternalDataSourcesCreateWebhookCreateBody.shape
-    )
+    return ExternalDataSourcesCreateWebhookCreateParams.omit({ project_id: true })
 }
 
 const externalDataSourcesCreateWebhookCreate = (): ToolBase<
     ReturnType<typeof ExternalDataSourcesCreateWebhookCreateSchema>,
-    unknown
+    Schemas.SourceSetupWebhook
 > => ({
     name: 'external-data-sources-create-webhook-create',
     schema: ExternalDataSourcesCreateWebhookCreateSchema(),
@@ -537,38 +534,9 @@ const externalDataSourcesCreateWebhookCreate = (): ToolBase<
         params: z.infer<ReturnType<typeof ExternalDataSourcesCreateWebhookCreateSchema>>
     ) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.created_via !== undefined) {
-            body['created_via'] = params.created_via
-        }
-        if (params.client_secret !== undefined) {
-            body['client_secret'] = params.client_secret
-        }
-        if (params.account_id !== undefined) {
-            body['account_id'] = params.account_id
-        }
-        if (params.prefix !== undefined) {
-            body['prefix'] = params.prefix
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.direct_query_enabled !== undefined) {
-            body['direct_query_enabled'] = params.direct_query_enabled
-        }
-        if (params.auto_sync_new_schemas !== undefined) {
-            body['auto_sync_new_schemas'] = params.auto_sync_new_schemas
-        }
-        if (params.auto_sync_schema_patterns !== undefined) {
-            body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
-        }
-        if (params.job_inputs !== undefined) {
-            body['job_inputs'] = params.job_inputs
-        }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.SourceSetupWebhook>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/create_webhook/`,
-            body,
         })
         return result
     },
@@ -882,7 +850,7 @@ const ExternalDataSourcesUpdateWebhookInputsCreateSchema = () => {
 
 const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
     ReturnType<typeof ExternalDataSourcesUpdateWebhookInputsCreateSchema>,
-    unknown
+    Schemas.WebhookInputsUpdateResponse
 > => ({
     name: 'external-data-sources-update-webhook-inputs-create',
     schema: ExternalDataSourcesUpdateWebhookInputsCreateSchema(),
@@ -892,34 +860,10 @@ const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
     ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.created_via !== undefined) {
-            body['created_via'] = params.created_via
+        if (params.inputs !== undefined) {
+            body['inputs'] = params.inputs
         }
-        if (params.client_secret !== undefined) {
-            body['client_secret'] = params.client_secret
-        }
-        if (params.account_id !== undefined) {
-            body['account_id'] = params.account_id
-        }
-        if (params.prefix !== undefined) {
-            body['prefix'] = params.prefix
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.direct_query_enabled !== undefined) {
-            body['direct_query_enabled'] = params.direct_query_enabled
-        }
-        if (params.auto_sync_new_schemas !== undefined) {
-            body['auto_sync_new_schemas'] = params.auto_sync_new_schemas
-        }
-        if (params.auto_sync_schema_patterns !== undefined) {
-            body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
-        }
-        if (params.job_inputs !== undefined) {
-            body['job_inputs'] = params.job_inputs
-        }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.WebhookInputsUpdateResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/update_webhook_inputs/`,
             body,

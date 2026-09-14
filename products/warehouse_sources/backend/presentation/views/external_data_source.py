@@ -1723,13 +1723,7 @@ class SourceSetupSerializer(serializers.Serializer):
 
 
 class SourceSetupWebhookSerializer(serializers.Serializer):
-    success = serializers.BooleanField(
-        help_text=(
-            "Whether the webhook was registered with the external service. When true, webhook-capable tables "
-            "(including webhook-only ones) sync via real-time webhooks; when false, tables fall back to the "
-            "polling sync defaults and webhook-only tables stay disabled."
-        )
-    )
+    success = serializers.BooleanField(help_text="Whether the webhook was registered with the external service.")
     webhook_url = serializers.CharField(
         allow_null=True, help_text="The PostHog endpoint the external service delivers events to."
     )
@@ -1745,13 +1739,33 @@ class SourceSetupWebhookSerializer(serializers.Serializer):
     )
 
 
+class WebhookInputsUpdateSerializer(serializers.Serializer):
+    inputs = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+        help_text=(
+            "Webhook inputs to store, keyed by the source type's webhook field names (e.g. Stripe's "
+            "'signing_secret'). Keys the source type does not define are rejected, and a required field "
+            "cannot be set to an empty value."
+        ),
+    )
+
+
+class WebhookInputsUpdateResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the inputs were stored and accepted by the external source.")
+    error = serializers.CharField(
+        required=False, allow_null=True, help_text="Why the external source rejected the updated inputs."
+    )
+
+
 class SourceSetupResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the created external data source.")
     webhook = SourceSetupWebhookSerializer(
         required=False,
         help_text=(
             "Outcome of automatic webhook registration. Only present for sources that support webhooks "
-            "(e.g. Stripe) and have webhook-capable tables."
+            "(e.g. Stripe) and have webhook-capable tables. On success, webhook-capable tables (including "
+            "webhook-only ones) switch to real-time webhook sync; on failure, they keep the polling sync "
+            "defaults and webhook-only tables stay disabled."
         ),
     )
 
@@ -5266,6 +5280,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             capture_exception(e)
             return None
 
+    @extend_schema(request=None, responses={200: SourceSetupWebhookSerializer})
     @action(methods=["POST"], detail=True)
     def create_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
@@ -5356,6 +5371,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             },
         )
 
+    @extend_schema(
+        request=WebhookInputsUpdateSerializer,
+        responses={200: WebhookInputsUpdateResponseSerializer},
+    )
     @action(methods=["POST"], detail=True)
     def update_webhook_inputs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
