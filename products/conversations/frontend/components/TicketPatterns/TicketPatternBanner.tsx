@@ -58,12 +58,12 @@ export function TicketPatternBanner(): JSX.Element | null {
                                 {pattern.first_ticket_at ? (
                                     <>
                                         <span> since </span>
-                                        <TZLabel time={pattern.first_ticket_at} />
+                                        <TZLabel time={pattern.first_ticket_at} noStyles />
                                     </>
                                 ) : null}
                             </div>
                             {/* A primary button loses its contrast on the warning background in dark
-                                mode, so both decisions use the neutral variants the banner already styles. */}
+                                mode, so both decisions use the neutral variant the banner already styles. */}
                             <div className="flex flex-wrap gap-1">
                                 <LemonButton
                                     size="xsmall"
@@ -77,7 +77,7 @@ export function TicketPatternBanner(): JSX.Element | null {
                                 </LemonButton>
                                 <LemonButton
                                     size="xsmall"
-                                    type="tertiary"
+                                    type="secondary"
                                     loading={busy}
                                     disabledReason={busy ? 'Saving' : decisionDisabledReason}
                                     onClick={() => dismissPattern(pattern.id)}
