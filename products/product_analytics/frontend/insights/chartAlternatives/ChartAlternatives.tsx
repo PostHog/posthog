@@ -1,6 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import type { InsightLogicProps } from '~/types'
@@ -32,12 +31,12 @@ export function ChartAlternatives({
             size="small"
             type="secondary"
             active={galleryOpen}
-            icon={galleryOpen ? <IconX /> : currentOption ? <ChartDisplayIcon icon={currentOption.icon} /> : undefined}
+            icon={currentOption ? <ChartDisplayIcon icon={currentOption.icon} /> : undefined}
             data-attr="chart-alternatives-all"
             disabledReason={selectionDisabledReason}
             onClick={toggleGallery}
         >
-            {galleryOpen ? 'Cancel' : 'Switch chart'}
+            {currentOption?.label ?? 'Chart type'}
         </LemonButton>
     )
 }
