@@ -121,13 +121,13 @@ describe('SessionFilter', () => {
 
         it('should fail open on Redis error but still block locally', async () => {
             mockConsume.mockReturnValue(false)
-            mockPipeline.exec.mockRejectedValue(new Error('Redis error'))
+            mockPipeline.exec.mockResolvedValue([[new Error('Command timed out'), null]])
 
             // Should not throw - fails open
             await sessionFilter.handleNewSessions(sessionSet([1, 'session-123']))
 
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedis)
-            expect(SessionBatchMetrics.incrementSessionFilterRedisErrors).toHaveBeenCalled()
+            expect(SessionBatchMetrics.incrementSessionFilterRedisErrors).toHaveBeenCalledWith('timeout')
 
             // Session should still be blocked locally (via cache set before Redis call)
             expect(await blocked(sessionFilter, 1, 'session-123')).toBe(true)

@@ -104,16 +104,16 @@ export class SessionFilter {
             for (const { teamId, sessionId } of sessions) {
                 pipeline.set(this.generateKey(teamId, sessionId), '1', 'EX', SESSION_FILTER_REDIS_TTL_SECONDS)
             }
-            await pipeline.exec()
-
-            logger.info('session_filter_blocked_sessions', { count: sessions.size })
+            const results = await pipeline.exec()
+            const firstFailure = results.find(([commandError]) => commandError !== null)?.[0]
+            if (firstFailure) {
+                this.recordBlockSessionsError(firstFailure, client.status, sessions.size)
+            } else {
+                logger.info('session_filter_blocked_sessions', { count: sessions.size })
+            }
         } catch (error) {
             // Fail open: log the error but don't throw. The sessions are still blocked locally.
-            logger.error('session_filter_block_sessions_redis_error', {
-                count: sessions.size,
-                error: String(error),
-            })
-            SessionBatchMetrics.incrementSessionFilterRedisErrors(redisErrorReason(error))
+            this.recordBlockSessionsError(error, client?.status, sessions.size)
         } finally {
             if (client) {
                 await this.redisPool.release(client)
@@ -177,7 +177,7 @@ export class SessionFilter {
             // Fail open: if Redis is unavailable, treat the unknown sessions as not blocked by omitting
             // them from the set (their block state stays unknown rather than halting the pipeline).
             logger.error('session_filter_is_blocked_redis_error', { error: String(error) })
-            SessionBatchMetrics.incrementSessionFilterRedisErrors(redisErrorReason(error))
+            SessionBatchMetrics.incrementSessionFilterRedisErrors(redisErrorReason(error, client?.status))
             return blocked
         } finally {
             if (client) {
@@ -221,6 +221,12 @@ export class SessionFilter {
         }
 
         return toBlock
+    }
+
+    // A pipeline resolves with one [error, result] pair per command and rejects only for cluster slot errors, so a failed SET is found in the results, not in the catch.
+    private recordBlockSessionsError(error: unknown, clientStatus: string | undefined, count: number): void {
+        logger.error('session_filter_block_sessions_redis_error', { count, error: String(error) })
+        SessionBatchMetrics.incrementSessionFilterRedisErrors(redisErrorReason(error, clientStatus))
     }
 
     private generateKey(teamId: number, sessionId: string): string {

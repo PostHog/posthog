@@ -116,7 +116,7 @@ export class SessionTracker {
             // Hard-fail: rethrow so the step's retry re-runs rather than guessing "seen" and risking a
             // keyless (cleartext) recording or a mid-session key switch.
             logger.error('session_tracker_has_seen_redis_error', { error: String(error) })
-            SessionBatchMetrics.incrementSessionTrackerRedisErrors(redisErrorReason(error))
+            SessionBatchMetrics.incrementSessionTrackerRedisErrors(redisErrorReason(error, client?.status))
             throw error
         } finally {
             if (client) {
@@ -153,16 +153,25 @@ export class SessionTracker {
                 SessionBatchMetrics.incrementNewSessionsDetected()
                 pipeline.set(key, '1', 'EX', SESSION_TRACKER_REDIS_TTL_SECONDS)
             }
-            await pipeline.exec()
+            const results = await pipeline.exec()
+            const firstFailure = results.find(([commandError]) => commandError !== null)?.[0]
+            if (firstFailure) {
+                this.recordMarkSeenError(firstFailure, client.status)
+            }
         } catch (error) {
-            logger.error('session_tracker_mark_seen_redis_error', { error: String(error) })
-            SessionBatchMetrics.incrementSessionTrackerRedisErrors(redisErrorReason(error))
+            this.recordMarkSeenError(error, client?.status)
         } finally {
             if (client) {
                 await this.redisPool.release(client)
             }
             SessionBatchMetrics.observeSessionTrackerRedisLatency((performance.now() - startTime) / 1000)
         }
+    }
+
+    // A pipeline resolves with one [error, result] pair per command and rejects only for cluster slot errors, so a failed SET is found in the results, not in the catch.
+    private recordMarkSeenError(error: unknown, clientStatus: string | undefined): void {
+        logger.error('session_tracker_mark_seen_redis_error', { error: String(error) })
+        SessionBatchMetrics.incrementSessionTrackerRedisErrors(redisErrorReason(error, clientStatus))
     }
 
     private generateKey(teamId: number, sessionId: string): string {

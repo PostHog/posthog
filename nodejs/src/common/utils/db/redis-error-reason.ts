@@ -1,9 +1,6 @@
 export type RedisErrorReason = 'timeout' | 'connection' | 'reply' | 'other'
 
-const CONNECTION_ERROR_NAMES = new Set(['AbortError', 'MaxRetriesPerRequestError'])
-
-const CONNECTION_ERROR_MESSAGE_MARKERS = [
-    'Connection is closed.',
+const CONNECTION_ERROR_CODES = [
     'ECONNREFUSED',
     'ECONNRESET',
     'EPIPE',
@@ -14,20 +11,25 @@ const CONNECTION_ERROR_MESSAGE_MARKERS = [
     'EAI_AGAIN',
 ]
 
-// ioredis rejects a timed-out command with a plain Error, so the message is the only thing that identifies it.
-export function redisErrorReason(error: unknown): RedisErrorReason {
+const CONNECTION_CLOSED_MESSAGE = 'Connection is closed.'
+
+// A pooled client queues commands while it reconnects, so a lost server rejects with the same plain "Command timed out" Error as a stalled event loop; the client status at catch time separates the two, because a stall leaves the socket ready.
+export function redisErrorReason(error: unknown, clientStatus?: string): RedisErrorReason {
     if (!(error instanceof Error)) {
         return 'other'
     }
     if (error.message === 'Command timed out') {
-        return 'timeout'
+        return clientStatus === undefined || clientStatus === 'ready' ? 'timeout' : 'connection'
     }
     if (error.name === 'ReplyError') {
         return 'reply'
     }
+    const code = (error as NodeJS.ErrnoException).code
     if (
-        CONNECTION_ERROR_NAMES.has(error.name) ||
-        CONNECTION_ERROR_MESSAGE_MARKERS.some((marker) => error.message.includes(marker))
+        (code !== undefined && CONNECTION_ERROR_CODES.includes(code)) ||
+        error.name === 'AbortError' ||
+        error.message === CONNECTION_CLOSED_MESSAGE ||
+        CONNECTION_ERROR_CODES.some((marker) => error.message.includes(marker))
     ) {
         return 'connection'
     }
