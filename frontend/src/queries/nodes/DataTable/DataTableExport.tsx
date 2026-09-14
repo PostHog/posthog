@@ -12,7 +12,12 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '~/queries/nodes/DataTable/clipboardUtils'
+import {
+    copyTableToCsv,
+    copyTableToExcel,
+    copyTableToJson,
+    projectExportRows,
+} from '~/queries/nodes/DataTable/clipboardUtils'
 import {
     shouldOptimizeForExport,
     transformColumnsForExport,
@@ -27,7 +32,6 @@ import {
     isGroupsQuery,
     isHogQLQuery,
     isMarketingAnalyticsTableQuery,
-    isNonIntegratedConversionsTableQuery,
     isPersonsNode,
     isSessionsQuery,
 } from '~/queries/utils'
@@ -113,11 +117,22 @@ interface DataTableExportProps {
     query: DataTableNode
     setQuery?: (query: DataTableNode) => void
     fileNameForExport?: string
+    excludedColumns?: string[]
 }
 
-export function DataTableExport({ query, fileNameForExport }: DataTableExportProps): JSX.Element | null {
+export function DataTableExport({
+    query,
+    fileNameForExport,
+    excludedColumns = [],
+}: DataTableExportProps): JSX.Element | null {
     const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults } = useValues(dataTableLogic)
     const { startExport, createStaticCohort } = useActions(exportsLogic)
+    const responseColumns = columnsInResponse ?? columnsInQuery
+    const exportColumns = responseColumns.filter((column) => !excludedColumns.includes(column))
+    const exportQuery = excludedColumns.length ? { ...query, columns: exportColumns } : query
+    const exportRows = excludedColumns.length
+        ? projectExportRows(dataTableRows ?? [], responseColumns, exportColumns)
+        : dataTableRows
 
     const source: DataNode = query.source
     const filterCount =
@@ -126,11 +141,7 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
         (isPersonsNode(source) && source.search ? 1 : 0)
     const canExportAllColumns = isEventsQuery(source) && source.select.includes('*')
     const showExportClipboardButtons =
-        isPersonsNode(source) ||
-        isEventsQuery(source) ||
-        isHogQLQuery(source) ||
-        isMarketingAnalyticsTableQuery(source) ||
-        isNonIntegratedConversionsTableQuery(source)
+        isPersonsNode(source) || isEventsQuery(source) || isHogQLQuery(source) || isMarketingAnalyticsTableQuery(source)
     const canSaveAsCohort = isActorsQuery(source)
 
     // Creating an export requires editor access to the export resource.
@@ -148,13 +159,25 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
                         {
                             label: 'CSV',
                             onClick: () => {
-                                void startDownload(query, true, startExport, ExporterFormat.CSV, fileNameForExport)
+                                void startDownload(
+                                    exportQuery,
+                                    true,
+                                    startExport,
+                                    ExporterFormat.CSV,
+                                    fileNameForExport
+                                )
                             },
                         },
                         {
                             label: 'XLSX',
                             onClick: () => {
-                                void startDownload(query, true, startExport, ExporterFormat.XLSX, fileNameForExport)
+                                void startDownload(
+                                    exportQuery,
+                                    true,
+                                    startExport,
+                                    ExporterFormat.XLSX,
+                                    fileNameForExport
+                                )
                             },
                         },
                     ],
@@ -165,12 +188,24 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
                         {
                             label: 'CSV',
                             onClick: () =>
-                                void startDownload(query, false, startExport, ExporterFormat.CSV, fileNameForExport),
+                                void startDownload(
+                                    exportQuery,
+                                    false,
+                                    startExport,
+                                    ExporterFormat.CSV,
+                                    fileNameForExport
+                                ),
                         },
                         {
                             label: 'XLSX',
                             onClick: () =>
-                                void startDownload(query, false, startExport, ExporterFormat.XLSX, fileNameForExport),
+                                void startDownload(
+                                    exportQuery,
+                                    false,
+                                    startExport,
+                                    ExporterFormat.XLSX,
+                                    fileNameForExport
+                                ),
                         },
                     ],
                 },
@@ -180,12 +215,8 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
                         {
                             label: 'CSV',
                             onClick: () => {
-                                if (dataTableRows) {
-                                    copyTableToCsv(
-                                        dataTableRows,
-                                        columnsInResponse ?? columnsInQuery,
-                                        queryWithDefaults
-                                    )
+                                if (exportRows) {
+                                    copyTableToCsv(exportRows, exportColumns, queryWithDefaults)
                                 }
                             },
                             'data-attr': 'copy-csv-to-clipboard',
@@ -193,12 +224,8 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
                         {
                             label: 'JSON',
                             onClick: () => {
-                                if (dataTableRows) {
-                                    copyTableToJson(
-                                        dataTableRows,
-                                        columnsInResponse ?? columnsInQuery,
-                                        queryWithDefaults
-                                    )
+                                if (exportRows) {
+                                    copyTableToJson(exportRows, exportColumns, queryWithDefaults)
                                 }
                             },
                             'data-attr': 'copy-json-to-clipboard',
@@ -206,12 +233,8 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
                         {
                             label: 'Excel',
                             onClick: () => {
-                                if (dataTableRows) {
-                                    copyTableToExcel(
-                                        dataTableRows,
-                                        columnsInResponse ?? columnsInQuery,
-                                        queryWithDefaults
-                                    )
+                                if (exportRows) {
+                                    copyTableToExcel(exportRows, exportColumns, queryWithDefaults)
                                 }
                             },
                             'data-attr': 'copy-excel-to-clipboard',

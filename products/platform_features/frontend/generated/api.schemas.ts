@@ -123,8 +123,8 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_ai_training_cta_shown: boolean | null
-    /** @nullable */
-    readonly is_hipaa: boolean | null
+    /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
+    readonly has_signed_baa: boolean
     /** Default statistical method for new experiments in this organization.
      *
      * * `bayesian` - Bayesian
@@ -231,8 +231,8 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly is_ai_training_cta_shown?: boolean | null
-    /** @nullable */
-    readonly is_hipaa?: boolean | null
+    /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
+    readonly has_signed_baa?: boolean
     /** Default statistical method for new experiments in this organization.
      *
      * * `bayesian` - Bayesian
@@ -1396,6 +1396,7 @@ export type ActivityLogListParams = {
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
+     * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -1493,6 +1494,7 @@ export const ActivityLogListScope = {
     Metric: 'Metric',
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
+    DataQualityCheckSchedule: 'DataQualityCheckSchedule',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
@@ -1577,6 +1579,7 @@ export const ActivityLogListScope = {
  * * `Metric` - Metric
  * * `TableCertification` - TableCertification
  * * `DataQualityCheck` - DataQualityCheck
+ * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
  * * `Billing` - Billing
  * * `Loop` - Loop
  * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -1662,6 +1665,7 @@ export const ActivityLogListScopesItem = {
     Metric: 'Metric',
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
+    DataQualityCheckSchedule: 'DataQualityCheckSchedule',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
@@ -1809,6 +1813,10 @@ export type CommentsListParams = {
      * @minLength 1
      */
     completed?: CommentsListCompleted
+    /**
+     * Filter by the numeric ID of the user who wrote the comment.
+     */
+    created_by?: number
     /**
      * The pagination cursor value.
      */

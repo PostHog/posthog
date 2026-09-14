@@ -237,6 +237,7 @@ class TestGetRows:
             _response({"value": [{"id": "p1", "name": "Alpha"}]}),
             _response(full_page),
             _response({"value": [{"pullRequestId": 999}]}),
+            _response({"value": []}),
         ]
 
         manager = _make_manager()
@@ -247,6 +248,29 @@ class TestGetRows:
         assert parse_qs(urlparse(urls[0]).query)["searchCriteria.status"] == ["all"]
         assert parse_qs(urlparse(urls[0]).query)["$skip"] == ["0"]
         assert parse_qs(urlparse(urls[1]).query)["$skip"] == ["200"]
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_skip_pagination_walks_on_after_a_short_page(self, mock_session):
+        # Several Azure DevOps endpoints cap the page size below the requested $top.
+        # Stopping at the first short page would silently truncate the table.
+        mock_session.return_value.get.side_effect = [
+            _response({"value": [{"id": "p1", "name": "Alpha"}]}),
+            _response({"value": [{"pullRequestId": i} for i in range(100)]}),
+            _response({"value": [{"pullRequestId": 100}]}),
+            _response({"value": []}),
+        ]
+
+        manager = _make_manager()
+        batches = list(get_rows("myorg", "pat", "pull_requests", mock.MagicMock(), manager, AZURE_DEVOPS_VERSION_7_2))
+
+        assert [len(batch) for batch in batches] == [100, 1]
+        skips = [
+            parse_qs(urlparse(call.args[0]).query)["$skip"][0]
+            for call in mock_session.return_value.get.call_args_list[1:]
+        ]
+        assert skips == ["0", "100", "101"]
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
@@ -354,6 +378,240 @@ class TestGetRows:
             list(get_rows("myorg", "pat", "projects", mock.MagicMock(), manager, AZURE_DEVOPS_VERSION_7_2))
 
 
+class TestFanOutEndpoints:
+    PROJECTS = {"value": [{"id": "proj-guid", "name": "Alpha"}]}
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_commits_fan_out_skips_disabled_repositories_and_flattens_the_committer_date(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _response(self.PROJECTS),
+            _response({"value": [{"id": "repo-1", "name": "core"}, {"id": "repo-2", "isDisabled": True}]}),
+            _response({"value": [{"commitId": "abc", "committer": {"date": "2024-01-02T03:04:05Z"}}]}),
+            _response({"value": []}),
+        ]
+
+        batches = list(get_rows("myorg", "pat", "commits", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2))
+
+        row = batches[0][0]
+        assert row["committer_date"] == "2024-01-02T03:04:05Z"
+        assert (row["repository_id"], row["repository_name"], row["project_name"]) == ("repo-1", "core", "Alpha")
+        commit_url = mock_session.return_value.get.call_args_list[2].args[0]
+        parsed = urlparse(commit_url)
+        # The disabled repository must never be requested — commits on it 404.
+        assert parsed.path == "/myorg/Alpha/_apis/git/repositories/repo-1/commits"
+        assert parse_qs(parsed.query)["searchCriteria.showOldestCommitsFirst"] == ["true"]
+        assert len(mock_session.return_value.get.call_args_list) == 4
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_commits_incremental_sends_from_date(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _response(self.PROJECTS),
+            _response({"value": [{"id": "repo-1", "name": "core"}]}),
+            _response({"value": []}),
+        ]
+
+        list(
+            get_rows(
+                "myorg",
+                "pat",
+                "commits",
+                mock.MagicMock(),
+                _make_manager(),
+                AZURE_DEVOPS_VERSION_7_2,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+        )
+
+        commit_query = parse_qs(urlparse(mock_session.return_value.get.call_args_list[2].args[0]).query)
+        assert commit_query["searchCriteria.fromDate"] == ["2024-01-02T00:00:00Z"]
+        # The repository listing is a fan-out parent, not the endpoint being synced.
+        repo_query = parse_qs(urlparse(mock_session.return_value.get.call_args_list[1].args[0]).query)
+        assert "searchCriteria.fromDate" not in repo_query
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_commits_full_refresh_omits_from_date(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _response(self.PROJECTS),
+            _response({"value": [{"id": "repo-1", "name": "core"}]}),
+            _response({"value": []}),
+        ]
+
+        list(
+            get_rows(
+                "myorg",
+                "pat",
+                "commits",
+                mock.MagicMock(),
+                _make_manager(),
+                AZURE_DEVOPS_VERSION_7_2,
+                should_use_incremental_field=False,
+                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+        )
+
+        commit_query = parse_qs(urlparse(mock_session.return_value.get.call_args_list[2].args[0]).query)
+        assert "searchCriteria.fromDate" not in commit_query
+
+    THREADS = {
+        "value": [
+            {
+                "id": 141,
+                "publishedDate": "2024-01-02T03:04:05Z",
+                "comments": [
+                    {"id": 1, "content": "looks good"},
+                    {"id": 2, "parentCommentId": 1, "content": "thanks"},
+                ],
+            }
+        ]
+    }
+
+    def _pull_request_parents(self, child_body: dict[str, Any]) -> list[mock.MagicMock]:
+        # The pull request walk is lazy: each PR's child endpoint is requested before
+        # the next page of pull requests is asked for.
+        return [
+            _response(self.PROJECTS),
+            _response({"value": [{"pullRequestId": 22, "repository": {"id": "repo-1"}}]}),
+            _response(child_body),
+            _response({"value": []}),
+        ]
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_pull_request_threads_carry_their_parent_identifiers(self, mock_session):
+        mock_session.return_value.get.side_effect = self._pull_request_parents(self.THREADS)
+
+        batches = list(
+            get_rows(
+                "myorg", "pat", "pull_request_threads", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
+            )
+        )
+
+        row = batches[0][0]
+        assert (row["id"], row["repository_id"], row["pull_request_id"]) == (141, "repo-1", 22)
+        assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
+            "/myorg/Alpha/_apis/git/repositories/repo-1/pullRequests/22/threads"
+        )
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_pull_request_thread_comments_flatten_out_of_the_same_response(self, mock_session):
+        mock_session.return_value.get.side_effect = self._pull_request_parents(self.THREADS)
+
+        batches = list(
+            get_rows(
+                "myorg",
+                "pat",
+                "pull_request_thread_comments",
+                mock.MagicMock(),
+                _make_manager(),
+                AZURE_DEVOPS_VERSION_7_2,
+            )
+        )
+
+        rows = batches[0]
+        assert [row["id"] for row in rows] == [1, 2]
+        assert {row["thread_id"] for row in rows} == {141}
+        assert {(row["repository_id"], row["pull_request_id"]) for row in rows} == {("repo-1", 22)}
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_pull_request_reviewers_carry_their_parent_identifiers(self, mock_session):
+        mock_session.return_value.get.side_effect = self._pull_request_parents(
+            {"value": [{"id": "identity-1", "vote": 10}]}
+        )
+
+        batches = list(
+            get_rows(
+                "myorg", "pat", "pull_request_reviewers", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
+            )
+        )
+
+        row = batches[0][0]
+        assert (row["id"], row["vote"], row["repository_id"], row["pull_request_id"]) == (
+            "identity-1",
+            10,
+            "repo-1",
+            22,
+        )
+        assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
+            "/myorg/Alpha/_apis/git/repositories/repo-1/pullRequests/22/reviewers"
+        )
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_pull_request_children_skip_pull_requests_without_a_repository(self, mock_session):
+        # A PR row missing its repository can't address the child endpoint; requesting
+        # it anyway would build a path with a literal {repositoryId} placeholder.
+        mock_session.return_value.get.side_effect = [
+            _response(self.PROJECTS),
+            _response({"value": [{"pullRequestId": 22}, {"repository": {"id": "repo-1"}}]}),
+            _response({"value": []}),
+        ]
+
+        batches = list(
+            get_rows(
+                "myorg", "pat", "pull_request_reviewers", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
+            )
+        )
+
+        assert batches == []
+        assert len(mock_session.return_value.get.call_args_list) == 3
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_teams_are_read_by_project_id_not_project_name(self, mock_session):
+        # The Core teams route takes a project ID; passing the display name 404s.
+        mock_session.return_value.get.side_effect = [
+            _response(self.PROJECTS),
+            _response({"value": [{"id": "team-1", "name": "QA"}]}),
+            _response({"value": []}),
+        ]
+
+        batches = list(get_rows("myorg", "pat", "teams", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2))
+
+        row = batches[0][0]
+        assert (row["id"], row["project_id"], row["project_name"]) == ("team-1", "proj-guid", "Alpha")
+        assert urlparse(mock_session.return_value.get.call_args_list[1].args[0]).path == (
+            "/myorg/_apis/projects/proj-guid/teams"
+        )
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_team_members_lift_the_identity_id_to_the_row_root(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _response(self.PROJECTS),
+            _response({"value": [{"id": "team-1", "name": "QA"}]}),
+            _response({"value": [{"isTeamAdmin": True, "identity": {"id": "identity-1", "displayName": "Ada"}}]}),
+            _response({"value": []}),
+            _response({"value": []}),
+        ]
+
+        batches = list(
+            get_rows("myorg", "pat", "team_members", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
+        )
+
+        row = batches[0][0]
+        # identity_id and team_id are the composite primary key, so both must be present.
+        assert (row["identity_id"], row["team_id"], row["team_name"]) == ("identity-1", "team-1", "QA")
+        assert row["project_id"] == "proj-guid"
+        assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
+            "/myorg/_apis/projects/proj-guid/teams/team-1/members"
+        )
+
+
 class TestAzureDevOpsSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
@@ -381,7 +639,13 @@ class TestAzureDevOpsSourceResponse:
     @pytest.mark.parametrize("config", list(AZURE_DEVOPS_ENDPOINTS.values()))
     def test_partition_keys_are_stable_fields(self, config):
         if config.partition_key:
-            assert config.partition_key in {"queueTime", "creationDate", "changed_date"}
+            assert config.partition_key in {
+                "queueTime",
+                "creationDate",
+                "changed_date",
+                "committer_date",
+                "publishedDate",
+            }
 
 
 class TestApiVersionDispatch:

@@ -17,7 +17,7 @@ from urllib.parse import quote
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import MultipleObjectsReturned
-from django.db.models import Func, QuerySet, Value
+from django.db.models import F, Func, QuerySet, Value
 from django.db.models.functions import Lower
 
 import requests
@@ -261,11 +261,15 @@ def strip_email_alias(email: str) -> str:
     return f"{local}@{domain}"
 
 
+def _stripped_email(expression: "str | Value") -> Func:
+    return Func(Lower(expression), Value(r"\+[^@]*@"), Value("@"), function="regexp_replace")
+
+
 # SQL counterpart of `strip_email_alias`, lowercased. Shared by the lookup in
 # `EmailValidationHelper.user_exists_with_stripped_alias` and by the `user_stripped_alias_idx`
 # index on `User` that makes it an index lookup — Postgres only uses a functional index when
 # the query filters on the identical expression, so these must not drift apart.
-STRIPPED_EMAIL_EXPRESSION = Func(Lower("email"), Value(r"\+[^@]*@"), Value("@"), function="regexp_replace")
+STRIPPED_EMAIL_EXPRESSION = _stripped_email("email")
 
 
 def reject_plus_addressed_email(value: str) -> None:
@@ -280,36 +284,49 @@ def reject_plus_addressed_email(value: str) -> None:
 
 class EmailLookupHandler:
     @staticmethod
+    def users_matching_email(email: str, queryset: Optional[QuerySet] = None) -> QuerySet:
+        """
+        Return the users whose address matches `email` under the fold that email lookups share.
+
+        The fold is `LOWER`. `iexact` would fold on `UPPER`, which maps `ı` (U+0131) to `I` and `ſ`
+        (U+017F) to `S`, while `LOWER` leaves both alone; `LOWER` in turn maps `İ` (U+0130) to `i`.
+        Every case fold merges some characters, so what matters is that one fold is used everywhere.
+
+        Postgres folds both sides. Python's `str.lower()` is a different operation: it maps `İ` to
+        `i` plus a combining dot, where Postgres maps it to a plain `i`, so comparing a Postgres fold
+        against a Python fold stops the owner of such an address matching their own row.
+
+        A duplicate check on a path that writes `User.email` must use this fold. If it folds
+        differently, an account can store an address that this lookup then resolves to another
+        account, and that account's login and password reset reach the wrong row.
+        """
+        from posthog.models.user import User
+
+        base = queryset if queryset is not None else User.objects.all()
+        return base.alias(_lower_email=Lower("email")).filter(_lower_email=Lower(Value(email)))
+
+    @staticmethod
     def get_user_by_email(email: str, is_active: Optional[bool] = True) -> Optional["User"]:
         """
-        Get user by email with backwards compatibility.
-        First tries exact match (for existing users), then case-insensitive fallback.
+        Resolve an email address to a user, case-insensitively.
 
-        Handles the edge case where multiple users exist with case variations of the same email
-        (e.g., test@email.com, Test@email.com, TEST@email.com) by:
-        1. Preferring exact case match if it exists
-        2. Returning the first case-insensitive match deterministically if no exact match
+        Accounts created before signup lowercased emails can differ from a newer account only by
+        letter case. One case-insensitive rule keeps every caller on the same account, so a login,
+        a password reset, and the login precheck cannot disagree about who is signing in.
+        `EmailMultiRecordHandler` chooses between case variations when more than one matches, and
+        `users_matching_email` holds the fold itself.
         """
         from posthog.models.user import User
 
         queryset = User.objects.filter(is_active=is_active) if is_active else User.objects.all()
+        matches = EmailLookupHandler.users_matching_email(email, queryset)
 
-        # First try: exact match (preserves existing behavior)
         try:
-            return queryset.get(email=email)
-        except User.DoesNotExist:
-            pass
-
-        # Second try: case-insensitive match
-        try:
-            return queryset.get(email__iexact=email)
+            return matches.get()
         except User.DoesNotExist:
             return None
         except MultipleObjectsReturned:
-            # Handle multiple case variations of the same email
-            return EmailMultiRecordHandler.handle_multiple_users(
-                queryset.filter(email__iexact=email), email, "user_lookup"
-            )
+            return EmailMultiRecordHandler.handle_multiple_users(matches, email, "user_lookup")
 
 
 class EmailMultiRecordHandler:
@@ -324,9 +341,18 @@ class EmailMultiRecordHandler:
         Handle multiple user records with case variations of the same email.
 
         Returns:
-            Last logged in user deterministically
+            Last logged in user deterministically, preferring an active account
         """
-        case_insensitive_matches = queryset.order_by("-last_login")
+        # An active account wins first. Login reads deactivated rows too, and Django rejects the
+        # one row it gets back when that row is inactive, so a deactivated twin that won here would
+        # lock the active owner out.
+        # Postgres sorts NULLs first on a DESC order, so an account that never logged in would win
+        # the tie-break. The account a person still uses is the one that logged in most recently.
+        # `-pk` keeps the choice stable when no candidate has ever logged in, so every caller that
+        # resolves this address agrees on one account.
+        case_insensitive_matches = queryset.order_by(
+            F("is_active").desc(), F("last_login").desc(nulls_last=True), "-pk"
+        )
         user_count = case_insensitive_matches.count()
         last_logged_in_user = case_insensitive_matches.first()
 
@@ -366,13 +392,12 @@ class EmailValidationHelper:
         """
         from posthog.models.user import User
 
-        # Compared lowercased because the expression below (and the index backing it) lowercases
-        # first, so an equality match would otherwise miss legacy mixed-case rows.
-        stripped = strip_email_alias(email).lower()
+        # Postgres folds and strips `email` with the same expression as the column, so this check
+        # treats as taken every address that `EmailLookupHandler.users_matching_email` resolves.
         candidates = (
             User.objects.filter(is_active=True)
             .annotate(stripped_email=STRIPPED_EMAIL_EXPRESSION)
-            .filter(stripped_email=stripped)
+            .filter(stripped_email=_stripped_email(Value(email)))
         )
         if exclude_user_id is not None:
             candidates = candidates.exclude(pk=exclude_user_id)

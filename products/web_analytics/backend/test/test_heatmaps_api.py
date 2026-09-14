@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from json import dumps
 from urllib.parse import quote
 
-import freezegun
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -149,7 +149,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             properties=properties,
         )
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_can_get_empty_response(self) -> None:
         response = self.client.get("/api/heatmap/?date_from=2024-05-03")
@@ -168,7 +168,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             },
         )
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_can_get_all_data_response(self) -> None:
         self._create_heatmap_event("session_1", "click")
@@ -176,7 +176,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08"}, 2)
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     def test_returns_below_the_fold_summary(self) -> None:
         # Non-fixed clicks against a 640px-tall viewport: one above the fold, two below it.
         self._create_heatmap_event("s1", "click", viewport_height=640, y=320, pointer_target_fixed=False)
@@ -194,7 +194,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "median_viewport_height": 640,
         }
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     def test_cannot_query_across_teams(self) -> None:
         self._create_heatmap_event("session_1", "click")
         self._create_heatmap_event("session_2", "click")
@@ -206,7 +206,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # second team's click is not counted
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08"}, 2)
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_can_get_filter_by_date_from(self) -> None:
         self._create_heatmap_event("session_1", "click", "2023-03-07T07:00:00")
@@ -215,7 +215,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08"}, 1)
 
     @snapshot_clickhouse_queries
-    @freezegun.freeze_time("2023-03-15T09:00:00")
+    @time_machine.travel("2023-03-15T09:00:00", tick=False)
     def test_can_get_filter_by_relative_date(self) -> None:
         self._create_heatmap_event("session_1", "click", "2023-03-07T07:00:00")
         self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00")
@@ -223,7 +223,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._assert_heatmap_single_result_count({"date_from": "-7d", "date_to": "-1d"}, 1)
         self._assert_heatmap_no_result_count({"date_from": "dStart", "date_to": "dEnd"})
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_can_get_filter_by_click(self) -> None:
         self._create_heatmap_event("session_1", "click", "2023-03-08T07:00:00")
@@ -254,7 +254,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ("offset_past_end_returns_empty", 2, 5, [], False),
         ]
     )
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     def test_limit_and_offset_page_hottest_first(
         self, _name: str, limit: int | None, offset: int | None, expected_counts: list[int], expected_has_more: bool
     ) -> None:
@@ -270,7 +270,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert [r["count"] for r in response.data["results"]] == expected_counts
         assert response.data["has_more"] is expected_has_more
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     def test_scrolldepth_ignores_limit_and_has_no_has_more(self) -> None:
         for i, y in enumerate([100, 200, 300, 400]):
             self._create_heatmap_event(f"session_{i}", "scrolldepth", "2023-03-08T08:00:00", y=y, viewport_height=1000)
@@ -279,7 +279,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert len(response.data["results"]) > 1
         assert "has_more" not in response.data
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_can_filter_by_exact_url(self) -> None:
         self._create_heatmap_event("session_1", "rageclick", "2023-03-08T08:00:00", current_url="http://example.com")
@@ -306,7 +306,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ("query_with_slash_data_with_slash", "http://example.com/", "http://example.com/"),
         ]
     )
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     def test_url_exact_normalizes_trailing_slash(self, _name: str, query_url: str, data_url: str) -> None:
         self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", current_url=data_url)
 
@@ -314,7 +314,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"date_from": "2023-03-08", "url_exact": query_url, "type": "click"}, 1
         )
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_can_filter_by_url_pattern_where_end_is_anchored(self) -> None:
         # home page with no trailing slash
@@ -344,7 +344,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ],
         name_func=lambda f, n, p: f"{f.__name__}_{p.args[0]}",
     )
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_can_filter_by_url_pattern(self, pattern: str, expected_matches: int) -> None:
         # the home page
@@ -388,7 +388,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             expected_matches,
         )
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_can_get_scrolldepth_counts(self) -> None:
         # to calculate expected scroll depth bucket from y and viewport height
@@ -446,7 +446,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ],
         }
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_can_get_scrolldepth_counts_by_visitor(self) -> None:
         # scroll depth bucket 1000
@@ -526,7 +526,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ],
         ]
     )
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_can_filter_by_viewport(self, _name: str, query_params: dict, expected_results: list) -> None:
         # all these xs = round(10/16) = 1
@@ -547,7 +547,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self._get_heatmap(query_params)
         assert sorted(response.data["results"], key=lambda k: k["pointer_relative_x"]) == expected_results
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_can_filter_by_test_accounts(self) -> None:
         self.team.test_account_filters = [
@@ -622,7 +622,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ("relative_today_start_end", {"date_from": "dStart", "date_to": "dEnd"}),
         ]
     )
-    @freezegun.freeze_time("2023-03-08T13:00:00")
+    @time_machine.travel("2023-03-08T13:00:00", tick=False)
     def test_filter_test_accounts_returns_data_for_single_day_range(self, _name: str, params: dict[str, str]) -> None:
         # A single-day window (date_from and date_to on the same day) must still return data when filtering
         # test accounts. The events subquery backing the test-account filter used to collapse to an impossible
@@ -655,7 +655,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             },
         ]
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_can_get_count_by_aggregation(self) -> None:
         # 3 items but 2 visitors
@@ -708,21 +708,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ("default", {"date_from": "2023-03-08"}),
         ]
     )
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     def test_hide_zero_coordinates_filters_out_zero_zero_events(self, _name: str, params: dict) -> None:
         self._create_heatmap_event("session_1", "click", x=0, y=0)
         self._create_heatmap_event("session_2", "click", x=10, y=20)
 
         self._assert_heatmap_single_result_count(params, 1)
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     def test_hide_zero_coordinates_false_includes_zero_zero(self) -> None:
         self._create_heatmap_event("session_1", "click", x=0, y=0)
         self._create_heatmap_event("session_2", "click", x=10, y=20)
 
         self._assert_heatmap_result_count({"date_from": "2023-03-08", "hide_zero_coordinates": "false"}, 2)
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     def test_hide_zero_coordinates_not_applied_to_scrolldepth(self) -> None:
         self._create_heatmap_event("session_1", "scrolldepth", x=0, y=0)
 
@@ -749,7 +749,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._create_heatmap_event("session_2", "click", "2023-03-08T09:00:00", viewport_width=100, x=50, y=10)
         self._create_heatmap_event("session_3", "click", "2023-03-08T09:00:00", viewport_width=100, x=100, y=10)
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_event_filter_narrows_to_sessions_containing_every_selected_event(self) -> None:
         self._create_three_sessions_at_distinct_positions()
@@ -770,7 +770,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             two_events = self._events_param([{"id": "purchase"}, {"id": "signed_up"}])
             assert self._heatmap_x_positions({"date_from": "2023-03-08", "events": two_events}) == [0.0]
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_event_filter_applies_the_property_filters_carried_by_an_event(self) -> None:
         self._create_three_sessions_at_distinct_positions()
@@ -792,7 +792,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         with self._event_filter_flag(True):
             assert self._heatmap_x_positions({"date_from": "2023-03-08", "events": events}) == [0.0]
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_event_filter_keeps_a_session_whose_event_landed_before_the_window(self) -> None:
         # The interaction is inside the window and the event that selects it is not, because the session
@@ -804,7 +804,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         with self._event_filter_flag(True):
             assert self._heatmap_x_positions({"date_from": "2023-03-08", "events": events}) == [0.0]
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     def test_event_filter_is_ignored_when_the_flag_is_off(self) -> None:
         self._create_three_sessions_at_distinct_positions()
         self.create_event(session_id="session_1", timestamp="2023-03-08T09:00:00", event_name="purchase", properties={})
@@ -813,7 +813,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         with self._event_filter_flag(False):
             assert self._heatmap_x_positions({"date_from": "2023-03-08", "events": events}) == [0.0, 0.5, 1.0]
 
-    @freezegun.freeze_time("2025-03-31")
+    @time_machine.travel("2025-03-31", tick=False)
     @snapshot_clickhouse_queries
     def test_event_filter_also_narrows_the_interaction_drill_down(self) -> None:
         # The drill-down has to answer for the same sessions as the heatmap it was opened from, or a hotspot

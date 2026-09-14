@@ -8,7 +8,9 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
+import { engineeringAnalyticsEmptyState } from '../emptyState/engineeringAnalyticsEmptyState'
 import { doraLogic } from './doraLogic'
 import { EngineeringAnalyticsHealth } from './EngineeringAnalyticsHealth'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
@@ -26,6 +28,8 @@ import { RepoOverviewScene } from './RepoOverviewScene'
 export const scene: SceneExport = {
     component: EngineeringAnalyticsScene,
     logic: engineeringAnalyticsSceneLogic,
+    productKey: ProductKey.ENGINEERING_ANALYTICS,
+    emptyState: engineeringAnalyticsEmptyState,
 }
 
 function RefreshButton({ extraLoading = false }: { extraLoading?: boolean }): JSX.Element {

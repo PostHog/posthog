@@ -18,6 +18,10 @@ tool. There is **no dedicated ClickHouse table** — every field lives as a
 percentiles, reach) is an aggregation over this one event. This is the data
 behind the MCP analytics dashboard and tool-quality screens.
 
+## Governed metric first
+
+For any MCP failure-rate headline, call `posthog:metric-list` before a typed tool or SQL recipe and look for `mcp_tool_call_fail_pct`. If it is approved and not drifted, run it with `posthog:data-catalog-metric-run` and use that result as the canonical headline. When the user also asks which tools drive failures, run the headline first, then use the workflows below for the breakdown and label that breakdown noncanonical. If no governed metric matches, state that the catalog has no match and label the derived rate noncanonical.
+
 **For a single tool, prefer the typed tools** — `posthog:query-mcp-tool-stats` (calls,
 errors, p50/p95, users, sessions, intents), `posthog:query-mcp-tool-failures` (top error
 messages by harness), and `posthog:query-mcp-tool-daily-stats` (day-by-day trend). Each
@@ -28,12 +32,12 @@ UI, and is gated behind the `mcp-analytics` flag — no hand-written SQL needed.
 "which tool errors most" ranking below has no typed tool, so rank with SQL, then
 drill into the worst tool with `posthog:query-mcp-tool-stats` and
 `posthog:query-mcp-tool-failures`. The full
-property schema and the canonical query recipes live in the shared MCP data
+property schema and the established query recipes live in the shared MCP data
 reference:
 [`products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
 That reference is the single source of truth for the `$mcp_*` schema and the
-effective-tool-name idiom used below — this skill inlines only the headline
-"which tool errors most" query for convenience; pull the matrix, latency, and
+effective-tool-name idiom used below — this skill inlines only the noncanonical
+"which tool errors most" breakdown for convenience; pull the matrix, latency, and
 harness recipes from the reference rather than re-deriving them. Read it before
 writing queries.
 
@@ -52,9 +56,9 @@ writing queries.
 
 Always set a time range — these queries scan `events` otherwise.
 
-## Workflow: which tool has the highest error rate
+## Workflow: which tool has the highest error rate (noncanonical breakdown)
 
-This is the canonical "which tool errors most" question. Rank tools by error
+For the "which tool errors most" breakdown, rank tools by error
 rate, but guard against small-sample noise with a `HAVING` floor on call volume:
 
 ```sql

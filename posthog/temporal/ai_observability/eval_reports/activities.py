@@ -21,6 +21,9 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.eval_reports.constants import (
     COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
+    COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE,
+    COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR,
+    COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS,
     COUNT_TRIGGER_QUERY_WIDTH,
 )
@@ -361,16 +364,20 @@ class _CountEntry(NamedTuple):
 def _count_eval_results_for_reports(
     team: "Team",
     entries: list[_CountEntry],
+    since: dt.datetime,
     until: dt.datetime,
     max_execution_time: int,
 ) -> dict[str, int]:
-    """Count `$ai_evaluation` events for many reports in a single ClickHouse query.
+    """Count `$ai_evaluation` events for many reports over one time range, in a single
+    ClickHouse query.
 
     We emit one `countIf` column per entry, each carrying the exact per-report predicate
     (evaluation_id + output-type `event_predicate` + `target_predicate` + `timestamp >=
-    since`), so every count equals what the single-report query would return. The shared
-    WHERE only narrows the scan (its `IN` set, `min(since)`, and `until` upper bound never
-    exclude a row any countIf would have counted). Returns {key: count}.
+    entry.since`), so a call covering every entry's own window returns what the single-report
+    query would. The shared WHERE narrows the scan to `since`..`until` and to the entries'
+    evaluation ids. Callers that pass a range narrower than an entry's own window get that
+    range's share of the count, and must sum the shares to get the entry's total.
+    Returns {key: count}.
     """
     from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.parser import parse_expr, parse_select
@@ -403,10 +410,10 @@ def _count_eval_results_for_reports(
     query = parse_select(
         "SELECT 1 FROM events WHERE event = '$ai_evaluation' "
         "AND properties.$ai_evaluation_id IN {evaluation_ids} "
-        "AND timestamp >= {min_since} AND timestamp <= {until}",
+        "AND timestamp >= {since} AND timestamp <= {until}",
         placeholders={
             "evaluation_ids": ast.Tuple(exprs=[ast.Constant(value=e) for e in unique_evaluation_ids]),
-            "min_since": ast.Constant(value=min(entry.since for entry in entries)),
+            "since": ast.Constant(value=since),
             "until": ast.Constant(value=until),
         },
     )
@@ -419,7 +426,9 @@ def _count_eval_results_for_reports(
             query=query,
             team=team,
             workload=Workload.OFFLINE,
-            settings=HogQLGlobalSettings(max_execution_time=max_execution_time),
+            # "throw", not the profile default: the split retry needs the timeout to raise. A
+            # partial count reads as below threshold and silently keeps the report from firing.
+            settings=HogQLGlobalSettings(max_execution_time=max_execution_time, timeout_overflow_mode="throw"),
         )
 
     rows = result.results or []
@@ -433,38 +442,61 @@ def _count_eval_results_for_reports_with_split_retry(
     team: "Team",
     entries: list[_CountEntry],
     until: dt.datetime,
+    since: dt.datetime | None = None,
     deadline: float | None = None,
+    max_execution_time: int = COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
 ) -> dict[str, int]:
-    """Run the batched count query, halving the chunk and retrying narrower if ClickHouse
-    can't finish it inside its own execution-time budget.
+    """Run the batched count query, halving the time range and retrying over each half if
+    ClickHouse can't finish it inside its own execution-time budget.
 
-    A `ClickHouseQueryTimeOut` on a width-N query means N countIf columns over that team's
-    event volume don't fit the budget — replaying the identical query would just time out
-    again. Splitting also narrows each half's own `since`-sorted window independently.
+    A `ClickHouseQueryTimeOut` means the rows in `since`..`until` don't fit the budget, so
+    replaying the identical query would just time out again. Halving the range halves the
+    rows each attempt reads, and the two halves sum to the same per-entry counts. Splitting
+    the countIf columns instead would leave both halves reading almost the same rows, because
+    the columns share one scan and the width barely moves its cost.
 
     Every attempt draws on one shared wall-clock budget (`deadline`, in `time.monotonic()`
     seconds), capping its own execution time by what remains, so the whole split tree
-    concludes before the activity's own timeout. Once the remainder can't fund a meaningful
-    query, the timeout surfaces and the activity fails cleanly instead of being killed
-    mid-split by Temporal.
+    concludes before the activity's own timeout. ClickHouse can overrun its execution limit,
+    so an attempt only claims a limit it can afford to overshoot by
+    COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR. Once the remainder can't fund a meaningful query,
+    the timeout surfaces and the activity fails cleanly instead of being killed mid-split by
+    Temporal.
     """
+    if since is None:
+        since = min(entry.since for entry in entries)
     if deadline is None:
         deadline = time.monotonic() + COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS
-    budget = min(COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS, int(deadline - time.monotonic()))
+    affordable_execution_time = int((deadline - time.monotonic()) / COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR)
+    budget = min(max_execution_time, affordable_execution_time)
     if budget < COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS:
         raise ClickHouseQueryTimeOut("Count query budget exhausted before the split could finish.")
     try:
-        return _count_eval_results_for_reports(team, entries, until=until, max_execution_time=budget)
+        return _count_eval_results_for_reports(team, entries, since=since, until=until, max_execution_time=budget)
     except ClickHouseQueryTimeOut:
-        if len(entries) == 1:
+        if (until - since) <= COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE:
             raise
-        midpoint = len(entries) // 2
+        midpoint = since + (until - since) / 2
         counts = _count_eval_results_for_reports_with_split_retry(
-            team, entries[:midpoint], until=until, deadline=deadline
+            team,
+            entries,
+            since=since,
+            until=midpoint,
+            deadline=deadline,
+            max_execution_time=COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
         )
-        counts.update(
-            _count_eval_results_for_reports_with_split_retry(team, entries[midpoint:], until=until, deadline=deadline)
+        # The events table stores timestamps as DateTime64(6), so one microsecond past the
+        # midpoint is the next representable instant and the halves cannot overlap.
+        later_half = _count_eval_results_for_reports_with_split_retry(
+            team,
+            entries,
+            since=midpoint + dt.timedelta(microseconds=1),
+            until=until,
+            deadline=deadline,
+            max_execution_time=COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
         )
+        for key, count in later_half.items():
+            counts[key] = counts.get(key, 0) + count
         return counts
 
 

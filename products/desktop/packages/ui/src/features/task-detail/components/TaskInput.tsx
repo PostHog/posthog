@@ -928,6 +928,7 @@ export function TaskInput({
       : effectiveReasoningLevel;
 
   useWarmTask({
+    claudeModelAccess: adapter === "claude" ? composerModelAccess : undefined,
     workspaceMode,
     selectedRepository: selectedCloudRepository,
     repositories: repoOptional ? taskRepositories : undefined,
@@ -1695,6 +1696,9 @@ export function TaskInput({
                         isDefaultSelection={isDefaultSelection}
                         onResetToDefault={resetToDefault}
                         resetToDefaultDisabled={resetToDefaultDisabled}
+                        onOpenDefaultSettings={() =>
+                          openSettings("task-agent-defaults")
+                        }
                       />
                     )
                   }

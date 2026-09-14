@@ -38,13 +38,16 @@ impl PersonHogLifecycleService {
         engine: Arc<Engine>,
         leader: Arc<dyn LifecycleLeader>,
         tables: crate::config::IdentityTables,
+        leader_call_concurrency: usize,
     ) -> Self {
         Self {
             engine,
-            delete_driver: DeleteDriver::new(leader, tables),
+            delete_driver: DeleteDriver::new(leader, tables, leader_call_concurrency),
         }
     }
 }
+
+const DELETE_PERSONS_PER_CALL: &str = "personhog_lifecycle_delete_persons_per_call";
 
 /// Translate a terminal op row's recorded outcome into the proto response.
 /// The recorded outcome is the single source of truth — a retried call gets
@@ -93,6 +96,11 @@ impl PersonHogLifecycle for PersonHogLifecycleService {
     ) -> Result<Response<DeletePersonsResponse>, Status> {
         let request = request.into_inner();
         let op_id = validate_delete_persons(&request)?;
+        common_metrics::histogram(
+            DELETE_PERSONS_PER_CALL,
+            &[],
+            request.person_ids.len() as f64,
+        );
 
         let frozen = serde_json::to_value(delete::DeleteRequest {
             person_ids: request.person_ids,

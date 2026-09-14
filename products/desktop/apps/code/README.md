@@ -148,6 +148,22 @@ Set `SKIP_NOTARIZE=1` if you need to generate signed artifacts without submittin
 SKIP_NOTARIZE=1 pnpm run make
 ```
 
+### Windows code signing
+
+Windows builds are signed through Azure Artifact Signing when these environment variables are present:
+
+```bash
+export AZURE_TENANT_ID="xxx"
+export AZURE_CLIENT_ID="xxx"
+export AZURE_CLIENT_SECRET="xxx"
+```
+
+They authenticate an Entra app registration that holds the `Artifact Signing Certificate Profile Signer` role on the `posthog-desktop` account (West US 2, certificate profile `posthog-desktop-public`). CI reads them from the `DESKTOP_AZURE_CODESIGN_*` repository secrets. Without them the build packages unsigned, which is what pull request builds, fork PRs and local builds get. A manual run of the `desktop-build-test` workflow signs and verifies the result, which is how to check the pipeline before a release.
+
+electron-builder installs the `TrustedSigning` PowerShell module on the build machine and signs every executable through it, so signing only runs on Windows. Nothing is downloaded: Microsoft issues a short-lived certificate inside the service and returns only the signature.
+
+The certificate subject is set as `publisherName` in `electron-builder.ts` and baked into `app-update.yml`. electron-updater rejects an update whose signature does not match it, so keep it identical to the certificate profile's subject in Azure.
+
 ## Workspace Configuration (posthog-code.json)
 
 PostHog supports per-repository configuration through a `posthog-code.json` file. This lets you define scripts that run automatically when workspaces are created or destroyed.

@@ -19,9 +19,14 @@ const createTaskMock = vi.hoisted(() => vi.fn());
 const invalidateTasksMock = vi.hoisted(() => vi.fn());
 const openTaskMock = vi.hoisted(() => vi.fn());
 const trackMock = vi.hoisted(() => vi.fn());
+const cloudSubscription = vi.hoisted(() => ({
+  cloudSubscriptionOn: false,
+  cloudFlagEnabled: true,
+}));
 
 vi.mock("@posthog/di/react", () => ({
   useService: () => ({ createTask: createTaskMock }),
+  useServiceOptional: () => undefined,
 }));
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPC: () => ({
@@ -47,11 +52,13 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 }));
 vi.mock("@posthog/ui/features/settings/adapterSubscription", () => ({
   useAdapterSubscription: () => ({
+    ...cloudSubscription,
     flagEnabled: false,
     loginState: "logged-out",
     subscriptionOn: false,
   }),
-  subscriptionModelAccess: () => undefined,
+  subscriptionModelAccess: () =>
+    cloudSubscription.cloudSubscriptionOn ? "own-subscription" : undefined,
 }));
 vi.mock("@posthog/ui/features/tasks/useTaskCrudMutations", () => ({
   useCreateTask: () => ({ invalidateTasks: invalidateTasksMock }),
@@ -140,6 +147,7 @@ function wrapper({ children }: { children: ReactNode }) {
 function renderTaskCreation(
   content: EditorContent,
   workspaceMode: "local" | "cloud" = "local",
+  runtime: "acp" | "pi" = "acp",
 ) {
   return renderHook(
     () =>
@@ -149,6 +157,8 @@ function renderTaskCreation(
         selectedDirectory: "/repo",
         allowNoRepo: true,
         workspaceMode,
+        runtime,
+        adapter: "claude",
         editorIsEmpty: false,
       }),
     { wrapper },
@@ -159,8 +169,34 @@ describe("useTaskCreation prompt records", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     createTaskMock.mockReset();
+    cloudSubscription.cloudSubscriptionOn = false;
     usePendingTaskPromptStore.setState({ byKey: {}, _hasHydrated: true });
     useTaskInputPrefillStore.setState({ prefill: {} });
+  });
+
+  it("omits subscription billing when Pi is selected", async () => {
+    cloudSubscription.cloudSubscriptionOn = true;
+    createTaskMock.mockResolvedValueOnce({
+      success: true,
+      data: { task: fakeTask(), workspace: null },
+    });
+    const { result } = renderTaskCreation(
+      textToContent("Check the build"),
+      "cloud",
+      "pi",
+    );
+
+    await act(async () => {
+      expect(await result.current.handleSubmit()).toBe(true);
+    });
+
+    expect(createTaskMock).toHaveBeenCalledOnce();
+    expect(createTaskMock.mock.calls[0][0]).toMatchObject({
+      runtime: "pi",
+      claudeCloudModelAccess: undefined,
+      claudeModelAccess: undefined,
+      codexModelAccess: undefined,
+    });
   });
 
   it.each(["local", "cloud"] as const)(

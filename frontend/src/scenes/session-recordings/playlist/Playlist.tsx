@@ -64,6 +64,12 @@ export type PlaylistProps = {
     isSynthetic?: boolean
     description?: string
     selectInitialItem?: boolean
+    /**
+     * Replaces the shared replay troubleshooting panel when a filters list comes back empty. Set it
+     * on a surface that already knows why its list is empty, because the shared panel can only
+     * offer the generic replay hints. Collections keep their own empty state.
+     */
+    listEmptyState?: JSX.Element
 }
 
 export function Playlist({
@@ -73,6 +79,7 @@ export function Playlist({
     isSynthetic,
     description,
     selectInitialItem,
+    listEmptyState,
 }: PlaylistProps): JSX.Element {
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
@@ -224,11 +231,11 @@ export function Playlist({
 
     const activeItemId = activeSessionRecordingId === undefined ? controlledActiveItemId : activeSessionRecordingId
 
-    const listEmptyState =
+    const emptyState =
         type === 'collection' ? (
             <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
         ) : (
-            <ListEmptyState />
+            <ListEmptyState listEmptyState={listEmptyState} />
         )
 
     // Show collapsed view
@@ -343,7 +350,7 @@ export function Playlist({
                                                     loading={!!sessionRecordingsResponseLoading}
                                                     setActiveItemId={onChangeActiveItem}
                                                     activeItemId={activeItemId}
-                                                    emptyState={listEmptyState}
+                                                    emptyState={emptyState}
                                                     scrollEl={scrollEl}
                                                 />
                                             ),
@@ -361,13 +368,13 @@ export function Playlist({
                                     loading={!!sessionRecordingsResponseLoading}
                                     setActiveItemId={onChangeActiveItem}
                                     activeItemId={activeItemId}
-                                    emptyState={listEmptyState}
+                                    emptyState={emptyState}
                                     scrollEl={scrollEl}
                                 />
                             ) : sessionRecordingsResponseLoading ? (
                                 <LoadingState />
                             ) : (
-                                listEmptyState
+                                emptyState
                             )}
                         </div>
                     </div>
@@ -404,7 +411,7 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
     )
 }
 
-const ListEmptyState = (): JSX.Element => {
+const ListEmptyState = ({ listEmptyState }: Pick<PlaylistProps, 'listEmptyState'>): JSX.Element => {
     const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
@@ -415,7 +422,7 @@ const ListEmptyState = (): JSX.Element => {
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
                 <div className="flex flex-col gap-2">
-                    <SessionRecordingsPlaylistTroubleshooting />
+                    {listEmptyState ?? <SessionRecordingsPlaylistTroubleshooting />}
                 </div>
             )}
         </div>

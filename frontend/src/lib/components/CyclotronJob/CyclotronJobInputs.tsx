@@ -164,27 +164,29 @@ export function CyclotronJobInputs({
                 }}
             >
                 <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
-                    {configuration.inputs_schema
-                        ?.filter((i: CyclotronJobInputSchemaType) => !i.hidden)
-                        .map((schema: CyclotronJobInputSchemaType) => {
-                            return (
-                                <CyclotronJobInputWithSchema
-                                    key={schema.key}
-                                    schema={schema}
-                                    configuration={configuration}
-                                    parentConfiguration={parentConfiguration}
-                                    onInputSchemaChange={onInputSchemaChange}
-                                    onInputChange={onInputChange}
-                                    showSource={showSource}
-                                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
-                                    errors={errors}
-                                    warnings={warnings}
-                                    emailFieldErrors={emailFieldErrors}
-                                    emailLiveChanges={emailLiveChanges}
-                                    emailSaveIndicator={emailSaveIndicator}
-                                />
-                            )
-                        })}
+                    <div className="flex flex-col gap-3">
+                        {configuration.inputs_schema
+                            ?.filter((i: CyclotronJobInputSchemaType) => !i.hidden)
+                            .map((schema: CyclotronJobInputSchemaType) => {
+                                return (
+                                    <CyclotronJobInputWithSchema
+                                        key={schema.key}
+                                        schema={schema}
+                                        configuration={configuration}
+                                        parentConfiguration={parentConfiguration}
+                                        onInputSchemaChange={onInputSchemaChange}
+                                        onInputChange={onInputChange}
+                                        showSource={showSource}
+                                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                                        errors={errors}
+                                        warnings={warnings}
+                                        emailFieldErrors={emailFieldErrors}
+                                        emailLiveChanges={emailLiveChanges}
+                                        emailSaveIndicator={emailSaveIndicator}
+                                    />
+                                )
+                            })}
+                    </div>
                 </SortableContext>
             </DndContext>
         </>
@@ -983,6 +985,7 @@ function CyclotronJobInputWithSchema({
         >
             {!editing ? (
                 <LemonField.Pure
+                    className="gap-1"
                     error={error}
                     help={
                         <>

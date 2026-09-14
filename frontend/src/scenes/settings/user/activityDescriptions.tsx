@@ -1,9 +1,9 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     Describer,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
 export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogItem): HumanizedChange => {
@@ -31,8 +31,8 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created personal API key{' '}
-                    <strong>{getKeyTitle()}</strong> for <strong>{getScopeDescription()}</strong>
+                    <ActivityLogUserName logItem={logItem} /> created personal API key <strong>{getKeyTitle()}</strong>{' '}
+                    for <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -42,8 +42,8 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> revoked access for personal
-                    API key <strong>{getKeyTitle()}</strong> to <strong>{getScopeDescription()}</strong>
+                    <ActivityLogUserName logItem={logItem} /> revoked access for personal API key{' '}
+                    <strong>{getKeyTitle()}</strong> to <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -56,7 +56,7 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
             return {
                 description: (
                     <>
-                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> rolled personal API key{' '}
+                        <ActivityLogUserName logItem={logItem} /> rolled personal API key{' '}
                         <strong>{getKeyTitle()}</strong> for <strong>{getScopeDescription()}</strong>
                     </>
                 ),
@@ -66,8 +66,8 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated personal API key{' '}
-                    <strong>{getKeyTitle()}</strong> for <strong>{getScopeDescription()}</strong>
+                    <ActivityLogUserName logItem={logItem} /> updated personal API key <strong>{getKeyTitle()}</strong>{' '}
+                    for <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -77,8 +77,8 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted personal API key{' '}
-                    <strong>{getKeyTitle()}</strong> for access to <strong>{getScopeDescription()}</strong>
+                    <ActivityLogUserName logItem={logItem} /> deleted personal API key <strong>{getKeyTitle()}</strong>{' '}
+                    for access to <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -116,7 +116,7 @@ export const oauthApplicationActivityDescriber: Describer = (logItem: ActivityLo
         return defaultDescriber(logItem)
     }
 
-    const actor = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const actor = <ActivityLogUserName logItem={logItem} />
     const before = asScopeList(scopesChange.before)
     const after = asScopeList(scopesChange.after)
 

@@ -10,12 +10,14 @@ from django.utils.html import format_html
 from posthog.models.utils import convert_legacy_metrics
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.admin.recalculation_panel import build_recalculation_panel
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
+from products.experiments.backend.recalculation import get_latest_recalculation
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -228,6 +230,11 @@ class ExperimentAdmin(admin.ModelAdmin):
         extra_context["shared_metrics_status"] = shared_metrics_status
         extra_context["show_migration"] = has_legacy_metric(all_metrics) or has_legacy_shared_metric
         extra_context["can_migrate"] = not has_unmigrated_legacy_shared_metric
+
+        latest_recalculation = get_latest_recalculation(obj)
+        extra_context["recalculation_panel"] = (
+            build_recalculation_panel(latest_recalculation) if latest_recalculation is not None else None
+        )
 
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 

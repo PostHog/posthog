@@ -81,8 +81,7 @@ CREATE TABLE posthog.events (
   dmat_string_9 Nullable(String),
   historical_migration Bool,
   properties_group_ai_large Map(String, String),
-  mat_$ai_prompt_name Nullable(String) COMMENT 'column_materializer::properties::$ai_prompt_name',
-  mat_$ai_experiment_id Nullable(String) COMMENT 'column_materializer::properties::$ai_experiment_id'
+  mat_$ai_prompt_name Nullable(String) COMMENT 'column_materializer::properties::$ai_prompt_name'
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_events', sipHash64(distinct_id));
 CREATE TABLE posthog.person_distinct_id_overrides (
   team_id Int64,

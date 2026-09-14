@@ -7,6 +7,7 @@ members = [
   "capture",
   "capture-load-gen",
   "capture-logs",
+  "capture-apm-metrics",
   "cohort-core",
   "cohort-event-shuffler",
   "cohort-seeder",
@@ -38,6 +39,7 @@ members = [
   "common/types",
   "common/compression",
   "common/hypercache",
+  "common/sqlx-macros",
   "feature-flags",
   "flags-consumer",
   "hypercache-server",
@@ -229,6 +231,9 @@ tracing-opentelemetry = "0.23.0"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 url = "2.5.0"
 uuid = { version = "1.23.0", features = ["v4", "v5", "v7", "serde"] }
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
 zstd = "0.13"
 neon = "1"
 quick_cache = "0.6.21"

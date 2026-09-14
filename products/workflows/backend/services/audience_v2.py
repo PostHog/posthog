@@ -1,0 +1,238 @@
+from typing import Optional
+
+import posthoganalytics
+
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.filters import Filter
+from posthog.models.team.team import Team
+
+from products.feature_flags.backend.user_blast_radius import (
+    BlastRadiusResult,
+    replace_proxy_properties,
+    unevaluable_filters_as_validation_errors,
+)
+from products.workflows.backend.services.batch_audience import (
+    EMAIL_DEDUPE_KEY,
+    SUPPORTED_DEDUPE_KEYS,
+    email_dedupe_group_expr,
+)
+
+AUDIENCE_QUERY_V2_FLAG = "workflows-audience-query-v2"
+
+# 1-in-64 sample of the person keyspace. Sampling keys on person id (the dedup key), so every
+# version row of a sampled person lands in the sample and the argMax dedup stays exact within it.
+SAMPLE_MODULUS = 64
+
+# Below this many sampled matches the extrapolation is too noisy, so rerun exact. The relative
+# error of the estimate is about sqrt(63 / matched_persons), so 10,000 sampled matches
+# (~640k matched persons) keeps the worst case near 3%. The exact query is usually cheap in
+# that regime: few matching persons means the id prefilter keeps the dedup aggregation small.
+# Caveat: the prefilter matches any historical row version, so a churny property (many persons
+# matched once, few match now) can make the exact rerun carry a candidate set far larger than
+# the current match count suggests.
+MIN_SAMPLED_MATCHES = 10_000
+
+
+def use_audience_query_v2(team: Team) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            AUDIENCE_QUERY_V2_FLAG,
+            str(team.uuid),
+            send_feature_flag_events=False,
+        )
+    )
+
+
+def bounded_memory_settings() -> HogQLGlobalSettings:
+    """
+    Execution settings that keep person-dedup aggregations memory-bounded on large teams.
+
+    The person table sorts by (team_id, id), so with in-order aggregation the dedup
+    GROUP BY id streams instead of holding every person in a hash table. The spill
+    threshold is the backstop for aggregations where in-order cannot apply (for
+    example cohort subqueries): degrade to disk instead of a memory-limit error.
+    """
+    return HogQLGlobalSettings(
+        optimize_aggregation_in_order=True,
+        max_bytes_before_external_group_by=4 * 1024**3,
+    )
+
+
+def get_person_audience_count_v2(team: Team, filters: dict) -> BlastRadiusResult:
+    """
+    Person-audience blast radius sized from a sample of the person keyspace.
+
+    Counts run on 1 in SAMPLE_MODULUS persons and extrapolate, so cost is bounded on
+    teams where the exact dedup count exceeds the query memory limit. When a sample
+    holds too few matches for a stable extrapolation, the exact count runs instead.
+    """
+    with unevaluable_filters_as_validation_errors():
+        cleaned_filter = replace_proxy_properties(team, filters)
+
+        tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
+        # One database build shared by all counts below; each execute_hogql_query call
+        # would otherwise rebuild it, and the build cost scales with warehouse size.
+        database = Database.create_for(team=team)
+
+        total = _count_matching_persons(team, None, database)
+        if len(cleaned_filter.property_groups.flat) == 0:
+            return BlastRadiusResult(affected=total, total=total)
+
+        affected = _count_matching_persons(team, cleaned_filter, database)
+        return BlastRadiusResult(affected=min(affected, total), total=total)
+
+
+def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> BlastRadiusResult:
+    """
+    Send count for a dedupe-enabled batch workflow, sized from a sample of the dedupe groups.
+
+    Sampling keys on the dedupe group (the normalized email, or the person id when there is
+    no email), not on the person: a group with several persons would otherwise be that many
+    times more likely to land in the sample, and the estimate would drift back toward a
+    person count. Hashing the group gives every group the same 1-in-SAMPLE_MODULUS chance.
+    """
+    # Defence-in-depth mirror of get_batch_audience_count: a new supported key must be
+    # taught to this function too, instead of silently getting the email grouping.
+    if dedupe_key != EMAIL_DEDUPE_KEY:
+        raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
+
+    with unevaluable_filters_as_validation_errors():
+        cleaned_filter = replace_proxy_properties(team, filters)
+
+        tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
+        database = Database.create_for(team=team)
+
+        total = _count_matching_persons(team, None, database)
+        sampled = _run_dedupe_count(team, cleaned_filter, database, sample_modulus=SAMPLE_MODULUS)
+        if sampled >= MIN_SAMPLED_MATCHES:
+            affected = sampled * SAMPLE_MODULUS
+        else:
+            affected = _run_dedupe_count(team, cleaned_filter, database, sample_modulus=None)
+        return BlastRadiusResult(affected=min(affected, total), total=total)
+
+
+def _run_dedupe_count(team: Team, filter: Filter, database: Database, sample_modulus: Optional[int]) -> int:
+    query = build_dedupe_count_query(team, filter, sample_modulus=sample_modulus)
+    response = execute_hogql_query(
+        query=query,
+        team=team,
+        query_type="workflows_audience_count_v2",
+        context=HogQLContext(team_id=team.pk, database=database),
+        settings=_count_settings(sample_modulus),
+    )
+    return response.results[0][0] if response.results else 0
+
+
+def _count_settings(sample_modulus: Optional[int]) -> HogQLGlobalSettings:
+    # A sampled count keeps the fast parallel hash aggregation: the sample already bounds
+    # the hash table, and in-order aggregation only makes it slower. The exact runs need
+    # the streaming mode to stay memory-bounded on large teams.
+    if sample_modulus is not None:
+        return HogQLGlobalSettings(max_bytes_before_external_group_by=4 * 1024**3)
+    return bounded_memory_settings()
+
+
+def build_dedupe_count_query(team: Team, filter: Filter, sample_modulus: Optional[int]) -> ast.SelectQuery:
+    where_exprs: list[ast.Expr] = [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["persons", "team_id"]),
+            right=ast.Constant(value=team.pk),
+        )
+    ]
+    if sample_modulus is not None:
+        # A fresh group expr per use: the resolver annotates AST nodes in place, so the
+        # WHERE and SELECT must not share one instance.
+        where_exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Call(
+                    name="modulo",
+                    args=[
+                        ast.Call(name="cityHash64", args=[email_dedupe_group_expr()]),
+                        ast.Constant(value=sample_modulus),
+                    ],
+                ),
+                right=ast.Constant(value=0),
+            )
+        )
+    if len(filter.property_groups.flat) > 0:
+        where_exprs.append(property_to_expr(filter.property_groups, team, scope="person"))
+
+    return ast.SelectQuery(
+        select=[ast.Call(name="count", distinct=True, args=[email_dedupe_group_expr()])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+        where=ast.And(exprs=where_exprs),
+    )
+
+
+def _count_matching_persons(team: Team, filter: Optional[Filter], database: Database) -> int:
+    sampled = _run_person_count(team, filter, database, sample_modulus=SAMPLE_MODULUS)
+    if sampled >= MIN_SAMPLED_MATCHES:
+        return sampled * SAMPLE_MODULUS
+    return _run_person_count(team, filter, database, sample_modulus=None)
+
+
+def _run_person_count(team: Team, filter: Optional[Filter], database: Database, sample_modulus: Optional[int]) -> int:
+    query = build_person_count_query(team, filter, sample_modulus=sample_modulus)
+    response = execute_hogql_query(
+        query=query,
+        team=team,
+        query_type="workflows_audience_count_v2",
+        context=HogQLContext(team_id=team.pk, database=database),
+        settings=_count_settings(sample_modulus),
+    )
+    return response.results[0][0] if response.results else 0
+
+
+def build_person_count_query(team: Team, filter: Optional[Filter], sample_modulus: Optional[int]) -> ast.SelectQuery:
+    where_exprs: list[ast.Expr] = [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["persons", "team_id"]),
+            right=ast.Constant(value=team.pk),
+        )
+    ]
+    if sample_modulus is not None:
+        where_exprs.append(_sample_predicate(sample_modulus))
+    if filter is not None:
+        where_exprs.append(property_to_expr(filter.property_groups, team, scope="person"))
+
+    # A filter can add a one-to-many join: a `distinct_id` person property resolves through
+    # persons.pdi, which gives a person one row per distinct id. So a filtered count dedups on
+    # the person id. The unfiltered total joins nothing, so it keeps the plain count() and
+    # avoids a uniqExact state over every person on the team.
+    if filter is None:
+        count_expr: ast.Expr = ast.Call(name="count", args=[])
+    else:
+        count_expr = ast.Call(name="count", distinct=True, args=[ast.Field(chain=["persons", "id"])])
+
+    return ast.SelectQuery(
+        select=[count_expr],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+        where=ast.And(exprs=where_exprs),
+    )
+
+
+def _sample_predicate(modulus: int) -> ast.Expr:
+    # Built as modulo(...) calls, not the % operator: WhereClauseExtractor fails safe to
+    # "no prefilter" on ArithmeticOperation nodes, and the memory bound depends on this
+    # predicate reaching the raw person scan inside the persons lazy table.
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq,
+        left=ast.Call(
+            name="modulo",
+            args=[
+                ast.Call(name="cityHash64", args=[ast.Field(chain=["persons", "id"])]),
+                ast.Constant(value=modulus),
+            ],
+        ),
+        right=ast.Constant(value=0),
+    )

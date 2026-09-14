@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import TestCase, mock
 
@@ -1048,7 +1048,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @freeze_time("2025-01-01 12:00:00")
+    @time_machine.travel("2025-01-01 12:00:00", tick=False)
     def test_custom_data_freshness_behavior(
         self, name, query, data_freshness_seconds, time_within_freshness_min, time_past_freshness_min
     ):
@@ -1080,7 +1080,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         # Move time forward (still within freshness window)
         hours_within = time_within_freshness_min // 60
         mins_within = time_within_freshness_min % 60
-        with freeze_time(f"2025-01-01 {12 + hours_within:02d}:{mins_within:02d}:00"):
+        with time_machine.travel(f"2025-01-01 {12 + hours_within:02d}:{mins_within:02d}:00", tick=False):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
@@ -1092,7 +1092,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         # Move time forward (past freshness window) - should recalculate
         hours_past = time_past_freshness_min // 60
         mins_past = time_past_freshness_min % 60
-        with freeze_time(f"2025-01-01 {12 + hours_past:02d}:{mins_past:02d}:00"):
+        with time_machine.travel(f"2025-01-01 {12 + hours_past:02d}:{mins_past:02d}:00", tick=False):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
@@ -1101,7 +1101,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
                 f"Should recalculate after {time_past_freshness_min} minutes",
             )
 
-    @freeze_time("2025-01-01 12:00:00")
+    @time_machine.travel("2025-01-01 12:00:00", tick=False)
     def test_default_data_freshness(self):
         endpoint = create_endpoint_with_version(
             name="default_freshness",
@@ -1118,7 +1118,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         cache_key = response_data.get("cache_key")
 
         # Move time forward 5 minutes - should still use cache (default is 24 hours)
-        with freeze_time("2025-01-01 12:05:00"):
+        with time_machine.travel("2025-01-01 12:05:00", tick=False):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()

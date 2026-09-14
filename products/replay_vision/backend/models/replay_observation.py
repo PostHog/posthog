@@ -1,11 +1,12 @@
 from django.db import models
-from django.db.models import Case, CharField, Expression, F, FloatField, Func, Value, When
+from django.db.models import Case, CharField, Exists, Expression, F, FloatField, Func, OuterRef, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 
 from posthog.models.utils import UUIDModel
 
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
+from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 
 
 class ObservationStatus(models.TextChoices):
@@ -184,13 +185,22 @@ def jsonb_typeof(expr: Expression) -> Func:
     return Func(expr, function="JSONB_TYPEOF", output_field=CharField())
 
 
-def hydrate_for_serialization(qs: "models.QuerySet[ReplayObservation]") -> "models.QuerySet[ReplayObservation]":
+def hydrate_for_serialization(
+    qs: "models.QuerySet[ReplayObservation]", viewer_id: int | None = None
+) -> "models.QuerySet[ReplayObservation]":
     """Load everything `ReplayObservationSerializer` reads, so no queryset feeding it goes one query per row.
 
     `scanner_origin` is annotated rather than joined through `select_related("scanner")`: the serializer
     reads one enum, and hydrating the scanner would ship its config and hour-bucket JSON blobs per row.
+
+    `viewed` is per caller; without a viewer nothing counts as viewed.
     """
-    return qs.select_related("triggered_by_user", "label").annotate(scanner_origin=F("scanner__origin"))
+    viewed = (
+        Exists(ReplayObservationView.objects.filter(observation_id=OuterRef("id"), user_id=viewer_id))
+        if viewer_id is not None
+        else Value(False, output_field=models.BooleanField())
+    )
+    return qs.select_related("triggered_by_user", "label").annotate(scanner_origin=F("scanner__origin"), viewed=viewed)
 
 
 def annotate_output_number(

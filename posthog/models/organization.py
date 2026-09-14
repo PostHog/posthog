@@ -324,7 +324,6 @@ class Organization(ModelActivityMixin, UUIDTModel):
         default=False,
         help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
     )
-    is_hipaa = models.BooleanField(default=False, null=True, blank=True)
     is_pending_deletion = models.BooleanField(
         default=False,
         null=True,

@@ -14,8 +14,8 @@ class WebAnalyticsInteraction(TeamScopedRootMixin, UUIDModel):
     RECORDING = "recording"
     KIND_CHOICES = [(DATA, "data"), (RECORDING, "recording")]
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
     kind = models.CharField(max_length=32, choices=KIND_CHOICES)
     count = models.BigIntegerField(default=0)
     updated_at = models.DateTimeField(auto_now=True)

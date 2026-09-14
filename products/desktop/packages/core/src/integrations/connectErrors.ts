@@ -1,4 +1,5 @@
 import { requestErrorStatus } from "@posthog/api-client/fetcher";
+import { readApiErrorBody } from "./apiErrorBody";
 
 export interface GithubConnectError {
   message: string;
@@ -60,6 +61,15 @@ const GITHUB_CONNECT_ERROR_MESSAGES: Record<string, string> = {
 
 export const GITHUB_CONNECT_PENDING_APPROVAL_CODE = "github_install_pending";
 
+export function isGithubConnectAlreadyLinked(
+  error: GithubConnectError | null,
+): boolean {
+  return (
+    error?.code === "invalid_input" &&
+    /all GitHub App installations.*already linked/i.test(error.message)
+  );
+}
+
 /** Travels on the error channel but is not a failure: the connect can still
  * succeed once an org owner approves, so callers render it as informational. */
 export function isGithubConnectPendingApproval(
@@ -72,6 +82,9 @@ export function describeGithubConnectError(
   error: GithubConnectError | null,
 ): string {
   if (!error) return "";
+  if (isGithubConnectAlreadyLinked(error)) {
+    return "All GitHub organizations available to your account are already connected.";
+  }
   if (error.code && GITHUB_CONNECT_ERROR_MESSAGES[error.code]) {
     return GITHUB_CONNECT_ERROR_MESSAGES[error.code];
   }
@@ -90,14 +103,7 @@ export function describeIntegrationDisconnectError(
   if (requestErrorStatus(error) === 403) {
     return "Only project admins can disconnect this integration.";
   }
-  const body =
-    error && typeof error === "object" && "body" in error
-      ? (error as { body?: unknown }).body
-      : null;
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? (body as { detail?: unknown }).detail
-      : null;
-  if (typeof detail === "string" && detail) return detail;
+  const { detail } = readApiErrorBody(error);
+  if (detail) return detail;
   return error instanceof Error ? error.message : fallback;
 }

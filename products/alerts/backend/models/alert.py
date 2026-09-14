@@ -65,8 +65,8 @@ def derive_detector_event_fields(detector_config: dict | None) -> dict:
 # TODO: Enable `@deprecated` once we move to Python 3.13
 # @deprecated("AlertConfiguration should be used instead.")
 class Alert(models.Model):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, related_name="+")
 
     name = models.CharField(max_length=100)
     target_value = models.TextField()
@@ -82,8 +82,8 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     object for other purposes.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, related_name="+")
 
     name = models.CharField(max_length=255, blank=True)
     configuration = models.JSONField(default=dict)
@@ -154,7 +154,8 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
-    # UTC time for when next alert check is due
+    # UTC time for when next alert check is due. Null only before the first
+    # check, when created_at is the scheduler's due-age lower bound.
     next_check_at = models.DateTimeField(null=True, blank=True)
     # UTC time until when we shouldn't check alert/notify user
     snoozed_until = models.DateTimeField(null=True, blank=True)
@@ -162,6 +163,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     skip_weekend = models.BooleanField(null=True, blank=True, default=False)
 
     schedule_restriction = models.JSONField(null=True, blank=True, default=None)
+    schedule_start_time = models.CharField(max_length=5, null=True, blank=True, default=None)
 
     # When enabled, an investigation agent runs on each firing check, up to three per
     # firing episode, and writes its findings to a linked Notebook. Only effective for

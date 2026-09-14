@@ -2,6 +2,8 @@ import type { UrlPolicyDecline } from '@posthog/replay-anonymizer'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
+import type { MlDataKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/crypto'
+import { identityDigest } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/schema'
 
 import { ImageFetchBlockReason, isImageFetchBlockReason } from './block-reason'
 import { tryCanonicalizeUrl } from './politeness-key'
@@ -29,6 +31,7 @@ export type StoredRepublishReason =
 export type RepublishReason = StoredRepublishReason
 
 export interface FetchCandidate {
+    privacyKey?: MlDataKey
     originalRef: string
     currentUrl: string
     host: string
@@ -293,4 +296,10 @@ export function serializeFrontierRecord(candidates: FetchCandidate[]): Buffer {
         })),
     }
     return Buffer.from(JSON.stringify(record))
+}
+
+export function fetchCandidateHistoryKey(candidate: FetchCandidate): string {
+    return candidate.privacyKey?.identity.sessionId
+        ? `${candidate.originalRef}:session:${identityDigest(candidate.privacyKey.identity.sessionId)}`
+        : candidate.originalRef
 }
