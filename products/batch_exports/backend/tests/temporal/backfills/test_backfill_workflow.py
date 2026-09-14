@@ -106,16 +106,15 @@ async def run_backfill_workflow(
 
 
 @pytest_asyncio.fixture
-async def failing_s3_batch_export(ateam, temporal_client):
+async def failing_s3_batch_export(ateam, temporal_client, s3_compatible_integration):
     destination_data = {
-        "type": "S3",
+        "type": "S3Compatible",
+        # Credentials and the endpoint URL come from the integration.
+        "integration_id": s3_compatible_integration.id,
         "config": {
             "bucket_name": "this-bucket-doesn't-exist",
             "region": "us-east-1",
             "prefix": "/",
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
             "file_format": "invalid",
         },
     }
@@ -161,7 +160,9 @@ async def object_storage_client(bucket_name):
 
 
 @pytest_asyncio.fixture
-async def events_batch_export(temporal_client, ateam, clickhouse_client, bucket_name, object_storage_client):
+async def events_batch_export(
+    temporal_client, ateam, clickhouse_client, bucket_name, object_storage_client, s3_compatible_integration
+):
     """Create a batch export for testing backfill info (defaults to events model)."""
     await truncate_events(clickhouse_client)
 
@@ -169,14 +170,13 @@ async def events_batch_export(temporal_client, ateam, clickhouse_client, bucket_
         team_id=ateam.pk,
         name="events-export-for-backfill-info",
         destination_data={
-            "type": "S3",
+            "type": "S3Compatible",
+            # Credentials and the endpoint URL come from the integration.
+            "integration_id": s3_compatible_integration.id,
             "config": {
                 "bucket_name": bucket_name,
                 "region": "us-east-1",
                 "prefix": "posthog-events/",
-                "aws_access_key_id": "object_storage_root_user",
-                "aws_secret_access_key": "object_storage_root_password",
-                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
             },
         },
         interval="hour",

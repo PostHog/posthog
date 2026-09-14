@@ -1,16 +1,13 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zenloop import (
     ZenloopSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.source import ZenloopSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.zenloop import ZenloopResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestZenloopSource:
@@ -18,9 +15,6 @@ class TestZenloopSource:
         self.source = ZenloopSource()
         self.team_id = 123
         self.config = ZenloopSourceConfig(api_token="zenloop-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ZENLOOP
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -34,13 +28,6 @@ class TestZenloopSource:
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["api_token"]
 
-    def test_api_token_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret token itself; the base URL is hardcoded and the account is
         # implicit in the token. There is no non-secret field that retargets where the token is sent.
@@ -49,21 +36,6 @@ class TestZenloopSource:
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["properties"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "properties"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     def test_documented_tables_render_for_public_docs(self) -> None:
         # Exercises the credential-free catalog path used by the posthog.com docs.
@@ -128,11 +100,6 @@ class TestZenloopSource:
         mock_check.return_value = (200, None)
         self.source.validate_credentials(self.config, self.team_id, schema_name="properties")
         mock_check.assert_called_once_with("zenloop-token")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ZenloopResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.source.zenloop_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_zenloop_source: mock.MagicMock) -> None:

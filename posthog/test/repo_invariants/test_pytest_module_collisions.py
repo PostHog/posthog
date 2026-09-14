@@ -64,8 +64,6 @@ CI_SESSIONS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "core-poe": (
         (
             "posthog/clickhouse",
-            "posthog/queries",
-            "products/product_analytics/backend/tests/api",
             "posthog/api/test/dashboards",
             "ee/clickhouse",
         ),

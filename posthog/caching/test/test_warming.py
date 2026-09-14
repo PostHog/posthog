@@ -3,12 +3,15 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from posthog.hogql.errors import QueryError
+
 from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task, warm_insight_cache_task
 from posthog.exceptions import ClickHouseAtCapacity
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.facade.models import Insight, InsightViewed
+from products.product_analytics.backend.facade.api import record_insight_views
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestWarming(APIBaseTest):
@@ -38,15 +41,14 @@ class TestWarming(APIBaseTest):
         self.dashboard_tile2 = DashboardTile.objects.create(insight=self.insight3, dashboard=self.dashboard2)
         self.dashboard_tile3 = DashboardTile.objects.create(insight=self.insight5, dashboard=self.dashboard3)
 
-        # Create test InsightViewed records
-        InsightViewed.objects.create(
-            team=self.team, user=self.user, insight=self.insight2, last_viewed_at=datetime.now(UTC) - timedelta(days=2)
-        )
-        InsightViewed.objects.create(
-            team=self.team, user=self.user, insight=self.insight4, last_viewed_at=datetime.now(UTC) - timedelta(days=35)
-        )
-        InsightViewed.objects.create(
-            team=self.team, user=self.user, insight=self.insight5, last_viewed_at=datetime.now(UTC) - timedelta(days=1)
+        record_insight_views(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            last_viewed_at_by_insight_id={
+                self.insight2.id: datetime.now(UTC) - timedelta(days=2),
+                self.insight4.id: datetime.now(UTC) - timedelta(days=35),
+                self.insight5.id: datetime.now(UTC) - timedelta(days=1),
+            },
         )
 
     @patch("posthog.caching.warming.get_stale_insights")
@@ -171,3 +173,20 @@ class TestWarmInsightCacheTask(APIBaseTest):
             warm_insight_cache_task(insight.pk, None)
 
         mock_capture_exception.assert_not_called()
+
+    @patch("posthog.caching.warming.capture_exception")
+    @patch("posthog.caching.warming.ph_scoped_capture")
+    @patch("posthog.caching.warming.process_query_dict", side_effect=QueryError("no timestamp binding"))
+    def test_query_errors_are_reported_as_an_event_instead_of_being_captured(
+        self, mock_process_query_dict, mock_ph_scoped_capture, mock_capture_exception
+    ):
+        insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": "select 1"})
+        capture_ph_event = mock_ph_scoped_capture.return_value.__enter__.return_value
+
+        warm_insight_cache_task(insight.pk, None)
+
+        mock_capture_exception.assert_not_called()
+        capture_ph_event.assert_called_once()
+        assert capture_ph_event.call_args.kwargs["event"] == "cache warming - insight query error"
+        assert capture_ph_event.call_args.kwargs["properties"]["insight_id"] == insight.pk
+        assert capture_ph_event.call_args.kwargs["properties"]["error_code"] == "hogql_query_error"

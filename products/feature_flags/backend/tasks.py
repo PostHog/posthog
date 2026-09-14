@@ -16,7 +16,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.capture import capture_batch_internal
 from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
-from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
+from posthog.storage.hypercache_manager import (
+    HYPERCACHE_SIGNAL_UPDATE_COUNTER,
+    get_cache_stats as get_cache_stats_generic,
+)
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 from products.feature_flags.backend.canary import run_local_eval_canary
@@ -25,6 +28,7 @@ from products.feature_flags.backend.flags_cache import (
     cleanup_stale_expiry_tracking,
     clear_flags_cache,
     get_cache_stats,
+    publish_shadow_invalidation,
     refresh_expiring_flags_caches,
     update_flags_cache,
 )
@@ -111,6 +115,13 @@ def update_team_service_flags_cache(team_id: int) -> None:
     HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
         namespace="feature_flags", cache_name="flags", operation="update", result="success" if success else "failure"
     ).inc()
+
+    # KAFKA-CUTOVER TRANSITIONAL CODE — remove with the block it belongs to in
+    # flags_cache.py. Gated on `success` because a shadow build must diff against
+    # the entry this task just wrote. After a failed write the live entry is the
+    # stale one, and the diff would report Python's failure as Rust drift.
+    if success:
+        publish_shadow_invalidation(team_id)
 
 
 @shared_task(
@@ -481,11 +492,18 @@ def refresh_expiring_flag_definitions_cache_entries(self: PushGatewayTask) -> No
     successful_gauge.set(counts.successful)
     failed_gauge.set(counts.failed)
 
+    # Scan after refresh for metrics (pushes to Pushgateway via get_cache_stats)
+    stats_after = get_cache_stats_generic(FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG)
+
     duration = time.time() - start_time
     logger.info(
         "Completed flag definitions cache refresh",
         successful_refreshes=counts.successful,
         failed_refreshes=counts.failed,
+        total_cached=stats_after.get("total_cached", 0),
+        total_teams=stats_after.get("total_teams", 0),
+        cache_coverage=stats_after.get("cache_coverage", "unknown"),
+        ttl_distribution=stats_after.get("ttl_distribution", {}),
         duration_seconds=duration,
     )
 

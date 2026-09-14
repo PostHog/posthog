@@ -1,8 +1,8 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
 import { ActivityScope } from '~/types'
@@ -17,7 +17,7 @@ export function replayActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> bulk deleted{' '}
+                    <ActivityLogUserName logItem={logItem} /> bulk deleted{' '}
                     <b>{logItem.detail?.name || 'session recordings'}</b>
                 </>
             ),

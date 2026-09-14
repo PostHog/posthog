@@ -1,0 +1,93 @@
+# Golden-chart (charts/posthog-app) values for pgcollector.
+# Copy to charts/apps/pgcollector/values.yaml and adjust the psql: entries.
+
+image:
+  name: pgcollector
+  repository: 795637471508.dkr.ecr.us-east-1.amazonaws.com/pgcollector
+
+command: ["/pgcollector"]
+args: ["--config", "/etc/pgcollector/pgcollector.toml"]
+
+role: k8s-pgcollector
+
+# Worker: no HTTP surface except probes/metrics on :9187.
+service:
+  enabled: false
+autoscaling:
+  minPods: 1
+  maxPods: 1
+monitoring:
+  prometheus:
+    path: /metrics
+    port: "9187"
+livenessProbe:
+  httpGet: { path: /healthz, port: 9187 }
+readinessProbe:
+  httpGet: { path: /readyz, port: 9187 }
+
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits:   { cpu: 250m, memory: 512Mi }
+
+# One psql: entry for the sink, then one per monitored cluster.
+#
+# pgbouncer: false is REQUIRED on every entry — pgcollector sets per-session
+# statement_timeout/lock_timeout and refuses to start behind a transaction pooler.
+#
+# Monitored clusters need no [[servers]] config at all: the env var names below are
+# the convention pgcollector discovers servers from:
+#   PGCOLLECTOR_SERVER_<ID>_URL                    writer / cluster endpoint
+#   PGCOLLECTOR_SERVER_<ID>_READER_URL             load-balanced reader endpoint
+#   PGCOLLECTOR_SERVER_<ID>_INSTANCE_<NAME>_URL    per-instance endpoint (optional)
+#   PGCOLLECTOR_SERVER_<ID>_LOG_GROUP              CloudWatch log group for the logs collector
+# <ID> and <NAME> are lower-cased with _ → - to form server_id / instance.
+psql:
+  pgcollector:                   # the sink; user must be in the `ddl` tier
+    pgbouncer: false
+    write:
+      enabled: true
+      env:
+        PGCOLLECTOR_SINK_URL: POSTGRES_URL
+
+  cloud:                         # monitored cluster; user in the `monitor` tier
+    pgbouncer: false
+    write:
+      enabled: true
+      env:
+        PGCOLLECTOR_SERVER_CLOUD_URL: POSTGRES_URL
+    read:
+      enabled: true
+      env:
+        PGCOLLECTOR_SERVER_CLOUD_READER_URL: POSTGRES_URL
+
+  persons:
+    pgbouncer: false
+    write:
+      enabled: true
+      env:
+        PGCOLLECTOR_SERVER_PERSONS_URL: POSTGRES_URL
+    read:
+      enabled: true
+      env:
+        PGCOLLECTOR_SERVER_PERSONS_READER_URL: POSTGRES_URL
+
+env:
+  PGCOLLECTOR_SERVER_CLOUD_LOG_GROUP: /aws/rds/cluster/<cloud-cluster-id>/postgresql
+  PGCOLLECTOR_SERVER_PERSONS_LOG_GROUP: /aws/rds/cluster/<persons-cluster-id>/postgresql
+
+configFiles:
+  pgcollector:
+    path: /etc/pgcollector/pgcollector.toml
+    content: |
+      [sink]
+      database_url = "${PGCOLLECTOR_SINK_URL}"
+      retention_days = 14
+
+      [defaults]
+      databases = ["*"]            # discover every database on each cluster, keep discovering
+      rediscover_interval = "10m"
+
+      # Global per-collector tuning; [[servers]] blocks (optional) can override per cluster.
+      [defaults.overrides]
+      # sizes = { interval = "30m" }
+      # settings = { enabled = false }

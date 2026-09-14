@@ -1,14 +1,17 @@
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
+from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.skills import (
+    CATEGORY_BY_NAME_PREFIX,
     LLMSkill,
     LLMSkillFile,
     LLMSkillOwner,
@@ -16,10 +19,17 @@ from ..models.skills import (
     category_for_skill_name,
 )
 
+_DigestModel = TypeVar("_DigestModel", LLMSkill, LLMSkillFile)
+
 MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
 MAX_SKILL_FILE_COUNT = 200
+# A digest backfill page holds the full content of every row in it, because a digest cannot be
+# computed without the content. One body or bundled file is allowed to reach MAX_SKILL_BODY_BYTES /
+# MAX_SKILL_FILE_BYTES, so the page is sized against those caps rather than against a row count:
+# 100 rows bounds a page at about 100 MB of content. Raise it with --batch-size for small rows.
+DIGEST_BACKFILL_BATCH_SIZE = 100
 # Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
 # form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
 # products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
@@ -27,9 +37,20 @@ MAX_SKILL_FILE_COUNT = 200
 # importing the serializers that import it.
 RESERVED_SKILL_NAMES = {"new", "scouts", "review-hog", "community"}
 SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+MAX_SKILL_NAME_LENGTH = 64
 # Bundled-file paths that would collide with generated artifacts in the exported skill
 # tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
 RESERVED_SKILL_FILE_PATHS = {"skill.md"}
+
+
+def skill_name_is_well_formed(value: str) -> bool:
+    """The shape half of the skill-name contract, without the reserved-name rule.
+
+    ``fullmatch`` rather than ``match``: ``$`` matches before a trailing newline, so ``match`` would
+    accept ``"safe\n"``. Archive writers use this to skip legacy rows that predate the validator,
+    where a name is a directory and a reserved route name is harmless.
+    """
+    return len(value) <= MAX_SKILL_NAME_LENGTH and SKILL_NAME_PATTERN.fullmatch(value) is not None and "--" not in value
 
 
 def normalize_skill_file_path(value: str) -> str:
@@ -100,6 +121,24 @@ class LLMSkillEditError(Exception):
 
 class LLMSkillDuplicateNameConflictError(Exception):
     pass
+
+
+@frozen
+class LLMSkillRenameNotAllowedError(Exception):
+    """The rename would move a skill in or out of a name prefix another product keys its rows on.
+
+    `signals-scout-` and `review-hog-` rows (schedules, pauses, per-user enablement, run history) are
+    keyed on the skill name, and products can't reach into each other to move them. A rename that
+    touches either prefix would leave those rows pointing at a name nothing holds, so it is refused
+    rather than half-applied.
+    """
+
+    prefix: str
+
+
+@frozen
+class LLMSkillDescriptionTooLongError(Exception):
+    max_length: int
 
 
 @dataclass
@@ -288,6 +327,10 @@ def publish_skill_version(
         if current_latest.version >= MAX_SKILL_VERSION:
             raise LLMSkillVersionLimitError(max_version=MAX_SKILL_VERSION)
 
+        resolved_description = description if description is not None else current_latest.description
+        if len(resolved_description) > SPEC_DESCRIPTION_MAX_LENGTH:
+            raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
+
         if edits is not None:
             resolved_body = apply_skill_body_edits(current_latest.body, edits)
         else:
@@ -301,7 +344,7 @@ def publish_skill_version(
         published_skill = LLMSkill.objects.create(
             team=team,
             name=current_latest.name,
-            description=_carry_forward(description, current_latest.description),
+            description=resolved_description,
             body=resolved_body,
             license=_carry_forward(license, current_latest.license),
             compatibility=_carry_forward(compatibility, current_latest.compatibility),
@@ -391,6 +434,9 @@ def create_skill(
     metadata: dict[str, Any] | None = None,
     files: list[dict[str, str]] | None = None,
 ) -> LLMSkill:
+    if len(description) > SPEC_DESCRIPTION_MAX_LENGTH:
+        raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
+
     if files and len(files) > MAX_SKILL_FILE_COUNT:
         raise LLMSkillFileLimitError(max_count=MAX_SKILL_FILE_COUNT)
 
@@ -477,6 +523,8 @@ def duplicate_skill(
 
         if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
             raise LLMSkillDuplicateNameConflictError()
+        if len(source_latest.description) > SPEC_DESCRIPTION_MAX_LENGTH:
+            raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
 
         # A duplicate is a brand-new, user-authored skill under a new name, so it inherits nothing
         # from the source's provenance or classification: the harness seed marker is dropped, and
@@ -544,6 +592,9 @@ def _create_next_version_with_files(
     current_latest: LLMSkill,
     next_files: list[LLMSkillFile],
 ) -> LLMSkill:
+    if len(current_latest.description) > SPEC_DESCRIPTION_MAX_LENGTH:
+        raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
+
     LLMSkill.objects.filter(pk=current_latest.pk).update(is_latest=False)
     next_skill = LLMSkill.objects.create(
         team=team,
@@ -677,6 +728,60 @@ def archive_skill(team: Team, skill_name: str) -> list[int]:
     return skill_versions
 
 
+def _product_owned_name_prefix(name: str) -> str:
+    """The registered prefix `name` carries, or "" when it carries none."""
+    return next((prefix for prefix, _ in CATEGORY_BY_NAME_PREFIX if name.startswith(prefix)), "")
+
+
+def rename_skill(team: Team, *, skill_name: str, new_name: str) -> LLMSkill:
+    """Move a logical skill to `new_name`, keeping its versions, files, and owners.
+
+    Every version row carries the name, and owners are keyed on `(team, skill_name)`, so the rename
+    has to move all of them together or it loses history and ownership — which is exactly what the
+    duplicate-then-archive workaround did.
+    """
+    blocked_prefix = _product_owned_name_prefix(skill_name) or _product_owned_name_prefix(new_name)
+    if blocked_prefix:
+        raise LLMSkillRenameNotAllowedError(prefix=blocked_prefix)
+
+    with transaction.atomic():
+        locked_versions = list(
+            LLMSkill.objects.select_for_update()
+            .filter(team=team, name=skill_name, deleted=False)
+            .order_by("version", "created_at", "id")
+        )
+        if not locked_versions:
+            raise LLMSkillNotFoundError()
+        if new_name == skill_name:
+            return _renamed_skill_or_missing(team, new_name)
+        if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
+            raise LLMSkillDuplicateNameConflictError()
+
+        # Stamp each locked row rather than issuing one `.update()`: the name is the first
+        # frontmatter key of the rendered SKILL.md, so a rename changes the bytes a host downloads,
+        # and neither `.update()` nor `bulk_update` calls `save()` to restamp the digest. A stale
+        # digest is invisible to the backfill, which only repairs rows that carry none.
+        # `updated_at` is set by hand because both paths also bypass auto_now, and the marketplace
+        # plugin version is max(updated_at) across all team rows: a renamed skill changes the
+        # directory name in the exported tree, so installs must pick the rename up.
+        renamed_at = timezone.now()
+        for version in locked_versions:
+            version.name = new_name
+            version.updated_at = renamed_at
+            version.stamp_digest()
+        LLMSkill.objects.bulk_update(locked_versions, ["name", "updated_at", *LLMSkill.DIGEST_FIELDS])
+        rename_skill_owners(team, skill_name, new_name)
+
+    return _renamed_skill_or_missing(team, new_name)
+
+
+def _renamed_skill_or_missing(team: Team, name: str) -> LLMSkill:
+    skill = get_skill_by_name_from_db(team, name)
+    if skill is None:
+        raise LLMSkillNotFoundError()
+    return skill
+
+
 # --- Skill owners ---------------------------------------------------------------------------------
 # Owners are keyed on the *logical* skill `(team, skill_name)`, so nothing here touches a version row:
 # editing a skill body never changes who owns it. Every read and write goes through `_owner_qs`, which
@@ -753,10 +858,34 @@ def resolve_skill_owners_for_names(team: Team, skill_names: list[str]) -> dict[s
     return owners_by_name
 
 
+def skill_names_owned_by(team: Team, user_id: int) -> "QuerySet[LLMSkillOwner, str]":
+    """Names of the logical skills one user owns — backs the list endpoint's owner filter.
+
+    Returns a lazy values queryset so the caller can use it as a subquery instead of pulling every
+    name into memory. Same current-access filter as `resolve_skill_owners`: filtering by a user who
+    lost access matches nothing, rather than surfacing skills through a stale owner row.
+    """
+    return (
+        _owner_qs(team)
+        .filter(user_id=user_id, user__in=team.all_users_with_access())
+        .values_list("skill_name", flat=True)
+    )
+
+
 def clear_skill_owners(team: Team, skill_name: str) -> None:
     """Drop every owner row for a logical skill — called on archive so a later skill that reuses the
     name (recreate / import / duplicate) doesn't inherit the archived skill's owners."""
     _owner_qs(team).filter(skill_name=skill_name).delete()
+
+
+def rename_skill_owners(team: Team, skill_name: str, new_name: str) -> None:
+    """Move every owner row of a logical skill onto `new_name`, so a rename keeps its owners.
+
+    Owner rows for `new_name` are dropped first: they can only be leftovers from a name nothing
+    active holds, and the `(team, skill_name, user)` unique constraint would otherwise reject the move.
+    """
+    _owner_qs(team).filter(skill_name=new_name).delete()
+    _owner_qs(team).filter(skill_name=skill_name).update(skill_name=new_name)
 
 
 def seed_skill_owner(team: Team, skill_name: str, user: User) -> None:
@@ -789,3 +918,44 @@ def set_skill_owners(team: Team, skill_name: str, users: list[User]) -> list[Use
             # write context-independent (works outside a request too).
             _owner_qs(team).create(team=team, skill_name=skill_name, user=user)
     return resolve_skill_owners(team, skill_name)
+
+
+@frozen
+class SkillDigestBackfillCounts:
+    skills: int
+    files: int
+
+
+def backfill_skill_digests(
+    *, batch_size: int = DIGEST_BACKFILL_BATCH_SIZE, recompute: bool = False
+) -> SkillDigestBackfillCounts:
+    """Stamp `sha256`/`size` on rows written before digests existed. Safe to re-run.
+
+    Every write path stamps its own digest, so this only has to reach the history. It walks in
+    primary-key order and writes fixed-size batches, so a team with a long skill history cannot
+    pull the whole table into memory. `recompute` re-stamps rows that already carry a digest,
+    for when the rendered form of a SKILL.md changes.
+    """
+    skills = LLMSkill.objects.all() if recompute else LLMSkill.objects.filter(skill_md_sha256__isnull=True)
+    files = LLMSkillFile.objects.all() if recompute else LLMSkillFile.objects.filter(content_sha256__isnull=True)
+    return SkillDigestBackfillCounts(
+        skills=_backfill_digests(LLMSkill, skills, batch_size), files=_backfill_digests(LLMSkillFile, files, batch_size)
+    )
+
+
+def _backfill_digests(model: type[_DigestModel], queryset: QuerySet[_DigestModel], batch_size: int) -> int:
+    # Cursor on the primary key rather than re-running the "needs a digest" filter: under
+    # `recompute` that filter matches every row, so a fixed `[:batch_size]` slice would never
+    # advance and the walk would never end.
+    cursor: Any = None
+    stamped = 0
+    while True:
+        page = queryset.filter(pk__gt=cursor) if cursor is not None else queryset
+        rows = list(page.order_by("pk")[:batch_size])
+        if not rows:
+            return stamped
+        for row in rows:
+            row.stamp_digest()
+        model.objects.bulk_update(rows, list(model.DIGEST_FIELDS))
+        stamped += len(rows)
+        cursor = rows[-1].pk

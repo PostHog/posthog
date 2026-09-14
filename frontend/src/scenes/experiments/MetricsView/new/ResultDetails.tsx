@@ -31,10 +31,10 @@ import { Experiment, FilterLogicalOperator, RecordingUniversalFilters } from '~/
 import {
     ExperimentVariantResult,
     formatChanceToWinForGoal,
+    formatIntervalPercent,
     formatMetricValue,
     formatPValue,
     getIntervalLabel,
-    getVariantInterval,
     isBayesianResult,
     isFrequentistResult,
 } from '../shared/utils'
@@ -120,7 +120,7 @@ export function ResultDetails({
         },
         {
             key: 'total-users',
-            title: 'Total users',
+            title: 'Exposures',
             render: (_, item) => humanFriendlyNumber(item.number_of_samples),
         },
         {
@@ -170,15 +170,13 @@ export function ResultDetails({
             title: result.variant_results?.[0]
                 ? `${getIntervalLabel(result.variant_results[0])} (95%)`
                 : 'Confidence interval (95%)',
+            tooltip:
+                "The range that likely contains the true effect. When it doesn't cross 0%, the result is significant.",
             render: (_, item: ExperimentVariantResult & { key: string }) => {
                 if (item.key === baselineKey) {
                     return '—'
                 }
-                const interval = getVariantInterval(item)
-                if (!interval) {
-                    return '—'
-                }
-                return `[${(interval[0] * 100).toFixed(2)}%, ${(interval[1] * 100).toFixed(2)}%]`
+                return formatIntervalPercent(item)
             },
         },
         {

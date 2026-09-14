@@ -193,10 +193,12 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                     const target =
                         source.type === 'column'
                             ? { breakdownKey: source.column, breakdownType: SpanPropertyTypeEnumApi.Span }
-                            : {
-                                  breakdownKey: source.key,
-                                  breakdownType: SpanPropertyTypeEnumApi.SpanResourceAttribute,
-                              }
+                            : source.type === 'attribute'
+                              ? { breakdownKey: source.key, breakdownType: SpanPropertyTypeEnumApi.SpanAttribute }
+                              : {
+                                    breakdownKey: source.key,
+                                    breakdownType: SpanPropertyTypeEnumApi.SpanResourceAttribute,
+                                }
                     const response = await tracingSpansAttributeBreakdownCreate(String(values.currentTeamId), {
                         query: {
                             ...target,

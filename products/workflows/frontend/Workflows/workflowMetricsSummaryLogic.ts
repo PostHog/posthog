@@ -118,6 +118,7 @@ export type EmailMetric =
     | 'email_blocked'
     | 'email_untracked'
     | 'email_suspended'
+    | 'email_paused'
 
 export type PushMetric = 'push_sent' | 'push_skipped' | 'push_failed' | 'push_opened'
 
@@ -184,6 +185,7 @@ export const METRIC_COLORS: Record<string, string> = {
     'Marked as spam': getColorVar('data-color-9'),
     Untracked: getColorVar('data-color-10'),
     Suspended: getColorVar('data-color-11'),
+    Paused: getColorVar('data-color-12'),
     Skipped: getColorVar('data-color-2'),
     // Workflow run + batch-job metrics
     Success: getColorVar('success'),
@@ -255,7 +257,7 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     email_failed: {
         name: 'Failed',
         description:
-            'Total number of emails that were not attempted to be sent. This typically indicates the PostHog email service determined the email contained a virus.',
+            'Total number of emails that could not be sent. This covers a failed call to the email provider, a template that did not render, a message the provider rejected for containing a virus, and a misconfigured email step, such as a sender that no longer exists or a domain that is not verified.',
         color: METRIC_COLORS['Failed'],
         metricNames: ['email_failed'],
     },
@@ -306,6 +308,13 @@ export const WORKFLOW_EMAIL_METRICS: Record<
             'Total number of emails that were not sent because email sending is suspended for this project. Contact support to get sending re-enabled.',
         color: METRIC_COLORS['Suspended'],
         metricNames: ['email_suspended'],
+    },
+    email_paused: {
+        name: 'Paused',
+        description:
+            "Total number of emails that were not sent because this workflow's email is paused. Sending pauses automatically when a workflow's spam complaint or hard bounce rate gets high enough to hurt delivery. Clean up the audience, then resume sending from this workflow's page.",
+        color: METRIC_COLORS['Paused'],
+        metricNames: ['email_paused'],
     },
 }
 
@@ -361,6 +370,9 @@ export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
     // Suspension skips log "Skipping send: email sending is suspended …" at WARN (EmailService).
     email_suspended: { search: 'Skipping send', levels: ['WARN'] },
+    // A per-workflow pause logs "Skipping send: … paused …" at ERROR (EmailService). The search
+    // term stays generic because the staff and automatic pauses word the line differently.
+    email_paused: { search: 'Skipping send', levels: ['ERROR'] },
 }
 
 // Build the router search params that point the Invocations tab at the runs behind the given email
@@ -399,6 +411,7 @@ const EMAIL_METRICS: EmailMetric[] = [
     'email_blocked',
     'email_untracked',
     'email_suspended',
+    'email_paused',
 ]
 
 const PUSH_METRICS: PushMetric[] = ['push_sent', 'push_skipped', 'push_failed', 'push_opened']
@@ -1209,18 +1222,19 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 messagingChannels: { hasEmail: boolean; hasPush: boolean },
                 sentSummaryLabel: string
             ): AppMetricsTimeSeriesResponse | null => {
-                if (!appMetricsTrends && !completedTrends) {
+                const source = appMetricsTrends ?? completedTrends
+                if (!source) {
                     return null
                 }
 
-                const labels = appMetricsTrends?.labels ?? completedTrends?.labels ?? []
+                const labels = source.labels
                 const zero = (): number[] => Array.from({ length: labels.length }, () => 0)
                 const seriesFor = (metricName: string): number[] =>
                     appMetricsTrends?.series.find((x: { name: string }) => x.name === metricName)?.values ?? zero()
                 const completedValues = getCompletedSingleTrendSeries('succeeded')?.series[0]?.values ?? zero()
 
                 return {
-                    labels,
+                    ...source,
                     series: SUMMARY_METRIC_KEYS.flatMap((summaryMetric) => {
                         if (summaryMetric === 'completed') {
                             return [{ name: WORKFLOW_SUMMARY_METRICS.completed.name, values: completedValues }]
@@ -1401,7 +1415,7 @@ export function withDisplayName(
     }
 
     return {
-        labels: series.labels,
+        ...series,
         series: series.series.map((item) => ({
             ...item,
             name: displayName,
@@ -1414,14 +1428,15 @@ export function subtractSeries(
     subtrahendSeries: AppMetricsTimeSeriesResponse | null,
     displayName: string
 ): AppMetricsTimeSeriesResponse | null {
-    if (!minuendSeries && !subtrahendSeries) {
+    const source = minuendSeries ?? subtrahendSeries
+    if (!source) {
         return null
     }
 
-    const labels = minuendSeries?.labels ?? subtrahendSeries?.labels ?? []
+    const labels = source.labels
 
     return {
-        labels,
+        ...source,
         series: [
             {
                 name: displayName,

@@ -1,17 +1,24 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
+import { useMountedLogic } from 'kea'
+import { router } from 'kea-router'
+import { useEffect } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
 import { pullRequestReports, reportTabReports } from '../../__mocks__/inboxMocks'
+import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { SignalReport, SignalRun } from '../../types'
 import { PullRequestsTab } from './PullRequestsTab'
 import { ReportsTab } from './ReportsTab'
+import { ReportsTabLegacy } from './ReportsTabLegacy'
 import { RunsTab } from './RunsTab'
 
-// Stories for the inbox tab bodies. The flat report tabs (Reports / Pull requests) load via
-// `reportListLogic`, so they get an mswDecorator that mocks the reports list endpoint; the
-// Runs tab is prop-driven and receives mock runs directly. Use these to polish list density
-// and the scout/signal run-card design.
+// Stories for the inbox tab bodies. The Reports tab loads each report state via `reportListLogic`,
+// so it gets an mswDecorator that mocks the reports list endpoint; the Runs panel is prop-driven
+// and receives mock runs directly. Use these to polish list density and the run-card design.
 
 const SAMPLE_RUNS: SignalRun[] = [
     {
@@ -40,7 +47,7 @@ const SAMPLE_RUNS: SignalRun[] = [
     },
 ]
 
-// Mocks the shared reports list endpoint so the logic-driven flat tabs render the given set.
+// Mocks the shared reports list endpoint so the logic-driven views render the given set.
 function reportsListDecorator(reports: SignalReport[]): Decorator {
     return mswDecorator({
         get: {
@@ -48,8 +55,25 @@ function reportsListDecorator(reports: SignalReport[]): Decorator {
                 200,
                 { results: reports, count: reports.length, next: null, previous: null },
             ],
+            '/api/projects/:id/signals/reports/available_reviewers': () => [200, []],
+            '/api/projects/:id/signals/scout/configs': () => [200, []],
         },
     })
+}
+
+// One mocked endpoint feeds every report state, so the same rows come back for each state's
+// request and the flat list deduplicates them — enough to judge the list rhythm, which is what
+// these stories are for.
+function ReportsTabStory({ searchParams }: { searchParams?: Record<string, string> }): JSX.Element {
+    useMountedLogic(inboxSceneLogic)
+    useEffect(() => {
+        router.actions.push(urls.inbox('reports'), searchParams ?? {})
+    }, [searchParams])
+    return (
+        <div className="bg-primary min-h-screen">
+            <ReportsTab />
+        </div>
+    )
 }
 
 const meta: Meta = {
@@ -58,6 +82,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
+        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true },
         testOptions: { waitForLoadersToDisappear: false },
     },
 }
@@ -65,40 +90,22 @@ export default meta
 
 type Story = StoryObj
 
+// The default view: one flat list over the default-selected open-work states.
 export const Reports: Story = {
     decorators: [reportsListDecorator(reportTabReports)],
-    render: () => (
-        <div className="bg-primary min-h-screen">
-            <ReportsTab />
-        </div>
-    ),
+    render: () => <ReportsTabStory />,
 }
 
+// The state filter narrowing the list to one state via the shared `state` URL param.
+export const ReportsStateFiltered: Story = {
+    decorators: [reportsListDecorator(pullRequestReports)],
+    render: () => <ReportsTabStory searchParams={{ state: 'monitoring' }} />,
+}
+
+// Nothing anywhere: the whole-list empty state.
 export const ReportsEmpty: Story = {
     decorators: [reportsListDecorator([])],
-    render: () => (
-        <div className="bg-primary min-h-screen">
-            <ReportsTab />
-        </div>
-    ),
-}
-
-export const PullRequests: Story = {
-    decorators: [reportsListDecorator(pullRequestReports)],
-    render: () => (
-        <div className="bg-primary min-h-screen">
-            <PullRequestsTab />
-        </div>
-    ),
-}
-
-export const PullRequestsEmpty: Story = {
-    decorators: [reportsListDecorator([])],
-    render: () => (
-        <div className="bg-primary min-h-screen">
-            <PullRequestsTab />
-        </div>
-    ),
+    render: () => <ReportsTabStory />,
 }
 
 export const Runs: Story = {
@@ -121,6 +128,27 @@ export const RunsEmpty: Story = {
     render: () => (
         <div className="bg-primary min-h-screen">
             <RunsTab runs={[]} loading={false} />
+        </div>
+    ),
+}
+
+// The flat tabs with the redesign flag off: one list per tab under the search and filter bar.
+export const ReportsLegacy: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
+    decorators: [reportsListDecorator(reportTabReports)],
+    render: () => (
+        <div className="bg-primary min-h-screen">
+            <ReportsTabLegacy />
+        </div>
+    ),
+}
+
+export const PullRequestsLegacy: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
+    decorators: [reportsListDecorator(pullRequestReports)],
+    render: () => (
+        <div className="bg-primary min-h-screen">
+            <PullRequestsTab />
         </div>
     ),
 }

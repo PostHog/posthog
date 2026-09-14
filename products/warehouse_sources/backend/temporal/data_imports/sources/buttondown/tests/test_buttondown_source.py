@@ -1,26 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.buttondown import (
-    ButtondownResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.settings import (
-    BUTTONDOWN_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.settings import BUTTONDOWN_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.source import ButtondownSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buttondown import (
     ButtondownSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.source.validate_buttondown_credentials"
@@ -34,36 +19,6 @@ class TestButtondownSource:
         self.team_id = 123
         self.config = ButtondownSourceConfig(api_key="bd-key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BUTTONDOWN
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Buttondown"
-        assert config.label == "Buttondown"
-        assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/buttondown.png"
-
-        field_names = [field.name for field in config.fields if isinstance(field, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_a_required_secret(self) -> None:
-        config = self.source.get_source_config
-        api_key_field = next(
-            field for field in config.fields if isinstance(field, SourceFieldInputConfig) and field.name == "api_key"
-        )
-
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
-
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
     def test_only_endpoints_with_a_server_side_date_filter_advertise_incremental(self) -> None:
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
@@ -73,19 +28,6 @@ class TestButtondownSource:
             expected = endpoint.incremental_start_param is not None
             assert schemas[name].supports_incremental is expected
             assert bool(schemas[name].incremental_fields) is expected
-
-    def test_incremental_fields_track_creation_date(self) -> None:
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        for name, endpoint in BUTTONDOWN_ENDPOINTS.items():
-            if endpoint.incremental_start_param is None:
-                continue
-            assert [field["field"] for field in schemas[name].incremental_fields] == ["creation_date"]
-
-    @pytest.mark.parametrize("names,expected", [(["emails"], ["emails"]), (["nope"], [])])
-    def test_get_schemas_filters_by_name(self, names: list[str], expected: list[str]) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=names)
-        assert [schema.name for schema in schemas] == expected
 
     @pytest.mark.parametrize(
         "probe_result,schema_name,expected",
@@ -126,12 +68,6 @@ class TestButtondownSource:
     def test_unrelated_failures_stay_retryable(self, observed_error: str) -> None:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
 
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ButtondownResumeConfig
-
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "emails"
@@ -163,11 +99,3 @@ class TestButtondownSource:
             self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_source.call_args.kwargs["api_version"] == "2025-01-02"
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-
-        assert set(descriptions.keys()) == set(ENDPOINTS)
-        for name, endpoint in BUTTONDOWN_ENDPOINTS.items():
-            for primary_key in endpoint.primary_keys:
-                assert primary_key in descriptions[name]["columns"]

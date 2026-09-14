@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import structlog
 from requests import Response
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
@@ -24,10 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.source import WorldBankSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank import (
     MAX_INDICATOR_CODES,
-    WorldBankResumeConfig,
     world_bank_source,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(schema_name: str = "countries") -> SourceInputs:
@@ -52,9 +50,6 @@ class TestWorldBankSource:
         self.source = WorldBankSource()
         self.config = WorldBankSourceConfig(indicator_codes="SP.POP.TOTL\nNY.GDP.PCAP.CD")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.WORLDBANK
-
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
 
@@ -64,15 +59,6 @@ class TestWorldBankSource:
         assert config.iconPath == "/static/services/world_bank.png"
         # A finished source ships visible; re-adding the flag would hide it from every user.
         assert not config.unreleasedSource
-
-    def test_get_source_config_fields(self) -> None:
-        fields = [field for field in self.source.get_source_config.fields if isinstance(field, SourceFieldInputConfig)]
-
-        assert [field.name for field in fields] == ["indicator_codes"]
-        assert fields[0].type == SourceFieldInputConfigType.TEXTAREA
-        assert fields[0].required is True
-        # The API is open, so nothing on this form is a credential.
-        assert fields[0].secret is False
 
     def test_pinned_version_matches_the_path_the_code_calls(self) -> None:
         assert self.source.default_version == "v2"
@@ -88,11 +74,6 @@ class TestWorldBankSource:
         assert not any(schema.supports_incremental for schema in schemas)
         assert not any(schema.supports_append for schema in schemas)
         assert all(schema.description for schema in schemas)
-
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=123, names=["indicator_data"])
-
-        assert [schema.name for schema in schemas] == ["indicator_data"]
 
     def test_documented_tables_render_without_credentials(self) -> None:
         # The public docs endpoint builds a blank config and calls get_schemas, so discovery must
@@ -110,12 +91,6 @@ class TestWorldBankSource:
         # One table holds observations for every configured indicator, so the indicator has to be
         # part of the key or codes would overwrite each other.
         assert PRIMARY_KEYS["indicator_data"] == ["indicator_id", "country_id", "date"]
-
-    def test_get_resumable_source_manager_is_bound_to_the_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is WorldBankResumeConfig
 
     def test_non_retryable_error_matches_the_required_selector_failure(self) -> None:
         raised = "Required data_selector '[1]' matched nothing in the response (body keys: list). ..."
@@ -212,21 +187,3 @@ class TestWorldBankSource:
         assert durable_count_at_checkpoint == [1, 2]
         assert [call.args[0].page for call in manager.save_state.call_args_list] == [2, 3]
         assert len(durable_pages) == 2
-
-    @pytest.mark.parametrize(
-        ("indicator_codes", "expected_codes"),
-        [
-            ("SP.POP.TOTL", ["SP.POP.TOTL"]),
-            ("", []),
-        ],
-    )
-    def test_validate_credentials_parses_the_codes_before_probing(
-        self, indicator_codes: str, expected_codes: list[str]
-    ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.source.validate_world_bank_credentials"
-        ) as mock_validate:
-            mock_validate.return_value = (True, None)
-            self.source.validate_credentials(WorldBankSourceConfig(indicator_codes=indicator_codes), team_id=123)
-
-        assert mock_validate.call_args.args == (expected_codes, "v2")

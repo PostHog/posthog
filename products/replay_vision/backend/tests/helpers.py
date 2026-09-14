@@ -2,7 +2,7 @@ from typing import Any
 
 from django.utils import timezone
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.utils import uuid7
 
 from products.experiments.backend.models.experiment import Experiment
@@ -54,11 +54,11 @@ def seed_scanner_spend(scanner: ReplayScanner, credits: int, *, observations: in
     )
 
 
-def create_experiment(team: Team, flag_key: str) -> Experiment:
+def create_experiment(team: Team, flag_key: str, created_by: User | None = None) -> Experiment:
     """A launched-enough experiment with a multivariate flag, for targeting tests."""
     flag = FeatureFlag.objects.create(
         team=team,
         key=flag_key,
         filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
     )
-    return Experiment.objects.create(team=team, name=f"exp-{flag_key}", feature_flag=flag)
+    return Experiment.objects.create(team=team, name=f"exp-{flag_key}", feature_flag=flag, created_by=created_by)

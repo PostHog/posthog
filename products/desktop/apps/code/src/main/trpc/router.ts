@@ -10,11 +10,14 @@ import { canvasDataRouter } from "@posthog/host-router/routers/canvas-data.route
 import { canvasTemplatesRouter } from "@posthog/host-router/routers/canvas-templates.router";
 import { channelTasksRouter } from "@posthog/host-router/routers/channel-tasks.router";
 import { claudeCliSessionsRouter } from "@posthog/host-router/routers/claude-cli-sessions.router";
+import { claudeSubscriptionTokenRouter } from "@posthog/host-router/routers/claude-subscription-token.router";
 import { cloudTaskRouter } from "@posthog/host-router/routers/cloud-task.router";
 import { connectivityRouter } from "@posthog/host-router/routers/connectivity.router";
 import { contextMenuRouter } from "@posthog/host-router/routers/context-menu.router";
+import { customCloudRouter } from "@posthog/host-router/routers/custom-cloud.router";
 import { dashboardsRouter } from "@posthog/host-router/routers/dashboards.router";
 import { deepLinkRouter } from "@posthog/host-router/routers/deep-link.router";
+import { diskCacheRouter } from "@posthog/host-router/routers/disk-cache.router";
 import { enrichmentRouter } from "@posthog/host-router/routers/enrichment.router";
 import { environmentRouter } from "@posthog/host-router/routers/environment.router";
 import { externalAppsRouter } from "@posthog/host-router/routers/external-apps.router";
@@ -24,7 +27,6 @@ import { foldersRouter } from "@posthog/host-router/routers/folders.router";
 import { fsRouter } from "@posthog/host-router/routers/fs.router";
 import { gitRouter } from "@posthog/host-router/routers/git.router";
 import { githubIntegrationRouter } from "@posthog/host-router/routers/github-integration.router";
-import { handoffRouter } from "@posthog/host-router/routers/handoff.router";
 import { integrationRouter } from "@posthog/host-router/routers/integration.router";
 import { linearIntegrationRouter } from "@posthog/host-router/routers/linear-integration.router";
 import { llmGatewayRouter } from "@posthog/host-router/routers/llm-gateway.router";
@@ -35,7 +37,6 @@ import { mcpCallbackRouter } from "@posthog/host-router/routers/mcp-callback.rou
 import { mcpRelayRouter } from "@posthog/host-router/routers/mcp-relay.router";
 import { notificationRouter } from "@posthog/host-router/routers/notification.router";
 import { oauthRouter } from "@posthog/host-router/routers/oauth.router";
-import { onboardingImportRouter } from "@posthog/host-router/routers/onboarding-import.router";
 import { osRouter } from "@posthog/host-router/routers/os.router";
 import { piSessionRouter } from "@posthog/host-router/routers/pi-session.router";
 import { processTrackingRouter } from "@posthog/host-router/routers/process-tracking.router";
@@ -76,6 +77,7 @@ export const trpcRouter = router({
   cloudTask: cloudTaskRouter,
   connectivity: connectivityRouter,
   contextMenu: contextMenuRouter,
+  customCloud: customCloudRouter,
   dev: devRouter,
   discordPresence: discordPresenceRouter,
   enrichment: enrichmentRouter,
@@ -89,7 +91,6 @@ export const trpcRouter = router({
   git: gitRouter,
   githubIntegration: githubIntegrationRouter,
   releaseFeed: releaseFeedRouter,
-  handoff: handoffRouter,
   integration: integrationRouter,
   linearIntegration: linearIntegrationRouter,
   llmGateway: llmGatewayRouter,
@@ -101,7 +102,6 @@ export const trpcRouter = router({
   quickAsk: quickAskRouter,
   notification: notificationRouter,
   oauth: oauthRouter,
-  onboardingImport: onboardingImportRouter,
   logs: logsRouter,
   os: osRouter,
   piSession: piSessionRouter,
@@ -110,6 +110,7 @@ export const trpcRouter = router({
   sleep: sleepRouter,
   suspension: suspensionRouter,
   secureStore: secureStoreRouter,
+  claudeSubscriptionToken: claudeSubscriptionTokenRouter,
   shell: shellRouter,
   speech: speechRouter,
   skills: skillsRouter,
@@ -118,6 +119,7 @@ export const trpcRouter = router({
   updates: updatesRouter,
   usageMonitor: usageMonitorRouter,
   deepLink: deepLinkRouter,
+  diskCache: diskCacheRouter,
   workspace: workspaceRouter,
   workspaceServer: workspaceServerRouter,
 });
@@ -127,11 +129,9 @@ export type TrpcRouter = typeof trpcRouter;
 /**
  * The renderer and @posthog/ui are typed against HostRouter, so every route it
  * declares must actually be served by this assembly — a route present in the
- * type but missing here fails only at runtime with NOT_FOUND (#2442 dropped
- * onboardingImport this way, silently breaking the onboarding import step).
+ * type but missing here fails only at runtime with NOT_FOUND, which is how a
+ * route has been dropped before and silently broken the feature behind it.
  * When this assignment errors, its expected type names the missing routes.
  */
 type MissingHostRoutes = Exclude<keyof HostRouter, keyof TrpcRouter>;
-export const servesEveryHostRoute: [MissingHostRoutes] extends [never]
-  ? true
-  : MissingHostRoutes = true;
+true satisfies [MissingHostRoutes] extends [never] ? true : MissingHostRoutes;

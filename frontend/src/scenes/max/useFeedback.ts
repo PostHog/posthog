@@ -11,6 +11,7 @@ export interface UseFeedbackResult {
     traceId: string | null
 }
 
+// Duplicated for the sandbox runtime in products/posthog_ai/frontend/hooks/useFeedbackPrompt.ts; this copy is deleted with the LangGraph runtime.
 export function useFeedback(conversationId: string | null): UseFeedbackResult {
     const { threadGrouped, streamingActive, traceId, retryCount, cancelCount } = useValues(maxThreadLogic)
 

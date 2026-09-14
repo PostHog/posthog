@@ -1,21 +1,15 @@
 export type OnboardingStep =
-  | "welcome"
   | "project-select"
-  | "invite-code"
   | "consent"
   | "connect-github"
   | "install-cli"
-  | "import-config"
   | "select-repo";
 
 export const ONBOARDING_STEPS: OnboardingStep[] = [
-  "welcome",
   "project-select",
-  "invite-code",
   "consent",
   "connect-github",
   "install-cli",
-  "import-config",
   "select-repo",
 ];
 
@@ -27,32 +21,51 @@ export interface DetectedRepo {
   branch?: string;
 }
 
-export function computeActiveSteps(options: {
-  hasCodeAccess: boolean | null | undefined;
-  hasImportableConfig: boolean;
+export interface StepGates {
   /** Undefined while the integrations query is loading; the step only drops on a confirmed connection. */
   hasGithubIntegration: boolean | undefined;
+  /** Undefined while the local git and gh checks are loading. */
+  cliReady: boolean | undefined;
   /** Undefined until the project list has loaded, so a slow list cannot skip a real choice. */
   projectCount: number | undefined;
   consentRequired: boolean | undefined;
-}): OnboardingStep[] {
+}
+
+export function computeActiveSteps(options: StepGates): OnboardingStep[] {
   return ONBOARDING_STEPS.filter((step) => {
     if (step === "project-select" && options.projectCount === 1) return false;
-    if (step === "invite-code" && options.hasCodeAccess === true) return false;
     if (step === "consent" && options.consentRequired === false) return false;
-    if (step === "import-config" && !options.hasImportableConfig) return false;
-    if (step === "install-cli" && options.hasGithubIntegration === true) {
+    // Two independent reasons to skip: a GitHub integration means tasks run in
+    // the cloud, and a ready local toolchain leaves the step nothing to offer.
+    if (
+      step === "install-cli" &&
+      (options.hasGithubIntegration === true || options.cliReady === true)
+    ) {
       return false;
     }
     return true;
   });
 }
 
-export function stepIndexOf(
-  activeSteps: OnboardingStep[],
+/**
+ * Whether a gate that governs `step` has not answered yet. An unanswered gate
+ * keeps its step in the active set, so the step is on screen but a later answer
+ * can still take it away. Analytics waits for this to be false, or it records a
+ * view for a step the person never had to complete.
+ */
+export function stepGatePending(
   step: OnboardingStep,
-): number {
-  return activeSteps.indexOf(step);
+  options: StepGates,
+): boolean {
+  if (step === "project-select") return options.projectCount === undefined;
+  if (step === "consent") return options.consentRequired === undefined;
+  if (step === "install-cli") {
+    return (
+      options.hasGithubIntegration === undefined ||
+      options.cliReady === undefined
+    );
+  }
+  return false;
 }
 
 /**
@@ -62,7 +75,7 @@ export function stepIndexOf(
  * user was moving forward — and falls back to the closest earlier one, so a
  * vanishing step never resets progress to the start of the flow. Returns
  * `step` unchanged when it is still active, or when `activeSteps` is empty
- * (degenerate input: the flow always keeps at least the welcome step).
+ * (degenerate input: the flow always keeps at least the select-repo step).
  */
 export function nearestActiveStep(
   activeSteps: OnboardingStep[],

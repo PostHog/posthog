@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -248,60 +248,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             metrics_secondary=[],
         )
 
-    @freeze_time("2020-01-10T12:00:00Z")
-    async def test_check_data_freshness_no_warning_when_recent(self):
-        data_service = ExperimentSummaryDataService(self.team, self.user)
-
-        # 30 seconds difference - well within the 1 minute threshold
-        frontend_refresh = "2020-01-10T11:59:00Z"
-        backend_refresh = datetime(2020, 1, 10, 11, 59, 30, tzinfo=ZoneInfo("UTC"))
-
-        warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
-        self.assertIsNone(warning)
-
-    @freeze_time("2020-01-10T12:00:00Z")
-    async def test_check_data_freshness_warning_when_stale(self):
-        data_service = ExperimentSummaryDataService(self.team, self.user)
-
-        frontend_refresh = "2020-01-10T10:00:00Z"
-        backend_refresh = datetime(2020, 1, 10, 11, 30, tzinfo=ZoneInfo("UTC"))
-
-        warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
-        assert warning is not None
-        self.assertIn("data has been updated", warning)
-
-    @freeze_time("2020-01-10T12:00:00Z")
-    async def test_check_data_freshness_warning_at_threshold_boundary(self):
-        data_service = ExperimentSummaryDataService(self.team, self.user)
-
-        # 61 seconds difference - just over the 1 minute (60 second) threshold
-        frontend_refresh = "2020-01-10T11:58:00Z"
-        backend_refresh = datetime(2020, 1, 10, 11, 59, 1, tzinfo=ZoneInfo("UTC"))
-
-        warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
-        assert warning is not None
-        self.assertIn("data has been updated", warning)
-
-    @freeze_time("2020-01-10T12:00:00Z")
-    async def test_check_data_freshness_no_warning_at_threshold_boundary(self):
-        data_service = ExperimentSummaryDataService(self.team, self.user)
-
-        # Exactly 60 seconds - at the threshold (not over), should NOT trigger warning
-        frontend_refresh = "2020-01-10T11:58:00Z"
-        backend_refresh = datetime(2020, 1, 10, 11, 59, 0, tzinfo=ZoneInfo("UTC"))
-
-        warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
-        self.assertIsNone(warning)
-
-    @freeze_time("2020-01-10T12:00:00Z")
-    async def test_check_data_freshness_handles_none_values(self):
-        data_service = ExperimentSummaryDataService(self.team, self.user)
-
-        self.assertIsNone(data_service.check_data_freshness(None, None))
-        self.assertIsNone(data_service.check_data_freshness("2020-01-10T10:00:00Z", None))
-        self.assertIsNone(data_service.check_data_freshness(None, datetime.now(ZoneInfo("UTC"))))
-
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     async def test_fetch_experiment_data_with_mocked_query_runners(self):
         experiment = await self.acreate_experiment(name="query-runner-test", with_metrics=True)
 
@@ -376,7 +323,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         )
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     async def test_fetch_experiment_data_executes_queries_on_cold_cache(self):
         """
         On a cold cache, queries must execute synchronously rather than
@@ -400,7 +347,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(summary_data.pending_calculation)
         self.assertIsNotNone(summary_data.last_refresh)
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     async def test_fetch_experiment_data_includes_saved_metrics(self):
         experiment = await self.acreate_experiment(name="saved-metrics-test", with_metrics=False)
 
@@ -488,7 +435,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         metrics_queried = [call.kwargs["query"].metric.metric_type for call in query_runner_calls]
         self.assertEqual(metrics_queried, ["funnel", "funnel"])
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     async def test_fetch_experiment_data_combines_inline_and_saved_metrics(self):
         experiment = await self.acreate_experiment(name="mixed-metrics-test", with_metrics=True)
         # experiment.metrics already has 1 inline primary metric from acreate_experiment
@@ -595,7 +542,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         # Saved mean primary (ordered first), inline funnel primary, inline funnel secondary, saved funnel secondary
         self.assertEqual(metrics_queried, ["mean", "funnel", "funnel", "funnel"])
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     async def test_fetch_experiment_data_reports_metrics_omitted_by_cap(self):
         experiment = await self.acreate_experiment(name="metric-cap-test", with_metrics=False)
         experiment.metrics = [

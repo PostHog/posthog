@@ -175,12 +175,22 @@ class TestCommentActivity(CommentActivityTestCase):
 
         assert not TaskCommentActivity.objects.filter(team=self.team, user=self.author).exists()
 
-    def test_deleted_comments_are_hidden_from_activity(self):
+    @parameterized.expand(
+        [
+            ("deleted_comment", {}, {"deleted": True}),
+            ("scout_task", {"origin_product": Task.OriginProduct.SIGNALS_SCOUT}, {}),
+        ]
+    )
+    def test_comments_outside_the_feed_are_hidden_from_activity(
+        self, _name: str, task_updates: dict[str, object], comment_updates: dict[str, object]
+    ) -> None:
         unread_before = tasks_facade.count_unread_task_activity(self.team.id, self.author.id)
         comment = self._comment()
         self._record_activity(comment, [self.author.id])
-        comment.deleted = True
-        comment.save(update_fields=["deleted"])
+        if task_updates:
+            Task.objects.filter(id=self.task.id).update(**task_updates)
+        if comment_updates:
+            Comment.objects.filter(id=comment.id).update(**comment_updates)
 
         page = tasks_facade.list_task_activity(self.team.id, self.author.id)
 

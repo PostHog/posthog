@@ -93,4 +93,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "native_coin_id": "CoinGecko coin id of the platform's native token.",
         },
     },
+    "insights": {
+        "description": "Latest coin insights published on CoinGecko. Requires a Pro/Enterprise API key.",
+        "docs_url": "https://docs.coingecko.com/reference/insights",
+        "columns": {
+            "title": "Insight title.",
+            "description": "Insight body text.",
+            "related_coin_ids": "CoinGecko coin ids the insight relates to.",
+            "posted_at": "Timestamp the insight was posted, in ISO 8601 format.",
+        },
+    },
 }

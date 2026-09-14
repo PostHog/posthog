@@ -106,6 +106,7 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     functionId: 'my-convex-action',
                                     metadata: {
                                       posthog_distinct_id: distinctId,
+                                      $ai_session_id: 'conversation-abc', // optional: groups traces into one session
                                     },
                                   },
                                 })
@@ -188,6 +189,7 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     functionId: 'convex-agent',
                                     metadata: {
                                       posthog_distinct_id: distinctId,
+                                      $ai_session_id: 'conversation-abc', // optional: groups traces into one session
                                     },
                                   },
                                 })

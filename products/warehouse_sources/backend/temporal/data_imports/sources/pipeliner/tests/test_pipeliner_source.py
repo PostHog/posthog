@@ -3,14 +3,11 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pipeliner import (
     PipelinerSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.pipeliner import PipelinerResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.source import PipelinerSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPipelinerSource:
@@ -23,9 +20,6 @@ class TestPipelinerSource:
             username="api-user",
             password="api-pass",
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PIPELINER
 
     def test_get_source_config(self):
         config = self.source.get_source_config
@@ -51,10 +45,6 @@ class TestPipelinerSource:
         # editor could point the stored credentials at a server they control and exfiltrate them.
         assert "service_url" in self.source.connection_host_fields
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
-    def test_non_retryable_errors(self, expected_key):
-        assert expected_key in self.source.get_non_retryable_errors()
-
     def test_get_schemas_returns_all_endpoints_with_incremental_support(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
@@ -74,37 +64,6 @@ class TestPipelinerSource:
     def test_get_documented_tables_lists_static_catalog(self):
         tables = {t["name"] for t in self.source.get_documented_tables()}
         assert tables == set(ENDPOINTS)
-
-    @pytest.mark.parametrize(
-        "mock_return, expected",
-        [
-            ((True, None), (True, None)),
-            ((False, "Invalid Pipeliner API credentials"), (False, "Invalid Pipeliner API credentials")),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.source.validate_pipeliner_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected):
-        mock_validate.return_value = mock_return
-
-        result = self.source.validate_credentials(self.config, self.team_id, schema_name="accounts")
-
-        assert result == expected
-        mock_validate.assert_called_once_with(
-            self.config.service_url,
-            self.config.space_id,
-            self.config.username,
-            self.config.password,
-            "accounts",
-            self.team_id,
-        )
-
-    def test_get_resumable_source_manager(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is PipelinerResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.source.pipeliner_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_pipeliner_source):

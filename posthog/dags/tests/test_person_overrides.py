@@ -1,5 +1,12 @@
+import uuid as uuid_module
 from datetime import datetime, timedelta
+from functools import partial
 from uuid import UUID
+
+import pytest
+from unittest.mock import patch
+
+from django.conf import settings as django_settings
 
 import dagster
 from clickhouse_driver import Client
@@ -13,9 +20,11 @@ from posthog.dags.person_overrides import (
     cleanup_orphaned_person_overrides_snapshot,
     get_existing_dictionary_for_run_id,
     populate_snapshot_table,
+    run_person_id_update_mutations,
     squash_person_overrides,
     wait_for_overrides_delete_mutations,
 )
+from posthog.models.deletion_targets import EVENTS_JSON, TargetPlacement
 
 
 def test_full_job(cluster: ClickhouseCluster):
@@ -83,7 +92,7 @@ def test_full_job(cluster: ClickhouseCluster):
 
     # ensure we cleaned up after ourselves
     table = PersonOverridesSnapshotTable(UUID(limited_run_result.dagster_run.run_id))
-    dictionary = PersonOverridesSnapshotDictionary(table)
+    dictionary = PersonOverridesSnapshotDictionary(source=table)
     assert not any(cluster.map_all_hosts(table.exists).result().values())
     assert not any(cluster.map_all_hosts(dictionary.exists).result().values())
 
@@ -101,7 +110,7 @@ def test_full_job(cluster: ClickhouseCluster):
 
     # ensure we cleaned up after ourselves again
     table = PersonOverridesSnapshotTable(UUID(full_run_result.dagster_run.run_id))
-    dictionary = PersonOverridesSnapshotDictionary(table)
+    dictionary = PersonOverridesSnapshotDictionary(source=table)
     assert not any(cluster.map_all_hosts(table.exists).result().values())
     assert not any(cluster.map_all_hosts(dictionary.exists).result().values())
 
@@ -127,7 +136,7 @@ def test_cleanup_job(cluster: ClickhouseCluster) -> None:
 
     # ensure we left some resources dangling around due to the op selection
     table = PersonOverridesSnapshotTable(UUID(partial_squash_run_result.dagster_run.run_id))
-    dictionary = PersonOverridesSnapshotDictionary(table)
+    dictionary = PersonOverridesSnapshotDictionary(source=table)
     assert all(cluster.map_all_hosts(table.exists).result().values())
     assert all(cluster.map_all_hosts(dictionary.exists).result().values())
 
@@ -145,3 +154,63 @@ def test_cleanup_job(cluster: ClickhouseCluster) -> None:
     # cleanup should have removed any dangling resources from the partial job
     assert not any(cluster.map_all_hosts(table.exists).result().values())
     assert not any(cluster.map_all_hosts(dictionary.exists).result().values())
+
+
+def _create_snapshot_with(cluster: ClickhouseCluster, rows: list[tuple]) -> PersonOverridesSnapshotDictionary:
+    table = PersonOverridesSnapshotTable(id=uuid_module.uuid4())
+    cluster.any_host(table.create).result()
+
+    def insert(client: Client) -> None:
+        client.execute(f"INSERT INTO {table.qualified_name} (team_id, distinct_id, person_id, version) VALUES", rows)
+
+    cluster.any_host(insert).result()
+    return PersonOverridesSnapshotDictionary(source=table)
+
+
+@pytest.mark.django_db
+def test_a_staged_snapshot_dictionary_holds_the_same_rows_as_the_snapshot_table(cluster: ClickhouseCluster):
+    # A cluster that shares no Keeper with the job's own never receives the replicated snapshot
+    # table, so it builds the dictionary from a staged object. The squash is gated on both sides
+    # checksumming alike, which only means something if every column round-trips exactly. This one
+    # carries a UUID and a String key, neither of which the deletes dictionaries exercise.
+    dictionary = _create_snapshot_with(cluster, [(1, "a", UUID(int=7), 3), (2, "b", UUID(int=8), 4)])
+    create = partial(dictionary.create, shards=1, max_execution_time=0, max_memory_usage=0)
+    recreate = partial(dictionary.recreate, shards=1, max_execution_time=0, max_memory_usage=0)
+
+    try:
+        cluster.any_host(create).result()
+        from_snapshot_table = cluster.any_host(dictionary.load).result()
+
+        staged = dictionary.staged()
+        cluster.any_host(partial(staged.export, source_query=dictionary.query)).result()
+        cluster.any_host(partial(recreate, query=staged.query)).result()
+        from_staged_object = cluster.any_host(dictionary.load).result()
+
+        assert from_staged_object == from_snapshot_table
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(dictionary.source.drop).result()
+
+
+@pytest.mark.django_db
+def test_run_person_id_update_mutations_rewrites_events_json_on_its_own_cluster(cluster: ClickhouseCluster):
+    # sharded_events_json may sit on a cluster whose shards only its own handle enumerates. Running
+    # its rewrite over the job's handle would skip those rows, and the overrides that record the
+    # correct person_id are deleted in the very next op, so the divergence would be permanent.
+    dictionary = _create_snapshot_with(cluster, [(1, "a", UUID(int=7), 3)])
+    sibling = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
+
+    with (
+        patch(
+            "posthog.dags.person_overrides.placement_for",
+            return_value=TargetPlacement(target=EVENTS_JSON, cluster=sibling),
+        ),
+        patch.object(
+            type(dictionary.events_json_update_mutation_runner), "run_on_shards", autospec=True
+        ) as run_on_shards,
+    ):
+        run_person_id_update_mutations(cluster, dictionary)
+
+    dispatched = [call.args[1] for call in run_on_shards.call_args_list]
+    assert sibling in dispatched
+    cluster.any_host(dictionary.source.drop).result()

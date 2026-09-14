@@ -1,14 +1,11 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getKMPSteps as getKMPStepsPA } from '../product-analytics/kmp'
+import { getKMPInstallSteps } from '../product-analytics/kmp'
 import { StepDefinition } from '../steps'
 
 export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
-
-    // Get installation steps from product-analytics only
-    const installationSteps = getKMPStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
 
     // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [
@@ -39,7 +36,7 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
         },
     ]
 
-    return [...installationSteps, ...experimentSteps]
+    return [...getKMPInstallSteps(ctx), ...experimentSteps]
 }
 
 export const KMPInstallation = createInstallation(getKMPSteps)

@@ -22,9 +22,9 @@ from rest_framework import serializers
 
 from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.facade.enums import PrivilegeLevel
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile

@@ -1,5 +1,6 @@
 import time
 import asyncio
+import datetime
 from typing import TYPE_CHECKING, Any, Generic
 
 import pyarrow as pa
@@ -45,8 +46,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     _handle_null_columns_with_definitions,
     evolve_pyarrow_schema,
     merge_observed_columns_into_schema_metadata,
+    normalize_column_name,
     normalize_table_column_names,
     observe_and_project_table,
+    reconcile_batch_to_accumulated_schema,
     source_uses_delta_write_column_selection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
@@ -138,7 +141,13 @@ class PipelineV3(Generic[ResumableData]):
         self._table = models.table
         # xmin reads deltas and upserts on the primary key, so it writes incrementally too — never
         # as a full_refresh overwrite, which would wipe earlier data on the second (delta-only) sync.
-        self._is_incremental = models.schema.is_incremental or models.schema.is_webhook or models.schema.is_xmin
+        # Same for a change stream, which only ever carries the rows that changed.
+        self._is_incremental = (
+            models.schema.is_incremental
+            or models.schema.is_webhook
+            or models.schema.is_xmin
+            or source_response.cdc_write_mode is not None
+        )
 
         self._delta_table_ref = DeltaTableRef(self._resource_name, self._job, self._logger)
 
@@ -151,7 +160,9 @@ class PipelineV3(Generic[ResumableData]):
         self._attempt = attempt
 
         sync_type: SyncTypeLiteral = "full_refresh"
-        if self._schema.is_incremental or self._schema.is_webhook or self._schema.is_xmin:
+        if source_response.cdc_write_mode is not None:
+            sync_type = "cdc"
+        elif self._schema.is_incremental or self._schema.is_webhook or self._schema.is_xmin:
             sync_type = "incremental"
         elif self._schema.is_append:
             sync_type = "append"
@@ -198,6 +209,7 @@ class PipelineV3(Generic[ResumableData]):
             run_uuid=self._s3_batch_writer.get_run_uuid(),
             logger=self._logger,
             primary_keys=self._resource.primary_keys,
+            cdc_write_mode=self._resource.cdc_write_mode,
             is_resume=is_resume,
             partition_count=partition_count,
             partition_size=partition_size,
@@ -207,6 +219,9 @@ class PipelineV3(Generic[ResumableData]):
             is_first_ever_sync=is_first_ever_sync,
             workflow_id=current_workflow_id(),
             workflow_run_id=current_workflow_run_id(),
+            # Snapshotted on the job when the run started. Empty for every run before
+            # destinations, and every run of a team the flag is off for.
+            destination_ids=list(self._job.destination_ids or []),
         )
 
         self._resumable_source_manager = resumable_source_manager
@@ -450,12 +465,17 @@ class PipelineV3(Generic[ResumableData]):
         pa_table = evolve_pyarrow_schema(pa_table, None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
-        # Add missing columns from previous batches for schema consistency
-        if self._accumulated_pa_schema is not None:
-            for field in self._accumulated_pa_schema:
-                if field.name not in pa_table.schema.names:
-                    null_column = pa.array([None] * pa_table.num_rows, type=field.type)
-                    pa_table = pa_table.append_column(field, null_column)
+        # Converge this batch onto the column types earlier batches in this run already used,
+        # and backfill columns they had that this one doesn't. The cursor column is named both
+        # raw and normalized because `normalize_table_column_names` above may have renamed it.
+        cursor_columns = (
+            {self._schema.incremental_field, normalize_column_name(self._schema.incremental_field)}
+            if self._schema.incremental_field
+            else set()
+        )
+        pa_table, self._accumulated_pa_schema = reconcile_batch_to_accumulated_schema(
+            pa_table, self._accumulated_pa_schema, self._logger, protected_columns=cursor_columns
+        )
 
         batch_result = await asyncio.to_thread(self._s3_batch_writer.write_batch, pa_table, batch_index)
         self._batch_results.append(batch_result)
@@ -465,14 +485,6 @@ class PipelineV3(Generic[ResumableData]):
         self._internal_schema.add_pyarrow_table(pa_table)
 
         await self._sinks.stage_chunk(batch_index, pa_table)
-
-        # Update accumulated schema with any new columns from this batch
-        if self._accumulated_pa_schema is None:
-            self._accumulated_pa_schema = pa_table.schema
-        else:
-            for field in pa_table.schema:
-                if field.name not in self._accumulated_pa_schema.names:
-                    self._accumulated_pa_schema = self._accumulated_pa_schema.append(field)
 
         incremental_values = await update_incremental_field_values(
             self._schema,
@@ -491,6 +503,26 @@ class PipelineV3(Generic[ResumableData]):
             str(self._job.id), self._job.team_id, self._schema.id, pa_table.num_rows, self._logger
         )
 
+    async def _stamp_full_run(self) -> None:
+        """Record that this run took the full extraction path, for the fast-return valve.
+
+        Writes only `last_full_run_at`, which `_fast_return_eligible` is the sole reader of.
+        `last_synced_at` is deliberately left alone: it feeds data freshness, the schemas UI and
+        the signals watermark (`partition_field > last_synced_at`), so moving it on a run that
+        loaded nothing would narrow the next run's signal window.
+
+        Best-effort: a bookkeeping failure must not fail an otherwise successful sync, which is
+        how the observed-columns write above treats the same risk.
+        """
+        try:
+            await database_sync_to_async_pool(update_sync_type_config_keys)(
+                self._schema.id,
+                self._job.team_id,
+                updates={"last_full_run_at": datetime.datetime.now(datetime.UTC).isoformat()},
+            )
+        except Exception:
+            await self._logger.aexception("V3 Pipeline: Failed to stamp last_full_run_at")
+
     async def _finalize(self, row_count: int) -> None:
         # Column-picker bookkeeping — a failure here must not fail an otherwise successful sync.
         if self._observed_columns:
@@ -507,6 +539,11 @@ class PipelineV3(Generic[ResumableData]):
         total_batches = len(self._batch_results)
 
         if total_batches == 0:
+            # A zero-batch run still ran the full extraction, which is what the fast-return
+            # valve counts. Post-load stamps this on every other path but never runs here: with
+            # no batches the load consumer is never notified. Without this a v3 schema whose
+            # source stays quiet could never satisfy `_fast_return_eligible`.
+            await self._stamp_full_run()
             self._logger.debug("V3 Pipeline: No batches extracted, skipping finalization")
             return
 

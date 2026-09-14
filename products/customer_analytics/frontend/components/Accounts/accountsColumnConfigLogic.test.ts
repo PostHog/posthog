@@ -33,6 +33,7 @@ function definition(
         created_by: null,
         updated_at: null,
         references: [],
+        has_workflow_reference: false,
         source: null,
         ...overrides,
     }

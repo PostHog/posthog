@@ -3,7 +3,8 @@ import type { ScoutEmission } from "@posthog/api-client/posthog-client";
 import { prettifyScoutSkillName } from "@posthog/core/scouts/scoutPresentation";
 import { buildScoutFindingDiscussPrompt } from "@posthog/core/scouts/scoutPrompts";
 import { Button } from "@posthog/quill";
-import { Flex, Popover, Spinner, Text, TextArea } from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { Flex, Popover, Text, TextArea } from "@radix-ui/themes";
 import { useCallback, useMemo, useState } from "react";
 import { useScoutChatTask } from "../hooks/useScoutChatTask";
 
@@ -88,7 +89,7 @@ export function ScoutFindingDiscussButton({
           title="Discuss this signal with your agent"
           className="inline-flex shrink-0 items-center gap-1 text-[11px] text-accent-11 no-underline transition-colors hover:text-accent-12 disabled:cursor-default disabled:opacity-60"
         >
-          {isRunning ? <Spinner size="1" /> : <ChatCircleIcon size={11} />}
+          {isRunning ? <Spinner size="sm" /> : <ChatCircleIcon size={11} />}
           Discuss
         </button>
       </Popover.Trigger>

@@ -1,9 +1,11 @@
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal, Protocol
 
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resources,
@@ -21,11 +23,22 @@ logger = structlog.get_logger(__name__)
 
 
 class FanoutEndpointLike(Protocol):
-    name: str
-    path: str
-    incremental_fields: list[Any]
-    default_incremental_field: str | None
-    page_size: int
+    # Read-only members, because the helper only reads them and a mutable protocol attribute
+    # would exclude a frozen endpoint-config dataclass. A plain attribute still satisfies these.
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def path(self) -> str: ...
+
+    @property
+    def incremental_fields(self) -> list[Any]: ...
+
+    @property
+    def default_incremental_field(self) -> str | None: ...
+
+    @property
+    def page_size(self) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -93,15 +106,17 @@ def build_dependent_resource(
     db_incremental_field_last_value: Any,
     should_use_incremental_field: bool = False,
     incremental_field: str | None = None,
-    incremental_config_factory: Callable[[str], IncrementalConfig] | None = None,
+    incremental_config_factory: Callable[[str], IncrementalConfig | None] | None = None,
     parent_endpoint_extra: Endpoint | None = None,
     child_endpoint_extra: Endpoint | None = None,
     child_params_extra: dict[str, Any] | None = None,
+    parent_data_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     page_size_param: str | None = "limit",
     resume_hook: Callable[[dict[str, Any] | None], None] | None = None,
     initial_paginator_state: dict[str, Any] | None = None,
     source_id: str | None = None,
     use_warehouse_parent: bool = False,
+    parent_snapshot_at: datetime | None = None,
 ) -> Iterable[Any]:
     parent_config = endpoint_configs[fanout.parent_name]
     child_config = endpoint_configs[child_endpoint]
@@ -136,6 +151,13 @@ def build_dependent_resource(
         "table_format": "delta",
     }
 
+    if parent_data_map is not None:
+        # Parent transforms run before the child transformer reads the page, so a resolve_field
+        # the parent rows do not carry can be derived here. `process_parent_data_item` binds the
+        # path with `str.format`, which applies no escaping, so a vendor whose ids can contain
+        # `/` must percent-encode them through this hook.
+        parent_resource["data_map"] = parent_data_map
+
     if warehouse_parent:
         if not source_id:
             raise ValueError("source_id is required when a fan-out reads its parent from the warehouse")
@@ -164,6 +186,7 @@ def build_dependent_resource(
             # below, so the child syncs exactly the way it does without this feature.
             warehouse_parent = False
         else:
+            parent_resource["parent_source"] = "warehouse"
             parent_resource["data_iterator"] = lambda: iter_parent_pages_from_warehouse(
                 table=parent_table,
                 parent_name=fanout.parent_name,
@@ -220,9 +243,12 @@ def build_dependent_resource(
     if use_merge:
         if incremental_config_factory is None:
             raise ValueError("incremental_config_factory is required for incremental fan-out resources")
-        child_endpoint_config["incremental"] = incremental_config_factory(
-            incremental_field or child_config.default_incremental_field or "id"
-        )
+        incremental = incremental_config_factory(incremental_field or child_config.default_incremental_field or "id")
+        # A factory returns None for a child endpoint that has no server-side time filter to bind
+        # the cursor to. Such a child still merges on its primary key, which is what lets a caller
+        # bound the request set through the fan-out parent instead of through a request window.
+        if incremental is not None:
+            child_endpoint_config["incremental"] = incremental
 
     child_resource: EndpointResource = {
         "name": child_endpoint,
@@ -248,4 +274,64 @@ def build_dependent_resource(
         initial_paginator_state=initial_paginator_state,
     )
     child_dlt_resource = next(r for r in resources if getattr(r, "name", None) == child_endpoint)
-    return child_dlt_resource.add_map(rename_parent_fields(fanout.parent_name, fanout.parent_field_renames))
+    child = child_dlt_resource.add_map(rename_parent_fields(fanout.parent_name, fanout.parent_field_renames))
+
+    # Capping belongs here rather than in the caller because only this function knows whether the
+    # run ended up on the warehouse parent: `warehouse_parent` is false when the table turned out
+    # to be unresolvable, and a caller reading its own config would still see "warehouse" and cap a
+    # live API response, dropping rows that path had no reason to hold back.
+    if warehouse_parent and parent_snapshot_at is not None:
+        # `getattr` because a source that never merges can omit the field entirely, and the read
+        # has to stay off the path those sources take.
+        cursor_field = incremental_field or getattr(child_config, "default_incremental_field", None)
+        if not cursor_field:
+            raise ValueError(
+                f"'{child_endpoint}' asks for a parent snapshot cap but declares no incremental field to "
+                "cap on; capping nothing would let its watermark run past the snapshot"
+            )
+        child = child.add_filter(_not_newer_than(cursor_field, parent_snapshot_at))
+    return child
+
+
+def build_chained_resource(
+    *,
+    resources: Sequence[EndpointResource],
+    child_name: str,
+    parent_name: str,
+    parent_field_renames: dict[str, str],
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+) -> Iterable[Any]:
+    """Build a multi-level fan-out from a caller-assembled resource list and return the child.
+
+    `build_dependent_resource` covers one hop bound by one resolved param. A child whose path
+    binds several ids from the same parent row, or whose parent is itself a fan-out child,
+    needs its own resource list, which the caller assembles and passes here.
+
+    Such a chain carries no resume state: `create_resources` withholds the hook from every
+    resource once more than one is dependent, because one hook consumed at two levels would
+    corrupt the saved page.
+    """
+    config: RESTAPIConfig = {
+        "client": client_config,
+        "resource_defaults": {},
+        "resources": list(resources),
+    }
+    built = rest_api_resources(config, team_id, job_id, None)
+    child = next(r for r in built if getattr(r, "name", None) == child_name)
+    return child.add_map(rename_parent_fields(parent_name, parent_field_renames))
+
+
+def _not_newer_than(field: str, snapshot_at: datetime) -> Callable[[dict[str, Any]], bool]:
+    """Keep rows the parent snapshot could already account for.
+
+    A row without the field carries no recency signal and is kept, matching how the parent row
+    filter treats NULLs.
+    """
+
+    def _keep(row: dict[str, Any]) -> bool:
+        value = parse_datetime_value(row.get(field))
+        return value is None or value <= snapshot_at
+
+    return _keep

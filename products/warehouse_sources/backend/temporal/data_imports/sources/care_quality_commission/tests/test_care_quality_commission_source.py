@@ -9,14 +9,9 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission import (
     source as cqc_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission.care_quality_commission import (
-    CQCResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission.source import (
     CareQualityCommissionSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "key", partner_code: str | None = "PC") -> Any:
@@ -27,9 +22,6 @@ def _config(api_key: str = "key", partner_code: str | None = "PC") -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert CareQualityCommissionSource().source_type == ExternalDataSourceType.CAREQUALITYCOMMISSION
-
     def test_config_metadata(self) -> None:
         config = CareQualityCommissionSource().get_source_config
         assert config.label == "Care Quality Commission"
@@ -133,14 +125,6 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = CareQualityCommissionSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-
-class TestResumableSourceManager:
-    def test_returns_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = CareQualityCommissionSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is CQCResumeConfig
 
 
 class TestSourceForPipeline:

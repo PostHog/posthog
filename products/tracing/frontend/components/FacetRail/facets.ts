@@ -33,10 +33,13 @@ export type FacetColumn = 'service_name' | 'status_code'
  *   selection lives in the dedicated `serviceNames` filter field; `status_code`'s in a span property filter.
  * - `resourceAttribute`: a `resource_attributes` map key (e.g. k8s.namespace.name), queried with
  *   breakdownType `span_resource_attribute`. Selection is a span_resource_attribute property filter.
+ * - `attribute`: a plain (non-resource) span attribute key, queried with breakdownType `span_attribute`.
+ *   Only used by user-added custom facets today — no curated `FACETS` entry uses it.
  */
 export type FacetSource =
     | { type: 'column'; column: FacetColumn }
     | { type: 'resourceAttribute'; key: string; aliasKeys?: string[] }
+    | { type: 'attribute'; key: string }
 
 /**
  * The sources whose selection lives in the filterGroup. `service_name` is deliberately excluded:
@@ -46,6 +49,7 @@ export type FacetSource =
 export type FilterGroupFacetSource =
     | { type: 'column'; column: Exclude<FacetColumn, 'service_name'> }
     | { type: 'resourceAttribute'; key: string; aliasKeys?: string[] }
+    | { type: 'attribute'; key: string }
 
 export interface FacetConfig {
     /** Stable id used for collapse state and data-attrs. */
@@ -64,11 +68,13 @@ export interface FacetConfig {
     emptyLabel?: string
     /** Max pixel height before the value list virtualizes and scrolls. */
     maxHeight?: number
+    /** The (key, sourceType) a user-added custom facet was built from; curated facets never set it. */
+    custom?: { key: string; sourceType: CustomFacetSourceType }
 }
 
 interface SpanFacetFilter {
     key: string
-    type: PropertyFilterType.Span | PropertyFilterType.SpanResourceAttribute
+    type: PropertyFilterType.Span | PropertyFilterType.SpanResourceAttribute | PropertyFilterType.SpanAttribute
     operator: PropertyOperator
     value?: PropertyFilterValue
 }
@@ -81,11 +87,18 @@ export function innerFilters(group: UniversalFiltersGroup | undefined): SpanFace
     return ((group?.values?.[0] as UniversalFiltersGroup | undefined)?.values ?? []) as SpanFacetFilter[]
 }
 
-/** The property filter home for a facet's selection: span filters for status_code, resource-attribute filters otherwise. */
+/** The property filter home for a facet's selection: span filters for status_code, attribute/resource-attribute filters otherwise. */
 function facetFilterType(
-    source: FilterGroupFacetSource
-): PropertyFilterType.Span | PropertyFilterType.SpanResourceAttribute {
-    return source.type === 'column' ? PropertyFilterType.Span : PropertyFilterType.SpanResourceAttribute
+    source: FacetSource
+): PropertyFilterType.Span | PropertyFilterType.SpanResourceAttribute | PropertyFilterType.SpanAttribute {
+    switch (source.type) {
+        case 'column':
+            return PropertyFilterType.Span
+        case 'attribute':
+            return PropertyFilterType.SpanAttribute
+        case 'resourceAttribute':
+            return PropertyFilterType.SpanResourceAttribute
+    }
 }
 
 function facetFilterKey(source: FilterGroupFacetSource): string {
@@ -207,7 +220,7 @@ export function cycleFacetFilter(
     return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
 }
 
-/** The data key a facet is broken down by: its column, or the resource-attribute key resolution picked. */
+/** The data key a facet is broken down by: its column, or the attribute/resource-attribute key resolution picked. */
 export function facetSourceKey(facet: FacetConfig): string {
     return facet.source.type === 'column' ? facet.source.column : facet.source.key
 }
@@ -236,7 +249,7 @@ export interface FacetScope {
 export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): string {
     const { source } = facet
     const selfKey = facetSourceKey(facet)
-    const selfType = source.type === 'column' ? PropertyFilterType.Span : PropertyFilterType.SpanResourceAttribute
+    const selfType = facetFilterType(source)
     // Any operator: the backend drops every filter under the breakdown key, not just the rail's own.
     const groupSignature = innerFilters(scope.queryFilterGroup)
         .filter((filter) => !(filter.type === selfType && filter.key === selfKey))
@@ -404,7 +417,7 @@ export function resolveFacets(facets: FacetConfig[], presentResourceKeys: string
     const present = new Set(presentResourceKeys)
     const resolved: FacetConfig[] = []
     for (const facet of facets) {
-        if (facet.source.type === 'column') {
+        if (facet.source.type !== 'resourceAttribute') {
             resolved.push(facet)
             continue
         }
@@ -467,4 +480,27 @@ export function facetsByGroup(facets: FacetConfig[]): [string, FacetConfig[]][] 
         }
     }
     return groups
+}
+
+/** A custom facet's source kind, as persisted per-user — mirrors the backend's `source_type` choices. */
+export type CustomFacetSourceType = 'attribute' | 'resourceAttribute'
+
+/** Builds a rail-renderable FacetConfig for a user-added custom facet — always dynamic, with a remove control. */
+export function buildCustomFacet(key: string, sourceType: CustomFacetSourceType): FacetConfig {
+    return {
+        key: `custom:${sourceType}:${key}`,
+        title: key,
+        group: 'Custom',
+        kind: 'dynamic',
+        source: sourceType === 'attribute' ? { type: 'attribute', key } : { type: 'resourceAttribute', key },
+        searchable: true,
+        emptyLabel: `No ${key} values`,
+        maxHeight: 300,
+        custom: { key, sourceType },
+    }
+}
+
+/** The (key, sourceType) a custom facet was built from — `null` for a curated facet. */
+export function customFacetIdentity(facet: FacetConfig): { key: string; sourceType: CustomFacetSourceType } | null {
+    return facet.custom ?? null
 }

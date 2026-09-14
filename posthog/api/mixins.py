@@ -5,7 +5,7 @@ from typing import Any, Generic, TypeVar, cast
 from django.conf import settings
 
 import structlog
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema
 from pydantic import BaseModel, ValidationError
 from rest_framework import serializers
 from rest_framework.exceptions import ParseError
@@ -218,7 +218,12 @@ def validated_request(
                 if response_config is None:
                     return result
                 response_serializer = response_config.response
-                if response_serializer is None:
+                # A PolymorphicProxySerializer only describes the schema; it cannot validate data.
+                # `many=True` wraps one in a plain ListSerializer, so the child needs the same check.
+                declares_polymorphic_proxy = isinstance(response_serializer, PolymorphicProxySerializer) or isinstance(
+                    getattr(response_serializer, "child", None), PolymorphicProxySerializer
+                )
+                if response_serializer is None or declares_polymorphic_proxy:
                     return result
 
                 context: dict[str, Any] = getattr(self, "get_serializer_context", lambda: {})()
@@ -239,7 +244,25 @@ def validated_request(
                     serializer_class = response_serializer
                     serialized = response_serializer(data=data, context=context)
 
-                if not serialized.is_valid(raise_exception=strict_response_validation):
+                try:
+                    response_matches_serializer = serialized.is_valid(raise_exception=strict_response_validation)
+                except Exception as exc:
+                    # `is_valid` only handles DRF's ValidationError. A DataclassSerializer can raise other
+                    # errors for a valid response, and this check is advisory under DEBUG, so warn instead.
+                    if strict_response_validation:
+                        raise
+                    logger.warning(
+                        "Response serializer could not parse the response it declared for status code "
+                        f"{status_code} in the responses parameter of the @validated_request decorator. "
+                        "The response was returned unchanged; check the declared serializer.",
+                        view_func=view_func.__name__,
+                        status_code=status_code,
+                        serializer_class=serializer_class.__name__,
+                        error=str(exc),
+                    )
+                    return result
+
+                if not response_matches_serializer:
                     logger.warning(
                         f"Response data does not match declared serializer for status code {status_code} declared in responses parameter of the @validated_request decorator. Please update the provided API schema to ensure API docs remain up to date",
                         view_func=view_func.__name__,

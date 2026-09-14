@@ -138,6 +138,7 @@ export interface AlertCheck {
     created_at: string
     calculated_value: number | null
     state: AlertState
+    error?: { code?: string; message?: string } | null
     targets_notified: boolean
     anomaly_scores?: (number | null)[] | null
     triggered_points?: number[] | null

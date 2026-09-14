@@ -11,7 +11,7 @@ import {
   describeGithubRepoAccess,
   formatGithubAccountLabel,
 } from "@posthog/core/settings/githubRepoSummary";
-import { Button, Spinner, Text } from "@posthog/quill";
+import { Button, Text } from "@posthog/quill";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { GithubInstallRequestsBanner } from "@posthog/ui/features/integrations/components/GithubInstallRequestsBanner";
@@ -20,6 +20,7 @@ import { useIntegrationSelectors } from "@posthog/ui/features/integrations/store
 import { useGithubConnect } from "@posthog/ui/features/integrations/useGithubUserConnect";
 import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 
 interface GitHubIntegrationSectionProps {
@@ -39,7 +40,7 @@ export function GitHubIntegrationSection({
   showBottomBorder = true,
 }: GitHubIntegrationSectionProps) {
   const borderClass = showBottomBorder
-    ? "border-(--gray-5) border-b border-dashed pb-4"
+    ? "border-border border-b border-dashed pb-4"
     : "";
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const { isAdmin } = useIsOrgAdmin();
@@ -145,7 +146,7 @@ export function GitHubIntegrationSection({
         ? describeGithubConnectError(connectError)
         : timedOut
           ? GITHUB_CONNECT_TIMEOUT_MESSAGE
-          : "Required for the Inbox pipeline to work"}
+          : "Required for Self-driving to work"}
     </Text>
   );
 

@@ -2,10 +2,9 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 
 import { SignalScoutRunSummary } from '../types'
 import {
-    groupScouts,
-    listNeedsYouScouts,
     nextRunAt,
     scoutCadenceLabel,
+    scoutCadenceNamesClockTime,
     scoutGroup,
     ScoutGroupKey,
     scoutSubtitle,
@@ -104,48 +103,6 @@ describe('scoutGroups', () => {
         })
     })
 
-    describe('groupScouts', () => {
-        it('returns buckets in display order and drops empty ones', () => {
-            const buckets = groupScouts(
-                [
-                    makeConfig({ id: 'a', skill_name: 'signals-scout-a' }),
-                    makeConfig({ id: 'b', skill_name: 'signals-scout-b', status: 'paused_by_user', enabled: false }),
-                    makeConfig({ id: 'c', skill_name: 'signals-scout-c', status: 'paused_by_system', enabled: false }),
-                ],
-                new Map(),
-                NOW
-            )
-            expect(buckets.map((bucket) => bucket.key)).toEqual(['needs_you', 'watching', 'off'])
-            expect(buckets[0].configs.map((config) => config.id)).toEqual(['c'])
-        })
-    })
-
-    describe('listNeedsYouScouts', () => {
-        it('names only the scouts waiting on a decision, and why', () => {
-            const configs = [
-                makeConfig({ id: 'b', skill_name: 'signals-scout-web-vitals' }),
-                makeConfig({
-                    id: 'c',
-                    skill_name: 'signals-scout-apm',
-                    status: 'pending_pause',
-                    pause_reason: 'ignored',
-                }),
-                makeConfig({
-                    id: 'a',
-                    skill_name: 'signals-scout-surveys',
-                    status: 'paused_by_system',
-                    pause_reason: 'repeated_failures',
-                    consecutive_failure_count: 3,
-                    enabled: false,
-                }),
-            ]
-            expect(listNeedsYouScouts(configs, new Map(), NOW)).toEqual([
-                { name: 'Apm', reason: 'Pauses soon — nobody acted on its reports' },
-                { name: 'Surveys', reason: 'Paused itself — 3 runs in a row failed' },
-            ])
-        })
-    })
-
     describe('scoutSubtitle', () => {
         it('names the failure streak so a paused scout says why', () => {
             const config = makeConfig({
@@ -214,6 +171,16 @@ describe('scoutGroups', () => {
             ],
         ])('%s', (_name, overrides, expected) => {
             expect(scoutCadenceLabel(makeConfig(overrides))).toEqual(expected)
+        })
+    })
+
+    describe('scoutCadenceNamesClockTime', () => {
+        it.each<[string, Partial<SignalScoutConfig>, boolean]>([
+            ['a rolling interval states no clock time', { run_interval_minutes: 60 }, false],
+            ['a plain daily cron states one', { run_cron_schedule: '0 9 * * *' }, true],
+            ['a richer cron states one', { run_cron_schedule: '35 8 * * 1-5' }, true],
+        ])('%s', (_name, overrides, expected) => {
+            expect(scoutCadenceNamesClockTime(makeConfig(overrides))).toBe(expected)
         })
     })
 

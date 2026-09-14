@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from posthog.schema import (
     AccountCustomPropertyFilter,
+    BehavioralPropertyFilter,
     CohortPropertyFilter,
     DashboardFilter,
     DataWarehousePersonPropertyFilter,
@@ -23,6 +24,7 @@ from posthog.schema import (
     LogEntryPropertyFilter,
     LogPropertyFilter,
     LogPropertyFilterType,
+    MCPModelBreakdownQuery,
     MetricPropertyFilter,
     PersonMetadataPropertyFilter,
     PersonPropertyFilter,
@@ -114,6 +116,18 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
                 "workflow_variable",
                 {"type": "workflow_variable", "key": "k", "operator": "exact"},
                 WorkflowVariablePropertyFilter,
+            ),
+            (
+                "behavioral",
+                {
+                    "type": "behavioral",
+                    "key": "$pageview",
+                    "value": "performed_event",
+                    "event_type": "events",
+                    "time_value": 30,
+                    "time_interval": "day",
+                },
+                BehavioralPropertyFilter,
             ),
         ]
     )
@@ -257,6 +271,17 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
             {"kind": "TrendsQuery", "series": [], "properties": [{"type": "event", "key": "k", "operator": "exact"}]}
         )
         assert isinstance(query.properties, list)
+        assert type(query.properties[0]) is EventPropertyFilter
+
+    def test_mcp_model_breakdown_properties_use_the_discriminated_filter(self) -> None:
+        query = MCPModelBreakdownQuery.model_validate(
+            {
+                "kind": "MCPModelBreakdownQuery",
+                "properties": [{"type": "event", "key": "$mcp_llm_model", "operator": "exact"}],
+            }
+        )
+
+        assert query.properties is not None
         assert type(query.properties[0]) is EventPropertyFilter
 
     def test_serialization_round_trip_is_stable(self) -> None:

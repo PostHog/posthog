@@ -1,7 +1,7 @@
 import * as net from 'net'
 import { AdminClient, LibrdKafkaError } from 'node-rdkafka'
 
-import { createTopics } from '~/tests/helpers/kafka'
+import { ensureKafkaTopics } from '~/tests/helpers/kafka'
 
 import { KafkaProducerWrapper } from './producer'
 
@@ -58,7 +58,7 @@ describe('KafkaProducerWrapper.checkTopicExists', () => {
 
         await deleteTopic(topicExists)
         await deleteTopic(topicMissing)
-        await createTopics(KAFKA_CONFIG, [topicExists])
+        await ensureKafkaTopics([topicExists])
     })
 
     afterAll(async () => {

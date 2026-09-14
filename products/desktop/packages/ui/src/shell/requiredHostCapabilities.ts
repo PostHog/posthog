@@ -12,6 +12,7 @@ import { CONNECTIVITY_CLIENT } from "@posthog/ui/features/connectivity/connectiv
 import { FEATURE_FLAGS } from "@posthog/ui/features/feature-flags/identifiers";
 import { GIT_CACHE_KEY_PROVIDER } from "@posthog/ui/features/git-interaction/gitCacheProvider";
 import { SPEECH_NOTIFY_SETTINGS } from "@posthog/ui/features/notifications/identifiers";
+import { AGENT_PROMPT_SENDER } from "@posthog/ui/features/sessions/agentPromptSender";
 import { UPDATES_CLIENT } from "@posthog/ui/features/updates/updatesClient";
 import { DIFF_WORKER_FACTORY } from "@posthog/ui/shell/diffWorkerHost";
 
@@ -35,7 +36,7 @@ import { DIFF_WORKER_FACTORY } from "@posthog/ui/shell/diffWorkerHost";
  *
  * Excluded on purpose: core-module services (they fail at module load, a
  * different and already-loud failure mode) and host-specific/local-only
- * capabilities (e.g. file watchers, local handoff) that not every host provides.
+ * capabilities such as file watchers that not every host provides.
  */
 export const REQUIRED_HOST_CAPABILITIES: readonly HostCapabilityRequirement[] =
   [
@@ -66,6 +67,11 @@ export const REQUIRED_HOST_CAPABILITIES: readonly HostCapabilityRequirement[] =
     {
       token: REVIEW_HOST,
       description: "code-review page host wiring",
+    },
+    {
+      token: AGENT_PROMPT_SENDER,
+      description:
+        "send-a-prompt-to-the-agent actions (sendPromptToAgent, edit flag in task)",
     },
     {
       token: DIFF_WORKER_FACTORY,

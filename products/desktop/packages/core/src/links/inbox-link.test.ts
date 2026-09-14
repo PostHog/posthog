@@ -102,14 +102,14 @@ describe("InboxLinkService", () => {
     expect(listener).toHaveBeenCalledWith({ reportId: "abc-123" });
   });
 
-  it("returns false and does not emit when the path is empty", () => {
+  it("emits a null report id when the path is empty, so the link opens the inbox itself", () => {
     const listener = vi.fn();
     service.on(InboxLinkEvent.OpenReport, listener);
 
     const result = deepLinkService.trigger("inbox", "");
 
-    expect(result).toBe(false);
-    expect(listener).not.toHaveBeenCalled();
+    expect(result).toBe(true);
+    expect(listener).toHaveBeenCalledWith({ reportId: null });
   });
 
   it("focuses the main window on link arrival", () => {

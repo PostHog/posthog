@@ -21,6 +21,7 @@ const TS0: f64 = 1_700_000_000_000.0;
 const REF: &str = "image:0123456789abcdef0123456789abcdef:AAAAAAAAAAAAAAAAAAAAAA";
 const URL_REF: &str = "imageurl:AAAAAAAAAAAAAAAAAAAAAA";
 const LEGACY_URL_REF: &str = "imageurl:0123456789abcdef0123456789abcdef:AAAAAAAAAAAAAAAAAAAAAA";
+const NUMBERED_PLACEHOLDER: &str = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'><rect width='80' height='80' fill='%23f3f4f6'/><rect x='6' y='6' width='68' height='68' fill='none' stroke='%23d1d5db' stroke-width='2' rx='6'/><circle cx='26' cy='26' r='6' fill='%239ca3af'/><path d='M14 60 L34 40 L48 50 L66 32 L66 66 L14 66 Z' fill='%239ca3af'/><metadata id='anon-image-slot-0'/></svg>";
 
 fn img_line(value: &str, attr: &str) -> Value {
     json!(["w", { "type": 3, "timestamp": TS0, "data": {
@@ -36,6 +37,17 @@ fn canvas_line(value: &str) -> Value {
             "args": [{ "rr_type": "ImageBitmap", "args": [{
                 "rr_type": "Blob", "type": "image/png",
                 "data": [{ "rr_type": "ArrayBuffer", "base64": value }] }] }] }] } }])
+}
+
+fn css_line(reference: &str) -> Value {
+    json!(["w", { "type": 3, "timestamp": TS0, "data": {
+        "source": 0, "adds": [{ "parentId": 1, "nextId": null, "node": {
+            "type": 2, "tagName": "div", "id": 42,
+            "attributes": {
+                "style": format!("background-image:url(\"{NUMBERED_PLACEHOLDER}\")"),
+                "data-anon-image-refs-style": json!({ "0": reference }).to_string()
+            },
+            "childNodes": [] } }] } }])
 }
 
 /// What a caller of the line API actually writes out: the rewritten line, or the input verbatim
@@ -91,7 +103,14 @@ fn scrub_ingestion(line: &Value, byte_walk: bool) -> String {
 
 #[test]
 fn a_ref_survives_a_trusted_rescrub() {
-    for attr in ["src", "xlink:href", "rr_src", "poster", "rr_dataURL"] {
+    for attr in [
+        "src",
+        "srcset",
+        "xlink:href",
+        "rr_src",
+        "poster",
+        "rr_dataURL",
+    ] {
         assert!(
             scrub_trusted(&img_line(REF, attr)).contains(REF),
             "ref destroyed in {attr}"
@@ -106,13 +125,32 @@ fn a_ref_survives_a_trusted_rescrub() {
 #[test]
 fn a_namespaced_url_ref_survives_only_a_trusted_rescrub() {
     for url_ref in [URL_REF, LEGACY_URL_REF] {
-        let line = img_line(url_ref, "data-anon-image-ref-src");
+        let mut line = img_line(url_ref, "data-anon-image-ref-src");
+        let attrs = &mut line[1]["data"]["adds"][0]["node"]["attributes"];
+        attrs["src"] = json!("data:image/svg+xml;base64,PHN2Zz4=");
+        attrs["srcset"] = json!("data:image/svg+xml;base64,PHN2Zz4=");
         assert!(scrub_trusted(&line).contains(url_ref));
         assert!(!scrub_default(&line).contains("data-anon-image-ref-src"));
         for byte_walk in [true, false] {
             assert!(
                 !scrub_ingestion(&line, byte_walk).contains("data-anon-image-ref-src"),
                 "a captured internal ref attribute survived ingestion (byte_walk={byte_walk})"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_css_ref_map_survives_only_a_trusted_rescrub() {
+    for reference in [REF, URL_REF, LEGACY_URL_REF] {
+        let line = css_line(reference);
+        assert!(scrub_trusted(&line).contains(reference));
+        assert!(scrub_trusted(&line).contains("anon-image-slot-0"));
+        assert!(!scrub_default(&line).contains("data-anon-image-refs-style"));
+        for byte_walk in [true, false] {
+            assert!(
+                !scrub_ingestion(&line, byte_walk).contains("data-anon-image-refs-style"),
+                "a captured CSS ref map survived ingestion (byte_walk={byte_walk})"
             );
         }
     }

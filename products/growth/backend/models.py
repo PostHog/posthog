@@ -37,11 +37,7 @@ class ProductPushCampaign(UUIDModel, UpdatedMetaFields):
         db_constraint=False,
     )
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     # A ProductKey value. Plain CharField (like ProductIntent.product_type) so the
@@ -178,11 +174,7 @@ class EnrichmentPromptConfig(UUIDModel):
     # The version the batch runner computes; at most one active row per label (enforced below).
     is_active = models.BooleanField(default=False)
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -302,11 +294,7 @@ class IcpScoringConfig(UUIDModel):
     # The row the scorer loads; at most one active row (enforced below).
     is_active = models.BooleanField(default=False)
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     created_at = models.DateTimeField(auto_now_add=True)
 

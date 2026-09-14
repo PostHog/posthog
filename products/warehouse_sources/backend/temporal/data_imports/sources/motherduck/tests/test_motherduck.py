@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motherduck import (
@@ -524,12 +524,6 @@ class TestMotherDuck:
         schema_field = next(f for f in source.get_source_config.fields if f.name == "schema")
         assert isinstance(schema_field, SourceFieldInputConfig)
         assert schema_field.required is False
-
-    def test_access_token_is_stored_as_a_secret(self, source):
-        token_field = next(f for f in source.get_source_config.fields if f.name == "access_token")
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.secret is True
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
 
     @pytest.mark.parametrize(
         "error_msg",

@@ -1,4 +1,4 @@
-import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
+import { ANALYTICS_EVENTS, TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudTaskEvent } from "./schemas";
 
@@ -1078,6 +1078,72 @@ describe("CloudTaskEngine", () => {
     });
 
     await waitFor(() => getWatcherEmittedEntryCount() === 0);
+  });
+
+  it("does not replay a snapshot for a subscriber that joins while the watcher is still bootstrapping", async () => {
+    const updates: unknown[] = [];
+    service.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
+
+    const historicalEntry = {
+      type: "notification",
+      timestamp: "2026-01-01T00:00:00Z",
+      notification: {
+        jsonrpc: "2.0",
+        method: "_posthog/console",
+        params: { sessionId: "run-1", level: "info", message: "history" },
+      },
+    };
+
+    mockNetFetch
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          id: "run-1",
+          status: "in_progress",
+          stage: "build",
+          output: null,
+          error_message: null,
+          branch: "main",
+          updated_at: "2026-01-01T00:00:00Z",
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse([historicalEntry], 200, { "X-Has-More": "false" }),
+      );
+    mockStreamFetch.mockResolvedValueOnce(createOpenSseResponse(""));
+
+    const input = {
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://app.example.com",
+      teamId: 2,
+    };
+    service.watch(input);
+    service.watch(input);
+
+    await waitFor(() =>
+      updates.some(
+        (update) => (update as { kind?: string }).kind === "snapshot",
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const snapshots = updates.filter(
+      (update) => (update as { kind?: string }).kind === "snapshot",
+    );
+    expect(snapshots).toHaveLength(1);
+    // One history page for the bootstrap: the second watch fetched nothing.
+    const historyFetches = mockNetFetch.mock.calls.filter(([input]) =>
+      String(input instanceof Request ? input.url : input).includes(
+        "/session_logs/",
+      ),
+    );
+    expect(historyFetches).toHaveLength(1);
+
+    // The second subscriber still counts, so one unwatch keeps the watcher up.
+    service.unwatch("task-1", "run-1");
+    const watchers = (service as unknown as { watchers: Map<string, unknown> })
+      .watchers;
+    expect(watchers.has("task-1:run-1")).toBe(true);
   });
 
   it("ignores keepalive SSE events while keeping the stream open", async () => {
@@ -4406,5 +4472,365 @@ describe("CloudTaskEngine MCP relay", () => {
           ),
       ).toEqual([]);
     });
+  });
+});
+
+describe("CloudTaskEngine credential relay", () => {
+  let relayService: CloudTaskEngine;
+  let tokenStore: { get: ReturnType<typeof vi.fn> };
+  let analyticsMock: { track: ReturnType<typeof vi.fn> };
+  const commandResponse = vi.fn();
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockAuthService.getCloudContext.mockResolvedValue({
+      apiHost: "https://app.example.com",
+      teamId: 2,
+      accountKey: "account-a",
+    });
+    const scopedLog = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    const loggerMock = { ...scopedLog, scope: vi.fn(() => scopedLog) };
+    analyticsMock = { track: vi.fn() };
+    tokenStore = { get: vi.fn() };
+    relayService = createCloudTaskEngine({
+      auth: mockAuthService as never,
+      analytics: analyticsMock as never,
+      logger: loggerMock,
+      claudeSubscriptionTokenStore: tokenStore as never,
+      streamFetch: fetchRouter,
+    });
+
+    mockNetFetch.mockReset();
+    commandResponse.mockReset();
+    commandResponse.mockImplementation(() =>
+      createJsonResponse({ result: {} }),
+    );
+    mockNetFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/command/")
+          ? commandResponse()
+          : url.includes("/api/users/@me/")
+            ? createJsonResponse({ id: 1 })
+            : createJsonResponse({
+                id: "run-1",
+                status: "in_progress",
+                state: {
+                  claude_model_access: "own-subscription",
+                  claude_subscription_user_id: 1,
+                },
+              }),
+      ),
+    );
+    mockStreamFetch.mockReset();
+    mockStreamTokenFetch.mockReset();
+    mockStreamTokenFetch.mockImplementation(() =>
+      Promise.resolve(
+        createJsonResponse({ token: "test-token", stream_base_url: null }),
+      ),
+    );
+    mockAuthService.authenticatedFetch.mockReset();
+    vi.stubGlobal("fetch", fetchRouter);
+    mockAuthService.authenticatedFetch.mockImplementation(
+      async (input: string | Request, init?: RequestInit) => {
+        return fetchRouter(input, {
+          ...init,
+          headers: {
+            ...(init?.headers ?? {}),
+            Authorization: "Bearer token",
+          },
+        });
+      },
+    );
+  });
+
+  afterEach(() => {
+    relayService.unwatchAll();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function credentialRequestSseLine(
+    overrides: Partial<{ requestId: string; expiresAt: string }> = {},
+  ): string {
+    const event = {
+      type: "credential_request",
+      requestId: overrides.requestId ?? "cred-req-1",
+      credential: "claude_subscription_token",
+      expiresAt:
+        overrides.expiresAt ?? new Date(Date.now() + 120_000).toISOString(),
+    };
+    return `data: ${JSON.stringify(event)}\n\n`;
+  }
+
+  async function watchRun(runId: string, designated = true): Promise<void> {
+    if (designated) {
+      await relayService.designateClaudeSubscription({
+        taskId: "task-1",
+        runId,
+      });
+    }
+    relayService.watch({
+      taskId: "task-1",
+      runId,
+      apiHost: "https://app.example.com",
+      teamId: 2,
+      resumeFromEntryCount: 0,
+    });
+  }
+
+  function commandPosts(): Array<{ method: string; params: unknown }> {
+    return mockNetFetch.mock.calls
+      .filter(([url]) => (url as string).includes("/command/"))
+      .map(
+        ([, init]) =>
+          JSON.parse((init as RequestInit).body as string) as {
+            method: string;
+            params: unknown;
+          },
+      );
+  }
+
+  it.each([{ id: 2 }, { id: "1" }, {}, null])(
+    "rejects an invalid run owner: %j",
+    async (user) => {
+      mockNetFetch.mockResolvedValueOnce(createJsonResponse(user));
+      await expect(
+        relayService.designateClaudeSubscription({
+          taskId: "task-1",
+          runId: "run-1",
+        }),
+      ).rejects.toThrow("Only the user who started");
+      expect(tokenStore.get).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retries a temporary auth failure before reading the token", async () => {
+    tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse(credentialRequestSseLine()),
+    );
+    await watchRun("run-1");
+    mockAuthService.getCloudContext.mockRejectedValueOnce(
+      new Error("auth unavailable"),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(tokenStore.get).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(commandPosts()).toHaveLength(1);
+  });
+
+  it.each([true, false])(
+    "answers a credential request after designation or restart: %s",
+    async (designated) => {
+      const token = "sk-ant-oat01-fake-test-token";
+      tokenStore.get.mockResolvedValue(token);
+      mockStreamFetch.mockResolvedValueOnce(
+        createOpenSseResponse(credentialRequestSseLine()),
+      );
+      await watchRun("run-1", designated);
+
+      await vi.advanceTimersByTimeAsync(0);
+      const post = commandPosts()[0];
+      expect(post.method).toBe("credential_response");
+      expect(post.params).toEqual({
+        requestId: "cred-req-1",
+        credential: "claude_subscription_token",
+        token,
+      });
+      expect(mockAuthService.authenticatedFetch).toHaveBeenCalledWith(
+        "https://app.example.com/api/projects/2/tasks/task-1/runs/run-1/command/",
+        expect.objectContaining({ redirect: "error" }),
+      );
+      expect(analyticsMock.track).toHaveBeenCalledWith(
+        ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
+        { credential: "claude_subscription_token", outcome: "sent" },
+      );
+    },
+  );
+
+  it.each([
+    { apiHost: "https://example.org", teamId: 2 },
+    { apiHost: "https://app.example.com", teamId: 3 },
+    { apiHost: "https://app.example.com", teamId: 2, accountKey: "account-b" },
+    null,
+  ])(
+    "does not send a token after the account context changes to %s",
+    async (context) => {
+      tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
+      mockStreamFetch.mockResolvedValueOnce(
+        createOpenSseResponse(credentialRequestSseLine()),
+      );
+      await watchRun("run-1");
+      mockAuthService.getCloudContext.mockResolvedValue(context);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(commandPosts()).toHaveLength(0);
+      expect(tokenStore.get).not.toHaveBeenCalled();
+    },
+  );
+
+  it("ignores a duplicate request with the same requestId", async () => {
+    const token = "sk-ant-oat01-fake-test-token";
+    tokenStore.get.mockResolvedValue(token);
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse(
+        credentialRequestSseLine() + credentialRequestSseLine(),
+      ),
+    );
+    await watchRun("run-1");
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(commandPosts()).toHaveLength(1);
+  });
+
+  it("reports no_token when the store has no token", async () => {
+    tokenStore.get.mockResolvedValue(null);
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse(credentialRequestSseLine()),
+    );
+    await watchRun("run-1");
+
+    await vi.advanceTimersByTimeAsync(0);
+    const post = commandPosts()[0];
+    expect(post.method).toBe("credential_response");
+    expect(post.params).toEqual({
+      requestId: "cred-req-1",
+      credential: "claude_subscription_token",
+      error: "no_token",
+    });
+    expect(analyticsMock.track).toHaveBeenCalledWith(
+      ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
+      { credential: "claude_subscription_token", outcome: "no_token" },
+    );
+  });
+
+  it.each(["expired", "malformed", "observer", "other-project"])(
+    "does not disclose a token for an %s request",
+    async (scenario) => {
+      tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
+      mockStreamFetch.mockResolvedValueOnce(
+        createOpenSseResponse(
+          credentialRequestSseLine({
+            expiresAt:
+              scenario === "expired"
+                ? new Date(Date.now() - 1_000).toISOString()
+                : scenario === "malformed"
+                  ? "not-a-date"
+                  : new Date(Date.now() + 120_000).toISOString(),
+          }),
+        ),
+      );
+      if (scenario === "other-project") {
+        mockAuthService.getCloudContext.mockResolvedValue({
+          apiHost: "https://app.example.com",
+          teamId: 3,
+          accountKey: "account-a",
+        });
+        await relayService.designateClaudeSubscription({
+          taskId: "task-1",
+          runId: "run-1",
+        });
+      }
+      if (scenario === "observer") {
+        mockNetFetch.mockImplementation((url: string) =>
+          Promise.resolve(
+            createJsonResponse(
+              url.includes("/api/users/@me/")
+                ? { id: 2 }
+                : {
+                    id: "run-1",
+                    status: "in_progress",
+                    state: {
+                      claude_model_access: "own-subscription",
+                      claude_subscription_user_id: 1,
+                    },
+                  },
+            ),
+          ),
+        );
+      }
+      await watchRun(
+        "run-1",
+        scenario === "expired" || scenario === "malformed",
+      );
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(commandPosts()).toHaveLength(0);
+      expect(tokenStore.get).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([500, 503])(
+    "retries HTTP %s without reporting an early success",
+    async (status) => {
+      tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
+      mockStreamFetch.mockResolvedValueOnce(
+        createOpenSseResponse(credentialRequestSseLine()),
+      );
+      commandResponse.mockReturnValueOnce(
+        new Response("unavailable", { status }),
+      );
+      await watchRun("run-1");
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(commandPosts()).toHaveLength(1);
+      expect(analyticsMock.track).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(commandPosts()).toHaveLength(2);
+      expect(analyticsMock.track).toHaveBeenCalledWith(
+        ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
+        {
+          credential: "claude_subscription_token",
+          outcome: "sent",
+        },
+      );
+    },
+  );
+
+  it("stops retries at the credential deadline", async () => {
+    tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse(
+        credentialRequestSseLine({
+          expiresAt: new Date(Date.now() + 1_500).toISOString(),
+        }),
+      ),
+    );
+    commandResponse.mockImplementation(
+      () => new Response("unavailable", { status: 503 }),
+    );
+    await watchRun("run-1");
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(commandPosts()).toHaveLength(2);
+    expect(analyticsMock.track).toHaveBeenCalledWith(
+      ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
+      { credential: "claude_subscription_token", outcome: "expired" },
+    );
+  });
+
+  it("handles secure-store errors without exposing their contents", async () => {
+    tokenStore.get.mockRejectedValueOnce(new Error("secret-store-value"));
+    tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse(credentialRequestSseLine()),
+    );
+    await watchRun("run-1");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(commandPosts()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(commandPosts()).toMatchObject([
+      {
+        method: "credential_response",
+        params: {
+          requestId: "cred-req-1",
+          credential: "claude_subscription_token",
+          token: "sk-ant-oat01-fake-test-token",
+        },
+      },
+    ]);
   });
 });

@@ -19,18 +19,13 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
-from products.context_layer.backend import store
+from products.access_control.backend.models.access_control import AccessControl
+from products.context_layer.backend import repo_lint, store
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.scaffold import AGENTS_MD
 from products.tasks.backend.facade import api as tasks_facade
 
-from ee.models.rbac.access_control import AccessControl
-
 logger = structlog.get_logger(__name__)
-
-
-class RestrictedProjectsError(store.ContextLayerStoreError):
-    """The organization has private projects; enabling waits for per-project partitioning."""
 
 
 def enable_context_layer(
@@ -39,16 +34,7 @@ def enable_context_layer(
     created_by_id: int | None = None,
 ) -> ContextLayerConfig:
     """Idempotent: re-enabling scaffolds nothing and re-imports only missing pages."""
-    # Context extracted with one project's credentials must not become readable
-    # through another, so orgs with private projects cannot enable until the
-    # wiki is partitioned per project.
-    private_names = private_project_names(organization_id)
-    if private_names:
-        joined = ", ".join(private_names)
-        raise RestrictedProjectsError(
-            f"This organization has private projects ({joined}). The context layer does not "
-            "support them yet. Remove those projects' access restrictions to enable it."
-        )
+    _record_restricted_projects(organization_id)
     config = store.initialize_repo(organization_id, created_by_id=created_by_id)
     import_channel_context(organization_id)
     # The import lands its own commit, so the row read before it is already a
@@ -59,50 +45,42 @@ def enable_context_layer(
     return config
 
 
+def _record_restricted_projects(organization_id: uuid.UUID | str) -> None:
+    """Note when a wiki is enabled for an organization that restricts a project.
+
+    The wiki is organization-wide, so this is the moment that project's
+    synthesized context becomes readable to members it excludes. That trade-off
+    is deliberate until per-page provenance ships (see PROVENANCE.md), but it
+    should be answerable afterwards rather than guessed at, so the organizations
+    carrying it are recorded where they are accepted.
+    """
+    restricted = set(
+        Team.objects.filter(organization_id=organization_id, access_control=True).values_list("id", flat=True)
+    )
+    restricted.update(
+        int(resource_id)
+        for resource_id in AccessControl.objects.filter(
+            team__organization_id=organization_id,
+            resource="project",
+            resource_id__isnull=False,
+            access_level="none",
+        ).values_list("resource_id", flat=True)
+        if resource_id and resource_id.isdigit()
+    )
+    if restricted:
+        logger.warning(
+            "context_layer.enabled_with_restricted_projects",
+            organization_id=str(organization_id),
+            restricted_project_ids=sorted(restricted),
+        )
+
+
 def _trigger_bootstrap_dream(organization_id: str) -> None:
     from products.context_layer.backend.temporal.dreaming import (  # noqa: PLC0415, I001 — keeps Temporal off Django's enablement import path
         trigger_bootstrap_dream,
     )
 
     trigger_bootstrap_dream(organization_id)
-
-
-def organization_has_private_projects(organization_id: uuid.UUID | str) -> bool:
-    """Private projects exist in two representations: the deprecated
-    `Team.access_control` flag (orgs not yet RBAC-migrated) and a project-level
-    `AccessControl` row with `access_level="none"`. Enablement must respect
-    both, and cares about the row existing rather than whether access control
-    is currently entitled, so it does not gate on the feature."""
-    if Team.objects.filter(organization_id=organization_id, access_control=True).exists():
-        return True
-    # Any project-level "none" row counts — the org-wide default row
-    # (organization_member/role null) marks a private project, and a member- or
-    # role-specific denial means at least one person must not see that
-    # project's context either way.
-    return AccessControl.objects.filter(
-        team__organization_id=organization_id,
-        resource="project",
-        resource_id__isnull=False,
-        access_level="none",
-    ).exists()
-
-
-def private_project_names(organization_id: uuid.UUID | str) -> list[str]:
-    """Names of the projects blocking enablement, for the error an org admin
-    acts on. Same two representations as `organization_has_private_projects`."""
-    names = set(
-        Team.objects.filter(organization_id=organization_id, access_control=True).values_list("name", flat=True)
-    )
-    restricted_ids = AccessControl.objects.filter(
-        team__organization_id=organization_id,
-        resource="project",
-        resource_id__isnull=False,
-        access_level="none",
-    ).values_list("resource_id", flat=True)
-    names.update(
-        Team.objects.filter(organization_id=organization_id, id__in=list(restricted_ids)).values_list("name", flat=True)
-    )
-    return sorted(names)
 
 
 def import_channel_context(organization_id: uuid.UUID | str) -> list[str]:
@@ -227,5 +205,37 @@ def _channel_page(team_id: int, channel_id: str, channel_name: str, content: str
     else:
         summary = f"Context imported from {title}."
         source = "channel-instructions-import"
-        body = f"\n{content.strip()}\n"
+        sanitized_content, repaired = _sanitize_imported_context(content.strip())
+        repair_note = (
+            "\n> **Import note:** Some wiki-link brackets in this imported context were encoded because they were "
+            "malformed. Review and repair the links.\n"
+            if repaired
+            else ""
+        )
+        body = f"{repair_note}\n{sanitized_content}\n"
     return f"---\nteam_id: {team_id}\nchannel_id: {channel_id}\nsummary: {summary}\nstatus: active\nsources: {source}\n---\n\n# {title} (project {team_id}, Space {channel_id[:8]})\n{body}"
+
+
+def _sanitize_imported_context(content: str) -> tuple[str, bool]:
+    parts: list[str] = []
+    cursor = 0
+    repaired = False
+    for match in repo_lint.WIKILINK_RE.finditer(content):
+        prefix, changed = _encode_wikilink_brackets(content[cursor : match.start()])
+        parts.append(prefix)
+        repaired |= changed
+        if repo_lint._wikilink_target(match.group(1)) is None:
+            encoded, _ = _encode_wikilink_brackets(match.group(0))
+            parts.append(encoded)
+            repaired = True
+        else:
+            parts.append(match.group(0))
+        cursor = match.end()
+    suffix, changed = _encode_wikilink_brackets(content[cursor:])
+    parts.append(suffix)
+    return "".join(parts), repaired or changed
+
+
+def _encode_wikilink_brackets(content: str) -> tuple[str, bool]:
+    encoded = content.replace("[[", "&#91;&#91;").replace("]]", "&#93;&#93;")
+    return encoded, encoded != content

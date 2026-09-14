@@ -103,6 +103,14 @@ class TestSkillTreeAndZip:
         assert "make-fractals/SKILL.md" in names
         assert "make-fractals/scripts/mandelbrot.py" in names
 
+    def test_file_tree_bytes_counts_the_archive_name_prefix(self):
+        # Bundle entries are archived under <name>/ and a zip stores each entry name twice, so the
+        # cap must charge the prefix; omitting it undercounts long-named skills against MAX_BUNDLE_BYTES.
+        tree = build_skill_tree(_skill())
+        prefix = "make-fractals/"
+        expected = pkg.file_tree_bytes(tree) + 2 * len(prefix.encode("utf-8")) * len(tree)
+        assert pkg.file_tree_bytes(tree, prefix=prefix) == expected
+
 
 class TestMarketplaceTree:
     def _tree(self, skills=None):

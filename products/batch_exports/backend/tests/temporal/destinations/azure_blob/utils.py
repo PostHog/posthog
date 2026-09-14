@@ -20,6 +20,8 @@ from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
+    FILE_FORMAT_EXTENSIONS,
+    SUPPORTED_COMPRESSIONS,
     AzureBlobBatchExportInputs,
     AzureBlobBatchExportWorkflow,
     azure_blob_default_fields,
@@ -187,7 +189,6 @@ async def assert_clickhouse_records_in_azure_blob(
         model_name=model_name,
         team_id=team_id,
         full_range=(data_interval_start, data_interval_end),
-        done_ranges=[],
         fields=fields,
         filters=filters,
         destination_default_fields=azure_blob_default_fields(),
@@ -267,6 +268,12 @@ TEST_AZURE_BLOB_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
         "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
     },
     None,
+]
+
+SUPPORTED_FILE_FORMAT_COMPRESSIONS: list[tuple[str, str | None]] = [
+    (file_format, compression)
+    for file_format in FILE_FORMAT_EXTENSIONS
+    for compression in (None, *SUPPORTED_COMPRESSIONS[file_format])
 ]
 
 

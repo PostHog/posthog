@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     get_or_create_datawarehouse_credential,
 )
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceStatus
 
 
 class Command(BaseCommand):
@@ -149,7 +150,7 @@ class Command(BaseCommand):
                 team=team,
                 source_id="marketing-demo-bigquery",
                 connection_id="marketing-demo-bigquery",
-                status=ExternalDataSource.Status.COMPLETED,
+                status=ExternalDataSourceStatus.COMPLETED,
                 source_type="BigQuery",
                 prefix="",
             )

@@ -8,6 +8,7 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 import { parseImageRef } from './content-ref'
 import { ImageShardStore, ScrubbedImage, ScrubbedUrlImage } from './image-shard-store'
 import {
+    CAPTURE_TIMESTAMP_HEADER,
     CONTENT_ENCODING_HEADER,
     CONTENT_TYPE_HEADER,
     InvalidImageTransportError,
@@ -70,6 +71,7 @@ interface PlannedScrub {
     source: 'bytes' | 'url'
     value: Buffer
     transportHeaders: Record<string, string>
+    capturedAtMs?: number
     /** Where this image came from, carried only so a parked one can be traced back to its source. */
     sourceTopic: string
     sourcePartition: number
@@ -88,6 +90,7 @@ interface ScrubbedRef {
     ref: string
     source: 'bytes' | 'url'
     image: ScrubbedImage | ScrubbedUrlImage
+    capturedAtMs?: number
 }
 
 /** Carries the window slot so a completion can be matched back to its position, which is what
@@ -361,14 +364,16 @@ export class ImageBatcher {
                 continue
             }
             const headers = parseKafkaHeaders(m.headers)
-            const transportHeaders =
+            const allowedTransportHeaders =
                 parsed.source === 'url'
-                    ? Object.fromEntries(
-                          [CONTENT_TYPE_HEADER, CONTENT_ENCODING_HEADER]
-                              .filter((header) => headers[header] !== undefined)
-                              .map((header) => [header, headers[header]])
-                      )
-                    : {}
+                    ? [CONTENT_TYPE_HEADER, CONTENT_ENCODING_HEADER, CAPTURE_TIMESTAMP_HEADER]
+                    : [CAPTURE_TIMESTAMP_HEADER]
+            const transportHeaders = Object.fromEntries(
+                allowedTransportHeaders
+                    .filter((header) => headers[header] !== undefined)
+                    .map((header) => [header, headers[header]])
+            )
+            const capturedAtMs = Number(transportHeaders[CAPTURE_TIMESTAMP_HEADER])
             const candidate: PlannedScrub = {
                 index,
                 ref,
@@ -377,6 +382,7 @@ export class ImageBatcher {
                 source: parsed.source,
                 value: m.value,
                 transportHeaders,
+                capturedAtMs: Number.isSafeInteger(capturedAtMs) && capturedAtMs > 0 ? capturedAtMs : undefined,
                 sourceTopic: m.topic,
                 sourcePartition: m.partition,
                 sourceOffset: m.offset,
@@ -435,7 +441,7 @@ export class ImageBatcher {
             .then(
                 (image): SettledScrub => ({
                     slot,
-                    scrubbed: image ? { ref: p.ref, source: p.source, image } : null,
+                    scrubbed: image ? { ref: p.ref, source: p.source, image, capturedAtMs: p.capturedAtMs } : null,
                 }),
                 (error): SettledScrub => ({ slot, scrubbed: null, error: error ?? new Error('scrub failed') })
             )
@@ -467,7 +473,7 @@ export class ImageBatcher {
                     throw error
                 }
                 this.rememberContentAddressedRef(planned)
-                ImageScrubConsumerMetrics.incSkipped()
+                ImageScrubConsumerMetrics.incSkipped(error.reason)
                 return null
             }
         }
@@ -492,7 +498,7 @@ export class ImageBatcher {
             // Null is a verdict on these bytes. Inline refs are content-addressed, so their later
             // copies cannot succeed. URL refs stay eligible because a recrawl can carry new bytes.
             this.rememberContentAddressedRef(planned)
-            ImageScrubConsumerMetrics.incSkipped()
+            ImageScrubConsumerMetrics.incSkipped('sidecar_rejected')
             return null
         }
         ImageScrubConsumerMetrics.incScrubbed()
@@ -582,23 +588,32 @@ export class ImageBatcher {
     public async flush(nowMs: number): Promise<void> {
         this.lastFlushMs = nowMs
         if (this.buffer.length > 0) {
-            const inlineImages = this.buffer
-                .filter((item): item is ScrubbedRef & { image: ScrubbedImage } => item.source === 'bytes')
-                .map((item) => item.image)
-            const urlImages = this.buffer
-                .filter((item): item is ScrubbedRef & { image: ScrubbedUrlImage } => item.source === 'url')
-                .map((item) => item.image)
-            await Promise.all(
-                urlImages.map((image) =>
-                    this.scrubConcurrency.run({
-                        debugTag: image.hash,
-                        fn: () => this.store.writeUrlImage(image),
-                    })
-                )
+            const inlineItems = this.buffer.filter(
+                (item): item is ScrubbedRef & { image: ScrubbedImage } => item.source === 'bytes'
             )
-            if (inlineImages.length > 0) {
-                const { bytes } = await this.store.writeShard(inlineImages)
-                ImageScrubConsumerMetrics.observeShard(inlineImages.length, bytes)
+            const urlItems = this.buffer.filter(
+                (item): item is ScrubbedRef & { image: ScrubbedUrlImage } => item.source === 'url'
+            )
+            await Promise.all(
+                urlItems.map(async (item) => {
+                    const outcome = await this.scrubConcurrency.run({
+                        debugTag: item.image.hash,
+                        fn: () => this.store.writeUrlImage(item.image),
+                    })
+                    if (outcome === 'created' && item.capturedAtMs !== undefined) {
+                        ImageScrubConsumerMetrics.observeCaptureToS3('url', item.capturedAtMs, Date.now())
+                    }
+                })
+            )
+            if (inlineItems.length > 0) {
+                const { bytes } = await this.store.writeShard(inlineItems.map((item) => item.image))
+                const storedAtMs = Date.now()
+                for (const item of inlineItems) {
+                    if (item.capturedAtMs !== undefined) {
+                        ImageScrubConsumerMetrics.observeCaptureToS3('inline', item.capturedAtMs, storedAtMs)
+                    }
+                }
+                ImageScrubConsumerMetrics.observeShard(inlineItems.length, bytes)
             }
             this.buffer = []
             this.bufferBytes = 0

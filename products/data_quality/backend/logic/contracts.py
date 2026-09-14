@@ -9,12 +9,27 @@ from ..facade.enums import SubjectType
 if TYPE_CHECKING:
     from posthog.hogql import ast
 
+    from products.data_catalog.backend.facade.contracts import HogQLMetricDefinition
+
 
 class Evaluation(StrEnum):
     """How the runner turns a compiled query's result row into a status."""
 
     ZERO_ROWS_PASS = "zero_rows_pass"
     BOUNDS = "bounds"
+
+
+@dataclass(frozen=True)
+class SubjectIdentity:
+    """A subject named the way rows record it: by kind and id, never by name.
+
+    Names move. A rename rewrites one, and deleting an object frees its name for anything else to
+    take, so authorization that has to survive either keys off this instead. Hashable, so a page of
+    them resolves to current names in one lookup.
+    """
+
+    subject_type: str
+    subject_uuid: str
 
 
 @dataclass(frozen=True)
@@ -30,6 +45,8 @@ class SubjectRef:
     name: str
     queryable_name: str
     exists: bool
+    definition_kind: str | None = None
+    metric_definition: "HogQLMetricDefinition | None" = None
 
 
 @dataclass(frozen=True)

@@ -122,7 +122,12 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
 
 
 def _resolve_baselines_with_merge_base(
-    repo: Repo, run_type: str, branch: str, commit_sha: str | None = None
+    repo: Repo,
+    run_type: str,
+    branch: str,
+    *,
+    rendered_identifiers: set[str],
+    commit_sha: str | None = None,
 ) -> tuple[dict[str, str], int]:
     """Fetch branch baseline merged with merge-base baseline.
 
@@ -131,14 +136,29 @@ def _resolve_baselines_with_merge_base(
     rewrites the full file, and git rebase replays it destructively).
 
     Branch entries win on conflict so approvals are preserved.
+    On a merge-queue branch, healing is limited to identifiers this run
+    rendered. An entry missing from the branch baseline whose story still
+    renders is the rebase loss above. An entry missing from both is one the
+    branch deleted on purpose, and restoring it only manufactures a REMOVED
+    that no one on a queue branch can approve, so it reds the batch and every
+    pull request sharing it until the deleting one lands.
+
+    Ordinary branches keep healing everything, because there the REMOVED is
+    the review gate: it is how a reviewer is asked to confirm that a story
+    should go. The queue signal is the server-verified source PR rather than
+    the branch name, which is client-supplied — matching the name alone would
+    let any caller skip that gate. When verification fails the filter stays
+    off, so a GitHub blip costs a red batch rather than a silent removal.
+
     Identifiers previously approved as REMOVED on this branch are
     tombstoned — healing would otherwise resurrect them from master
     and re-flag them as removed on every subsequent run.
 
-    When *commit_sha* is provided and the run is on the default branch,
-    the baseline is fetched at that exact commit instead of the branch
-    tip.  This prevents a race where a newer commit updates the
-    baseline file before an older commit's VR run completes.
+    When *commit_sha* is provided the baseline is fetched at that exact
+    commit rather than the branch tip. The tip moves under a concurrent
+    push, and an ephemeral merge-queue branch is deleted once its batch
+    resolves — a fetch by branch name then 404s, which is indistinguishable
+    from "no baseline file" and reports the whole suite as new.
 
     Returns (merged_baseline, healed_count).
     """
@@ -150,15 +170,17 @@ def _resolve_baselines_with_merge_base(
 
     default_branch = github_api._get_default_branch(github, repo.repo_full_name)
 
-    # On the default branch, pin the baseline to the exact commit so
-    # that back-to-back pushes don't race against each other.
-    baseline_ref = commit_sha if (commit_sha and branch == default_branch) else branch
+    # Pin the baseline to the exact commit under test so back-to-back pushes
+    # don't race, and so a branch deleted mid-run still resolves.
+    baseline_ref = commit_sha or branch
     branch_baseline = _resolve_baselines_at_ref(repo, github, run_type, baseline_ref)
 
     if branch == default_branch:
         return branch_baseline, 0
 
-    merge_base_sha = github_api._get_merge_base_sha(github, repo.repo_full_name, default_branch, branch)
+    # Compare from the same ref the baseline was read at. A deleted branch 404s
+    # here, and healing would then switch off exactly when it is needed.
+    merge_base_sha = github_api._get_merge_base_sha(github, repo.repo_full_name, default_branch, baseline_ref)
     if not merge_base_sha:
         return branch_baseline, 0
 
@@ -175,9 +197,16 @@ def _resolve_baselines_with_merge_base(
     if not merge_base_baseline:
         return branch_baseline, 0
 
-    source_pr_number = github_api._verified_merge_queue_source_pr(github, repo.repo_full_name, branch)
+    source_pr_number = github_api._verified_merge_queue_source_pr(
+        github, repo.repo_full_name, branch, head_ref=baseline_ref
+    )
     tombstoned = _tombstoned_identifiers(repo, run_type, branch, source_pr_number=source_pr_number)
-    healable_merge_base = {k: v for k, v in merge_base_baseline.items() if k not in tombstoned}
+    on_merge_queue_branch = source_pr_number is not None
+    healable_merge_base = {
+        identifier: baseline_hash
+        for identifier, baseline_hash in merge_base_baseline.items()
+        if identifier not in tombstoned and (not on_merge_queue_branch or identifier in rendered_identifiers)
+    }
 
     healed = set(healable_merge_base) - set(branch_baseline)
     merged = {**healable_merge_base, **branch_baseline}
@@ -255,13 +284,18 @@ def _approved_baseline_updates(snapshots: Iterable[RunSnapshot]) -> list[dict]:
 
     Derived from DB state so the commit always reflects every approval regardless of how
     many calls it took. Tolerated snapshots are excluded — toleration never updates the baseline.
+
+    Quarantine keeps a flapping hash out of the baseline, so a quarantined CHANGED snapshot is
+    excluded even when approved. A quarantined NEW snapshot has no baseline entry to protect,
+    and only a per-identifier approval can mark it (bulk approve skips quarantined rows), so an
+    approved one is committed. Without this a story that lost its entry while quarantined could
+    never get one back: lifting the quarantine fails every run until the entry lands.
     """
     return [
         {"identifier": s.identifier, "new_hash": s.approved_hash}
         for s in snapshots
-        if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
-        and not s.is_quarantined
-        and s.review_state == ReviewState.APPROVED
+        if s.review_state == ReviewState.APPROVED
+        and (s.result == SnapshotResult.NEW or (s.result == SnapshotResult.CHANGED and not s.is_quarantined))
     ]
 
 

@@ -75,6 +75,7 @@ def capture_internal_for_team(
     timestamp: datetime,
     properties: dict[str, Any],
     process_person_profile: bool = True,
+    event_uuid: str | None = None,
 ) -> None:
     """Capture one event for a team, raising on a non-2xx capture response."""
     token = get_team_api_token(team_id)
@@ -87,6 +88,7 @@ def capture_internal_for_team(
             timestamp=timestamp,
             properties=properties,
             process_person_profile=process_person_profile,
+            event_uuid=event_uuid,
         )
         result.raise_for_status()
     except CaptureInternalError as e:

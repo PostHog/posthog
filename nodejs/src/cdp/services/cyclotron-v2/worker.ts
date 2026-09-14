@@ -1,11 +1,14 @@
 import { DateTime } from 'luxon'
 import { Pool, PoolClient } from 'pg'
+import { Counter } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '~/common/utils/logger'
 
 import { assignEmailDequeueSeq } from './manager'
 import {
+    CYCLOTRON_COUNTER_MAX,
+    CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
     CyclotronV2BulkCreateAndCheckInInput,
     CyclotronV2DequeuedJob,
     CyclotronV2JobInit,
@@ -32,6 +35,22 @@ export interface RawJobRow {
     cancel_requested_at: string | null
     lock_id: string
 }
+
+// Read off the row the dequeue already returns, so tracking churn costs no extra query.
+const highTransitionDequeuesCounter = new Counter({
+    name: 'cdp_cyclotron_v2_high_transition_dequeues',
+    help: `Jobs dequeued with transition_count at or above ${CYCLOTRON_TRANSITION_CHURN_THRESHOLD}, meaning they are cycling without completing.`,
+    labelNames: ['queue'] as const,
+})
+
+// The loop swallows the error and retries, so without this counter a queue whose every
+// dequeue throws looks exactly like an idle queue. Exported for the rate-limited
+// subclass, which has its own loop and catch.
+export const consumerLoopErrorsCounter = new Counter({
+    name: 'cdp_cyclotron_v2_consumer_loop_errors_total',
+    help: 'Consumer loop iterations that threw, per queue. A sustained positive rate can indicate the queue is not being consumed.',
+    labelNames: ['queue'] as const,
+})
 
 export function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
@@ -148,7 +167,7 @@ async function updateSelfInTx(
         const result = await client.query(
             `UPDATE cyclotron_jobs
              SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
-                 last_transition = NOW(), transition_count = transition_count + 1,
+                 last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                  janitor_touch_count = 0
              WHERE id = $1 AND lock_id = $2`,
             [jobId, lockId]
@@ -160,7 +179,7 @@ async function updateSelfInTx(
         const result = await client.query(
             `UPDATE cyclotron_jobs
              SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
-                 last_transition = NOW(), transition_count = transition_count + 1,
+                 last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                  janitor_touch_count = 0
              WHERE id = $1 AND lock_id = $2`,
             [jobId, lockId]
@@ -175,7 +194,7 @@ async function updateSelfInTx(
         `lock_id = NULL`,
         `last_heartbeat = NULL`,
         `last_transition = NOW()`,
-        `transition_count = transition_count + 1`,
+        `transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})`,
         `janitor_touch_count = 0`,
         // A cancel requested while this worker held the job must not sleep the full
         // next delay before it's observed, so it wakes immediately instead.
@@ -208,12 +227,12 @@ export class CyclotronV2Worker {
     protected lastPollTime = new Date()
     private consumerLoopPromise: Promise<void> | null = null
 
+    protected readonly queueName: string
     protected readonly batchMaxSize: number
     protected readonly pollDelayMs: number
     private readonly heartbeatTimeoutMs: number
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
-    private readonly priorityDequeue: boolean
 
     constructor(private config: CyclotronV2WorkerConfig) {
         this.pool = new Pool({
@@ -221,6 +240,7 @@ export class CyclotronV2Worker {
             max: config.pool.maxConnections ?? 10,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
         })
+        this.queueName = config.queueName
         this.batchMaxSize = config.batchMaxSize ?? 100
         this.pollDelayMs = config.pollDelayMs ?? 50
         this.heartbeatTimeoutMs = config.heartbeatTimeoutMs ?? 30000
@@ -230,7 +250,6 @@ export class CyclotronV2Worker {
         // CyclotronV2Manager), so deriving this from the queue name keeps the
         // worker's ORDER BY in lockstep with where the sort key actually exists.
         this.fairDequeue = config.queueName === 'email'
-        this.priorityDequeue = config.priorityDequeue ?? false
     }
 
     async connect(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
@@ -258,6 +277,7 @@ export class CyclotronV2Worker {
                 const jobs = rows.map((row) => this.wrapJob(row))
                 await processBatch(jobs)
             } catch (err) {
+                consumerLoopErrorsCounter.labels({ queue: this.queueName }).inc()
                 logger.error('CyclotronV2Worker consumer loop error', { error: String(err) })
                 await sleep(this.pollDelayMs)
             }
@@ -312,7 +332,7 @@ export class CyclotronV2Worker {
                 lock_id = $3,
                 last_heartbeat = NOW(),
                 last_transition = NOW(),
-                transition_count = transition_count + 1
+                transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})
             FROM available
             WHERE cyclotron_jobs.id = available.id
             RETURNING
@@ -342,29 +362,24 @@ export class CyclotronV2Worker {
     }
 
     /**
-     * Fair dequeue: orders by the precomputed `dequeue_seq` so jobs interleave
-     * across tenants instead of being strict FIFO. The sort key is assigned at
-     * insert time (see `CyclotronV2Manager.bulkCreateJobs` and the helper
+     * Fair dequeue: priority class leads the sort so transactional-class sends
+     * aren't stuck behind a broadcast backlog, then the precomputed
+     * `dequeue_seq` interleaves jobs across tenants within a class instead of
+     * being strict FIFO. The sort key is assigned at insert time (see
+     * `CyclotronV2Manager.bulkCreateJobs` and the helper
      * `cyclotron_email_team_seq`); this method just reads them back in order.
      *
-     * Hits the partial index `idx_cyclotron_jobs_email_fair_dequeue` (only
-     * indexes email-queue rows with status='available'). NULLS FIRST drains
-     * any pre-migration legacy rows ahead of new fair-ordered ones.
+     * Hits the partial index `idx_cyclotron_jobs_email_priority_fair_dequeue`
+     * (only indexes email-queue rows with status='available'). NULLS FIRST
+     * drains any pre-migration legacy rows ahead of new fair-ordered ones.
      *
-     * Email-specific by intent — but mechanically just "ORDER BY a different
-     * column", so the SQL shape mirrors `dequeueJobs` exactly. Kept as a
+     * Email-specific by intent — but mechanically just "ORDER BY different
+     * columns", so the SQL shape mirrors `dequeueJobs` exactly. Kept as a
      * separate method so non-fair callers can read `dequeueJobs` end-to-end
      * without following a conditional or an indirection.
      */
     protected async fairDequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
-        // With priorityDequeue, priority class leads the sort so transactional-class
-        // sends aren't stuck behind a broadcast backlog; the per-team interleave
-        // still orders jobs within each class. Served by
-        // idx_cyclotron_jobs_email_priority_fair_dequeue.
-        const orderBy = this.priorityDequeue
-            ? 'priority ASC, dequeue_seq ASC NULLS FIRST'
-            : 'dequeue_seq ASC NULLS FIRST'
         const result = await this.pool.query<RawJobRow>(
             `WITH available AS (
                 SELECT id
@@ -372,7 +387,7 @@ export class CyclotronV2Worker {
                 WHERE status = 'available'
                   AND queue_name = $1
                   AND scheduled <= NOW()
-                ORDER BY ${orderBy}
+                ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST
                 LIMIT $2
                 FOR UPDATE SKIP LOCKED
             )
@@ -381,7 +396,7 @@ export class CyclotronV2Worker {
                 lock_id = $3,
                 last_heartbeat = NOW(),
                 last_transition = NOW(),
-                transition_count = transition_count + 1
+                transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})
             FROM available
             WHERE cyclotron_jobs.id = available.id
             RETURNING
@@ -403,9 +418,10 @@ export class CyclotronV2Worker {
             [this.config.queueName, limit, lockId]
         )
         // Within-batch order is undefined (UPDATE...RETURNING doesn't preserve
-        // the CTE's ORDER BY), but the fairness guarantee is *across* batches:
-        // the CTE picks the rows with the lowest dequeue_seq values, so a
-        // small-tenant job never gets stuck behind a large-tenant backlog.
+        // the CTE's ORDER BY), but the guarantee is *across* batches: the CTE
+        // picks the rows with the lowest priority, then the lowest dequeue_seq,
+        // so a transactional send never waits behind a marketing backlog and a
+        // small-tenant job never gets stuck behind a large-tenant one.
         return result.rows
     }
 
@@ -413,6 +429,10 @@ export class CyclotronV2Worker {
         const pool = this.pool
         const lockId = row.lock_id
         let released = false
+
+        if (row.transition_count >= CYCLOTRON_TRANSITION_CHURN_THRESHOLD) {
+            highTransitionDequeuesCounter.labels({ queue: row.queue_name }).inc()
+        }
 
         const releaseGuard = (method: string) => {
             if (released) {
@@ -444,7 +464,7 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1,
+                         last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                          janitor_touch_count = 0
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
@@ -456,7 +476,7 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1,
+                         last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                          janitor_touch_count = 0
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
@@ -473,7 +493,7 @@ export class CyclotronV2Worker {
                     `lock_id = NULL`,
                     `last_heartbeat = NULL`,
                     `last_transition = NOW()`,
-                    `transition_count = transition_count + 1`,
+                    `transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})`,
                     // A deliberate release means the worker is healthy, so the
                     // poison budget counts CONSECUTIVE stalls — long-lived jobs
                     // (e.g. wait_until_condition polls) don't accrue touches for
@@ -538,7 +558,7 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1,
+                         last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                          janitor_touch_count = 0
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]

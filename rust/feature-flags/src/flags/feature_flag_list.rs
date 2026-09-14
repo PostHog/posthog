@@ -5,7 +5,9 @@ use crate::flags::flag_models::{
     EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagPropertyGroup,
     HypercacheFlagsWrapper,
 };
-use crate::metrics::consts::TOMBSTONE_COUNTER;
+use crate::metrics::consts::{
+    FLAG_MALFORMED_FILTER_COUNTER, FLAG_MALFORMED_FILTER_READ_COUNTER, TOMBSTONE_COUNTER,
+};
 use common_database::PostgresReader;
 use common_types::TeamId;
 use metrics::counter;
@@ -146,8 +148,15 @@ impl FeatureFlagList {
                   f.ensure_experience_continuity,
                   f.version,
                   f.evaluation_runtime,
+                  -- DISTINCT makes Postgres sort the names before it aggregates them, which
+                  -- matches ArrayAgg(..., distinct=True) on the two Python paths that write
+                  -- this cache entry: products/feature_flags/backend/flags_cache.py (batch) and
+                  -- products/feature_flags/backend/models/feature_flag.py (single team, which is
+                  -- also what the cache verifier compares against). Without DISTINCT the array
+                  -- order follows the join, so the sides disagree for a flag with two or more
+                  -- contexts. Keep all three in lockstep.
                   COALESCE(
-                      ARRAY_AGG(ctx.name) FILTER (WHERE ctx.name IS NOT NULL),
+                      ARRAY_AGG(DISTINCT ctx.name) FILTER (WHERE ctx.name IS NOT NULL),
                       '{}'::text[]
                   ) AS evaluation_tags,
                   bucketing_identifier,
@@ -185,6 +194,7 @@ impl FeatureFlagList {
                 FlagError::internal(anyhow::Error::new(e).context(message))
             })?;
 
+        let mut malformed_filter_flags: u64 = 0;
         let flags: Vec<FeatureFlag> = flags_row
             .into_iter()
             .filter_map(|row| {
@@ -205,14 +215,21 @@ impl FeatureFlagList {
                         has_experiment: row.has_experiment,
                     }),
                     Err(e) => {
-                        // This is highly unlikely to happen, but if it does, we skip the flag.
+                        // Serde fails the whole `filters` struct when a required field is
+                        // absent, so one bad property filter costs the entire flag. A property
+                        // filter with no `"type"` key does that, because
+                        // PropertyFilter::prop_type has no default. Python does not parse these
+                        // filters, so it keeps such a flag when the flag is active or referenced,
+                        // and those drops are real builder divergences. An inactive, unreferenced
+                        // flag is dropped by both builders, so the counters below over-count it.
+                        // Skip the flag rather than fail the read, so the team keeps the rest.
+                        malformed_filter_flags += 1;
                         tracing::warn!(
                             "Failed to deserialize filters for flag {} in team {}: {}",
                             row.key,
                             row.team_id,
                             e
                         );
-                        // Also track as a tombstone - invalid data in postgres should never happen
                         // Details (team_id, flag_key) are logged above to avoid high-cardinality labels
                         counter!(
                             TOMBSTONE_COUNTER,
@@ -222,11 +239,16 @@ impl FeatureFlagList {
                         )
                         .increment(1);
 
-                        None // Skip this flag, continue with others
+                        None
                     }
                 }
             })
             .collect();
+
+        if malformed_filter_flags > 0 {
+            counter!(FLAG_MALFORMED_FILTER_COUNTER).increment(malformed_filter_flags);
+            counter!(FLAG_MALFORMED_FILTER_READ_COUNTER).increment(1);
+        }
 
         tracing::debug!(
             "Successfully fetched {} flags from database for team {}",
@@ -473,6 +495,91 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_flag_with_malformed_filters_is_dropped_and_counted() {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        // `set_default_local_recorder` returns a thread-local guard; safe across
+        // `.await` because `#[tokio::test]` defaults to a current-thread runtime.
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        let good_flag = FeatureFlagRow {
+            id: 0,
+            team_id: team.id,
+            name: Some("Good flag".to_string()),
+            key: "good_flag".to_string(),
+            filters: serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(false),
+            version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
+            bucketing_identifier: None,
+            has_experiment: false,
+        };
+
+        // `groups` holds a string where FlagFilters wants a list, so this blob stays
+        // unparseable whatever PropertyFilter later does with a missing `"type"`.
+        let malformed_flag = FeatureFlagRow {
+            id: 0,
+            team_id: team.id,
+            name: Some("Malformed flag".to_string()),
+            key: "malformed_flag".to_string(),
+            filters: serde_json::json!({"groups": "not-a-list"}),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(false),
+            version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
+            bucketing_identifier: None,
+            has_experiment: false,
+        };
+
+        context
+            .insert_flag(team.id, Some(good_flag))
+            .await
+            .expect("Failed to insert good flag");
+        context
+            .insert_flag(team.id, Some(malformed_flag))
+            .await
+            .expect("Failed to insert malformed flag");
+
+        let flags = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("A malformed flag must not fail the whole read");
+
+        let keys: Vec<&str> = flags.iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(keys, vec!["good_flag"]);
+
+        let counter_value = |name: &str| {
+            snapshotter
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .find(|(ckey, _, _, _)| ckey.key().name() == name)
+                .map(|(_, _, _, value)| value)
+        };
+
+        assert_eq!(
+            counter_value(FLAG_MALFORMED_FILTER_COUNTER),
+            Some(DebugValue::Counter(1))
+        );
+        assert_eq!(
+            counter_value(FLAG_MALFORMED_FILTER_READ_COUNTER),
+            Some(DebugValue::Counter(1))
+        );
+    }
+
+    #[tokio::test]
     async fn test_fetch_flags_with_evaluation_tags_from_pg() {
         let context = TestContext::new(None).await;
         let team = context
@@ -504,15 +611,13 @@ mod tests {
         assert_eq!(flag.key, "flag1");
         assert_eq!(flag.team_id, team.id);
 
-        // Check that evaluation tags were properly fetched
+        // ARRAY_AGG(DISTINCT ...) sorts, so this is not the insertion order.
         let tags = flag
             .evaluation_tags
             .as_ref()
             .expect("Should have evaluation tags");
-        assert_eq!(tags.len(), 3);
-        assert!(tags.contains(&"docs-page".to_string()));
-        assert!(tags.contains(&"marketing-site".to_string()));
-        assert!(tags.contains(&"app".to_string()));
+        let tag_names: Vec<&str> = tags.iter().map(String::as_str).collect();
+        assert_eq!(tag_names, ["app", "docs-page", "marketing-site"]);
     }
 
     #[tokio::test]

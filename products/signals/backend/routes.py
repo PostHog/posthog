@@ -12,6 +12,7 @@ from products.signals.backend.scout_harness.views import (
     SignalScoutViewSet,
     SignalScratchpadViewSet,
 )
+from products.signals.backend.scout_suggestions_api import SignalScoutSuggestionViewSet
 from products.signals.backend.views import SignalViewSet
 
 
@@ -75,6 +76,14 @@ def register_routes(routers: RouterRegistry) -> None:
         r"signals/scout/chat_tasks",
         SignalScoutChatTaskViewSet,
         "project_signals_scout_chat_tasks",
+        ["team_id"],
+    )
+    # Pre-computed "Suggested for this project" scout batch (read / dismiss / refresh); the scouts
+    # tab reads it with zero wait, the chat_tasks path above stays the interactive alternative.
+    routers.projects.register(
+        r"signals/scout/suggestions",
+        SignalScoutSuggestionViewSet,
+        "project_signals_scout_suggestions",
         ["team_id"],
     )
     routers.projects.register(r"signals/scout", SignalScoutViewSet, "project_signals_scout", ["team_id"])

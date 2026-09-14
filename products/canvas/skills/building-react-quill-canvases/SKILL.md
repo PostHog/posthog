@@ -25,10 +25,15 @@ Use React, Quill, Recharts, Lucide, and Day.js for the standard application shel
 also admits ten optional libraries for specialized work. Read
 [references/platform-libraries.md](references/platform-libraries.md) before choosing one.
 
+PostHog data comes through `import { ph } from "@posthog/canvas-sdk"` — a platform-provided
+module, so it needs no `dependencies` entry. The same object exists as the `window.ph` global
+(how existing canvases reach it); prefer the import in new code.
+
 Other bare imports, dynamic `import()`, `require()`, `<script>` tags, and remote code fail
-validation. Direct `fetch()` requires an exact HTTPS origin in `capabilities.network.origins`,
-and works only in the **published** canvas — the edit-mode preview blocks all direct network
-access regardless of declaration, so verify origin-fetching code after publishing, not in preview.
+validation. Direct network requests and external images, fonts, media, or frames require an exact
+HTTPS origin in `capabilities.network.origins`. They work only in the **published** canvas — the
+edit-mode preview blocks direct network access regardless of declaration. Stylesheets from declared
+origins are allowed; remote scripts remain blocked, so bundle code with the canvas.
 
 ## Quill component rules
 
@@ -66,6 +71,11 @@ text-card-foreground`; borders `border-border`. Never a hardcoded hex or light-o
   always use the `-foreground` utility; a filled pill pairs `bg-success text-success-foreground`.
   Prefer the Quill `Badge` (`variant="success"`/`"destructive"`) for deltas so you don't hand-pick.
 - `bg-secondary`, `text-secondary`, `bg-accent`, and `bg-popover` are not defined in the canvas — avoid them.
+- Never declare a CSS variable with a platform token name (`--background`, `--border`, `--card`,
+  `--chrome`, `--input`, `--muted`, `--primary`, `--fill-*`), in a stylesheet or a `<style>` block.
+  Quill sets those on every element, so your value never applies and text can turn unreadable.
+  Prefix your own variables (`--doc-muted`); validation rejects the collision with
+  `platform_token_redeclared`.
 - recharts strokes/fills use token CSS variables (`stroke="var(--primary)"`, grid/axes in
   `var(--border)`/`var(--muted-foreground)`).
 - Write Unicode glyphs (curly quotes, ellipsis, arrows, emoji) as literal characters in JSX —

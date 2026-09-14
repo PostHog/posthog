@@ -10,16 +10,10 @@ import {
   formatRelativeTimeShort,
   type WorkspaceMode,
 } from "@posthog/shared";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
-import {
-  Dialog,
-  Flex,
-  ScrollArea,
-  Spinner,
-  Text,
-  TextField,
-} from "@radix-ui/themes";
+import { Dialog, Flex, ScrollArea, Text, TextField } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
 import claudeMark from "../../../assets/services/claude.svg";
 import { toastError } from "../../notifications/errorDetails";
@@ -86,7 +80,7 @@ function SessionCard({
         style={{ backgroundColor: "var(--orange-3)" }}
       >
         {running ? (
-          <Spinner size="1" />
+          <Spinner size="sm" />
         ) : (
           <img src={claudeMark} alt="" className="h-3.5 w-3.5" />
         )}

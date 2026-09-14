@@ -1,12 +1,22 @@
 mod common;
 
+use std::sync::{Arc, Mutex};
+
 use common::{
     create_client, create_compressed_client, create_test_person, raw_grpc_call_with_gzip_accept,
-    start_test_leader, start_test_replica, start_test_replica_with_async_gzip,
+    start_test_identity, start_test_leader, start_test_replica, start_test_replica_with_async_gzip,
     start_test_replica_with_async_gzip_disabled, start_test_router_raw,
+    start_test_router_raw_with_dying_leader, start_test_router_raw_with_identity,
     start_test_router_raw_with_leader, start_test_router_raw_with_leader_and_max_recv,
-    start_test_router_raw_with_max_recv, TestLeaderService, TestReplicaService,
+    start_test_router_raw_with_max_recv, TestIdentityService, TestLeaderService,
+    TestLifecycleService, TestReplicaService,
 };
+use personhog_proto::personhog::identity::v1::person_hog_identity_client::PersonHogIdentityClient;
+use personhog_proto::personhog::identity::v1::{
+    GetOrCreatePersonEntry, GetOrCreatePersonsByDistinctIdsRequest,
+};
+use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_client::PersonHogLifecycleClient;
+use personhog_proto::personhog::lifecycle::v1::DeletePersonsRequest as LifecycleDeletePersonsRequest;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, DeletePersonsRequest, GetGroupsRequest,
     GetPersonByDistinctIdRequest, GetPersonRequest, GetPersonResponse,
@@ -251,6 +261,7 @@ async fn raw_proxy_update_person_properties_routes_to_leader() {
     let response = client
         .update_person_properties(with_person_key(
             Request::new(UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -272,6 +283,100 @@ async fn raw_proxy_update_person_properties_routes_to_leader() {
     assert_eq!(result.person.unwrap().version, test_person.version + 1);
 }
 
+/// A lifecycle fence is the one refusal whose holder the caller can act
+/// on, by recognising its own merge's op id and driving it to completion.
+/// The router exhausts the bounce into its own UNAVAILABLE, so unless the
+/// fence keys ride along, the one fact the caller needs is discarded in
+/// transit.
+#[tokio::test]
+async fn raw_proxy_exhausted_person_fence_bounce_names_the_holder() {
+    let test_person = create_test_person();
+    let leader_service = TestLeaderService::new()
+        .with_person(test_person.clone())
+        .person_fenced_by("0189f0e0-0000-7000-8000-000000000000");
+    let replica_service = TestReplicaService::new();
+
+    let replica_addr = start_test_replica(replica_service).await;
+    let leader_addr = start_test_leader(leader_service).await;
+    let router_addr =
+        start_test_router_raw_with_leader(replica_addr, leader_addr, NUM_PARTITIONS).await;
+    let mut client = create_client(router_addr).await;
+
+    let status = client
+        .update_person_properties(with_person_key(
+            Request::new(UpdatePersonPropertiesRequest {
+                force_update: false,
+                team_id: 1,
+                person_id: 42,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"name": "Test User"}))
+                    .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
+            }),
+            1,
+            42,
+        ))
+        .await
+        .expect_err("a permanently fenced person exhausts the bounce budget");
+
+    assert_eq!(status.code(), tonic::Code::Unavailable);
+    assert_eq!(
+        status
+            .metadata()
+            .get("x-person-fenced-op-id")
+            .map(|value| value.to_str().unwrap()),
+        Some("0189f0e0-0000-7000-8000-000000000000"),
+    );
+    assert!(status.metadata().get("x-person-fenced").is_some());
+}
+
+/// Callers ack rather than retry a fence naming somebody else's operation,
+/// so the keys must describe the bounce that actually ended the request.
+/// Carried forward from an earlier attempt, they report a dead leader as a
+/// held person and the caller acks a merge that never happened.
+#[tokio::test]
+async fn raw_proxy_a_dead_leader_after_a_fence_is_not_reported_as_fenced() {
+    let test_person = create_test_person();
+    let leader_service = TestLeaderService::new()
+        .with_person(test_person.clone())
+        .person_fenced_by("0189f0e0-0000-7000-8000-000000000000");
+    let replica_addr = start_test_replica(TestReplicaService::new()).await;
+    let leader_addr = start_test_leader(leader_service).await;
+    let router_addr =
+        start_test_router_raw_with_dying_leader(replica_addr, leader_addr, NUM_PARTITIONS).await;
+    let mut client = create_client(router_addr).await;
+
+    let status = client
+        .update_person_properties(with_person_key(
+            Request::new(UpdatePersonPropertiesRequest {
+                force_update: false,
+                team_id: 1,
+                person_id: 42,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"name": "Test User"}))
+                    .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
+            }),
+            1,
+            42,
+        ))
+        .await
+        .expect_err("the leader is gone after its first answer");
+
+    assert_eq!(status.code(), tonic::Code::Unavailable);
+    assert!(
+        status.metadata().get("x-person-fenced").is_none(),
+        "a transport failure must not inherit the earlier bounce's fence keys"
+    );
+    assert!(status.metadata().get("x-person-fenced-op-id").is_none());
+}
+
 #[tokio::test]
 async fn raw_proxy_write_then_strong_read_roundtrip() {
     let test_person = create_test_person();
@@ -287,6 +392,7 @@ async fn raw_proxy_write_then_strong_read_roundtrip() {
     client
         .update_person_properties(with_person_key(
             Request::new(UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -344,6 +450,7 @@ async fn raw_proxy_leader_requests_without_key_headers_rejected() {
 
     let update_result = client
         .update_person_properties(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id: 1,
             person_id: 42,
             event_name: "$set".to_string(),
@@ -412,6 +519,7 @@ async fn raw_proxy_update_person_properties_no_leader_returns_unimplemented() {
 
     let result = client
         .update_person_properties(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id: 1,
             person_id: 42,
             event_name: "$set".to_string(),
@@ -449,6 +557,7 @@ async fn raw_proxy_compressed_leader_requests_transit_untouched() {
     let response = compressed
         .update_person_properties(with_person_key(
             Request::new(UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -531,6 +640,7 @@ async fn raw_proxy_rejects_oversized_leader_request() {
     let result = client
         .update_person_properties(with_person_key(
             Request::new(UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -818,4 +928,107 @@ async fn async_gzip_disabled_flag_skips_compression() {
     let payload = &body[5..];
     let response = <GetPersonResponse as prost::Message>::decode(payload).unwrap();
     assert_eq!(response.person.unwrap().id, 42);
+}
+
+// ============================================================
+// 4. Identity routing — verbatim forward to the identity server
+// ============================================================
+
+/// An identity RPC reaches the identity server with body and headers
+/// intact: the results echo the request entries, and the server saw the
+/// client name header.
+#[tokio::test]
+async fn raw_proxy_get_or_create_routes_to_identity() {
+    let seen_client_name = Arc::new(Mutex::new(None));
+    let identity_addr = start_test_identity(
+        TestIdentityService {
+            seen_client_name: seen_client_name.clone(),
+        },
+        TestLifecycleService,
+    )
+    .await;
+    let replica_addr = start_test_replica(TestReplicaService::new()).await;
+    let router_addr = start_test_router_raw_with_identity(replica_addr, identity_addr).await;
+
+    let mut client = PersonHogIdentityClient::connect(format!("http://{router_addr}"))
+        .await
+        .unwrap();
+    let mut request = Request::new(GetOrCreatePersonsByDistinctIdsRequest {
+        entries: vec![GetOrCreatePersonEntry {
+            team_id: 7,
+            distinct_id: "user-7".to_string(),
+            ..Default::default()
+        }],
+    });
+    request
+        .metadata_mut()
+        .insert("x-client-name", "proxy-test".parse().unwrap());
+
+    let results = client
+        .get_or_create_persons_by_distinct_ids(request)
+        .await
+        .unwrap()
+        .into_inner()
+        .results;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].team_id, 7);
+    assert_eq!(results[0].distinct_id, "user-7");
+    assert!(results[0].created);
+    assert_eq!(
+        seen_client_name.lock().unwrap().as_deref(),
+        Some("proxy-test")
+    );
+}
+
+/// The lifecycle service shares a method name with the service facade
+/// (DeletePersons): the prefix decides the backend, not the method.
+#[tokio::test]
+async fn raw_proxy_lifecycle_delete_persons_routes_to_identity() {
+    let identity_addr =
+        start_test_identity(TestIdentityService::default(), TestLifecycleService).await;
+    let replica_addr = start_test_replica(TestReplicaService::new()).await;
+    let router_addr = start_test_router_raw_with_identity(replica_addr, identity_addr).await;
+
+    let mut client = PersonHogLifecycleClient::connect(format!("http://{router_addr}"))
+        .await
+        .unwrap();
+    let response = client
+        .delete_persons(LifecycleDeletePersonsRequest {
+            team_id: 7,
+            person_ids: vec![1, 2],
+            op_id: "op-1".to_string(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(response.op_id, "op-1");
+    let person_ids: Vec<i64> = response.results.iter().map(|r| r.person_id).collect();
+    assert_eq!(person_ids, vec![1, 2]);
+}
+
+/// A router without an identity backend refuses the identity service names
+/// outright instead of falling through to the replica.
+#[tokio::test]
+async fn raw_proxy_identity_without_backend_returns_unimplemented() {
+    let replica_addr = start_test_replica(TestReplicaService::new()).await;
+    let router_addr = start_test_router_raw(replica_addr).await;
+
+    let mut client = PersonHogIdentityClient::connect(format!("http://{router_addr}"))
+        .await
+        .unwrap();
+    let status = client
+        .get_or_create_persons_by_distinct_ids(GetOrCreatePersonsByDistinctIdsRequest {
+            entries: vec![],
+        })
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::Unimplemented);
+    assert!(
+        status.message().contains("identity backend not configured"),
+        "{}",
+        status.message()
+    );
 }

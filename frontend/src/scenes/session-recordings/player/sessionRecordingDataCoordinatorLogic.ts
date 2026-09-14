@@ -14,7 +14,7 @@ import {
 } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
-import { EventType, customEvent, eventWithTime } from 'posthog-js/rrweb-types'
+import { EventType, IncrementalSource, customEvent, eventWithTime } from 'posthog-js/rrweb-types'
 
 import {
     getHrefFromSnapshot,
@@ -25,7 +25,9 @@ import {
     SourceLoadingState,
 } from '@posthog/replay-shared'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { metricCount } from 'lib/operationalMetrics'
 
 import {
@@ -55,6 +57,68 @@ import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
 import { posthogTelemetry } from './snapshot-processing/process-all-snapshots'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
+
+// Tab-freezing recordings are both large overall and made of huge individual events (giant DOM
+// mutations); most large recordings are ordinary small events and play fine, so both must trip
+export const OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES = 30 * 1024 * 1024
+export const OVERSIZED_RECORDING_AVG_EVENT_BYTES = 100 * 1024
+// Adds concentrated in one playback second freeze the tab; the same adds spread out play fine
+export const OVERSIZED_MUTATION_WINDOW_MS = 1000
+export const OVERSIZED_MUTATION_WINDOW_ADDED_NODES = 15000
+
+export interface OversizedMutationRange {
+    start: number
+    // Exclusive; Infinity when no full snapshot follows the burst
+    end: number
+}
+
+// A full snapshot rebuilds the DOM from scratch, so a burst and everything up to the next full snapshot can be dropped safely
+export function findOversizedMutationRanges(events: eventWithTime[]): OversizedMutationRange[] {
+    const ranges: OversizedMutationRange[] = []
+    const windowMutations: { timestamp: number; adds: number; index: number }[] = []
+    let windowAdds = 0
+    for (let i = 0; i < events.length; i++) {
+        const event = events[i]
+        if (
+            event.type !== EventType.IncrementalSnapshot ||
+            event.data?.source !== IncrementalSource.Mutation ||
+            !Array.isArray(event.data.adds) ||
+            event.data.adds.length === 0
+        ) {
+            continue
+        }
+        windowMutations.push({ timestamp: event.timestamp, adds: event.data.adds.length, index: i })
+        windowAdds += event.data.adds.length
+        while (event.timestamp - windowMutations[0].timestamp > OVERSIZED_MUTATION_WINDOW_MS) {
+            windowAdds -= windowMutations.shift()!.adds
+        }
+        if (windowAdds < OVERSIZED_MUTATION_WINDOW_ADDED_NODES) {
+            continue
+        }
+        const start = windowMutations[0].timestamp
+        // The recovery point can sit inside the sliding window, before the mutation that tripped the threshold
+        let end = Infinity
+        for (let j = windowMutations[0].index; j < events.length; j++) {
+            if (events[j].type === EventType.FullSnapshot && events[j].timestamp > start) {
+                end = events[j].timestamp
+                break
+            }
+        }
+        ranges.push({ start, end })
+        if (end === Infinity) {
+            break
+        }
+        // Rescan from the recovery point so mutations kept past it count toward the next window
+        let resume = windowMutations[0].index
+        while (resume < events.length && events[resume].timestamp < end) {
+            resume++
+        }
+        i = resume - 1
+        windowMutations.length = 0
+        windowAdds = 0
+    }
+    return ranges
+}
 
 export interface SessionRecordingDataCoordinatorLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -87,6 +151,7 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     sessionEventsDataLoading: boolean // eventsLogic
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined // eventsLogic
     webVitalsEvents: RecordingEventType[] // eventsLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     annotations: AnnotationType[] // metaLogic
     annotationsLoading: boolean // metaLogic
     currentTeam: TeamPublicType | TeamType | null // metaLogic
@@ -114,9 +179,13 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     effectiveSourceLoadingStates: SourceLoadingState[]
     end: Dayjs | null
     fullyLoaded: boolean
+    hasOversizedMutations: boolean
     isOldAndInvalid: boolean
     isRecentAndInvalid: boolean
+    oversizedMutationRanges: Record<number, OversizedMutationRange[]>
+    playableSnapshotsByWindowId: Record<number, eventWithTime[]>
     processedSnapshots: RecordingSnapshot[]
+    recordingTooLargeToPlay: boolean
     reportedLoaded: boolean
     segments: RecordingSegment[]
     sessionPlayerData: SessionPlayerData
@@ -314,6 +383,19 @@ export interface sessionRecordingDataCoordinatorLogicActions {
 export interface sessionRecordingDataCoordinatorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        recordingTooLargeToPlay: (
+            sessionPlayerMetaData: SessionRecordingType | null,
+            featureFlags: FeatureFlagsSet
+        ) => boolean
+        oversizedMutationRanges: (
+            snapshotsByWindowId: Record<number, eventWithTime[]>,
+            featureFlags: FeatureFlagsSet
+        ) => Record<number, OversizedMutationRange[]>
+        hasOversizedMutations: (oversizedMutationRanges: Record<number, OversizedMutationRange[]>) => boolean
+        playableSnapshotsByWindowId: (
+            snapshotsByWindowId: Record<number, eventWithTime[]>,
+            oversizedMutationRanges: Record<number, OversizedMutationRange[]>
+        ) => Record<number, eventWithTime[]>
         snapshots: (processedSnapshots: import('@posthog/replay-shared').RecordingSnapshot[]) => RecordingSnapshot[]
         start: (
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
@@ -490,6 +572,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 ],
                 snapLogic,
                 ['snapshotStore', 'storeVersion', 'sourceLoadingStates'],
+                featureFlagLogic,
+                ['featureFlags'],
             ],
         }
     }),
@@ -524,7 +608,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
 
         loadRecordingMetaSuccess: () => {
-            if (props.sessionRecordingId) {
+            if (props.sessionRecordingId && !values.recordingTooLargeToPlay) {
                 actions.loadSnapshotSources()
             }
             actions.reportUsageIfFullyLoaded()
@@ -659,6 +743,78 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
     })),
     selectors(() => ({
+        recordingTooLargeToPlay: [
+            (s) => [s.sessionPlayerMetaData, s.featureFlags],
+            (meta: SessionRecordingType | null, featureFlags: FeatureFlagsSet): boolean => {
+                if (!featureFlags[FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]) {
+                    return false
+                }
+                // Mobile recordings are screenshot-based: large events, but cheap to play
+                if (meta?.snapshot_source !== 'web') {
+                    return false
+                }
+                const totalSize = meta?.total_size ?? 0
+                const eventCount = meta?.event_count ?? 0
+                return (
+                    totalSize > OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES &&
+                    eventCount > 0 &&
+                    totalSize / eventCount > OVERSIZED_RECORDING_AVG_EVENT_BYTES
+                )
+            },
+        ],
+
+        oversizedMutationRanges: [
+            (s) => [s.snapshotsByWindowId, s.featureFlags],
+            (
+                snapshotsByWindowId: Record<number, eventWithTime[]>,
+                featureFlags: FeatureFlagsSet
+            ): Record<number, OversizedMutationRange[]> => {
+                if (!featureFlags[FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]) {
+                    return {}
+                }
+                const rangesByWindowId: Record<number, OversizedMutationRange[]> = {}
+                for (const [windowId, events] of Object.entries(snapshotsByWindowId)) {
+                    const ranges = findOversizedMutationRanges(events)
+                    if (ranges.length > 0) {
+                        rangesByWindowId[windowId as unknown as number] = ranges
+                    }
+                }
+                return rangesByWindowId
+            },
+        ],
+
+        hasOversizedMutations: [
+            (s) => [s.oversizedMutationRanges],
+            (oversizedMutationRanges: Record<number, OversizedMutationRange[]>): boolean => {
+                return Object.keys(oversizedMutationRanges).length > 0
+            },
+        ],
+
+        // Replayer input only; export, segments, and the inspector keep the raw events
+        playableSnapshotsByWindowId: [
+            (s) => [s.snapshotsByWindowId, s.oversizedMutationRanges],
+            (
+                snapshotsByWindowId: Record<number, eventWithTime[]>,
+                oversizedMutationRanges: Record<number, OversizedMutationRange[]>
+            ): Record<number, eventWithTime[]> => {
+                if (Object.keys(oversizedMutationRanges).length === 0) {
+                    return snapshotsByWindowId
+                }
+                const result = { ...snapshotsByWindowId }
+                for (const [windowId, ranges] of Object.entries(oversizedMutationRanges)) {
+                    result[windowId as unknown as number] = snapshotsByWindowId[windowId as unknown as number].filter(
+                        // Mutations only; a ViewportResize dropped here never comes back, since rrweb reads
+                        // dimensions from Meta rather than FullSnapshot
+                        (event) =>
+                            event.type !== EventType.IncrementalSnapshot ||
+                            event.data?.source !== IncrementalSource.Mutation ||
+                            !ranges.some((range) => event.timestamp >= range.start && event.timestamp < range.end)
+                    )
+                }
+                return result
+            },
+        ],
+
         snapshots: [
             (s) => [s.processedSnapshots],
             (processedSnapshots: RecordingSnapshot[]): RecordingSnapshot[] => {

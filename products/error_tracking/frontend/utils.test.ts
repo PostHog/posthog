@@ -220,6 +220,21 @@ describe('getIssueReplayDateRange', () => {
             '2024-01-01T13:00:00.000Z'
         )
     })
+
+    // first_seen is null for an issue with no ingested events — reachable via the
+    // metrics error-spike overlay, and it used to crash the issue scene render.
+    it('anchors on last_seen when first_seen is missing', () => {
+        const range = getIssueReplayDateRange(null, dayjs('2024-01-02T12:00:00.000Z'))
+        expect(range.date_from).toEqual('2024-01-02T11:00:00.000Z')
+        expect(range.date_to).toEqual('2024-01-02T13:00:00.000Z')
+    })
+
+    it('anchors on the selected event when first_seen and last_seen are missing', () => {
+        const range = getIssueReplayDateRange(null, null, '2024-04-01T12:00:00.000Z')
+        expect(range.date_from).toEqual('2024-04-01T11:00:00.000Z')
+        expect(range.date_to).toEqual('2024-04-01T13:00:00.000Z')
+        expect(() => getIssueReplayDateRange(null, null)).not.toThrow()
+    })
 })
 
 describe('getIssueReplayFilterGroup', () => {

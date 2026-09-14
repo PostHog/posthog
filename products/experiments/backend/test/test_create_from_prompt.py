@@ -6,13 +6,13 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.access_control import AccessControl
 
 
 def _split_distribution(variants: list[dict[str, Any]]) -> list[int]:

@@ -62,10 +62,13 @@ class CoinGeckoPagePaginator(PageNumberPaginator):
     """CoinGecko paginates with ``page``/``per_page``. A short page (fewer than ``per_page`` items) or
     an empty page is the last one — stop without paying an extra empty-page request, since the free
     tier's tight rate limits make sparing that request worthwhile. Resume replays the last full page
-    (merge dedupes on the primary key)."""
+    (merge dedupes on the primary key).
 
-    def __init__(self, page_size: int) -> None:
-        super().__init__(base_page=1, page_param="page")
+    ``max_pages`` caps the page number for endpoints the API refuses to page past (e.g. /insights
+    rejects page > 20); the base class stops once the next page would exceed it."""
+
+    def __init__(self, page_size: int, max_pages: Optional[int] = None) -> None:
+        super().__init__(base_page=1, page_param="page", maximum_page=max_pages)
         self._page_size = page_size
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
@@ -85,9 +88,10 @@ def coingecko_source(
 ) -> SourceResponse:
     config = COINGECKO_ENDPOINTS[endpoint]
 
+    page_size = config.page_size or PAGE_SIZE
     params: dict[str, Any] = dict(config.extra_params)
     if config.paginated:
-        params["per_page"] = PAGE_SIZE
+        params["per_page"] = page_size
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -112,7 +116,9 @@ def coingecko_source(
                     # Bare-array bodies. A non-list body means the response shape changed (or an
                     # unexpected error envelope) — fail loud rather than syncing a garbage row.
                     "data_selector_required": True,
-                    "paginator": CoinGeckoPagePaginator(PAGE_SIZE) if config.paginated else SinglePagePaginator(),
+                    "paginator": CoinGeckoPagePaginator(page_size, config.max_pages)
+                    if config.paginated
+                    else SinglePagePaginator(),
                     # The keyless/demo tier reports rate limiting inside a success-status body; the
                     # client retries on status only, so promote that in-body signal to a retry.
                     "response_actions": [{"content": marker, "action": "retry"} for marker in RATE_LIMIT_BODY_MARKERS],

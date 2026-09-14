@@ -180,6 +180,10 @@ jest.mock('posthog-js', () => {
         getSurveys: jest.fn(),
         displaySurvey: jest.fn(),
         onFeatureFlags: jest.fn(() => () => {}),
+        onSurveysLoaded: jest.fn((cb: (surveys: unknown[], context: { isLoaded: boolean }) => void) => {
+            cb([], { isLoaded: true })
+            return () => {}
+        }),
         debug: jest.fn(),
         get_session_id: jest.fn(),
         get_session_replay_url: jest.fn(),

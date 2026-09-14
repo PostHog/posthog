@@ -60,14 +60,30 @@ def _search_attributes(team_id: int = 7, session_id: str = "sess-123") -> TypedS
     )
 
 
-@pytest.mark.asyncio
-async def test_terminal_failure_bumps_stuck_counter():
+async def _run_terminally_failing_workflow(
+    session_id: str, record_calls: list[RecordRasterizationFailureInput], *, fail_at: str = "prep"
+) -> list[BumpStuckCounterInput]:
+    """One workflow run whose first (and only) attempt fails at `fail_at` (prep or render); returns the bump inputs."""
+    from django.conf import settings
+
+    from posthog.temporal.session_replay.rasterize_recording.types import RasterizationActivityInput
+
     bump_calls: list[BumpStuckCounterInput] = []
-    record_calls: list[RecordRasterizationFailureInput] = []
 
     @activity.defn(name="build_rasterization_input")
-    async def build_failing(_exported_asset_id: int) -> BuildRasterizationResult:
-        raise RuntimeError("synthetic prep failure")
+    async def build_mocked(_exported_asset_id: int) -> BuildRasterizationResult:
+        if fail_at == "prep":
+            raise RuntimeError("synthetic prep failure")
+        return BuildRasterizationResult(
+            activity_input=RasterizationActivityInput(
+                session_id=session_id, team_id=7, s3_bucket="bucket", s3_key_prefix="prefix"
+            ),
+            render_fingerprint="abc",
+        )
+
+    @activity.defn(name="rasterize-recording")
+    async def render_failing(_inputs: dict) -> dict:
+        raise ApplicationError("synthetic render failure", non_retryable=True)
 
     @activity.defn(name="finalize_rasterization")
     async def finalize_unused(_inputs: FinalizeRasterizationInput) -> None:
@@ -80,12 +96,19 @@ async def test_terminal_failure_bumps_stuck_counter():
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         await _register_search_attributes(env)
-        async with Worker(
-            env.client,
-            task_queue=task_queue,
-            workflows=[RasterizeRecordingWorkflow],
-            activities=[build_failing, finalize_unused, bump_mocked, _record_failure_into(record_calls)],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        async with (
+            Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RasterizeRecordingWorkflow],
+                activities=[build_mocked, finalize_unused, bump_mocked, _record_failure_into(record_calls)],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ),
+            Worker(
+                env.client,
+                task_queue=settings.RASTERIZATION_TASK_QUEUE,
+                activities=[render_failing],
+            ),
         ):
             with pytest.raises(Exception):
                 await env.client.execute_workflow(
@@ -95,13 +118,52 @@ async def test_terminal_failure_bumps_stuck_counter():
                     task_queue=task_queue,
                     # maximum_attempts=1 so the FIRST failure is the terminal one.
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    search_attributes=_search_attributes(team_id=7, session_id="sess-123"),
+                    search_attributes=_search_attributes(team_id=7, session_id=session_id),
                 )
+    return bump_calls
+
+
+@pytest.mark.asyncio
+async def test_terminal_failure_bumps_stuck_counter():
+    record_calls: list[RecordRasterizationFailureInput] = []
+
+    bump_calls = await _run_terminally_failing_workflow("sess-123", record_calls)
 
     assert bump_calls == [BumpStuckCounterInput(team_id=7, session_id="sess-123")]
     # The code has to come off the wrapped cause, not the ActivityError Temporal raises here.
     # Reading the wrapper would classify every video failure identically.
     assert [(call.exported_asset_id, call.error_code) for call in record_calls] == [(42, "RuntimeError")]
+
+
+@pytest.mark.asyncio
+async def test_killed_worker_render_failure_quarantines_immediately(monkeypatch):
+    # A timeout-class final failure in the render phase must bump with killed_worker=True, or a
+    # worker-killing recording waits for a second whole retry envelope before the quarantine
+    # engages. The classifier is patched because the test server cannot mint a real heartbeat
+    # timeout without a live worker hanging for the full 30s timeout; the classifier itself is
+    # covered by test_resolve_error_code_maps_temporal_timeouts.
+    monkeypatch.setattr(
+        "posthog.temporal.session_replay.rasterize_recording.workflow._resolve_error_code",
+        lambda _exc: "ACTIVITY_TIMEOUT",
+    )
+
+    bump_calls = await _run_terminally_failing_workflow("sess-huge", [], fail_at="render")
+
+    assert bump_calls == [BumpStuckCounterInput(team_id=7, session_id="sess-huge", killed_worker=True)]
+
+
+@pytest.mark.asyncio
+async def test_timeout_outside_the_render_phase_does_not_quarantine(monkeypatch):
+    # A timed-out prep activity (a Postgres incident, not the recording) must stay on the ordinary
+    # two-strike path; quarantining it for 24h would silence scans for sessions the renderer never opened.
+    monkeypatch.setattr(
+        "posthog.temporal.session_replay.rasterize_recording.workflow._resolve_error_code",
+        lambda _exc: "ACTIVITY_TIMEOUT",
+    )
+
+    bump_calls = await _run_terminally_failing_workflow("sess-db-blip", [], fail_at="prep")
+
+    assert bump_calls == [BumpStuckCounterInput(team_id=7, session_id="sess-db-blip", killed_worker=False)]
 
 
 def _scheduled_activities(history: WorkflowHistory) -> list[str]:

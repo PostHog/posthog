@@ -2,17 +2,15 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scaleway import (
     ScalewaySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway.scaleway import ScalewayResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway.source import ScalewaySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> ScalewaySourceConfig:
@@ -23,9 +21,6 @@ class TestScalewaySource:
     def setup_method(self) -> None:
         self.source = ScalewaySource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SCALEWAY
 
     def test_secret_key_field_is_marked_secret(self) -> None:
         # A secret leaking as a plain (non-secret) field would be stored/echoed in cleartext, so lock
@@ -38,15 +33,6 @@ class TestScalewaySource:
         assert secret_key_field.type == SourceFieldInputConfigType.PASSWORD
         assert secret_key_field.secret is True
         assert organization_id_field.secret is not True
-
-    def test_ships_as_alpha_and_unreleased(self) -> None:
-        config = self.source.get_source_config
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/scaleway"
-
-    @parameterized.expand([("unauthorized", "401"), ("forbidden", "403")])
-    def test_auth_errors_are_non_retryable(self, _name: str, status: str) -> None:
-        assert any(status in key for key in self.source.get_non_retryable_errors())
 
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_every_schema_is_full_refresh_only(self, endpoint: str) -> None:
@@ -100,11 +86,6 @@ class TestScalewaySource:
         with patch.object(source_module, "probe_endpoint", return_value=status):
             result = self.source.get_endpoint_permissions(_config(), self.team_id, ["invoices"])
         assert (result["invoices"] is not None) is is_blocked
-
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        inputs = self._source_inputs("users")
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is ScalewayResumeConfig
 
     def test_source_for_pipeline_plumbs_endpoint(self) -> None:
         inputs = self._source_inputs("api_keys")

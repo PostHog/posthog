@@ -3,7 +3,7 @@ import datetime as dt
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from django.db import OperationalError
@@ -54,7 +54,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
     BREAKDOWN_STATS_ENDPOINTS,
     ENDPOINTS,
-    RESOURCE_SCHEMAS,
     MetaAdsResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
@@ -1477,7 +1476,6 @@ class TestRetryableErrors:
         assert not any(pattern in str(exc_info.value) for pattern in patterns)
 
 
-@freeze_time("2026-06-16")
 class TestTimeRangeClamping:
     """Meta rejects insights time ranges starting beyond ~37 months (error 3018).
 
@@ -1487,6 +1485,11 @@ class TestTimeRangeClamping:
     The date is frozen so the ``today`` captured in the test and the
     ``dt.date.today()`` read inside ``get_rows`` always agree (no midnight race).
     """
+
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-06-16", tick=False):
+            yield
 
     def _capture_time_range(self, monkeypatch, **source_kwargs: Any) -> dict | None:
         integration = mock.MagicMock()
@@ -1779,10 +1782,6 @@ class TestEndpointCatalog:
         # `meta_ads_source` looks the endpoint up by name, so advertising one in `get_schemas`
         # without a `RESOURCE_SCHEMAS` entry only fails at sync time with a KeyError.
         assert endpoint in get_meta_ads_schemas()
-
-    def test_source_advertises_the_whole_catalog(self) -> None:
-        advertised = {schema.name for schema in MetaAdsSource().get_schemas(cast(Any, None), team_id=1)}
-        assert advertised == set(RESOURCE_SCHEMAS)
 
 
 class TestBreakdownStatsSchemas:

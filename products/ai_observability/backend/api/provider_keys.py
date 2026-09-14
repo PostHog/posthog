@@ -17,9 +17,11 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.models.utils import mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, is_service_auth
 from posthog.plugins.plugin_server_api import reload_evaluations_on_workers, reload_taggers_on_workers
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..llm.client import Client
 from ..llm.providers.azure_openai import (
@@ -121,10 +123,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "state", "error_message", "created_at", "created_by", "last_used_at"]
 
     def get_api_key_masked(self, obj: LLMProviderKey) -> str:
-        key = obj.encrypted_config.get("api_key", "")
-        if len(key) > 8:
-            return f"{key[:4]}...{key[-4:]}"
-        return "****"
+        return mask_key_value(obj.encrypted_config.get("api_key", ""))
 
     def get_azure_endpoint_display(self, obj: LLMProviderKey) -> str | None:
         if obj.provider != LLMProvider.AZURE_OPENAI:

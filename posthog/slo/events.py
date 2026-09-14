@@ -1,8 +1,12 @@
 from collections.abc import Callable
+from typing import Any
+
+from django.conf import settings
 
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 
+from posthog.cloud_utils import is_hobby
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_commit_short
 from posthog.slo.types import SloCompletedProperties, SloStartedProperties
@@ -70,6 +74,15 @@ def _capture_emit_exception(
         pass
 
 
+def _send(capture: Callable | None, *, distinct_id: str, event: str, properties: dict[str, Any]) -> None:
+    # The module-level client carries PostHog's own project token on self-hosted installs too, so without this
+    # guard they report SLO events into PostHog's internal project, with no region. Tests run in hobby mode with
+    # that client patched, so they keep observing emission.
+    if capture is None and is_hobby() and not settings.TEST:
+        return
+    (capture or posthoganalytics.capture)(distinct_id=distinct_id, event=event, properties=properties)
+
+
 def emit_slo_started(
     distinct_id: str,
     properties: SloStartedProperties,
@@ -86,12 +99,7 @@ def emit_slo_started(
         if sample_rate < 1.0:
             all_properties["sample_rate"] = sample_rate
 
-        _capture = capture or posthoganalytics.capture
-        _capture(
-            distinct_id=distinct_id,
-            event="slo_operation_started",
-            properties=all_properties,
-        )
+        _send(capture, distinct_id=distinct_id, event="slo_operation_started", properties=all_properties)
         OPERATION_STARTED_COUNTER.labels(
             area=properties.area,
             operation=properties.operation,
@@ -122,12 +130,7 @@ def emit_slo_completed(
         if sample_rate < 1.0:
             all_properties["sample_rate"] = sample_rate
 
-        _capture = capture or posthoganalytics.capture
-        _capture(
-            distinct_id=distinct_id,
-            event="slo_operation_completed",
-            properties=all_properties,
-        )
+        _send(capture, distinct_id=distinct_id, event="slo_operation_completed", properties=all_properties)
         OPERATION_COMPLETED_COUNTER.labels(
             area=properties.area,
             operation=properties.operation,

@@ -292,10 +292,12 @@ async fn resolve_issue(
         team_id,
         name.to_string(),
         description.to_string(),
-        infer_issue_severity(
-            event_properties.exception_level(),
-            event_properties.exception_handled(),
-        ),
+        event_properties.proposed_issue_severity().or_else(|| {
+            infer_issue_severity(
+                event_properties.exception_level(),
+                event_properties.exception_handled(),
+            )
+        }),
         &mut *txn,
     )
     .await?;
@@ -405,6 +407,9 @@ async fn process_event_severity(
     issue: &mut Issue,
     exception_properties: &ExceptionEvent<Fingerprinted>,
 ) -> Result<(), UnhandledError> {
+    if exception_properties.proposed_issue_severity().is_some() {
+        return Ok(());
+    }
     let processed_properties = exception_properties.processed_properties(issue);
     if let Some(severity) =
         try_severity_rules(connection, team_manager, issue, &processed_properties).await?

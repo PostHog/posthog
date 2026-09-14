@@ -28,7 +28,7 @@ class SchemaPropertyGroup(UUIDTModel):
         related_name="schema_property_groups",
         related_query_name="schema_property_group",
     )
-    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True)
+    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, related_name="+")
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True)
     created_at = models.DateTimeField(default=timezone.now)

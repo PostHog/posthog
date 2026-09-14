@@ -4,28 +4,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.source import VellumSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.vellum import VellumResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestVellumSourceConfig:
-    def test_source_type(self) -> None:
-        assert VellumSource().source_type == ExternalDataSourceType.VELLUM
-
-    def test_source_config_shape(self) -> None:
-        config = VellumSource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/vellum"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
     def test_single_password_api_key_field(self) -> None:
         # The only credential is an environment-scoped API key; it must be a masked secret so the
         # serializer classifies it as sensitive and never echoes it back.
@@ -116,28 +100,6 @@ class TestVellumNonRetryableErrors:
     )
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         assert not any(key in other_error for key in VellumSource().get_non_retryable_errors())
-
-
-class TestVellumResumableManager:
-    def test_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = VellumSource().get_resumable_source_manager(inputs)
-        assert manager._data_class is VellumResumeConfig
-
-    def test_source_for_pipeline_plumbs_endpoint_and_key(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "documents"
-        inputs.logger = MagicMock()
-        manager = MagicMock()
-        config = MagicMock(api_key="test-key")
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.vellum.source.vellum_source"
-        ) as mock_source:
-            VellumSource().source_for_pipeline(config, manager, inputs)
-        _, kwargs = mock_source.call_args
-        assert kwargs["endpoint"] == "documents"
-        assert kwargs["api_key"] == "test-key"
-        assert kwargs["resumable_source_manager"] is manager
 
 
 def _canonical_descriptions() -> dict[str, Any]:

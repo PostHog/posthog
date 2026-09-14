@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.enums import CreatedSource, MetricStatus
 from products.data_catalog.backend.logic import metrics
 from products.data_catalog.backend.logic.drift import compute_drift
@@ -23,8 +24,6 @@ from products.data_catalog.backend.logic.metrics import (
 from products.data_catalog.backend.logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from products.data_catalog.backend.models import Metric
 from products.product_analytics.backend.facade.models import Insight
-
-from ee.models.rbac.access_control import AccessControl
 
 _HOGQL_A = {"kind": "HogQLQuery", "query": "select count() from events"}
 _HOGQL_B = {"kind": "HogQLQuery", "query": "select count() from persons"}
@@ -209,6 +208,10 @@ class TestValidateMetricDefinition(BaseTest):
             ("no_kind", {"query": "select 1"}),
             ("markdown_empty", {"kind": "MarkdownDefinition", "markdown": "   "}),
             ("markdown_smuggled_query", {"kind": "MarkdownDefinition", "markdown": "x", "query": "select 1"}),
+            (
+                "value_read_as_a_bare_field",
+                {"kind": "HogQLQuery", "query": "select threshold", "values": {"threshold": 10}},
+            ),
         ]
     )
     def test_rejects_invalid_definitions(self, _name: str, definition: dict) -> None:
@@ -252,7 +255,7 @@ class TestCreateFromInsight(BaseTest):
         # exfiltrate a restricted insight's query into the metric definition.
         insight = self._insight()
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj=None, *a, **k: type(obj).__name__ != "Insight",
         ):
             with self.assertRaises(ValidationError):
@@ -381,7 +384,7 @@ class TestRefreshFromInsight(BaseTest):
             team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id=insight.short_id
         )
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj=None, *a, **k: type(obj).__name__ != "Insight",
         ):
             with self.assertRaises(ValidationError):

@@ -22,7 +22,6 @@
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
         "@types/react": "*",
-        "chartjs-plugin-annotation": "*",
         "fast-equals": "catalog:",
         "react": "*",
         "typescript": "catalog:*",

@@ -106,6 +106,7 @@ declare module 'storybook/internal/types' {
 }
 
 const RETRY_TIMES = 2
+const FRAME_SELECTOR_SEPARATOR = ' >>> '
 const LOADER_SELECTORS = [
     '.Spinner',
     '.quill-spinner', // Quill's <Spinner /> — rotates while present, so it must settle before we snapshot
@@ -172,6 +173,22 @@ export default {
             Object.defineProperty(navigator, 'userAgent', {
                 get: () => patchedUserAgent,
                 configurable: true,
+            })
+
+            // Monaco cancels its own in-flight work with a rejection named "Canceled" and treats
+            // it as expected (VS Code's unexpected-error handler ignores cancellation errors).
+            // One such rejection escapes as unhandled here: under Playwright WebKit, Monaco's
+            // clipboard workaround hands a DeferredPromise to `navigator.clipboard.write`, which
+            // the sandbox denies without ever consuming the promise, so the next click's
+            // `cancel()` has no consumer and Storybook fails the story via
+            // `unhandledErrorsWhilePlaying`. This listener registers before any page script, so
+            // it sees the event first and can stop Storybook's listener from recording it.
+            window.addEventListener('unhandledrejection', (event) => {
+                const reason = event.reason as { name?: string; message?: string } | undefined
+                if (reason?.name === 'Canceled' && reason?.message === 'Canceled') {
+                    event.stopImmediatePropagation()
+                    event.preventDefault()
+                }
             })
         })
 
@@ -469,10 +486,10 @@ async function expectStoryToMatchSnapshot(
     }
 
     if (typeof waitForSelector === 'string') {
-        await page.waitForSelector(waitForSelector, { timeout: waitForSelectorTimeout })
+        await waitForPossiblyFramedSelector(page, waitForSelector, waitForSelectorTimeout)
     } else if (Array.isArray(waitForSelector)) {
         await Promise.all(
-            waitForSelector.map((selector) => page.waitForSelector(selector, { timeout: waitForSelectorTimeout }))
+            waitForSelector.map((selector) => waitForPossiblyFramedSelector(page, selector, waitForSelectorTimeout))
         )
     }
 
@@ -483,6 +500,22 @@ async function expectStoryToMatchSnapshot(
     if (!skipDarkMode) {
         await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
     }
+}
+
+/**
+ * Wait for a selector that may live inside a same-origin iframe.
+ *
+ * `page.waitForSelector` does not cross a frame boundary, so a story whose content renders in one
+ * (the session replay player, which mounts rrweb into its own document) writes
+ * `'iframe.Outer >>> .inner'` and gets the frame's own wait instead.
+ */
+async function waitForPossiblyFramedSelector(page: Page, selector: string, timeout: number | undefined): Promise<void> {
+    const [frameSelector, innerSelector] = selector.split(FRAME_SELECTOR_SEPARATOR)
+    if (innerSelector === undefined) {
+        await page.waitForSelector(selector, { timeout })
+        return
+    }
+    await page.frameLocator(frameSelector.trim()).locator(innerSelector.trim()).first().waitFor({ timeout })
 }
 
 async function takeSnapshotWithTheme(
@@ -705,7 +738,7 @@ async function expectLocatorToMatchStorySnapshot(
     theme: SnapshotTheme,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await locator.screenshot({ ...options })
+    const image = await takeSnapshotImage(locator, context, options)
     let customSnapshotIdentifier = `${context.id}--${theme}`
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
@@ -721,6 +754,31 @@ async function expectLocatorToMatchStorySnapshot(
         failureThreshold: 0.01,
         failureThresholdType: 'percent',
     })
+}
+
+/**
+ * Screenshot the snapshot target, naming the one cause Playwright reports opaquely: a story that
+ * renders nothing. `#storybook-root` is `display: inline-block` here, so an empty render collapses it
+ * to zero size, and all Playwright says - after a full 10s wait, three times over - is "element is not
+ * visible".
+ */
+async function takeSnapshotImage(
+    locator: Locator | Page,
+    context: TestContext,
+    options?: LocatorScreenshotOptions
+): Promise<Buffer> {
+    try {
+        return await locator.screenshot({ ...options })
+    } catch (error) {
+        const box = 'boundingBox' in locator ? await locator.boundingBox().catch(() => null) : null
+        if (box && !box.width && !box.height) {
+            throw new Error(
+                `Story "${context.id}" rendered nothing, so there is no screenshot to take. ` +
+                    `Wrap it in a decorator that gives the snapshot a sized box, or tag it 'test-skip'.`
+            )
+        }
+        throw error
+    }
 }
 
 /**

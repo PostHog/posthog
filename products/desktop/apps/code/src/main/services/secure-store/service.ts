@@ -1,7 +1,11 @@
 import { SECURE_STORE_BACKEND } from "@main/di/tokens";
 import { decrypt, encrypt } from "@main/utils/encryption";
 import { logger } from "@main/utils/logger";
-import { inject, injectable } from "inversify";
+import {
+  CLAUDE_SUBSCRIPTION_TOKEN_STORE,
+  type ClaudeSubscriptionTokenStore,
+} from "@posthog/core/cloud-task/identifiers";
+import { inject, injectable, optional } from "inversify";
 
 const log = logger.scope("secureStore");
 
@@ -30,6 +34,9 @@ export class SecureStoreService {
   constructor(
     @inject(SECURE_STORE_BACKEND)
     private readonly store: SecureStoreBackend,
+    @inject(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
+    @optional()
+    private readonly claudeTokens: ClaudeSubscriptionTokenStore | null = null,
   ) {}
 
   getItem(key: string): string | null {
@@ -37,7 +44,13 @@ export class SecureStoreService {
       if (!this.store.has(key)) {
         return null;
       }
-      return decrypt(this.store.get(key) as string);
+      const plaintext = decrypt(this.store.get(key) as string);
+      if (plaintext === null) {
+        log.error("Stored value failed to decrypt; treating as missing", {
+          key,
+        });
+      }
+      return plaintext;
     } catch (error) {
       log.error("Failed to get item:", error);
       return null;
@@ -60,7 +73,8 @@ export class SecureStoreService {
     }
   }
 
-  clear(): void {
+  async clear(): Promise<void> {
+    await this.claudeTokens?.clearAll();
     try {
       this.store.clear();
     } catch (error) {

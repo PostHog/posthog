@@ -3,6 +3,7 @@ from typing import cast
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     EventsNode,
@@ -356,8 +357,11 @@ class TestStatsConfig(APIBaseTest):
             self.create_variant("test", sum_val=120.0, sum_squares=14500.0, samples=1000),
         ]
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValidationError) as ctx:
             split_baseline_and_test_variants(variants, baseline_key="nonexistent")
+
+        self.assertIn("No exposures", str(ctx.exception))
+        self.assertEqual(ctx.exception.get_codes(), ["no_data"])
 
     @parameterized.expand(
         [

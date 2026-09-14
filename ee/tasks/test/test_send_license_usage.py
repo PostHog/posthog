@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import ANY, Mock, patch
 
@@ -10,7 +10,7 @@ from ee.tasks.send_license_usage import send_license_usage
 
 
 class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
-    @freeze_time("2021-10-10T23:01:00Z")
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
     @patch("posthoganalytics.capture")
     @patch("ee.tasks.send_license_usage.requests.post")
     def test_send_license_usage(self, mock_post, mock_capture):
@@ -77,7 +77,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
         )
         self.assertEqual(License.objects.get().valid_until.isoformat(), "2021-11-10T23:01:00+00:00")
 
-    @freeze_time("2021-10-10T23:01:00Z")
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
     @patch("posthoganalytics.capture")
     @patch("ee.tasks.send_license_usage.sync_execute", side_effect=Exception())
     def test_send_license_error(self, mock_post, mock_capture):
@@ -135,7 +135,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )
 
-    @freeze_time("2021-10-10T23:01:00Z")
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
     @patch("posthoganalytics.capture")
     @patch("ee.tasks.send_license_usage.requests.post")
     def test_send_license_usage_already_sent(self, mock_post, mock_capture):
@@ -191,7 +191,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
         send_license_usage()
         mock_capture.assert_not_called()
 
-    @freeze_time("2021-10-10T23:01:00Z")
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
     @patch("posthoganalytics.capture")
     @patch("ee.tasks.send_license_usage.requests.post")
     def test_send_license_not_found(self, mock_post, mock_capture):
@@ -261,7 +261,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
         )
         self.assertEqual(License.objects.get().valid_until.isoformat(), "2021-10-10T22:01:00+00:00")
 
-    @freeze_time("2021-10-10T23:01:00Z")
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
     @patch("posthoganalytics.capture")
     @patch("ee.tasks.send_license_usage.requests.post")
     def test_send_license_not_triggered_for_v2_licenses(self, mock_post, mock_capture):
@@ -274,7 +274,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
 
 
 class SendLicenseUsageNoLicenseTest(APIBaseTest):
-    @freeze_time("2021-10-10T23:01:00Z")
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
     @patch("ee.tasks.send_license_usage.requests.post")
     def test_no_license(self, mock_post):
         # Same test, we just don't include the LicensedTestMixin so no license

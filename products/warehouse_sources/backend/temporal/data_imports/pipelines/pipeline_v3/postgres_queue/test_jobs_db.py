@@ -72,6 +72,7 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
             is_resume BOOLEAN NOT NULL DEFAULT FALSE,
             is_first_ever_sync BOOLEAN NOT NULL DEFAULT FALSE,
             metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+            destination_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
             latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
             latest_attempt SMALLINT NOT NULL DEFAULT 0,
             state_changed_at TIMESTAMPTZ,
@@ -85,7 +86,8 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
             ADD COLUMN IF NOT EXISTS latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
             ADD COLUMN IF NOT EXISTS latest_attempt SMALLINT NOT NULL DEFAULT 0,
             ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMPTZ,
-            ADD COLUMN IF NOT EXISTS superseded BOOLEAN NOT NULL DEFAULT FALSE
+            ADD COLUMN IF NOT EXISTS superseded BOOLEAN NOT NULL DEFAULT FALSE,
+            ADD COLUMN IF NOT EXISTS destination_ids JSONB NOT NULL DEFAULT '[]'::jsonb
     """)
     conn.execute(f"""
         CREATE INDEX IF NOT EXISTS sb_claimable_idx ON {BATCH_TABLE} (team_id, created_at, batch_index)
@@ -1054,7 +1056,25 @@ class TestGetStaleStrandedRuns:
             _stranded_candidate_runs_sql,
         )
 
-        await _insert_batch(conn)
+        # Seed a storm-shaped table and analyze, so the index pin is
+        # deterministic. With one row the planner rates the two partial indexes
+        # that cover the failed probe as a tie (CI saw sb_failed_changed_idx win
+        # in some runs), and statistics outside this test's control break that
+        # tie. Failed batches spread across many run_uuids is the shape
+        # sb_run_gate_idx exists for, and with real statistics it is always
+        # cheaper than the state_changed_at scan.
+        await conn.execute(f"""
+            INSERT INTO {BATCH_TABLE} (
+                team_id, schema_id, source_id, job_id, run_uuid, batch_index,
+                s3_path, row_count, byte_size, is_final_batch, sync_type,
+                resource_name, latest_state, state_changed_at
+            )
+            SELECT 1, 'schema-1', 'source-1', 'job-1', 'gate-seed-run-' || (g % 500), g,
+                   's3://bucket/path', 100, 1024, false, 'full_refresh', 'test_resource',
+                   'failed', now() - (g || ' seconds')::interval
+            FROM generate_series(1, 2500) g
+        """)
+        await conn.execute(f"ANALYZE {BATCH_TABLE}")
         await conn.execute("SET enable_seqscan = off")
         try:
             cur = await conn.execute(
@@ -1068,6 +1088,9 @@ class TestGetStaleStrandedRuns:
         # run-gate index. Asserting "no Hash Anti Join anywhere" instead is flaky:
         # the UNFENCED lease gate may legitimately plan as a hash anti-join, and a
         # flattened failed-gate can still show sb_run_gate_idx (as its hash build).
+        # sb_failed_changed_idx is not an acceptable substitute: without a leading
+        # condition it scans every failed batch in the window per candidate run,
+        # which is the quadratic blowup this assertion exists to prevent.
         assert "sb_run_gate_idx" in plan
         assert "SubPlan" in plan
 

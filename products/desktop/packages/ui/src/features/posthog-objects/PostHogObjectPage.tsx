@@ -1,6 +1,11 @@
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import type { PostHogObjectArtifactMetadata } from "@posthog/core/canvas/runArtifactSchemas";
 import {
+  chartHeadlineStat,
+  reportChartHeightClass,
+  reportChartOpenTarget,
+} from "@posthog/core/inbox/reportCharts";
+import {
   Badge,
   Button,
   Empty,
@@ -12,12 +17,20 @@ import {
   Skeleton,
   Text,
 } from "@posthog/quill";
+import { getCloudUrlFromRegion } from "@posthog/shared";
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useEvidenceUrl } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
 import {
+  EVIDENCE_PREVIEW_STALE_TIME,
   type EvidenceCardData,
+  evidencePreviewQueryKey,
   fetchEvidencePreview,
 } from "@posthog/ui/features/editor/evidencePreview";
+import {
+  type ReportChartCardState,
+  ReportChartCardView,
+} from "@posthog/ui/features/inbox/components/detail/ReportChartCard";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
@@ -25,7 +38,13 @@ import {
   getObjectKind,
   POSTHOG_OBJECT_ICON_COLOR,
 } from "@posthog/ui/utils/objectKinds";
+import { EditFlagInTaskPopover } from "./EditFlagInTaskPopover";
+import { ExperimentResultsSummary } from "./ExperimentResultsSummary";
+import { FlagAudienceCard } from "./FlagAudienceCard";
 import { PostHogObjectDetails } from "./PostHogObjectDetails";
+
+const CHART_ERROR_MESSAGE =
+  "Couldn't run the query behind this chart. Open it in PostHog to investigate.";
 
 function StatStrip({
   stats,
@@ -83,6 +102,46 @@ const STATUS_BADGE_VARIANT = {
   critical: "destructive",
 } as const;
 
+function ObjectChartCard({
+  objectKind,
+  objectId,
+  title,
+  state,
+}: {
+  objectKind: string;
+  objectId: string;
+  title: string;
+  state: ReportChartCardState;
+}) {
+  const projectId = useAuthStateValue((s) => s.currentProjectId);
+  const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
+  const data = state.kind === "data" ? state.data : null;
+  const openTarget =
+    projectId && cloudRegion
+      ? reportChartOpenTarget(
+          objectKind === "insight"
+            ? { kind: "SavedInsightNode", shortId: objectId }
+            : {
+                kind: "DataVisualizationNode",
+                source: { kind: "HogQLQuery", query: objectId },
+              },
+          { cloudUrl: getCloudUrlFromRegion(cloudRegion), projectId },
+        )
+      : null;
+  return (
+    <div className="mb-2">
+      <ReportChartCardView
+        chartId={`artifact:${objectKind}:${objectId}`}
+        title={title}
+        heightClass={reportChartHeightClass(null, data)}
+        state={state}
+        openTarget={openTarget}
+        stat={data ? chartHeadlineStat(data) : null}
+      />
+    </div>
+  );
+}
+
 function FactChips({ facts }: { facts: string[] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -98,7 +157,20 @@ function FactChips({ facts }: { facts: string[] }) {
   );
 }
 
-function ObjectContent({ preview }: { preview: EvidenceCardData }) {
+const SURVEY_AUDIENCE_COPY = {
+  title: "Who sees this",
+  off: "The survey is not running. The rules below apply when it starts.",
+};
+
+function ObjectContent({
+  objectKind,
+  preview,
+  taskId,
+}: {
+  objectKind: string;
+  preview: EvidenceCardData;
+  taskId?: string;
+}) {
   // A dashboard is its metrics: render each tile's insight as a live chart
   // and skip the descriptive cards, which only restate what the charts show.
   if (preview.tiles && preview.tiles.length > 0) {
@@ -115,9 +187,24 @@ function ObjectContent({ preview }: { preview: EvidenceCardData }) {
     );
   }
   const stats = (preview.stats ?? []).filter((stat) => stat.value);
+  const isFlag = objectKind === "flag";
   return (
     <div className="flex flex-col gap-3">
-      {stats.length > 0 ? (
+      {preview.flagAudience && (
+        <FlagAudienceCard
+          audience={preview.flagAudience}
+          displayConditions={preview.displayConditions}
+          copy={objectKind === "survey" ? SURVEY_AUDIENCE_COPY : undefined}
+          action={
+            isFlag && taskId && preview.title ? (
+              <EditFlagInTaskPopover taskId={taskId} flagKey={preview.title} />
+            ) : null
+          }
+        />
+      )}
+      {/* The audience card already states a flag's reach, type, and
+          variants, so the flag page skips the stat strip. */}
+      {isFlag && preview.flagAudience ? null : stats.length > 0 ? (
         <StatStrip stats={stats} />
       ) : preview.facts && preview.facts.length > 0 ? (
         <FactChips facts={preview.facts} />
@@ -161,6 +248,8 @@ export interface PostHogObjectViewProps {
   objectId: string;
   /** Shown while the preview loads or when the object has no live name. */
   fallbackName: string;
+  /** The task this object appears in; enables sending edits back to it. */
+  taskId?: string;
   url: string | null;
   /** Omitted when the page isn't backed by a run artifact (chip-opened). */
   occurrenceCount?: number;
@@ -173,6 +262,7 @@ export function PostHogObjectPageView({
   objectKind,
   objectId,
   fallbackName,
+  taskId,
   url,
   occurrenceCount,
   state,
@@ -181,7 +271,11 @@ export function PostHogObjectPageView({
   const object = getObjectKind(objectKind);
   const ObjectIcon = object.icon;
   const usesChartRenderer = objectKind === "insight" || objectKind === "hogql";
-  const title = preview?.title ?? fallbackName;
+  // A hogql preview's title is the first result column (raw SQL), a row
+  // count, or a formatted number, never the chip label, so the page shows the
+  // chip label instead. An insight's title is its live name and stays.
+  const title =
+    objectKind === "hogql" ? fallbackName : (preview?.title ?? fallbackName);
   const status = preview?.status;
   // The product name earns its place only when it adds context ("Insight ·
   // Product analytics"); drop it when it restates the kind ("Feature flag ·
@@ -190,10 +284,14 @@ export function PostHogObjectPageView({
     .toLowerCase()
     .split(" ")[0]
     .startsWith(object.kindLabel.toLowerCase().split(" ")[0]);
+  // A chart preview's `detail` joins its series labels for the hover card,
+  // which is raw SQL for hogql and duplicates the insight's legend; the page
+  // subtitle shows the object's own description instead, or nothing for hogql.
+  const subtitle = usesChartRenderer ? preview?.description : preview?.detail;
   const metaLine = [
     object.kindLabel,
     showSource ? object.source : null,
-    preview?.detail,
+    subtitle,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -240,15 +338,50 @@ export function PostHogObjectPageView({
         </header>
 
         <div className="mt-6">
-          {usesChartRenderer ? (
-            <MessageChartCard
-              spec={
-                objectKind === "insight"
-                  ? { mode: "insight", shortId: objectId }
-                  : { mode: "hogql", query: objectId }
-              }
-              blockKey={`artifact:${objectKind}:${objectId}`}
-            />
+          {objectKind === "experiment" ? (
+            <div className="flex flex-col gap-3">
+              <ExperimentResultsSummary
+                display="full"
+                loadState={state}
+                results={preview?.experimentResults}
+              />
+              {preview && <PostHogObjectDetails preview={preview} />}
+            </div>
+          ) : usesChartRenderer ? (
+            state === "loading" ? (
+              <Skeleton className="h-72 w-full rounded-lg" />
+            ) : state === "error" ? (
+              <ObjectChartCard
+                objectKind={objectKind}
+                objectId={objectId}
+                title={title}
+                state={{ kind: "error", message: CHART_ERROR_MESSAGE }}
+              />
+            ) : preview?.chartData ? (
+              <ObjectChartCard
+                objectKind={objectKind}
+                objectId={objectId}
+                title={title}
+                state={{ kind: "data", data: preview.chartData }}
+              />
+            ) : state === "missing" ? (
+              <ObjectChartCard
+                objectKind={objectKind}
+                objectId={objectId}
+                title={title}
+                state={{
+                  kind: "error",
+                  message: `No ${objectKind === "insight" ? "insight" : "query"} matches "${objectId}" in the current project.`,
+                }}
+              />
+            ) : (
+              <ObjectChartCard
+                objectKind={objectKind}
+                objectId={objectId}
+                title={title}
+                state={{ kind: "link-out" }}
+              />
+            )
           ) : state === "loading" ? (
             // Mirrors the loaded layout (stat strip, chart, detail card) so
             // content lands in place instead of reflowing the page.
@@ -262,7 +395,11 @@ export function PostHogObjectPageView({
               <Skeleton className="h-40 w-full rounded-lg" />
             </div>
           ) : preview ? (
-            <ObjectContent preview={preview} />
+            <ObjectContent
+              objectKind={objectKind}
+              preview={preview}
+              taskId={taskId}
+            />
           ) : (
             <UnavailableObject
               isError={state === "error"}
@@ -285,25 +422,31 @@ export function PostHogObjectPageView({
 export function PostHogObjectPage({
   metadata,
   fallbackName,
+  taskId,
 }: {
   /** Only kind + id when opened from an inline reference chip. */
   metadata: Pick<PostHogObjectArtifactMetadata, "object_kind" | "object_id"> &
     Partial<Omit<PostHogObjectArtifactMetadata, "object_kind" | "object_id">>;
   fallbackName: string;
+  taskId?: string;
 }) {
-  const usesChartRenderer =
-    metadata.object_kind === "insight" || metadata.object_kind === "hogql";
   const query = useAuthenticatedQuery(
-    ["evidence-preview", metadata.object_kind, metadata.object_id],
+    evidencePreviewQueryKey({
+      kind: metadata.object_kind,
+      id: metadata.object_id,
+    }),
     (client) =>
       fetchEvidencePreview(client, {
         kind: metadata.object_kind,
         id: metadata.object_id,
       }),
     {
-      enabled: !usesChartRenderer,
-      staleTime: 5 * 60 * 1000,
+      staleTime: EVIDENCE_PREVIEW_STALE_TIME,
       refetchOnWindowFocus: false,
+      // The flag page now offers an edit action, so a cached preview can
+      // outlive the object: always refetch on remount so a read after the
+      // agent applies a change shows the new state.
+      refetchOnMount: "always",
       retry: 1,
     },
   );
@@ -311,21 +454,20 @@ export function PostHogObjectPage({
     metadata.object_kind,
     query.data?.resolvedId ?? metadata.object_id,
   );
-  const state = usesChartRenderer
-    ? "ready"
-    : query.isPending
-      ? "loading"
-      : query.isError
-        ? "error"
-        : query.data
-          ? "ready"
-          : "missing";
+  const state = query.isPending
+    ? "loading"
+    : query.isError
+      ? "error"
+      : query.data
+        ? "ready"
+        : "missing";
 
   return (
     <PostHogObjectPageView
       objectKind={metadata.object_kind}
       objectId={metadata.object_id}
       fallbackName={fallbackName}
+      taskId={taskId}
       url={url}
       occurrenceCount={metadata.occurrence_count}
       state={state}

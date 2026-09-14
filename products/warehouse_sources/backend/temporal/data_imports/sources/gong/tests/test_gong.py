@@ -348,6 +348,7 @@ class TestGongSource:
         assert set(GONG_ENDPOINTS) == {
             "calls",
             "calls_extensive",
+            "calls_content",
             "transcripts",
             "users",
             "scorecards",
@@ -356,7 +357,55 @@ class TestGongSource:
 
 
 class TestExtensiveCalls:
-    def test_posts_extensive_body_and_flattens_metadata(self) -> None:
+    # Gong returns only the enrichment blocks the selector names, so a table whose selector and
+    # kept row keys disagree syncs null columns and no data at all.
+    @parameterized.expand(
+        [
+            (
+                "calls_extensive_requests_parties_and_crm_context",
+                "calls_extensive",
+                {
+                    "parties": [{"emailAddress": "buyer@acme.com", "affiliation": "External"}],
+                    "context": [{"system": "Salesforce", "objects": [{"objectType": "Account"}]}],
+                    "content": {"brief": "should be dropped — not a column on this table"},
+                },
+                {"context": "Extended", "exposedFields": {"parties": True}},
+                {
+                    "parties": [{"emailAddress": "buyer@acme.com", "affiliation": "External"}],
+                    "context": [{"system": "Salesforce", "objects": [{"objectType": "Account"}]}],
+                },
+            ),
+            (
+                "calls_content_requests_spotlight_summary_only",
+                "calls_content",
+                {
+                    "content": {"brief": "Buyer wants SSO.", "keyPoints": [{"text": "Asked about SSO"}]},
+                    "parties": [{"emailAddress": "buyer@acme.com"}],
+                },
+                {
+                    "context": "None",
+                    "exposedFields": {
+                        "content": {
+                            "brief": True,
+                            "keyPoints": True,
+                            "highlights": True,
+                            "callOutcome": True,
+                            "outline": True,
+                        }
+                    },
+                },
+                {"content": {"brief": "Buyer wants SSO.", "keyPoints": [{"text": "Asked about SSO"}]}},
+            ),
+        ]
+    )
+    def test_posts_selector_and_flattens_metadata(
+        self,
+        _name: str,
+        endpoint: str,
+        siblings: dict[str, Any],
+        expected_selector: dict[str, Any],
+        expected_columns: dict[str, Any],
+    ) -> None:
         last_value = datetime.now(UTC) - timedelta(days=5)
         session = _FakeSession(
             [
@@ -365,8 +414,7 @@ class TestExtensiveCalls:
                         "calls": [
                             {
                                 "metaData": {"id": "c1", "title": "Discovery", "started": "2026-03-01T00:00:00Z"},
-                                "parties": [{"emailAddress": "buyer@acme.com", "affiliation": "External"}],
-                                "context": [{"system": "Salesforce", "objects": [{"objectType": "Account"}]}],
+                                **siblings,
                             }
                         ]
                     }
@@ -383,7 +431,7 @@ class TestExtensiveCalls:
                 get_rows(
                     "key",
                     "secret",
-                    "calls_extensive",
+                    endpoint,
                     mock.MagicMock(),
                     manager,
                     should_use_incremental_field=True,
@@ -391,23 +439,13 @@ class TestExtensiveCalls:
                 )
             )
 
-        # metaData is lifted to the top level; parties and CRM context ride along as columns.
-        assert batches == [
-            [
-                {
-                    "id": "c1",
-                    "title": "Discovery",
-                    "started": "2026-03-01T00:00:00Z",
-                    "parties": [{"emailAddress": "buyer@acme.com", "affiliation": "External"}],
-                    "context": [{"system": "Salesforce", "objects": [{"objectType": "Account"}]}],
-                }
-            ]
-        ]
+        # metaData is lifted to the top level; only the blocks this table asked for ride along.
+        assert batches == [[{"id": "c1", "title": "Discovery", "started": "2026-03-01T00:00:00Z", **expected_columns}]]
         # A single POST to the extensive endpoint with no query string.
         assert session.requested_urls == [f"{GONG_BASE_URL}/v2/calls/extensive"]
         body = session.posted_bodies[0]
         assert body is not None
-        assert body["contentSelector"] == {"context": "Extended", "exposedFields": {"parties": True}}
+        assert body["contentSelector"] == expected_selector
         assert body["filter"]["fromDateTime"] == _format_datetime(last_value)
         assert "cursor" not in body
 

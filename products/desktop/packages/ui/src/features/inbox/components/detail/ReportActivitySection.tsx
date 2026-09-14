@@ -1,14 +1,13 @@
 import { ClockCounterClockwiseIcon } from "@phosphor-icons/react";
 import { ArtefactLogList } from "@posthog/ui/features/inbox/components/detail/ArtefactLogList";
+import { selectUsefulReportActivity } from "@posthog/ui/features/inbox/components/detail/reportActivity";
 import { RightColumnSection } from "@posthog/ui/features/inbox/components/RightColumnSection";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
-import { Text } from "@radix-ui/themes";
 
 /**
- * The report's artefact log ("Activity"), shared by every report detail
- * surface (reports, pull requests, runs) so the work log follows the report
- * wherever it is rendered. Renders nothing while loading or when the report
- * has no artefacts.
+ * The report's useful work history, shared by every report detail surface.
+ * Routine pipeline judgments and task links already appear in their own
+ * sections, so repeating them here would hide human-readable progress.
  */
 export function ReportActivitySection({
   reportId,
@@ -18,14 +17,13 @@ export function ReportActivitySection({
   /** Drop the per-commit diff toggle (PR detail shows the full diff already). */
   hideCommitDiffs?: boolean;
 }) {
-  // The log is a live work record — agents append artefacts while the report is
-  // open, so don't let the app-wide 5-minute staleTime sit on it. Poll gently
-  // while mounted.
+  // Agents append artefacts while the report is open, so the app-wide
+  // 5-minute stale time would hide progress from someone watching the report.
   const { data: artefactsResp } = useInboxReportArtefacts(reportId, {
     staleTime: 10_000,
     refetchInterval: 20_000,
   });
-  const artefacts = artefactsResp?.results ?? [];
+  const artefacts = selectUsefulReportActivity(artefactsResp?.results ?? []);
 
   if (artefacts.length === 0) return null;
 
@@ -36,9 +34,9 @@ export function ReportActivitySection({
       collapsible
       defaultCollapsed
       rightSlot={
-        <Text className="cursor-default select-none text-[11px] text-gray-10 tabular-nums">
+        <span className="cursor-default select-none text-[12px] text-gray-10 tabular-nums">
           {artefacts.length} entr{artefacts.length === 1 ? "y" : "ies"}
-        </Text>
+        </span>
       }
     >
       <ArtefactLogList

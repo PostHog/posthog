@@ -15,6 +15,7 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.evaluations import ModelConfigurationSerializer, _TargetConfigField
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_configs import validate_target_config
@@ -22,8 +23,6 @@ from products.ai_observability.backend.models.evaluation_reports import Evaluati
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
-
-from ee.models.rbac.access_control import AccessControl
 
 _DEFAULT_MODEL_CONFIGURATION = {
     "provider": "openai",
@@ -150,7 +149,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation_config.evaluation_type, "llm_judge")
         self.assertEqual(evaluation_config.evaluation_config, {"prompt": "Test prompt"})
         self.assertEqual(evaluation_config.output_type, "boolean")
-        self.assertEqual(evaluation_config.output_config, {"allows_na": False})
+        self.assertEqual(evaluation_config.output_config, {"allows_na": False, "true_is_failure": False})
         self.assertEqual(len(evaluation_config.conditions), 1)
         self.assertEqual(evaluation_config.conditions[0]["id"], "test-condition")
         self.assertEqual(evaluation_config.team, self.team)
@@ -168,6 +167,42 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertTrue(report.enabled)
         self.assertFalse(report.deleted)
         self.assertEqual(report.delivery_targets, [])
+
+    @parameterized.expand(
+        [
+            (
+                "allows_na",
+                {"allows_na": False},
+                {"allows_na": False, "true_is_failure": True},
+            ),
+            (
+                "true_is_failure",
+                {"true_is_failure": False},
+                {"allows_na": True, "true_is_failure": False},
+            ),
+        ]
+    )
+    def test_partial_update_preserves_other_output_config_fields(
+        self, _field_name: str, output_config: dict[str, bool], expected: dict[str, bool]
+    ) -> None:
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Boolean evaluation",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            output_config={"allows_na": True, "true_is_failure": True},
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
+            {"output_config": output_config},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["output_config"], expected)
 
     def test_target_defaults_to_generation(self):
         response = self.client.post(

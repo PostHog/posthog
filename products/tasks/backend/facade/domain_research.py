@@ -49,6 +49,7 @@ def research_domain(url: str) -> DomainResearch:
     try:
         scraped = scrape(url, source=EGRESS_SOURCE, formats=("markdown",), timeout=SCRAPE_TIMEOUT)
     except FirecrawlNotConfigured:
+        logger.warning("domain_research_firecrawl_not_configured")
         return DomainResearch(outcome="not_configured", url=url)
     except FirecrawlEgressBudgetExhausted:
         return DomainResearch(outcome="busy", url=url)

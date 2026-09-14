@@ -142,7 +142,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
     // including the one this mounts on.
     useOnMountEffect(() => {
         if (stepIndex === 0) {
-            reportOnboardingStarted('welcome', SELF_DRIVING_ONBOARDING_EVENT_PROPS)
+            reportOnboardingStarted(SELF_DRIVING_ONBOARDING_EVENT_PROPS)
         }
     })
     useEffect(() => {
@@ -270,7 +270,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                     )}
                     {!step.hideContinue && (
                         <div className="flex items-center gap-2">
-                            {step.id === 'install' && <ManualSetupButton />}
+                            {step.id === 'install' && <ManualSetupButton onAdvance={advance} />}
                             <LemonButton
                                 type="primary"
                                 status="alt"

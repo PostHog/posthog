@@ -11,6 +11,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.review_hog.backend.models import ReviewReport
+
 TRIGGER_URL = "/api/review_hog/trigger/"
 RESOLVE_URL = "/api/review_hog/resolve/"
 _START = "products.review_hog.backend.api.trigger.start_review_pr_workflow"
@@ -202,6 +204,34 @@ class TestReviewHogTriggerApi(APIBaseTest):
         self.assertIn("Still resolving comments", resp.json()["error"])
         self.mock_busy.assert_called_once_with(f"resolve-pr:{self.trigger_team.id}:posthog/posthog:123")
         mock_start.assert_not_called()
+
+    @patch(_START, return_value="wf-1")
+    def test_label_during_a_running_cheaper_review_lifts_the_tier_and_says_so(self, mock_start):
+        # A same-id start joins the in-flight turn, so the label's trigger source never reaches the
+        # fetch upsert: without this lift the cheap turn publishes, the full review the label asked
+        # for never runs, and the Action reports success.
+        report = ReviewReport.objects.for_team(self.trigger_team.id).create(
+            team=self.trigger_team,
+            repository="posthog/posthog",
+            pr_number=123,
+            pr_url="https://github.com/PostHog/posthog/pull/123",
+            head_branch="fix",
+            base_branch="master",
+            review_tier="agent_p3_p4",
+            review_reasoning_effort="low",
+        )
+        self.mock_busy.side_effect = lambda workflow_id: workflow_id.startswith("review-pr:")
+        resp = self.client.post(
+            TRIGGER_URL,
+            {"repo": "PostHog/posthog", "pr_number": 123},
+            format="json",
+            HTTP_AUTHORIZATION="Bearer secret-token",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        self.assertEqual(resp.json(), {"workflow_id": "wf-1", "status": "joined_running_review"})
+        mock_start.assert_called_once()
+        report.refresh_from_db()
+        self.assertEqual((report.review_tier, report.review_reasoning_effort), ("human", "xhigh"))
 
     @patch(_START_RESOLUTION, return_value="wf-r-1")
     def test_resolve_refused_while_review_is_running(self, mock_start_resolution):

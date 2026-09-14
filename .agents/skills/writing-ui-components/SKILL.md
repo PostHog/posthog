@@ -62,8 +62,8 @@ structure, logic wiring, `data-attr` naming — and name the precedent you're fo
 surface that matches its compliant neighbors is on-brand by construction.
 
 But **filter precedent through the conventions**. The codebase carries legacy that predates
-these rules — clickable divs, hand-rolled tables, new-style-banned `LemonMenu`s, deprecated
-`ProductIntroduction` call sites, re-export shims, slop styling. An existing violation is
+these rules — clickable divs, hand-rolled tables, new-style-banned `LemonMenu`s, whole-scene
+`ProductIntroduction` panels where the scene gate belongs, re-export shims, slop styling. An existing violation is
 history, not license: this skill and `frontend/src/AGENTS.md` outrank precedent. When the
 nearest example violates the rules, follow the rules — and if the violation is cheap to fix,
 convert it while you're there ([references/anti-patterns.md](references/anti-patterns.md)).
@@ -75,7 +75,8 @@ Telling good precedent from bad:
   [scene-menu-bar](../scene-menu-bar/SKILL.md) — and recently-touched code (`git log`) over
   untouched corners.
 - **Prefer current primitives**: quill menus/comboboxes over `LemonMenu`/Radix menus,
-  `ProductEmptyState` over `ProductIntroduction`, generated `*Api` types over handwritten ones.
+  the `ProductEmptyState` gate over a whole-scene `ProductIntroduction`, generated `*Api` types
+  over handwritten ones.
 - When they conflict, the priority order is **conventions > compliant precedent > invention**.
   Inventing a new pattern when a compliant precedent exists is itself a reuse violation.
 

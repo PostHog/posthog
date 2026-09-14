@@ -35,6 +35,7 @@ from posthog.temporal.proxy_service.cloudflare import (
     CustomHostnameSSLStatus,
     create_custom_hostname,
     get_custom_hostname_by_domain,
+    update_cloudflare_proxy_root_redirect,
 )
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
@@ -44,6 +45,7 @@ from posthog.temporal.proxy_service.common import (
     activity_send_proxy_created_email,
     activity_update_proxy_record,
     get_grpc_client,
+    get_record,
     record_exists,
     update_record,
     use_cloudflare_proxy,
@@ -289,7 +291,8 @@ async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs)
         inputs.domain,
     )
 
-    if not await record_exists(inputs.proxy_record_id):
+    record = await get_record(inputs.proxy_record_id)
+    if record is None:
         raise RecordDeletedException("proxy record was deleted while creating Cloudflare Custom Hostname")
 
     try:
@@ -304,11 +307,19 @@ async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs)
         if any(err.get("code") == 1406 for err in e.errors):
             # Custom hostname already exists
             logger.info("Cloudflare Custom Hostname already exists for domain %s", inputs.domain)
-            return
-        if e.is_rate_limited():
+        elif e.is_rate_limited():
             # Rate limited by Cloudflare — re-raise to let Temporal retry with backoff
             raise
-        raise NonRetriableException(f"Cloudflare API error: {e}") from e
+        else:
+            raise NonRetriableException(f"Cloudflare API error: {e}") from e
+
+    if record.root_redirect_url:
+        try:
+            await asyncio.to_thread(update_cloudflare_proxy_root_redirect, inputs.domain, record.root_redirect_url)
+        except CloudflareAPIError as e:
+            if e.is_rate_limited():
+                raise
+            raise NonRetriableException(f"Cloudflare KV error: {e}") from e
 
 
 @activity.defn

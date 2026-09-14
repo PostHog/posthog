@@ -54,6 +54,13 @@ export interface LocalToolGateMeta {
    */
   peerMessaging?: boolean;
   taskOriginProduct?: string;
+  /**
+   * Workflow-action opt-in (run state `end_run_when_done`): exposes the `finish`
+   * tool to a workflow-origin run, ending it the moment the agent is done.
+   * Without it the run stays live for its idle window so its Slack reply can
+   * relay and thread replies still reach the agent.
+   */
+  endRunWhenDone?: boolean;
 }
 
 /**

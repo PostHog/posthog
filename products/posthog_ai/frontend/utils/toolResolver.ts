@@ -33,23 +33,40 @@ export function extractClaudeToolName(meta: unknown): string | undefined {
     return typeof claudeCode?.toolName === 'string' && claudeCode.toolName ? claudeCode.toolName : undefined
 }
 
+export function extractAgentToolName(meta: unknown): string | undefined {
+    const posthog = typeof meta === 'object' && meta !== null ? (meta as { posthog?: unknown }).posthog : undefined
+    if (typeof posthog === 'object' && posthog !== null) {
+        const { toolName, mcp } = posthog as { toolName?: unknown; mcp?: unknown }
+        if (typeof mcp === 'object' && mcp !== null) {
+            const { server, tool } = mcp as { server?: unknown; tool?: unknown }
+            if (typeof server === 'string' && server && typeof tool === 'string' && tool) {
+                return `mcp__${server}__${tool}`
+            }
+        }
+        if (typeof toolName === 'string' && toolName) {
+            return toolName
+        }
+    }
+    return extractClaudeToolName(meta)
+}
+
 /**
  * Resolves the registry key for a tool call. The single-exec `posthog` MCP server exposes one
  * outer `exec` tool; the inner tool name is parsed out of `rawInput.command`. Non-exec MCP tools
- * and Claude built-ins look up by their wire name directly. Claude built-ins carry no wire
- * `toolName`, so `claudeToolName` (from `_meta.claudeCode.toolName`) is preferred as the fallback.
+ * and built-ins look up by their wire name directly. Adapters can omit the wire `toolName`,
+ * so the canonical name from adapter metadata is the fallback.
  */
 export function resolveToolKey(
     serverName: string,
     toolName: string,
     input: Record<string, unknown>,
-    claudeToolName?: string
+    agentToolName?: string
 ): ResolvedToolKey {
     const fullName = `mcp__${serverName}__${toolName}`
     const isPostHogExecTool =
         POSTHOG_EXEC_TOOL_RE.test(fullName) ||
         POSTHOG_EXEC_TOOL_RE.test(toolName) ||
-        (claudeToolName ? POSTHOG_EXEC_TOOL_RE.test(claudeToolName) : false)
+        (agentToolName ? POSTHOG_EXEC_TOOL_RE.test(agentToolName) : false)
 
     if (isPostHogExecTool && typeof input.command === 'string') {
         const { verb, rest } = parseExecCommand(input.command)
@@ -80,21 +97,28 @@ export function resolveToolKey(
         return { resolvedKey: subTool, innerToolName: subTool, innerInput }
     }
 
-    return { resolvedKey: toolName || claudeToolName || '' }
+    return { resolvedKey: toolName || agentToolName || '' }
 }
 
 /** Resolves renderer-facing fields from a raw streamed tool invocation. */
 export function resolveToolCall(toolCall: ResolvableToolCall): ResolvedToolCall {
     const claudeToolName = extractClaudeToolName(toolCall.meta)
+    const agentToolName = extractAgentToolName(toolCall.meta)
+    const mcp = agentToolName?.match(/^mcp__(.+?)__(.+)$/)
     return {
-        ...resolveToolKey(toolCall.rawServerName, toolCall.rawToolName, toolCall.input, claudeToolName),
+        ...resolveToolKey(
+            mcp?.[1] ?? toolCall.rawServerName,
+            mcp?.[0] ?? toolCall.rawToolName,
+            toolCall.input,
+            agentToolName
+        ),
         claudeToolName,
     }
 }
 
 /**
  * The proposed inner tool input for a permission request — the args a tool renderer or a
- * `renderPermissionPreview` needs to preview what an approval will do. For a PostHog exec call this is
+ * `PermissionPreview` needs to preview what an approval will do. For a PostHog exec call this is
  * the command-embedded JSON args (`call <sub-tool> {…}`), falling back to the explicit `input` field
  * when the agent sends args out of band. Returns an empty object when neither is present.
  */

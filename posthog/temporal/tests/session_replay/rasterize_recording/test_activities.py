@@ -51,6 +51,7 @@ def _make_asset(
     asset.export_context = export_context
     asset.export_format = export_format
     asset.content_location = content_location
+    asset.source_authentication = None
     asset.save = MagicMock()
     return asset
 

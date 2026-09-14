@@ -47,8 +47,6 @@ def test_can_get_exports_for_your_organizations(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -97,26 +95,8 @@ def test_can_get_exports_for_your_organizations(
 
 
 def test_cannot_get_exports_for_other_organizations(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     another_organization = create_organization("Another Org")
     another_user = create_user("another-test@user.com", "Another Test User", another_organization)
 
@@ -124,7 +104,7 @@ def test_cannot_get_exports_for_other_organizations(
     response = create_batch_export_ok(
         client,
         team.pk,
-        batch_export_data,
+        s3_batch_export_data,
     )
 
     client.force_login(another_user)
@@ -133,30 +113,12 @@ def test_cannot_get_exports_for_other_organizations(
 
 
 def test_batch_exports_are_partitioned_by_team(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
     """
     You shouldn't be able to fetch a BatchExport by id, via a team that it
     doesn't belong to.
     """
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     another_team = create_team(organization)
     # Integrations are team-scoped, so the other team's export needs its own.
     another_team_integration = Integration.objects.create(
@@ -172,7 +134,7 @@ def test_batch_exports_are_partitioned_by_team(
     batch_export = create_batch_export_ok(
         client,
         team.pk,
-        batch_export_data,
+        s3_batch_export_data,
     )
 
     response = get_batch_export(client, another_team.pk, batch_export["id"])
@@ -182,7 +144,10 @@ def test_batch_exports_are_partitioned_by_team(
     batch_export = create_batch_export_ok(
         client,
         another_team.pk,
-        {**batch_export_data, "destination": {**destination_data, "integration": another_team_integration.id}},
+        {
+            **s3_batch_export_data,
+            "destination": {**s3_batch_export_data["destination"], "integration": another_team_integration.id},
+        },
     )
 
     response = get_batch_export(client, team.pk, batch_export["id"])

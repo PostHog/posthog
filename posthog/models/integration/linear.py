@@ -80,19 +80,62 @@ class LinearIntegration:
         if body.get("errors") or not common.dot_get(body, "data.attachmentCreate.success"):
             raise ValidationError("Failed to attach the PostHog link to the Linear issue")
 
-    def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
-        """Search existing Linear issues by title / identifier for the link-existing flow."""
-        search_query = """
-        query SearchIssues($term: String!, $first: Int!) {
-            searchIssues(term: $term, first: $first) {
-                nodes { identifier title url }
+    def close_issue(self, issue_id: str, *, completed: bool = False) -> None:
+        """Move an issue to its team's completed or canceled state. Raises on failure.
+
+        Linear has no generic "close" verb: an issue closes by moving to a workflow state, and
+        the state ids differ per team. So read the issue's own team states first.
+        """
+        state_type = "completed" if completed else "canceled"
+        states_query = """
+        query IssueCloseState($id: String!, $stateType: String!) {
+            issue(id: $id) {
+                team { states(filter: { type: { eq: $stateType } }) { nodes { id } } }
             }
         }
         """
-        body = self.query(search_query, variables={"term": query, "first": limit})
-        if body.get("errors") or common.dot_get(body, "data.searchIssues") is None:
+        body = self.query(states_query, variables={"id": issue_id, "stateType": state_type})
+        nodes = common.dot_get(body, "data.issue.team.states.nodes") or []
+        if body.get("errors") or not nodes:
+            raise ValidationError(f"Failed to find a {state_type} state for the Linear issue")
+
+        update_query = """
+        mutation IssueClose($id: String!, $stateId: String!) {
+            issueUpdate(id: $id, input: { stateId: $stateId }) { success }
+        }
+        """
+        body = self.query(update_query, variables={"id": issue_id, "stateId": nodes[0]["id"]})
+        if body.get("errors") or not common.dot_get(body, "data.issueUpdate.success"):
+            raise ValidationError(f"Failed to move the Linear issue to a {state_type} state")
+
+    def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
+        """Search existing Linear issues by title / identifier for the link-existing flow.
+
+        A blank query lists recently updated issues instead - searchIssues requires a term.
+        """
+        if query.strip():
+            search_query = """
+            query SearchIssues($term: String!, $first: Int!) {
+                searchIssues(term: $term, first: $first) {
+                    nodes { identifier title url }
+                }
+            }
+            """
+            body = self.query(search_query, variables={"term": query, "first": limit})
+            nodes_path = "data.searchIssues"
+        else:
+            recent_query = """
+            query RecentIssues($first: Int!) {
+                issues(first: $first, orderBy: updatedAt) {
+                    nodes { identifier title url }
+                }
+            }
+            """
+            body = self.query(recent_query, variables={"first": limit})
+            nodes_path = "data.issues"
+        if body.get("errors") or common.dot_get(body, nodes_path) is None:
             raise ValidationError("Failed to search Linear issues")
-        nodes = common.dot_get(body, "data.searchIssues.nodes") or []
+        nodes = common.dot_get(body, f"{nodes_path}.nodes") or []
         results: list[dict[str, Any]] = []
         for node in nodes:
             identifier = node.get("identifier")

@@ -2,31 +2,30 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    BusinessKnowledgeDocumentsSearchListQueryParams,
-    BusinessKnowledgeDocumentsWindowListParams,
-    BusinessKnowledgeDocumentsWindowListQueryParams,
-    BusinessKnowledgeSourcesCreateBody,
-    BusinessKnowledgeSourcesListQueryParams,
-    BusinessKnowledgeSourcesPartialUpdateBody,
-    BusinessKnowledgeSourcesPartialUpdateParams,
-    BusinessKnowledgeSourcesRetrieveParams,
-} from '@/generated/business_knowledge/api'
+import * as orvalSchemas from '@/generated/business_knowledge/api'
 import { BusinessKnowledgeUrlSourceCreateSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const BusinessKnowledgeDocumentWindowRetrieveSchema = BusinessKnowledgeDocumentsWindowListParams.omit({
-    project_id: true,
-}).extend(BusinessKnowledgeDocumentsWindowListQueryParams.shape)
+const BusinessKnowledgeDocumentWindowRetrieveSchema = () => {
+    const BusinessKnowledgeDocumentsWindowListParams = orvalSchemas.BusinessKnowledgeDocumentsWindowListParams()
+    const BusinessKnowledgeDocumentsWindowListQueryParams =
+        orvalSchemas.BusinessKnowledgeDocumentsWindowListQueryParams()
+    return BusinessKnowledgeDocumentsWindowListParams.omit({ project_id: true }).extend(
+        BusinessKnowledgeDocumentsWindowListQueryParams.shape
+    )
+}
 
 const businessKnowledgeDocumentWindowRetrieve = (): ToolBase<
-    typeof BusinessKnowledgeDocumentWindowRetrieveSchema,
+    ReturnType<typeof BusinessKnowledgeDocumentWindowRetrieveSchema>,
     Schemas.KnowledgeDocumentWindow[]
 > => ({
     name: 'business-knowledge-document-window-retrieve',
-    schema: BusinessKnowledgeDocumentWindowRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof BusinessKnowledgeDocumentWindowRetrieveSchema>) => {
+    schema: BusinessKnowledgeDocumentWindowRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof BusinessKnowledgeDocumentWindowRetrieveSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.KnowledgeDocumentWindow[]>({
             method: 'GET',
@@ -40,15 +39,19 @@ const businessKnowledgeDocumentWindowRetrieve = (): ToolBase<
     },
 })
 
-const BusinessKnowledgeDocumentsSearchSchema = BusinessKnowledgeDocumentsSearchListQueryParams
+const BusinessKnowledgeDocumentsSearchSchema = () => {
+    const BusinessKnowledgeDocumentsSearchListQueryParams =
+        orvalSchemas.BusinessKnowledgeDocumentsSearchListQueryParams()
+    return BusinessKnowledgeDocumentsSearchListQueryParams
+}
 
 const businessKnowledgeDocumentsSearch = (): ToolBase<
-    typeof BusinessKnowledgeDocumentsSearchSchema,
+    ReturnType<typeof BusinessKnowledgeDocumentsSearchSchema>,
     Schemas.KnowledgeSearchResult[]
 > => ({
     name: 'business-knowledge-documents-search',
-    schema: BusinessKnowledgeDocumentsSearchSchema,
-    handler: async (context: Context, params: z.infer<typeof BusinessKnowledgeDocumentsSearchSchema>) => {
+    schema: BusinessKnowledgeDocumentsSearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BusinessKnowledgeDocumentsSearchSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.KnowledgeSearchResult[]>({
             method: 'GET',
@@ -63,15 +66,18 @@ const businessKnowledgeDocumentsSearch = (): ToolBase<
     },
 })
 
-const BusinessKnowledgeSourcesListSchema = BusinessKnowledgeSourcesListQueryParams
+const BusinessKnowledgeSourcesListSchema = () => {
+    const BusinessKnowledgeSourcesListQueryParams = orvalSchemas.BusinessKnowledgeSourcesListQueryParams()
+    return BusinessKnowledgeSourcesListQueryParams
+}
 
 const businessKnowledgeSourcesList = (): ToolBase<
-    typeof BusinessKnowledgeSourcesListSchema,
+    ReturnType<typeof BusinessKnowledgeSourcesListSchema>,
     WithPostHogUrl<Schemas.PaginatedKnowledgeSourceList>
 > => ({
     name: 'business-knowledge-sources-list',
-    schema: BusinessKnowledgeSourcesListSchema,
-    handler: async (context: Context, params: z.infer<typeof BusinessKnowledgeSourcesListSchema>) => {
+    schema: BusinessKnowledgeSourcesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BusinessKnowledgeSourcesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedKnowledgeSourceList>({
             method: 'GET',
@@ -106,17 +112,24 @@ const businessKnowledgeSourcesList = (): ToolBase<
     },
 })
 
-const BusinessKnowledgeSourcesPartialUpdateSchema = BusinessKnowledgeSourcesPartialUpdateParams.omit({
-    project_id: true,
-}).extend(BusinessKnowledgeSourcesPartialUpdateBody.shape)
+const BusinessKnowledgeSourcesPartialUpdateSchema = () => {
+    const BusinessKnowledgeSourcesPartialUpdateBody = orvalSchemas.BusinessKnowledgeSourcesPartialUpdateBody()
+    const BusinessKnowledgeSourcesPartialUpdateParams = orvalSchemas.BusinessKnowledgeSourcesPartialUpdateParams()
+    return BusinessKnowledgeSourcesPartialUpdateParams.omit({ project_id: true }).extend(
+        BusinessKnowledgeSourcesPartialUpdateBody.shape
+    )
+}
 
 const businessKnowledgeSourcesPartialUpdate = (): ToolBase<
-    typeof BusinessKnowledgeSourcesPartialUpdateSchema,
+    ReturnType<typeof BusinessKnowledgeSourcesPartialUpdateSchema>,
     Schemas.KnowledgeSource
 > => ({
     name: 'business-knowledge-sources-partial-update',
-    schema: BusinessKnowledgeSourcesPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof BusinessKnowledgeSourcesPartialUpdateSchema>) => {
+    schema: BusinessKnowledgeSourcesPartialUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof BusinessKnowledgeSourcesPartialUpdateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -137,15 +150,18 @@ const businessKnowledgeSourcesPartialUpdate = (): ToolBase<
     },
 })
 
-const BusinessKnowledgeSourcesRetrieveSchema = BusinessKnowledgeSourcesRetrieveParams.omit({ project_id: true })
+const BusinessKnowledgeSourcesRetrieveSchema = () => {
+    const BusinessKnowledgeSourcesRetrieveParams = orvalSchemas.BusinessKnowledgeSourcesRetrieveParams()
+    return BusinessKnowledgeSourcesRetrieveParams.omit({ project_id: true })
+}
 
 const businessKnowledgeSourcesRetrieve = (): ToolBase<
-    typeof BusinessKnowledgeSourcesRetrieveSchema,
+    ReturnType<typeof BusinessKnowledgeSourcesRetrieveSchema>,
     Schemas.KnowledgeSource
 > => ({
     name: 'business-knowledge-sources-retrieve',
-    schema: BusinessKnowledgeSourcesRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof BusinessKnowledgeSourcesRetrieveSchema>) => {
+    schema: BusinessKnowledgeSourcesRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BusinessKnowledgeSourcesRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.KnowledgeSource>({
             method: 'GET',
@@ -155,15 +171,18 @@ const businessKnowledgeSourcesRetrieve = (): ToolBase<
     },
 })
 
-const BusinessKnowledgeSourcesTextCreateSchema = BusinessKnowledgeSourcesCreateBody
+const BusinessKnowledgeSourcesTextCreateSchema = () => {
+    const BusinessKnowledgeSourcesCreateBody = orvalSchemas.BusinessKnowledgeSourcesCreateBody()
+    return BusinessKnowledgeSourcesCreateBody
+}
 
 const businessKnowledgeSourcesTextCreate = (): ToolBase<
-    typeof BusinessKnowledgeSourcesTextCreateSchema,
+    ReturnType<typeof BusinessKnowledgeSourcesTextCreateSchema>,
     Schemas.KnowledgeSource
 > => ({
     name: 'business-knowledge-sources-text-create',
-    schema: BusinessKnowledgeSourcesTextCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof BusinessKnowledgeSourcesTextCreateSchema>) => {
+    schema: BusinessKnowledgeSourcesTextCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BusinessKnowledgeSourcesTextCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -184,17 +203,17 @@ const businessKnowledgeSourcesTextCreate = (): ToolBase<
     },
 })
 
-const BusinessKnowledgeSourcesUrlCreateSchema = BusinessKnowledgeUrlSourceCreateSchema
+const BusinessKnowledgeSourcesUrlCreateSchema = () => BusinessKnowledgeUrlSourceCreateSchema
 
 const businessKnowledgeSourcesUrlCreate = (): ToolBase<
-    typeof BusinessKnowledgeSourcesUrlCreateSchema,
+    ReturnType<typeof BusinessKnowledgeSourcesUrlCreateSchema>,
     Schemas.KnowledgeSource
 > => ({
     name: 'business-knowledge-sources-url-create',
-    schema: BusinessKnowledgeSourcesUrlCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof BusinessKnowledgeSourcesUrlCreateSchema>) => {
+    schema: BusinessKnowledgeSourcesUrlCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BusinessKnowledgeSourcesUrlCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const parsedParams = BusinessKnowledgeSourcesUrlCreateSchema.parse(params)
+        const parsedParams = BusinessKnowledgeSourcesUrlCreateSchema().parse(params)
         const result = await context.api.request<Schemas.KnowledgeSource>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/sources/`,

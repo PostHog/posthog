@@ -2,15 +2,30 @@ import { describe, expect, it } from "vitest";
 import { taskFeedRunStatus } from "./channelFeed";
 
 describe("taskFeedRunStatus", () => {
-  it.each(["queued", "in_progress"] as const)(
-    "preserves a cloud %s status even when local session activity has settled",
-    (status) => {
+  it("preserves a queued cloud status", () => {
+    expect(
+      taskFeedRunStatus({
+        status: "queued",
+        environment: "cloud",
+      }),
+    ).toBe("queued");
+  });
+
+  it.each([
+    ["an active interactive run", "interactive", true, "in_progress"],
+    ["an idle interactive run", "interactive", false, null],
+    ["a restored background run", "background", false, "in_progress"],
+  ] as const)(
+    "shows the status for %s",
+    (_case, runMode, isGenerating, expected) => {
       expect(
         taskFeedRunStatus({
-          status,
+          status: "in_progress",
           environment: "cloud",
+          runMode,
+          isGenerating,
         }),
-      ).toBe(status);
+      ).toBe(expected);
     },
   );
 

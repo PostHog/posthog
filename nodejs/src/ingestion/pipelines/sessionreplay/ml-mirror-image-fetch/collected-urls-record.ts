@@ -1,7 +1,10 @@
+import type { UrlPolicyDecline } from '@posthog/replay-anonymizer'
+
 import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 
-import { canonicalizeUrl } from './politeness-key'
+import { ImageFetchBlockReason, isImageFetchBlockReason } from './block-reason'
+import { tryCanonicalizeUrl } from './politeness-key'
 
 export const MAX_HOPS = 10
 export const MAX_JOBS_PER_RECORD = 1_000
@@ -14,13 +17,16 @@ export type UrlDropReason =
     | 'bad_url'
     | 'foreign_domain'
     | 'oversized_record'
-export type RepublishReason =
+/** Why the parser dropped a job on its own, without rejecting the record that carries it. */
+export type UrlSkipReason = UrlPolicyDecline
+export type StoredRepublishReason =
     | 'redirect'
     | 'retry'
     | 'not_ready'
     | 'pass_deadline'
     | 'origin_map_full'
     | 'registrable_domain_map_full'
+export type RepublishReason = StoredRepublishReason
 
 export interface FetchCandidate {
     originalRef: string
@@ -33,7 +39,9 @@ export interface FetchCandidate {
     firstSeenAtMs: number
     fetchCount: number
     republishCount: number
-    lastRepublishReason: RepublishReason | null
+    lastRepublishReason: StoredRepublishReason | null
+    lastBlockReason?: ImageFetchBlockReason
+    sourcePartitions?: readonly number[]
 }
 
 export interface FrontierRecord {
@@ -49,12 +57,19 @@ export interface FrontierRecord {
             | 'fetchCount'
             | 'republishCount'
             | 'lastRepublishReason'
+            | 'lastBlockReason'
         >
     >
 }
 
 export type RecordParse =
-    | { ok: true; candidates: FetchCandidate[]; urlCount: number; rejected: { reason: UrlDropReason }[] }
+    | {
+          ok: true
+          candidates: FetchCandidate[]
+          urlCount: number
+          rejected: { reason: UrlDropReason }[]
+          skipped: { reason: UrlSkipReason }[]
+      }
     | {
           ok: false
           reason: Extract<
@@ -71,7 +86,7 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
     return Number.isSafeInteger(value) && (value as number) >= 0
 }
 
-function isRepublishReason(value: unknown): value is RepublishReason | null {
+function isStoredRepublishReason(value: unknown): value is StoredRepublishReason | null {
     return (
         value === null ||
         value === 'redirect' ||
@@ -115,14 +130,19 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
 
     const candidates: FetchCandidate[] = []
     const rejected: { reason: UrlDropReason }[] = []
+    const skipped: { reason: UrlSkipReason }[] = []
     for (const job of parsed.jobs) {
         const parsedJob = parseJob(job, key)
-        if (!parsedJob.ok) {
+        if (parsedJob.kind === 'rejected') {
             return { ok: false, reason: parsedJob.reason }
+        }
+        if (parsedJob.kind === 'skipped') {
+            skipped.push({ reason: parsedJob.reason })
+            continue
         }
         candidates.push(parsedJob.candidate)
     }
-    return { ok: true, candidates, urlCount: parsed.jobs.length, rejected }
+    return { ok: true, candidates, urlCount: parsed.jobs.length, rejected, skipped }
 }
 
 function parseLegacyRecord(parsed: Record<string, unknown>, kafkaKey: string): RecordParse {
@@ -143,6 +163,7 @@ function parseLegacyRecord(parsed: Record<string, unknown>, kafkaKey: string): R
     const readyAtMs = isNonNegativeSafeInteger(notBeforeMs) ? notBeforeMs : 0
     const candidates: FetchCandidate[] = []
     const rejected: { reason: UrlDropReason }[] = []
+    const skipped: { reason: UrlSkipReason }[] = []
     for (const entry of urls) {
         if (!isRecord(entry) || typeof entry.ref !== 'string' || typeof entry.url !== 'string') {
             rejected.push({ reason: 'bad_url' })
@@ -153,11 +174,16 @@ function parseLegacyRecord(parsed: Record<string, unknown>, kafkaKey: string): R
             rejected.push({ reason: 'bad_ref' })
             continue
         }
-        const canonical = canonicalizeUrl(entry.url)
-        if (!canonical) {
-            rejected.push({ reason: 'bad_url' })
+        const verdict = tryCanonicalizeUrl(entry.url)
+        if (!verdict.ok) {
+            if (verdict.unwanted) {
+                skipped.push({ reason: verdict.decline })
+            } else {
+                rejected.push({ reason: 'bad_url' })
+            }
             continue
         }
+        const canonical = verdict.url
         if (canonical.domain !== kafkaKey.replace(/\.$/, '')) {
             rejected.push({ reason: 'foreign_domain' })
             continue
@@ -176,17 +202,17 @@ function parseLegacyRecord(parsed: Record<string, unknown>, kafkaKey: string): R
             lastRepublishReason: null,
         })
     }
-    return { ok: true, candidates, urlCount: urls.length, rejected }
+    return { ok: true, candidates, urlCount: urls.length, rejected, skipped }
 }
 
-function parseJob(
-    job: unknown,
-    kafkaKey: string
-):
-    | { ok: true; candidate: FetchCandidate }
-    | { ok: false; reason: Extract<UrlDropReason, 'bad_ref' | 'bad_url' | 'foreign_domain'> } {
+type ParsedJob =
+    | { kind: 'candidate'; candidate: FetchCandidate }
+    | { kind: 'rejected'; reason: Extract<UrlDropReason, 'bad_ref' | 'bad_url' | 'foreign_domain'> }
+    | { kind: 'skipped'; reason: UrlSkipReason }
+
+function parseJob(job: unknown, kafkaKey: string): ParsedJob {
     if (!isRecord(job)) {
-        return { ok: false, reason: 'bad_url' }
+        return { kind: 'rejected', reason: 'bad_url' }
     }
     const {
         originalRef,
@@ -197,6 +223,8 @@ function parseJob(
         fetchCount,
         republishCount,
         lastRepublishReason,
+        lastBlockReason,
+        lowOriginDiversityDeferred,
     } = job
     if (
         typeof originalRef !== 'string' ||
@@ -207,23 +235,31 @@ function parseJob(
         !isNonNegativeSafeInteger(firstSeenAtMs) ||
         !isNonNegativeSafeInteger(fetchCount) ||
         !isNonNegativeSafeInteger(republishCount) ||
-        !isRepublishReason(lastRepublishReason)
+        !isStoredRepublishReason(lastRepublishReason) ||
+        (lastBlockReason !== undefined && !isImageFetchBlockReason(lastBlockReason)) ||
+        (lowOriginDiversityDeferred !== undefined && typeof lowOriginDiversityDeferred !== 'boolean')
     ) {
-        return { ok: false, reason: 'bad_url' }
+        return { kind: 'rejected', reason: 'bad_url' }
     }
     const ref = parseImageRef(originalRef)
     if (!ref || ref.source !== 'url' || ref.pseudoTeam !== undefined) {
-        return { ok: false, reason: 'bad_ref' }
+        return { kind: 'rejected', reason: 'bad_ref' }
     }
-    const canonical = canonicalizeUrl(currentUrl)
-    if (!canonical || canonical.fetch !== currentUrl) {
-        return { ok: false, reason: 'bad_url' }
+    const verdict = tryCanonicalizeUrl(currentUrl)
+    if (!verdict.ok) {
+        // A rejected job sends its whole record to the dead-letter topic, and a record can hold an
+        // unwanted URL next to real images, so an unwanted URL is skipped on its own instead.
+        return verdict.unwanted ? { kind: 'skipped', reason: verdict.decline } : { kind: 'rejected', reason: 'bad_url' }
+    }
+    const canonical = verdict.url
+    if (canonical.fetch !== currentUrl) {
+        return { kind: 'rejected', reason: 'bad_url' }
     }
     if (canonical.domain !== kafkaKey) {
-        return { ok: false, reason: 'foreign_domain' }
+        return { kind: 'rejected', reason: 'foreign_domain' }
     }
     return {
-        ok: true,
+        kind: 'candidate',
         candidate: {
             originalRef,
             currentUrl,
@@ -236,6 +272,7 @@ function parseJob(
             fetchCount,
             republishCount,
             lastRepublishReason,
+            lastBlockReason,
         },
     }
 }
@@ -252,6 +289,7 @@ export function serializeFrontierRecord(candidates: FetchCandidate[]): Buffer {
             fetchCount: candidate.fetchCount,
             republishCount: candidate.republishCount,
             lastRepublishReason: candidate.lastRepublishReason,
+            lastBlockReason: candidate.lastBlockReason,
         })),
     }
     return Buffer.from(JSON.stringify(record))

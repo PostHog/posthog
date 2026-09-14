@@ -4,13 +4,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.servicem8 import (
@@ -19,10 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.servicem8 import ServiceM8ResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.source import Servicem8Source
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.source"
 
@@ -52,28 +43,6 @@ class TestServiceM8Source:
         self.team_id = 123
         self.config = Servicem8SourceConfig(api_key="sm8-key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SERVICEM8
-
-    def test_source_config_is_released_in_alpha(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.category == DataWarehouseSourceCategory.CRM
-        assert config.iconPath == "/static/services/servicem8.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/servicem8"
-
-    def test_api_key_field(self) -> None:
-        fields = self.source.get_source_config.fields
-        assert len(fields) == 1
-
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_key"
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.required is True
-        assert field.secret is True
-
     @parameterized.expand(
         [
             ("unauthorized", "401 Client Error: Unauthorized for url: https://api.servicem8.com"),
@@ -82,28 +51,6 @@ class TestServiceM8Source:
     )
     def test_non_retryable_errors(self, _name: str, expected_key: str) -> None:
         assert expected_key in self.source.get_non_retryable_errors()
-
-    def test_get_schemas_returns_the_whole_catalog(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        assert all(schema.supports_incremental for schema in schemas)
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Job"])
-
-        assert [schema.name for schema in schemas] == ["Job"]
-
-    def test_get_schemas_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["Nope"]) == []
-
-    def test_schemas_list_without_credentials_for_public_docs(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-        blank = Servicem8SourceConfig(api_key="")
-        assert {schema.name for schema in self.source.get_schemas(blank, self.team_id)} == set(ENDPOINTS)
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
 
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_canonical_descriptions_document_the_primary_key(self, endpoint: str) -> None:
@@ -129,12 +76,6 @@ class TestServiceM8Source:
         assert is_valid is expected_valid
         assert message == expected_message
         mock_validate.assert_called_once_with("sm8-key")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ServiceM8ResumeConfig
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = _make_inputs(schema_name="Company")

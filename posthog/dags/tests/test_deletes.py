@@ -1,20 +1,30 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import cast
 from uuid import UUID
 
 import pytest
-from freezegun import freeze_time
+import time_machine
+from unittest.mock import patch
+
+from django.conf import settings as django_settings
 
 from clickhouse_driver import Client
+from dagster import build_op_context
 
-from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner
+from posthog.dags.common.staged_dictionary import create_on_every_cluster
 from posthog.dags.deletes import (
+    _DELETE_PREDICATE,
     AdhocEventDeletesDictionary,
     AdhocEventDeletesTable,
+    DeleteConfig,
     MonthlyCleanupConfig,
     PendingDeletesDictionary,
     PendingDeletesTable,
+    StagedDictionary,
+    _count_unswept_rows,
+    _delete_predicate_params,
     cleanup_old_events_by_partition,
     deletes_job,
     find_partitions_to_cleanup,
@@ -22,6 +32,8 @@ from posthog.dags.deletes import (
 )
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.deletion_targets import EVENTS, TargetPlacement
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 
@@ -571,7 +583,7 @@ def test_cleanup_old_events_by_partition(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
-@freeze_time("2025-09-15")
+@time_machine.travel("2025-09-15", tick=False)
 def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snapshot):
     from unittest.mock import patch
 
@@ -675,3 +687,305 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
 
     events_after = cluster.any_host(count_all_events).result()
     assert events_after == len(recent_events)
+
+
+def _insert_pending_deletes(table: PendingDeletesTable, client: Client, count: int = 5, first_id: int = 0) -> None:
+    client.execute(
+        table.populate_query,
+        [
+            {
+                "id": i,
+                "deletion_type": int(DeletionType.Person),
+                "key": str(UUID(int=i)),
+                "group_type_index": None,
+                "created_at": datetime(2026, 8, 26, 10, 11, 12),
+                "delete_verified_at": None,
+                "created_by_id": None,
+                "team_id": 99999,
+            }
+            for i in range(first_id, first_id + count)
+        ],
+    )
+
+
+@pytest.mark.django_db
+def test_a_staged_dictionary_holds_the_same_rows_as_the_source_table(cluster: ClickhouseCluster):
+    # A cluster with its own Keeper can never join the source table's replica set, so it loads the
+    # dictionary from a staged object instead, and the run is gated on both sides checksumming
+    # alike. That gate only means something if the staged copy round-trips every column exactly:
+    # a type Parquet does not preserve would make two correct clusters look like they disagree.
+    table = PendingDeletesTable(timestamp=datetime(2026, 8, 26, 10, 11, 12))
+    dictionary = PendingDeletesDictionary(source=table)
+    create = partial(dictionary.create, shards=1, max_execution_time=0, max_memory_usage=0)
+    recreate = partial(dictionary.recreate, shards=1, max_execution_time=0, max_memory_usage=0)
+
+    try:
+        cluster.any_host(table.create).result()
+        cluster.any_host(partial(_insert_pending_deletes, table)).result()
+
+        cluster.any_host(create).result()
+        from_source_table = cluster.any_host(dictionary.load).result()
+
+        staged = dictionary.staged()
+        cluster.any_host(partial(staged.export, source_query=dictionary.query)).result()
+        cluster.any_host(partial(recreate, query=staged.query)).result()
+        from_staged_object = cluster.any_host(dictionary.load).result()
+
+        assert from_staged_object == from_source_table
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(table.drop).result()
+
+
+def test_staged_dictionary_escapes_quotes_inside_a_column_type() -> None:
+    # DateTime64(6, 'UTC') carries single quotes, and the structure is itself a quoted SQL literal,
+    # so an unescaped copy terminates the literal early and the s3() call fails to parse.
+    staged = StagedDictionary(
+        key="run/adhoc.parquet",
+        columns="team_id, uuid, created_at",
+        structure="team_id Int64, uuid UUID, created_at DateTime64(6, 'UTC')",
+    )
+    assert "DateTime64(6, \\'UTC\\')" in staged.query
+
+
+@pytest.mark.parametrize(
+    "dictionary",
+    [
+        PendingDeletesDictionary(source=PendingDeletesTable(timestamp=datetime(2026, 8, 26, 10, 11, 12))),
+        AdhocEventDeletesDictionary(source=AdhocEventDeletesTable()),
+    ],
+    ids=["pending_deletes", "adhoc_event_deletes"],
+)
+def test_a_staged_dictionary_is_keyed_by_the_dictionary_name(dictionary) -> None:
+    # CREATE ... IF NOT EXISTS keys on the dictionary name, and a dictionary outlives the run that
+    # created it. Keying the object per run instead leaves that definition naming an object no
+    # later run writes, so a cluster loading from S3 serves the first run's rows for ever.
+    assert dictionary.staged().key == f"{dictionary.name}.parquet"
+
+
+@pytest.mark.django_db
+def test_a_rerun_stages_over_the_previous_runs_object(cluster: ClickhouseCluster):
+    # Every run writes the same key, so the export has to replace the object rather than add to it.
+    # An append leaves both runs' rows behind, and the cluster loading from S3 then holds rows the
+    # cluster reading the source table does not.
+    table = PendingDeletesTable(timestamp=datetime(2026, 8, 26, 10, 11, 13))
+    dictionary = PendingDeletesDictionary(source=table)
+    recreate = partial(dictionary.recreate, shards=1, max_execution_time=0, max_memory_usage=0)
+    staged = dictionary.staged()
+
+    try:
+        cluster.any_host(table.create).result()
+        cluster.any_host(partial(_insert_pending_deletes, table, count=5)).result()
+        cluster.any_host(partial(staged.export, source_query=dictionary.query)).result()
+
+        cluster.any_host(table.truncate).result()
+        cluster.any_host(partial(_insert_pending_deletes, table, count=2, first_id=100)).result()
+        cluster.any_host(partial(staged.export, source_query=dictionary.query)).result()
+
+        cluster.any_host(partial(recreate, query=staged.query)).result()
+        from_staged_object = cluster.any_host(dictionary.load).result()
+
+        cluster.any_host(partial(recreate)).result()
+        from_source_table = cluster.any_host(dictionary.load).result()
+
+        assert from_staged_object == from_source_table
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(table.drop).result()
+
+
+@pytest.mark.django_db
+def test_the_adhoc_dictionary_holds_one_row_per_key_when_the_source_has_duplicates(cluster: ClickhouseCluster):
+    # The source is a ReplacingMergeTree, so a uuid requested twice reads as two rows until a merge
+    # collapses them. A dictionary keeps one row per key either way, but a source query that emits
+    # both leaves the winner to the order the rows arrive, and that order is not stable when a host
+    # parses a staged Parquet in parallel. Two clusters then disagree and the run is blocked.
+    adhoc = AdhocEventDeletesDictionary(source=AdhocEventDeletesTable())
+    team_id = 424244
+    uuid = UUID(int=13)
+    earlier = datetime(2026, 8, 28, 9, 0, 0, tzinfo=UTC)
+    later = datetime(2026, 8, 28, 11, 0, 0, tzinfo=UTC)
+
+    def insert_duplicate_requests(client: Client) -> None:
+        client.execute(
+            "INSERT INTO adhoc_events_deletion (team_id, uuid, created_at) VALUES",
+            [(team_id, uuid, earlier), (team_id, uuid, later)],
+        )
+
+    def read_back(client: Client) -> list:
+        return client.execute(f"SELECT count(), max(created_at) FROM {adhoc.qualified_name} WHERE team_id = {team_id}")
+
+    try:
+        cluster.any_host(insert_duplicate_requests).result()
+        cluster.any_host(partial(adhoc.create, shards=1, max_execution_time=0, max_memory_usage=0)).result()
+        cluster.any_host(adhoc.load).result()
+
+        [[held, created_at]] = cluster.any_host(read_back).result()
+
+        assert held == 1
+        assert created_at == later
+    finally:
+        cluster.any_host(adhoc.drop).result()
+        cluster.any_host(
+            lambda client: client.execute(f"DELETE FROM adhoc_events_deletion WHERE team_id = {team_id}")
+        ).result()
+
+
+@pytest.mark.django_db
+def test_creating_on_a_second_cluster_points_it_at_the_staged_object(cluster: ClickhouseCluster):
+    # A cluster that shares no Keeper with the source table never receives it, so its dictionary
+    # has to read the staged object. A call site that hands it the source query instead leaves it
+    # loading from a table it cannot see, and the dictionary fails or comes back empty.
+    table = PendingDeletesTable(timestamp=datetime(2026, 8, 26, 10, 11, 14))
+    dictionary = PendingDeletesDictionary(source=table)
+    sibling = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
+    context = build_op_context()
+
+    def show_create(client: Client) -> str:
+        [[query]] = client.execute(f"SHOW CREATE DICTIONARY {dictionary.qualified_name}")
+        return query
+
+    try:
+        cluster.any_host(table.create).result()
+        cluster.any_host(partial(_insert_pending_deletes, table)).result()
+
+        create_on_every_cluster(
+            context, [cluster, sibling], dictionary, shards=1, max_execution_time=0, max_memory_usage=0
+        )
+
+        assert dictionary.staged().key in sibling.any_host(show_create).result()
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(table.drop).result()
+
+
+@pytest.mark.django_db
+def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: ClickhouseCluster):
+    # The count only earns its place if it can come back non-zero. A predicate or parameter that
+    # matched nothing would report a clean sweep every week and nobody would notice.
+    team_id = 424242
+    person_uuid = UUID(int=7)
+    timestamp = datetime(2026, 8, 27, 10, 0, 0)
+
+    table = PendingDeletesTable(timestamp=timestamp)
+    dictionary = PendingDeletesDictionary(source=table)
+    adhoc = AdhocEventDeletesDictionary(source=AdhocEventDeletesTable())
+    create = partial(dictionary.create, shards=1, max_execution_time=0, max_memory_usage=0)
+    create_adhoc = partial(adhoc.create, shards=1, max_execution_time=0, max_memory_usage=0)
+
+    def insert_person_deletion(client: Client) -> None:
+        client.execute(
+            table.populate_query,
+            [
+                {
+                    "id": 1,
+                    "deletion_type": int(DeletionType.Person),
+                    "key": str(person_uuid),
+                    "group_type_index": None,
+                    "created_at": timestamp,
+                    "delete_verified_at": None,
+                    "created_by_id": None,
+                    "team_id": team_id,
+                }
+            ],
+        )
+
+    def insert_events(client: Client) -> None:
+        client.execute(
+            "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp) VALUES",
+            [(team_id, "d", person_uuid, timestamp - timedelta(hours=1))],
+        )
+
+    try:
+        cluster.any_host(table.create).result()
+        cluster.any_host(insert_person_deletion).result()
+        cluster.any_host(create).result()
+        cluster.any_host(dictionary.load).result()
+        cluster.any_host(create_adhoc).result()
+        cluster.any_host(adhoc.load).result()
+        cluster.any_host(insert_events).result()
+
+        context = build_op_context()
+        before = _count_unswept_rows(
+            context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time
+        )
+        surviving = before["events"]
+        assert surviving is not None and surviving >= 1, "the count cannot see rows the sweep has not removed yet"
+
+        runner = LightweightDeleteMutationRunner(
+            table=EVENTS_DATA_TABLE(),
+            predicate=_DELETE_PREDICATE,
+            parameters=_delete_predicate_params(dictionary, adhoc),
+        )
+        for _host, mutation in cluster.map_one_host_per_shard(runner).result().items():
+            cluster.map_all_hosts(mutation.wait).result()
+
+        after = _count_unswept_rows(context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time)
+        assert after["events"] == 0
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(adhoc.drop).result()
+        cluster.any_host(table.drop).result()
+
+
+@pytest.mark.django_db
+def test_a_target_on_another_cluster_is_also_counted_on_its_storage_table(cluster: ClickhouseCluster):
+    # The proxy count only reads the cluster the Distributed engine names, and this repo builds the
+    # events_json proxy against CLICKHOUSE_CLUSTER. A deployment whose storage moved elsewhere would
+    # get a clean report off an empty table, so an off-cluster target is counted on its storage
+    # table too, through the handle that holds it.
+    team_id = 424243
+    person_uuid = UUID(int=11)
+    timestamp = datetime(2026, 8, 28, 10, 0, 0)
+
+    table = PendingDeletesTable(timestamp=timestamp)
+    dictionary = PendingDeletesDictionary(source=table)
+    adhoc = AdhocEventDeletesDictionary(source=AdhocEventDeletesTable())
+
+    def insert_person_deletion(client: Client) -> None:
+        client.execute(
+            table.populate_query,
+            [
+                {
+                    "id": 2,
+                    "deletion_type": int(DeletionType.Person),
+                    "key": str(person_uuid),
+                    "group_type_index": None,
+                    "created_at": timestamp,
+                    "delete_verified_at": None,
+                    "created_by_id": None,
+                    "team_id": team_id,
+                }
+            ],
+        )
+
+    def insert_events(client: Client) -> None:
+        client.execute(
+            "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp) VALUES",
+            [(team_id, "d", person_uuid, timestamp - timedelta(hours=1))],
+        )
+
+    # A second handle over the same node stands in for a target whose storage is elsewhere.
+    sibling = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
+    placement = TargetPlacement(target=EVENTS, cluster=sibling)
+
+    try:
+        cluster.any_host(table.create).result()
+        cluster.any_host(insert_person_deletion).result()
+        cluster.any_host(partial(dictionary.create, shards=1, max_execution_time=0, max_memory_usage=0)).result()
+        cluster.any_host(dictionary.load).result()
+        cluster.any_host(partial(adhoc.create, shards=1, max_execution_time=0, max_memory_usage=0)).result()
+        cluster.any_host(adhoc.load).result()
+        cluster.any_host(insert_events).result()
+
+        with patch("posthog.dags.deletes.resolve_placements", return_value=[placement]):
+            counts = _count_unswept_rows(
+                build_op_context(), cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time
+            )
+
+        storage = counts[EVENTS.data_table]
+        assert storage is not None and storage >= 1, "the storage table was not counted for an off-cluster target"
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(adhoc.drop).result()
+        cluster.any_host(table.drop).result()

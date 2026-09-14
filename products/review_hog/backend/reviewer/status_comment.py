@@ -85,7 +85,7 @@ _THRESHOLD_ATTRIBUTIONS = {
     "override": "the requester's",
     "default": "the default",
 }
-# Only personal thresholds live in someone's ReviewHog settings; the default variant has no page to point at.
+# Only personal thresholds live in someone's PostHog Review settings; the default variant has no page to point at.
 _PERSONAL_THRESHOLD_SOURCES = frozenset({"author", "override"})
 
 # A clean review deserves a reward, not a bare "nothing here". We still post the comment (so "no
@@ -155,7 +155,7 @@ def render_in_progress_body(report_id: str, progress: dict[str, Any] | None) -> 
     counter = f" · {done}/{total}" if done is not None and total else ""
     return "\n".join(
         [
-            "### \U0001f994 ReviewHog is reviewing this pull request",
+            "### \U0001f994 PostHog Review is reviewing this pull request",
             "",
             f"**{label}{counter}**",
             "",
@@ -192,7 +192,7 @@ def render_final_body(
     found_line = "Found " + ", ".join(
         f"**{counts[priority]} {PRIORITY_LABELS[priority]}**" for priority in PRIORITIES_BY_URGENCY
     )
-    lines = ["### \U0001f994 ReviewHog reviewed this pull request", ""]
+    lines = ["### \U0001f994 PostHog Review reviewed this pull request", ""]
     if found_total == 0:
         media_url, media_alt = random.choice(_NO_ISSUES_MEDIA)
         lines.extend(
@@ -218,7 +218,7 @@ def render_final_body(
                 f'"{_THRESHOLD_LABELS[threshold]}" urgency threshold'
             )
             if source in _PERSONAL_THRESHOLD_SOURCES:
-                sentence += " in their ReviewHog settings"
+                sentence += " in their PostHog Review settings"
             sentence += ", so they were not published."
             if report_url:
                 sentence += f" [View them in PostHog]({report_url})."
@@ -282,7 +282,7 @@ def _splice_resolution_section(body: str, section: str) -> str:
 def render_failed_body(report_id: str) -> str:
     return "\n".join(
         [
-            "### \U0001f994 ReviewHog couldn't finish this review",
+            "### \U0001f994 PostHog Review couldn't finish this review",
             "",
             "The review run failed partway. It will run again on the next push to this pull request.",
             "",

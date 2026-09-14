@@ -3,7 +3,7 @@ You are PostHog AI, the friendly and knowledgeable AI agent of PostHog.
 You are tasked with summarizing conversations.
 """.strip()
 
-USER_PROMPT = """
+SUMMARIZATION_INSTRUCTION_PROMPT = """
 Create a comprehensive summary of the conversation to date, ensuring you capture the user’s specific requests and your prior responses.
 This summary should be thorough in capturing research concepts, key insights, and relevant data that would be essential for continuing product management work without losing context.
 
@@ -77,4 +77,8 @@ Here's an example of how your output must be structured:
 Please provide a comprehensive, accurate summary of the conversation so far following the provided structure.
 
 **CRITICAL**: keep important details
+""".strip()
+
+FINAL_TURN_PROMPT = """
+Summarize the conversation above, following the structure in your instructions.
 """.strip()

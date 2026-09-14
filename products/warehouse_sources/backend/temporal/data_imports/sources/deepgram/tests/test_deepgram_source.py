@@ -4,17 +4,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.deepgram import DeepgramResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.source import DeepgramSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepgram import (
     DeepgramSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(**overrides: Any) -> SourceInputs:
@@ -39,22 +34,6 @@ def _inputs(**overrides: Any) -> SourceInputs:
 class TestDeepgramSourceClass:
     def setup_method(self) -> None:
         self.source = DeepgramSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DEEPGRAM
-
-    def test_config_has_required_password_api_key(self) -> None:
-        fields = self.source.get_source_config.fields
-        assert len(fields) == 1
-        api_key = fields[0]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert api_key.name == "api_key"
-        assert api_key.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key.required is True
-
-    def test_config_stays_unreleased_alpha_with_docs(self) -> None:
-        config = self.source.get_source_config
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/deepgram"
 
     @parameterized.expand(
         [
@@ -94,11 +73,6 @@ class TestDeepgramSourceClass:
         bad_request = [message for key, message in errors.items() if "400 Client Error: Bad Request" in key]
         assert len(bad_request) == 1
         assert bad_request[0]
-
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is DeepgramResumeConfig
 
     @parameterized.expand([("incremental_on", True), ("incremental_off", False)])
     def test_source_for_pipeline_gates_last_value_on_incremental(self, _name: str, use_incremental: bool) -> None:

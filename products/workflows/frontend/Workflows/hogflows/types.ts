@@ -54,6 +54,14 @@ export const HogFlowSchema = z.object({
         'exit_on_trigger_not_matched_or_conversion',
         'exit_only_at_end',
     ]),
+    // Optional email pacing: the email worker delays sends over the limit instead of dropping them
+    email_sending_rate_limit: z
+        .object({
+            count: z.number(),
+            period: z.enum(['minute', 'hour']),
+        })
+        .optional()
+        .nullable(),
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
@@ -87,6 +95,15 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     // content fields; null when nothing is staged. Read-only server state.
     draft?: Partial<HogFlow> | null
     draft_updated_at?: string | null
+    // Set when PostHog paused this workflow's email because its spam complaint or hard bounce rate
+    // crossed a threshold. Read-only server state: only the resume endpoint clears it.
+    email_sending_paused_at?: string | null
+    email_sending_paused_reason?: string
+    // "auto" (detector) or "staff"; a staff pause has no customer resume. Empty when not paused.
+    email_sending_paused_by?: string
+    // True when only PostHog can lift the pause: staff placed it, or it re-tripped soon after a resume.
+    email_sending_pause_requires_support?: boolean
+    email_sending_resumed_at?: string | null
 }
 
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}

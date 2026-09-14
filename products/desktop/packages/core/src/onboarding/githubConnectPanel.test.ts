@@ -8,6 +8,7 @@ import {
   deriveAlternativeConnectedProjects,
   deriveConnectButtonState,
   deriveGithubApprovalState,
+  didGithubConnectCompleteFromIntegrations,
   getGithubPanelMessage,
   isAnyIntegrationStale,
   resolveSelectedProjectId,
@@ -25,7 +26,7 @@ describe("getGithubPanelMessage", () => {
     ).toBe("boom");
   });
 
-  it("falls through timeout, connecting, then default", () => {
+  it("reports a timeout, and nothing while connecting or idle", () => {
     const base = {
       hasConnectError: false,
       connectErrorMessage: "",
@@ -35,10 +36,10 @@ describe("getGithubPanelMessage", () => {
     ).toBe(GITHUB_CONNECT_TIMEOUT_MESSAGE);
     expect(
       getGithubPanelMessage({ ...base, timedOut: false, isConnecting: true }),
-    ).toBe("Waiting for GitHub...");
+    ).toBeNull();
     expect(
       getGithubPanelMessage({ ...base, timedOut: false, isConnecting: false }),
-    ).toMatch(/Unlocks cloud runs/);
+    ).toBeNull();
   });
 });
 
@@ -75,6 +76,48 @@ describe("isAnyIntegrationStale", () => {
     const integrations = [{ installation_id: "a" }, { installation_id: "b" }];
     expect(isAnyIntegrationStale(integrations, ["b"])).toBe(true);
     expect(isAnyIntegrationStale(integrations, ["z"])).toBe(false);
+  });
+});
+
+describe("didGithubConnectCompleteFromIntegrations", () => {
+  it("completes an initial connection when the first integration appears", () => {
+    expect(
+      didGithubConnectCompleteFromIntegrations({
+        isConnecting: true,
+        integrationCountAtStart: 0,
+        currentIntegrationCount: 1,
+      }),
+    ).toBe(true);
+  });
+
+  it("completes an additional organization connection when its integration appears", () => {
+    expect(
+      didGithubConnectCompleteFromIntegrations({
+        isConnecting: true,
+        integrationCountAtStart: 1,
+        currentIntegrationCount: 2,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not complete before the integration count increases", () => {
+    expect(
+      didGithubConnectCompleteFromIntegrations({
+        isConnecting: true,
+        integrationCountAtStart: 1,
+        currentIntegrationCount: 1,
+      }),
+    ).toBe(false);
+  });
+
+  it("ignores integration changes outside an active connection", () => {
+    expect(
+      didGithubConnectCompleteFromIntegrations({
+        isConnecting: false,
+        integrationCountAtStart: 0,
+        currentIntegrationCount: 1,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -205,7 +248,11 @@ describe("deriveConnectButtonState", () => {
         hasConnectError: false,
         timedOut: false,
       }),
-    ).toEqual({ isRetry: false, shouldReset: false, label: "Connect GitHub" });
+    ).toEqual({
+      isRetry: false,
+      shouldReset: false,
+      label: "Sign in with GitHub",
+    });
   });
 
   it("labels a retry on error and asks to reset", () => {

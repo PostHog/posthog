@@ -1,9 +1,9 @@
 import { HashIcon, LockSimpleIcon } from "@phosphor-icons/react";
 import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
-import { channelGlyph, isPrivateChannel } from "./channelGlyph";
+import { channelGlyph, isPersonalChannelName } from "./channelGlyph";
 
-describe("isPrivateChannel", () => {
+describe("isPersonalChannelName", () => {
   it.each([
     ["personal", true],
     ["  Personal  ", true],
@@ -13,13 +13,13 @@ describe("isPrivateChannel", () => {
     ["me", false],
     ["code", false],
     ["posthog-feedback", false],
-    // Not a prefix match: only the personal channel itself is private.
+    // Not a prefix match: only the personal channel itself is the #me space.
     ["personal-notes", false],
     ["team-personal", false],
     [undefined, false],
     ["", false],
   ])("%s -> %s", (name, expected) => {
-    expect(isPrivateChannel(name)).toBe(expected);
+    expect(isPersonalChannelName(name)).toBe(expected);
   });
 });
 
@@ -55,5 +55,14 @@ describe("channelGlyph", () => {
     expect(
       channelGlyph("personal", { personal: false, space: true }),
     ).toBeNull();
+  });
+
+  it("gives a private space the same lock as a personal space", () => {
+    const glyph = channelGlyph("squad", {
+      private: true,
+      space: true,
+    }) as ReactElement;
+
+    expect(glyph.type).toBe(LockSimpleIcon);
   });
 });

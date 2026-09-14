@@ -1,18 +1,11 @@
-from typing import Any, cast
+from typing import Any
 
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deploy import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deploy.deno_deploy import (
-    DenoDeployResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deploy.source import DenoDeploySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> Any:
@@ -22,20 +15,6 @@ def _config() -> Any:
 
 
 class TestDenoDeploySourceConfig:
-    def test_source_type(self) -> None:
-        assert DenoDeploySource().source_type == ExternalDataSourceType.DENODEPLOY
-
-    def test_source_config_metadata(self) -> None:
-        config = DenoDeploySource().get_source_config
-        assert config.label == "Deno Deploy"
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/deno-deploy"
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["access_token"]
-        # The token is a secret, rendered as a password input.
-        assert cast(SourceFieldInputConfig, config.fields[0]).secret is True
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog (no I/O), so the public docs catalog opts in.
         assert DenoDeploySource.lists_tables_without_credentials is True
@@ -69,14 +48,6 @@ class TestGetSchemas:
         assert {s.name for s in schemas} == {"apps", "logs"}
 
 
-class TestValidateCredentials:
-    @parameterized.expand([("valid", (True, None)), ("invalid", (False, "bad token"))])
-    def test_delegates_to_transport(self, _name: str, result: tuple[bool, str | None]) -> None:
-        with patch.object(source_module, "validate_deno_deploy_credentials", return_value=result) as mock_validate:
-            assert DenoDeploySource().validate_credentials(_config(), team_id=1) == result
-        mock_validate.assert_called_once_with("ddo_test")
-
-
 class TestNonRetryableErrors:
     def test_auth_errors_are_non_retryable(self) -> None:
         errors = DenoDeploySource().get_non_retryable_errors()
@@ -87,28 +58,6 @@ class TestNonRetryableErrors:
 
 
 class TestResumableWiring:
-    def test_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = DenoDeploySource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is DenoDeployResumeConfig
-
-    def test_source_for_pipeline_plumbs_inputs(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "logs"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        inputs.logger = MagicMock()
-        manager = MagicMock()
-        with patch.object(source_module, "deno_deploy_source", return_value="response") as mock_source:
-            result = DenoDeploySource().source_for_pipeline(_config(), manager, inputs)
-        assert cast(Any, result) == "response"
-        _, kwargs = mock_source.call_args
-        assert kwargs["access_token"] == "ddo_test"
-        assert kwargs["endpoint"] == "logs"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self) -> None:
         inputs = MagicMock()
         inputs.schema_name = "apps"

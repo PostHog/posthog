@@ -27,6 +27,7 @@ import type {
     ErrorTrackingQueryAssignee,
     ErrorTrackingQueryOrderBy,
     ErrorTrackingQueryOrderDirection,
+    ErrorTrackingQuerySeverity,
     ErrorTrackingQueryStatus,
 } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { bulkSelectLogic } from '../../logics/bulkSelectLogic'
@@ -55,6 +56,7 @@ export interface errorTrackingSceneLogicValues {
     assignee: ErrorTrackingQueryAssignee | null // issueQueryOptionsLogic
     orderBy: ErrorTrackingQueryOrderBy // issueQueryOptionsLogic
     orderDirection: ErrorTrackingQueryOrderDirection // issueQueryOptionsLogic
+    severity: ErrorTrackingQuerySeverity // issueQueryOptionsLogic
     status: ErrorTrackingQueryStatus // issueQueryOptionsLogic
     currentPendingUpdates: ErrorTrackingPendingFingerprintIssueStateUpdate[] // pendingFingerprintIssueStateUpdateLogic
     selectedSettingId: SettingId | null // settingsLogic
@@ -119,6 +121,7 @@ export interface errorTrackingSceneLogicMeta {
             mergedFilterGroup: UniversalFiltersGroup,
             searchQuery: string,
             orderDirection: 'ASC' | 'DESC' | undefined,
+            severity: ErrorTrackingQuerySeverity,
             currentPendingUpdates: ErrorTrackingPendingFingerprintIssueStateUpdate[]
         ) => DataTableNode
     }
@@ -143,7 +146,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'mergedFilterGroup', 'searchQuery'],
             issueQueryOptionsLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
-            ['assignee', 'orderBy', 'orderDirection', 'status'],
+            ['assignee', 'orderBy', 'orderDirection', 'severity', 'status'],
             settingsLogic({
                 logicKey: ERROR_TRACKING_LOGIC_KEY,
                 sectionId: 'environment-error-tracking-configuration',
@@ -189,6 +192,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.mergedFilterGroup,
                 s.searchQuery,
                 s.orderDirection,
+                s.severity,
                 s.currentPendingUpdates,
             ],
             (
@@ -202,6 +206,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 mergedFilterGroup: UniversalFiltersGroup,
                 searchQuery: string,
                 orderDirection: import('../../components/IssueQueryOptions/issueQueryOptionsLogic').ErrorTrackingQueryOrderDirection,
+                severity: import('../../components/IssueQueryOptions/issueQueryOptionsLogic').ErrorTrackingQuerySeverity,
                 currentPendingUpdates: import('~/queries/schema').ErrorTrackingPendingFingerprintIssueStateUpdate[]
             ): DataTableNode => {
                 return errorTrackingQuery({
@@ -215,6 +220,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
                     orderDirection,
+                    severity,
                     pendingFingerprintIssueStateUpdates: currentPendingUpdates,
                 })
             },

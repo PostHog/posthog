@@ -3,6 +3,7 @@
 import json
 import asyncio
 from datetime import timedelta
+from itertools import batched
 
 from django.conf import settings
 
@@ -162,7 +163,7 @@ async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -
         "not_deliverable": 0,
     }
 
-    for batch in _batch_report_ids(report_ids, COUNT_TRIGGER_CHECK_BATCH_SIZE):
+    for batch in batched(report_ids, COUNT_TRIGGER_CHECK_BATCH_SIZE, strict=False):
         tasks = [
             temporalio.workflow.execute_activity(
                 check_count_triggered_eval_report_activity,
@@ -259,10 +260,6 @@ async def _check_count_triggered_eval_report_candidates_batched(report_id_groups
     return due_report_ids
 
 
-def _batch_report_ids(report_ids: list[str], batch_size: int) -> list[list[str]]:
-    return [report_ids[index : index + batch_size] for index in range(0, len(report_ids), batch_size)]
-
-
 def _log_fan_out_failures(kind: str, report_ids: list[str], results: list) -> None:
     """Log which child workflows failed in a fan-out, without re-raising."""
     failed: list[tuple[str, str]] = []
@@ -318,6 +315,7 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
                 evaluation_prompt=context.evaluation_prompt,
                 evaluation_type=context.evaluation_type,
                 output_type=context.output_type,
+                true_is_failure=context.true_is_failure,
                 period_start=context.period_start,
                 period_end=context.period_end,
                 previous_period_start=context.previous_period_start,
@@ -396,7 +394,7 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             except WorkflowAlreadyStartedError:
                 # Same parent workflow replayed/retried with the same report_run_id.
                 # Safe to skip — the previous run is already handling emission.
-                temporalio.workflow.logger.info(
+                logger.info(
                     "Eval report signal workflow already started for this run",
                     evaluation_id=context.evaluation_id,
                     team_id=context.team_id,

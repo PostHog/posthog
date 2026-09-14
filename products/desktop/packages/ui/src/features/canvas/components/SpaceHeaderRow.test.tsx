@@ -1,14 +1,28 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { useMemo } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const activityMocks = vi.hoisted(() => ({
+  clearSelection: vi.fn(),
+  selection: null as {
+    kind: "task";
+    id: string;
+    taskId: string;
+    channelId: string | null;
+  } | null,
+}));
+
+vi.mock("@posthog/ui/features/canvas/stores/activityDetailStore", () => ({
+  clearActivitySelection: activityMocks.clearSelection,
+  useActivitySelection: () => activityMocks.selection,
+}));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => true,
 }));
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPC: () => ({
-    dashboards: { saveContext: { mutationKey: () => ["save-context"] } },
     channelTasks: {
       list: {
         queryOptions: () => ({ queryKey: ["ct"], queryFn: async () => [] }),
@@ -29,22 +43,42 @@ vi.mock("@posthog/host-router/react", () => ({
   }),
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/features/canvas/hooks/useSelectedCanvasId", () => ({
+  useSelectedCanvasId: () => undefined,
+}));
 vi.mock("@tanstack/react-router", () => ({
   // The route's own pane, which is where the header's writer lives.
   Outlet: () => <ActivityDetailPane />,
   useNavigate: () => vi.fn(),
+  useSearch: () => ({}),
   useParams: () => ({ channelId: "chan-1", taskId: "task-1" }),
   useRouterState: ({
     select,
   }: {
     select: (s: {
-      location: { pathname: string };
-      matches: { routeId: string }[];
+      location: { pathname: string; href: string };
+      matches: {
+        routeId: string;
+        fullPath: string;
+        search: Record<string, unknown>;
+      }[];
     }) => unknown;
   }) =>
     select({
-      location: { pathname: "/spaces/chan-1/tasks/task-1" },
-      matches: [{ routeId: "/spaces/$channelId/tasks/$taskId" }],
+      location: {
+        pathname: "/spaces/chan-1/tasks/task-1",
+        href: "/spaces/chan-1/tasks/task-1",
+      },
+      matches: [
+        {
+          routeId: "/spaces/$channelId/tasks/$taskId",
+          // Activity's pane reads its selection off `/activity`'s search, which
+          // this route is not — the pane renders its empty state, which is all
+          // this test needs from it.
+          fullPath: "/spaces/$channelId/tasks/$taskId",
+          search: {},
+        },
+      ],
     }),
 }));
 vi.mock(
@@ -63,6 +97,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelTasks", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [{ id: "chan-1", name: "space" }] }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useInboxActivityPreview", () => ({
+  useInboxActivityPreview: () => ({ reports: [] }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
   useChannelStarMutations: () => ({ star: vi.fn(), unstar: vi.fn() }),
@@ -116,16 +153,18 @@ vi.mock("@posthog/ui/features/task-detail/components/TaskDetail", () => ({
   },
 }));
 
-import { useActivityDetailStore } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { ActivityDetailPane } from "./ActivityDetailPane";
 import { ShellLayout } from "./ShellLayout";
+import { SpaceHeaderRow } from "./SpaceHeaderRow";
 
 describe("SpaceHeaderRow", () => {
+  beforeEach(() => {
+    activityMocks.clearSelection.mockClear();
+    activityMocks.selection = null;
+  });
+
   it("keeps the header store off the layout that renders its writer", () => {
-    useActivityDetailStore.setState({
-      selected: { id: "a1", taskId: "task-1", channelId: "chan-1" },
-    });
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -136,5 +175,19 @@ describe("SpaceHeaderRow", () => {
     );
     // A layout that subscribes to the header store blows the update depth here.
     expect(taskDetailRenders).toBeLessThan(20);
+  });
+
+  it("can close an Activity session before task actions resolve", () => {
+    activityMocks.selection = {
+      kind: "task",
+      id: "activity-1",
+      taskId: "task-1",
+      channelId: null,
+    };
+
+    render(<SpaceHeaderRow />);
+
+    fireEvent.click(screen.getByLabelText("Close activity item"));
+    expect(activityMocks.clearSelection).toHaveBeenCalledOnce();
   });
 });

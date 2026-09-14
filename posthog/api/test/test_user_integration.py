@@ -1523,7 +1523,7 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
         from posthog.models.organization import Organization, OrganizationMembership
         from posthog.models.team import Team
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         ac_org = Organization.objects.create(name="AC Org")
         # ``pre_save`` on Organization resets ``available_product_features`` on

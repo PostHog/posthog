@@ -227,6 +227,11 @@ Agent:
 - **Delete-data preserves config.** When a user says "I just want to start this table over from scratch", prefer
   `delete-data` + `reload` over `resync` + new schema entry — it keeps the configured sync_type / incremental_field
   / PK setup.
+- **A failure can belong to a destination, not the source.** Some projects sync a source to their own database as
+  well as to PostHog. When they do, `latest_error` is prefixed with the destination's name, e.g.
+  `customer postgres: connection refused`. That is the customer's database refusing the write, not the source failing
+  to extract — check their database and its credentials rather than the source's. Every destination shares one
+  lifecycle, so one unreachable destination holds up the whole sync, PostHog included.
 - **Billing limits aren't technical failures.** Don't try to retry or reconfigure your way out. Route to billing.
 - **Webhook failures can hide behind a green status.** A webhook-type schema whose bulk fallback sync succeeded looks
   `Completed` even when the push channel is broken. When users say "my data is hours behind" on a webhook schema,

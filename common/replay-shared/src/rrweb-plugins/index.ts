@@ -66,10 +66,14 @@ export const CorsPlugin: ReplayPlugin & {
 const defaultStyleRules = `.ph-no-capture { background-image: ${PLACEHOLDER_SVG_DATA_IMAGE_URL}; }`
 const shopifyShorthandCSSFix =
     '@media (prefers-reduced-motion: no-preference) { .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { animation: var(--animation-slide-in) } }'
+// Language picker prepended to <body> by the "Translator, dictionary - accurate translate" extension.
+// Its hiding CSS is content-script-only, so unrecordable; without this the picker reflows the page.
+const translatorExtensionPopupFix =
+    'body > div.translate-tooltip-mtz, body > span.translate-button-mtz { display: none !important; }'
 
 export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     triggerFocus: false,
-    insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix],
+    insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix, translatorExtensionPopupFix],
     // Keep the replay iframe scriptless. UNSAFE_replayCanvas makes rrweb add `allow-scripts`
     // to the sandbox, which combined with the required `allow-same-origin` lets untrusted
     // recorded content escape the sandbox into the app origin. Canvas is replayed via

@@ -139,6 +139,10 @@ export const MarketingAnalyticsTable = ({
                                                 label: 'Channel',
                                             },
                                             {
+                                                value: MarketingAnalyticsDrillDownLevel.ChannelSource,
+                                                label: 'Channel + Source',
+                                            },
+                                            {
                                                 value: MarketingAnalyticsDrillDownLevel.Source,
                                                 label: 'Source',
                                             },

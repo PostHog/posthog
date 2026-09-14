@@ -5,9 +5,9 @@ Each entry here becomes (or updates) an ``MCPServerTemplate`` row via the
 environment — adding a server to the store is a PR to this file, not a data migration.
 
 The catalog owns a template's *content* (name, description, category, icon_domain,
-docs_url, auth_type). Operational state — ``is_active`` after creation, and the
-``oauth_credentials`` an operator provisions for servers without Dynamic Client
-Registration — lives on the row and is never touched by the sync. See
+docs_url, auth_type, and any existing instance credential source). Operational
+state — ``is_active`` after creation, and the ``oauth_credentials`` an operator
+provisions for other servers without Dynamic Client Registration — lives on the row. See
 ``catalog_sync.py`` for the exact semantics, including the probe-gated activation
 of newly created entries.
 
@@ -21,10 +21,12 @@ vendor-identity check: confirm the url is the vendor's officially documented MCP
 endpoint before approving. This file is CODEOWNERS-gated for that reason.
 """
 
-from dataclasses import dataclass
+from posthog.dataclasses import frozen
+
+from .oauth_credentials import OAuthCredentialsSource
 
 
-@dataclass(frozen=True)
+@frozen
 class CatalogEntry:
     name: str
     url: str
@@ -33,6 +35,9 @@ class CatalogEntry:
     category: str  # one of CATEGORY_CHOICES on the model
     icon_domain: str  # the vendor's brand domain, rendered via the logo.dev proxy
     docs_url: str = ""
+    oauth_scope_allowlist: tuple[str, ...] | None = None
+    oauth_credentials_source: OAuthCredentialsSource | None = None
+    disabled: bool = False
 
 
 MCP_SERVER_CATALOG: list[CatalogEntry] = [
@@ -59,6 +64,15 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         auth_type="api_key",
         category="dev",
         icon_domain="browserbase.com",
+    ),
+    CatalogEntry(
+        name="Calendly",
+        url="https://mcp.calendly.com",
+        description="Schedule meetings, manage availability, and share booking links.",
+        auth_type="oauth",
+        category="productivity",
+        icon_domain="calendly.com",
+        docs_url="https://developer.calendly.com/calendly-mcp-server",
     ),
     CatalogEntry(
         name="Circle",
@@ -101,9 +115,17 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         icon_domain="context7.com",
     ),
     CatalogEntry(
-        name="Datadog",
+        name="Datadog (EU)",
+        url="https://mcp.datadoghq.eu/v1/mcp",
+        description="Query Datadog logs, metrics, traces, and dashboards in the EU region.",
+        auth_type="oauth",
+        category="data",
+        icon_domain="datadoghq.com",
+    ),
+    CatalogEntry(
+        name="Datadog (US)",
         url="https://mcp.datadoghq.com/api/unstable/mcp-server/mcp",
-        description="Query Datadog logs, metrics, traces, and dashboards.",
+        description="Query Datadog logs, metrics, traces, and dashboards in the US region.",
         auth_type="oauth",
         category="data",
         icon_domain="datadoghq.com",
@@ -287,10 +309,21 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         name="Slack",
         url="https://mcp.slack.com/mcp",
-        description="Search Slack channels, send messages, and access workspace context.",
+        description="Search public Slack channels and read messages and user profiles.",
         auth_type="oauth",
         category="productivity",
         icon_domain="slack.com",
+        docs_url="https://docs.slack.dev/ai/slack-mcp-server/",
+        oauth_credentials_source="slack_app",
+        disabled=True,
+        # Private-channel, DM, email, and write scopes require separate security approval.
+        oauth_scope_allowlist=(
+            "channels:read",
+            "channels:history",
+            "search:read.public",
+            "users:read",
+            "search:read.users",
+        ),
     ),
     CatalogEntry(
         name="Sourcegraph",

@@ -3,15 +3,22 @@ import { useActions, useValues } from 'kea'
 import { IconChevronRight, IconEye, IconGear, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
+import { ProjectTimezoneHint } from 'lib/components/ScheduledRunStatus'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
-import { nextRunAt, scoutCadenceLabel } from 'products/signals/frontend/inbox/utils/scoutGroups'
-import { prettifyScoutSkillName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
+import { ScoutNextRunLabel } from 'products/signals/frontend/inbox/components/config/scouts/ScoutNextRunLabel'
+import {
+    nextRunAt,
+    scoutCadenceLabel,
+    scoutCadenceNamesClockTime,
+} from 'products/signals/frontend/inbox/utils/scoutGroups'
+import { scoutDisplayName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -61,32 +68,42 @@ export function ScannerScoutRow({
     const runDisabledReason =
         editDisabledReason ?? (rollups.get(config.skill_name)?.runningRun ? 'This scout is already running' : undefined)
 
-    const timezone = currentTeam?.timezone ?? 'UTC'
-    const now = new Date()
-    const next = nextRunAt(config, timezone, now)
-    const nextRunText =
-        !next || !config.enabled
-            ? null
-            : next <= now
-              ? 'due now'
-              : next.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', timeZone: timezone })
+    const cadenceText = capitalizeFirstLetter(scoutCadenceLabel(config))
+    const namesClockTime = scoutCadenceNamesClockTime(config)
+    const hasNextRun = nextRunAt(config, currentTeam?.timezone ?? 'UTC', new Date()) !== null
 
     return (
         <div className={cn('flex flex-col rounded border bg-surface-primary', !config.enabled && 'opacity-65')}>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
-                <LemonButton
-                    size="small"
-                    icon={<IconChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />}
-                    onClick={() => toggleScoutExpanded(config.skill_name)}
-                    aria-label={`${expanded ? 'Hide' : 'Show'} reports from ${prettifyScoutSkillName(config.skill_name)}`}
-                    aria-expanded={expanded}
-                    data-attr="vision-scout-row-expand"
-                />
+                {/* Outside the expand button: the next-run popover has clickable rows. */}
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="text-sm font-medium">{prettifyScoutSkillName(config.skill_name)}</span>
-                    <span className="text-[11px] text-muted">
-                        {scoutCadenceLabel(config)}
-                        {nextRunText && ` · next run ${nextRunText}`}
+                    <button
+                        type="button"
+                        className="-mx-1 flex min-w-0 cursor-pointer items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-surface-secondary"
+                        onClick={() => toggleScoutExpanded(config.skill_name)}
+                        aria-label={`${expanded ? 'Hide' : 'Show'} reports from ${scoutDisplayName(config)}`}
+                        aria-expanded={expanded}
+                        data-attr="vision-scout-row-expand"
+                    >
+                        <IconChevronRight
+                            className={cn('shrink-0 text-base transition-transform', expanded && 'rotate-90')}
+                        />
+                        <span className="truncate text-sm font-medium">{scoutDisplayName(config)}</span>
+                    </button>
+                    <span className="pl-6 text-[11px] text-muted">
+                        {cadenceText}
+                        {namesClockTime && (
+                            <>
+                                {' '}
+                                <ProjectTimezoneHint />
+                            </>
+                        )}
+                        {hasNextRun && (
+                            <>
+                                {' · next run '}
+                                <ScoutNextRunLabel config={config} />
+                            </>
+                        )}
                     </span>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
@@ -95,7 +112,7 @@ export function ScannerScoutRow({
                             size="small"
                             icon={<IconGear />}
                             onClick={() => openScoutSettings(config.skill_name)}
-                            aria-label={`${prettifyScoutSkillName(config.skill_name)} settings`}
+                            aria-label={`${scoutDisplayName(config)} settings`}
                             data-attr="vision-scout-row-settings"
                         />
                     </Tooltip>
@@ -108,7 +125,7 @@ export function ScannerScoutRow({
                             disabledReason={editDisabledReason}
                             onClick={() =>
                                 LemonDialog.open({
-                                    title: `Delete ${prettifyScoutSkillName(config.skill_name).toLowerCase()}?`,
+                                    title: `Delete ${scoutDisplayName(config).toLowerCase()}?`,
                                     description:
                                         'This stops its scheduled runs permanently and cannot be undone. Reports it already filed stay in your inbox.',
                                     primaryButton: {
@@ -119,7 +136,7 @@ export function ScannerScoutRow({
                                     secondaryButton: { children: 'Cancel' },
                                 })
                             }
-                            aria-label={`Delete ${prettifyScoutSkillName(config.skill_name)}`}
+                            aria-label={`Delete ${scoutDisplayName(config)}`}
                             data-attr="vision-scout-row-delete"
                         />
                     </Tooltip>
@@ -133,7 +150,7 @@ export function ScannerScoutRow({
                                 onChange={(checked) => updateScoutConfig(config.id, { enabled: checked })}
                                 loading={updating}
                                 disabledReason={editDisabledReason ?? (updating ? 'Saving scout settings' : undefined)}
-                                aria-label={`${prettifyScoutSkillName(config.skill_name)} enabled`}
+                                aria-label={`${scoutDisplayName(config)} enabled`}
                             />
                         </span>
                     </Tooltip>
@@ -195,8 +212,11 @@ export function ScannerScoutRow({
                             {
                                 title: '',
                                 key: 'touchedAt',
+                                // Baseline, not centre: `TZLabel` carries a dotted bottom border, so
+                                // centring the two boxes puts its text half a pixel off, and which way
+                                // that rounds shifts with the width of the digits.
                                 render: (_, report) => (
-                                    <span className="text-muted">
+                                    <span className="inline-flex items-baseline gap-1 text-muted">
                                         Filed <TZLabel time={report.filed_at} />
                                     </span>
                                 ),

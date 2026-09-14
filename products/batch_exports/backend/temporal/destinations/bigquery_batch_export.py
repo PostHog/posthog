@@ -467,6 +467,7 @@ def _make_requests_session() -> "requests.Session":
 
 async def get_service_account_description(
     service_account_email: str,
+    max_attempts: int = 5,
 ) -> str:
     """Return the service account's description.
 
@@ -475,8 +476,12 @@ async def get_service_account_description(
     our_credentials = get_our_google_cloud_credentials()
     client = iam_admin_v1.IAMAsyncClient(credentials=our_credentials)
 
+    retryable_get_service_account = make_retryable_with_exponential_backoff(
+        client.get_service_account, retryable_exceptions=(InternalServerError,), max_attempts=max_attempts
+    )
+
     try:
-        sa = await client.get_service_account(
+        sa = await retryable_get_service_account(
             request=iam_admin_v1.GetServiceAccountRequest(name=f"projects/-/serviceAccounts/{service_account_email}")
         )
     except PermissionDenied:
@@ -1547,8 +1552,10 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             )
 
         max_consumers = 1
+        max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES
         if str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_MULTIPLE_CONSUMERS_TEAM_IDS:
             max_consumers = settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS
+            max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_MULTIPLE_CONSUMERS_UPLOAD_CHUNK_SIZE_BYTES
 
         async with bq_client:
             bigquery_target_table = await bq_client.get_or_create_table(target_table)
@@ -1596,7 +1603,6 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
 
             file_format: typing.Literal["Parquet", "JSONLines"] = "Parquet" if can_perform_merge else "JSONLines"
 
-            max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES // max_consumers
             barrier_size = max_consumers + 1 if can_perform_merge else max_consumers
             all_consumers_done = asyncio.Barrier(barrier_size)
             merge_done = asyncio.Event()

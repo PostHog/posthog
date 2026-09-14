@@ -3,7 +3,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
@@ -282,7 +282,7 @@ def test_compile_hogql_predicate_missing_team_raises_validation_error(db):
         compile_hogql_predicate(request)
 
 
-@freeze_time("2026-06-17T12:00:00Z")
+@time_machine.travel("2026-06-17T12:00:00Z", tick=False)
 def test_compile_hogql_predicate_boolean_person_property_not_coerced(team):
     """A boolean-typed person property compared to a non-``true``/``false`` string must not be
     coerced to Bool. The coercion (``accurateCastOrNull(transform(...), 'Bool')``) maps the
@@ -599,7 +599,7 @@ def test_cached_compile_hogql_predicate_blank_predicate_skips_compile():
         assert cached_compile_hogql_predicate(request) == ("", {})
 
 
-@freeze_time("2026-06-17T12:00:00Z")
+@time_machine.travel("2026-06-17T12:00:00Z", tick=False)
 @pytest.mark.parametrize(
     "overrides,expected_fragment",
     [

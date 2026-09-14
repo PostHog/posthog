@@ -77,7 +77,7 @@ export function getAudioDurationMs(src: string): Promise<number | null> {
 // Below this peak amplitude (~ -60 dBFS) we treat a recording as silent. A real
 // microphone's noise floor sits comfortably above this, so it only trips on a
 // genuine no-signal capture, not quiet-but-real audio.
-export const SILENCE_PEAK_THRESHOLD = 0.001;
+const SILENCE_PEAK_THRESHOLD = 0.001;
 
 // A sample counts as "signal" when it exceeds this fraction of the clip's own
 // peak — relative, so silence detection adapts to loud and quiet clips alike.

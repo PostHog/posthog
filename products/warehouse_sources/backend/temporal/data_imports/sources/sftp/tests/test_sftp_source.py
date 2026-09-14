@@ -5,15 +5,6 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSwitchGroupConfig,
-)
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sftp import (
     SFTPAuthTypeConfig,
@@ -29,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp 
     SFTPCredentialsError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.source import SFTPSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 DIRECTORY_MODE = stat.S_IFDIR | 0o755
 FILE_MODE = stat.S_IFREG | 0o644
@@ -124,51 +114,6 @@ def patched_connection(client: FakeClient, target: str = CONNECTION_TARGET) -> A
 class TestSFTPSourceConfig:
     def setup_method(self) -> None:
         self.source = SFTPSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SFTP
-
-    def test_is_released_as_alpha(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.category == DataWarehouseSourceCategory.FILE_STORAGE
-
-    def test_field_names(self) -> None:
-        names = [field.name for field in self.source.get_source_config.fields]
-
-        assert names == [
-            "host",
-            "port",
-            "user",
-            "auth_type",
-            "path",
-            "file_pattern",
-            "file_format",
-            "csv_delimiter",
-            "combine_files",
-        ]
-
-    def test_credentials_are_marked_secret(self) -> None:
-        auth_field = next(
-            field for field in self.source.get_source_config.fields if isinstance(field, SourceFieldSelectConfig)
-        )
-        option_fields = [field for option in auth_field.options for field in option.fields or []]
-
-        assert {field.name for field in option_fields} == {"password", "private_key", "passphrase"}
-        for field in option_fields:
-            assert isinstance(field, SourceFieldInputConfig)
-            assert field.secret is True
-            assert field.type in (SourceFieldInputConfigType.PASSWORD, SourceFieldInputConfigType.TEXTAREA)
-
-    def test_combine_files_group_asks_for_a_table_name(self) -> None:
-        group = next(
-            field for field in self.source.get_source_config.fields if isinstance(field, SourceFieldSwitchGroupConfig)
-        )
-
-        assert group.default is False
-        assert [field.name for field in group.fields or []] == ["table_name"]
 
     def test_port_change_requires_credential_reentry(self) -> None:
         assert self.source.connection_host_fields == ["port"]

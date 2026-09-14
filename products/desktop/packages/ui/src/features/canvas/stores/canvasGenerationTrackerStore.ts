@@ -5,7 +5,7 @@ import { create } from "zustand";
 // record, whose generationTaskId is never cleared), so the watcher only ever
 // announces generations the user actually started this session — never a stale
 // association on reload.
-export interface TrackedCanvasGeneration {
+interface TrackedCanvasGeneration {
   taskId: string;
   dashboardId: string;
   channelId: string;

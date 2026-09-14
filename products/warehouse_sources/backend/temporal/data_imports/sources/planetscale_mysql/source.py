@@ -197,6 +197,7 @@ class PlanetScaleMySQLSource(MySQLSource):
         team_id: int,
         schema_name: Optional[str] = None,
         api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
         host = config.host or ""
         if "://" in host:

@@ -29,12 +29,13 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
-from products.warehouse_sources.backend.temporal.data_imports import workload_report
+from products.warehouse_sources.backend.temporal.data_imports import schema_flags, workload_report
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition_controller as ctrl
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionAttemptsExhausted,
     RepartitionSupersededError,
+    RepartitionTooLargeForBudgetError,
     RepartitionUnpartitionableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
@@ -304,7 +305,7 @@ class TestIsAutoRepartitionEnabled:
 
         with (
             patch("posthog.models.Team.objects.only", return_value=mock_queryset),
-            patch.object(ctrl, "capture_exception") as mock_capture_exception,
+            patch.object(schema_flags, "capture_exception") as mock_capture_exception,
         ):
             assert ctrl.is_auto_repartition_enabled(schema) is False
 
@@ -802,6 +803,63 @@ class TestRepartitionActivity:
 
         assert schema.repartition_pending is None
 
+    def test_retries_inside_one_sync_run_burn_a_single_attempt(self, team):
+        # Temporal retries this activity up to MAX_REPARTITION_ATTEMPTS times inside one sync run. A
+        # hard-killed attempt records no outcome, so charging every retry let a single bad run spend
+        # the whole cap: the next run gave up and abandoned a table no later sync ever retried.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 0,
+            }
+        )
+        inputs = self._inputs(team, schema)
+
+        def killed_mid_rewrite(**kwargs):
+            raise KeyboardInterrupt("worker killed")
+
+        for _ in range(MAX_REPARTITION_ATTEMPTS):
+            with contextlib.suppress(BaseException):
+                self._run(inputs, AsyncMock(side_effect=killed_mid_rewrite))
+            schema.refresh_from_db()
+
+        pending = schema.repartition_pending
+        assert pending is not None and pending["attempts"] == 1
+
+    def test_a_retry_inside_the_run_that_spent_the_cap_still_rewrites(self, team):
+        # The attempt is charged before the rewrite, so on the run that charges the last one the
+        # persisted count already reads the cap when that run's own Temporal retry re-reads it. Giving
+        # up there abandoned the table terminally on a heartbeat blip, before the retry ran the
+        # rewrite at all, although the cap counts the sync runs that failed and not the retries
+        # within one.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": MAX_REPARTITION_ATTEMPTS - 1,
+            }
+        )
+        inputs = self._inputs(team, schema)
+
+        def killed_mid_rewrite(**kwargs):
+            raise KeyboardInterrupt("worker killed")
+
+        with contextlib.suppress(BaseException):
+            self._run(inputs, AsyncMock(side_effect=killed_mid_rewrite))
+
+        rewrite = AsyncMock(return_value={"outcome": "completed", "row_count": 6, "partition_mode_after": "md5"})
+        capture = self._run(inputs, rewrite)
+
+        rewrite.assert_awaited_once()
+        assert "warehouse_repartition_failed" not in [c.args[0] for c in capture.call_args_list]
+
     def test_an_overlapping_attempt_charge_survives_another_attempts_refund(self, team):
         # Overlapping attempts must not erase each other's charge, or the cap never counts up and the
         # retry loop this change exists to stop comes back.
@@ -868,6 +926,60 @@ class TestRepartitionActivity:
         # The claim check must be the mutate callback, evaluated against the row read under the lock.
         assert locked_update.call_args.kwargs["mutate"] is not None
 
+    def test_finalizing_a_swap_saves_the_scheme_and_retires_every_marker_at_once(self, team):
+        # The swap has already re-bucketed the data in S3, so what is left is one write that has to be
+        # all-or-nothing. Landing the settings but keeping the swap marker holds the schema's imports
+        # forever; clearing the markers without the cooldown re-flags the table on the very next sync;
+        # keeping the operator pin re-applies it on a later reset.
+        schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 4, "partition_count_override": 4})
+        schema.set_repartition_claim({"token": "live-claim", "job_id": "j1", "claimed_at": _days_ago_iso(0)})
+        schema.set_repartition_pending(
+            {"partition_mode": "md5", "partition_count": 8, "partition_keys": ["id"], "trigger_reason": "t"}
+        )
+        schema.set_repartition_swap({"state": "ready", "temp_uri": "s3://t", "live_uri": "s3://l"})
+        schema.set_repartition_rewrite({"temp_uri": "s3://t", "rows_written": 5})
+
+        wrote = external_data_schema.finalize_repartition_scheme(
+            schema,
+            partitioning_keys=["id"],
+            partition_count=8,
+            partition_size=None,
+            partition_mode="md5",
+            partition_format=None,
+            claim_token="live-claim",
+        )
+
+        schema.refresh_from_db()
+        assert wrote is True
+        assert schema.partitioning_enabled is True
+        assert schema.partition_count == 8
+        assert schema.partition_count_override is None
+        assert schema.repartition_swap is None
+        assert schema.repartition_pending is None
+        assert schema.repartition_rewrite is None
+        assert schema.last_repartition_at is not None
+
+    def test_finalizing_stands_down_when_a_newer_attempt_owns_the_claim(self, team):
+        # A zombie writing here would describe a layout the new claimant is in the middle of replacing.
+        schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 4})
+        schema.set_repartition_claim({"token": "newer-claim", "job_id": "j2", "claimed_at": _days_ago_iso(0)})
+        schema.set_repartition_swap({"state": "ready", "temp_uri": "s3://t", "live_uri": "s3://l"})
+
+        wrote = external_data_schema.finalize_repartition_scheme(
+            schema,
+            partitioning_keys=["id"],
+            partition_count=8,
+            partition_size=None,
+            partition_mode="md5",
+            partition_format=None,
+            claim_token="stale-claim",
+        )
+
+        schema.refresh_from_db()
+        assert wrote is False
+        assert schema.partition_count == 4
+        assert schema.repartition_swap is not None
+
     def test_a_staged_swap_is_never_abandoned_by_the_attempt_cap(self, team):
         # An interrupted swap may already have deleted live, leaving temp the only intact copy. Giving
         # up clears the marker that points at it, so the next sync would bootstrap an empty table.
@@ -908,16 +1020,27 @@ class TestRepartitionActivity:
         assert schema.repartition_pending is not None
         assert schema.repartition_pending["attempts"] == 0
 
-    def test_unpartitionable_clears_pending(self, team):
+    @pytest.mark.parametrize(
+        "error",
+        [
+            RepartitionUnpartitionableError("no keys"),
+            RepartitionTooLargeForBudgetError("one budget cannot cover the table"),
+        ],
+    )
+    def test_a_terminal_rewrite_error_clears_pending(self, team, error):
         schema = _make_schema(team, {})
         schema.set_repartition_pending(
             {"partition_mode": None, "partition_keys": [], "trigger_reason": "test", "attempts": 0}
         )
-        mocked = AsyncMock(side_effect=RepartitionUnpartitionableError("no keys"))
+        schema.set_repartition_rewrite({"temp_uri": "s3://bucket/t", "rows_written": 10, "budget_exhausted": True})
+        mocked = AsyncMock(side_effect=error)
         capture = self._run(self._inputs(team, schema), mocked)
         schema.refresh_from_db()
         assert schema.repartition_pending is None
+        # A checkpoint left behind would resume the rewrite the give-up just abandoned.
+        assert schema.repartition_rewrite is None
         assert "warehouse_repartition_skipped" in [c.args[0] for c in capture.call_args_list]
+        assert "warehouse_repartition_failed" not in [c.args[0] for c in capture.call_args_list]
         # Clearing pending alone re-arms the loop — detection re-flags the unchanged table next sync.
         # The cooldown stamp is what actually stops the flag → start → skip churn every 5 minutes.
         assert schema.last_repartition_at is not None

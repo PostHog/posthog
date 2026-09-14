@@ -12,7 +12,6 @@ import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/type
 import {
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     isGroupPropertyFilter,
-    isPropertyFilterWithOperator,
     propertyFilterTypeToTaxonomicFilterType,
     sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
@@ -36,17 +35,12 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import {
-    AnyPropertyFilter,
-    FilterLogicalOperator,
-    GroupTypeIndex,
-    PropertyDefinitionType,
-    PropertyFilterType,
-} from '~/types'
+import { AnyPropertyFilter, GroupTypeIndex, PropertyDefinitionType, PropertyFilterType } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
-import { OperandTag } from './OperandTag'
+import { FILTER_ROW_FRAME_CLASSES } from './filterRowFrame'
+import { PropertyFilterRowOperator } from './PropertyFilterRowOperator'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
 export const DEFAULT_TAXONOMIC_GROUP_TYPES = [
@@ -92,9 +86,11 @@ export function TaxonomicPropertyFilter({
     hogQLGlobals,
     triggerVariant = 'button',
     staticValueOptions,
+    renderOperatorValueSelect,
     propertyDefinitionsOverride,
     propertyKeyEditable = true,
     singleLine,
+    framedRows,
 }: PropertyFilterInternalProps): JSX.Element {
     const generatedKey = useId()
     const pageKey = pageKeyInput || `filter-${generatedKey}`
@@ -200,14 +196,14 @@ export function TaxonomicPropertyFilter({
         />
     )
 
-    const operatorValueSelect = (
+    const defaultOperatorValueSelect = (
         <OperatorValueSelect
             propertyDefinitions={propertyDefinitions}
             size={size}
             editable={editable}
             type={filter?.type}
             propertyKey={filter?.key}
-            operator={isPropertyFilterWithOperator(filter) ? filter.operator : null}
+            operator={filter && 'operator' in filter ? filter.operator : null}
             value={filter?.value}
             placeholder="Enter value..."
             endpoint={
@@ -254,14 +250,30 @@ export function TaxonomicPropertyFilter({
         />
     )
 
+    const operatorValueSelect =
+        filter && renderOperatorValueSelect
+            ? renderOperatorValueSelect(filter, (operator, value) => {
+                  setFilter(index, {
+                      ...filter,
+                      operator,
+                      value,
+                  } as AnyPropertyFilter)
+              })
+            : null
+
+    const filterType = filter?.type as PropertyFilterType | undefined
+
     const filterContent =
         filter?.type === 'cohort'
             ? cohortName || `Cohort #${filter?.value}`
             : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
               ? filter.label || `Group ${filter?.value}`
               : (filter?.type === PropertyFilterType.Flag ||
+                      filterType === PropertyFilterType.AccountRelationship ||
                       filter?.type === PropertyFilterType.AccountCustomProperty) &&
-                  filter?.label
+                  filter &&
+                  'label' in filter &&
+                  filter.label
                 ? filter.label
                 : filter?.key && (
                       <PropertyKeyInfo
@@ -372,41 +384,27 @@ export function TaxonomicPropertyFilter({
                     })}
                 >
                     {hasRowOperator && (
-                        <div className="TaxonomicPropertyFilter__row-operator">
-                            {orFiltering ? (
-                                <>
-                                    {propertyGroupType && index !== 0 && filter?.key && (
-                                        <div className="flex items-center">
-                                            {propertyGroupType === FilterLogicalOperator.And ? (
-                                                <OperandTag operand="and" />
-                                            ) : (
-                                                <OperandTag operand="or" />
-                                            )}
-                                        </div>
-                                    )}
-                                </>
-                            ) : (
-                                <div className="flex items-center gap-1">
-                                    {index === 0 ? (
-                                        <>
-                                            <span className="TaxonomicPropertyFilter__row-arrow">&#8627;</span>
-                                            <span>where</span>
-                                        </>
-                                    ) : (
-                                        <OperandTag operand="and" />
-                                    )}
-                                </div>
-                            )}
-                        </div>
+                        <PropertyFilterRowOperator
+                            index={index}
+                            orFiltering={orFiltering}
+                            propertyGroupType={propertyGroupType}
+                            hasKey={!!filter?.key}
+                        />
                     )}
                     <div
-                        className={clsx('TaxonomicPropertyFilter__row-items', {
-                            'TaxonomicPropertyFilter__row-items--single-line': singleLine,
-                        })}
+                        className={clsx(
+                            'TaxonomicPropertyFilter__row-items',
+                            { 'TaxonomicPropertyFilter__row-items--single-line': singleLine },
+                            framedRows && filter?.key && FILTER_ROW_FRAME_CLASSES
+                        )}
                     >
-                        {showOperatorValueSelect && placeOperatorValueSelectOnLeft && operatorValueSelect}
+                        {showOperatorValueSelect &&
+                            placeOperatorValueSelectOnLeft &&
+                            (operatorValueSelect ?? defaultOperatorValueSelect)}
                         {editable && propertyKeyEditable ? editablePicker : filterContent}
-                        {showOperatorValueSelect && !placeOperatorValueSelectOnLeft && operatorValueSelect}
+                        {showOperatorValueSelect &&
+                            !placeOperatorValueSelectOnLeft &&
+                            (operatorValueSelect ?? defaultOperatorValueSelect)}
                     </div>
                 </div>
             )}

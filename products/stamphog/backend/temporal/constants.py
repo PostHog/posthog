@@ -80,7 +80,16 @@ ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_interval=timedelta(minutes=1),
 )
 
-# The sandbox review provisions a box, clones the repo, and runs the reviewer agent —
-# expensive and side-effecting, so a transient failure fails the run rather than
-# silently paying for it twice. The workflow-level wrapper marks the run FAILED.
+
+class SandboxPhaseError(Exception):
+    """Marks the paid phase of the review activity: this attempt made a sandbox, or found the claim
+    of an earlier one. SANDBOX_RETRY_POLICY excludes this type, so no run pays for a review twice.
+    """
+
+
+# One attempt. The activity setup costs nothing and is safe to repeat, and the activity marks its
+# paid phase and records a claim. A higher count belongs in a later change, after this one is on
+# every worker: workflow and activity tasks share one unversioned queue, so a rolling deploy lets a
+# new workflow worker schedule against an old activity worker that writes no claim. A paid-phase
+# failure would then bill a second review.
 SANDBOX_RETRY_POLICY = RetryPolicy(maximum_attempts=1)

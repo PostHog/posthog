@@ -38,6 +38,7 @@ import {
     DEFAULT_COMPONENT_PANEL_VISIBILITY,
     withPersistedComponentPanelProps,
 } from './componentPanels'
+import { NotebookComponentRunHandler, NotebookComponentRunHandlerContext } from './componentRunHandlers'
 import { useNotebookComponentRunStatus } from './componentRunStatus'
 import {
     NotebookComponentToolbarExtras,
@@ -115,6 +116,7 @@ export function NotebookComponentShell({
     const errors = [...(node.errors ?? []), ...(definition?.validateProps?.(node.props) ?? [])]
     const ViewComponent = definition?.ViewComponent
     const EditComponent = definition?.EditComponent ?? definition?.ViewComponent
+    const ToolbarComponent = definition?.ToolbarComponent
     // Read-only canvases (e.g. customer profiles) keep the filters toggle: it's the only way to
     // configure nodes there, matching the legacy notebook's canvas behavior.
     const isViewModeCanvas = mode === 'view' && !!allowViewModeFilters
@@ -131,6 +133,7 @@ export function NotebookComponentShell({
     const canToggleComponentPanels = mode === 'edit'
     const hasOpenComponentPanel = componentPanels.filters || componentPanels.results
     const [toolbarExtras, setToolbarExtras] = useState<NotebookComponentToolbarExtras | null>(null)
+    const [runHandler, setRunHandler] = useState<NotebookComponentRunHandler | null>(null)
     const titleDisplay = getComponentTitleDisplay(node, definition)
     const toolbarTitle = getComponentToolbarTitle(node, definition, titleDisplay.label)
     const isTitleEditable = definition?.editableTitle !== false
@@ -328,8 +331,77 @@ export function NotebookComponentShell({
             event.currentTarget.blur()
         }
     }
+    const isRunnableCell = !!runHandler
+
+    const runFromKeyboard = (): boolean => {
+        if (!runHandler || runHandler.disabledReason) {
+            return false
+        }
+
+        runHandler.run()
+        return true
+    }
+
+    const focusCellEditor = (shell: HTMLElement): boolean => {
+        // Focusing the editor wrapper does nothing, because Monaco reads keystrokes from a hidden
+        // input of its own. Keep the bare `textarea` last: an EditContext Monaco also renders one
+        // for IME, and focusing that one leaves the caret outside the editor.
+        const editorInput = shell.querySelector<HTMLElement>(
+            '.monaco-editor .native-edit-context, .monaco-editor textarea.inputarea, .monaco-editor textarea'
+        )
+        if (!editorInput) {
+            return false
+        }
+
+        editorInput.focus()
+        return true
+    }
+
     const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-        if (mode !== 'edit' || event.target !== event.currentTarget) {
+        // A handler closer to the key already claimed it, such as Monaco's own Cmd+Enter.
+        if (mode !== 'edit' || event.defaultPrevented) {
+            return
+        }
+
+        // A modal or menu a block renders portals its DOM out of the shell, yet React still bubbles
+        // its events here through the component tree. Without this the source editor inside a
+        // widget's modal would run the cell on Shift+Enter instead of taking the newline.
+        if (event.target instanceof Node && !event.currentTarget.contains(event.target)) {
+            return
+        }
+
+        // Deliberately overrides Monaco's Shift+Enter, which inserts a plain newline that Enter
+        // already gives you.
+        if (event.key === 'Enter' && !event.altKey && (event.metaKey || event.ctrlKey || event.shiftKey)) {
+            const movesOn = event.shiftKey && !event.metaKey && !event.ctrlKey
+            if (runFromKeyboard()) {
+                event.preventDefault()
+                event.stopPropagation()
+                if (movesOn) {
+                    moveFocusToAdjacentNode(node.id, 'next', 0)
+                }
+            }
+            return
+        }
+
+        // Monaco keeps Escape while it has something to dismiss (the suggestion list, the find
+        // box) and releases it once it has not, so this only fires when the editor is done with it.
+        if (
+            isRunnableCell &&
+            event.key === 'Escape' &&
+            event.target !== event.currentTarget &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.altKey &&
+            !event.shiftKey
+        ) {
+            event.preventDefault()
+            event.stopPropagation()
+            event.currentTarget.focus()
+            return
+        }
+
+        if (event.target !== event.currentTarget) {
             return
         }
 
@@ -354,6 +426,9 @@ export function NotebookComponentShell({
 
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault()
+            if (isRunnableCell && focusCellEditor(event.currentTarget)) {
+                return
+            }
             insertParagraphAfterNode()
         }
     }
@@ -437,6 +512,18 @@ export function NotebookComponentShell({
                                     onClick={() => toggleComponentPanel('results')}
                                 />
                             ) : null}
+                        </div>
+                    ) : null}
+                    {ToolbarComponent ? (
+                        <div className="MarkdownNotebook__component-toolbar-controls">
+                            <NotebookComponentToolbarErrorBoundary node={node}>
+                                {/* The run control publishes the cell's run action from here: the
+                                    toolbar is the one part of a cell that stays mounted while the
+                                    cell is collapsed, so the run shortcuts keep working when it is. */}
+                                <NotebookComponentRunHandlerContext.Provider value={setRunHandler}>
+                                    <ToolbarComponent node={node} notebookMode={mode} updateProps={updateProps} />
+                                </NotebookComponentRunHandlerContext.Provider>
+                            </NotebookComponentToolbarErrorBoundary>
                         </div>
                     ) : null}
                 </div>
@@ -582,6 +669,31 @@ export function NotebookComponentShell({
 
 function isTitleInputTarget(target: EventTarget | null): boolean {
     return target instanceof HTMLElement && !!target.closest('.MarkdownNotebook__component-toolbar-title--input')
+}
+
+function NotebookComponentToolbarErrorBoundary({
+    children,
+    node,
+}: {
+    children: ReactNode
+    node: NotebookComponentBlockNode
+}): JSX.Element {
+    return (
+        <PostHogErrorBoundary
+            key={`${node.id}-toolbar`}
+            additionalProperties={{
+                feature: 'markdown_notebook_component',
+                markdown_notebook_node_id: node.id,
+                markdown_notebook_tag_name: node.tagName,
+                markdown_notebook_panel: 'toolbar',
+            }}
+            // A crashed control drops out of the toolbar instead of reporting there: an error block
+            // in the top row would push the title and the block's actions off it.
+            fallback={() => <></>}
+        >
+            {children}
+        </PostHogErrorBoundary>
+    )
 }
 
 export function NotebookComponentPanelErrorBoundary({

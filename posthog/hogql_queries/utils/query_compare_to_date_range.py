@@ -42,7 +42,7 @@ class QueryCompareToDateRange(QueryDateRange):
 
         return DateRangeBounds(
             date_from=start_date,
-            date_to=start_date + (current_period_date_to - current_period_date_from),
+            date_to=start_date + (self.nominal_comparison_date_to(current_period_date_to) - current_period_date_from),
         )
 
     def date_to(self) -> datetime:

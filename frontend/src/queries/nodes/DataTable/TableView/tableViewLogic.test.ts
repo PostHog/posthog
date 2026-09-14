@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'scenes/persons/personsSceneLogic'
+import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'products/persons/frontend/logics/personsSceneLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'

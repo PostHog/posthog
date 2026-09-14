@@ -3,6 +3,7 @@ import json
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
+from datetime import datetime, timedelta
 
 import pytest
 from posthog.test.base import materialized
@@ -18,6 +19,7 @@ from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     HostInfo,
     LightweightDeleteMutationRunner,
+    MutationCapacityTimeout,
     MutationNotFound,
     MutationWaiter,
     Query,
@@ -27,6 +29,8 @@ from posthog.clickhouse.cluster import (
     redact_sql_secrets,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+
+pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture
@@ -542,6 +546,30 @@ def test_map_hosts_with_satellite_clusters() -> None:
         times_called.clear()
 
 
+def test_sibling_addresses_another_cluster_and_is_memoized() -> None:
+    hosts_by_cluster = {
+        "posthog": [("host1", 9000, 1, 1, "online", "data")],
+        "events": [
+            ("events-host1", 9000, 1, 1, "online", "data"),
+            ("events-host2", 9000, 2, 1, "online", "data"),
+        ],
+    }
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(side_effect=lambda query, params: hosts_by_cluster[params["name"]])
+
+    cluster = ClickhouseCluster(bootstrap_client_mock, cluster="posthog")
+
+    assert cluster.sibling("posthog") is cluster
+
+    sibling = cluster.sibling("events")
+    assert sibling.data_cluster_name == "events"
+    assert sorted(sibling.shards) == [1, 2]
+    # The handle it was derived from keeps its own shard map, so the two clusters are not merged.
+    assert cluster.shards == [1]
+    # Memoized: rebuilding would rediscover the hosts and open a second pool per host.
+    assert cluster.sibling("events") is sibling
+
+
 def test_satellite_cluster_hosts_have_no_shard_info() -> None:
     bootstrap_client_mock = Mock()
 
@@ -673,6 +701,31 @@ def test_map_hosts_with_combined_roles() -> None:
         assert sorted(executed_hosts) == ["aux-host-1", "data-host-1", "data-host-2"]
 
 
+def test_map_hosts_with_missing_role_defaults_to_noop() -> None:
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(
+        return_value=[
+            ("data-host-1", "9000", "1", "1", "online", "data"),
+        ]
+    )
+    cluster = ClickhouseCluster(bootstrap_client_mock)
+
+    assert cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.INGESTION_SMALL).result() == {}
+
+
+def test_map_hosts_with_required_missing_role_raises() -> None:
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(
+        return_value=[
+            ("data-host-1", "9000", "1", "1", "online", "data"),
+        ]
+    )
+    cluster = ClickhouseCluster(bootstrap_client_mock)
+
+    with pytest.raises(ValueError, match="No hosts found with roles.*INGESTION_SMALL"):
+        cluster.map_hosts_by_roles(lambda _: (), node_roles=[NodeRole.INGESTION_SMALL], require_hosts=True)
+
+
 def test_satellite_dedup_same_physical_host() -> None:
     """In local dev, satellite clusters point to the same ClickHouse node as the main cluster.
     NodeRole.ALL should not execute on the same physical host twice."""
@@ -782,6 +835,54 @@ def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
         assert mutations_count_after[host][0][0] > mutations_count_before[host][0][0]
 
 
+def test_reuse_since_refuses_a_mutation_created_before_it(cluster: ClickhouseCluster) -> None:
+    # A command names the dictionaries it joins, never their contents, so the same text stands for
+    # different data on a later run. Adopting the earlier run's finished mutation reports a delete
+    # that never ran, and it is silent: the waiter sees a finished mutation and returns at once.
+    table = EVENTS_DATA_TABLE()
+    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT 10")).result()
+
+    sentinel_uuid = uuid.uuid1()
+
+    def build(reuse_since: datetime | None) -> AlterTableMutationRunner:
+        return AlterTableMutationRunner(
+            table=table,
+            commands={"UPDATE person_id = %(uuid)s WHERE 1 = 1"},
+            parameters={"uuid": sentinel_uuid},
+            reuse_since=reuse_since,
+        )
+
+    wait_and_check_mutations_on_shards(cluster, cluster.map_one_host_per_shard(build(None)).result())
+
+    count_mutations = Query(
+        "SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s",
+        {"table": table},
+    )
+    before = cluster.map_all_hosts(count_mutations).result()
+
+    def last_create_time(client: Client) -> datetime:
+        [[created]] = client.execute(
+            "SELECT max(create_time) FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s",
+            {"table": table},
+        )
+        return created
+
+    # The latest reading across hosts, so the floor sits past the mutation on every one of them.
+    newest = max(cluster.map_all_hosts(last_create_time).result().values())
+
+    # A floor predating the mutation still adopts it, which is what keeps a retry inside one run
+    # from enqueueing the same work twice.
+    cluster.map_one_host_per_shard(build(newest - timedelta(hours=1))).result()
+    adopted = cluster.map_all_hosts(count_mutations).result()
+    for host, rows in before.items():
+        assert adopted[host][0][0] == rows[0][0], "a mutation created after the floor should have been adopted"
+
+    cluster.map_one_host_per_shard(build(newest + timedelta(seconds=1))).result()
+    enqueued = cluster.map_all_hosts(count_mutations).result()
+    for host, rows in before.items():
+        assert enqueued[host][0][0] > rows[0][0], "a mutation created before the floor should not have been adopted"
+
+
 @pytest.mark.parametrize(
     "sql,expected",
     [
@@ -837,3 +938,50 @@ def test_query_repr_keeps_short_query_intact():
     rendered = repr(Query("SELECT 1"))
     assert "truncated" not in rendered
     assert "SELECT 1" in rendered
+
+
+def _client_reporting_unfinished(counts: list[int]) -> Mock:
+    remaining = list(counts)
+    client = Mock(spec=Client)
+    client.execute.side_effect = lambda *args, **kwargs: [[remaining.pop(0) if len(remaining) > 1 else remaining[0]]]
+    return client
+
+
+def test_wait_for_mutation_capacity_returns_once_the_table_is_free() -> None:
+    runner = LightweightDeleteMutationRunner(table="person", predicate="1")
+    client = _client_reporting_unfinished([2, 1, 0])
+
+    with patch("posthog.clickhouse.cluster.time.sleep"):
+        runner.wait_for_mutation_capacity(client, poll_interval=0)
+
+    assert client.execute.call_count == 3
+
+
+def test_wait_for_mutation_capacity_waits_indefinitely_by_default() -> None:
+    # The default has to stay "wait forever": every caller that predates capacity_timeout relies on
+    # it, and a deadline appearing under them would fail runs that today merely wait.
+    runner = LightweightDeleteMutationRunner(table="person", predicate="1")
+    assert runner.capacity_timeout == 0.0
+
+    client = _client_reporting_unfinished([1] * 5 + [0])
+    with (
+        patch("posthog.clickhouse.cluster.time.sleep"),
+        patch("posthog.clickhouse.cluster.time.monotonic", side_effect=range(1_000_000, 1_000_100)),
+    ):
+        runner.wait_for_mutation_capacity(client, poll_interval=0)
+
+    assert client.execute.call_count == 6
+
+
+def test_wait_for_mutation_capacity_gives_up_once_capacity_timeout_passes() -> None:
+    # This wait happens before the mutation exists, so the caller's wait-for-completion deadline
+    # cannot cover it; without this bound a mutation nobody here started blocks the run forever.
+    runner = LightweightDeleteMutationRunner(table="person", predicate="1", capacity_timeout=30.0)
+    client = _client_reporting_unfinished([1])
+
+    with (
+        patch("posthog.clickhouse.cluster.time.sleep"),
+        patch("posthog.clickhouse.cluster.time.monotonic", side_effect=[0.0, 10.0, 31.0]),
+    ):
+        with pytest.raises(MutationCapacityTimeout, match="waiting for capacity"):
+            runner.wait_for_mutation_capacity(client, poll_interval=0)

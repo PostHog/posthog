@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -24,7 +24,7 @@ import {
 import { readScannerDraft, writeScannerDraft } from './scannerDraft'
 import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
 import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
-import { defaultScannerTemplates } from './scannerTemplates'
+import { defaultScannerTemplates, newScanner } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 
 jest.mock('lib/forms/scrollToFormError', () => ({
@@ -104,6 +104,71 @@ describe('replayScannerLogic', () => {
                 }),
             })
         })
+
+        it('new scanner seeds its query from a ?filters= deep link', async () => {
+            const query = {
+                kind: 'RecordingsQuery',
+                events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+            }
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters: JSON.stringify(query) })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
+                scanner: expect.objectContaining({ query: expect.objectContaining({ events: query.events }) }),
+            })
+        })
+
+        it('a ?filters= deep link outranks a saved draft', async () => {
+            const query = { kind: 'RecordingsQuery', events: [{ id: '$autocapture', type: 'events' }] }
+            writeScannerDraft(teamLogic.values.currentTeamId!, { ...newScanner(null), name: 'stale draft' })
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters: JSON.stringify(query) })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
+                scanner: expect.objectContaining({
+                    name: newScanner(null, teamLogic.values.currentTeam?.name).name,
+                    query: expect.objectContaining({ events: query.events }),
+                }),
+            })
+        })
+
+        // A crafted or truncated param must not reach the filter UI, which spreads what it gets:
+        // a list field holding a string renders one filter per character.
+        it.each([
+            ['unparseable JSON', 'not-json{'],
+            ['a JSON array', '[]'],
+            ['a list field that is not a list', '{"kind":"RecordingsQuery","events":"x"}'],
+        ])('a ?filters= param carrying %s falls back to the blank wizard', async (_label, filters) => {
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
+                scanner: expect.objectContaining({
+                    scanner_type: 'monitor',
+                    query: { kind: 'RecordingsQuery' },
+                }),
+            })
+        })
+
+        it('strips the consumed ?filters= param, so a reload does not re-seed over the user edits', async () => {
+            const query = { kind: 'RecordingsQuery', events: [{ id: '$pageview', type: 'events' }] }
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters: JSON.stringify(query) })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            expect(router.values.searchParams.filters).toBeUndefined()
+        })
+
+        // The replay filters entry point sends both when the filters scope to an experiment, since
+        // exposure can't ride inside the query. Keeping only the targeting would silently widen the
+        // scanner to every session; keeping only the filters would drop the experiment entirely.
+        it('combines an experiment deep link with a ?filters= query rather than dropping either', async () => {
+            useMocks({
+                get: { '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }] },
+            })
+            const query = { kind: 'RecordingsQuery', events: [{ id: '$pageview', type: 'events' }] }
+            router.actions.push(urls.replayVisionScannerConfigure('new'), {
+                experiment: '7',
+                filters: JSON.stringify(query),
+            })
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            expect(logic.values.scanner?.experiment_targeting).toMatchObject({ experiment_id: 7 })
+            expect(logic.values.scanner?.query).toMatchObject({ events: query.events })
+        })
     })
 
     describe('draftScannerFromGoal', () => {
@@ -168,6 +233,63 @@ describe('replayScannerLogic', () => {
             ).toFinishAllListeners()
 
             expect(logic.values.scanner?.query).toEqual({ kind: 'RecordingsQuery' })
+        })
+
+        it('carries the drafted experiment targeting onto the form', async () => {
+            // Targeting is not part of the query, so the form is its only carrier: dropped here, the
+            // saved scanner watches every visitor of the drafted pages instead of the participants.
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'New entrypoint friction',
+                    description: 'Classifies friction in the new entrypoint.',
+                    scanner_type: 'classifier',
+                    scanner_config: { prompt: 'Classify the friction.', tags: ['smooth'], multi_label: false },
+                    rationale: '',
+                    query: null,
+                    experiment_targeting: { experiment_id: 11, variant: 'test' },
+                },
+            ])
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('friction in the new AI entrypoint')
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner?.experiment_targeting).toEqual({ experiment_id: 11, variant: 'test' })
+        })
+
+        it('keeps an experiment prefill the AI draft did not name', async () => {
+            // The experiment cross-sell deep-links targeting the goal text never mentions. Dropping it
+            // here would save a scanner watching every visitor of the drafted pages, not the participants.
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                },
+            })
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'Billing drop-off',
+                    description: 'Watches where people give up.',
+                    scanner_type: 'monitor',
+                    scanner_config: { prompt: 'Watch for drop-off.' },
+                    rationale: '',
+                    query: { kind: 'RecordingsQuery' },
+                },
+            ])
+            router.actions.push(urls.replayVisionScannerTemplate('new'), { experiment: '7' })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 }, variantKey: null })
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('where do people give up in billing')
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner).toMatchObject({
+                name: 'Billing drop-off: Checkout redesign',
+                experiment_targeting: { experiment_id: 7, variant: null },
+            })
         })
 
         it('drops a stale draft when the user has left the template step mid-request', async () => {
@@ -348,6 +470,31 @@ describe('replayScannerLogic', () => {
         it('is a no-op for non-classifier scanners', async () => {
             // Default scanner is a monitor — appending classifier tags must not add a tags field.
             await expectLogic(logic, () => logic.actions.appendClassifierTags(['x'])).toMatchValues({
+                scanner: expect.objectContaining({ scanner_type: 'monitor', scanner_config: { prompt: '' } }),
+            })
+        })
+    })
+
+    describe('clearClassifierTags', () => {
+        it('empties the categories of a classifier scanner', async () => {
+            logic.actions.setScannerType('classifier')
+            logic.actions.setScannerValues({
+                scanner_config: {
+                    prompt: 'Categorize intent',
+                    tags: ['checkout', 'pricing'],
+                    multi_label: true,
+                } as ClassifierScanner['scanner_config'],
+            })
+            await expectLogic(logic, () => logic.actions.clearClassifierTags()).toMatchValues({
+                scanner: expect.objectContaining({
+                    scanner_config: expect.objectContaining({ tags: [] }),
+                }),
+            })
+        })
+
+        it('is a no-op for non-classifier scanners', async () => {
+            // Default scanner is a monitor, so clearing must not add a tags field to its config.
+            await expectLogic(logic, () => logic.actions.clearClassifierTags()).toMatchValues({
                 scanner: expect.objectContaining({ scanner_type: 'monitor', scanner_config: { prompt: '' } }),
             })
         })
@@ -563,6 +710,23 @@ describe('replayScannerLogic', () => {
             logic.unmount()
 
             router.actions.push(urls.replayVisionScannerConfigure('new'), { experiment: '7' })
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+        })
+
+        it('preserves an existing draft when the wizard is entered from a ?filters= deep link', async () => {
+            // The prefill outranks the draft for this entry but must not delete it; without the
+            // restoringDraft guard, persistDraft sees scanner === originalScanner and clears it.
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+            logic.unmount()
+
+            const query = { kind: 'RecordingsQuery', events: [{ id: '$pageview', type: 'events' }] }
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters: JSON.stringify(query) })
             logic = replayScannerLogic({ id: 'new' })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -1419,6 +1583,19 @@ describe('replayScannerLogic', () => {
                 goal_length: 'find users who get stuck'.length,
             })
         })
+
+        it('the last path taken is what the save reports', async () => {
+            // Each of these replaces the form, so someone who drafts with AI and then picks a
+            // template saved the template's scanner. Reporting the first path would credit the AI
+            // flow with a scanner it did not produce.
+            await expectLogic(logic, () => {
+                logic.actions.draftScannerFromGoal('find users who get stuck')
+            }).toFinishAllListeners()
+            expect(logic.values.creationMethod).toEqual('ai')
+
+            logic.actions.startFromTemplate('dead_end')
+            expect(logic.values.creationMethod).toEqual('template')
+        })
     })
 
     describe('rebuildExperimentContext', () => {
@@ -1454,6 +1631,34 @@ describe('replayScannerLogic', () => {
 
             expect(logic.values.scanner?.experiment_targeting).toBeFalsy()
             expect(logic.values.experimentContext).toBeNull()
+        })
+    })
+
+    describe('team refresh on tab visibility', () => {
+        const setHidden = (hidden: boolean): void => {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+        let teamSpy: jest.Mock
+
+        beforeEach(() => {
+            teamSpy = jest.fn(() => [200, MOCK_DEFAULT_TEAM])
+            useMocks({ get: { '/api/environments/@current': teamSpy } })
+            teamLogic.mount()
+        })
+
+        afterEach(() => {
+            setHidden(false)
+        })
+
+        it('refetches the team when the tab becomes visible again, not on mount', async () => {
+            expect(teamSpy).not.toHaveBeenCalled()
+
+            setHidden(true)
+            setHidden(false)
+            await expectLogic(teamLogic).toDispatchActions(['refreshCurrentTeamSuccess'])
+
+            expect(teamSpy).toHaveBeenCalledTimes(1)
         })
     })
 })
