@@ -1,7 +1,6 @@
 import math
 import hashlib
 from collections import Counter
-from datetime import timedelta
 from typing import Any, cast
 
 from django.conf import settings
@@ -1283,14 +1282,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 sandbox_still_running = True
 
         if runtime and status == KernelRuntime.Status.STOPPED:
-            # Modal counts the lifetime from the sandbox start, and use of the kernel does not extend it.
-            lifetime_ends_at = runtime.ttl_expires_at or runtime.created_at + timedelta(
-                seconds=sandbox_config.ttl_seconds
-            )
             if (
                 runtime.backend == KernelRuntime.Backend.MODAL
                 and runtime.status in (KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING)
-                and now() >= lifetime_ends_at
+                and runtime.ttl_expires_at is not None
+                and now() >= runtime.ttl_expires_at
             ):
                 status = KernelRuntime.Status.TIMED_OUT
 
