@@ -4,10 +4,12 @@ Kept in one place so cross-cutting side effects of report state changes have a s
 rather than being sprinkled across every dismissal entrypoint (Slack, REST, bulk, …).
 """
 
+from __future__ import annotations
+
 import json
 from datetime import datetime, timedelta
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -20,21 +22,17 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 
-from products.signals.backend.implementation_pr import PrCloseReason
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.report_assignments import sync_task_pull_request_to_assignments
 from products.signals.backend.report_embeddings import (
     emit_report_embedding,
     emit_report_tombstone,
     render_report_document,
 )
 from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed
-from products.signals.backend.tasks import (
-    close_dismissed_report_pr,
-    close_report_tracker_issue,
-    link_report_tracker_issues,
-)
 from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
+
+if TYPE_CHECKING:
+    from products.signals.backend.implementation_pr import PrCloseReason
 
 logger = structlog.get_logger(__name__)
 
@@ -59,7 +57,11 @@ def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, 
         if update_fields is not None and "output" not in update_fields:
             return
         output = instance.output if isinstance(instance.output, dict) else {}
+        # Function-local: the assignment sync reaches the tasks facade and the task module reaches
+        # the signals contracts, both forbidden at django.setup() by the startup-import-budget test.
         from products.signals.backend.pull_requests import apply_report_completion
+        from products.signals.backend.report_assignments import sync_task_pull_request_to_assignments  # noqa: PLC0415
+        from products.signals.backend.tasks import link_report_tracker_issues  # noqa: PLC0415
         from products.tasks.backend.facade.api import read_pr_urls
 
         pr_urls = read_pr_urls(output)
@@ -268,6 +270,10 @@ def close_pr_when_report_dismissed(
     hooking the model here covers them all without each caller opting in. A resolve closes the PR
     only when the state API flagged it (see ``_pr_close_reason``).
     """
+    # Function-local: the task module reaches the signals contracts, which the
+    # startup-import-budget test forbids at django.setup().
+    from products.signals.backend.tasks import close_dismissed_report_pr, close_report_tracker_issue  # noqa: PLC0415
+
     prior_status = getattr(instance, "_prior_status", None)
     reason = _pr_close_reason(
         instance,

@@ -50,9 +50,12 @@ The same task runs twice a day, and only the Monday morning run posts.
 The other runs read the Storybook story index into the cache, because the build artifact it comes from is short lived and the Monday run would otherwise have nothing to attribute against.
 
 Each message is Block Kit.
-The lead names the team, the week, and the two counts, with buttons to the repository's flakiness overview and its snapshots.
+The lead names the team and the week, and counts each condition that has items, with buttons to the repository's flakiness overview and its snapshots.
 Under it, one thread reply per condition that has items: a line saying what to do about that condition, then one section per item with the single action that resolves it on a button beside it.
-The last reply says when the next digest comes and how to opt out.
+Theme variants of one story list as one entry when the reader would see the same facts for each.
+A merged expiring quarantine links to the flakiness page searched to that story, and a merged unowned file keeps its file button.
+Pile-ups never merge, because a baseline resets one snapshot at a time.
+The last reply says when the next digest comes.
 A team that owns nothing gets no message at all.
 
 Two conditions, and nothing else:
