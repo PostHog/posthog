@@ -1477,12 +1477,14 @@ function rewriteStatePersonId(
             personIdRepointed: true,
             personIdRepointVersion: newVersion,
         }
-        // Mark this as a re-key wake so the wait handler can attribute its re-check outcome to the
-        // re-key (see rekeyWake). currentAction is always a wait_until_condition here (re-key scope).
-        // Only for merges: counterHogflowRekeyWake exists to judge whether waking on a merge is wasted
-        // churn, so folding first-mapping fills into it would blend two causes into one ratio.
-        if (parsed.state.currentAction && !fillingNullAnchor) {
-            parsed.state.currentAction = { ...parsed.state.currentAction, rekeyWake: true }
+        // Mark the wake so the wait handler knows the matcher woke this job rather than a polling
+        // re-check. currentAction is always a wait_until_condition here (re-key scope). The two causes
+        // stay separate flags: counterHogflowRekeyWake judges whether waking on a merge is wasted churn,
+        // so folding first-mapping fills into it would blend two causes into one ratio.
+        if (parsed.state.currentAction) {
+            parsed.state.currentAction = fillingNullAnchor
+                ? { ...parsed.state.currentAction, anchorWake: true }
+                : { ...parsed.state.currentAction, rekeyWake: true }
         }
         return Buffer.from(JSON.stringify(parsed))
     } catch (err) {
