@@ -110,9 +110,14 @@ def record_sandbox_ended_by_id(
     Never raises.
     """
     try:
-        runtime = KernelRuntime.objects.filter(
-            pk=kernel_runtime_id, team_id=team_id, user_id=user_id, ended_at__isnull=True
-        ).first()
+        if user_id is None:
+            runtime = KernelRuntime.objects.filter(
+                pk=kernel_runtime_id, team_id=team_id, user=None, ended_at__isnull=True
+            ).first()
+        else:
+            runtime = KernelRuntime.objects.filter(
+                pk=kernel_runtime_id, team_id=team_id, user_id=user_id, ended_at__isnull=True
+            ).first()
     except Exception:
         logger.exception("notebook_kernel_sandbox_ended_report_failed", kernel_runtime_id=str(kernel_runtime_id))
         return
