@@ -18,7 +18,7 @@ const grantWarehouseAccess: Decorator = function GrantWarehouseAccess(Story): JS
     }
     useEffect(
         () => () => {
-            if (appContext && original.current) {
+            if (appContext) {
                 appContext.resource_access_control = original.current
             }
         },
