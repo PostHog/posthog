@@ -1,10 +1,11 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { visionAlertsEventsList } from '../generated/api'
-import type { VisionAlertEventApi } from '../generated/api.schemas'
+import type { PaginatedVisionAlertEventListApi, VisionAlertEventApi } from '../generated/api.schemas'
 
 export interface ScannerAlertEventsLogicProps {
     alertId: string
@@ -113,19 +114,13 @@ export const scannerAlertEventsLogic = kea<scannerAlertEventsLogicType>([
                     if (!nextUrl) {
                         return values.eventsPage
                     }
-                    const res = await fetch(nextUrl, { credentials: 'include' })
-                    if (!res.ok) {
-                        throw new Error(`Failed to load more events: ${res.status} ${res.statusText}`)
-                    }
-                    const data = (await res.json()) as {
-                        results?: VisionAlertEventApi[]
-                        next?: string | null
-                        count?: number
-                    }
+                    // The API returns an opaque URL, so the generated list helper cannot fetch this page.
+                    // nosemgrep: prefer-codegen-api
+                    const data = await api.get<PaginatedVisionAlertEventListApi>(nextUrl)
                     return {
-                        results: [...values.eventsPage.results, ...(data.results ?? [])],
+                        results: [...values.eventsPage.results, ...data.results],
                         next: data.next ?? null,
-                        count: data.count ?? values.eventsPage.count,
+                        count: data.count,
                     }
                 },
             },
