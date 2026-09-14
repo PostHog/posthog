@@ -168,7 +168,14 @@ When creating reusable styled components, accept both `className?: string` and `
 
 Default line heights are set in [packages/ui/src/styles/globals.css](../packages/ui/src/styles/globals.css). Add `leading-*` only when the component needs a non-default line height. Pair arbitrary body text sizes with `leading-snug`; pair titles with `leading-tight`.
 
-Spinning icons go through `Spin` or `Spinner` from [packages/ui/src/primitives/Spinner.tsx](../packages/ui/src/primitives/Spinner.tsx). Never put `animate-spin` on an `<svg>`: Chromium animates SVG transforms on the main thread, so one visible spinner costs a style recalc and a layerize pass on every frame. Stop the animation (`spinning={false}`) or unmount the spinner when it is hidden behind `opacity-0`.
+Loading indicators are `Spinner` from [packages/ui/src/primitives/Spinner.tsx](../packages/ui/src/primitives/Spinner.tsx) and `LoadingState` from [packages/ui/src/primitives/LoadingState.tsx](../packages/ui/src/primitives/LoadingState.tsx).
+`LoadingState` is the centered pane or section loader.
+`Spinner` is the inline one: leave `size` off inside quill buttons and media slots, which size it like the icons beside it, and use `xs` (badges), `sm` (12px text), `md` (default rows) or `lg` (a pane) elsewhere.
+Biome rejects `Spinner` imports from `@posthog/quill` and `@radix-ui/themes`, and the phosphor spinner glyphs.
+It carries `role="status"` and a "Loading" label. Pass `aria-hidden="true"` where visible text or a wrapping live region already says the same thing, so a screen reader reads it once.
+An icon that has to rotate for another reason (a refresh arrow while refreshing) goes through `Spin` from the same file.
+Never put `animate-spin` on an `<svg>`: Chromium animates SVG transforms on the main thread, so one visible spinner costs a style recalc and a layerize pass on every frame.
+Stop the animation (`spinning={false}`) or unmount the spinner when it is hidden behind `opacity-0`.
 
 Do not write a `:has()` rule with `html` or `body` as the anchor and a descendant subject (`body:has(...) .thing`). Chromium re-checks such a rule after DOM mutations anywhere and restyles the whole document. Set custom properties on the anchor instead and consume them where the style applies, as the quill portal rule in `globals.css` does.
 

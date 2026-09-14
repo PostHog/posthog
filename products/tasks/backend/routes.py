@@ -3,12 +3,12 @@ from posthog.api.routing import RouterRegistry
 import products.tasks.backend.presentation.views.api as tasks
 import products.tasks.backend.presentation.views.loops as loops
 import products.tasks.backend.presentation.views.desktop as desktop
-import products.tasks.backend.presentation.views.seat_api as seats
 import products.tasks.backend.presentation.views.config_api as config
 import products.tasks.backend.presentation.views.channels_api as channels
 import products.tasks.backend.presentation.views.desktop_access as desktop_access
 import products.tasks.backend.presentation.views.task_usage_api as task_usage
 import products.tasks.backend.presentation.views.sandbox_pricing_api as sandbox_pricing
+import products.tasks.backend.presentation.views.repo_routing_rules_api as repo_routing_rules
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -20,8 +20,20 @@ def register_routes(routers: RouterRegistry) -> None:
         "organization_desktop_beta_terms",
         ["organization_id"],
     )
+    routers.projects.register(
+        r"desktop_beta_terms",
+        desktop.DesktopBetaTermsViewSet,
+        "project_desktop_beta_terms",
+        ["team_id"],
+    )
     routers.projects.register(r"desktop", desktop_access.DesktopAccessViewSet, "project_desktop", ["team_id"])
     routers.projects.register(r"tasks/config", config.TasksTeamConfigViewSet, "project_tasks_config", ["team_id"])
+    routers.projects.register(
+        r"tasks/repo_routing_rules",
+        repo_routing_rules.RepoRoutingRuleViewSet,
+        "project_tasks_repo_routing_rules",
+        ["team_id"],
+    )
     routers.projects.register(
         r"tasks/@me/config", config.TasksUserConfigViewSet, "project_tasks_me_config", ["team_id"]
     )
@@ -60,5 +72,4 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.root.register(
         r"code/sandbox-pricing", sandbox_pricing.SandboxComputePricingViewSet, "sandbox_compute_pricing"
     )
-    routers.root.register(r"seats", seats.SeatViewSet, "seats")
     routers.root.register(r"code/internal/task_usage", task_usage.InternalTaskUsageViewSet, "internal_task_usage")

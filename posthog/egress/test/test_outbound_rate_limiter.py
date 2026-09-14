@@ -274,6 +274,24 @@ def test_pacing_follows_the_tightest_window(limits):
     assert limiter.pace_seconds(key) > 0.0
 
 
+@pytest.mark.parametrize(
+    "limits,priority,expected",
+    [
+        (((10, 60.0),), Priority.NORMAL, 6.0),
+        # The reserved floor is not part of the share, so BATCH spreads 7 of the 10 over the window.
+        (((10, 60.0),), Priority.BATCH, 60.0 / 7),
+        # The tightest window governs, whichever position it holds.
+        (((100, 60.0), (10, 3600.0)), Priority.NORMAL, 360.0),
+        (((10, 3600.0), (100, 60.0)), Priority.NORMAL, 360.0),
+    ],
+)
+def test_admission_interval_spreads_the_priority_share_over_the_tightest_window(limits, priority, expected):
+    register_policy("test-interval", RatePolicy(limits=limits, reserve={Priority.BATCH: 0.3}))
+    limiter = _fresh_limiter()
+
+    assert limiter.admission_interval_seconds("test-interval:scope:1", priority=priority) == pytest.approx(expected)
+
+
 def test_pace_seconds_answers_zero_when_the_store_is_unavailable(monkeypatch):
     # Pacing sits in front of every gated call, so a Redis blip must not raise into the caller. The
     # in-memory fallback counts one process, so its headroom is not the shared budget's and a wait

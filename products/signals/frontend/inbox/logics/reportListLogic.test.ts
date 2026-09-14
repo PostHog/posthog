@@ -1,6 +1,9 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -15,6 +18,7 @@ import {
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic, shouldDefaultToEntireProject } from './reportListLogic'
 
 const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
+const REFRESH_METRICS_URL = '/api/projects/:team_id/signals/reports/refresh_metrics/'
 
 function makeReport(id: string): SignalReport {
     return {
@@ -24,7 +28,6 @@ function makeReport(id: string): SignalReport {
         status: SignalReportStatus.READY,
         total_weight: 0,
         signal_count: 1,
-        relevant_user_count: null,
         artefact_count: 0,
         is_suggested_reviewer: false,
         priority: 'P2',
@@ -202,7 +205,7 @@ describe('reportListLogic', () => {
                     [REPORTS_URL]: () => [
                         200,
                         {
-                            count: 5,
+                            count: 6,
                             next: null,
                             previous: null,
                             results: [
@@ -210,6 +213,7 @@ describe('reportListLogic', () => {
                                 withPr('2', { implementation_pr_merged: true }),
                                 withPr('3', { status: SignalReportStatus.SUPPRESSED }),
                                 withPr('5', { implementation_pr_state: 'draft' }),
+                                withPr('6', { implementation_pr_state: 'closed' }),
                                 makeReport('4'),
                             ],
                         },
@@ -229,7 +233,98 @@ describe('reportListLogic', () => {
         afterEach(() => logic.unmount())
 
         it('counts the rows whose pull request is still in flight, drafts included', () => {
-            expect(logic.values.livePrReportIds).toEqual(['1', '5'])
+            expect(logic.values.livePrReportIds).toEqual(['1', '3', '5'])
+        })
+    })
+    // Snapshots refresh on read, like error tracking counts: a loaded page sends the ids whose saved
+    // number is missing or old, and the reply's numbers land on the rows without touching the prose.
+    describe('metric snapshots', () => {
+        const staleMetric = {
+            metric_id: 'affected-users',
+            title: 'Affected users',
+            kind: 'affected_users' as const,
+            role: 'primary' as const,
+            value: 17,
+            value_at: '2026-06-11T10:00:00Z',
+            series: [3, 5, 9],
+            value_format: 'count' as const,
+            unit: 'users',
+        }
+        let requestedIds: string[][]
+        let logic: ReturnType<typeof reportListLogic.build>
+
+        beforeEach(async () => {
+            requestedIds = []
+            const stale = { ...makeReport('stale'), metrics: [staleMetric] }
+            const fresh = {
+                ...makeReport('fresh'),
+                metrics: [{ ...staleMetric, value_at: new Date(Date.now() - 60_000).toISOString() }],
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: [
+                        200,
+                        { count: 3, next: null, previous: null, results: [stale, fresh, makeReport('bare')] },
+                    ],
+                },
+                post: {
+                    [REFRESH_METRICS_URL]: async ({ request }) => {
+                        const body = (await request.json()) as { report_ids: string[] }
+                        requestedIds.push(body.report_ids)
+                        return [
+                            200,
+                            {
+                                reports: [
+                                    {
+                                        id: 'stale',
+                                        metrics: [
+                                            {
+                                                ...staleMetric,
+                                                value: 21,
+                                                value_at: '2026-06-12T10:00:00Z',
+                                                series: [5, 9, 21],
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
+                [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            })
+            logic = reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            })
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('sends only the stale rows and merges the refreshed numbers onto them', () => {
+            expect(requestedIds).toEqual([['stale']])
+            const byId = Object.fromEntries(logic.values.reports.map((report) => [report.id, report]))
+            expect(byId.stale.metrics?.[0]).toMatchObject({ value: 21, series: [5, 9, 21] })
+            expect(byId.stale.title).toBe('Report stale')
+            expect(byId.fresh.metrics?.[0].value).toBe(17)
+        })
+
+        it('sends nothing while the metrics flag is off', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
+                [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: false,
+            })
+            logic.actions.refreshReportMetrics(['stale'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requestedIds).toEqual([['stale']])
         })
     })
 })

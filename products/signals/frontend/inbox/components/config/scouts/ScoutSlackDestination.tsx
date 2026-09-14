@@ -47,6 +47,7 @@ export function ScoutSlackDestination({
     const hasChannel = Boolean(destination?.channel)
     const hasUsers = Boolean(destination?.users?.length)
     const hasTarget = hasChannel || hasUsers
+    const threadReports = destination?.thread_reports ?? true
 
     // The toggle is view state only: switching it must never write, or an exploratory click would
     // wipe a live destination. The saved target is replaced only when a new target is picked.
@@ -56,7 +57,7 @@ export function ScoutSlackDestination({
     const selectWorkspace = (integrationId: number): void => {
         // Switching workspace clears the target, so pin the toggle to the mode the user was in.
         setPendingMode(mode)
-        onChange({ slack: { integration_id: integrationId, channel: null } })
+        onChange({ slack: { integration_id: integrationId, channel: null, thread_reports: threadReports } })
     }
 
     const selectMode = (nextMode: SlackTargetMode): void => {
@@ -77,7 +78,7 @@ export function ScoutSlackDestination({
             slack: {
                 integration_id: selectedIntegration.id,
                 channel,
-                thread_reports: destination?.thread_reports ?? false,
+                thread_reports: threadReports,
             },
         })
     }
@@ -110,11 +111,17 @@ export function ScoutSlackDestination({
             // Removing the last recipient empties the saved destination; without pinning the mode
             // the toggle would fall back to its channel default and swap the picker mid-edit.
             setPendingMode('dm')
-            onChange({ slack: { integration_id: selectedIntegration.id, channel: null } })
+            onChange({
+                slack: { integration_id: selectedIntegration.id, channel: null, thread_reports: threadReports },
+            })
             return
         }
         onChange({
-            slack: { integration_id: selectedIntegration.id, users: users.slice(0, MAX_DM_RECIPIENTS) },
+            slack: {
+                integration_id: selectedIntegration.id,
+                users: users.slice(0, MAX_DM_RECIPIENTS),
+                thread_reports: threadReports,
+            },
         })
     }
 
@@ -207,7 +214,7 @@ export function ScoutSlackDestination({
                             {configuredIntegration && hasChannel ? (
                                 <LemonSwitch
                                     size="small"
-                                    checked={destination?.thread_reports ?? false}
+                                    checked={threadReports}
                                     onChange={setThreadReports}
                                     disabledReason={disabledReason}
                                     label="Post reports as a thread"

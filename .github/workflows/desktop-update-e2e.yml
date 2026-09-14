@@ -29,6 +29,7 @@ env:
     # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
     NPM_CONFIG_AUDIT: 'false'
     NPM_CONFIG_FUND: 'false'
+    SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
 
 jobs:
     update-e2e-macos:
@@ -320,3 +321,34 @@ jobs:
                   compression-level: 0
                   if-no-files-found: warn
                   retention-days: 7
+
+            # This runs nightly, so nobody sees a red run unless it pages.
+            # A manual dispatch is somebody debugging, and they watch the run.
+            - name: Notify Slack on update e2e failure
+              if: failure() && github.event_name == 'schedule'
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: ":red_circle: Desktop update e2e failed. An auto-update path may be broken for users"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":red_circle: *Desktop update e2e failed*. The nightly macOS proof that a shipped app updates itself did not pass, so an update path may be broken for users on the current release."
+                        - type: "section"
+                          fields:
+                            - type: "mrkdwn"
+                              text: "*Trigger*\n${{ github.event_name }}"
+                            - type: "mrkdwn"
+                              text: "*Next step*\nCheck which leg failed and its proof summary"
+                        - type: "actions"
+                          elements:
+                            - type: "button"
+                              text:
+                                type: "plain_text"
+                                text: "View run"
+                              url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

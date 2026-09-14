@@ -33,6 +33,7 @@ import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
 import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
 
 import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
+import { previewLinkTargetCustomJs } from './custom-tools/previewLinkTarget'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
@@ -207,6 +208,7 @@ function DestinationEmailTemplaterForm({
                                             // paid credits from our Unlayer workspace, so keep them all off.
                                             ai: false,
                                         },
+                                        customJS: [previewLinkTargetCustomJs],
                                     }}
                                 />
                             </div>
@@ -702,8 +704,12 @@ function NativeEmailTemplaterForm({
                                         },
                                         projectId: unlayerEditorProjectId,
                                         customJS: sceneIntegrationEnabled
-                                            ? [unsubscribeLinkToolCustomJs, collapseToolsPanelCustomJs]
-                                            : [unsubscribeLinkToolCustomJs],
+                                            ? [
+                                                  unsubscribeLinkToolCustomJs,
+                                                  collapseToolsPanelCustomJs,
+                                                  previewLinkTargetCustomJs,
+                                              ]
+                                            : [unsubscribeLinkToolCustomJs, previewLinkTargetCustomJs],
                                         fonts: unlayerEditorProjectId
                                             ? {
                                                   showDefaultFonts: true,

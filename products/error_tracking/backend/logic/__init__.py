@@ -51,6 +51,11 @@ class ErrorTrackingIssueNotFoundError(Exception):
     pass
 
 
+# The issue list carries a per-row first_seen subquery, so an unbounded read scales with the
+# team's whole issue table. Cap it, and let callers that need more page with a narrower filter.
+MAX_LISTED_ISSUES = 1000
+
+
 def get_issue_list_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
     return ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team_id=team_id)
 
@@ -65,8 +70,8 @@ def get_issue_detail_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
     )
 
 
-def list_issues(team_id: int) -> QuerySet[ErrorTrackingIssue]:
-    return get_issue_list_queryset(team_id)
+def list_issues(team_id: int, limit: int = MAX_LISTED_ISSUES) -> list[ErrorTrackingIssue]:
+    return list(get_issue_list_queryset(team_id).order_by("-created_at")[:limit])
 
 
 def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list[ErrorTrackingIssue]:

@@ -10,6 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AlertApi,
+    AlertCreateDestinationApi,
+    AlertDeleteDestinationApi,
+    AlertDestinationResponseApi,
     AlertSimulateApi,
     AlertSimulateResponseApi,
     AlertTestDeliveryResponseApi,
@@ -155,6 +158,48 @@ export const alertsDestroy = async (projectId: string, id: string, options?: Req
     return apiMutator<void>(getAlertsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAlertsDestinationsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/destinations/`
+}
+
+/**
+ * Send this alert to a Slack channel as well as by email. The workspace must already be connected to the project. The returned IDs identify the destination.
+ */
+export const alertsDestinationsCreate = async (
+    projectId: string,
+    id: string,
+    alertCreateDestinationApi: AlertCreateDestinationApi,
+    options?: RequestInit
+): Promise<AlertDestinationResponseApi> => {
+    return apiMutator<AlertDestinationResponseApi>(getAlertsDestinationsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertCreateDestinationApi),
+    })
+}
+
+export const getAlertsDestinationsDeleteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/destinations/delete/`
+}
+
+/**
+ * Stop sending this alert to a destination. The alert keeps its email recipients.
+ */
+export const alertsDestinationsDeleteCreate = async (
+    projectId: string,
+    id: string,
+    alertDeleteDestinationApi: AlertDeleteDestinationApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAlertsDestinationsDeleteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertDeleteDestinationApi),
     })
 }
 

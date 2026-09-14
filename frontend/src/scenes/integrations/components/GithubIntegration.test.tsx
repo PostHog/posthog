@@ -22,7 +22,7 @@ describe('GithubIntegration', () => {
         availableInstallations = []
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations': { results: [] },
+                '/api/projects/:team_id/integrations': { results: [] },
                 '/api/projects/:team_id/integrations/github/available_installations/': () => [
                     200,
                     { installations: availableInstallations, personal_github_connected: false },

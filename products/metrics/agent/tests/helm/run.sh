@@ -168,6 +168,53 @@ out=$(render --set posthog.apiKey=phc_test --set persistence.enabled=true --set 
 assert_contains persist-sharded-claim-template 'volumeClaimTemplates:' "$out"
 assert_not_contains persist-sharded-no-standalone-pvc 'kind: PersistentVolumeClaim' "$out"
 
+# --- google cloud monitoring: gcp.projectId enables the pull source ---
+out=$(render --set posthog.apiKey=phc_test -f values/gcp-only.yaml)
+assert_contains gcp-receiver 'googlecloudmonitoring:' "$out"
+assert_contains gcp-project 'project_id: my-project' "$out"
+assert_contains gcp-interval 'collection_interval: 60s' "$out"
+assert_contains gcp-metric-name "metric_name: 'compute.googleapis.com/instance/cpu/utilization'" "$out"
+assert_contains gcp-metric-filter "metric_descriptor_filter: 'metric.type = starts_with(\"run.googleapis.com/\")'" "$out"
+assert_contains gcp-resource-processor 'resource/gcp:' "$out"
+assert_contains gcp-service-name 'google-cloud-monitoring' "$out"
+assert_contains gcp-only-receivers 'receivers: [googlecloudmonitoring]' "$out"
+assert_contains gcp-only-processors 'processors: [memory_limiter, resource/gcp, batch]' "$out"
+# Not scrape_configs: the telemetry reader also mentions prometheus.
+assert_not_contains gcp-only-no-prometheus 'scrape_configs' "$out"
+assert_not_contains gcp-no-creds-default 'GOOGLE_APPLICATION_CREDENTIALS' "$out"
+
+# --- gcm alongside the default annotation discovery ---
+out=$(render --set posthog.apiKey=phc_test --set gcp.projectId=my-project --set 'gcp.metrics[0]=compute.googleapis.com/instance/cpu/utilization')
+assert_contains gcp-plus-discovery-receivers 'receivers: [prometheus, googlecloudmonitoring]' "$out"
+assert_contains gcp-plus-discovery-scrape 'kubernetes_sd_configs' "$out"
+
+# --- service account JSON key mounted from an existing secret ---
+out=$(render --set posthog.apiKey=phc_test -f values/gcp-only.yaml --set gcp.credentialsSecret.name=gcp-sa)
+assert_contains gcp-creds-env 'name: GOOGLE_APPLICATION_CREDENTIALS' "$out"
+assert_contains gcp-creds-path 'value: /var/run/secrets/gcp/credentials.json' "$out"
+assert_contains gcp-creds-secret 'secretName: gcp-sa' "$out"
+assert_contains gcp-creds-mount 'mountPath: /var/run/secrets/gcp' "$out"
+
+# --- workload identity: annotation on the chart-managed service account ---
+out=$(render --set posthog.apiKey=phc_test -f values/gcp-only.yaml --set 'serviceAccount.annotations.iam\.gke\.io/gcp-service-account=agent@my-project.iam.gserviceaccount.com')
+assert_contains gcp-workload-identity 'iam.gke.io/gcp-service-account: agent@my-project.iam.gserviceaccount.com' "$out"
+
+# --- every shard would pull the same series, so gcm + sharding is rejected ---
+out=$(render --set posthog.apiKey=phc_test -f values/gcp-only.yaml --set shards=3)
+assert_contains gcp-shards-rejected 'cannot be combined with shards' "$out"
+
+# --- gcm needs at least one metric or filter ---
+out=$(render --set posthog.apiKey=phc_test --set gcp.projectId=my-project)
+assert_contains gcp-requires-metrics 'gcp.metrics or gcp.metricFilters is required' "$out"
+
+# --- with no scrape source and no gcm there is nothing to run ---
+out=$(render --set posthog.apiKey=phc_test --set scrape.annotationDiscovery=false)
+assert_contains no-source-rejected 'gcp.projectId must be set' "$out"
+
+# --- the default render has no gcm wiring ---
+out=$(render --set posthog.apiKey=phc_test)
+assert_not_contains default-no-gcp 'googlecloudmonitoring' "$out"
+
 # --- golden drift guard for the fully default render ---
 # Blank lines are stripped before comparing: helm 3 and 4 disagree on
 # blank-line placement between documents, and that isn't drift we care about.

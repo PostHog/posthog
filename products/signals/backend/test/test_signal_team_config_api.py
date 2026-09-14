@@ -243,6 +243,15 @@ class TestSignalTeamConfigAPI(APIBaseTest):
                 None,
                 {"acme/web": "staging"},
             ),
+            (
+                "pr_state",
+                "default_open_pull_request_ready",
+                True,
+                "PRs open as",
+                "changed",
+                False,
+                True,
+            ),
         ]
     )
     def test_update_is_recorded_in_the_activity_log(self, _name, field, sent, label, action, before, after):

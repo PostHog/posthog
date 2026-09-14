@@ -149,6 +149,9 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
                 parse_expr("id NOT IN {subquery}", {"subquery": self._active_relationship_account_ids()})
             )
 
+        if self.query.assignedOnly:
+            where_exprs.append(parse_expr("id IN {subquery}", {"subquery": self._active_relationship_account_ids()}))
+
         if self.query.assignedToUserIds:
             where_exprs.append(
                 parse_expr(

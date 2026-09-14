@@ -62,6 +62,7 @@ export function useStartTaskFromWorktree(mainRepoPath: string) {
           created_from: "sidebar-worktree",
           workspace_mode: "worktree",
           has_branch: true,
+          space_context_mode: "none",
         });
         // The adopted worktree now has a task, so it leaves the adoptable list.
         void queryClient.invalidateQueries(

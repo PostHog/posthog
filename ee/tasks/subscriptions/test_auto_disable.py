@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -226,7 +226,7 @@ class TestDisableInvalidSubscription(APIBaseTest):
         capture_mock.assert_called_once()
 
 
-@freeze_time("2026-08-01T12:00:00Z")
+@time_machine.travel("2026-08-01T12:00:00Z", tick=False)
 class TestSubscriptionDeliveryFailureNotification(APIBaseTest):
     def test_sends_email_to_the_subscription_creator(self):
         subscription = Subscription.objects.create(

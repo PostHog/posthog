@@ -8,7 +8,6 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Spinner,
   Tabs,
   TabsContent,
   TabsList,
@@ -16,6 +15,7 @@ import {
 } from "@posthog/quill";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { FileExplorer } from "@posthog/ui/primitives/FileExplorer";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import {
   PageHeader,
   PageHeaderDescription,
@@ -23,6 +23,7 @@ import {
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   useContextWikiTree,
@@ -31,6 +32,7 @@ import {
 import { buildWikiTree } from "../wikiTree";
 import { ContextWikiDreamsPane } from "./ContextWikiDreamsPane";
 import { ContextWikiPagePane, type WikiDraft } from "./ContextWikiPagePane";
+import { ContextWikiProposalsPane } from "./ContextWikiProposalsPane";
 
 /**
  * The organization context wiki explorer: a tree of every wiki page on the
@@ -71,6 +73,7 @@ function ContextWikiTabs({ explorer }: { explorer: React.ReactNode }) {
         <TabsList variant="line">
           <TabsTrigger value="pages">Pages</TabsTrigger>
           <TabsTrigger value="dreams">Dreams</TabsTrigger>
+          <TabsTrigger value="proposals">Suggested edits</TabsTrigger>
         </TabsList>
       </div>
       <TabsContent value="pages" className="min-h-0 flex-1">
@@ -78,6 +81,9 @@ function ContextWikiTabs({ explorer }: { explorer: React.ReactNode }) {
       </TabsContent>
       <TabsContent value="dreams" className="min-h-0 flex-1">
         <ContextWikiDreamsPane />
+      </TabsContent>
+      <TabsContent value="proposals" className="min-h-0 flex-1">
+        <ContextWikiProposalsPane />
       </TabsContent>
     </Tabs>
   );
@@ -127,11 +133,7 @@ function ContextWikiBody({ initialPath }: { initialPath?: string }) {
   }, [tree, selectedPath]);
 
   if (isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner className="size-5" />
-      </div>
-    );
+    return <LoadingState />;
   }
 
   if (error instanceof ContextWikiUnavailableError) {
@@ -189,7 +191,7 @@ function ContextWikiBody({ initialPath }: { initialPath?: string }) {
               onClick={() => enable.mutate()}
               disabled={enable.isPending}
             >
-              {enable.isPending ? <Spinner className="size-4" /> : null}
+              {enable.isPending ? <Spinner /> : null}
               Enable context wiki
             </Button>
             {enable.error ? (

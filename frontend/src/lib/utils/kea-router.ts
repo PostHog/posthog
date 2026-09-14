@@ -30,6 +30,14 @@ const exactPathsWithoutProjectId = ['/feature_flags/staff', '/experiments/staff'
 
 const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
 
+// `/project` and `/project/` carry no id, so the regex above does not see a project prefix there.
+// Without this, the path survives the strip pass, matches no route, and renders the 404 scene,
+// while `addProjectIdUnlessPresent` prefixes the current team onto it and rewrites the address bar
+// to `/project/<team id>/project`. That rewritten URL reduces to the same bare form once its id is
+// stripped, so bookmarks of it land home too. The lookahead keeps real routes like `/project/new`
+// and `/project/settings` out, because they have their own entries in the redirects map.
+const projectRootWithoutIdentifierInUrlRegex = /^\/project\/?(?=$|[?#])/
+
 function isPathWithoutProjectId(path: string): boolean {
     const pathname = path.split(/[?#]/)[0]
     if (
@@ -55,6 +63,8 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
         path = normalizeRelativePath(path)
     }
 
+    path = path.replace(projectRootWithoutIdentifierInUrlRegex, '/')
+
     let prefix = ''
     try {
         prefix = `/project/${teamId ?? getCurrentTeamId()}`
@@ -71,10 +81,8 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
 }
 
 export function removeProjectIdIfPresent(path: string): string {
-    if (path.match(projectIdentifierInUrlRegex)) {
-        return '/' + path.split('/').splice(3).join('/')
-    }
-    return path
+    const withoutProjectId = path.match(projectIdentifierInUrlRegex) ? '/' + path.split('/').splice(3).join('/') : path
+    return withoutProjectId.replace(projectRootWithoutIdentifierInUrlRegex, '/')
 }
 
 /**

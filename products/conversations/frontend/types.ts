@@ -79,20 +79,6 @@ export interface AITriage {
 
 export type AiReplyFeedbackRating = 'good' | 'bad'
 
-export type GapSuggestionStatus = 'pending' | 'accepted' | 'dismissed'
-
-export interface KnowledgeGapSuggestion {
-    id: string
-    ticket_id: string
-    topic: string
-    normalized_topic: string
-    ticket_type: string
-    outcome: string
-    status: GapSuggestionStatus
-    resolved_source_id: string | null
-    created_at: string
-}
-
 /**
  * Canonical saved-view filter shape, generated from the backend's TicketViewFiltersSerializer.
  * `assignee` is widened locally: the API stores filters raw, so old saved views can still
