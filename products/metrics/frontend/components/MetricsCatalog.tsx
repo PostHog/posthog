@@ -35,7 +35,8 @@ const typeTagLabel = (metricType: string): string =>
 
 const CatalogCard = ({ item }: { item: MetricCatalogItem }): JSX.Element => {
     const { openMetric, loadSparkline, retrySparkline } = useActions(metricsCatalogLogic)
-    const { catalogItemDetails, catalogItemDetailsFailed, catalogItemDetailsLoading } = useValues(metricsCatalogLogic)
+    const { catalogItemDetails, catalogItemDetailsFailed, catalogItemDetailsLoading, catalogItemsLoading } =
+        useValues(metricsCatalogLogic)
     const cardRef = useRef<HTMLButtonElement>(null)
     const detail = catalogItemDetails[item.name]
     const failed = catalogItemDetailsFailed[item.name]
@@ -43,7 +44,7 @@ const CatalogCard = ({ item }: { item: MetricCatalogItem }): JSX.Element => {
 
     useEffect(() => {
         const card = cardRef.current
-        if (!card || detail || failed || loading) {
+        if (!card || detail || failed || loading || catalogItemsLoading) {
             return
         }
         // Browsers without IntersectionObserver still show a useful catalog;
@@ -65,7 +66,7 @@ const CatalogCard = ({ item }: { item: MetricCatalogItem }): JSX.Element => {
         )
         observer.observe(card)
         return () => observer.disconnect()
-    }, [detail, item, loadSparkline, loading])
+    }, [catalogItemsLoading, detail, failed, item, loadSparkline, loading])
 
     return (
         <div className="flex flex-col border rounded hover:border-accent-primary focus-within:border-accent-primary transition-colors bg-bg-3000">
@@ -86,8 +87,8 @@ const CatalogCard = ({ item }: { item: MetricCatalogItem }): JSX.Element => {
                 </div>
                 <div className="h-10 w-full">
                     {detail?.sparkline && detail.sparkline.length > 1 ? (
-                        <Sparkline data={detail.sparkline} type="line" />
-                    ) : loading ? (
+                        <Sparkline data={detail.sparkline} type="line" className="w-full h-full" />
+                    ) : loading || (!detail && !failed) ? (
                         <LemonSkeleton className="h-full" />
                     ) : failed ? (
                         <div className="h-full flex items-center text-xs text-muted">Could not load recent data</div>
@@ -122,7 +123,7 @@ export const MetricsCatalog = (): JSX.Element => {
     const { setSearch } = useActions(logic)
 
     return (
-        <div className="flex flex-col gap-3 overflow-y-auto">
+        <div className="@container flex flex-col gap-3 overflow-y-auto">
             <div className="flex items-center justify-between gap-2 flex-wrap">
                 <p className="text-secondary mb-0">
                     Every metric you are collecting, as a card. Click one to open its chart.
@@ -138,7 +139,7 @@ export const MetricsCatalog = (): JSX.Element => {
                 />
             </div>
             {catalogItemsLoading && visibleItems.length === 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                <div className="grid grid-cols-1 @xl:grid-cols-2 @4xl:grid-cols-3 @6xl:grid-cols-4 gap-3">
                     {Array.from({ length: 8 }).map((_, i) => (
                         <LemonSkeleton key={i} className="h-32" />
                     ))}
@@ -148,7 +149,7 @@ export const MetricsCatalog = (): JSX.Element => {
                     {search ? `No metrics match "${search}".` : 'No metrics reported in the current scope yet.'}
                 </div>
             ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                <div className="grid grid-cols-1 @xl:grid-cols-2 @4xl:grid-cols-3 @6xl:grid-cols-4 gap-3">
                     {visibleItems.map((item) => (
                         <CatalogCard key={item.name} item={item} />
                     ))}
