@@ -64,10 +64,6 @@ describe('retryImport', () => {
     })
 
     it('retries a generic network TypeError and marks it as a chunk load error once exhausted', async () => {
-        // Safari/Firefox report a failed `import()` as a bare network TypeError, indistinguishable by
-        // message from an unrelated failed `fetch()`. retryImport treats it as a chunk load candidate
-        // (since it came from the wrapped import factory) and marks it so downstream boundaries still
-        // recognize it once retries are exhausted.
         const error = new TypeError('Load failed')
         const factory = jest.fn().mockRejectedValue(error)
 

@@ -5,11 +5,9 @@
  *   - Firefox: native `TypeError: error loading dynamically imported module: <url>` (deferred import of a now-deleted chunk after a deploy)
  *   - WebKit/Safari: `Importing a module script failed.` (module script fails to load, e.g. transient network failure)
  *
- * Safari's native `TypeError: Load failed` and Firefox's native `TypeError: NetworkError when
- * attempting to fetch resource.` are also shapes a failed `import()` can take in those browsers,
- * but the message is indistinguishable from an ordinary failed `fetch()` unrelated to any import
- * (see `isGenericNetworkTypeError`). So they only count here once `retryImport` has marked them,
- * having caught them coming out of a wrapped `import()` call.
+ * Safari's/Firefox's generic network TypeErrors (`isGenericNetworkTypeError`) are also a failed
+ * `import()`'s shape in those browsers, but the message can't tell that apart from an unrelated
+ * failed `fetch()` — so they only count here once `retryImport` has marked them.
  */
 const markedChunkLoadErrors = new WeakSet<object>()
 

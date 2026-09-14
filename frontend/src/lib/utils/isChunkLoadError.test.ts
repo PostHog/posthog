@@ -26,10 +26,6 @@ describe('isChunkLoadError', () => {
         ['generic TypeError', { name: 'TypeError', message: 'undefined is not a function' }, false],
         ['unrelated Error', { name: 'Error', message: 'something else' }, false],
         ['error with no name or message', {}, false],
-        // Safari's `Load failed` and Firefox's `NetworkError when attempting to fetch resource` are the
-        // native shape a failed `import()` takes in those browsers, but they're indistinguishable by
-        // message alone from an ordinary failed `fetch()` unrelated to any import (e.g. a property-value
-        // load behind a filter popover) — so on their own they are NOT chunk load errors.
         ['Safari native TypeError: Load failed, unmarked', { name: 'TypeError', message: 'Load failed' }, false],
         [
             'Firefox native TypeError: NetworkError, unmarked',

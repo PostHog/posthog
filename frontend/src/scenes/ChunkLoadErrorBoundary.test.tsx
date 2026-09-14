@@ -32,9 +32,7 @@ function ThrowRegularError(): JSX.Element {
 }
 
 function ThrowGenericNetworkError(): JSX.Element {
-    // Same shape Safari/Firefox report for a failed `import()`, but here it's an ordinary
-    // unrelated fetch failure (e.g. a property-value load behind a filter popover) — it must
-    // not be treated as a stale-deploy chunk failure and force a reload.
+    // Same shape a failed import() takes on Safari/Firefox, thrown by an unrelated fetch here.
     throw new TypeError('Load failed')
 }
 
