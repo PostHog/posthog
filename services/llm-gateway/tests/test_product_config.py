@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from llm_gateway.baseten import BASETEN_MODELS
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
-from llm_gateway.flags import GLM_BASETEN_FLAG, GLM_MODAL_FLAG
+from llm_gateway.flags import GLM_MODAL_FLAG
 from llm_gateway.inference_routing import is_inference_routed_model
 from llm_gateway.modal import is_modal_served_model
 from llm_gateway.products.config import (
@@ -117,11 +117,11 @@ class TestCheckProductAccess:
                 True,
                 None,
             ),
-            # wizard allows API keys and OAuth with valid app ID
-            ("wizard", "personal_api_key", None, "claude-3-opus", True, None),
-            ("wizard", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
-            ("wizard", "oauth_access_token", WIZARD_US_APP_ID, None, True, None),
-            ("wizard", "oauth_access_token", WIZARD_EU_APP_ID, None, True, None),
+            # wizard is retired here: every auth method, including its own apps, gets the upgrade path
+            ("wizard", "personal_api_key", None, "claude-3-opus", False, "npx @posthog/wizard@latest"),
+            ("wizard", "oauth_access_token", "invalid-app-id", None, False, "npx @posthog/wizard@latest"),
+            ("wizard", "oauth_access_token", WIZARD_US_APP_ID, None, False, "npx @posthog/wizard@latest"),
+            ("wizard", "oauth_access_token", WIZARD_EU_APP_ID, None, False, "npx @posthog/wizard@latest"),
             # django allows API keys with any model; OAuth rejected (no app IDs configured)
             ("django", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("django", "personal_api_key", None, "claude-3-opus", True, None),
@@ -764,7 +764,7 @@ class TestModelAccessFlag:
     def test_every_gated_model_has_its_own_flag(self):
         flags = list(MODEL_ACCESS_FLAGS.values())
         assert len(flags) == len(set(flags))
-        assert not set(flags) & {GLM_BASETEN_FLAG, GLM_MODAL_FLAG}
+        assert GLM_MODAL_FLAG not in flags
 
     @pytest.mark.parametrize("model", [None, "", "gpt-5.2", "claude-opus-5", "@cf/zai-org/glm-5.2"])
     def test_ungated_models_need_no_flag(self, model: str | None):
@@ -809,3 +809,13 @@ class TestSignalsApplicationIsolation:
         # of which it could reach while Signals shared the Desktop app.
         allowed, _ = check_product_access(product, "oauth_access_token", SIGNALS_DEV_APP_ID, None)
         assert allowed is expected_allowed
+
+
+class TestRetiredProduct:
+    @patch("llm_gateway.products.config.get_settings", return_value=MagicMock(debug=True))
+    def test_a_retired_product_is_refused_in_debug_mode_too(self, _settings):
+        # Debug skips the application-id check, which must not reopen a retired product.
+        allowed, error = check_product_access("wizard", "oauth_access_token", WIZARD_US_APP_ID, None)
+        assert allowed is False
+        assert error is not None
+        assert "npx @posthog/wizard@latest" in error

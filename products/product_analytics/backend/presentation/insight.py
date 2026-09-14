@@ -128,7 +128,8 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.alerts.backend.facade.api import delete_insight_alerts, insight_alerts_prefetch, serialize_insight_alerts
+from products.alerts.backend.facade.api import delete_insight_alerts
+from products.alerts.backend.presentation.views.insight_alerts import insight_alerts_prefetch, serialize_insight_alerts
 from products.dashboards.backend.facade.access import (
     DashboardAccessMethod,
     dashboard_access_method,
@@ -679,10 +680,6 @@ class InsightSerializer(InsightBasicSerializer):
 
         validate_insight_write(
             query=query,
-            # No write reaches the stored filters, so only the query needs judging.
-            filters=None,
-            # A write that omits `query` keeps the stored one, which is still what renders.
-            unchanged_query=None if "query" in attrs else getattr(self.instance, "query", None),
             team=self.context["get_team"](),
             user=self.context["request"].user,
             request=self.context["request"],

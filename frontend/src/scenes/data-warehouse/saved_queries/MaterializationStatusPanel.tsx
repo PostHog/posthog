@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh, IconRevert, IconX } from '@posthog/icons'
-import { LemonBanner, LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonBanner, LemonCard, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -19,7 +20,9 @@ import { userLogic } from 'scenes/userLogic'
 import { AccessControlLevel, AccessControlResourceType, DataModelingJob, LogEntryLevel } from '~/types'
 
 import { SERVING_ENGINE } from 'products/data_modeling/frontend/suspension'
-import { MaterializationRunErrorCell } from 'products/data_warehouse/frontend/shared/components/MaterializationRunErrorCell'
+import { MaterializationLoading } from 'products/data_warehouse/frontend/shared/components/MaterializationLoading'
+import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
+import { MaterializationRunError } from 'products/data_warehouse/frontend/shared/components/MaterializationRunError'
 
 import { IncrementalConfigOptions } from '../editor/IncrementalConfigFields'
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
@@ -30,8 +33,15 @@ import {
     SyncFrequencyValue,
     defaultCadenceWithin,
     modeDisabledReason,
-    unsatisfiableReason,
 } from './SyncFrequencySelect'
+
+const STATUS_TAG_TYPES: Record<string, LemonTagType> = {
+    Completed: 'success',
+    Failed: 'danger',
+    Running: 'warning',
+    Cancelled: 'muted',
+    Skipped: 'muted',
+}
 
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
@@ -45,6 +55,8 @@ interface MaterializationStatusPanelProps {
     kind?: 'view' | 'endpoint'
     /** Drops the "Materialization" heading where the surface already names the panel, such as a tab. */
     hideTitle?: boolean
+    showRunActions?: boolean
+    showStatusSummary?: boolean
 }
 
 // Watermarks are only ISO strings for date/datetime incremental keys. Numeric and arbitrary
@@ -99,7 +111,7 @@ function getMaterializationDisabledReasons(
     return {
         sync:
             currentJobStatus === 'Running'
-                ? 'Materialization is already running'
+                ? 'Materialization is currently running'
                 : startingMaterialization
                   ? 'Materialization is starting'
                   : false,
@@ -112,69 +124,57 @@ export function MaterializationStatusPanel({
     viewId,
     kind = 'view',
     hideTitle,
+    showRunActions = true,
+    showStatusSummary = true,
 }: MaterializationStatusPanelProps): JSX.Element {
     const jobsLogic = materializationJobsLogic({ viewId, kind })
     const {
         dataModelingJobs,
         dataModelingJobsLoading,
         hasMoreJobsToLoad,
+        lastSuccessfulSyncAt,
         startingMaterialization,
-        resumingMaterialization,
         savedQuery,
         savedQueryLoading,
         initialSyncFrequency,
         incrementalCheck,
         incrementalDraft,
+        syncFrequencyDraft,
+        savingMaterialization,
     } = useValues(jobsLogic)
     const {
         loadDataModelingJobs,
         loadOlderDataModelingJobs,
-        setStartingMaterialization,
-        resumeMaterialization,
         setInitialSyncFrequency,
         setIncrementalDraft,
+        setSyncFrequencyDraft,
     } = useActions(jobsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
-    const {
-        updateDataWarehouseSavedQuery,
-        runDataWarehouseSavedQuery,
-        cancelDataWarehouseSavedQuery,
-        materializeDataWarehouseSavedQuery,
-        revertMaterialization,
-    } = useActions(dataWarehouseViewsLogic)
+    const { updatingDataWarehouseSavedQuery, materializationActionLoading } = useValues(dataWarehouseViewsLogic)
 
     const { timezone } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const showDebugLogs = user?.is_staff || user?.is_impersonated
     const materializationAccessReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
-        AccessControlLevel.Editor
+        AccessControlLevel.Editor,
+        savedQuery?.user_access_level
     )
 
     if (!savedQuery) {
         return (
-            <div className="flex min-h-64 items-center justify-center" data-attr="materialization-status-panel">
-                {savedQueryLoading ? <Spinner className="text-2xl" /> : null}
+            <div className="min-h-64" data-attr="materialization-status-panel">
+                {savedQueryLoading ? <MaterializationLoading /> : null}
             </div>
         )
     }
 
     const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
-    const { sync, cancel, revert } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
+    const { sync } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
     const incrementalFlagOn = kind !== 'endpoint' && !!featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
     const showIncremental = incrementalFlagOn && !!savedQuery.incremental?.enabled
     const lastRunMode = savedQuery.incremental_state?.last_run_mode
-    // Blocks the Materialize/save buttons while the incremental picks are incomplete, mirroring
-    // the save-as-view form's validation.
-    const incrementalDraftError = !incrementalDraft.enabled
-        ? undefined
-        : !incrementalDraft.incrementalKey
-          ? 'Select the incremental column'
-          : incrementalDraft.uniqueKey.length === 0
-            ? 'Select at least one unique key column'
-            : undefined
     const savedIncremental = savedQuery.incremental
     // Key or unique-key edits change what the stored rows mean, so the next run rebuilds (via the
     // definition fingerprint). A lookback-only change is operational and does not.
@@ -189,21 +189,19 @@ export function MaterializationStatusPanel({
         incrementalDraft.lookbackSeconds !== (savedIncremental.lookback_seconds ?? 0)
     const refreshModeChanged = structuralChange || lookbackChanged
     const startingFrequency = defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency)
-    const noCadenceReason = unsatisfiableReason(savedQuery.sync_frequency_bounds)
     const cadenceOwnedElsewhere = modeDisabledReason(savedQuery.sync_frequency_bounds)
     const isPaused = !cadenceOwnedElsewhere && (!savedQuery.sync_frequency || savedQuery.sync_frequency === 'never')
 
-    // Prefer the serving engine's entry when several engines are suspended.
-    const suspension = savedQuery.suspended
-        ? (savedQuery.suspended[SERVING_ENGINE] ?? Object.values(savedQuery.suspended)[0])
-        : undefined
+    // Only ClickHouse serves queries, so a marker on a shadow engine means the comparison
+    // run stopped, not that this model stopped refreshing.
+    const suspension = savedQuery.suspended?.[SERVING_ENGINE]
     const showSuspendedBanner =
         !!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES] &&
         !!suspension &&
         !!savedQuery.is_materialized
 
     return (
-        <div className="overflow-auto" data-attr="materialization-status-panel">
+        <div className="@container/materialization" data-attr="materialization-status-panel">
             <div className="flex flex-col flex-1 gap-4">
                 <div>
                     <div className="flex flex-row items-center gap-2">
@@ -213,24 +211,14 @@ export function MaterializationStatusPanel({
                                 <LemonTag type="warning">BETA</LemonTag>
                             </>
                         )}
-                        {savedQuery?.latest_error && savedQuery.status === 'Failed' && (
+                        {showStatusSummary && savedQuery?.latest_error && savedQuery.status === 'Failed' && (
                             <Tooltip title={savedQuery.latest_error} interactive>
                                 <LemonTag type="danger">Error</LemonTag>
                             </Tooltip>
                         )}
                     </div>
-                    {showSuspendedBanner && suspension && (
-                        <LemonBanner
-                            type="error"
-                            className="mt-2"
-                            action={{
-                                children: 'Resume',
-                                onClick: () => resumeMaterialization(),
-                                loading: resumingMaterialization,
-                                disabledReason: materializationAccessReason || undefined,
-                                tooltip: 'If the query keeps failing, it will pause again.',
-                            }}
-                        >
+                    {showStatusSummary && showSuspendedBanner && suspension && (
+                        <LemonBanner type="error" className="mt-2">
                             <div data-attr="materialization-suspended-banner">
                                 <div>
                                     Scheduled runs are paused for this {kind === 'endpoint' ? 'endpoint' : 'view'}{' '}
@@ -247,23 +235,47 @@ export function MaterializationStatusPanel({
                     <div>
                         {savedQuery?.is_materialized ? (
                             <div>
-                                {savedQuery?.last_run_at ? (
-                                    `Last run at ${humanFriendlyDetailedTime(savedQuery?.last_run_at)}`
-                                ) : showSuspendedBanner ? null : (
-                                    <div>
-                                        <span>Materialization scheduled</span>
-                                    </div>
+                                {showStatusSummary && (
+                                    <LemonCard hoverEffect={false} className="!p-3 mb-4 w-fit max-w-full">
+                                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                                            <span className="font-semibold">
+                                                {currentJobStatus === 'Running' ? 'Current run' : 'Last run'}
+                                            </span>
+                                            {currentJobStatus ? (
+                                                <LemonTag type={STATUS_TAG_TYPES[currentJobStatus] ?? 'default'}>
+                                                    {currentJobStatus === 'Cancelled' ? 'Canceled' : currentJobStatus}
+                                                </LemonTag>
+                                            ) : dataModelingJobsLoading ? (
+                                                <LemonSkeleton className="h-5 w-20" />
+                                            ) : (
+                                                <LemonTag type="muted">
+                                                    {dataModelingJobs ? 'Not run yet' : 'Status unavailable'}
+                                                </LemonTag>
+                                            )}
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                                            <span className="text-secondary">Last successful refresh</span>
+                                            {lastSuccessfulSyncAt ? (
+                                                <TZLabel time={lastSuccessfulSyncAt} />
+                                            ) : dataModelingJobsLoading ? (
+                                                <LemonSkeleton className="h-4 w-24" />
+                                            ) : (
+                                                <span>
+                                                    {dataModelingJobs
+                                                        ? 'No successful run in recent history'
+                                                        : 'Run history unavailable'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </LemonCard>
                                 )}
-                                {showIncremental && (
+                                {showIncremental && lastRunMode === 'incremental' && (
                                     <div className="text-xs text-secondary mt-1">
-                                        {lastRunMode === 'incremental'
-                                            ? `Updating new rows only, up to ${formatWatermark(
-                                                  savedQuery.incremental_state?.watermark
-                                              )}`
-                                            : 'The last run rebuilt the whole table. The next one will update only new rows.'}
+                                        Updating new rows only, up to{' '}
+                                        {formatWatermark(savedQuery.incremental_state?.watermark)}
                                     </div>
                                 )}
-                                {isPaused && kind !== 'endpoint' && (
+                                {showStatusSummary && isPaused && kind !== 'endpoint' && (
                                     <div className="text-xs text-secondary mt-1">
                                         Scheduled refreshes are paused. Pick a cadence to resume, or use Sync now to
                                         refresh it once.
@@ -273,168 +285,57 @@ export function MaterializationStatusPanel({
                                     {kind !== 'endpoint' && (
                                         <SyncFrequencySelect
                                             bounds={savedQuery.sync_frequency_bounds}
-                                            disabledReason={sync || materializationAccessReason || undefined}
-                                            value={(savedQuery.sync_frequency as SyncFrequencyValue) || 'never'}
-                                            onChange={(newValue) =>
-                                                updateDataWarehouseSavedQuery({
-                                                    id: viewId,
-                                                    sync_frequency: newValue,
-                                                    types: [[]],
-                                                    lifecycle: 'update',
-                                                })
+                                            disabledReason={
+                                                sync ||
+                                                (savingMaterialization
+                                                    ? 'Saving materialization settings'
+                                                    : undefined) ||
+                                                materializationAccessReason ||
+                                                (materializationActionLoading ? 'Updating materialization' : undefined)
                                             }
-                                            loading={updatingDataWarehouseSavedQuery}
+                                            value={
+                                                syncFrequencyDraft ??
+                                                (savedQuery.sync_frequency as SyncFrequencyValue) ??
+                                                'never'
+                                            }
+                                            onChange={setSyncFrequencyDraft}
+                                            loading={updatingDataWarehouseSavedQuery || materializationActionLoading}
                                         />
                                     )}
-                                    <div className="flex items-center gap-2">
-                                        <LemonButton
-                                            className="whitespace-nowrap"
-                                            size="small"
-                                            loading={startingMaterialization || currentJobStatus === 'Running'}
-                                            disabledReason={sync || materializationAccessReason}
-                                            onClick={() => {
-                                                setStartingMaterialization(true)
-                                                runDataWarehouseSavedQuery(viewId)
-                                            }}
-                                            type="secondary"
-                                            sideAction={{
-                                                icon: <IconX fontSize={16} />,
-                                                tooltip: 'Cancel materialization',
-                                                onClick: () => cancelDataWarehouseSavedQuery(viewId),
-                                                disabledReason: cancel || materializationAccessReason || undefined,
-                                            }}
-                                        >
-                                            {startingMaterialization
-                                                ? 'Starting...'
-                                                : currentJobStatus === 'Running'
-                                                  ? 'Running...'
-                                                  : 'Sync now'}
-                                        </LemonButton>
-                                        {showIncremental && (
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                tooltip="Rebuild the whole table from scratch instead of updating it"
-                                                disabledReason={sync || materializationAccessReason}
-                                                onClick={() => {
-                                                    LemonDialog.open({
-                                                        title: 'Rebuild this table',
-                                                        maxWidth: '30rem',
-                                                        description:
-                                                            'This runs the query over all of your data and replaces the table, instead of updating only new rows. It takes as long as the first materialization did. Use it after correcting upstream data.',
-                                                        primaryButton: {
-                                                            children: 'Rebuild',
-                                                            onClick: () => {
-                                                                setStartingMaterialization(true)
-                                                                runDataWarehouseSavedQuery(viewId, true)
-                                                            },
-                                                        },
-                                                        secondaryButton: { children: 'Cancel' },
-                                                    })
-                                                }}
-                                            >
-                                                Rebuild
-                                            </LemonButton>
-                                        )}
-                                        {kind !== 'endpoint' && (
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                tooltip="Stop refreshing on a schedule. The table stays, holding what it last loaded."
-                                                disabledReason={
-                                                    materializationAccessReason ||
-                                                    cadenceOwnedElsewhere ||
-                                                    (isPaused ? 'Already paused. Pick a cadence to resume.' : undefined)
-                                                }
-                                                loading={updatingDataWarehouseSavedQuery}
-                                                onClick={() =>
-                                                    updateDataWarehouseSavedQuery({
-                                                        id: viewId,
-                                                        sync_frequency: 'never',
-                                                        types: [[]],
-                                                        lifecycle: 'update',
-                                                    })
-                                                }
-                                            >
-                                                Pause refreshes
-                                            </LemonButton>
-                                        )}
-                                        {kind !== 'endpoint' && (
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                tooltip="Revert materialized view to view"
-                                                disabledReason={revert || materializationAccessReason}
-                                                icon={<IconRevert />}
-                                                onClick={() => {
-                                                    LemonDialog.open({
-                                                        title: 'Revert materialization',
-                                                        maxWidth: '30rem',
-                                                        description:
-                                                            'Are you sure you want to revert this materialized view to a regular view? This will stop all future materializations and remove the materialized table. You will always be able to go back to a materialized view at any time.',
-                                                        primaryButton: {
-                                                            status: 'danger',
-                                                            children: 'Revert materialization',
-                                                            onClick: () => revertMaterialization(viewId),
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                        },
-                                                    })
-                                                }}
-                                            />
-                                        )}
-                                    </div>
+                                    {showRunActions && (
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <MaterializationRunActions viewId={viewId} kind={kind} />
+                                        </div>
+                                    )}
                                 </div>
                                 {incrementalFlagOn && !savedQuery.managed_viewset_kind && incrementalCheck && (
-                                    <div className="mt-4 max-w-160">
+                                    <fieldset
+                                        className="mt-4 max-w-160"
+                                        disabled={
+                                            !!(
+                                                sync ||
+                                                savingMaterialization ||
+                                                materializationAccessReason ||
+                                                materializationActionLoading
+                                            )
+                                        }
+                                    >
                                         <h4 className="mb-0">Refresh mode</h4>
                                         <IncrementalConfigOptions
                                             check={incrementalCheck}
                                             draft={incrementalDraft}
                                             onChange={setIncrementalDraft}
                                         />
-                                        {refreshModeChanged && (
+                                        {refreshModeChanged && incrementalDraft.enabled && (
                                             <div className="mt-2">
-                                                <LemonButton
-                                                    type="primary"
-                                                    size="small"
-                                                    loading={updatingDataWarehouseSavedQuery}
-                                                    disabledReason={
-                                                        materializationAccessReason || incrementalDraftError || sync
-                                                    }
-                                                    onClick={() =>
-                                                        updateDataWarehouseSavedQuery({
-                                                            id: viewId,
-                                                            incremental:
-                                                                incrementalDraft.enabled &&
-                                                                incrementalDraft.incrementalKey
-                                                                    ? {
-                                                                          enabled: true,
-                                                                          incremental_key:
-                                                                              incrementalDraft.incrementalKey,
-                                                                          unique_key: incrementalDraft.uniqueKey,
-                                                                          lookback_seconds:
-                                                                              incrementalDraft.lookbackSeconds,
-                                                                      }
-                                                                    : null,
-                                                            types: [[]],
-                                                            lifecycle: 'update',
-                                                        })
-                                                    }
-                                                >
-                                                    Save refresh mode
-                                                </LemonButton>
                                                 <div className="text-xs text-secondary mt-1">
-                                                    {!incrementalDraft.enabled
-                                                        ? 'Every run will rebuild the whole table.'
-                                                        : structuralChange
-                                                          ? 'Changing these settings rebuilds the whole table on the next run. After that, runs update only new rows.'
-                                                          : 'The new lookback applies from the next run.'}
+                                                    {structuralChange
+                                                        ? 'Changing these settings rebuilds the whole table on the next run. After that, runs update only new rows.'
+                                                        : 'The new lookback applies from the next run.'}
                                                 </div>
                                             </div>
                                         )}
-                                    </div>
+                                    </fieldset>
                                 )}
                             </div>
                         ) : (
@@ -457,35 +358,15 @@ export function MaterializationStatusPanel({
                                         <SyncFrequencySelect
                                             data-attr="initial-sync-frequency"
                                             bounds={savedQuery.sync_frequency_bounds}
-                                            disabledReason={materializationAccessReason || undefined}
+                                            disabledReason={
+                                                materializationAccessReason ||
+                                                (materializationActionLoading ? 'Updating materialization' : undefined)
+                                            }
                                             value={startingFrequency}
                                             onChange={(newValue) => setInitialSyncFrequency(newValue)}
                                         />
                                     )}
-                                    <LemonButton
-                                        size="small"
-                                        onClick={() =>
-                                            materializeDataWarehouseSavedQuery(
-                                                viewId,
-                                                startingFrequency,
-                                                incrementalDraft.enabled && incrementalDraft.incrementalKey
-                                                    ? {
-                                                          enabled: true,
-                                                          incremental_key: incrementalDraft.incrementalKey,
-                                                          unique_key: incrementalDraft.uniqueKey,
-                                                          lookback_seconds: incrementalDraft.lookbackSeconds,
-                                                      }
-                                                    : undefined
-                                            )
-                                        }
-                                        type="primary"
-                                        loading={updatingDataWarehouseSavedQuery}
-                                        disabledReason={
-                                            materializationAccessReason || noCadenceReason || incrementalDraftError
-                                        }
-                                    >
-                                        Materialize
-                                    </LemonButton>
+                                    {showRunActions && <MaterializationRunActions viewId={viewId} kind={kind} />}
                                 </div>
                                 {incrementalFlagOn && (
                                     <div className="max-w-160">
@@ -500,12 +381,9 @@ export function MaterializationStatusPanel({
                         )}
                     </div>
                 </div>
-                <div className="flex items-start justify-between">
+                <div className="border-t pt-6 mt-4 flex items-start justify-between gap-2">
                     <div>
-                        <h3>Materialization Runs</h3>
-                        <p className="text-xs">
-                            The last runs for this materialized view. These can be scheduled or run on demand.
-                        </p>
+                        <h3 className="mb-0">Run history</h3>
                     </div>
                     <LemonButton
                         icon={<IconRefresh />}
@@ -527,13 +405,7 @@ export function MaterializationStatusPanel({
                             dataIndex: 'status',
                             render: (_, job: DataModelingJob) => {
                                 const { status, rows_materialized, rows_expected } = job
-                                const statusToType: Record<string, LemonTagType> = {
-                                    Completed: 'success',
-                                    Failed: 'danger',
-                                    Running: 'warning',
-                                    Skipped: 'muted',
-                                }
-                                const type = statusToType[status] || 'warning'
+                                const type = STATUS_TAG_TYPES[status] || 'warning'
 
                                 const progressPercentage =
                                     rows_expected && rows_expected > 0
@@ -557,24 +429,32 @@ export function MaterializationStatusPanel({
                                     )
                                 }
 
-                                const statusTag = <LemonTag type={type}>{status}</LemonTag>
-                                return (
-                                    <div className="flex items-center gap-1">
-                                        {statusTag}
-                                        {showIncremental && job.run_mode && (
-                                            <LemonTag type="muted">
-                                                {job.run_mode === 'incremental' ? 'incremental' : 'full refresh'}
-                                            </LemonTag>
-                                        )}
-                                    </div>
-                                )
+                                return <LemonTag type={type}>{status}</LemonTag>
                             },
+                        },
+                        {
+                            title: 'Refresh mode',
+                            dataIndex: 'run_mode',
+                            isHidden:
+                                !showIncremental || !savedQuery.is_materialized || !dataModelingJobs?.results?.length,
+                            render: (_, { run_mode }: DataModelingJob) =>
+                                run_mode === 'incremental'
+                                    ? 'Incremental'
+                                    : run_mode === 'full_refresh'
+                                      ? 'Full refresh'
+                                      : '-',
                         },
                         {
                             title: 'Error',
                             dataIndex: 'error',
                             render: (_, { error, status }: DataModelingJob) => (
-                                <MaterializationRunErrorCell error={error} status={status} />
+                                <div className="max-w-28 @min-[48rem]/materialization:max-w-60">
+                                    <span
+                                        className={`block truncate ${status === 'Failed' ? 'text-danger' : 'text-secondary'}`}
+                                    >
+                                        {error?.split('\n')[0]}
+                                    </span>
+                                </div>
                             ),
                         },
                         {
@@ -608,7 +488,7 @@ export function MaterializationStatusPanel({
                             title: 'Updated',
                             dataIndex: 'last_run_at',
                             render: (_, { last_run_at }: DataModelingJob) =>
-                                last_run_at ? humanFriendlyDetailedTime(last_run_at) : '-',
+                                last_run_at ? <TZLabel time={last_run_at} /> : '-',
                         },
                         {
                             title: 'Duration',
@@ -619,7 +499,8 @@ export function MaterializationStatusPanel({
                         dataModelingJobs?.results?.length
                             ? {
                                   expandedRowRender: (job: DataModelingJob) => (
-                                      <div className="p-4">
+                                      <div className="p-4 min-w-0">
+                                          <MaterializationRunError error={job.error} status={job.status} />
                                           <LogsViewer
                                               logicKey={`data_modeling_run:${job.id}`}
                                               sourceType="data_modeling_run"

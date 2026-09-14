@@ -5740,7 +5740,7 @@
         }
     },
     "file-download-batch-exports-create": {
-        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, sessions, or the results of a HogQL query. For events, persons and sessions, provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week, and for events, include and exclude filter event names. The hogql model is in closed beta and is enabled per team: it takes a hogql_query instead of a data interval, and returns a permission error naming HogQL batch exports when the team does not have it enabled, in which case tell the user they can contact PostHog support to request access. Limit hogql_query with a WHERE clause to export only the data the user asked for, because user queries run under stricter resource limits than the other models. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
+        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, sessions, or the results of a HogQL query. For events, persons and sessions, provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week, and for events, include and exclude filter event names. The hogql model is in closed beta and is enabled per team: it takes a hogql_query instead of a data interval, and returns a permission error naming HogQL batch exports when the team does not have it enabled, in which case tell the user they can contact PostHog support to request access. Limit hogql_query with a WHERE clause to export only the data the user asked for, because user queries run under stricter resource limits than the other models. The export splits into files of about 1024 MiB by default, and a file can go a little over; set file.max_size_mb to change that size, or to null to write a single file of any size. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
         "category": "Data pipelines",
         "feature": "batch_exports",
         "summary": "Start file download export",
@@ -5754,7 +5754,7 @@
         }
     },
     "file-download-batch-exports-retrieve": {
-        "description": "Get the status of an on-demand file download export. Returns Starting or Running while the export is in progress, Completed with file IDs when files are ready, or a failed status with an error message. When status is Completed, use the downloading-batch-export-files skill to download each file through the existing REST download endpoint; the generated MCP download operation is intentionally not enabled because it is a redirect to the file body.",
+        "description": "Get the status of an on-demand file download export. Returns Starting or Running while the export is in progress, Completed with file IDs when files are ready, or a failed status with an error message. A Completed response also reports records_completed, the number of rows the run exported; report that count to the user. When status is Completed, use the downloading-batch-export-files skill to download each file through the existing REST download endpoint; the generated MCP download operation is intentionally not enabled because it is a redirect to the file body.",
         "category": "Data pipelines",
         "feature": "batch_exports",
         "summary": "Get file download export status",
@@ -8237,21 +8237,6 @@
             "readOnlyHint": true
         }
     },
-    "mcp-feedback-submit": {
-        "description": "Submit qualitative feedback about the current MCP workflow, tool result, or product experience. Use this when the available tools worked but the experience was confusing, incomplete, or could be improved.",
-        "category": "MCP analytics",
-        "feature": "mcp_analytics",
-        "summary": "Submit MCP feedback",
-        "title": "Submit MCP feedback",
-        "required_scopes": ["mcp_analytics:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "mcp-analytics"
-    },
     "mcp-missing-capability-report": {
         "description": "Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool, missing workflow support, or missing explanation blocks progress. Describe the gap without personal data or sensitive query content. This records feedback for the PostHog team; continue with a fallback when possible.",
         "category": "MCP analytics",
@@ -8443,7 +8428,7 @@
         }
     },
     "notebooks-get": {
-        "description": "The full notebook view: title, markdown source, the notebook's variables (name, type, value; a SQL cell reads one as `{name}`, a Python cell as a global — change them with notebooks-set-variables), and every cell with its code, dataframe name, depends_on/dependents edges, and derived status — 'stale' means re-running the cell now would execute different code than its last completed run (the cell changed, an upstream changed, or, for a SQL cell that ran on ClickHouse, a variable it reads changed), so its displayed result is outdated. A changed variable value does not make a Python cell, or a SQL cell that reads a Python-created dataframe, stale: on those, 'done' means the code is current, not the values it ran with. Re-run them from the stale_cells list notebooks-set-variables returns, and re-run before trusting a result whose values may have changed since. Use this to read or orient in a notebook, find which cells need re-running after edits, and decide re-run order (walk stale cells in dependency order with notebooks-update-cell, omitting code). Legacy rich-text notebooks return their raw document in content instead of markdown. When you do not have the notebook's short_id, find it with notebooks-list.",
+        "description": "The full notebook view: title, markdown source, the notebook's variables (name, type, value; a SQL cell reads one as `{name}`, a Python cell as a global — change them with notebooks-set-variables), and every cell (the notebook's markdown prose included, as cell_type 'markdown') with its code, dataframe name, depends_on/dependents edges, and derived status — 'stale' means re-running the cell now would execute different code than its last completed run (the cell changed, an upstream changed, or, for a SQL cell that ran on ClickHouse, a variable it reads changed), so its displayed result is outdated. A changed variable value does not make a Python cell, or a SQL cell that reads a Python-created dataframe, stale: on those, 'done' means the code is current, not the values it ran with. Re-run them from the stale_cells list notebooks-set-variables returns, and re-run before trusting a result whose values may have changed since. Use this to read or orient in a notebook, find which cells need re-running after edits, and decide re-run order (walk stale cells in dependency order with notebooks-update-cell, omitting code). Each cell carries start and end: the character span of its source in markdown. A markdown cell's id is derived from its text, so edit it with notebooks-update-cell against the same read that returned it. Legacy rich-text notebooks return their raw document in content instead of markdown. When you do not have the notebook's short_id, find it with notebooks-list.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Get notebook",
@@ -10498,7 +10483,7 @@
         }
     },
     "skill-create": {
-        "description": "Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a description explaining when to use it, and the skill body (SKILL.md instruction content as markdown). Optionally include license, compatibility, allowed_tools, metadata, bundled files, and owners. Owners (a list of project-member user UUIDs) default to the creating user; set them to route reviews or questions about this skill to specific people.",
+        "description": "Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a description explaining when to use it, and the skill body (SKILL.md instruction content as markdown). Optionally include license, compatibility, allowed_tools, metadata, bundled files, and owners. Owners (a list of project-member user UUIDs) default to the creating user; set them to route reviews or questions about this skill to specific people. allowed_tools is a request, not a grant: a harness that loads the skill over MCP ignores it until the user approves that grant.",
         "category": "Skills",
         "feature": "skills",
         "summary": "Create skill",
@@ -10638,7 +10623,7 @@
         }
     },
     "skill-update": {
-        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nskill-file-create / skill-file-delete / skill-file-rename handle\nadd/remove/rename one file at a time and return the updated skill (including the\nbumped version) so callers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.\n\nTo change who owns the skill, pass 'owners' (a list of project-member user UUIDs) —\nthis replaces the owner set. Omit it to leave owners unchanged; pass an empty list to\nclear them. Ownership is independent of the version, so a body edit alone never\nchanges it.\n\nPass 'version_description' with a short note on what changed and why — it is shown in\nthe skill's version history.",
+        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nskill-file-create / skill-file-delete / skill-file-rename handle\nadd/remove/rename one file at a time and return the updated skill (including the\nbumped version) so callers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.\n\nTo change who owns the skill, pass 'owners' (a list of project-member user UUIDs) —\nthis replaces the owner set. Omit it to leave owners unchanged; pass an empty list to\nclear them. Ownership is independent of the version, so a body edit alone never\nchanges it.\n\nPass 'version_description' with a short note on what changed and why — it is shown in\nthe skill's version history.\n\n'allowed_tools' is a request, not a grant: a harness that loads the skill over MCP\nignores it until the user approves that grant.",
         "category": "Skills",
         "feature": "skills",
         "summary": "Update skill",
@@ -12364,7 +12349,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-repos-partial-update": {
-        "description": "Change one repo's settings. `enable_pr_comments` controls whether a run that finds visual changes posts a pull request comment asking for a review. `debt_digest_enabled` controls whether the debt digest runs for the repo, which posts expiring quarantines and piled-up variants to the Slack channels of the teams that own the snapshots; it is off until somebody turns it on, and it runs Monday to Friday. `baseline_file_paths` maps each run type to the file holding its committed baseline hashes, for example `{\"storybook\": \".storybook/snapshots.yml\"}`, and finalize reads and commits the path named there; a `default` key covers every run type that has no entry of its own. Every field is optional, and a field you leave out keeps its current value.",
+        "description": "Change one repo's settings. `enable_pr_comments` controls whether a run that finds visual changes posts a pull request comment asking for a review. `debt_digest_enabled` controls whether the debt digest runs for the repo, which posts expiring quarantines and piled-up variants to the Slack channels of the teams that own the snapshots; it is off until somebody turns it on, and it posts every Monday morning. `baseline_file_paths` maps each run type to the file holding its committed baseline hashes, for example `{\"storybook\": \".storybook/snapshots.yml\"}`, and finalize reads and commits the path named there; a `default` key covers every run type that has no entry of its own. Every field is optional, and a field you leave out keeps its current value.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Update visual review repo settings",

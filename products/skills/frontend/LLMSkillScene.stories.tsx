@@ -75,8 +75,22 @@ const SKILL: LLMSkillApi = {
     metadata: {},
     category: '',
     files: [
-        { path: 'scripts/extract.sh', content_type: 'text/x-shellscript', line_count: 24, char_count: 512 },
-        { path: 'references/pdf-spec.md', content_type: 'text/markdown', line_count: 120, char_count: 4096 },
+        {
+            path: 'scripts/extract.sh',
+            content_type: 'text/x-shellscript',
+            line_count: 24,
+            char_count: 512,
+            size: 512,
+            sha256: 'a'.repeat(64),
+        },
+        {
+            path: 'references/pdf-spec.md',
+            content_type: 'text/markdown',
+            line_count: 120,
+            char_count: 4096,
+            size: 4098,
+            sha256: 'b'.repeat(64),
+        },
     ],
     outline: [
         { level: 1, text: 'PDF extractor' },

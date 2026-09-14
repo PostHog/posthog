@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
 
@@ -14,7 +14,12 @@ from posthog.models.team import Team
 
 from products.business_knowledge.backend import learning_settings, logic
 from products.business_knowledge.backend.learning.contracts import EvidenceBundle, EvidenceRef, evidence_key_for
-from products.business_knowledge.backend.models import KnowledgeDocument, KnowledgeLearningRun, LearningRunResult
+from products.business_knowledge.backend.models import (
+    KnowledgeDocument,
+    KnowledgeLearningRun,
+    KnowledgeSource,
+    LearningRunResult,
+)
 from products.business_knowledge.backend.temporal.learning.activities.analyze import (
     LearningAnalysisError,
     _render_search_context,
@@ -43,7 +48,15 @@ class _Provider:
     def __init__(self, bundle: EvidenceBundle | None) -> None:
         self.bundle = bundle
 
-    def collect(self, team_id: int, *, since: datetime, limit: int) -> list[EvidenceRef]:
+    def collect(
+        self,
+        team_id: int,
+        *,
+        since: datetime,
+        limit: int,
+        offset: int = 0,
+        ticket_id: UUID | None = None,
+    ) -> list[EvidenceRef]:
         return []
 
     def load(self, ref: EvidenceRef) -> EvidenceBundle | None:
@@ -86,6 +99,7 @@ def _evidence(*, ticket_number: int = 42) -> EvidenceRef:
         ticket_id=_TICKET_ID,
         ticket_number=ticket_number,
         resolution_comment_id=_COMMENT_ID,
+        revision_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 
 
@@ -144,6 +158,7 @@ def _setup_sync(team: Team) -> tuple[KnowledgeLearningRun, AnalyzeLearningEviden
         ticket_id=evidence.ticket_id,
         ticket_number=evidence.ticket_number,
         resolution_comment_id=evidence.resolution_comment_id,
+        revision_at=evidence.revision_at,
     )
     run = _create_run(team, evidence)
     return run, AnalyzeLearningEvidenceInput(team_id=team.id, run_id=str(run.id), evidence=evidence)
@@ -194,12 +209,19 @@ class TestLearningAnalyzerActivity:
 
         await sync_to_async(run.refresh_from_db)()
         document = await sync_to_async(KnowledgeDocument.objects.unscoped().get)(id=result.knowledge_document_id)
+        source = await sync_to_async(KnowledgeSource.objects.unscoped().get)(id=document.source_id)
         assert result.result == "knowledge_created"
         assert result.rejection_code == "none"
         assert run.result == LearningRunResult.KNOWLEDGE_CREATED
         assert run.knowledge_document_id == document.id
         assert document.title == "Refund policy"
         assert document.content == "Refunds are available within 30 days."
+        assert source.name == "Refund policy"
+        assert source.is_generated is True
+        generated_count = await sync_to_async(
+            lambda: KnowledgeSource.objects.unscoped().filter(team_id=document.team_id, is_generated=True).count()
+        )()
+        assert generated_count == 1
         assert document.metadata["ticket_id"] == str(_TICKET_ID)
         assert str(_TICKET_ID) not in f"{document.title}\n{document.content}"
         assert [(name, value, attributes["outcome"]) for name, value, attributes in recorded_metrics] == [
@@ -442,6 +464,53 @@ class TestLearningAnalyzer:
         assert run.result == LearningRunResult.INELIGIBLE
         get_provider.assert_not_called()
         publish.assert_not_called()
+
+    def test_learned_cap_skips_llm_and_completes_without_knowledge(self, team: Team) -> None:
+        run, input = _setup_sync(team)
+
+        with (
+            patch.object(logic, "MAX_LEARNED_SOURCES_PER_TEAM", 0),
+            patch(f"{_MODULE}.get_learning_provider") as get_provider,
+            patch(f"{_MODULE}._invoke_structured_model") as invoke,
+            patch(f"{_MODULE}.logic.create_generated_knowledge_document") as publish,
+        ):
+            result = analyze_learning_evidence(input)
+
+        run.refresh_from_db()
+        assert result.result == "no_knowledge"
+        assert result.rejection_code == "learned_cap_reached"
+        assert run.result == LearningRunResult.NO_KNOWLEDGE
+        assert run.status == "completed"
+        get_provider.assert_not_called()
+        invoke.assert_not_called()
+        publish.assert_not_called()
+
+    def test_learned_cap_during_publish_does_not_fail_the_run(self, team: Team) -> None:
+        run, input = _setup_sync(team)
+        provider = _Provider(EvidenceBundle(replies=("Refunds are available within 30 days.",)))
+
+        with (
+            patch.object(logic, "can_publish_learned_source", return_value=True),
+            patch(f"{_MODULE}.get_learning_provider", return_value=provider),
+            patch(
+                f"{_MODULE}._invoke_structured_model",
+                side_effect=[_extraction(), PiiVerdict(verdict="safe"), _promotion()],
+            ),
+            patch(f"{_MODULE}.generate_embedding", return_value=_embedding()),
+            patch(f"{_MODULE}.logic.search_knowledge", return_value=[]),
+            patch(
+                f"{_MODULE}.logic.create_generated_knowledge_document",
+                side_effect=logic.LearnedSourceCapReached("cap"),
+            ) as publish,
+        ):
+            result = analyze_learning_evidence(input)
+
+        run.refresh_from_db()
+        assert result.result == "no_knowledge"
+        assert result.rejection_code == "learned_cap_reached"
+        assert run.result == LearningRunResult.NO_KNOWLEDGE
+        assert run.status == "completed"
+        publish.assert_called_once()
 
     def test_missing_run_raises_bounded_error(self, team: Team) -> None:
         run, input = _setup_sync(team)

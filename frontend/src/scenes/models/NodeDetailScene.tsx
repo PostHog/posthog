@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
 
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
@@ -11,7 +12,9 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { ActivityScope, AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { ModelMetadata } from 'products/data_modeling/frontend/nodeDetail/ModelMetadata'
 
 import { NodeDetailHeader } from './NodeDetailHeader'
 import { NodeDetailOverview } from './NodeDetailOverview'
@@ -34,26 +37,21 @@ const TAB_LABELS: Record<NodeDetailSceneTab, string> = {
     query: 'Query',
     lineage: 'Lineage',
     materialization: 'Materialization',
-    tests: 'Tests',
+    tests: 'Data quality',
+    history: 'History',
 }
 
 function tabLabel(tab: NodeDetailSceneTab, savedQueryId: string | null | undefined): JSX.Element | string {
     if (tab === 'tests' && savedQueryId) {
         return <NodeDetailTestsTabLabel subjectId={savedQueryId} />
     }
-    if (tab === 'materialization') {
-        return (
-            <span className="flex items-center gap-1">
-                {TAB_LABELS[tab]}
-                <LemonTag type="warning">BETA</LemonTag>
-            </span>
-        )
-    }
     return TAB_LABELS[tab]
 }
 
 export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element {
-    const { node, nodeLoading, availableTabs, effectiveTab, visitedTabs } = useValues(nodeDetailSceneLogic({ id }))
+    const { node, savedQuery, savedQueryLoading, nodeLoading, availableTabs, effectiveTab, visitedTabs } = useValues(
+        nodeDetailSceneLogic({ id })
+    )
 
     if (!userHasAccess(AccessControlResourceType.WarehouseObjects, AccessControlLevel.Viewer)) {
         return (
@@ -84,6 +82,13 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
                 return <NodeDetailLineage id={id} />
             case 'materialization':
                 return <NodeDetailMaterialization id={id} />
+            case 'history':
+                return (
+                    <ActivityLog
+                        scope={[ActivityScope.DATA_WAREHOUSE_SAVED_QUERY, ActivityScope.DATA_QUALITY_CHECK]}
+                        id={savedQueryId ?? ''}
+                    />
+                )
             case 'tests':
                 return <NodeDetailTests id={id} subjectId={savedQueryId ?? ''} />
         }
@@ -99,7 +104,19 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
     return (
         <SceneContent>
             <NodeDetailHeader id={id} />
-            <NodeDetailOverview id={id} />
+            <div className="flex flex-wrap items-start gap-x-8 gap-y-3">
+                <NodeDetailOverview id={id} />
+                {/* A node row's timestamps describe the node, not the model: editing the
+                    description here patches the node and bumps its updated_at while the saved
+                    query stays untouched. So they stand in only for a node that has no saved
+                    query, and a failed load says nothing rather than the node's dates. */}
+                <ModelMetadata
+                    createdBy={savedQuery?.created_by}
+                    createdAt={node.saved_query_id ? savedQuery?.created_at : node.created_at}
+                    updatedAt={node.saved_query_id ? undefined : node.updated_at}
+                    loading={!!node.saved_query_id && savedQueryLoading && !savedQuery}
+                />
+            </div>
             {!effectiveTab ? (
                 <LemonSkeleton className="h-10 w-96" />
             ) : (
@@ -111,7 +128,9 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
                 // Always render the active tab, even one not yet visited: if a shrinking tab set
                 // (e.g. the checks flag turned off while Tests was open) falls back to a tab the
                 // user never opened, it would otherwise show a blank body.
-                .filter((tab) => visitedTabs.includes(tab) || tab === effectiveTab)
+                .filter((tab) =>
+                    tab === 'history' ? tab === effectiveTab : visitedTabs.includes(tab) || tab === effectiveTab
+                )
                 .map((tab) => (
                     <div key={tab} className={tab === effectiveTab ? 'flex flex-col flex-1' : 'hidden'}>
                         {tabPanel(tab)}
