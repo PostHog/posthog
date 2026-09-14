@@ -49,6 +49,10 @@
 
     &__pr {
         left: calc(var(--ship-it-hit) * 100%);
+
+        // An arriving tile overlaps the pull request all the way in, so it has to pass underneath.
+        // Without this the tile paints last and the pull request is unreadable as it is collected.
+        z-index: 1;
         color: var(--color-text-primary);
         background: var(--color-bg-fill-primary);
         border-color: var(--color-border-primary);
