@@ -413,11 +413,13 @@ export const Table = (props: TableProps): JSX.Element => {
                 embedded={props.embedded}
                 allowContentScroll={!!props.embedded}
             />
+            {/* The modal shows the value the table cell renders. `cell.value` is converted for sorting and
+                conditional formatting, so it holds epoch seconds for a date or datetime column. */}
             <RowDetailsModal
                 isOpen={!!detailsRow}
                 onClose={() => setDetailsRow(null)}
                 columns={detailsRow ? detailsRowColumnLabels() : []}
-                values={detailsRow?.map((cell) => cell.value) ?? null}
+                values={detailsRow?.map((cell) => cell.formattedValue) ?? null}
             />
         </>
     )
