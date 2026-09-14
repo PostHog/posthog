@@ -388,6 +388,7 @@ export function WorkflowsTable(): JSX.Element {
                                 { label: 'All', value: 'all' },
                                 { label: 'Messaging', value: 'messaging' },
                                 { label: 'Automation', value: 'automation' },
+                                { label: 'Loop', value: 'loop' },
                             ]}
                             value={filters.type}
                         />
