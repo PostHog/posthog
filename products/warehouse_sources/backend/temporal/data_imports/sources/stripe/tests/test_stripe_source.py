@@ -1,7 +1,9 @@
 import functools
+import threading
+import contextvars
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import pytest
 from unittest import mock
@@ -75,7 +77,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     TOPUP_RESOURCE_NAME,
     TRANSFER_RESOURCE_NAME,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
+    InvoiceListWithAllLines,
+    RateLimitCallback,
+    _RequestPacer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS,
     NON_PARTITIONED_ENDPOINTS,
@@ -401,11 +407,26 @@ class TestStripeSource:
             ((_TRUNCATED_NON_LIST_WITH_LIST_TOKEN, 200, {}), 0, False),
             # 429s stay retryable (regression guard for the existing rate-limit handling).
             ((b'{\n  "error": {}\n}', 429, {}), 0, True),
+            # A 429 outlives the network-retry budget on its own, larger one...
+            ((b'{\n  "error": {}\n}', 429, {}), 2, True),
+            ((b'{\n  "error": {}\n}', 429, {}), stripe_module.RATE_LIMIT_RETRIES, False),
+            # ...unless Stripe says a retry is pointless.
+            ((b'{\n  "error": {}\n}', 429, {"stripe-should-retry": "false"}), 0, False),
         ],
     )
     def test_rate_limit_client_should_retry(self, response, num_retries, expected):
         client = _RateLimitRetryingRequestsClient()
         assert client._should_retry(response, None, num_retries=num_retries, max_network_retries=2) is expected
+
+    def test_rate_limit_client_reports_retry_after_to_the_throttle_callback(self):
+        seen: list[Optional[float]] = []
+        client = _RateLimitRetryingRequestsClient(on_rate_limited=seen.append)
+
+        client._should_retry((b"{}", 429, {"retry-after": "7"}), None, num_retries=0, max_network_retries=2)
+        client._should_retry((b"{}", 429, {}), None, num_retries=0, max_network_retries=2)
+        client._should_retry((b"{}", 500, {}), None, num_retries=0, max_network_retries=2)
+
+        assert seen == [7, None]
 
     @pytest.mark.parametrize(
         "body,expected",
@@ -646,13 +667,165 @@ class TestStripeNestedResourceGetRows:
         assert {row["customer"] for row in rows} == {"cus_a", "cus_b"}
 
 
-class TestInvoiceListWithAllLines:
-    def test_skips_lines_for_invoice_deleted_mid_sync(self):
-        invoices = [
-            SimpleNamespace(id="in_gone", lines=SimpleNamespace(has_more=True, data=[], url="orig")),
-            SimpleNamespace(id="in_ok", lines=SimpleNamespace(has_more=True, data=[], url="orig")),
-        ]
+def _invoice(invoice_id: Optional[str], has_more: bool = True) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=invoice_id, lines=SimpleNamespace(has_more=has_more, data=[{"id": "embedded"}], url="orig")
+    )
 
+
+class _FakeInvoicePage:
+    def __init__(self, data: list[SimpleNamespace], next_page: "Optional[_FakeInvoicePage]" = None) -> None:
+        self.data = data
+        self._next = next_page
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.data
+
+    def next_page(self) -> "_FakeInvoicePage":
+        return self._next if self._next is not None else _FakeInvoicePage([])
+
+
+class TestRequestPacer:
+    def _pacer(self, per_second: float = 10.0) -> tuple[_RequestPacer, dict[str, float], list[float]]:
+        clock = {"now": 0.0}
+        sleeps: list[float] = []
+        return _RequestPacer(per_second, clock=lambda: clock["now"], sleep=sleeps.append), clock, sleeps
+
+    def test_spaces_request_starts_at_the_base_rate(self):
+        pacer, _clock, sleeps = self._pacer()
+
+        for _ in range(3):
+            pacer.wait_turn()
+
+        assert sleeps == pytest.approx([0.1, 0.2])
+
+    def test_a_rate_limit_holds_for_retry_after_and_halves_the_rate(self):
+        pacer, _clock, sleeps = self._pacer()
+        pacer.wait_turn()
+
+        pacer.throttled(retry_after=5)
+        pacer.wait_turn()
+        pacer.wait_turn()
+
+        assert sleeps == pytest.approx([5.0, 5.2])
+
+    def test_a_rate_limit_holds_a_worker_that_already_reserved_its_slot(self):
+        clock = {"now": 0.0}
+        sleeps: list[float] = []
+
+        def sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+            clock["now"] += seconds
+            if len(sleeps) == 1:
+                pacer.throttled(retry_after=5)
+
+        pacer = _RequestPacer(10.0, clock=lambda: clock["now"], sleep=sleep)
+        pacer.wait_turn()
+        pacer.wait_turn()
+
+        assert sleeps == pytest.approx([0.1, 5.0])
+
+    def test_rate_limits_reported_during_a_hold_do_not_compound(self):
+        pacer, clock, sleeps = self._pacer()
+        pacer.throttled(retry_after=5)
+        pacer.throttled(retry_after=5)
+
+        clock["now"] = 4.9
+        pacer.wait_turn()
+        pacer.wait_turn()
+
+        assert sleeps == pytest.approx([0.1, 0.3])
+
+    def test_the_rate_recovers_after_a_quiet_window(self):
+        pacer, clock, sleeps = self._pacer()
+        pacer.throttled(retry_after=None)
+
+        clock["now"] = 31.0
+        pacer.wait_turn()
+        pacer.wait_turn()
+
+        assert sleeps == pytest.approx([0.1])
+
+
+class TestInvoiceListWithAllLines:
+    def test_expands_lines_across_pages_in_list_order(self):
+        pages = _FakeInvoicePage(
+            [_invoice("in_1"), _invoice("in_2", has_more=False), _invoice(None)],
+            next_page=_FakeInvoicePage([_invoice("in_3")]),
+        )
+        client = MagicMock()
+        client.invoices.list.return_value = pages
+        client.invoices.line_items.list.side_effect = lambda invoice=None, params=None: _list_object(
+            [{"id": f"il_{invoice}_a"}, {"id": f"il_{invoice}_b"}]
+        )
+
+        result = list(
+            InvoiceListWithAllLines(
+                params={}, logger=MagicMock(), client_factory=lambda _throttled: client
+            ).auto_paging_iter()
+        )
+
+        assert [inv.id for inv in result] == ["in_1", "in_2", "in_3"]
+        assert result[0].lines.data == [{"id": "il_in_1_a"}, {"id": "il_in_1_b"}]
+        assert result[0].lines.has_more is False
+        assert result[1].lines.data == [{"id": "embedded"}]
+        assert result[2].lines.data == [{"id": "il_in_3_a"}, {"id": "il_in_3_b"}]
+
+    def test_line_fetches_run_with_the_callers_context(self):
+        label: contextvars.ContextVar[str] = contextvars.ContextVar("label")
+        label.set("job-42")
+        seen = []
+
+        def line_items_list(invoice=None, params=None):
+            seen.append(label.get(None))
+            return _list_object([{"id": "il_1"}])
+
+        client = MagicMock()
+        client.invoices.list.return_value = _FakeInvoicePage([_invoice("in_1"), _invoice("in_2")])
+        client.invoices.line_items.list.side_effect = line_items_list
+
+        list(
+            InvoiceListWithAllLines(
+                params={}, logger=MagicMock(), client_factory=lambda _throttled: client
+            ).auto_paging_iter()
+        )
+
+        assert seen == ["job-42", "job-42"]
+
+    def test_line_fetches_overlap_across_workers_on_their_own_clients(self):
+        first_started = threading.Event()
+        second_finished = threading.Event()
+        threads_by_client: dict[int, set[int]] = {}
+
+        def make_client(_throttled: RateLimitCallback) -> MagicMock:
+            client = MagicMock()
+
+            def line_items_list(invoice=None, params=None):
+                threads_by_client.setdefault(id(client), set()).add(threading.get_ident())
+                if invoice == "in_1":
+                    first_started.set()
+                    assert second_finished.wait(2), "the second fetch never ran while the first was in flight"
+                else:
+                    first_started.wait(2)
+                    second_finished.set()
+                return _list_object([{"id": f"il_{invoice}"}])
+
+            client.invoices.list.return_value = _FakeInvoicePage([_invoice("in_1"), _invoice("in_2")])
+            client.invoices.line_items.list.side_effect = line_items_list
+            return client
+
+        result = list(
+            InvoiceListWithAllLines(
+                params={}, logger=MagicMock(), client_factory=make_client, concurrency=2
+            ).auto_paging_iter()
+        )
+
+        assert [inv.lines.data for inv in result] == [[{"id": "il_in_1"}], [{"id": "il_in_2"}]]
+        assert len(threads_by_client) == 2
+        assert all(len(threads) == 1 for threads in threads_by_client.values())
+
+    def test_skips_lines_for_invoice_deleted_mid_sync(self):
         def line_items_list(invoice=None, params=None):
             if invoice == "in_gone":
                 raise stripe_lib.InvalidRequestError(
@@ -661,10 +834,14 @@ class TestInvoiceListWithAllLines:
             return _list_object([{"id": "il_1"}])
 
         client = MagicMock()
-        client.invoices.list.return_value = _list_object(invoices)
+        client.invoices.list.return_value = _FakeInvoicePage([_invoice("in_gone"), _invoice("in_ok")])
         client.invoices.line_items.list.side_effect = line_items_list
 
-        result = list(InvoiceListWithAllLines(client, params={}, logger=MagicMock()).auto_paging_iter())
+        result = list(
+            InvoiceListWithAllLines(
+                params={}, logger=MagicMock(), client_factory=lambda _throttled: client
+            ).auto_paging_iter()
+        )
 
         assert [inv.id for inv in result] == ["in_gone", "in_ok"]
         # The deleted invoice keeps its original (incomplete) lines rather than crashing the sync.
@@ -674,17 +851,19 @@ class TestInvoiceListWithAllLines:
         assert result[1].lines.data == [{"id": "il_1"}]
 
     def test_other_invalid_request_errors_still_raise(self):
-        invoices = [SimpleNamespace(id="in_1", lines=SimpleNamespace(has_more=True, data=[], url="orig"))]
-
         def line_items_list(invoice=None, params=None):
             raise stripe_lib.InvalidRequestError("Invalid string", "expand", code="parameter_unknown", http_status=400)
 
         client = MagicMock()
-        client.invoices.list.return_value = _list_object(invoices)
+        client.invoices.list.return_value = _FakeInvoicePage([_invoice("in_1")])
         client.invoices.line_items.list.side_effect = line_items_list
 
         with pytest.raises(stripe_lib.InvalidRequestError):
-            list(InvoiceListWithAllLines(client, params={}, logger=MagicMock()).auto_paging_iter())
+            list(
+                InvoiceListWithAllLines(
+                    params={}, logger=MagicMock(), client_factory=lambda _throttled: client
+                ).auto_paging_iter()
+            )
 
 
 class TestScrubClientSecrets:
