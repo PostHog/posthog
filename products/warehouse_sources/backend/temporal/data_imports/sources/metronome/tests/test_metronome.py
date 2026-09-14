@@ -250,16 +250,18 @@ class TestMetronomeCoalescing:
         for batch in _coalesced_pages(pages(), lambda: events.append("commit")):
             events.append(f"flush-{len(batch)}")
 
+        # A batch closes on the page that would overflow it, so the pull of that page precedes the
+        # flush, and the cursor committed after it names the first page the batch does not carry.
         assert events == [
             "page-0",
             "page-1",
-            "flush-2",
-            "commit",
             "page-2",
-            "page-3",
             "flush-2",
             "commit",
+            "page-3",
             "page-4",
+            "flush-2",
+            "commit",
             "flush-1",
             "commit",
         ]
@@ -269,7 +271,16 @@ class TestMetronomeCoalescing:
         # Metronome sets the page size, so a batch is held to a row count as well as a page count.
         pages = ([{"n": index}, {"n": index}] for index in range(3))
 
-        assert [len(batch) for batch in _coalesced_pages(pages, lambda: None)] == [4, 2]
+        sizes = [len(batch) for batch in _coalesced_pages(pages, lambda: None)]
+
+        assert sizes == [2, 2, 2]
+        assert max(sizes) <= 3
+
+    @patch(f"{TRANSPORT}.USAGE_COALESCE_ROWS", 3)
+    def test_a_page_wider_than_the_row_cap_is_yielded_whole(self) -> None:
+        # A batch may only end where a cursor does, so an oversized page is passed through rather
+        # than split; the batcher applies its own byte cap downstream.
+        assert [len(batch) for batch in _coalesced_pages(iter([[1, 2, 3, 4, 5]]), lambda: None)] == [5]
 
 
 class TestMetronomeSourceResponse:
@@ -458,15 +469,17 @@ class TestMetronomeSourceResponse:
 
     @parameterized.expand(
         [
-            # Upserts on the primary key, so re-reading a coalesced batch's last page is harmless.
-            ("incremental_holds_it", True, False),
-            # Resuming a full refresh appends onto the partial table, where a re-read duplicates.
-            ("full_refresh_checkpoints_each_page", False, True),
+            ("bucketed_usage_holds_it", "usage_daily", True, False),
+            # A full refresh is not a coalescing walk, so its cursor still moves page by page.
+            ("full_refresh_checkpoints_each_page", "usage_daily", False, True),
+            # Incremental too, but not a usage window: it sets its own page size, so it never
+            # reaches the page counts the usage caps are sized for.
+            ("audit_logs_checkpoints_each_page", "audit_logs", True, True),
         ]
     )
     @patch(f"{TRANSPORT}.rest_api_resource")
-    def test_only_an_upserting_walk_defers_its_checkpoint(
-        self, _name, should_use_incremental_field, saves_on_the_page, mock_rest_api_resource
+    def test_only_a_bucketed_usage_walk_defers_its_checkpoint(
+        self, _name, endpoint, should_use_incremental_field, saves_on_the_page, mock_rest_api_resource
     ) -> None:
         manager = MagicMock()
         manager.can_resume.return_value = False
@@ -474,7 +487,7 @@ class TestMetronomeSourceResponse:
 
         response = metronome_source(
             api_key="tok",
-            endpoint="usage_daily",
+            endpoint=endpoint,
             team_id=1,
             job_id="job-1",
             resumable_source_manager=manager,

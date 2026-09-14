@@ -310,22 +310,25 @@ def _coalesced_pages(pages: Iterable[Any], commit_checkpoint: Callable[[], None]
     """Gather several API pages into one yielded batch, and checkpoint once that batch has landed.
 
     `commit_checkpoint` runs after the `yield` returns, which is after the consumer flushed the
-    batch, so the cursor still only moves over rows that reached Delta. The cursor held at that
-    point is the one before the batch's last page, because `rest_client` offers a page's cursor
-    only when the page after it is pulled. A resumed attempt therefore re-reads that last page,
-    which upserts over rows it already wrote.
+    batch, so the cursor only ever moves over rows that reached Delta. A batch closes on the page
+    that would overflow it rather than on the page that already did, which holds it inside the caps
+    and also makes the cursor exact: `rest_client` offers a page's cursor when the page after it is
+    pulled, so by then it names the first page this batch does not carry.
+
+    A single page wider than the row cap is still yielded whole, because a batch may only end where
+    a cursor does. The batcher splits an oversized table on its own byte cap downstream.
     """
     batch: list[Any] = []
     page_count = 0
 
     for page in pages:
-        batch.extend(page)
-        page_count += 1
-        if page_count >= USAGE_COALESCE_PAGES or len(batch) >= USAGE_COALESCE_ROWS:
+        if batch and (page_count >= USAGE_COALESCE_PAGES or len(batch) + len(page) > USAGE_COALESCE_ROWS):
             yield batch
             commit_checkpoint()
             batch = []
             page_count = 0
+        batch.extend(page)
+        page_count += 1
 
     if batch:
         yield batch
@@ -531,9 +534,13 @@ def metronome_source(
         ],
     }
 
-    # Only an upserting walk coalesces. A full refresh appends onto the partial table when it
-    # resumes, where re-reading a batch's last page would duplicate its rows.
-    coalesces_pages = should_use_incremental_field and bool(endpoint_config.incremental_fields)
+    # Only a bucketed usage walk coalesces. `audit_logs` is incremental as well, but it sets its own
+    # page size, so it never reaches the page counts these caps are sized for.
+    coalesces_pages = (
+        should_use_incremental_field
+        and endpoint_config.window_size is not None
+        and bool(endpoint_config.incremental_fields)
+    )
 
     pending_state: Optional[dict[str, Any]] = None
 
