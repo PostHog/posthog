@@ -1331,8 +1331,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: (
                     <>
                         Ticket patterns
-                        <LemonTag type="highlight" size="small" className="ml-1">
-                            Beta
+                        <LemonTag type="completion" size="small" className="ml-1">
+                            Alpha
                         </LemonTag>
                     </>
                 ),
@@ -1340,7 +1340,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <TicketPatternsSection />,
                 flag: 'PRODUCT_SUPPORT_TICKET_PATTERNS',
                 allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['pattern', 'spike', 'trend', 'incident', 'outage', 'burst', 'support', 'ticket', 'beta'],
+                keywords: ['pattern', 'spike', 'trend', 'incident', 'outage', 'burst', 'support', 'ticket', 'alpha'],
             },
         ],
     },
