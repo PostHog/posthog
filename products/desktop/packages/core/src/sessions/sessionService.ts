@@ -8726,7 +8726,9 @@ export class SessionService {
           taskRunId,
           expectedCount,
           currentCount,
-          newEntries: update.newEntries,
+          entryBatches: [
+            { endCount: expectedCount, entries: update.newEntries },
+          ],
           logUrl: session?.logUrl,
         });
       }

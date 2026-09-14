@@ -1,4 +1,5 @@
 import uuid
+import hashlib
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
@@ -33,7 +34,9 @@ from ...api.skill_serializers import (
 )
 from ...api.skill_services import (
     MAX_SKILL_FILE_COUNT,
+    SkillDigestBackfillCounts,
     archive_skill,
+    backfill_skill_digests,
     create_skill,
     publish_skill_version,
     resolve_skill_owners,
@@ -652,16 +655,24 @@ class TestLLMSkillAPI(APIBaseTest):
     def test_get_skill_by_name_returns_file_manifest(self):
         skill = self.create_skill(name="with-files")
         LLMSkillFile.objects.create(skill=skill, path="scripts/setup.sh", content="#!/bin/bash\necho hi")
-        LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="# Guide")
+        # Multibyte on purpose: the MCP Skills extension sizes a file in bytes, so a manifest that
+        # reported the character count would understate this one and a host would reject the file.
+        LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="# Guía ✅")
 
         response = self.client.get(self._url("name/with-files"))
 
         assert response.status_code == status.HTTP_200_OK
         files = response.json()["files"]
         assert len(files) == 2
-        manifest = {f["path"]: (f["line_count"], f["char_count"]) for f in files}
-        assert manifest["scripts/setup.sh"] == (2, len("#!/bin/bash\necho hi"))
-        assert manifest["references/guide.md"] == (1, len("# Guide"))
+        manifest = {f["path"]: f for f in files}
+        assert (manifest["scripts/setup.sh"]["line_count"], manifest["scripts/setup.sh"]["char_count"]) == (
+            2,
+            len("#!/bin/bash\necho hi"),
+        )
+        guide = manifest["references/guide.md"]
+        assert (guide["line_count"], guide["char_count"]) == (1, 8)
+        assert guide["size"] == len("# Guía ✅".encode()) == 11
+        assert guide["sha256"] == hashlib.sha256("# Guía ✅".encode()).hexdigest()
 
     def test_get_skill_not_found(self):
         response = self.client.get(self._url("name/nonexistent"))
@@ -1243,6 +1254,12 @@ class TestLLMSkillAPI(APIBaseTest):
         v2.refresh_from_db()
         assert v2.updated_at > updated_at_before
         assert v1.name == "typo-free"
+        # The name is the first frontmatter key of the rendered SKILL.md, so a digest left behind by
+        # the rename describes bytes no version serves any more.
+        for version in (v1, v2):
+            rendered = version.rendered_skill_md().encode()
+            assert version.skill_md_sha256 == hashlib.sha256(rendered).hexdigest()
+            assert version.skill_md_size == len(rendered)
 
     def test_rename_to_an_existing_name_is_rejected(self):
         self.create_skill(name="source")
@@ -2330,3 +2347,67 @@ class TestLLMSkillDescriptionCapSplit(SimpleTestCase):
         assert create_description.max_length == SPEC_DESCRIPTION_MAX_LENGTH
         assert detail_description.max_length == 4096
         assert list_description.max_length == 4096
+
+
+# Digests must land on every write path: a host that speaks the MCP Skills extension rejects
+# content whose bytes disagree with the manifest.
+class TestSkillContentDigests(APIBaseTest):
+    def _digest_of(self, content: str) -> str:
+        return hashlib.sha256(content.encode()).hexdigest()
+
+    def test_create_and_publish_stamp_digests_on_the_skill_and_its_files(self):
+        created = create_skill(
+            self.team,
+            user=self.user,
+            name="digested",
+            description="A skill",
+            body="# Guía ✅",
+            # A jsonb column keeps object keys sorted by length and then bytewise, so these come
+            # back in neither the written order nor alphabetical order. The digest is stamped
+            # before the insert, so it has to describe bytes that do not depend on that order.
+            metadata={"seeded_by": "review_hog", "source": "products/skills", "nested": {"z": "1", "a": "2"}},
+            files=[{"path": "references/guide.md", "content": "# Guía ✅"}],
+        )
+
+        # `create_skill` returns the stored row, which is what the store renders its SKILL.md from.
+        assert created.skill_md_sha256 == self._digest_of(created.rendered_skill_md())
+        assert created.skill_md_size == len(created.rendered_skill_md().encode())
+        created_file = LLMSkillFile.objects.get(skill=created)
+        assert created_file.content_sha256 == self._digest_of("# Guía ✅")
+        assert created_file.content_size == 11
+
+        # The publish path carries files forward with `bulk_create`, which never calls `save()`.
+        published = publish_skill_version(
+            self.team,
+            user=self.user,
+            skill_name="digested",
+            body="# Changed ✅",
+            base_version=1,
+        )
+
+        assert published.skill_md_sha256 == self._digest_of(published.rendered_skill_md())
+        assert published.skill_md_sha256 != created.skill_md_sha256
+        carried = LLMSkillFile.objects.get(skill=published)
+        assert carried.content_sha256 == created_file.content_sha256
+        assert carried.content_size == 11
+
+    def test_backfill_stamps_legacy_rows_and_is_repeatable(self):
+        skill = create_skill(self.team, user=self.user, name="legacy", description="A skill", body="# Body")
+        LLMSkillFile.objects.create(skill=skill, path="notes.md", content="# Notes ✅")
+        LLMSkill.objects.filter(pk=skill.pk).update(skill_md_sha256=None, skill_md_size=None)
+        LLMSkillFile.objects.filter(skill=skill).update(content_sha256=None, content_size=None)
+
+        first = backfill_skill_digests(batch_size=1)
+
+        assert (first.skills, first.files) == (1, 1)
+        skill.refresh_from_db()
+        stamped_file = LLMSkillFile.objects.get(skill=skill)
+        assert skill.skill_md_sha256 == self._digest_of(skill.rendered_skill_md())
+        assert stamped_file.content_sha256 == self._digest_of("# Notes ✅")
+        assert stamped_file.content_size == 11
+
+        # A second run has nothing left to do, and forcing a recompute leaves the same values.
+        assert backfill_skill_digests() == SkillDigestBackfillCounts(skills=0, files=0)
+        assert backfill_skill_digests(batch_size=1, recompute=True) == SkillDigestBackfillCounts(skills=1, files=1)
+        stamped_file.refresh_from_db()
+        assert stamped_file.content_sha256 == self._digest_of("# Notes ✅")
