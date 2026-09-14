@@ -198,21 +198,6 @@ export const stateStorage: StateStorage = {
 
 export const electronStorage = createJSONStorage(() => stateStorage);
 
-/** Backup imports must report disk failures before publishing imported state. */
-export async function persistRendererStateNow(
-  key: string,
-  value: string,
-): Promise<void> {
-  const pending = takePendingWrite(key);
-  try {
-    await writeThroughStorage(key, value);
-  } catch (error) {
-    if (pending && !pendingWrites.has(key))
-      queuePendingWrite(key, pending.value);
-    throw error;
-  }
-}
-
 /** Keep ordinary store snapshots behind an explicit persist-and-publish update. */
 export async function transactRendererStateWrite(
   key: string,
