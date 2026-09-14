@@ -91,6 +91,7 @@ from products.tasks.backend.logic.services.image_builder import (
 )
 from products.tasks.backend.logic.services.network_policy import (
     MAX_SANDBOX_ALLOWED_DOMAINS,
+    SANDBOX_ALLOWED_DOMAIN_FORMAT_HELP,
     normalize_requested_domains,
 )
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
@@ -176,6 +177,7 @@ class _AutoArchiveUnchanged:
 _AUTO_ARCHIVE_UNCHANGED = _AutoArchiveUnchanged()
 
 __all__ = [
+    "SANDBOX_ALLOWED_DOMAIN_FORMAT_HELP",
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",

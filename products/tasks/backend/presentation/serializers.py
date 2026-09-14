@@ -4225,9 +4225,7 @@ class SandboxEnvironmentWriteSerializer(serializers.Serializer):
         try:
             return tasks_facade.normalize_sandbox_allowed_domains(value)
         except ValueError as error:
-            raise serializers.ValidationError(
-                f"{error}. Enter domain names such as example.com or *.example.com without a scheme, path, or port."
-            ) from error
+            raise serializers.ValidationError(f"{error}. {tasks_facade.SANDBOX_ALLOWED_DOMAIN_FORMAT_HELP}") from error
 
 
 class SandboxCustomImageSerializer(DataclassSerializer):
