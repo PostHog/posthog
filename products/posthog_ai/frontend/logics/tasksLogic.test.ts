@@ -162,6 +162,26 @@ describe('tasksLogic', () => {
             expect(listRequestUrls).toHaveLength(1)
         })
 
+        // Regression coverage: `created_by` is the current user's id, and a filter picked before the
+        // user had loaded sent the request without it. The server then answered with every task the
+        // caller can read, so an origin filter showed other people's shared tasks.
+        it('holds a filter change until the user has loaded, then requests with the creator pin', async () => {
+            userLogic.actions.loadUserSuccess(null)
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS], { [FEATURE_FLAGS.TASKS]: true })
+
+            logic.actions.setAssigneeFilter('slack')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(listRequestUrls).toHaveLength(0)
+
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(listRequestUrls).toHaveLength(1)
+            expect(listRequestUrls[0].searchParams.get('origin_product')).toBe(OriginProduct.SLACK)
+            expect(listRequestUrls[0].searchParams.get('created_by')).toBe(String(MOCK_DEFAULT_USER.id))
+        })
+
         // Regression coverage: the loader reached `breakpoint` only after a resolved response, so a
         // superseded request that rejected still dispatched `loadTasksFailure`. `tasksError` only
         // clears on a new `loadTasks`, so the nav kept its error banner above the newer run's
