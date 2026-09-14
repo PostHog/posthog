@@ -1,10 +1,8 @@
-# LOGS role, all envs — the Kafka metrics ingest chain: kafka_metrics_avro + the MVs
-# into metrics1 (raw), metric_samples1/metric_series1, metric_attributes, and the
-# metrics_kafka_metrics lag bookkeeping. Declared in the local single-shard shape
-# migration 0309 creates; the cloud envs restore their /clickhouse/tables/logs/{shard}
-# ZK paths via patches in roles/logs/shared, and the prod codec deltas sit in
-# roles/logs/prod. The local codec deltas (value/count, matching prod) sit in
-# roles/logs/local.
+# This layer defines LOGS role metric storage and the metrics2 ingest chain.
+# The legacy Kafka table remains for lag bookkeeping.
+# Patches in roles/logs/shared restore the cloud ZK paths.
+# The prod codec deltas sit in roles/logs/prod.
+# The local codec deltas for value and count sit in roles/logs/local.
 database "posthog" {
   table "metric_attributes" {
     order_by     = ["team_id", "attribute_type", "time_bucket", "resource_fingerprint", "attribute_key", "attribute_value"]
@@ -61,62 +59,6 @@ database "posthog" {
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metric_attributes"
       replica_name = "{replica}"
-    }
-  }
-  materialized_view "metrics1_to_metric_attributes" {
-    to_table = "posthog.metric_attributes"
-    query = file("sql/metrics1_to_metric_attributes.sql")
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-  materialized_view "metrics1_to_resource_attributes" {
-    to_table = "posthog.metric_attributes"
-    query = file("sql/metrics1_to_resource_attributes.sql")
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
     }
   }
   table "metrics_kafka_metrics" {

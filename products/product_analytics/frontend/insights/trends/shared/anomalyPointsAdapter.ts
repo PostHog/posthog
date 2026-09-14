@@ -1,8 +1,7 @@
 import type { AnomalyMarker as BaseAnomalyMarker } from '@posthog/quill-charts'
 
-import type { IndexedTrendResult } from 'scenes/trends/types'
-
 import type { AnomalyPoint } from 'products/alerts/frontend/types'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 export interface AnomalyMarker extends BaseAnomalyMarker {
     /** Originating alert anomaly score (0..1) if available. */

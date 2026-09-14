@@ -29,7 +29,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     AIObservabilityEvaluationTemplates: () =>
         import('../../products/ai_observability/frontend/evaluations/EvaluationTemplates'),
     AIObservabilityTags: () => import('../../products/ai_observability/frontend/tags/AIObservabilityTagsScene'),
-    AIObservabilityTag: () => import('../../products/ai_observability/frontend/tags/AIObservabilityTag'),
+    AIObservabilityTag: () => import('../../products/ai_observability/frontend/tags/AIObservabilityTagScene'),
     AIObservabilityPrompts: () => import('../../products/ai_observability/frontend/prompts/LLMPromptsScene'),
     AIObservabilityPrompt: () => import('../../products/ai_observability/frontend/prompts/LLMPromptScene'),
     AIObservabilityClusters: () =>
@@ -128,6 +128,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     McpGatewayAgent: () => import('../../products/mcp_store/frontend/gateway/GatewayAgentScene'),
     McpGatewayMember: () => import('../../products/mcp_store/frontend/gateway/GatewayMemberScene'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
+    Person: () => import('../../products/persons/frontend/pages/PersonScene'),
+    Persons: () => import('../../products/persons/frontend/pages/PersonsScene'),
     TaskTracker: () => import('../../products/posthog_ai/frontend/scenes/TaskTracker/TaskTracker'),
     Pulse: () => import('../../products/pulse/frontend/PulseScene'),
     ReplayVision: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScannersScene'),

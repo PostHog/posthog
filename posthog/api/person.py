@@ -50,7 +50,7 @@ from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.person.bulk_delete import (
@@ -82,6 +82,7 @@ from posthog.utils import (
     relative_date_parse_with_delta_mapping,
 )
 
+from products.ai_training.backend.facade.api import queue_person_training_deletion
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
 from products.workflows.backend.api.message_assets import (
@@ -890,6 +891,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("You need to specify either distinct_ids or ids")
 
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
+        if not keep_person or delete_recordings:
+            queue_person_training_deletion(
+                self.team_id,
+                [*(distinct_ids or []), *(value for person in persons for value in person.distinct_ids)],
+            )
 
         persons_deleted = 0
         errors: builtins.list[dict[str, str]] = []
@@ -900,6 +906,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 actor=cast(User, request.user),
                 request=request,
                 organization_id=self.organization.id,
+                queue_ai_training_deletion=False,
             )
             persons_deleted = result.deleted_count
             errors = [{"person_uuid": str(u)} for u in result.errors]
@@ -907,7 +914,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if delete_events:
             queue_person_event_deletion(self.team_id, persons, actor=cast(User, request.user))
         if delete_recordings:
-            queue_person_recording_deletion(self.team_id, persons, actor=cast(User, request.user))
+            queue_person_recording_deletion(
+                self.team_id, persons, actor=cast(User, request.user), queue_ai_training_deletion=False
+            )
 
         return {
             "persons_found": len(persons),
@@ -1294,16 +1303,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(operation_id="persons_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
-        activity_page = load_activity(scope="Person", team_id=self.team_id, limit=limit, page=page)
-        return activity_page_response(activity_page, limit, page, request)
+        activity_page = load_activity(
+            scope="Person", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+        )
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, pk=None, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
         item_id = None
         if pk:
             person = self.get_object()
@@ -1313,10 +1322,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             scope="Person",
             team_id=self.team_id,
             item_ids=[item_id] if item_id else None,
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     def update(self, request, *args, **kwargs):
         """

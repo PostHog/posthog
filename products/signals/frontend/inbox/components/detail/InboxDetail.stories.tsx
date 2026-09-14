@@ -162,6 +162,27 @@ export const PullRequest: Story = {
     ),
 }
 
+export const PullRequestStack: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...pullRequestReports[0],
+                    pull_requests: [1, 2].map((number) => ({
+                        id: `019e64b8-0000-7000-8000-00000000000${number}`,
+                        url: `https://github.com/example/app/pull/${number}`,
+                        state: number === 1 ? 'merged' : 'open',
+                        merged: number === 1,
+                        claim_id: null,
+                        attached_at: null,
+                        attached_by: null,
+                    })),
+                })}
+            />
+        </Frame>
+    ),
+}
+
 export const PullRequestChecksPassing: Story = {
     render: () => (
         <Frame>

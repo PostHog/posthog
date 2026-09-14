@@ -10,6 +10,7 @@ import {
     SignalReportPriority,
     SignalRunKind,
 } from './types'
+import { reportPullRequests } from './utils/reportPullRequests'
 
 /**
  * Inbox telemetry. Mirrors the desktop "Code" app's inbox analytics (event names + property
@@ -170,7 +171,8 @@ export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'repl
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is
  * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the
- * scratchpad callout, and the roster's on/off filter, owner filter, and search).
+ * scratchpad callout, the roster's on/off filter, owner filter, and search, and opening a folded
+ * run group).
  */
 export type ScoutActionType =
     | 'open_settings'
@@ -190,6 +192,8 @@ export type ScoutActionType =
     | 'copy_finding_link'
     | 'open_task_run'
     | 'open_linked_report'
+    | 'switch_detail_tab'
+    | 'open_detail_tab'
     | 'open_create_modal'
     | 'create_scout'
     | 'delete_scout'
@@ -197,6 +201,7 @@ export type ScoutActionType =
     | 'filter_enabled'
     | 'filter_owner'
     | 'search_scouts'
+    | 'expand_run_group'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -234,7 +239,7 @@ function baseReportProperties(report: SignalReport): BaseReportProperties {
         report_age_hours: reportAgeHours(report),
         priority: report.priority ?? null,
         actionability: report.actionability ?? null,
-        has_pr: !!report.implementation_pr_url,
+        has_pr: reportPullRequests(report).length > 0,
     }
 }
 
@@ -493,7 +498,7 @@ export function captureInboxReportFeedback(params: {
     captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK, {
         ...baseReportProperties(params.report),
         sentiment: params.sentiment,
-        has_pr: !!params.report.implementation_pr_url,
+        has_pr: reportPullRequests(params.report).length > 0,
         ...(params.note ? { note: params.note } : {}),
         surface: params.surface,
     })
@@ -514,7 +519,7 @@ export function captureInboxReportFeedbackNote(params: {
     captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK_NOTE, {
         ...baseReportProperties(params.report),
         sentiment: params.sentiment,
-        has_pr: !!params.report.implementation_pr_url,
+        has_pr: reportPullRequests(params.report).length > 0,
         note: params.note,
         surface: params.surface,
     })

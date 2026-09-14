@@ -27,6 +27,10 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
     str(ExternalDataDestination.Type.REDSHIFT): (str(Integration.IntegrationKind.AWS_REDSHIFT),),
     str(ExternalDataDestination.Type.SNOWFLAKE): (str(Integration.IntegrationKind.SNOWFLAKE),),
     str(ExternalDataDestination.Type.DATABRICKS): (str(Integration.IntegrationKind.DATABRICKS),),
+    str(ExternalDataDestination.Type.S3): (
+        str(Integration.IntegrationKind.AWS_S3),
+        str(Integration.IntegrationKind.S3_COMPATIBLE),
+    ),
     str(ExternalDataDestination.Type.AZURE_BLOB): (str(Integration.IntegrationKind.AZURE_BLOB),),
 }
 
