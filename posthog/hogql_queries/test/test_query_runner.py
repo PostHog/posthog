@@ -153,6 +153,11 @@ def setup_test_query_runner_class(base: type[QueryRunner] = QueryRunner):
     return TestQueryRunner
 
 
+def _chain(exc: Exception, cause: Exception) -> Exception:
+    exc.__cause__ = cause
+    return exc
+
+
 class TestQueryRunner(BaseTest):
     maxDiff = None
 
@@ -903,6 +908,18 @@ class TestQueryRunner(BaseTest):
                 SloOutcome.SUCCESS,
                 "user_error",
                 False,
+            ),
+            (
+                # A technical error a runner converted to a ValidationError for display
+                # (chained via `raise ... from`) — must keep failing the SLO and stay captured.
+                "validation_error_wrapping_technical_error",
+                lambda: _chain(
+                    ValidationError("This experiment query is using too much memory.", code="memory_limit_exceeded"),
+                    ClickHouseQueryMemoryLimitExceeded(),
+                ),
+                SloOutcome.FAILURE,
+                "query_performance_error",
+                True,
             ),
             ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
         ]
