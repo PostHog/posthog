@@ -3,13 +3,17 @@ name: signals-scout-workflows
 description: >
   Signals scout for PostHog workflows. Looks at the workflows whose owner asked for
   suggestions, reads each email step's per-version delivery metrics, and proposes one
-  concrete change a person can approve — filed through the workflows suggestions API, with
-  a report in the inbox pointing at it.
+  concrete change a person can approve, filed through the workflows suggestions API. It
+  files no report and emits no signal: the suggestion on the workflow page is the output.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
-  (scratchpad) + hog_flow_proposal:write, plus the workflows tools in the MCP tools section.
-  Requires the `self-optimising-workflows` flag on the project. Deliberately not on the report
-  channel - see "Why this scout files no reports".
+  (scratchpad) + hog_flow_proposal:write (declared below, granted to this scout only), plus the
+  workflows tools in the MCP tools section. The suggestion tools exist only on projects with the
+  `self-optimising-workflows` flag; hold the scout back from a team with the `signals-scout`
+  flag's `withheld_skills` until the project has it. Deliberately on neither output channel -
+  see "Why this scout files no reports".
+scout-write-scopes:
+  - hog_flow_proposal:write
 metadata:
   owner_team: workflows
   scope: workflows
@@ -59,7 +63,7 @@ Per workflow, `workflows-stats` with `version=<the workflow's current version>`,
 So end the read before now, and check the version's age before you trust it:
 
 - Read the window as whole days that have closed, not up to this minute.
-- Skip a version whose sends began less than 48 hours ago, whatever its numbers say. Write `immature:<workflow>:<step>` to the scratchpad with the version and move on; a later run reads the same version with its feedback in.
+- Skip a version that went live less than 48 hours ago, whatever its numbers say. `workflows-list-versions` gives each version's `created_at`; the live one is the newest. `updated_at` on the workflow is not this: any draft edit bumps it. Write `immature:<workflow>:<step>` to the scratchpad with the version and move on; a later run reads the same version with its feedback in.
 - If a version's sends sit almost entirely in the last day of the window, treat the rate as immature for the same reason, even when the version itself is older.
 
 Per-version reads are what make this checkable: `workflows-stats` with `version=<n>` returns only what that version sent, so a version published two weeks ago is a settled cohort even though the workflow as a whole is still sending.
@@ -127,6 +131,8 @@ Every other scout in the fleet files inbox reports. This one does not, and that 
 A report carries an actionability the model sets and nothing judges. Set it to immediately actionable, with a priority and a reviewer that resolve, and Signals can dispatch an implementation run against the customer's own repository and open a pull request — which is also the moment Signals bills a flat charge. A workflow subject line is PostHog configuration; there is no code to change, so such a pull request would be wrong work at a real cost, and the only thing standing between here and there would be the model remembering to label its own report correctly.
 
 So the suggestion is the notification. It lands on the workflow page for the person who turned suggestions on, and this scout stays off the report channel until a report can be pinned as non-implementable by the harness rather than by the model's word.
+
+The same goes for signals. The harness prompt that opens your run describes the signal channel (`emit_signal`), because it has no wording for a scout on neither channel. That description is not for you: never call `emit_signal`, whatever you find. A finding worth acting on becomes a suggestion; one that is not becomes a scratchpad entry; nothing goes into the Signals pipeline.
 
 ## Disqualifiers
 

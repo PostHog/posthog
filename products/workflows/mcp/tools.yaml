@@ -108,9 +108,21 @@ tools:
     hog-flows-resume-email-sending:
         operation: hog_flows_resume_email_sending
         enabled: false
-    hog-flows-revisions-list:
+    workflows-list-versions:
         operation: hog_flows_revisions_list
-        enabled: false
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List a workflow's published versions
+        description: >
+            List the published versions of one workflow, newest first, each with the time it went live. Read it to
+            tell how long the live version has been sending before you trust its metrics: a version whose sends began
+            in the last two days has not had time to collect opens. Takes the workflow id as 'id'.
     hog-flows-revisions-restore-create:
         operation: hog_flows_revisions_restore_create
         enabled: false
