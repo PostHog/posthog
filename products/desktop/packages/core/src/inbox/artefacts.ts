@@ -1,6 +1,5 @@
 import type {
   AvailableSuggestedReviewer,
-  RepoSelectionArtefact,
   SuggestedReviewer,
   SuggestedReviewerWriteEntry,
 } from "@posthog/shared/types";
@@ -11,27 +10,6 @@ export interface ReviewerOption {
   email: string;
   github_login: string;
   isMe: boolean;
-}
-
-function hasRepositoryContent(
-  content: unknown,
-): content is RepoSelectionArtefact["content"] {
-  return (
-    typeof content === "object" &&
-    content !== null &&
-    "repository" in content &&
-    typeof content.repository === "string"
-  );
-}
-
-export function extractRepoSelectionRepository(
-  results: { type: string; content: unknown }[] | undefined,
-): string | null {
-  const artefact = results?.find(
-    (entry): entry is RepoSelectionArtefact =>
-      entry.type === "repo_selection" && hasRepositoryContent(entry.content),
-  );
-  return artefact?.content.repository ?? null;
 }
 
 export function suggestedReviewerDisplayName(

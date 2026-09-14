@@ -765,6 +765,8 @@ export interface SignalReport {
   dismissal_note?: string | null;
   /** Whether the current user is a suggested reviewer for this report (server-annotated). */
   is_suggested_reviewer?: boolean;
+  /** `organization/repository` from the latest repo-selection artefact, so cards need no artefact fetch. */
+  repo_slug?: string | null;
   /** Distinct source products contributing signals to this report. */
   source_products?: string[];
   /** PR URL from the latest implementation task run, if available. */

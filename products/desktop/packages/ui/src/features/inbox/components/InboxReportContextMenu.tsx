@@ -23,9 +23,7 @@ export function InboxReportContextMenu({
       <ContextMenuTrigger render={<div className="min-w-0" />}>
         {children}
       </ContextMenuTrigger>
-      {activated ? (
-        <InboxReportContextMenuContent report={report} open={open} />
-      ) : null}
+      {activated ? <InboxReportContextMenuContent report={report} /> : null}
     </ContextMenu>
   );
 }
