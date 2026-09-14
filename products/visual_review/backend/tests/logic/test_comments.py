@@ -610,12 +610,12 @@ class TestReviewPromptComment:
             text = ""
 
         spy = mocker.patch.object(
-            github_api, "_github_api_request", side_effect=[PatchResp(), self._post_response(5002)]
+            github_api, "_github_api_request", side_effect=[self._post_response(5002), PatchResp()]
         )
 
         comments._post_review_prompt_comment(run, repo)
 
-        patch_call, post_call = (call.kwargs for call in spy.call_args_list)
+        post_call, patch_call = (call.kwargs for call in spy.call_args_list)
         assert patch_call["method"] == "PATCH"
         assert patch_call["path"] == "issues/comments/5001"
         assert "✅ **Visual changes approved**" in patch_call["json"]["body"]
@@ -635,12 +635,12 @@ class TestReviewPromptComment:
             text = ""
 
         spy = mocker.patch.object(
-            github_api, "_github_api_request", side_effect=[DeleteResp(), self._post_response(5002)]
+            github_api, "_github_api_request", side_effect=[self._post_response(5002), DeleteResp()]
         )
 
         comments._post_review_prompt_comment(run, repo)
 
-        delete_call, post_call = (call.kwargs for call in spy.call_args_list)
+        post_call, delete_call = (call.kwargs for call in spy.call_args_list)
         assert delete_call["method"] == "DELETE"
         assert delete_call["path"] == "issues/comments/5001"
         assert post_call["method"] == "POST"
@@ -656,7 +656,40 @@ class TestReviewPromptComment:
             status_code = status
             text = "nope"
 
-        mocker.patch.object(github_api, "_github_api_request", side_effect=[DeleteResp(), self._post_response(5002)])
+        mocker.patch.object(github_api, "_github_api_request", side_effect=[self._post_response(5002), DeleteResp()])
+
+        comments._post_review_prompt_comment(run, repo)
+
+        run.refresh_from_db()
+        assert run.metadata["github_comment_id"] == 5002
+
+    def test_keeps_the_previous_comment_when_the_new_prompt_cannot_be_posted(self, repo, mocker):
+        # Retiring first would take the PR down to no prompt at all.
+        previous = self._mk_run(repo, "aaa111", metadata={"github_comment_id": 5001})
+        run = self._mk_run(repo, "bbb222")
+
+        class PostResp:
+            status_code = 500
+            text = "boom"
+
+        spy = mocker.patch.object(github_api, "_github_api_request", return_value=PostResp())
+
+        comments._post_review_prompt_comment(run, repo)
+
+        spy.assert_called_once()
+        assert spy.call_args.kwargs["method"] == "POST"
+        previous.refresh_from_db()
+        assert previous.metadata["github_comment_id"] == 5001
+        run.refresh_from_db()
+        assert "github_comment_id" not in run.metadata
+
+    def test_keeps_the_new_prompt_when_retirement_raises(self, repo, mocker):
+        self._mk_run(repo, "aaa111", metadata={"github_comment_id": 5001})
+        run = self._mk_run(repo, "bbb222")
+
+        mocker.patch.object(
+            github_api, "_github_api_request", side_effect=[self._post_response(5002), RuntimeError("boom")]
+        )
 
         comments._post_review_prompt_comment(run, repo)
 

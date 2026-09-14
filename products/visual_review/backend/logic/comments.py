@@ -41,7 +41,7 @@ def _previous_comment(repo: Repo, pr_number: int, exclude_run_id: UUID) -> tuple
 
 
 def _retire_previous_comment(repo: Repo, previous_run: Run, comment_id: int) -> None:
-    """Clear the previous run's comment out of the way before a new one is posted.
+    """Clear the previous run's comment out of the way once a new one is posted.
 
     An approval comment records a human decision, so it stays and says which revision
     it covered. An unanswered review prompt holds nothing worth keeping, so it goes.
@@ -75,7 +75,9 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
 
     Every run that needs review posts its own comment, so GitHub notifies the
     reviewers and the prompt sits at the bottom of the PR with the new changes.
-    The previous run's comment is retired first, to keep one live prompt per PR.
+    The previous run's comment is retired after the new one lands, to keep one live
+    prompt per PR. Retiring first would leave the PR with no prompt at all when the
+    post then fails.
     Skips non-actionable runs (observe-only, stale/superseded, already commented).
     Best-effort and never raises.
     """
@@ -92,11 +94,10 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
         return
 
     comment_body = comment_markdown._build_review_prompt_body(run, repo)
+    previous: tuple[Run, int] | None = None
 
     try:
         previous = _previous_comment(repo, run.pr_number, exclude_run_id=run.id)
-        if previous is not None:
-            _retire_previous_comment(repo, *previous)
 
         response = github_api._github_api_request(
             method="POST",
@@ -104,11 +105,7 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
             path=f"issues/{run.pr_number}/comments",
             json={"body": comment_body},
         )
-        if response.status_code == 201:
-            comment_id = response.json().get("id")
-            run.metadata["github_comment_id"] = comment_id
-            run.save(update_fields=["metadata"])
-        else:
+        if response.status_code != 201:
             logger.warning(
                 "visual_review.pr_comment_failed",
                 run_id=str(run.id),
@@ -116,8 +113,27 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
                 status_code=response.status_code,
                 response=response.text[:200],
             )
+            return
+
+        comment_id = response.json().get("id")
+        run.metadata["github_comment_id"] = comment_id
+        run.save(update_fields=["metadata"])
     except Exception:
         logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
+        return
+
+    if previous is None:
+        return
+
+    try:
+        _retire_previous_comment(repo, *previous)
+    except Exception:
+        logger.warning(
+            "visual_review.previous_pr_comment_retire_error",
+            run_id=str(previous[0].id),
+            comment_id=previous[1],
+            exc_info=True,
+        )
 
 
 def _post_approval_comment(run: Run, repo: Repo, add_images: bool = False) -> None:
