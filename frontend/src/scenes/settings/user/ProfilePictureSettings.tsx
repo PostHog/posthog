@@ -24,8 +24,8 @@ function gravatarDescription(status: GravatarStatus, email: string): JSX.Element
         case 'missing':
             return (
                 <>
-                    No picture yet. Add one on Gravatar for {maskedEmail} and it shows here and anywhere teammates see
-                    you.
+                    No picture yet. Sign in to Gravatar with {maskedEmail} to add one, or create a free Gravatar account
+                    first.
                 </>
             )
     }

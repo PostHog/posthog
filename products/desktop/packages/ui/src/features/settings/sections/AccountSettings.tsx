@@ -6,7 +6,10 @@ import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authCl
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import type { AvatarPerson } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { useGravatarUrl } from "@posthog/ui/features/auth/useGravatarUrl";
+import {
+  GRAVATAR_MANAGE_URL,
+  useGravatarUrl,
+} from "@posthog/ui/features/auth/useGravatarUrl";
 import {
   type ImageProbeResult,
   useImageProbe,
@@ -22,7 +25,6 @@ import { Spin } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { useCallback, useState } from "react";
 
-const GRAVATAR_MANAGE_URL = "https://gravatar.com/profile/avatars";
 const GRAVATAR_IMAGE_SIZE = 144;
 
 type ProfilePictureStatus = "unknown" | "found" | "missing";
@@ -46,7 +48,7 @@ function profilePictureDescription(
     case "found":
       return `Comes from Gravatar, matched to ${email}. Change it there, then refresh to see it here.`;
     case "missing":
-      return `No picture yet. Add one on Gravatar for ${email} and it shows here and anywhere teammates see you.`;
+      return `No picture yet. Sign in to Gravatar with ${email} to add one, or create a free Gravatar account first.`;
   }
 }
 

@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 
 const DEFAULT_GRAVATAR_SIZE = 96;
 
+// Gravatar's own entry point, not a deep link into the signed-in dashboard: those bounce
+// through a WordPress.com OAuth chain with nowhere to land for a person who has no account.
+export const GRAVATAR_MANAGE_URL = "https://gravatar.com/";
+
 // Gravatar accepts a SHA-256 hex hash of the lowercased, trimmed email, so we hash
 // with the built-in Web Crypto API rather than pulling in an md5 dependency. `d=404`
 // makes Gravatar return 404 (instead of a default silhouette) when the address has no
