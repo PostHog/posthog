@@ -19039,7 +19039,7 @@ export namespace Schemas {
       readonly license: string;
       /** Environment requirements declared by the skill. */
       readonly compatibility: string;
-      /** Tools the skill declares it may use. Surface these to the user before install. */
+      /** Tools the skill asks to use. Surface these to the user before install. The list is a request, not a grant: a harness that loads the installed skill over MCP ignores it until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata carried from the skill's frontmatter. */
       metadata?: CommunitySkillMetadata;
@@ -19109,7 +19109,7 @@ export namespace Schemas {
       readonly license: string;
       /** Environment requirements declared by the skill. */
       readonly compatibility: string;
-      /** Tools the skill declares it may use. Surface these to the user before install. */
+      /** Tools the skill asks to use. Surface these to the user before install. The list is a request, not a grant: a harness that loads the installed skill over MCP ignores it until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata carried from the skill's frontmatter. */
       metadata?: CommunitySkillListMetadata;
@@ -49341,7 +49341,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, bundle install) treats the list as pre-approved. A harness that loads the skill over MCP ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillMetadata;
@@ -49423,7 +49423,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, bundle install) treats the list as pre-approved. A harness that loads the skill over MCP ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillCreateMetadata;
@@ -49560,7 +49560,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, bundle install) treats the list as pre-approved. A harness that loads the skill over MCP ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillListMetadata;
@@ -66795,7 +66795,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, bundle install) treats the list as pre-approved. A harness that loads the skill over MCP ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: PatchedLLMSkillPublishMetadata;
