@@ -1302,6 +1302,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             # Propagate it so the activity's retry path handles it; these are transient and stay
             # retryable. Mirrors the equivalent Postgres source.
             raise
+        except psycopg.errors.UndefinedTable as e:
+            # The selected table was dropped or renamed in the source between schema discovery and
+            # this best-effort probe. That's a user/upstream condition we already tolerate here
+            # (return False -> no duplicates), and the real extraction query — which reads the same
+            # relation — surfaces it through the normal non-retryable path. Capturing it here too
+            # would only flood error tracking with handled duplicates, so log at debug.
+            logger.debug(f"has_duplicate_primary_keys: table does not exist, skipping check: {e}")
+            return False
         except Exception as e:
             # A Redshift system-requested query abort (error code 1020, "system requested abort")
             # is the cluster's WLM/QMR cancelling the query — the same transient, non-actionable
