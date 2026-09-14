@@ -183,7 +183,7 @@ export function PersonSelectList({
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <div className="AddPersonToCohortModalBody__list">
                     {responseError ? (
-                        <div className="h-full">
+                        <div className="flex h-full">
                             <InsightErrorState
                                 query={query}
                                 queryId={responseErrorObject?.queryId ?? queryId}
