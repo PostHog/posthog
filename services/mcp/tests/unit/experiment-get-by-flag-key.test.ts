@@ -19,7 +19,16 @@ function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
     }
 }
 
-const flag = (id: number, key: string): { id: number; key: string; name: string } => ({ id, key, name: key })
+const flag = (
+    id: number,
+    key: string,
+    experimentIds: number[] = []
+): { id: number; key: string; name: string; experiment_set: number[] } => ({
+    id,
+    key,
+    name: key,
+    experiment_set: experimentIds,
+})
 const experiment = (id: number, key: string): { id: number; name: string; feature_flag_key: string } => ({
     id,
     name: `Experiment ${id}`,
@@ -38,52 +47,29 @@ describe('experiment-get-by-flag-key', () => {
     it('resolves the flag key to its linked experiment and returns the full experiment', async () => {
         const request = vi
             .fn()
-            .mockResolvedValueOnce({ results: [flag(7, 'new-checkout')] })
-            .mockResolvedValueOnce({ results: [experiment(11, 'new-checkout')] })
+            .mockResolvedValueOnce({ results: [flag(7, 'new-checkout', [11])] })
             .mockResolvedValueOnce({ ...experiment(11, 'new-checkout'), metrics: [] })
 
         const result = await tool.handler(createMockContext(request), { feature_flag_key: 'new-checkout' })
 
-        expect(request).toHaveBeenCalledTimes(3)
+        // The flag row already lists its experiments, so the lookup is one list call plus
+        // the fetch of the full experiment: no experiments-list call in between.
+        expect(request).toHaveBeenCalledTimes(2)
         expect(request).toHaveBeenNthCalledWith(1, FLAG_LIST_CALL)
-        expect(request).toHaveBeenNthCalledWith(2, {
-            method: 'GET',
-            path: '/api/projects/42/experiments/',
-            query: { feature_flag_id: 7, limit: 5 },
-        })
-        expect(request).toHaveBeenNthCalledWith(3, { method: 'GET', path: '/api/projects/42/experiments/11/' })
+        expect(request).toHaveBeenNthCalledWith(2, { method: 'GET', path: '/api/projects/42/experiments/11/' })
         expect(result).toMatchObject({ id: 11, feature_flag_key: 'new-checkout', metrics: [], found: true })
         expect((result as { _posthogUrl?: string })._posthogUrl).toContain('/experiments/11')
-    })
-
-    it('falls back to archived experiments before reporting a linked-experiment miss', async () => {
-        const request = vi
-            .fn()
-            .mockResolvedValueOnce({ results: [flag(7, 'new-checkout')] })
-            .mockResolvedValueOnce({ results: [] })
-            .mockResolvedValueOnce({ results: [experiment(11, 'new-checkout')] })
-            .mockResolvedValueOnce({ ...experiment(11, 'new-checkout'), archived: true })
-
-        const result = await tool.handler(createMockContext(request), { feature_flag_key: 'new-checkout' })
-
-        expect(request).toHaveBeenNthCalledWith(3, {
-            method: 'GET',
-            path: '/api/projects/42/experiments/',
-            query: { feature_flag_id: 7, archived: true, limit: 5 },
-        })
-        expect(result).toMatchObject({ id: 11, archived: true, found: true })
     })
 
     it('picks the exact-case flag when the key filter also returns a same-key different-case duplicate', async () => {
         const request = vi
             .fn()
-            .mockResolvedValueOnce({ results: [flag(7, 'new-checkout'), flag(8, 'New-Checkout')] })
-            .mockResolvedValueOnce({ results: [experiment(11, 'new-checkout')] })
+            .mockResolvedValueOnce({ results: [flag(7, 'new-checkout', [11]), flag(8, 'New-Checkout', [12])] })
             .mockResolvedValueOnce(experiment(11, 'new-checkout'))
 
         const result = await tool.handler(createMockContext(request), { feature_flag_key: 'new-checkout' })
 
-        expect(request).toHaveBeenNthCalledWith(2, expect.objectContaining({ query: { feature_flag_id: 7, limit: 5 } }))
+        expect(request).toHaveBeenNthCalledWith(2, { method: 'GET', path: '/api/projects/42/experiments/11/' })
         expect(result).toMatchObject({ id: 11, found: true })
     })
 
@@ -98,33 +84,26 @@ describe('experiment-get-by-flag-key', () => {
     })
 
     it('returns a non-error found:false result when the flag exists but no experiment is linked to it', async () => {
-        const request = vi
-            .fn()
-            .mockResolvedValueOnce({ results: [flag(7, 'new-checkout')] })
-            .mockResolvedValueOnce({ results: [] })
-            .mockResolvedValueOnce({ results: [] })
+        const request = vi.fn().mockResolvedValueOnce({ results: [flag(7, 'new-checkout')] })
 
         const result = await tool.handler(createMockContext(request), { feature_flag_key: 'new-checkout' })
 
         expect(result).toMatchObject({ found: false, feature_flag_key: 'new-checkout' })
         expect((result as { message: string }).message).toContain('ID 7')
-        expect(request).toHaveBeenCalledTimes(3)
+        expect(request).toHaveBeenCalledTimes(1)
     })
 
-    it('raises a validation error when several experiments are linked to the flag', async () => {
-        const request = vi
-            .fn()
-            .mockResolvedValueOnce({ results: [flag(7, 'new-checkout')] })
-            .mockResolvedValueOnce({ results: [experiment(11, 'new-checkout'), experiment(12, 'new-checkout')] })
+    it('raises a validation error naming the ids when several experiments are linked to the flag', async () => {
+        const request = vi.fn().mockResolvedValueOnce({ results: [flag(7, 'new-checkout', [11, 12])] })
 
-        await expect(
-            tool.handler(createMockContext(request), { feature_flag_key: 'new-checkout' })
-        ).rejects.toBeInstanceOf(ToolInputValidationError)
-        expect(request).toHaveBeenCalledTimes(2)
+        await expect(tool.handler(createMockContext(request), { feature_flag_key: 'new-checkout' })).rejects.toThrow(
+            /11, 12/
+        )
+        expect(request).toHaveBeenCalledTimes(1)
     })
 
     it('raises a validation error when a key matches multiple flags only case-insensitively', async () => {
-        const request = vi.fn().mockResolvedValueOnce({ results: [flag(7, 'Checkout'), flag(8, 'CHECKOUT')] })
+        const request = vi.fn().mockResolvedValueOnce({ results: [flag(7, 'Checkout', [1]), flag(8, 'CHECKOUT', [2])] })
 
         await expect(tool.handler(createMockContext(request), { feature_flag_key: 'checkout' })).rejects.toBeInstanceOf(
             ToolInputValidationError

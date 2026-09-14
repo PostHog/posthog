@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
-import { findRecoverableApiError, handleToolError, PostHogApiError } from '@/lib/errors'
+import { findRecoverableApiError, handleToolError, PostHogApiError, PostHogValidationError } from '@/lib/errors'
 import { getResultsHandler } from '@/tools/experiments/getResults'
 import type { Context } from '@/tools/types'
 
@@ -111,5 +111,36 @@ describe('experiment not-found rewrite', () => {
         expect(findRecoverableApiError(thrown)).toBe(notFound)
         expect(handleToolError(thrown, 'experiment-results-get').isError).toBe(true)
         expect(captureException).not.toHaveBeenCalled()
+    })
+
+    it('keeps other 4xx failures of the results tool captured, since they point at a query built here', async () => {
+        const badQuery = new PostHogValidationError({
+            detail: 'exposure_criteria contains unknown key(s): properties.',
+            attr: 'exposure_criteria',
+            code: 'invalid_input',
+            extra: undefined,
+            url: 'https://us.posthog.com/api/environments/42/query/',
+            method: 'POST',
+        })
+        const context = {
+            api: {
+                experiments: () => ({
+                    getMetricResults: vi.fn().mockResolvedValue({ success: false, error: badQuery }),
+                }),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('42') },
+        } as unknown as Context
+
+        const thrown = await getResultsHandler(context, { id: 999, refresh: false }).then(
+            () => undefined,
+            (error: unknown) => error
+        )
+
+        expect((thrown as Error).message).toContain('Failed to get experiment results')
+        expect(findRecoverableApiError(thrown)).toBeUndefined()
+        const handled = handleToolError(thrown, 'experiment-results-get')
+        expect(handled.isError).toBe(true)
+        expect(handled.content[0]).toMatchObject({ text: expect.stringContaining('unknown key(s): properties') })
+        expect(captureException).toHaveBeenCalledTimes(1)
     })
 })

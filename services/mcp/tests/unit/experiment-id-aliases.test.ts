@@ -1,54 +1,51 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 
 import { ExperimentResultsGetSchema } from '@/schema/tool-inputs'
 import { GENERATED_TOOLS as EXPERIMENT_TOOLS } from '@/tools/generated/experiments'
 import { GENERATED_TOOLS as FEATURE_FLAG_TOOLS } from '@/tools/generated/feature_flags'
 
+import { EXPERIMENT_ID_TOOLS } from '../fixtures/experiment-id-tools'
+
 // Production traces show the dominant validation failure on the experiment tools is the
 // experiment id arriving as `experimentId` / `experiment_id` where the schema requires
 // `id` (the same mismatch the insight and flag tools already absorb). Every alias must
 // normalize to `id` on every tool that takes an experiment id, or those failures come back.
-describe('experiment id aliases', () => {
-    const EXPERIMENT_ID_TOOLS = [
-        'experiment-activity',
-        'experiment-archive',
-        'experiment-cleanup-task',
-        'experiment-copy-to-project',
-        'experiment-delete',
-        'experiment-duplicate',
-        'experiment-end',
-        'experiment-freeze-exposure',
-        'experiment-get',
-        'experiment-launch',
-        'experiment-metrics-recalculation-create',
-        'experiment-metrics-recalculation-latest-retrieve',
-        'experiment-metrics-recalculation-retrieve',
-        'experiment-pause',
-        'experiment-reset',
-        'experiment-resume',
-        'experiment-ship-variant',
-        'experiment-timeseries-results',
-        'experiment-unarchive',
-        'experiment-unfreeze-exposure',
-        'experiment-update',
-        'experiments-session-event-deltas-create',
-    ] as const
+/** Tool names whose advertised input schema has a top-level `id` property. */
+function toolsWithIdParam(tools: Record<string, () => { schema: z.ZodTypeAny }>): string[] {
+    return Object.entries(tools)
+        .filter(([, factory]) => {
+            const json = z.toJSONSchema(factory().schema, { io: 'input', reused: 'inline' }) as {
+                properties?: Record<string, unknown>
+            }
+            return Boolean(json.properties?.id)
+        })
+        .map(([name]) => name)
+        .sort()
+}
 
+describe('experiment id aliases', () => {
     const ALIAS_KEYS = ['experimentId', 'experiment_id'] as const
 
-    // Only the id is under test: the other required params of each tool are filled with
-    // stand-in values so the parse exercises the alias rewrite rather than their validation.
-    const REQUIRED_EXTRAS: Record<string, Record<string, unknown>> = {
-        'experiment-copy-to-project': { target_team_id: 2 },
-        'experiment-duplicate': { name: 'copy', feature_flag_key: 'copy-flag' },
-        'experiment-metrics-recalculation-retrieve': { recalculation_id: '0199a1c0-0000-7000-8000-000000000000' },
-        'experiment-ship-variant': { variant_key: 'test' },
-        'experiment-timeseries-results': { fingerprint: 'abc', metric_uuid: '0199a1c0-0000-7000-8000-000000000001' },
-    }
+    // `id` on these is a holdout or saved-metric id, not an experiment id.
+    const NON_EXPERIMENT_ID_TOOLS = new Set([
+        'experiment-holdouts-retrieve',
+        'experiment-holdouts-partial-update',
+        'experiment-holdouts-destroy',
+        'experiment-saved-metrics-retrieve',
+        'experiment-saved-metrics-partial-update',
+        'experiment-saved-metrics-destroy',
+    ])
 
-    describe.each(EXPERIMENT_ID_TOOLS.map((name) => [name]))('%s normalizes aliases to `id`', (toolName) => {
+    // The alias list is hand-maintained; this keeps it in step with the generated tools so
+    // a new id-taking experiment tool cannot ship without the aliases.
+    it('covers every generated experiment tool that takes an experiment id', () => {
+        const idTools = toolsWithIdParam(EXPERIMENT_TOOLS).filter((name) => !NON_EXPERIMENT_ID_TOOLS.has(name))
+        expect(idTools).toEqual(EXPERIMENT_ID_TOOLS.map(([name]) => name).sort())
+    })
+
+    describe.each(EXPERIMENT_ID_TOOLS)('%s normalizes aliases to `id`', (toolName, extras) => {
         const factory = EXPERIMENT_TOOLS[toolName]
-        const extras = REQUIRED_EXTRAS[toolName] ?? {}
 
         it('is a generated tool', () => {
             expect(factory).not.toBeUndefined()
@@ -87,6 +84,7 @@ describe('experiment id aliases', () => {
             ['run_id', { id: 1, run_id: runId }],
             ['runId', { id: 1, runId: runId }],
             ['recalculationId', { experimentId: 1, recalculationId: runId }],
+            ['recalculation_id over aliases on conflict', { id: 1, recalculation_id: runId, run_id: 'stale' }],
         ])('accepts %s', (_label, input) => {
             const result = schema.safeParse(input)
             expect(result.success, JSON.stringify(result.error?.issues)).toBe(true)
@@ -96,6 +94,10 @@ describe('experiment id aliases', () => {
             for (const alias of ['run_id', 'runId', 'recalculationId']) {
                 expect(data).not.toHaveProperty(alias)
             }
+        })
+
+        it('still rejects a call with no run id', () => {
+            expect(schema.safeParse({ id: 1 }).success).toBe(false)
         })
     })
 
@@ -144,6 +146,14 @@ describe('feature flag id aliases', () => {
     const REQUIRED_EXTRAS: Record<string, Record<string, unknown>> = {
         'feature-flags-test-evaluation-create': { distinct_id: 'user-1' },
     }
+
+    // `id` on these is a scheduled change id, not a flag id.
+    const NON_FLAG_ID_TOOLS = new Set(['scheduled-changes-delete', 'scheduled-changes-get', 'scheduled-changes-update'])
+
+    it('covers every generated flag tool that takes a flag id', () => {
+        const idTools = toolsWithIdParam(FEATURE_FLAG_TOOLS).filter((name) => !NON_FLAG_ID_TOOLS.has(name))
+        expect(idTools).toEqual([...FLAG_ID_TOOLS].sort())
+    })
 
     describe.each(FLAG_ID_TOOLS.map((name) => [name]))('%s normalizes aliases to `id`', (toolName) => {
         const factory = FEATURE_FLAG_TOOLS[toolName]

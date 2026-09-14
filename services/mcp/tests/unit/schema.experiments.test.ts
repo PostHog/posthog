@@ -50,6 +50,21 @@ describe('Experiment exposure query schema', () => {
         })
     })
 
+    it('accepts a stored exposure config with null kind or properties, filling the backend defaults', () => {
+        const parsed = ExperimentExposureQuerySchema.parse({
+            kind: 'ExperimentExposureQuery',
+            experiment_id: 1,
+            experiment_name: 'test',
+            exposure_criteria: { exposure_config: { kind: null, event: '$pageview', properties: null } },
+        })
+
+        expect(parsed.exposure_criteria?.exposure_config).toEqual({
+            kind: 'ExperimentEventExposureConfig',
+            event: '$pageview',
+            properties: [],
+        })
+    })
+
     it('accepts explicit null exposure and activation configs', () => {
         const parsed = ExperimentExposureQuerySchema.parse({
             kind: 'ExperimentExposureQuery',

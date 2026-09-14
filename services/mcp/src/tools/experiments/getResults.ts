@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { findRecoverableApiError, PostHogApiError, wrapError } from '@/lib/errors'
 import { withUiApp } from '@/resources/ui-apps'
 import type { ExperimentResultsSummary } from '@/schema/experiments'
 import { transformExperimentResults } from '@/schema/experiments'
@@ -29,13 +30,15 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
     })
 
     if (!result.success) {
-        // `cause` keeps the typed API error reachable, so a 404 on a guessed id still
-        // classifies as agent-recoverable instead of an internal failure.
-        const error: Error & { cause?: unknown } = new Error(
-            `Failed to get experiment results: ${result.error.message}`
-        )
-        error.cause = result.error
-        throw error
+        const message = `Failed to get experiment results: ${result.error.message}`
+        // Only a not-found is an agent-recoverable id mistake, so only that keeps the typed
+        // error reachable as `cause`. A 400 from /query/ means the exposure query was built
+        // wrong on this side, and hiding it from exception capture would bury the bug.
+        const apiError = findRecoverableApiError(result.error)
+        if (apiError instanceof PostHogApiError && apiError.status === 404) {
+            throw wrapError(message, result.error)
+        }
+        throw new Error(message)
     }
 
     const {
