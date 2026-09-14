@@ -548,21 +548,34 @@ _SSH_TUNNEL_CONNECTION_FIELDS = ("enabled", "host", "port")
 _CONNECTION_TARGET_FIELDS = ("host", "instance_url")
 
 
-def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
-    """True if the SSH tunnel's connection target (enabled/host/port) changed.
+def _coerce_connection_target(value: Any) -> str:
+    """Normalize a connection-target value for comparison.
 
     Scalars are coerced to strings to ignore type drift between stored values
     (often strings) and JSON-parsed input (bools/ints). Only `None` collapses to ""
     — `or ""` would also swallow falsy-but-meaningful values like `False` and 0,
     making stored "False" falsely diverge from JSON `false`.
     """
+    return "" if value is None else str(value)
+
+
+def connection_target_changed(existing: Any, incoming: Any) -> bool:
+    """True if a named connection-target field actually moved to a different target.
+
+    An unset field and a blank one name the same (absent) target, so collapsing them keeps the
+    gate off an edit that changes nothing: the edit form submits a blank for every declared field
+    the stored source never had, and treating that as a retarget blocks the whole form behind a
+    credential re-entry that does not apply.
+    """
+    return _coerce_connection_target(existing) != _coerce_connection_target(incoming)
+
+
+def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
+    """True if the SSH tunnel's connection target (enabled/host/port) changed."""
     existing = existing if isinstance(existing, dict) else {}
     incoming = incoming if isinstance(incoming, dict) else {}
 
-    def _coerce(value: Any) -> str:
-        return "" if value is None else str(value)
-
-    return any(_coerce(existing.get(key)) != _coerce(incoming.get(key)) for key in _SSH_TUNNEL_CONNECTION_FIELDS)
+    return any(connection_target_changed(existing.get(key), incoming.get(key)) for key in _SSH_TUNNEL_CONNECTION_FIELDS)
 
 
 # Nested containers that keep their secrets one level down, not at the top level: the
@@ -1326,7 +1339,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # both the generic `host` field and source-specific URL fields like ServiceNow's
         # `instance_url`, so a stored credential can't be redirected to a new host.
         connection_host_changed = any(
-            field in incoming_job_inputs and incoming_job_inputs[field] != existing_job_inputs.get(field)
+            field in incoming_job_inputs
+            and connection_target_changed(existing_job_inputs.get(field), incoming_job_inputs[field])
             for field in _CONNECTION_TARGET_FIELDS
         )
 
@@ -1334,7 +1348,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # `okta_domain`, Freshdesk's `subdomain`). Changing one would send the preserved credential
         # to a new host — the same exfiltration risk as a `host` change — so require re-entry too.
         connection_host_changed = connection_host_changed or any(
-            field in incoming_job_inputs and incoming_job_inputs[field] != existing_job_inputs.get(field)
+            field in incoming_job_inputs
+            and connection_target_changed(existing_job_inputs.get(field), incoming_job_inputs[field])
             for field in source.connection_host_fields
         )
 
