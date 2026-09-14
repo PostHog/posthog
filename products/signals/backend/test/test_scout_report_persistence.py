@@ -41,6 +41,8 @@ from products.signals.backend.scout_report import (
     set_report_charts,
     set_report_metrics,
     set_report_suggested_prompts,
+    set_scout_report_inferred_repository,
+    set_scout_report_repository,
     set_scout_report_reviewers,
     soft_delete_scout_signal,
     update_scout_report,
@@ -701,6 +703,79 @@ class TestReportMetricsUnchanged:
 
     def test_a_malformed_stored_row_counts_as_changed(self) -> None:
         assert _report_metrics_unchanged([{"metric_id": "affected-users"}], [self._canonical()]) is False
+
+
+class TestScoutReportRepository(BaseTest):
+    _team_scope_cm: AbstractContextManager[None] | None = None
+
+    def setUp(self) -> None:
+        super().setUp()
+        cm = team_scope(self.team.id)
+        cm.__enter__()
+        self._team_scope_cm = cm
+        patcher = patch(f"{PERSISTENCE_MODULE}.emit_embedding_request")
+        self.emit_mock = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self) -> None:
+        if self._team_scope_cm is not None:
+            self._team_scope_cm.__exit__(None, None, None)
+            self._team_scope_cm = None
+        super().tearDown()
+
+    def _create(self) -> str:
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Signups dropped",
+            summary="Signups fell 60% on the 6th.",
+            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            attribution=ArtefactAttribution.system(),
+        )
+        return result.report_id
+
+    def _set(self, report_id: str, repository: str | None) -> bool:
+        return set_scout_report_repository(
+            team_id=self.team.id,
+            report_id=report_id,
+            repository=repository,
+            attribution=ArtefactAttribution.system(),
+            author="signals-scout-errors",
+        )
+
+    @parameterized.expand([("a_repository", "acme/widgets"), ("a_cleared_target", None)])
+    def test_resending_the_stored_repository_is_not_a_change(self, _name: str, repository: str | None) -> None:
+        # `edit_report` is non-idempotent, so the same correction can arrive twice. Reporting a
+        # re-send as a change leaves a second "Set repository" note on the work log, tallies an edit
+        # that moved nothing, and re-runs autostart for a target that never changed.
+        report_id = self._create()
+
+        assert self._set(report_id, repository) is True
+        assert self._set(report_id, repository) is False
+        assert self._set(report_id, "acme/other") is True
+
+    def test_naming_an_already_inferred_repository_is_a_change(self) -> None:
+        # An inferred selection names the repository the report links, and is stamped ineligible for
+        # autostart because the report never asked for a pull request. A scout naming the same one is
+        # the decision that lifts it, so comparing the repository alone would drop the correction and
+        # leave the report unable to open a draft pull request.
+        report_id = self._create()
+        set_scout_report_inferred_repository(
+            team_id=self.team.id,
+            report_id=report_id,
+            repository="acme/widgets",
+            attribution=ArtefactAttribution.system(),
+        )
+
+        assert self._set(report_id, "acme/widgets") is True
+        selection = (
+            SignalReportArtefact.objects.filter(
+                report_id=report_id, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        assert selection is not None
+        assert '"autostart_eligible":true' in selection.content
 
 
 class TestScoutReportSuggestedPrompts(BaseTest):

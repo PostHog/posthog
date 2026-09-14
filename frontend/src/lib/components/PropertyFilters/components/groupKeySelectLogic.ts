@@ -4,10 +4,11 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Group, GroupTypeIndex } from '~/types'
+
+import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 
 export interface GroupKeySelectLogicProps {
     groupTypeIndex: GroupTypeIndex

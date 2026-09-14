@@ -61,3 +61,44 @@ Whether Support is on in the environment you called.
 
 A child environment can therefore return `learn_from_support_enabled: true` and `support_enabled: false` together:
 learning is on for the project, and Support is off in that environment.
+
+## How learning runs
+
+PostHog checks for resolved tickets every five minutes.
+It waits at least five minutes after the ticket is last updated or receives a public human reply.
+It reads public replies written by a person from each environment where Support is on.
+Private notes, customer messages, deleted replies, and AI replies are not used.
+
+Each reply is checked for reusable information, personal data, secrets, and overlap with existing Business knowledge.
+Accepted information is added to the **Learned from support** source.
+
+## Run learning manually
+
+Use the management command to analyze one resolved ticket:
+
+```bash
+python manage.py run_business_knowledge_learning --team-id 123 --ticket-id <ticket-uuid>
+```
+
+Use `--lookback-days` for a bounded backfill of up to 90 days:
+
+```bash
+python manage.py run_business_knowledge_learning --team-id 123 --lookback-days 30
+```
+
+The project must have **Learn from support** on.
+The organization must allow AI data processing, the Business knowledge feature must be enabled, and Support must be on for the ticket's environment.
+
+## Pause or roll back learning
+
+Turn off **Learn from support** to stop new analysis.
+Pause the `business-knowledge-learning-coordinator-schedule` Temporal schedule to stop scheduled collection.
+
+Remove previously learned documents from search without deleting them:
+
+```bash
+python manage.py run_business_knowledge_learning --team-id 123 --disable-generated-source
+```
+
+If code must be rolled back, complete those steps before reverting the learning coordinator.
+Reverting code does not remove the Temporal schedule or generated documents.

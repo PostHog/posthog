@@ -838,6 +838,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
         }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
         if (params.charts !== undefined) {
             body['charts'] = params.charts
         }
@@ -1594,6 +1597,9 @@ const signalsScoutEditReport = (): ToolBase<
         }
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
         }
         if (params.charts !== undefined) {
             body['charts'] = params.charts

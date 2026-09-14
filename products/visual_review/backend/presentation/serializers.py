@@ -207,6 +207,17 @@ class AddSnapshotsResultSerializer(DataclassSerializer):
 class UpdateRepoInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = UpdateRepoRequestInput
+        extra_kwargs = {
+            "enable_pr_comments": {
+                "help_text": "Post a pull request comment when a run finds visual changes to review."
+            },
+            "debt_digest_enabled": {
+                "help_text": (
+                    "Post the visual review debt digest to the Slack channels of the teams that own the "
+                    "snapshots. Off by default. The digest goes out every Monday morning."
+                )
+            },
+        }
 
 
 class ApproveSnapshotInputSerializer(DataclassSerializer):

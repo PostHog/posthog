@@ -1008,9 +1008,13 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             // Same opt-out as above: the listener must be alive while hidden to see the return.
             cache.disposables.add(
                 () => {
+                    const disposables = cache.disposables
                     const onVisibilityChange = (): void => {
+                        if (document.visibilityState !== 'visible' || disposables.isDisposed) {
+                            return
+                        }
                         const id = values.selectedReportId
-                        if (document.visibilityState === 'visible' && id) {
+                        if (id) {
                             actions.loadSelectedReport({ id })
                         }
                     }
