@@ -10,6 +10,7 @@ import threading
 import urllib.error
 import email.message
 import urllib.request
+from collections.abc import Callable
 from datetime import timedelta
 from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
@@ -17,7 +18,7 @@ from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.core import signing
@@ -82,6 +83,7 @@ from products.notebooks.backend.temporal.sql_v2 import (
     dispatch_sql_v2_run_activity,
     mark_sql_v2_run_failed_activity,
 )
+from products.tasks.backend.facade.sandbox import SandboxNotFoundError, SandboxNotRunningError
 
 
 def _restrict_query_access(test: APIBaseTest) -> None:
@@ -1226,6 +1228,36 @@ class TestSQLV2EnsureServer(APIBaseTest):
     def test_no_running_runtime_raises(self):
         with self.assertRaises(SQLV2KernelNotRunning):
             self._ensure(reported_version=None)
+
+    @parameterized.expand(
+        [
+            ("sandbox_reaped", SandboxNotFoundError, "get_by_id"),
+            ("sandbox_idle_timed_out", SandboxNotRunningError, "write_file"),
+        ]
+    )
+    def test_dead_sandbox_behind_a_running_row_asks_for_a_new_kernel(
+        self, _name: str, error_class: Callable[..., Exception], failing_call: str
+    ):
+        # The row outlives the sandbox's idle timeout, so the deploy hits a sandbox that is
+        # gone. Letting that escape fails the run with "Run failed to dispatch to the kernel"
+        # and Temporal retries against the same dead row instead of provisioning a kernel.
+        runtime = self._create_runtime(server_url="http://localhost:1")
+        error = error_class("sandbox is gone", {"sandbox_id": "sbx-1"}, cause=RuntimeError("gone"), capture=False)
+        sandbox_class = SimpleNamespace(get_by_id=lambda _id: self.sandbox)
+        if failing_call == "get_by_id":
+            sandbox_class = SimpleNamespace(get_by_id=Mock(side_effect=error))
+
+        with (
+            patch.object(self.sandbox, "write_file", side_effect=error if failing_call == "write_file" else None),
+            patch("products.notebooks.backend.sql_v2._server_version", return_value="some-old-version"),
+            patch("products.notebooks.backend.sql_v2.get_sandbox_class_for_backend", return_value=sandbox_class),
+            patch("products.notebooks.backend.sql_v2._wait_for_server_ready"),
+            self.assertRaises(SQLV2KernelNotRunning),
+        ):
+            ensure_sql_v2_server(self.notebook, self.user)
+
+        runtime.refresh_from_db()
+        self.assertEqual(runtime.status, KernelRuntime.Status.STOPPED)
 
 
 class TestSQLV2RunPage(APIBaseTest):

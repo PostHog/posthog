@@ -32,7 +32,12 @@ from products.notebooks.backend.kernel_package import (
     kernel_package_bytes_and_hash,
 )
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
-from products.tasks.backend.facade.sandbox import SandboxBase, get_sandbox_class_for_backend
+from products.tasks.backend.facade.sandbox import (
+    SandboxBase,
+    SandboxNotFoundError,
+    SandboxNotRunningError,
+    get_sandbox_class_for_backend,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -380,10 +385,18 @@ def ensure_sql_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime
 
     sandbox_class = get_sandbox_class_for_backend(runtime.backend)
     assert runtime.sandbox_id  # _find_running_runtime only returns runtimes with a sandbox
-    sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
-    _deploy_kernel_server(sandbox, runtime, package, version)
+    try:
+        sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
+        _deploy_kernel_server(sandbox, runtime, package, version)
+        credentials = sandbox.get_connect_credentials()
+    except (SandboxNotFoundError, SandboxNotRunningError) as exc:
+        # The sandbox reached its idle timeout while the row still read RUNNING, so the row
+        # names a kernel that no longer exists. That is the same situation as no kernel at
+        # all: stop trusting the row and let the caller provision one and dispatch again.
+        runtime.status = KernelRuntime.Status.STOPPED
+        runtime.save(update_fields=["status"])
+        raise SQLV2KernelNotRunning() from exc
 
-    credentials = sandbox.get_connect_credentials()
     _wait_for_server_ready(credentials.url, credentials.token, version)
 
     runtime.server_url = credentials.url
