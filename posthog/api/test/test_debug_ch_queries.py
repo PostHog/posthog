@@ -222,6 +222,40 @@ class TestDebugCHQuery(APIBaseTest):
         self.assertEqual(data["reads"]["by_exposures_path"]["direct_scan"]["skip_reasons"], skip_counts)
         self.assertEqual(data["reads"]["total"], sum(skip_counts.values()))
 
+    def test_precompute_overview_serializes_nan_stats_as_null(self):
+        # avgIf/quantileIf return nan for a path whose reads all failed. STRICT_JSON is off,
+        # so an unguarded nan reaches the client as literal NaN — invalid JSON, blanking the
+        # tab exactly when someone is investigating the failures.
+        self.user.is_staff = True
+        self.user.save()
+        nan = float("nan")
+        no_skips = (0,) * 7
+        reads_row = (
+            "direct_scan",
+            5,  # reads
+            5,  # failed_reads
+            *no_skips,
+            0,  # attempted
+            0,  # me_precomputed
+            5,  # me_direct_scan
+            0,  # me_not_applicable
+            nan,  # avg_duration_ms
+            nan,  # p50_duration_ms
+            nan,  # p90_duration_ms
+            nan,  # avg_read_bytes
+            4096,  # total_read_bytes
+        )
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=[[reads_row], []]):
+            resp = self.client.get("/api/debug_ch_queries/precompute_overview/?hours=24")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        self.assertNotIn(b"NaN", resp.content)
+        entry = resp.json()["reads"]["by_exposures_path"]["direct_scan"]
+        self.assertEqual(entry["reads"], 5)
+        for stat in ("avg_duration_ms", "p50_duration_ms", "p90_duration_ms", "avg_read_bytes"):
+            self.assertIsNone(entry[stat])
+
     @patch("posthog.api.debug_ch_queries.sync_execute", return_value=[])
     def test_slowest_queries_pat_with_scope_and_staff_allowed(self, _mock_execute):
         self.user.is_staff = True
