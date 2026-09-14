@@ -4,12 +4,14 @@ from itertools import groupby
 from uuid import UUID
 
 from django.core.management.base import BaseCommand
+from django.db import transaction
+from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
 from products.skills.backend.api.skill_services import normalize_skill_file_path
 from products.skills.backend.marketplace.adapters import bundle_paths_are_safe
-from products.skills.backend.models import LLMSkillFile
+from products.skills.backend.models import LLMSkill, LLMSkillFile
 
 READ_CHUNK_SIZE = 1000
 
@@ -108,14 +110,11 @@ class Command(BaseCommand):
                 self.stdout.write(
                     self.style.WARNING(f"skill {skill_files.skill_id}: '{path}' has no canonical form — {reason}")
                 )
-            for row_id, path, canonical in plan.rewrites:
+            for _, path, canonical in plan.rewrites:
                 rewritten += 1
                 self.stdout.write(f"skill {skill_files.skill_id}: '{path}' -> '{canonical}'")
-                if apply:
-                    # A queryset update rather than `save()`, so the skill row's `updated_at` stays
-                    # put: the marketplace plugin version is Max(updated_at) over a team's skills,
-                    # and bumping it would re-clone every team's marketplace over a path fix.
-                    LLMSkillFile.objects.filter(pk=row_id).update(path=canonical)
+            if apply and plan.rewrites:
+                self._apply(skill_files.skill_id, plan.rewrites)
 
         verb = "Rewrote" if apply else "Would rewrite"
         self.stdout.write(
@@ -124,6 +123,22 @@ class Command(BaseCommand):
                 f"{unfixable} unfixable path(s); {unsafe} skill(s) left alone."
             )
         )
+
+    def _apply(self, skill_id: UUID, rewrites: list[tuple[UUID, str, str]]) -> None:
+        """Write one skill's rewrites and advance the version that makes clients pull them.
+
+        `LLMSkillFile` carries no timestamp, so writing a file row moves nothing on its own. The
+        marketplace plugin version is Max(updated_at) over a team's skill rows, the synthesized repo
+        is cached under it, and `marketplace.json` publishes it as the label that triggers a re-pull
+        — the same bump `archive_skill` and `rename_skill` make for the same reason. The two writes
+        share a transaction because a rewrite that lands without its bump is invisible for good: a
+        re-run finds the paths canonical, plans nothing, and never bumps.
+        """
+        with transaction.atomic():
+            for row_id, _, canonical in rewrites:
+                LLMSkillFile.objects.filter(pk=row_id).update(path=canonical)
+            # A queryset update bypasses auto_now, so the timestamp is set explicitly.
+            LLMSkill.objects.filter(pk=skill_id).update(updated_at=timezone.now())
 
     def _rows_by_skill(self, team_id: int | None) -> Iterator[SkillFileRows]:
         """Stream `(skill id, rows)`, holding one skill's paths in memory at a time.

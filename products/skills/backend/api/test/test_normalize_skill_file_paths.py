@@ -1,3 +1,4 @@
+import json
 from io import StringIO
 from uuid import UUID
 
@@ -85,6 +86,10 @@ class TestNormalizeSkillFilePathsCommand(BaseTest):
     def _bundle(self) -> SkillBundle:
         return build_skill_bundle(self.team, self.user, LLMSkill.objects.all(), content="full")
 
+    def _published_version_millis(self) -> int:
+        marketplace = build_team_marketplace_tree(self.team)[".claude-plugin/marketplace.json"]
+        return int(json.loads(marketplace)["plugins"][0]["version"].rsplit(".", 1)[1])
+
     def test_dry_run_reports_without_writing(self) -> None:
         output = self._run()
 
@@ -101,12 +106,19 @@ class TestNormalizeSkillFilePathsCommand(BaseTest):
         assert self.file.path == "references/guide.md"
         assert self._bundle().included == ["legacy-skill"]
 
-    def test_apply_leaves_the_skill_updated_at_alone(self) -> None:
-        before = LLMSkill.objects.get(pk=self.skill.pk).updated_at
+    def test_apply_advances_the_published_marketplace_version(self) -> None:
+        before = self._published_version_millis()
 
         self._run("--apply")
 
-        assert LLMSkill.objects.get(pk=self.skill.pk).updated_at == before
+        assert self._published_version_millis() > before
+
+    def test_dry_run_leaves_the_published_marketplace_version_alone(self) -> None:
+        before = self._published_version_millis()
+
+        self._run()
+
+        assert self._published_version_millis() == before
 
     def test_team_id_scopes_the_rewrite(self) -> None:
         self._run("--apply", "--team-id", str(self.team.id + 1))
