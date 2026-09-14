@@ -88,7 +88,7 @@ const meta: Meta = {
         mockDate: '2023-07-04',
         testOptions: {
             loaderTimeout: 15000,
-            waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+            waitForSelector: 'iframe.PlayerFrame__document >>> .PlayerFrame__content .replayer-wrapper iframe',
         },
     },
     decorators: [
