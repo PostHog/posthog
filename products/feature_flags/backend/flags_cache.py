@@ -66,6 +66,7 @@ from posthog.storage.hypercache_manager import (
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.dependencies import extract_cohort_dependencies
 from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
+from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
 from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags, serialize_feature_flags
@@ -105,14 +106,11 @@ def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
         return set()
 
     dep_ids: set[int] = set()
-    filters = flag_data.get("filters", {})
-    for group in filters.get("groups") or []:
-        for prop in group.get("properties") or []:
-            if prop.get("type") == "flag":
-                try:
-                    dep_ids.add(int(prop["key"]))
-                except (ValueError, KeyError, TypeError):
-                    continue
+    for prop in flag_dependency_properties(flag_data.get("filters", {})):
+        try:
+            dep_ids.add(int(prop["key"]))
+        except (ValueError, KeyError, TypeError):
+            continue
     return dep_ids
 
 
@@ -158,13 +156,7 @@ def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> s
     for flag in flags_data:
         if _is_unevaluable(flag):
             continue
-        for group in flag.get("filters", {}).get("groups") or []:
-            for prop in group.get("properties") or []:
-                if prop.get("type") == "cohort":
-                    try:
-                        cohort_ids.add(int(prop["value"]))
-                    except (ValueError, KeyError, TypeError):
-                        continue
+        cohort_ids |= referenced_cohort_ids(flag.get("filters", {}))
     return cohort_ids
 
 
