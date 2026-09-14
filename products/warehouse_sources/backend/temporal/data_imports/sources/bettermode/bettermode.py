@@ -1,6 +1,6 @@
 import json
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -23,8 +23,8 @@ BETTERMODE_HOSTS = {
 }
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRY_ATTEMPTS = 5
-# Page size when enumerating parent post ids for the replies fan-out — id-only nodes are
-# cheap in Bettermode's query-cost model, so the maximum-ish page keeps request count low.
+# Page size when enumerating parent ids for a fan-out — id-only nodes are cheap in
+# Bettermode's query-cost model, so the maximum-ish page keeps request count low.
 PARENT_PAGE_SIZE = 100
 
 _TOKEN_QUERY = """
@@ -50,6 +50,20 @@ query ParentPosts($limit: Int!, $after: String) {
 }
 """
 
+_PARENT_SPACES_QUERY = """
+query ParentSpaces($limit: Int!, $after: String) {
+  spaces(limit: $limit, after: $after) {
+    pageInfo {
+      endCursor
+      hasNextPage
+    }
+    nodes {
+      id
+    }
+  }
+}
+"""
+
 
 class BettermodeRetryableError(Exception):
     pass
@@ -61,7 +75,7 @@ class BettermodeGraphQLError(Exception):
     prefix that `get_non_retryable_errors` matches on."""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class BettermodeResumeConfig:
     # Relay cursor of the last fully-yielded page within the current connection.
     after: str | None = None
@@ -69,6 +83,8 @@ class BettermodeResumeConfig:
     # bookmark (not a positional index) so posts created/deleted between a crash and the
     # retry can't resume us into the wrong parent. None for top-level endpoints.
     post_id: str | None = None
+    # Same bookmark for space-scoped fan-outs (`space_members`, `space_post_types`).
+    space_id: str | None = None
 
 
 def _base_url(region: str) -> str:
@@ -176,6 +192,56 @@ query ({declarations}) {{
 """
 
 
+def _build_list_query(config: BettermodeEndpointConfig) -> str:
+    """Query document for a root field that returns a plain list (`collections`, `roles`).
+
+    These fields take no `limit`/`after`, so the whole list arrives in one response.
+    """
+    return f"""
+query {{
+  {config.query_field} {{
+{config.node_fields}
+  }}
+}}
+"""
+
+
+def _space_member_row(node: dict[str, Any], space_id: str) -> dict[str, Any] | None:
+    """Flatten a SpaceMember into join columns.
+
+    SpaceMember exposes no scalars of its own, so a usable primary key has to come from the
+    nested member plus the space the fan-out is currently walking. A membership whose member
+    is no longer readable is dropped: half its primary key would be null, and every such row
+    in a space would merge onto the same one.
+    """
+    member = node.get("member") or {}
+    member_id = member.get("id")
+    if not member_id:
+        return None
+
+    role = node.get("role") or {}
+    return {
+        "spaceId": space_id,
+        "memberId": member_id,
+        "roleId": role.get("id"),
+        "roleName": role.get("name"),
+        "roleType": role.get("type"),
+    }
+
+
+_RowMapper = Callable[[dict[str, Any], str], dict[str, Any] | None]
+
+_ROW_MAPPERS: dict[str, _RowMapper] = {
+    "spaceMembers": _space_member_row,
+}
+
+
+def _map_rows(nodes: list[dict[str, Any]], parent_id: str, row_mapper: _RowMapper | None) -> list[dict[str, Any]]:
+    if row_mapper is None:
+        return nodes
+    return [row for row in (row_mapper(node, parent_id) for node in nodes) if row is not None]
+
+
 def _build_post_variables(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
@@ -244,6 +310,56 @@ def _iter_connection(
         after = next_cursor
 
 
+def _fan_out_rows(
+    execute: Any,
+    config: BettermodeEndpointConfig,
+    parent_ids: list[str],
+    parent_arg: str,
+    resume_field: str,
+    resumable_source_manager: ResumableSourceManager[BettermodeResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk one connection per parent id, checkpointing against a parent-ID bookmark.
+
+    The bookmark is a stable parent ID (not a positional index) so parents created or deleted
+    between a crash and the retry can't resume us into the wrong parent. If the bookmarked
+    parent no longer exists, start over — merge dedupes re-pulled rows on the primary key.
+    `resume_after` is consumed by the bookmarked parent only.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    bookmark = getattr(resume, resume_field) if resume is not None else None
+    remaining = parent_ids
+    resume_after: str | None = None
+    if resume is not None and bookmark is not None and bookmark in parent_ids:
+        remaining = parent_ids[parent_ids.index(bookmark) :]
+        resume_after = resume.after
+        logger.debug(f"Bettermode: resuming {config.query_field} from {resume_field}={bookmark}")
+
+    row_mapper = _ROW_MAPPERS.get(config.query_field)
+    query = _build_query(config)
+    for index, parent_id in enumerate(remaining):
+        variables = {parent_arg: parent_id, **config.base_variables}
+        for nodes, next_cursor in _iter_connection(
+            execute, query, config.query_field, variables, config.page_size, resume_after
+        ):
+            rows = _map_rows(nodes, parent_id, row_mapper)
+            if rows:
+                yield rows
+            # Save AFTER yielding (and only when more pages remain) so a crash re-yields the
+            # last page rather than skipping it — merge dedupes on the primary key.
+            if next_cursor:
+                resumable_source_manager.save_state(
+                    BettermodeResumeConfig(after=next_cursor, **{resume_field: parent_id})
+                )
+        resume_after = None
+
+        # Advance the bookmark so a crash between parents resumes at the next one.
+        if index + 1 < len(remaining):
+            resumable_source_manager.save_state(
+                BettermodeResumeConfig(after=None, **{resume_field: remaining[index + 1]})
+            )
+
+
 def _get_reply_rows(
     execute: Any,
     config: BettermodeEndpointConfig,
@@ -259,33 +375,25 @@ def _get_reply_rows(
     for nodes, _ in _iter_connection(execute, _PARENT_POSTS_QUERY, "posts", {}, PARENT_PAGE_SIZE, None):
         parent_ids.extend(node["id"] for node in nodes if (node.get("totalRepliesCount") or 0) > 0)
 
-    # Resolve the saved post-ID bookmark to the slice of parents still to process. If the
-    # bookmarked post no longer exists, start over — merge dedupes re-pulled rows on the
-    # primary key. `resume_after` is consumed by the bookmarked parent only.
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    remaining = parent_ids
-    resume_after: str | None = None
-    if resume is not None and resume.post_id is not None and resume.post_id in parent_ids:
-        remaining = parent_ids[parent_ids.index(resume.post_id) :]
-        resume_after = resume.after
-        logger.debug(f"Bettermode: resuming replies from post_id={resume.post_id}")
+    yield from _fan_out_rows(execute, config, parent_ids, "postId", "post_id", resumable_source_manager, logger)
 
-    query = _build_query(config)
-    for index, post_id in enumerate(remaining):
-        variables = {"postId": post_id, "orderBy": "createdAt", "reverse": False}
-        for nodes, next_cursor in _iter_connection(
-            execute, query, "replies", variables, config.page_size, resume_after
-        ):
-            yield nodes
-            # Save AFTER yielding (and only when more pages remain) so a crash re-yields the
-            # last page rather than skipping it — merge dedupes on the primary key.
-            if next_cursor:
-                resumable_source_manager.save_state(BettermodeResumeConfig(after=next_cursor, post_id=post_id))
-        resume_after = None
 
-        # Advance the bookmark so a crash between parents resumes at the next post.
-        if index + 1 < len(remaining):
-            resumable_source_manager.save_state(BettermodeResumeConfig(after=None, post_id=remaining[index + 1]))
+def _get_space_scoped_rows(
+    execute: Any,
+    config: BettermodeEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[BettermodeResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out one connection per space.
+
+    `spaceMembers` and `spacePostTypes` are only reachable per space, so spaces are
+    enumerated with a cheap id-only walk first.
+    """
+    parent_ids: list[str] = []
+    for nodes, _ in _iter_connection(execute, _PARENT_SPACES_QUERY, "spaces", {}, PARENT_PAGE_SIZE, None):
+        parent_ids.extend(node["id"] for node in nodes)
+
+    yield from _fan_out_rows(execute, config, parent_ids, "spaceId", "space_id", resumable_source_manager, logger)
 
 
 def get_rows(
@@ -304,11 +412,22 @@ def get_rows(
     session = _get_authed_session(region, client_id, client_secret, network_id)
     execute = _make_execute(session, _base_url(region), logger)
 
+    if config.is_list:
+        data = execute(_build_list_query(config), {})
+        rows = data.get(config.query_field) or []
+        if rows:
+            yield rows
+        return
+
     if config.fan_out_replies:
         yield from _get_reply_rows(execute, config, resumable_source_manager, logger)
         return
 
-    base_variables: dict[str, Any] = {}
+    if config.fan_out_spaces:
+        yield from _get_space_scoped_rows(execute, config, resumable_source_manager, logger)
+        return
+
+    base_variables: dict[str, Any] = dict(config.base_variables)
     if config.query_field == "posts":
         base_variables = _build_post_variables(
             should_use_incremental_field, db_incremental_field_last_value, incremental_field
