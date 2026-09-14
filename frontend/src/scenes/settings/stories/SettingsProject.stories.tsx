@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SettingSectionId } from '../types'
 
@@ -126,4 +127,44 @@ export const SettingsProjectLogsReadOnly: Story = {
         router.actions.push(urls.settings(sectionId))
         return <App />
     },
+}
+
+export const SettingsProjectLogsJsonParsing: Story = {
+    ...SettingsProjectLogs,
+    parameters: { featureFlags: ['logs-settings-json', 'logs-json-attribute-parsing'] },
+    beforeEach: () => {
+        const appContext = window.POSTHOG_APP_CONTEXT
+        if (!appContext) {
+            return
+        }
+        const originalAccess = appContext.resource_access_control
+        appContext.resource_access_control = {
+            ...originalAccess,
+            [AccessControlResourceType.Logs]: AccessControlLevel.Manager,
+        }
+        return () => {
+            appContext.resource_access_control = originalAccess
+        }
+    },
+    decorators: [
+        ...(Array.isArray(SettingsProjectLogs.decorators) ? SettingsProjectLogs.decorators : []),
+        mswDecorator({
+            patch: {
+                '/api/environments/:id': async ({ request }) => [
+                    200,
+                    { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as object) },
+                ],
+            },
+        }),
+    ],
+}
+
+export const SettingsProjectLogsJsonParsingReadOnly: Story = {
+    ...SettingsProjectLogsJsonParsing,
+    render: SettingsProjectLogsReadOnly.render,
+}
+
+export const SettingsProjectLogsJsonParsingFlagOff: Story = {
+    ...SettingsProjectLogsJsonParsing,
+    parameters: { featureFlags: ['logs-settings-json'] },
 }

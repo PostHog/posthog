@@ -67,6 +67,12 @@ The project API stores the selected JSON attribute key in `logs_settings.json_pa
 - The default is off. An empty string disables parsing.
 - A `PATCH` merges supplied keys into the stored `logs_settings` object. Send only changed keys so unrelated settings, including concurrent updates, are preserved. Sending `logs_settings: null` clears all Logs settings and also requires Logs Editor access and the feature flag.
 
-Nothing reads this setting yet, so storing a key does not change how logs are parsed. Changing it never reprocesses historical logs.
+The UI and ingestion processor consume this configuration separately. Updating the configuration does not reprocess historical logs.
 
 The API evaluates the `logs-json-attribute-parsing` feature flag for the requesting user with organization and project context. Disabled or unavailable flag evaluations reject writes, including empty-string and null resets, with HTTP 403. Unrelated Logs settings can still be updated. Disabling the flag does not change the saved value. Keep this rollout flag disabled until the ingestion implementation is deployed.
+
+### Set the key in the UI
+
+In **Settings > Project > Logs > JSON parse log attribute**, enter one attribute key and select **Save**. Clear the key and save to turn it off. This setting is independent of **JSON parse logs**, which parses the log body.
+
+The same feature flag controls this setting's visibility. Disabling it does not stop parsing that is already configured.
