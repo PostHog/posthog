@@ -1,5 +1,6 @@
 import { RGBColor } from 'd3'
 
+import { PATH_NODE_CARD_HEIGHT, PATH_NODE_CARD_OVERLAP_GAP } from './constants'
 import {
     PathNodeData,
     PathTargetLink,
@@ -455,8 +456,7 @@ describe('resolveCardOverlaps', () => {
 
         expect(tops.get(1)).not.toBeUndefined()
         expect(tops.get(1)!).toBeGreaterThan(tops.get(0)!)
-        // Gap should be at least CARD_HEIGHT + OVERLAP_GAP
-        expect(tops.get(1)! - tops.get(0)!).toBeGreaterThanOrEqual(42) // 38 + 4
+        expect(tops.get(1)! - tops.get(0)!).toBeGreaterThanOrEqual(PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_OVERLAP_GAP)
     })
 
     it('does not adjust cards in different layers', () => {
@@ -471,7 +471,7 @@ describe('resolveCardOverlaps', () => {
         expect(tops.get(1)).toBe(calculatePathNodeCardTop(nodes[1], 720))
     })
 
-    it('keeps the cards that only hover reveals out of the layout', () => {
+    it('keeps always-visible cards fixed and places hover-only cards without overlap', () => {
         const { nodes } = buildPathGraph(['/', '/about'])
         // A short node has no card until it is hovered, and sits above the card of a tall one
         nodes[0] = { ...nodes[0], layer: 0, y0: 20, y1: 120 }
@@ -479,9 +479,9 @@ describe('resolveCardOverlaps', () => {
 
         const tops = resolveCardOverlaps(nodes, 720)
 
-        expect(tops.has(1)).toBe(false)
-        // The revealed card must not push the always-visible card down, or the pointer
-        // slides off the card it is hovering and the hover flickers
         expect(tops.get(0)).toBe(calculatePathNodeCardTop(nodes[0], 720))
+        expect(Math.abs(tops.get(0)! - tops.get(1)!)).toBeGreaterThanOrEqual(
+            PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_OVERLAP_GAP
+        )
     })
 })

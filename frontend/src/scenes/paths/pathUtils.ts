@@ -84,17 +84,13 @@ export const deactivateNodes = (nodes: PathNodeData[]): PathNodeData[] =>
 /**
  * Card top per node index, nudged down so that cards in the same layer do not overlap.
  *
- * Only the always-visible cards take part. A card that hover reveals keeps its natural top.
- * A layout that changes with the hover state moves cards out from under the pointer. That
- * clears the hover, which moves them back, and the cards flicker.
+ * Always-visible cards keep their position. Cards that hover reveals fill the remaining space,
+ * so that changing the hover state does not move a card from under the pointer.
  */
 export function resolveCardOverlaps(nodes: PathNodeData[], canvasHeight: number): Map<number, number> {
     const byLayer = new Map<number, PathNodeData[]>()
     const topByIndex = new Map<number, number>()
     for (const node of nodes) {
-        if (!isCardAlwaysVisible(node)) {
-            continue
-        }
         topByIndex.set(node.index, calculatePathNodeCardTop(node, canvasHeight))
         const group = byLayer.get(node.layer) ?? []
         group.push(node)
@@ -105,11 +101,30 @@ export function resolveCardOverlaps(nodes: PathNodeData[], canvasHeight: number)
     for (const group of byLayer.values()) {
         group.sort((a, b) => topByIndex.get(a.index)! - topByIndex.get(b.index)!)
         let prevBottom = -Infinity
-        for (const node of group) {
+        for (const node of group.filter(isCardAlwaysVisible)) {
             const naturalTop = topByIndex.get(node.index)!
             const resolvedTop = Math.max(naturalTop, prevBottom + PATH_NODE_CARD_OVERLAP_GAP)
             resolvedTops.set(node.index, resolvedTop)
             prevBottom = resolvedTop + PATH_NODE_CARD_HEIGHT
+        }
+
+        const occupiedTops = group
+            .filter(isCardAlwaysVisible)
+            .map((node) => resolvedTops.get(node.index)!)
+            .sort((a, b) => a - b)
+        for (const node of group.filter((node) => !isCardAlwaysVisible(node))) {
+            let resolvedTop = topByIndex.get(node.index)!
+            for (const occupiedTop of occupiedTops) {
+                if (
+                    resolvedTop + PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_OVERLAP_GAP > occupiedTop &&
+                    resolvedTop < occupiedTop + PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_OVERLAP_GAP
+                ) {
+                    resolvedTop = occupiedTop + PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_OVERLAP_GAP
+                }
+            }
+            resolvedTops.set(node.index, resolvedTop)
+            occupiedTops.push(resolvedTop)
+            occupiedTops.sort((a, b) => a - b)
         }
     }
 
