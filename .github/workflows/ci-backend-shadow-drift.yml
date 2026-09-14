@@ -20,8 +20,18 @@ on:
             - .depot/workflows/ci-backend.yml
             - .github/actions/paths-filter/**
             - .depot/actions/paths-filter/**
+            - .github/actions/pnpm-install/**
+            - .depot/actions/pnpm-install/**
+            - .github/actions/setup-pnpm/**
+            - .depot/actions/setup-pnpm/**
+            - .github/actions/setup-python-cached/**
+            - .depot/actions/setup-python-cached/**
+            - .github/actions/setup-sqlx-cli/**
+            - .depot/actions/setup-sqlx-cli/**
             - .github/actions/setup-turbo/**
             - .depot/actions/setup-turbo/**
+            - .github/actions/setup-uv/**
+            - .depot/actions/setup-uv/**
 
 permissions:
     contents: read
@@ -49,13 +59,15 @@ jobs:
                   # is the merge commit — diffing BASE_SHA..HEAD gives the PR's effective
                   # changes. We only need to fetch BASE_SHA (HEAD is already local).
                   git fetch --no-tags --depth=100 origin "$BASE_SHA"
+                  # Every local action the depot workflow uses has a mirror under .depot/actions.
+                  # The first group is kept byte-identical to canonical; the second carries
+                  # intentional deltas documented in each mirror's header.
+                  equal_mirrors="paths-filter setup-python-cached setup-sqlx-cli setup-turbo setup-uv"
+                  delta_mirrors="pnpm-install setup-pnpm"
                   changed=$(git diff --name-only "$BASE_SHA" HEAD -- \
                       .github/workflows/ci-backend.yml \
                       .depot/workflows/ci-backend.yml \
-                      .github/actions/paths-filter \
-                      .depot/actions/paths-filter \
-                      .github/actions/setup-turbo \
-                      .depot/actions/setup-turbo)
+                      .github/actions .depot/actions)
                   if echo "$changed" | grep -Fxq '.github/workflows/ci-backend.yml' && \
                      ! echo "$changed" | grep -Fxq '.depot/workflows/ci-backend.yml'; then
                       echo "::error::Canonical .github/workflows/ci-backend.yml changed without a matching update to .depot/workflows/ci-backend.yml."
@@ -67,13 +79,15 @@ jobs:
                      ! echo "$changed" | grep -Fxq '.github/workflows/ci-backend.yml'; then
                       echo "::notice::Only the depot shadow changed. That is allowed (e.g. tuning a depot-only knob), but worth a glance from the reviewer."
                   fi
-                  for action in paths-filter setup-turbo; do
+                  for action in $equal_mirrors $delta_mirrors; do
                       if echo "$changed" | grep -q "^\.github/actions/$action/" && \
                          ! echo "$changed" | grep -q "^\.depot/actions/$action/"; then
                           echo "::error::Canonical .github/actions/$action changed without a matching update to .depot/actions/$action."
                           echo "Mirror the action change so the Depot workflow runs the same steps."
                           exit 1
                       fi
+                  done
+                  for action in $equal_mirrors; do
                       if ! diff -qr ".github/actions/$action" ".depot/actions/$action"; then
                           echo "::error::The Depot $action action differs from its canonical copy."
                           exit 1
