@@ -49,6 +49,36 @@ harmless: it doubles the noise for whoever reads the results. If an existing che
 close but wrong, edit the existing check. Updates preserve its identity and history; the subject
 stays fixed by the URL. An edit that duplicates another check's assertion is rejected.
 
+## Resolve the subject
+
+Every create, run, and check-type call needs the subject's UUID. The two queries above return names
+and columns, not IDs. Resolve the ID by exact name, and exclude deleted rows. A substring match can
+select a neighboring subject. A soft-deleted row keeps its original name, so a replacement can share
+that name.
+
+- **Saved query (view).** The `id` is the `saved_query_id`.
+
+  ```sql
+  SELECT id FROM system.data_modeling_views WHERE name = 'orders' AND deleted = 0
+  ```
+
+- **Warehouse table.** The subject name is the warehouse table's own name: an imported source
+  prefixes it (e.g. `stripe_charge`), while a self-managed table keeps the name it was created with.
+  The `id` is the `table_id`.
+
+  ```sql
+  SELECT id FROM system.data_warehouse_tables WHERE name = 'stripe_charge' AND deleted = 0
+  ```
+
+  Do not resolve a table ID from `posthog:external-data-schemas-list`. A self-managed table has no
+  schema row there. A schema row's own `id` is the sync configuration, not the table; the table ID is
+  nested under `table.id`.
+
+`posthog:data-quality-check-types` also takes a `saved_query_id`. Its catalog is static, so pass any
+view's `id`; the returned schemas apply to tables too. A project with no view has nothing to pass, so
+that reader can skip the call: the same per-type config is in the
+`data-quality-check-create-on-table` tool description and under "Choosing checks" below.
+
 ## Choosing checks
 
 Aim for a handful that would actually catch a real regression, not blanket coverage. A model with
