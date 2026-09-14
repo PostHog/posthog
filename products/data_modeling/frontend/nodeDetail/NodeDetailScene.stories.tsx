@@ -121,3 +121,8 @@ export const MaterializedView: Story = {
         },
     },
 }
+
+export const NarrowMaterializedView: Story = {
+    ...MaterializedView,
+    decorators: NarrowView.decorators,
+}

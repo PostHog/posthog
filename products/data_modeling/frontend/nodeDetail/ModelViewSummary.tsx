@@ -1,19 +1,21 @@
+import type { ReactNode } from 'react'
+
 import { IconInfo } from '@posthog/icons'
-import { LemonCard, Link, Tooltip } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
+
+import { ModelSummaryCard } from './ModelSummaryCard'
 
 export function ModelViewSummary({
     downstreamCount,
     lineageUrl,
+    metadata,
 }: {
     downstreamCount: number
     lineageUrl: string
+    metadata?: ReactNode
 }): JSX.Element {
     return (
-        <LemonCard
-            hoverEffect={false}
-            className="!p-4 w-fit max-w-full self-start"
-            data-attr="node-detail-view-summary"
-        >
+        <ModelSummaryCard metadata={metadata} dataAttr="node-detail-view-summary">
             <div className="flex flex-col gap-3">
                 <div className="flex items-center gap-2">
                     <span className="font-semibold">Runs on demand</span>
@@ -46,6 +48,6 @@ export function ModelViewSummary({
                     </div>
                 </dl>
             </div>
-        </LemonCard>
+        </ModelSummaryCard>
     )
 }
