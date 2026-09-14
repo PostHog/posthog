@@ -24,6 +24,7 @@ import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import {
     buildMCPRequestContext,
     getEffectiveMCPClientContext,
@@ -83,9 +84,9 @@ export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MC
     useSingleExec: boolean
 } {
     const { mode, clientProfile } = args
-    // CLI (single-exec) is the default; only allow-listed clients (Cursor,
-    // ChatGPT) keep the full per-tool roster, and an explicit ?mode= /
-    // x-posthog-mcp-mode header always wins over auto-detection.
+    // CLI (single-exec) is the default; only allow-listed clients (Cursor) keep
+    // the full per-tool roster, and an explicit ?mode= / x-posthog-mcp-mode
+    // header always wins over auto-detection.
     const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() ? 'tools' : 'cli')
     return { mode: resolved, useSingleExec: resolved === 'cli' }
 }
@@ -169,7 +170,8 @@ export class RequestStateResolver {
 
         // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
         // resolves — so the tool-definition scan can't discover it; join it in explicitly.
-        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), MCP_GATEWAY_FLAG])]
+        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands the same way.
+        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), MCP_GATEWAY_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG])]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined

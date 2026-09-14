@@ -1,9 +1,26 @@
-"""
-Contract types for data_catalog.
+"""Cross-product value contracts exposed by data_catalog."""
 
-Frozen dataclasses that define what this product exposes to other products. No Django imports.
+from uuid import UUID
 
-v1 has no in-process cross-product consumers: information_schema loaders read the ORM classes via
-``facade.models`` and everything else goes over HTTP. Contracts will land here when a Python caller
-in another product needs metric/certification data.
-"""
+from pydantic.dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class MetricSummary:
+    id: UUID
+    name: str
+    display_name: str
+    definition_kind: str | None
+    referenced_table_names: list[str]
+
+
+@dataclass(frozen=True)
+class HogQLMetricDefinition:
+    query: str
+    values: dict[str, object]
+
+
+@dataclass(frozen=True)
+class MetricRead:
+    summary: MetricSummary
+    hogql_definition: HogQLMetricDefinition | None

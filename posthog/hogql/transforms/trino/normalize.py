@@ -121,6 +121,22 @@ class TrinoSelectAliasLowerer(CloningVisitor):
                 key = expression_key(expr)
                 if key in projections:
                     lowered.group_by[index] = ast.PositionalRef(index=projections.index(key) + 1)
+        if node.order_by is not None and lowered.order_by is not None:
+            alias_positions = {
+                expr.alias: index + 1 for index, expr in enumerate(node.select) if isinstance(expr, ast.Alias)
+            }
+            for original, order in zip(node.order_by, lowered.order_by, strict=True):
+                expr = original.expr
+                while isinstance(expr, ast.Alias) and expr.hidden:
+                    expr = expr.expr
+                if (
+                    isinstance(expr, ast.Field)
+                    and isinstance(expr.type, ast.FieldAliasType)
+                    and len(expr.chain) == 1
+                    and isinstance(expr.chain[0], str)
+                    and (position := alias_positions.get(expr.chain[0])) is not None
+                ):
+                    order.expr = ast.PositionalRef(index=position)
         self.aliases = outer_aliases
         return lowered
 

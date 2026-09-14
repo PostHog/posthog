@@ -83,7 +83,9 @@ export interface PrecomputeTimeseriesResponse {
         // Successful precomputed-path reads only; 0 where a bucket has none
         precomputed_p50_duration_ms: number[]
         precomputed_p90_duration_ms: number[]
-        precomputed_avg_read_bytes: number[]
+        // Reads with both exposures and metric events precomputed; read_bytes on a partly
+        // precomputed read includes the metric-events events scan, which swamps the cache read
+        fully_precomputed_avg_read_bytes: number[]
     }
     builds: {
         failed_by_code: Record<string, number[]>

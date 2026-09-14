@@ -237,6 +237,77 @@ const heatmapsSavedUpdate = (): ToolBase<
     },
 })
 
+const WebAnalyticsBotRulesCreateSchema = () => {
+    const WebAnalyticsBotRulesCreateBody = orvalSchemas.WebAnalyticsBotRulesCreateBody()
+    return WebAnalyticsBotRulesCreateBody
+}
+
+const webAnalyticsBotRulesCreate = (): ToolBase<
+    ReturnType<typeof WebAnalyticsBotRulesCreateSchema>,
+    Schemas.WebAnalyticsBotRule
+> => ({
+    name: 'web-analytics-bot-rules-create',
+    schema: WebAnalyticsBotRulesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WebAnalyticsBotRulesCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.category !== undefined) {
+            body['category'] = params.category
+        }
+        if (params.combiner !== undefined) {
+            body['combiner'] = params.combiner
+        }
+        if (params.items !== undefined) {
+            body['items'] = params.items
+        }
+        const result = await context.api.request<Schemas.WebAnalyticsBotRule>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/`,
+            body,
+        })
+        return result
+    },
+})
+
+const WebAnalyticsBotRulesDestroySchema = () => {
+    const WebAnalyticsBotRulesDestroyParams = orvalSchemas.WebAnalyticsBotRulesDestroyParams()
+    return WebAnalyticsBotRulesDestroyParams.omit({ project_id: true })
+}
+
+const webAnalyticsBotRulesDestroy = (): ToolBase<ReturnType<typeof WebAnalyticsBotRulesDestroySchema>, unknown> => ({
+    name: 'web-analytics-bot-rules-destroy',
+    schema: WebAnalyticsBotRulesDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WebAnalyticsBotRulesDestroySchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const WebAnalyticsBotRulesListSchema = () => z.object({})
+
+const webAnalyticsBotRulesList = (): ToolBase<
+    ReturnType<typeof WebAnalyticsBotRulesListSchema>,
+    WithPostHogUrl<Schemas.WebAnalyticsBotRule[]>
+> => ({
+    name: 'web-analytics-bot-rules-list',
+    schema: WebAnalyticsBotRulesListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof WebAnalyticsBotRulesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WebAnalyticsBotRule[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/`,
+        })
+        return await withPostHogUrl(context, result, '/web')
+    },
+})
+
 const WebAnalyticsPathCleaningSuggestionsApplySchema = () => {
     const WebAnalyticsPathCleaningSuggestionsApplyParams = orvalSchemas.WebAnalyticsPathCleaningSuggestionsApplyParams()
     return WebAnalyticsPathCleaningSuggestionsApplyParams.omit({ project_id: true })
@@ -617,6 +688,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'heatmaps-saved-list': heatmapsSavedList,
     'heatmaps-saved-regenerate': heatmapsSavedRegenerate,
     'heatmaps-saved-update': heatmapsSavedUpdate,
+    'web-analytics-bot-rules-create': webAnalyticsBotRulesCreate,
+    'web-analytics-bot-rules-destroy': webAnalyticsBotRulesDestroy,
+    'web-analytics-bot-rules-list': webAnalyticsBotRulesList,
     'web-analytics-path-cleaning-suggestions-apply': webAnalyticsPathCleaningSuggestionsApply,
     'web-analytics-path-cleaning-suggestions-generate': webAnalyticsPathCleaningSuggestionsGenerate,
     'web-analytics-weekly-digest': webAnalyticsWeeklyDigest,

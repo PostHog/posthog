@@ -118,6 +118,7 @@ import {
     WebVitalsPercentile,
     eventPropertiesToPathClean,
     getWebAnalyticsBreakdownFilter,
+    isContentAutopilotEnabled,
     loadPriorityMap,
     personPropertiesToPathClean,
     sessionPropertiesToPathClean,
@@ -3054,7 +3055,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return []
                 }
 
-                if (productTab === ProductTab.AGENTS) {
+                if ([ProductTab.AGENTS, ProductTab.CONTENT_AUTOPILOT].includes(productTab)) {
                     return []
                 }
 
@@ -3105,6 +3106,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return urls.webAnalyticsHealth()
             } else if (productTab === ProductTab.LIVE) {
                 return urls.webAnalyticsLive()
+            } else if (productTab === ProductTab.CONTENT_AUTOPILOT) {
+                return urls.webAnalyticsContentAutopilot()
             } else if (productTab === ProductTab.BOT_ANALYTICS) {
                 // Bot tab maintains its own filter state in `botAnalyticsLogic`, so we serialize
                 // those filters here instead of `rawWebAnalyticsFilters` (which only describes the
@@ -3216,6 +3219,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('date_from', dateFrom ?? '')
                 urlParams.set('date_to', dateTo ?? '')
                 urlParams.set('interval', interval ?? '')
+            } else {
+                // Delete these params when the state is at its defaults. `urlParams` starts from the
+                // live URL, so a param left behind keeps an earlier value, which `urlToAction` reads
+                // back and applies over the user's current selection.
+                urlParams.delete('date_from')
+                urlParams.delete('date_to')
+                urlParams.delete('interval')
             }
             if (_deviceTab) {
                 urlParams.set('device_tab', _deviceTab)
@@ -3357,6 +3367,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ProductTab.BOT_ANALYTICS,
                     ProductTab.PAGE_PERFORMANCE,
                     ProductTab.AGENTS,
+                    ProductTab.CONTENT_AUTOPILOT,
                 ].includes(productTab)
             ) {
                 return
@@ -3384,6 +3395,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return
             }
 
+            if (productTab === ProductTab.CONTENT_AUTOPILOT && !isContentAutopilotEnabled(values.featureFlags)) {
+                router.actions.replace(urls.webAnalytics())
+                return
+            }
+
             cache.hasRestoredWebUrl = true
 
             // Stamp the last-used timestamp for feature flag targeting (throttled to once per day per browser).
@@ -3403,13 +3419,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 } else if (
                     productTab !== ProductTab.AGENTS &&
+                    productTab !== ProductTab.CONTENT_AUTOPILOT &&
                     !objectsEqual(nextFilters, values.rawWebAnalyticsFilters)
                 ) {
                     actions.setWebAnalyticsFilters(nextFilters)
                 }
             }
 
-            const tabSerializesFilters = productTab !== ProductTab.LIVE && productTab !== ProductTab.HEALTH
+            const tabSerializesFilters =
+                productTab !== ProductTab.LIVE &&
+                productTab !== ProductTab.HEALTH &&
+                productTab !== ProductTab.CONTENT_AUTOPILOT
             const shouldResetAbsentFilters =
                 !isInitialRestore && !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]
 

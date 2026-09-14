@@ -9,6 +9,7 @@ from products.experiments.backend.replay_linkage import (
     exposed_session_ids_select,
     resolve_exposure_linkage,
     resolve_in_session_exposure_semantics,
+    targetable_experiments,
     validate_experiment_exposure_access,
 )
 
@@ -21,5 +22,6 @@ __all__ = [
     "exposed_session_ids_select",
     "resolve_exposure_linkage",
     "resolve_in_session_exposure_semantics",
+    "targetable_experiments",
     "validate_experiment_exposure_access",
 ]

@@ -18,6 +18,7 @@ between posting a reply and recording it re-triages that thread on retry — a f
 a second reply. Reply-first deliberately fails toward a visible duplicate rather than a lost reply.
 """
 
+import re
 import logging
 from dataclasses import field
 from datetime import timedelta
@@ -80,6 +81,7 @@ from products.review_hog.backend.reviewer.tools.github_threads import (
     resolve_thread,
     should_resolve,
 )
+from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
 from products.review_hog.backend.reviewer.tools.thread_resolution import (
     RESOLUTION_SYSTEM_PROMPT,
     build_resolution_followup_prompt,
@@ -331,6 +333,62 @@ def _delivery_auth(team_id: int, integration_row_id: int) -> tuple[str, str | No
     return github.get_access_token(), github.github_installation_id
 
 
+def _normalize_reply_divider(reply: str) -> str:
+    """Insert the blank line before a `---` the model put directly under its verdict sentence.
+
+    GitHub reads `sentence\\n---` as a setext heading, so the verdict would render as a large title
+    instead of a sentence over a divider.
+    """
+    return re.sub(r"(?<=[^\n])\n---(?=\n|$)", "\n\n---", reply)
+
+
+# The prompt asks for one verdict sentence, a divider, then at most 5 short lines. A reply past this
+# cap is folded rather than cut or rejected: rejecting would leave a landed fix commit with no reply.
+_REPLY_MAX_VISIBLE_LINES = 5
+_REPLY_MAX_VISIBLE_WORDS = 150
+
+
+def _fold_overlong_reply(reply: str, *, thread_id: str) -> str:
+    """Keep the verdict and the first support lines visible; fold the rest into a collapsed block."""
+    head, divider, rest = reply.strip().partition("\n---\n")
+    if not divider:
+        head, _, rest = head.partition("\n\n")
+    head = head.strip()
+    lines = [line for line in rest.strip().splitlines() if line.strip()]
+    words = len(head.split()) + sum(len(line.split()) for line in lines)
+    if len(lines) <= _REPLY_MAX_VISIBLE_LINES and words <= _REPLY_MAX_VISIBLE_WORDS:
+        return reply
+    kept: list[str] = []
+    budget = _REPLY_MAX_VISIBLE_WORDS - len(head.split())
+    for line in lines:
+        if len(kept) == _REPLY_MAX_VISIBLE_LINES or len(line.split()) > budget:
+            break
+        kept.append(line)
+        budget -= len(line.split())
+    folded = lines[len(kept) :]
+    logger.warning(
+        "Reply for thread %s exceeded the reply shape (%d lines, %d words); folded %d line(s)",
+        thread_id,
+        len(lines),
+        words,
+        len(folded),
+    )
+    visible = head if not kept else f"{head}\n\n---\n\n" + "\n".join(kept)
+    return (
+        f"{visible}\n\n<details>\n<summary><strong>More detail</strong></summary>\n<br>\n\n"
+        + "\n".join(folded)
+        + "\n\n</details>"
+    )
+
+
+def _verification_section(verification: str | None) -> str:
+    """The verdict's lint/test results as a collapsed block: the reply stays short, the proof stays on the thread."""
+    text = (verification or "").strip()
+    if not text:
+        return ""
+    return f"\n\n<details>\n<summary><strong>How this was verified</strong></summary>\n<br>\n\n{text}\n\n</details>"
+
+
 def _deliver_side_effects(
     input: ResolveThreadsInput,
     report_id: str,
@@ -413,7 +471,7 @@ def _deliver_side_effects(
         if verified:
             _append_commit_artefact(input, report_id, branch, updated)
     if not updated.reply_posted:
-        body = updated.reply
+        body = _fold_overlong_reply(_normalize_reply_divider(updated.reply), thread_id=updated.thread_id)
         if updated.outcome == ThreadOutcome.FIXED.value and updated.commit_sha:
             if updated.commit_restricted:
                 body += (
@@ -429,6 +487,12 @@ def _deliver_side_effects(
                     "commit on the PR branch, so a human should verify the fix before trusting it. "
                     "The thread stays open."
                 )
+        body += _verification_section(updated.verification)
+        body, redacted = redact_secrets(body)
+        if redacted:
+            logger.warning(
+                "Redacted %d value(s) from the reply for thread %s before posting", redacted, updated.thread_id
+            )
         comment_id, comment_url = reply_to_thread(
             token=token, thread_id=updated.thread_id, body=body, installation_id=installation_id
         )

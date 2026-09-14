@@ -8,7 +8,6 @@ import {
   EmptyMedia,
   EmptyTitle,
   MenuLabel,
-  Spinner,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
@@ -27,6 +26,7 @@ import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayS
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { track } from "@posthog/ui/shell/analytics";
 import { Fragment, useCallback, useEffect, useMemo } from "react";
 import {
@@ -105,6 +105,10 @@ export function ActivityView() {
     [markTasksRead],
   );
   const markAllRead = useCallback(() => {
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "activity_mark_all_read",
+      surface: "activity",
+    });
     markTasksRead(activityReadPayload(unreadItems));
   }, [markTasksRead, unreadItems]);
   useEffect(() => {
@@ -122,7 +126,13 @@ export function ActivityView() {
         variant="outline"
         loading={taskActivity.isFetchingNextPage}
         disabled={taskActivity.isFetchingNextPage}
-        onClick={() => void taskActivity.fetchNextPage()}
+        onClick={() => {
+          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+            action_type: "activity_load_more",
+            surface: "activity",
+          });
+          void taskActivity.fetchNextPage();
+        }}
       >
         Load more
       </Button>
@@ -133,9 +143,7 @@ export function ActivityView() {
   // the layout's naming ("spaces" vs "channels").
   const feed =
     isLoading && feedItems.length === 0 ? (
-      <div className="flex justify-center py-16">
-        <Spinner />
-      </div>
+      <LoadingState className="py-16" />
     ) : feedItems.length === 0 ? (
       <>
         <Empty>
@@ -208,7 +216,7 @@ export function ActivityView() {
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <ActivityUnreadsToggle />
+            <ActivityUnreadsToggle surface="activity" />
             <ActivityActionsMenu
               loadedUnreadCount={unreadItems.length}
               totalUnreadCount={unreadCount}

@@ -3,6 +3,12 @@ import { z } from 'zod'
 
 export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'failed' | 'canceled'
 
+// SMALLINT ceiling. Dequeue bumps the counter while claiming a batch, so one saturated row aborts the claim for every job in it.
+export const CYCLOTRON_COUNTER_MAX = 32767
+
+// Past this a job is in a retry loop it will not leave on its own. Set above normal work: live p99 is ~5k and the highest row ~19.5k.
+export const CYCLOTRON_TRANSITION_CHURN_THRESHOLD = 20000
+
 export type CyclotronV2PoolConfig = {
     dbUrl: string
     maxConnections?: number

@@ -90,6 +90,7 @@ from posthog.hogql.database.schema.experiment_exposures_preaggregated import Exp
 from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
     ExperimentMetricEventsPreaggregatedTable,
 )
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -115,7 +116,6 @@ from posthog.hogql.database.schema.marketing_costs_precomputed import MarketingC
 from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
 from posthog.hogql.database.schema.metrics import (
     MetricAttributesTable,
-    MetricSamplesTable,
     MetricSeriesTable,
     MetricsKafkaMetricsTable,
     MetricsTable,
@@ -151,6 +151,12 @@ from posthog.hogql.database.schema.web_stats_frustration_preaggregated import We
 from posthog.hogql.database.schema.web_stats_paths_preaggregated import WebStatsPathsPreaggregatedTable
 from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreaggregatedTable
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
+from posthog.hogql.database.sources_cache import (
+    SOURCES_CACHE_EVENTS,
+    SourcesCacheKey,
+    get_or_fetch_sources,
+    modifiers_fingerprint,
+)
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
 from posthog.hogql.editor_assist_metrics import HOGQL_DATABASE_BUILD_DURATION_SECONDS, HOGQL_DATABASE_BUILD_TOTAL
@@ -232,6 +238,8 @@ class HogQLDatabaseSources:
     is_hogql_warehouse_access_control_enabled: bool
     is_data_quality_enabled: bool
     is_billing_usage_records_enabled: bool
+    # Not the flag's value: a direct-connection catalog excludes the table whatever the org has.
+    include_flag_evaluations_table: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
     direct_connection_metadata: dict[str, Any] | None
@@ -251,6 +259,41 @@ class HogQLDatabaseSources:
     # synced S3 copies, so the build derives virtual DirectSQLTables from these schema rows instead.
     virtual_source: Optional[ExternalDataSource] = None
     virtual_schemas: list[ExternalDataSchema] = dataclasses.field(default_factory=list)
+
+    def copy_for_request(
+        self,
+        team: Team,
+        user: Optional[User | SyntheticUser | SharedLinkUser],
+        *,
+        user_access_control: Optional[UserAccessControl],
+        denied_system_table_names: set[str],
+    ) -> HogQLDatabaseSources:
+        """A copy safe to hand out from the sources cache: the request's own team, user, and
+        freshly computed access-control decision, a private modifiers copy, and fresh top-level
+        containers so an in-place mutation downstream cannot leak into other requests. The
+        contained ORM rows stay shared — the build reads them only. Revenue views are the
+        exception: they are pre-built table objects the build installs directly and then mutates
+        (saved-expression fields land in their `fields` dicts), so each request gets deep copies."""
+        return dataclasses.replace(
+            self,
+            team=team,
+            user=user,
+            user_access_control=user_access_control,
+            denied_system_table_names=denied_system_table_names,
+            modifiers=self.modifiers.model_copy(deep=True),
+            direct_connection_metadata=(
+                dict(self.direct_connection_metadata) if self.direct_connection_metadata is not None else None
+            ),
+            group_types=list(self.group_types),
+            saved_queries=list(self.saved_queries),
+            endpoint_saved_queries=list(self.endpoint_saved_queries),
+            revenue_views=[view.model_copy(deep=True) for view in self.revenue_views],
+            warehouse_tables=list(self.warehouse_tables),
+            data_warehouse_joins=list(self.data_warehouse_joins),
+            data_warehouse_expressions=list(self.data_warehouse_expressions),
+            event_modifier_saved_queries=dict(self.event_modifier_saved_queries),
+            virtual_schemas=list(self.virtual_schemas),
+        )
 
 
 type DatabaseSchemaTable = (
@@ -361,6 +404,7 @@ _CATALOG_PICKLE_MODULE_PREFIXES = ("posthog.hogql.",)
 _CATALOG_PICKLE_MODULES = frozenset(
     {
         "posthog.clickhouse.workload",
+        "products.customer_analytics.backend.facade.customer_tasks_hogql",
         "products.customer_analytics.backend.facade.hogql",
     }
 )
@@ -423,6 +467,9 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     # Add new tables here
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
+                    # Pruned per org in _build_from_sources; see is_flag_evaluations_table_enabled.
+                    # The flag check must stay out of this cached, process-global tree.
+                    "flag_evaluations": TableNode(name="flag_evaluations", table=FlagEvaluationsTable()),
                     "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
                     "session_replay_features": TableNode(
@@ -433,7 +480,6 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     ),
                     "billing_usage_records": TableNode(name="billing_usage_records", table=BillingUsageRecordsTable()),
                     "metrics": TableNode(name="metrics", table=MetricsTable()),
-                    "metric_samples": TableNode(name="metric_samples", table=MetricSamplesTable()),
                     "metric_series": TableNode(name="metric_series", table=MetricSeriesTable()),
                     "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
                     "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
@@ -1393,6 +1439,7 @@ class Database(BaseModel):
         connection_id: str | None = None,
         bypass_warehouse_access_control: bool = False,
         build_postgres_foreign_keys: bool = True,
+        use_cached_sources: bool = False,
         trigger: str = "direct",
         allowed_system_tables: Collection[str] | None = None,
     ) -> Database:
@@ -1400,22 +1447,86 @@ class Database(BaseModel):
             timings = HogQLTimings()
 
         HOGQL_DATABASE_BUILD_TOTAL.labels(trigger=trigger).inc()
-        with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="fetch_sources").time():
-            sources = Database._fetch_sources(
-                team_id,
+
+        def fetch_fresh() -> HogQLDatabaseSources:
+            with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="fetch_sources").time():
+                return Database._fetch_sources(
+                    team_id,
+                    team=team,
+                    user=user,
+                    user_access_control=user_access_control,
+                    modifiers=modifiers,
+                    timings=timings,
+                    connection_id=connection_id,
+                    bypass_warehouse_access_control=bypass_warehouse_access_control,
+                    allowed_system_tables=allowed_system_tables,
+                )
+
+        cache_key = None
+        if use_cached_sources:
+            cache_key = Database._sources_cache_key(
                 team=team,
                 user=user,
                 user_access_control=user_access_control,
                 modifiers=modifiers,
-                timings=timings,
                 connection_id=connection_id,
                 bypass_warehouse_access_control=bypass_warehouse_access_control,
                 allowed_system_tables=allowed_system_tables,
             )
+            if cache_key is None:
+                SOURCES_CACHE_EVENTS.labels(result="bypass").inc()
+
+        if cache_key is None:
+            sources = fetch_fresh()
+        else:
+            cached_sources = get_or_fetch_sources(cache_key, fetch_fresh)
+            # Entries are shared across users; the access-control decision is recomputed per
+            # request so a permission change applies immediately, never after the TTL.
+            fresh_access_control, fresh_denied = _compute_system_table_access_decision(cast("Team", team), user)
+            sources = cached_sources.copy_for_request(
+                cast("Team", team),
+                user,
+                user_access_control=fresh_access_control,
+                denied_system_table_names=fresh_denied,
+            )
+
         with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="build_from_sources").time():
             return Database._build_from_sources(
                 sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
             )
+
+    @staticmethod
+    def _sources_cache_key(
+        *,
+        team: Optional[Team],
+        user: Optional[User | SyntheticUser | SharedLinkUser],
+        user_access_control: Optional[UserAccessControl],
+        modifiers: HogQLQueryModifiers | None,
+        connection_id: str | None,
+        bypass_warehouse_access_control: bool,
+        allowed_system_tables: Collection[str] | None,
+    ) -> SourcesCacheKey | None:
+        """The cache key for this build, or None when the build must fetch fresh sources.
+
+        The key is team-scoped: entries hold only team-level catalog rows, and the per-user
+        access-control decision is recomputed on every handout. Only real users (or no user)
+        hit the cache: SyntheticUser/SharedLinkUser carry request-specific access semantics.
+        A preloaded user_access_control or an allowed_system_tables override is likewise
+        per-request state, so those bypass too.
+        """
+        from posthog.models.user import User  # noqa: PLC0415 — keeps the Django ORM off this module's import path
+
+        if team is None or user_access_control is not None or allowed_system_tables:
+            return None
+        if user is not None and not isinstance(user, User):
+            return None
+        normalized_modifiers = create_default_modifiers_for_team(team, modifiers)
+        return SourcesCacheKey(
+            team_id=team.pk,
+            connection_id=connection_id,
+            modifiers_fingerprint=modifiers_fingerprint(normalized_modifiers),
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
+        )
 
     @staticmethod
     def create_for_posthog_tables(
@@ -1446,6 +1557,9 @@ class Database(BaseModel):
             direct_connection_metadata=None,
             user_access_control=None,
             denied_system_table_names=set(_scoped_system_tables()) | set(_system_table_required_features()),
+            # Resolving the org gate needs a feature-flag check, which is exactly the I/O this path
+            # exists to avoid, so the table is pruned here as the other gated tables are.
+            include_flag_evaluations_table=False,
             group_types=[],
             saved_queries=[],
             endpoint_saved_queries=[],
@@ -1532,8 +1646,11 @@ class Database(BaseModel):
 
             # Function-local + facade-only: keeps the products off the django.setup() path.
             from products.data_quality.backend.facade.flags import is_data_quality_checks_enabled  # noqa: PLC0415
+            from products.feature_flags.backend.facade.flags import is_flag_evaluations_table_enabled  # noqa: PLC0415
 
             data_quality_enabled = is_data_quality_checks_enabled(team)
+            # A direct-connection catalog has no "posthog" node to hold the table.
+            include_flag_evaluations_table = not is_direct_query and is_flag_evaluations_table_enabled(team)
 
         with timings.measure("database", emit_span=True):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
@@ -1775,6 +1892,7 @@ class Database(BaseModel):
             is_data_quality_enabled=data_quality_enabled,
             is_billing_usage_records_enabled="*" in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS
             or team.organization_id in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS,
+            include_flag_evaluations_table=include_flag_evaluations_table,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
@@ -1847,6 +1965,14 @@ class Database(BaseModel):
                 posthog_node = database.tables.children.get("posthog")
                 if posthog_node is not None:
                     posthog_node.children.pop("billing_usage_records", None)
+
+        # Removing the node, rather than denying the table at query time, is what keeps an org that
+        # lacks the flag from learning it exists: serialize(), information_schema and get_table()
+        # all read this tree. Must run before apply_schema_scope(), which snapshots the table names.
+        # The "posthog" node is absent on a direct-connection catalog.
+        if not sources.include_flag_evaluations_table:
+            if posthog_node := database.tables.children.get("posthog"):
+                posthog_node.children.pop("flag_evaluations", None)
 
         with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():

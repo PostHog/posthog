@@ -68,7 +68,7 @@ def prepare_executable_query(saved_query: DataWarehouseSavedQuery) -> None:
     Called by the data-modeling Temporal workflow before each materialization run,
     so query-printer changes and bucket overrides are always reflected.
     """
-    version = saved_query.endpoint_versions.first()
+    version = EndpointVersion.objects.filter(saved_query=saved_query).first()
     if version is None:
         raise OrphanedEndpointSavedQueryError(
             f"Saved query {saved_query.id} ({saved_query.name}) has no linked EndpointVersion"
@@ -272,7 +272,9 @@ class EndpointMaterializationService:
             # trigger_immediate_run mirrors that on v2: first run only for a newly created saved
             # query (deferred to on_commit, so it sees the version link above).
             try:
-                saved_query.schedule_materialization(trigger_immediate_run=newly_materialized)
+                saved_query.schedule_materialization(
+                    trigger_immediate_run=newly_materialized, triggered_by_id=self.user.pk
+                )
             except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
                 # The chosen data freshness can't be honored (e.g. finer than an upstream import
                 # delivers) — a request problem, not a server one.
@@ -308,7 +310,7 @@ class EndpointMaterializationService:
             )
 
         is_foreign = existing.origin != DataWarehouseSavedQuery.Origin.ENDPOINT or (
-            existing.endpoint_versions.exclude(pk=version.pk).exists()
+            EndpointVersion.objects.filter(saved_query=existing).exclude(pk=version.pk).exists()
         )
         if is_foreign:
             raise ValidationError(

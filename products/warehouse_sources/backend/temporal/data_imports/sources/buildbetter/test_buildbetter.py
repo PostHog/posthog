@@ -193,7 +193,149 @@ class TestMakePaginatedRequest:
                     )
                 )
 
-    def test_incremental_filter_passes_where_clause(self) -> None:
+    @parameterized.expand(
+        [
+            ("top_level", "interviews", "updated_at", "updated_at"),
+            # A nested table's rows carry the parent timestamp under a prefixed column, but the
+            # filter has to name the field the parent query knows
+            ("nested_interview", "interview_attendees", "interview_updated_at", "updated_at"),
+            ("nested_extraction", "extraction_topics", "extraction_created_at", "created_at"),
+        ]
+    )
+    def test_incremental_filter_passes_where_clause(
+        self, _name: str, endpoint_name: str, incremental_field: str, expected_filter_field: str
+    ) -> None:
+        manager = _make_manager(can_resume=False)
+        logger = MagicMock()
+        query_name = BUILDBETTER_ENDPOINTS[endpoint_name].graphql_query_name
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session"
+        ) as session_cls:
+            session = session_cls.return_value
+            session.post.return_value = _make_response({"data": {query_name: []}})
+
+            list(
+                _make_paginated_request(
+                    api_key="key",
+                    endpoint_name=endpoint_name,
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    incremental_field=incremental_field,
+                    incremental_field_last_value="2026-01-01",
+                )
+            )
+
+        call = session.post.call_args_list[0]
+        assert call.kwargs["json"]["variables"]["where"] == {expected_filter_field: {"_gt": "2026-01-01"}}
+
+
+class TestNestedEndpoints:
+    @parameterized.expand(
+        [
+            (
+                "interview_attendees",
+                "interview_attendees",
+                {
+                    "interview": [
+                        {
+                            "id": 1,
+                            "created_at": "2026-01-01",
+                            "updated_at": "2026-01-02",
+                            "attendees": [
+                                {"id": 10, "speaker": "Speaker 1", "person": {"id": 100, "email": "a@example.com"}},
+                                {"id": 11, "speaker": "Speaker 2", "person": None},
+                            ],
+                        }
+                    ]
+                },
+                [
+                    {
+                        "interview_id": 1,
+                        "interview_created_at": "2026-01-01",
+                        "interview_updated_at": "2026-01-02",
+                        "id": 10,
+                        "speaker": "Speaker 1",
+                        "person": {"id": 100, "email": "a@example.com"},
+                    },
+                    {
+                        "interview_id": 1,
+                        "interview_created_at": "2026-01-01",
+                        "interview_updated_at": "2026-01-02",
+                        "id": 11,
+                        "speaker": "Speaker 2",
+                        "person": None,
+                    },
+                ],
+            ),
+            (
+                "interview_sentences",
+                "interview_sentences",
+                {
+                    "interview": [
+                        {
+                            "id": 2,
+                            "created_at": "2026-01-01",
+                            "updated_at": "2026-01-02",
+                            "sentences": [
+                                {"text": "First", "speaker": "Speaker 1", "start_sec": 0, "end_sec": 2},
+                                {"text": "Second", "speaker": "Speaker 2", "start_sec": 2, "end_sec": 4},
+                            ],
+                        }
+                    ]
+                },
+                [
+                    {
+                        "interview_id": 2,
+                        "interview_created_at": "2026-01-01",
+                        "interview_updated_at": "2026-01-02",
+                        "text": "First",
+                        "speaker": "Speaker 1",
+                        "start_sec": 0,
+                        "end_sec": 2,
+                        "sentence_index": 0,
+                    },
+                    {
+                        "interview_id": 2,
+                        "interview_created_at": "2026-01-01",
+                        "interview_updated_at": "2026-01-02",
+                        "text": "Second",
+                        "speaker": "Speaker 2",
+                        "start_sec": 2,
+                        "end_sec": 4,
+                        "sentence_index": 1,
+                    },
+                ],
+            ),
+            (
+                "extraction_topics",
+                "extraction_topics",
+                {
+                    "extraction": [
+                        {
+                            "id": 3,
+                            "created_at": "2026-01-03",
+                            "topics": [{"topic": {"id": 7, "text": "Pricing"}}],
+                        },
+                        {"id": 4, "created_at": "2026-01-04", "topics": []},
+                        # A topic reference the API resolves to nothing has no key columns
+                        {"id": 5, "created_at": "2026-01-05", "topics": [{"topic": None}]},
+                    ]
+                },
+                [
+                    {
+                        "extraction_id": 3,
+                        "extraction_created_at": "2026-01-03",
+                        "topic_id": 7,
+                        "topic_text": "Pricing",
+                    },
+                ],
+            ),
+        ]
+    )
+    def test_flattens_nested_rows_with_parent_columns(
+        self, _name: str, endpoint_name: str, payload: dict, expected_rows: list[dict]
+    ) -> None:
         manager = _make_manager(can_resume=False)
         logger = MagicMock()
 
@@ -201,21 +343,78 @@ class TestMakePaginatedRequest:
             "products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session"
         ) as session_cls:
             session = session_cls.return_value
-            session.post.return_value = _make_response({"data": {"interview": []}})
+            session.post.return_value = _make_response({"data": payload})
 
-            list(
+            batches = list(
                 _make_paginated_request(
                     api_key="key",
-                    endpoint_name="interviews",
+                    endpoint_name=endpoint_name,
                     logger=logger,
                     resumable_source_manager=manager,
-                    incremental_field="updated_at",
-                    incremental_field_last_value="2026-01-01",
                 )
             )
 
-        call = session.post.call_args_list[0]
-        assert call.kwargs["json"]["variables"]["where"] == {"updated_at": {"_gt": "2026-01-01"}}
+        assert batches == [expected_rows]
+        # Every row has to carry its whole primary key, otherwise merges collapse or duplicate rows
+        for row in expected_rows:
+            assert all(key in row for key in BUILDBETTER_ENDPOINTS[endpoint_name].primary_keys)
+
+    def test_page_without_nested_rows_keeps_paginating(self) -> None:
+        page_size = BUILDBETTER_ENDPOINTS["interview_sentences"].page_size
+        empty_page = {
+            "data": {
+                "interview": [
+                    {"id": i, "created_at": "c", "updated_at": "u", "sentences": []} for i in range(page_size)
+                ]
+            }
+        }
+        tail_page = {
+            "data": {
+                "interview": [
+                    {
+                        "id": 99,
+                        "created_at": "c",
+                        "updated_at": "u",
+                        "sentences": [{"text": "Hello", "speaker": "Speaker 1", "start_sec": 0, "end_sec": 1}],
+                    }
+                ]
+            }
+        }
+
+        manager = _make_manager(can_resume=False)
+        logger = MagicMock()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session"
+        ) as session_cls:
+            session = session_cls.return_value
+            session.post.side_effect = [_make_response(empty_page), _make_response(tail_page)]
+
+            batches = list(
+                _make_paginated_request(
+                    api_key="key",
+                    endpoint_name="interview_sentences",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert session.post.call_count == 2
+        assert session.post.call_args_list[1].kwargs["json"]["variables"]["offset"] == page_size
+        assert batches == [
+            [
+                {
+                    "interview_id": 99,
+                    "interview_created_at": "c",
+                    "interview_updated_at": "u",
+                    "text": "Hello",
+                    "speaker": "Speaker 1",
+                    "start_sec": 0,
+                    "end_sec": 1,
+                    "sentence_index": 0,
+                }
+            ]
+        ]
 
 
 class TestBuildbetterSource:

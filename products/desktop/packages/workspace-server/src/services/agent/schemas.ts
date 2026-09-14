@@ -273,7 +273,7 @@ export type ClaudeSubscriptionStatus = z.infer<
 >;
 
 export const claudeAuthTerminalInput = z.object({
-  action: z.enum(["login", "logout"]),
+  action: z.enum(["login", "logout", "setup-token"]),
 });
 
 export const claudeAuthTerminalOutput = z.object({

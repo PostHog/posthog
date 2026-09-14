@@ -48,7 +48,7 @@ export function DashboardScenePanel(): JSX.Element | null {
         isSavingTags,
         isPinned,
         asDashboardTemplate,
-        effectiveDashboardVariableOverrides,
+        currentDashboardVariables,
         apiUrl,
         tiles,
     } = useValues(dashboardLogic)
@@ -144,7 +144,7 @@ export function DashboardScenePanel(): JSX.Element | null {
                                     dashboard: dashboard.id,
                                     context: {
                                         path: apiUrl(),
-                                        variables_override: effectiveDashboardVariableOverrides,
+                                        variables_override: currentDashboardVariables,
                                     },
                                     dataAttr: `${RESOURCE_TYPE}-export-png`,
                                 },

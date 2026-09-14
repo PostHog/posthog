@@ -25,8 +25,10 @@ from rest_framework.status import HTTP_202_ACCEPTED, HTTP_400_BAD_REQUEST
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.health_issue import HealthIssue
+from posthog.models.team import Team
 from posthog.permissions import is_service_auth
 from posthog.rate_limit import HealthIssueRefreshThrottle
 from posthog.utils import relative_date_parse
@@ -315,6 +317,50 @@ def _issue_counts(queryset: QuerySet) -> dict[str, Any]:
     return {"total": sum(by_severity.values()), "by_severity": by_severity, "by_kind": by_kind}
 
 
+def _report_triage_actions(
+    request: Request,
+    issue: HealthIssue,
+    team: Team,
+    *,
+    was_dismissed: bool,
+    was_snoozed: bool,
+) -> None:
+    """Capture each triage decision the caller made on an issue, after the write succeeded.
+
+    Several Health scenes and any API or MCP caller reach the same PATCH, so this is the one
+    place every snooze and dismiss passes through. `report_user_action` adds the caller's
+    access method, which keeps UI triage separable from automated triage.
+    """
+    properties = {"issue_kind": issue.kind, "issue_severity": issue.severity}
+
+    if "dismissed" in request.data and issue.dismissed != was_dismissed:
+        report_user_action(
+            request.user,
+            "health issue dismissed" if issue.dismissed else "health issue undismissed",
+            properties,
+            team=team,
+            request=request,
+        )
+
+    if "snoozed_until" in request.data:
+        if issue.snoozed_until is not None:
+            report_user_action(
+                request.user,
+                "health issue snoozed",
+                {
+                    **properties,
+                    # The requested duration ("7d", "30d", ...) says more about intent than the
+                    # absolute time it resolved to.
+                    "snooze_duration": request.data["snoozed_until"],
+                    "snoozed_until": issue.snoozed_until.isoformat(),
+                },
+                team=team,
+                request=request,
+            )
+        elif was_snoozed:
+            report_user_action(request.user, "health issue unsnoozed", properties, team=team, request=request)
+
+
 @extend_schema(extensions={"x-product": "health_issues"})
 @extend_schema_view(
     list=extend_schema(
@@ -383,9 +429,12 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
             raise serializers.ValidationError(dict.fromkeys(unknown_fields, "This field is read-only."))
 
         issue = self.get_object()
+        was_dismissed = issue.dismissed
+        was_snoozed = issue.snoozed_until is not None
         serializer = self.get_serializer(issue, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        _report_triage_actions(request, issue, self.team, was_dismissed=was_dismissed, was_snoozed=was_snoozed)
         return Response(serializer.data)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:

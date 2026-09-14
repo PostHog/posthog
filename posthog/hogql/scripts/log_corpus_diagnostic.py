@@ -103,7 +103,8 @@ _REDACTION_PASSES: list[tuple[str, str]] = [
     (r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+", "<jwt>"),
     (r"\b[sprk]k_(live|test)_[A-Za-z0-9]{10,}", "<stripe_key>"),
     (r"\b(AKIA|ASIA)[A-Z0-9]{16}\b", "<aws_key>"),
-    (r"\bgh[posru]_[A-Za-z0-9]{30,}", "<gh_token>"),
+    # `.`/`_`/`-` in the class: a `ghs_` installation token is `ghs_<app id>_<jwt>`.
+    (r"\bgh[posru]_[A-Za-z0-9._-]{30,}", "<gh_token>"),
     (r"\bgithub_pat_[A-Za-z0-9_]{20,}", "<gh_token>"),
     (r"\bxox[bpoars]-[A-Za-z0-9-]{10,}", "<slack_token>"),
     # IPv6 — 4+ colon-separated hex groups, so `HH:MM:SS` timestamps

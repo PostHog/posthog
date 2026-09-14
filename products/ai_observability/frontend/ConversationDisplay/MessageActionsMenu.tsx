@@ -5,9 +5,9 @@ import type { MutableRefObject } from 'react'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
+import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
