@@ -7205,6 +7205,7 @@ def warm_task_resume_sandbox(
         WarmSourceChanged,
     )
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        RunSource,
         get_pr_authorship_mode,
         get_provider_for_runtime_adapter,
         get_reasoning_effort_error,
@@ -7248,7 +7249,7 @@ def warm_task_resume_sandbox(
         return None
 
     previous_state = parse_run_state(previous_run.state)
-    if previous_state.claude_model_access == "own-subscription":
+    if previous_state.run_source == RunSource.AGENT or previous_state.claude_model_access == "own-subscription":
         return None
     resolved_runtime_adapter = runtime_adapter or previous_state.runtime_adapter
     resolved_model = model or previous_state.model

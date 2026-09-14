@@ -6445,27 +6445,51 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
         self.assertIsNotNone(run.completed_at)
 
+    @parameterized.expand(
+        [
+            (None, False, False, status.HTTP_200_OK),
+            ("manual", False, False, status.HTTP_200_OK),
+            ("agent", True, True, status.HTTP_200_OK),
+            ("agent", False, True, status.HTTP_403_FORBIDDEN),
+            ("agent", True, False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
     @patch("products.tasks.backend.presentation.views.api.tasks_facade.pi_cloud_runtime_enabled", return_value=True)
     @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
     @patch("products.tasks.backend.facade.streams.reset_task_run_stream", return_value=True)
-    def test_resume_in_cloud_starts_pi_task(self, mock_reset_stream, mock_resume, _mock_pi_enabled):
+    def test_resume_in_cloud_checks_agent_run_access(
+        self, run_source, flag_enabled, internal_team, expected_status, mock_reset_stream, mock_resume, _mock_pi_enabled
+    ):
+        self.mock_feature_flag.side_effect = lambda flag, *_args, **_kwargs: (
+            flag in {"tasks", "pi-harness"} or (flag == "tasks-mcp-agent-run-start" and flag_enabled)
+        )
         task = self.create_task(runtime=Task.Runtime.PI)
+        run_state = {"pr_authorship_mode": "bot"}
+        if run_source is not None:
+            run_state["run_source"] = run_source
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
             environment=TaskRun.Environment.CLOUD,
             status=TaskRun.Status.COMPLETED,
-            state={"pr_authorship_mode": "bot"},
+            state=run_state,
         )
 
-        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
+        with patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=internal_team):
+            response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, expected_status)
         run.refresh_from_db()
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
-        self.assertEqual(run.status, TaskRun.Status.QUEUED)
-        mock_reset_stream.assert_called_once_with(str(run.id), use_dedicated=False)
-        mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(run.status, TaskRun.Status.QUEUED)
+            mock_reset_stream.assert_called_once_with(str(run.id), use_dedicated=False)
+            mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
+        else:
+            self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+            self.assertEqual(run.state, run_state)
+            mock_reset_stream.assert_not_called()
+            mock_resume.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
     def test_resume_in_cloud_rejects_local_run(self, mock_resume):

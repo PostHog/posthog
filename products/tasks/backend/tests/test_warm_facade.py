@@ -1321,6 +1321,21 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
         # The replacement resumes from the original terminal run, not from the successor handed back.
         assert TaskRun.objects.get(id=second.run_id).state["resume_from_run_id"] == str(terminal.id)
 
+    def test_does_not_warm_an_agent_resume_source(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        terminal = self._terminal_run(task)
+        terminal.state = {**terminal.state, "run_source": "agent"}
+        terminal.save(update_fields=["state"])
+
+        assert self._warm_resume(task, terminal) is None
+        assert task.runs.count() == 1
+
     def test_does_not_warm_from_a_source_the_task_has_moved_past(self):
         # The relaxation above must not become a wildcard: a terminal run that is not a released
         # successor of the named source still means the task moved on.

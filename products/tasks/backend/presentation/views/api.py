@@ -3454,6 +3454,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self._ensure_task_accessible()
         if tasks_facade.get_task_run_detail(pk, task_id, self.team_id) is None:
             raise NotFound()
+        if tasks_facade.get_task_run_source(pk, task_id, self.team_id) == RunSource.AGENT and not _agent_run_enabled(
+            request, self.team
+        ):
+            return _agent_run_disabled_response()
         if tasks_facade.task_runtime(
             task_id, self.team_id, self._user_id(), for_control=True
         ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
