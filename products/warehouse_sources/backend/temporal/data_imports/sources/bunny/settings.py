@@ -1,11 +1,13 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@frozen
 class BunnyParentConfig:
     """A list endpoint whose rows a child endpoint is reached once per."""
 
@@ -14,7 +16,7 @@ class BunnyParentConfig:
     id_column: str
 
 
-@dataclass
+@frozen
 class BunnyEndpointConfig:
     name: str
     path: str

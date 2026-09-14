@@ -5,6 +5,8 @@ from typing import Any, Optional
 
 from requests import Response
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import (
     BUNNY_ENDPOINTS,
     DATE_FROM_PARAM,
@@ -50,6 +52,16 @@ class BunnyResumeConfig:
     # Next page to fetch (1-indexed). Page-number pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `Id`.
     next_page: int = 1
+
+
+@frozen
+class BunnyEndpointCall:
+    """One request an endpoint has to make: the client that carries the right credential for it,
+    the resolved path, and the parent columns stamped onto each row it returns."""
+
+    client: RESTClient
+    path: str
+    injected: dict[str, Any]
 
 
 class BunnyHasMoreItemsPaginator(PageNumberPaginator):
@@ -147,16 +159,16 @@ def _iter_parent_rows(client: RESTClient, parent: BunnyEndpointConfig) -> Iterat
         yield from page
 
 
-def _request_targets(access_key: str, config: BunnyEndpointConfig) -> Iterator[tuple[RESTClient, str, dict[str, Any]]]:
-    """Every (client, path, injected columns) this endpoint has to be called with.
+def _endpoint_calls(access_key: str, config: BunnyEndpointConfig) -> Iterator[BunnyEndpointCall]:
+    """Every call this endpoint has to make.
 
-    One target for a top-level endpoint, one per parent row for a fan-out child — which on the
+    One call for a top-level endpoint, one per parent row for a fan-out child — which on the
     Stream API also means a client holding that library's own key. A library with no usable key
     is skipped rather than failing the whole table.
     """
     core_client = _rest_client(access_key)
     if config.parent is None:
-        yield core_client, config.path, {}
+        yield BunnyEndpointCall(client=core_client, path=config.path, injected={})
         return
 
     for parent_row in _iter_parent_rows(core_client, BUNNY_ENDPOINTS[config.parent.endpoint]):
@@ -166,11 +178,12 @@ def _request_targets(access_key: str, config: BunnyEndpointConfig) -> Iterator[t
         injected = {config.parent.id_column: parent_id}
         path = config.path.format(id=parent_id)
         if not config.stream_api:
-            yield core_client, path, injected
+            yield BunnyEndpointCall(client=core_client, path=path, injected=injected)
             continue
         stream_key = _stream_access_key(parent_row)
         if stream_key is not None:
-            yield _rest_client(stream_key, BUNNY_STREAM_BASE_URL), path, injected
+            client = _rest_client(stream_key, BUNNY_STREAM_BASE_URL)
+            yield BunnyEndpointCall(client=client, path=path, injected=injected)
 
 
 def _chart_rows(
@@ -203,25 +216,42 @@ def _chart_pages(
     access_key: str, config: BunnyEndpointConfig, timestamp_column: str, date_from: Optional[str]
 ) -> Iterator[list[dict[str, Any]]]:
     charts = config.charts or {}
-    for client, path, injected in _request_targets(access_key, config):
-        for page in client.paginate(path, params=_request_params(config, date_from), paginator=_paginator_for(config)):
+    for call in _endpoint_calls(access_key, config):
+        params = _request_params(config, date_from)
+        for page in call.client.paginate(call.path, params=params, paginator=_paginator_for(config)):
             for body in page:
-                rows = _chart_rows(body, charts, timestamp_column, injected)
+                rows = _chart_rows(body, charts, timestamp_column, call.injected)
                 if rows:
                     yield rows
 
 
 def _fanout_list_pages(access_key: str, config: BunnyEndpointConfig) -> Iterator[list[dict[str, Any]]]:
-    for client, path, injected in _request_targets(access_key, config):
-        for page in client.paginate(
-            path,
+    for call in _endpoint_calls(access_key, config):
+        for page in call.client.paginate(
+            call.path,
             params=_request_params(config),
             data_selector=config.items_selector,
             data_selector_required=True,
             paginator=_paginator_for(config),
         ):
             if page:
-                yield [{**injected, **row} for row in page]
+                yield [{**call.injected, **row} for row in page]
+
+
+def _resume_page(manager: ResumableSourceManager[BunnyResumeConfig]) -> Optional[dict[str, Any]]:
+    """The paginator state a retried attempt picks up from, or None to start at the first page."""
+    if not manager.can_resume():
+        return None
+    resume = manager.load_state()
+    return None if resume is None else {"page": resume.next_page}
+
+
+def _save_checkpoint(manager: ResumableSourceManager[BunnyResumeConfig], state: Optional[dict[str, Any]]) -> None:
+    # Persist only while more pages remain; saved AFTER a page is yielded so a crash re-fetches
+    # from the next page (already-yielded pages are persisted) and merge dedupes the re-pulled
+    # page on the primary key.
+    if state and state.get("page") is not None:
+        manager.save_state(BunnyResumeConfig(next_page=int(state["page"])))
 
 
 def _source_response(
@@ -283,26 +313,13 @@ def bunny_source(
         ],
     }
 
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None:
-            initial_paginator_state = {"page": resume.next_page}
-
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only while more pages remain; saved AFTER a page is yielded so a crash
-        # re-fetches from the next page (already-yielded pages are persisted) and merge
-        # dedupes the re-pulled page on the primary key.
-        if state and state.get("page") is not None:
-            resumable_source_manager.save_state(BunnyResumeConfig(next_page=int(state["page"])))
-
     resource = rest_api_resource(
         rest_config,
         team_id,
         job_id,
         None,  # the list endpoints are full refresh — no incremental cursor
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
+        resume_hook=lambda state: _save_checkpoint(resumable_source_manager, state),
+        initial_paginator_state=_resume_page(resumable_source_manager),
     )
 
     return _source_response(config, lambda: resource, column_hints=resource.column_hints)
