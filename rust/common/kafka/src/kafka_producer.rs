@@ -1,5 +1,6 @@
 use std::io::Write;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::config::KafkaConfig;
 use common_liveness::SyncLivenessReporter;
@@ -146,6 +147,11 @@ fn build_client_config(config: &KafkaConfig) -> ClientConfig {
     client_config
 }
 
+/// First backoff between broker pings, doubled on each further failure.
+const CONNECT_RETRY_BASE: Duration = Duration::from_secs(1);
+/// Ceiling on the backoff between broker pings.
+const CONNECT_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(15);
+
 /// Ping the Kafka brokers by fetching metadata, so a broker that's unreachable
 /// at startup surfaces as an error here rather than silently later.
 fn ping_brokers<C, P>(producer: &P) -> Result<(), KafkaError>
@@ -164,10 +170,7 @@ where
             );
             Ok(())
         }
-        Err(error) => {
-            error!("Failed to fetch metadata from Kafka brokers: {:?}", error);
-            Err(error)
-        }
+        Err(error) => Err(error),
     }
 }
 
@@ -178,14 +181,60 @@ pub async fn create_kafka_producer<L>(
 where
     L: SyncLivenessReporter + Clone + 'static,
 {
+    create_kafka_producer_with_retry(config, liveness, Duration::ZERO).await
+}
+
+/// Same as [`create_kafka_producer`], but keeps retrying the startup broker
+/// ping with capped exponential backoff until `connect_retry_budget` is spent.
+///
+/// A cluster that is unreachable at boot is usually transient, and failing
+/// construction turns it into a process exit: the pod restarts, pings again,
+/// and a blip lasting a minute becomes a restart storm that reconnects slower
+/// than the cluster recovers. Retrying in place holds the process through the
+/// blip and picks the work up as soon as the brokers answer. The budget keeps
+/// a genuine misconfiguration loud — once it is spent the error is returned
+/// exactly as before, so a bad `bootstrap.servers` still fails the pod.
+///
+/// The client is built once and reused across pings: librdkafka reconnects on
+/// its own schedule, so a later ping on the same client is the cheap retry.
+pub async fn create_kafka_producer_with_retry<L>(
+    config: &KafkaConfig,
+    liveness: L,
+    connect_retry_budget: Duration,
+) -> Result<FutureProducer<KafkaContext>, KafkaError>
+where
+    L: SyncLivenessReporter + Clone + 'static,
+{
     let client_config = build_client_config(config);
     debug!("rdkafka configuration: {:?}", client_config);
     let api: FutureProducer<KafkaContext> =
         client_config.create_with_context(KafkaContext::new(liveness))?;
 
-    ping_brokers(&api)?;
-
-    Ok(api)
+    let deadline = Instant::now() + connect_retry_budget;
+    let mut backoff = CONNECT_RETRY_BASE;
+    loop {
+        // The metadata fetch blocks its thread until the brokers answer or the
+        // timeout expires. Keep it off the runtime's worker threads: a caller
+        // with a single worker has to keep serving its probes while this loop
+        // waits out the outage.
+        let ping = api.clone();
+        let ping = tokio::task::spawn_blocking(move || ping_brokers(&ping));
+        let error = match ping.await.expect("broker ping task panicked") {
+            Ok(()) => return Ok(api),
+            Err(error) => error,
+        };
+        if Instant::now() >= deadline {
+            error!("Failed to fetch metadata from Kafka brokers: {:?}", error);
+            return Err(error);
+        }
+        warn!(
+            error = ?error,
+            retry_in_secs = backoff.as_secs(),
+            "Failed to fetch metadata from Kafka brokers; retrying"
+        );
+        tokio::time::sleep(backoff).await;
+        backoff = (backoff * 2).min(CONNECT_RETRY_MAX_BACKOFF);
+    }
 }
 
 /// A producer context that reports liveness (like [`KafkaContext`]) and, for
@@ -257,7 +306,10 @@ where
 {
     let producer = create_threaded_kafka_producer_no_ping(config, liveness, on_delivery)?;
 
-    ping_brokers(&producer)?;
+    if let Err(error) = ping_brokers(&producer) {
+        error!("Failed to fetch metadata from Kafka brokers: {:?}", error);
+        return Err(error);
+    }
 
     Ok(producer)
 }

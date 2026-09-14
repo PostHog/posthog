@@ -4,7 +4,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::{
-    create_kafka_producer, send_keyed_payloads_to_kafka_with_encoding, EnvelopeEncoding,
+    create_kafka_producer_with_retry, send_keyed_payloads_to_kafka_with_encoding, EnvelopeEncoding,
     KafkaContext, KafkaProduceError,
 };
 use rdkafka::error::KafkaError;
@@ -82,11 +82,13 @@ impl AggregatedProducer {
         produce_timeout: Duration,
         encoding: EnvelopeEncoding,
         format: WireFormat,
+        connect_retry_budget: Duration,
     ) -> Result<Self, KafkaError>
     where
         L: common_liveness::SyncLivenessReporter + Clone + 'static,
     {
-        let inner = create_kafka_producer(kafka_config, liveness).await?;
+        let inner =
+            create_kafka_producer_with_retry(kafka_config, liveness, connect_retry_budget).await?;
         Ok(Self {
             inner,
             output_topic,
