@@ -653,6 +653,10 @@ def _describe_vendor_credentials(marker: pytest.Mark) -> str:
 
 
 def _gate_vendor_credential_tests(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Deselect vendor credential tests in CI, where they can only skip and a skip with no recorded
+    pass reads as a broken test. Locally they stay collected, because a developer may export the
+    credentials, and skip with a reason naming what is missing.
+    """
     gated = [
         (item, marker)
         for item in items
@@ -660,11 +664,6 @@ def _gate_vendor_credential_tests(config: pytest.Config, items: list[pytest.Item
     ]
     if not gated:
         return
-    # CI never has vendor credentials, so a marked test there can only skip. A skipped test still
-    # lands in the junit report that Trunk flaky-test detection reads, and a test with no passes on
-    # record turns "broken" after a single setup-wide failure. Deselecting keeps it out of the report.
-    # Locally a developer may export the credentials, so the test stays collected and skips with a
-    # reason that names what is missing, which also tells them how to enable it.
     if is_ci():
         deselected = {id(item) for item, _ in gated}
         config.hook.pytest_deselected(items=[item for item, _ in gated])
