@@ -18,6 +18,7 @@ from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.security.llm_prompt_sanitization import sanitize_core_memory_text, sanitize_user_text
 
 from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription
+from products.exports.backend.temporal.subscriptions.ai_observability import generation_config, generation_properties
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     EVENT_SELECTION_PROMPT,
     EVENT_SELECTION_PROMPT_NAME,
@@ -433,16 +434,13 @@ def _llm_selected_events(
 ) -> list[str]:
     # The model picks relevant events from the project's vocabulary (vs lexical matching). Any failure
     # degrades to no picks rather than breaking generation — deterministic pins still survive.
-    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "event_selection"}
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
         timeout=_EVENT_SELECTION_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
         billable=True,
-        posthog_properties=posthog_properties,
+        posthog_properties=generation_properties(stage="event_selection", subscription_id=trace_correlation_id),
     ).with_structured_output(RelevantEvents, method="json_schema", include_raw=False)
 
     rendered_prompt = render_prompt(
@@ -451,7 +449,7 @@ def _llm_selected_events(
     )
 
     try:
-        result = llm.invoke([("system", rendered_prompt)])
+        result = llm.invoke([("system", rendered_prompt)], config=generation_config(team=team))
     except Exception:
         logger.warning("ai_subscription.event_selection_failed", team_id=team.id, exc_info=True)
         return []
@@ -629,16 +627,13 @@ def generate_query_plan(
 ) -> QueryPlan:
     # `user is None` is enforced at the public entry point (`generate_ai_report`)
     # which is the only caller path into here. Don't repeat the check.
-    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "plan"}
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
         timeout=_PLANNER_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
         billable=True,
-        posthog_properties=posthog_properties,
+        posthog_properties=generation_properties(stage="plan", subscription_id=trace_correlation_id),
     ).with_structured_output(QueryPlan, method="json_schema", include_raw=False)
 
     planner_prompt = prepend_hogql_query_writing_rules(
@@ -654,7 +649,7 @@ def generate_query_plan(
         },
     )
 
-    result = llm.invoke([("system", rendered_prompt)])
+    result = llm.invoke([("system", rendered_prompt)], config=generation_config(team=team))
     if not isinstance(result, QueryPlan):
         raise PromptRejectedError("Planner returned a malformed plan.")
     return result
