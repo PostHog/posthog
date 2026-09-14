@@ -344,7 +344,9 @@ export function parseNaturalLanguage(text: string, startsAt?: string | null): Sc
     }
     try {
         const rule = RRule.fromText(text)
-        if (!rule || rule.options.freq == null) {
+        // A frequency above HOURLY runs more often than once per hour, which the API
+        // rejects, so text such as "every minute" has no schedule the user can save.
+        if (!rule || rule.options.freq == null || rule.options.freq > RRule.HOURLY) {
             return null
         }
         const rruleStr = rule.toString().replace('RRULE:', '')

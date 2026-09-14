@@ -459,6 +459,10 @@ describe('rrule-helpers', () => {
             expect(result!.endCount).toBe(10)
         })
 
+        it.each(['every minute', 'every 5 minutes'])('returns null for "%s", which the API rejects', (text) => {
+            expect(parseNaturalLanguage(text)).toBeNull()
+        })
+
         it('returns null for invalid input', () => {
             expect(parseNaturalLanguage('not a schedule')).toBeNull()
             expect(parseNaturalLanguage('')).toBeNull()
