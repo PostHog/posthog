@@ -443,11 +443,20 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
     ``custom_properties`` includes every team definition keyed by name, with the
     account's active value (scalar) or ``None`` when unset, so workflow result
     paths are deterministic regardless of whether the property has been set.
+
+    ``relationships`` lists active assignments to current members of the team's
+    organization, as the list route does, so a holder who left is not named here
+    while the ``ownership`` block withholds their email.
     """
     relationships: dict[str, list[dict]] = {}
     for relationship in (
         AccountRelationship.objects.for_team(account.team_id)
-        .filter(account=account, ended_at__isnull=True, user__isnull=False)
+        .filter(
+            account=account,
+            ended_at__isnull=True,
+            user__isnull=False,
+            user__organization_membership__organization_id=account.team.organization_id,
+        )
         .select_related("definition", "user")
         .order_by("definition__name", "user__email")
     ):

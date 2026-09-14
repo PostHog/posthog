@@ -248,6 +248,12 @@ class TestExternalAccountAPI(APIBaseTest):
             self.assertEqual(csm["holder"]["is_organization_member"], holder_kind != "outsider")
             self.assertEqual(csm["holder"]["is_active"], holder_kind != "inactive")
             self.assertEqual(csm["holder"]["email"], None if holder_kind == "outsider" else holder.email)
+        listed = (
+            {}
+            if holder is None or holder_kind == "outsider"
+            else {"CSM": [{"user_id": holder.id, "email": holder.email}]}
+        )
+        self.assertEqual(response.json()["relationships"], listed)
 
     def test_get_account_ownership_identity(self):
         with override_settings(CLOUD_DEPLOYMENT="US"):
