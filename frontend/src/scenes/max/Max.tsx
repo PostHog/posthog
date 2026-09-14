@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import React from 'react'
+import React, { Suspense } from 'react'
 
 import {
     IconArrowLeft,
@@ -10,12 +10,13 @@ import {
     IconShare,
     IconSidePanel,
 } from '@posthog/icons'
-import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -47,6 +48,12 @@ import { mainFocusUrl } from './mainFocusUrl'
 import { MaxLogicProps, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 import { SandboxComposerSurfaces, Thread } from './Thread'
+
+const ReportAiPanel = lazyWithRetry(() =>
+    import('products/signals/frontend/inbox/components/detail/ReportAiPanel').then((module) => ({
+        default: module.ReportAiPanel,
+    }))
+)
 
 export const scene: SceneExport = {
     component: Max,
@@ -122,11 +129,14 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     const { closeSidePanel } = useActions(sidePanelLogic)
 
     const { selectedTabOptions } = useValues(sidePanelStateLogic)
-    const isNewView = effectivePhaiView === 'new' || (!!sidePanel && selectedTabOptions === REPORT_AI_PANEL)
-    const headerBackDisabled = isNewView ? !panelCanGoBack : backButtonDisabled
+    const isNewView = effectivePhaiView === 'new'
+    const isReportChat = !!sidePanel && selectedTabOptions === REPORT_AI_PANEL
+    const isTaskView = isNewView || isReportChat
+    const headerBackDisabled = isTaskView ? !panelCanGoBack : backButtonDisabled
+    const headerTitle = isReportChat ? 'PostHog AI' : chatTitle || 'PostHog AI'
 
     const openAsMainFocusUrl = mainFocusUrl({
-        isNewView,
+        isNewView: isTaskView,
         activeCreation: panelActiveCreation,
         conversationId,
     })
@@ -136,7 +146,11 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     ) : (
         <BindLogic logic={maxLogic} props={logicProps}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                {isNewView ? (
+                {isReportChat ? (
+                    <Suspense fallback={<Spinner />}>
+                        <ReportAiPanel panelId={MAX_SIDE_PANEL_ID} />
+                    </Suspense>
+                ) : isNewView ? (
                     // Side panel only shows the new composer + thread viewer — the tasks list lives on /ai.
                     <PhaiSidePanelChat />
                 ) : conversationHistoryVisible ? (
@@ -188,10 +202,10 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
         <SidePanelPaneHeader className="transition-all duration-200" showCloseButton={false}>
             <div className="flex flex-1 min-w-0 overflow-hidden">
                 <div className="flex items-center flex-1 min-w-0">
-                    <AnimatedBackButton in={isNewView ? panelCanGoBack : !backButtonDisabled}>
+                    <AnimatedBackButton in={isTaskView ? panelCanGoBack : !backButtonDisabled}>
                         <ButtonPrimitive
                             iconOnly
-                            onClick={() => (isNewView ? panelGoBack() : goBack())}
+                            onClick={() => (isTaskView ? panelGoBack() : goBack())}
                             tooltip="Go back"
                             tooltipPlacement="bottom-end"
                             disabledReasons={headerBackDisabled ? { 'You are already at home': true } : undefined}
@@ -200,11 +214,11 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         </ButtonPrimitive>
                     </AnimatedBackButton>
 
-                    <Tooltip title={chatTitle || undefined} placement="bottom">
-                        <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-2">{chatTitle || 'PostHog AI'}</h3>
+                    <Tooltip title={headerTitle} placement="bottom">
+                        <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-2">{headerTitle}</h3>
                     </Tooltip>
                 </div>
-                {conversationId && !conversationHistoryVisible && !threadVisible && (
+                {!isReportChat && conversationId && !conversationHistoryVisible && !threadVisible && (
                     <LemonButton
                         size="small"
                         icon={<IconPlus />}
@@ -214,7 +228,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         tooltipPlacement="bottom"
                     />
                 )}
-                {conversationId && (
+                {!isReportChat && conversationId && (
                     <ButtonPrimitive
                         onClick={() => {
                             copyToClipboard(
@@ -231,7 +245,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                 )}
                 {/* The new view is the runner (always sandbox); legacy view only shows debug rows on a
                     sandbox conversation, so the menu stays hidden on LangGraph threads. */}
-                {(isNewView || conversation?.agent_runtime === 'sandbox') && <DebugLogsMenu variant="primitive" />}
+                {(isTaskView || conversation?.agent_runtime === 'sandbox') && <DebugLogsMenu variant="primitive" />}
                 <PhaiViewToggle variant="primitive" />
                 <Link
                     buttonProps={{
@@ -258,7 +272,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
             content must stay clamped to the panel height — without `min-h-0` its `min-height: auto`
             grows it to fit the whole thread and no scroller ever engages. The legacy view is the
             opposite: it relies on this container growing so the outer viewport scrolls it. */}
-            <SidePanelContentContainer contentClassName={cn('flex flex-col flex-1', isNewView && 'min-h-0')}>
+            <SidePanelContentContainer contentClassName={cn('flex flex-col flex-1', isTaskView && 'min-h-0')}>
                 {header}
                 {content}
             </SidePanelContentContainer>

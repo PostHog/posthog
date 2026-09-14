@@ -37,6 +37,13 @@ import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 const LENGTH_COUNTER_THRESHOLD = MAX_MESSAGE_LENGTH * 0.9
 
 interface QuestionInputProps {
+    submission?: {
+        onSend: (prompt: string) => void
+        loading: boolean
+        disabledReason?: string
+        dataAttr: string
+        context: ReactNode
+    }
     isSticky?: boolean
     placeholder?: string
     children?: ReactNode
@@ -140,6 +147,7 @@ function QueuedMessageItem({
 
 export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps>(function BaseQuestionInput(
     {
+        submission,
         isSticky,
         placeholder,
         children,
@@ -236,6 +244,14 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     }
 
     const submit = (prompt: string): void => {
+        if (submission) {
+            if (!submission.loading && !submission.disabledReason && prompt.trim()) {
+                debouncedSetQuestion.cancel()
+                setQuestion(prompt)
+                submission.onSend(prompt)
+            }
+            return
+        }
         // askMax reads the prompt arg directly and clears `question` afterwards, so drop any
         // pending debounce to stop it from re-populating the just-sent text.
         debouncedSetQuestion.cancel()
@@ -268,13 +284,17 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 
     // Mirrors maxThreadLogic's `submissionDisabledReason` selector, but using the local input
     // value so the submit guard stays correct while the debounced sync to kea is still pending.
-    const submissionDisabledReason = contextDisabledReason
-        ? contextDisabledReason
-        : !inputValue
-          ? 'I need some input first'
-          : isOverLengthLimit
-            ? MESSAGE_TOO_LONG
-            : queueDisabledReason
+    const submissionDisabledReason = submission?.loading
+        ? 'Wait for the task to start.'
+        : submission?.disabledReason
+          ? submission.disabledReason
+          : contextDisabledReason
+            ? contextDisabledReason
+            : !inputValue
+              ? 'I need some input first'
+              : isOverLengthLimit
+                ? MESSAGE_TOO_LONG
+                : queueDisabledReason
 
     // Update autocomplete visibility when the input changes
     useEffect(() => {
@@ -467,7 +487,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                 setEditingQueueId(nextMessageId)
                                             }
                                         }}
-                                        disabled={inputDisabled}
+                                        disabled={inputDisabled || submission?.loading}
                                         minRows={1}
                                         maxRows={10}
                                         className={cn(
@@ -496,7 +516,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                 handsFreeFlagEnabled ? 'items-end flex-wrap gap-1' : 'items-start'
                                             )}
                                         >
-                                            <ContextDisplay size={contextDisplaySize} />
+                                            {submission?.context ?? <ContextDisplay size={contextDisplaySize} />}
 
                                             <div
                                                 className={cn(
@@ -510,7 +530,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             </div>
                                         </div>
                                     ) : (
-                                        <ContextDisplay size={contextDisplaySize} />
+                                        (submission?.context ?? <ContextDisplay size={contextDisplaySize} />)
                                     )}
                                     {promptLength !== null && (
                                         <div
@@ -533,7 +553,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
                     >
-                        <HandsFreeButton panelId={maxPanelId} />
+                        {!submission && <HandsFreeButton panelId={maxPanelId} />}
                         {!handsFreeActive && (
                             <AIConsentPopoverWrapper
                                 placement="bottom-end"
@@ -549,7 +569,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 hidden={!threadLoading && !pendingPrompt}
                             >
                                 <LemonButton
-                                    data-attr={showStopButton ? 'max-stop-generation' : 'max-send-message'}
+                                    data-attr={
+                                        submission?.dataAttr ??
+                                        (showStopButton ? 'max-stop-generation' : 'max-send-message')
+                                    }
                                     type={(isThreadVisible && !hasQuestion) || showStopButton ? 'secondary' : 'primary'}
                                     onClick={() => {
                                         if (threadLoading) {
@@ -587,7 +610,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             </>
                                         )
                                     }
-                                    loading={threadLoading && !dataProcessingAccepted}
+                                    loading={submission?.loading || (threadLoading && !dataProcessingAccepted)}
                                     disabledReason={disabledReason}
                                     className={disabledReason ? 'opacity-[0.5]' : ''}
                                     size="small"

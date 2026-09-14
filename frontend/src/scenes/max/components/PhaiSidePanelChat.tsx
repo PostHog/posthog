@@ -1,25 +1,12 @@
-import { useMountedLogic, useValues } from 'kea'
-import { Suspense } from 'react'
-
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { lazyWithRetry } from 'lib/utils/retryImport'
-
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { useMountedLogic } from 'kea'
 
 import { SidePanelRunner } from 'products/posthog_ai/frontend/api/runner'
-import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 
 import { phaiSidePanelComposerSeedLogic } from '../phaiSidePanelComposerSeedLogic'
 
 // The client-side key for the embedded `taskTrackerSceneLogic` (and paired `runnerPanelLogic`) instance
 // this panel binds — stable so the panel keeps the same in-flight run across re-renders of its host.
 export const MAX_SIDE_PANEL_ID = 'max-side-panel'
-
-const ReportAiPanel = lazyWithRetry(() =>
-    import('products/signals/frontend/inbox/components/detail/ReportAiPanel').then((module) => ({
-        default: module.ReportAiPanel,
-    }))
-)
 
 /**
  * The new posthog_ai side-panel experience: task-based, built on the `products/posthog_ai/frontend` runner
@@ -31,16 +18,6 @@ const ReportAiPanel = lazyWithRetry(() =>
 export function PhaiSidePanelChat(): JSX.Element {
     // Bridges the legacy `initialMaxPrompt` side-panel option into this panel's new composer (see the logic).
     useMountedLogic(phaiSidePanelComposerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }))
-    const { selectedTabOptions } = useValues(sidePanelStateLogic)
-
-    if (selectedTabOptions === REPORT_AI_PANEL) {
-        return (
-            <Suspense fallback={<Spinner />}>
-                <ReportAiPanel panelId={MAX_SIDE_PANEL_ID} />
-            </Suspense>
-        )
-    }
-
     return (
         // `flex-1 min-h-0`, NOT `h-full`: the side panel hosts this inside a ScrollArea whose content
         // grows with its children (`min-height: auto`), so a percentage height resolves against the
