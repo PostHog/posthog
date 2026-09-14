@@ -92,6 +92,21 @@ _PUSH_INTEGRATION_KINDS = ("firebase", "apns")
 
 VALID_PLATFORMS = ("android", "ios")
 
+# Shipped SDKs can omit `platform`: posthog-android before the @SerializedName fix loses the field to
+# R8 in minified release builds. The field is metadata, because _find_integrations resolves the
+# provider from app_id alone, so a request that identifies its SDK carries the platform implicitly.
+# Infer it instead of rejecting, or those devices never register and push silently does not work.
+_SDK_NAME_PLATFORMS = {
+    "posthog-android": "android",
+    "posthog-ios": "ios",
+}
+
+PUSH_SUBSCRIPTION_PLATFORM_INFERRED_COUNTER = Counter(
+    "push_subscription_platform_inferred",
+    "Registrations whose absent platform was inferred from the SDK user agent.",
+    labelnames=["sdk_name", "platform"],
+)
+
 # A device registration payload is a handful of short string fields (distinct_id, device_token,
 # platform, app_id, api_key) — well under 1 KiB. Cap the raw request body far above that but far below
 # Django's global limit, so a compressed body can't inflate into a memory-exhaustion payload when
@@ -345,6 +360,12 @@ def push_subscriptions(request: Request):
     device_token = data.get("device_token")
     platform = data.get("platform")
     app_id = data.get("app_id")
+
+    if not platform:
+        inferred_from = _parse_user_agent_sdk(request).name
+        if inferred_from in _SDK_NAME_PLATFORMS:
+            platform = _SDK_NAME_PLATFORMS[inferred_from]
+            PUSH_SUBSCRIPTION_PLATFORM_INFERRED_COUNTER.labels(sdk_name=inferred_from, platform=platform).inc()
 
     missing_fields = [
         field_name
