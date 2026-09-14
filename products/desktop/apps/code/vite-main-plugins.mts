@@ -163,14 +163,6 @@ function copyClaudeSupportAssets(sourcePath: string, destDir: string): void {
   }
 }
 
-/**
- * Bundling relocates the calling code, so `new URL("./x.js", import.meta.url)`
- * inside it resolves relative to wherever the bundle ends up (flat in
- * `.vite/build`, see the `chunkFileNames` comment in electron.vite.config.ts),
- * not relative to the source file that wrote it. Both `rpc-host.js` and
- * `subscription-login-host.js` are spawned by that pattern, so both need a
- * real copy sitting at that resolved location.
- */
 function copyAgentDistFile(
   relativePath: string,
   buildDirectory: string,

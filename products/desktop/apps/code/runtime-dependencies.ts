@@ -37,13 +37,6 @@ export const requiredNativeModules = [
   "better-sqlite3",
 ];
 
-// Pure-JS packages that still need a real, staged copy rather than Vite
-// bundling them: pi-ai's OAuth loader deliberately obfuscates its own
-// relative dynamic imports so no bundler can inline it, so it must keep
-// resolving from a real node_modules tree at runtime (see
-// packages/agent/src/pi/subscription-login-host.ts, the forked process
-// that calls into it). before-pack stages these with copyRequiredDep, same
-// as the native modules above.
 export const requiredExternalPackages = [
   "@earendil-works/pi-ai",
   "@earendil-works/pi-coding-agent",
@@ -101,11 +94,6 @@ export const packagedFileGlobs = [
   ]),
 ].map((scope) => `node_modules/${scope}/**/*`);
 
-// Not a native module (no .node binary), but its entry script
-// (subscription-login-host.js) is spawned as an independent process, same
-// as rpc-host.js — unpacked for the same reason, and because Electron's
-// asar patches have historically had gaps around ESM dynamic import(),
-// which pi-ai's OAuth loader relies on.
 export const asarUnpackGlobs = [
   ...asarUnpackModules.map((name) => `node_modules/${scopeOf(name)}/**`),
   "node_modules/@earendil-works/**",

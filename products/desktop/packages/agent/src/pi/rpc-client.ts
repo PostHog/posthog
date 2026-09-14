@@ -51,15 +51,9 @@ export type PiRpcClient = RpcClient & {
 
 export interface PiRpcProviderOptions {
   region?: CloudRegion;
-  /** Required for the default "posthog" provider; unused for own-subscription providers. */
   apiKey?: string;
   baseUrl?: string;
   headers?: Record<string, string>;
-  /**
-   * pi-ai provider id to run against. Defaults to "posthog" (PostHog's LLM
-   * gateway). Set to "anthropic" or "openai-codex" to run on the user's own
-   * subscription via pi's native OAuth providers instead.
-   */
   provider?: string;
 }
 

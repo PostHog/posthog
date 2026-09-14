@@ -12,13 +12,6 @@ const LOGIN_TIMEOUT_MS = 10 * 60_000;
 
 let sharedRuntime: Promise<ModelRuntime> | undefined;
 
-/**
- * A lightweight, network-free `ModelRuntime`, shared across calls, pointed
- * at pi's own `~/.pi/agent/auth.json`. That is the same file a real Pi
- * session (spawned by `rpc-host.ts`) reads by default, so a login here is
- * immediately usable by the next session, and vice versa for anyone who has
- * also logged in via the standalone `pi` CLI.
- */
 async function getSharedModelRuntime(): Promise<ModelRuntime> {
   sharedRuntime ??= (async () => {
     const pi = await import("@earendil-works/pi-coding-agent");
@@ -31,11 +24,6 @@ async function getSharedModelRuntime(): Promise<ModelRuntime> {
   return sharedRuntime;
 }
 
-/**
- * Local, no-network read of the stored credential. Mirrors the Claude Code
- * adapter's `hasClaudeLogin`: reports what is on disk, not whether the
- * token is still valid — a live request refreshes it on demand.
- */
 export async function piSubscriptionLoginState(
   provider: PiSubscriptionProvider,
 ): Promise<PiSubscriptionLoginState> {
@@ -68,15 +56,6 @@ function pickLoginMethod(
   return (browserOption ?? prompt.options[0])?.id ?? "";
 }
 
-/**
- * Bridges pi-ai's login `AuthInteraction` to a single `authUrl` for the host
- * to open externally. Anthropic and OpenAI Codex's OAuth flows always
- * `notify({type: "auth_url"})` before waiting on their local callback
- * server, racing it against a `manual_code` prompt for pasting the code by
- * hand. We don't offer that fallback yet, so its prompt is left pending
- * (never resolving) rather than rejected — rejecting it early would cancel
- * the callback-server wait it's racing against and abort the real flow.
- */
 function createLoginInteraction(
   signal: AbortSignal,
   onAuthUrl: (url: string) => void,
@@ -110,13 +89,6 @@ export interface PiSubscriptionLoginSession {
   cancel: () => void;
 }
 
-/**
- * Starts pi-ai's native OAuth login for `provider` and resolves with the
- * browser URL as soon as it's known, while `completed` keeps running in the
- * background until the callback server (or cancellation) settles it. On
- * success, the credential is persisted to the shared auth.json — no further
- * wiring needed for a subsequent Pi session to pick it up.
- */
 export async function startPiSubscriptionLogin(
   provider: PiSubscriptionProvider,
 ): Promise<PiSubscriptionLoginSession> {

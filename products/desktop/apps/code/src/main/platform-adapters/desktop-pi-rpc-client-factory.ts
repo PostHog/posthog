@@ -110,12 +110,6 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     });
   }
 
-  /**
-   * Own-subscription requires an actual stored login: a stale toggle (the
-   * user signed out elsewhere, or never finished login) falls back to the
-   * PostHog gateway rather than starting a session that can't authenticate,
-   * mirroring the same safety net the Claude/Codex ACP adapters use.
-   */
   private async resolveSubscriptionProvider(
     requested: PiSubscriptionProvider | undefined,
   ): Promise<PiSubscriptionProvider | undefined> {

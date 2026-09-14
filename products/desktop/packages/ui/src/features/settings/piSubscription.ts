@@ -21,23 +21,11 @@ export interface PiSubscription {
   loginState: PiSubscriptionLoginState;
 }
 
-// Reuses the same rollout flags as the Claude Code / Codex ACP adapters'
-// own-subscription toggles, rather than a new Pi-specific flag: it's the
-// same "let this cohort bring their own subscription" population, just
-// applied to a second harness.
 const FLAGS: Record<PiSubscriptionProvider, string> = {
   anthropic: CLAUDE_OWN_SUBSCRIPTION_FLAG,
   "openai-codex": CODEX_OWN_SUBSCRIPTION_FLAG,
 };
 
-/**
- * Thin read of pi-ai's own stored credential state (via `piSubscriptionStatus`,
- * which calls straight into pi's `ModelRuntime`). Whether a connected
- * provider is actually *used* is a separate, persisted choice — see
- * `piModelAccess` in the settings store and `effectivePiSubscriptionProvider`
- * below — exactly like Claude/Codex's own `claudeModelAccess`/
- * `codexModelAccess`: logging in does not by itself switch billing.
- */
 export function usePiSubscription(
   provider: PiSubscriptionProvider,
 ): PiSubscription {
@@ -54,13 +42,6 @@ export function usePiSubscription(
   return { flagEnabled, loggedIn: loginState === "logged-in", loginState };
 }
 
-/**
- * The provider a Pi session should actually use, folding in every gate at
- * once: the user's billing pick, that provider's rollout flag, whether it's
- * actually logged in, and cloud tasks always billing PostHog credits (same
- * rule as `effectiveModelAccess` for Claude/Codex). `undefined` means the
- * PostHog gateway.
- */
 export function effectivePiSubscriptionProvider(input: {
   modelAccess: PiModelAccess;
   anthropic: PiSubscription;

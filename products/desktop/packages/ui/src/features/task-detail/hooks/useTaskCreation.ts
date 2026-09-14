@@ -466,9 +466,6 @@ export function useTaskCreation({
             runtime !== "pi" && adapter === "claude"
               ? subscriptionModelAccess(claudeSubscription, workspaceMode)
               : undefined;
-          // settings.piModelAccess is the user's Billing pick for Pi
-          // sessions (same idea as codex/claudeModelAccess above); cloud Pi
-          // runs always bill PostHog credits regardless of that pick.
           const piSubscriptionProvider =
             runtime === "pi"
               ? effectivePiSubscriptionProvider({

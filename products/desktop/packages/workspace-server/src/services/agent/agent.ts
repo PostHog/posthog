@@ -543,11 +543,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     PiSubscriptionProvider,
     PiSubscriptionLoginSession
   >();
-  // Bumped by any cancel/sign-out/new-start for a provider. Lets
-  // startPiSubscriptionLogin notice, after its own await returns, that it
-  // was superseded while in flight — including a cancel that arrived
-  // before the session existed in piSubscriptionLogins to be cancelled
-  // directly.
   private readonly piSubscriptionLoginGenerations = new Map<
     PiSubscriptionProvider,
     number
@@ -661,8 +656,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
     const login = await startPiNativeSubscriptionLogin(provider);
     if (this.piSubscriptionLoginGenerations.get(provider) !== generation) {
-      // A cancel (or a newer start) landed while this one was spawning its
-      // host process; don't resurrect it as the active login.
       await login.cancel();
       throw new Error("Pi sign-in was cancelled");
     }
@@ -684,13 +677,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     await signOutPiNativeSubscription(provider);
   }
 
-  /**
-   * Stops a pending login without touching any stored credential (unlike
-   * `signOutPiSubscription`, which also logs an already-connected account
-   * out). Lets the UI offer a real cancel instead of only "start over",
-   * which would otherwise leave the previous attempt's callback server
-   * running until it either completes or hits its own 10-minute timeout.
-   */
   async cancelPiSubscriptionLogin(
     provider: PiSubscriptionProvider,
   ): Promise<void> {

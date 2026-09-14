@@ -71,19 +71,10 @@ const PI_BILLING_CLOUD_ONLY_REASON: Record<PiSubscriptionProvider, string> = {
 };
 
 interface PiBillingSubmenuProps {
-  /** Workspace mode of the task being composed; cloud forces PostHog credits. */
   workspaceMode?: WorkspaceModeForAccess;
   closeOnChange?: boolean;
 }
 
-/**
- * Pi's equivalent of `SubscriptionSubmenu` (used by Claude/Codex): lets the
- * user pick PostHog credits or one of their connected Pi subscriptions for
- * this session, independent of just being logged in. Self-contained like
- * `SubscriptionSubmenu`, so any composer can opt in by rendering it — see
- * `showBillingMenu` on `PiModelSelector` below. Only lists a provider once
- * its rollout flag is on — hidden entirely if neither is.
- */
 function PiBillingSubmenu({
   workspaceMode,
   closeOnChange = false,
@@ -116,8 +107,6 @@ function PiBillingSubmenu({
     return null;
   }
 
-  // Cloud tasks always bill PostHog credits (see effectivePiSubscriptionProvider),
-  // so the provider options are disabled there instead of silently overriding the pick.
   const cloudTask = workspaceMode === "cloud";
   const activeProvider = providers.find((p) => p.provider === modelAccess);
   const valueLabel =
@@ -178,9 +167,6 @@ function PiBillingSubmenu({
           )}
         </DropdownMenuRadioGroup>
         {!cloudTask && pendingLoginNote && (
-          // A quiet inline note rather than a permanent menu row: it appears
-          // only once the provider is picked without a confirmed login, and
-          // sessions keep running on PostHog until the login completes.
           <div className="px-2 py-1.5 text-muted-foreground text-xs">
             <button
               type="button"
@@ -218,9 +204,7 @@ interface PiModelSelectorProps {
   onGatewayModelSelect?: (modelId: string) => void;
   menuOpen?: boolean;
   onMenuOpenChange?: (open: boolean) => void;
-  /** Composers opt in; mid-session controls (no restart) leave this off. */
   showBillingMenu?: boolean;
-  /** Workspace mode of the task being composed; cloud forces PostHog credits. */
   workspaceMode?: WorkspaceModeForAccess;
 }
 

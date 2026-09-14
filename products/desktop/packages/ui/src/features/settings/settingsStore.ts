@@ -291,8 +291,6 @@ export interface SettingsStore {
   rtkEnabledCloud: boolean;
   codexModelAccess: ModelAccess;
   claudeModelAccess: ModelAccess;
-  // Mirrors codex/claudeModelAccess, but three-way: Pi's own subscription is
-  // one of two distinct providers, not a single "own-subscription" toggle.
   piModelAccess: PiModelAccess;
   claudeCloudSubscriptionOn: boolean;
   setAllowBypassPermissions: (enabled: boolean) => void;

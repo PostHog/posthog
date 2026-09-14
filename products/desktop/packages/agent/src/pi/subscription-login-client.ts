@@ -40,10 +40,6 @@ function spawnHost(): HostProcess {
     stdio: ["ignore", "ignore", "pipe", "ipc"],
     env: {
       ...safePiEnvironment(process.env),
-      // fork() spawns process.execPath, which under Electron is the Electron
-      // binary itself. Without this, it launches another Electron instance
-      // instead of running the script as plain Node (see rpc-client.ts and
-      // adapters/claude/subscription-login.ts for the same requirement).
       ELECTRON_RUN_AS_NODE: "1",
     },
   });
@@ -195,13 +191,6 @@ export async function startPiSubscriptionLogin(
   return {
     authUrl,
     completed,
-    // Idempotent, and bounded well under LOGIN_TIMEOUT_MS: tells the host to
-    // abort (best effort, on its own short request timeout), then always
-    // kills the child as a hard backstop regardless of whether that ack
-    // arrived. That's what actually frees the OAuth callback port — callers
-    // (AgentService) await this before starting a new login for the same
-    // provider, so the two can't race for the port. Mirrors CodexLoginSession's
-    // cancel() in ../adapters/codex-app-server/subscription-login.ts.
     cancel: async () => {
       if (settled) return;
       settled = true;

@@ -6,15 +6,6 @@ import {
   startPiSubscriptionLogin,
 } from "./subscription-login";
 
-/**
- * Forked, short-lived entry point for Pi's own OAuth login. Kept in a
- * separate process (spawned by `subscription-login-client.ts`, mirroring
- * `hasClaudeLogin`'s CLI spawn and `openCodexAccountClient`'s app-server
- * spawn) so the Electron main bundle never has to import pi-ai/pi-coding-agent
- * directly — their auth flow modules deliberately obfuscate their own import
- * specifiers to keep bundlers from inlining them, which breaks when a
- * bundler tries anyway.
- */
 interface HostRequest {
   id: string;
   type: "status" | "login" | "logout" | "cancel";

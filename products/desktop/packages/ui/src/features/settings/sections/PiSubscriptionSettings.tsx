@@ -18,11 +18,6 @@ interface PiSubscriptionSettingsProps {
   summary: string;
 }
 
-/**
- * Connect/disconnect only — no separate "use it" toggle. Once connected, Pi
- * task creation prefers this provider automatically over PostHog credits
- * (see `useTaskCreation`); there's nothing else to keep in sync here.
- */
 export function PiSubscriptionSettings({
   provider,
   accountLabel,
@@ -32,10 +27,6 @@ export function PiSubscriptionSettings({
   const { flagEnabled } = usePiSubscription(provider);
   const hostTRPC = useHostTRPC();
   const queryClient = useQueryClient();
-  // Non-null while a login is in flight or waiting on the browser callback.
-  // Reopening the browser from here never calls the backend again — it just
-  // re-opens the URL we already have, so it can't collide with the pending
-  // attempt the way starting a brand new login would.
   const [pendingAuthUrl, setPendingAuthUrl] = useState<string | null>(null);
 
   const statusQuery = hostTRPC.agent.piSubscriptionStatus.queryOptions({
@@ -76,9 +67,6 @@ export function PiSubscriptionSettings({
     },
   });
 
-  // The backend's own login flow gives up after the same 10 minutes; clear
-  // the UI (and free the waiting subprocess early) rather than polling past
-  // it. A ref avoids re-arming the timer on every `cancel` mutation render.
   const cancelRef = useRef(cancel);
   cancelRef.current = cancel;
   useEffect(() => {
@@ -106,8 +94,6 @@ export function PiSubscriptionSettings({
     return null;
   }
 
-  // Avoids a flash of "Connect" for an already-connected account while the
-  // first, local status check is still in flight.
   if (statusLoading) {
     return (
       <SettingsCardRow label={`${accountLabel} account`} description={summary}>

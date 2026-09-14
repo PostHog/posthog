@@ -39,10 +39,6 @@ export interface TaskCreationInput {
   adapter?: Adapter;
   codexModelAccess?: ModelAccess;
   claudeModelAccess?: ModelAccess;
-  /**
-   * Set only when `runtime` is "pi": run this Pi session on the user's own
-   * Anthropic/OpenAI Codex subscription instead of PostHog's gateway.
-   */
   piSubscriptionProvider?: PiSubscriptionProvider;
   claudeCloudModelAccess?: ModelAccess;
   runtime?: AgentRuntime;
