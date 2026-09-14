@@ -2,6 +2,8 @@ import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -14,10 +16,15 @@ import {
 } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
+jest.mock('lib/lemon-ui/LemonToast', () => ({
+    lemonToast: { success: jest.fn(), info: jest.fn(), warning: jest.fn(), error: jest.fn() },
+}))
+
 describe('replayObservationLogic', () => {
     let retrySpy: jest.Mock
     let viewedSpy: jest.Mock
     let retrieveUrls: string[]
+    let retrieveStatus: number
     let scannerOrigin: 'configured' | 'inline'
     let observationStatus: 'failed' | 'running'
     let sceneLogic: ReturnType<typeof replayObservationSceneLogic.build>
@@ -28,13 +35,15 @@ describe('replayObservationLogic', () => {
         retrySpy = jest.fn(() => [202, { workflow_id: 'wf-retry' }])
         viewedSpy = jest.fn(() => [204])
         retrieveUrls = []
+        retrieveStatus = 200
         handedOffPage.current = null
+        jest.clearAllMocks()
         useMocks({
             get: {
                 '/api/projects/:team/vision/observations/:id/': ({ request }) => {
                     retrieveUrls.push(request.url)
                     return [
-                        200,
+                        retrieveStatus,
                         {
                             id: 'obs-1',
                             scanner_id: 'scanner-9',
@@ -265,6 +274,22 @@ describe('replayObservationLogic', () => {
             expect(logic.values.previousObservationId).toBe('prev-from-retrieve')
             expect(logic.values.nextObservationId).toBe('next-from-retrieve')
             await waitFor(() => expect(logic.values.observationLoading).toBe(false))
+        } finally {
+            logic.unmount()
+        }
+    })
+
+    it('drops the handed-off row and reports the error when its first read fails', async () => {
+        retrieveStatus = 500
+        handedOffPage.current = page(['a', 'obs-1', 'c'])
+        router.actions.push('/replay-vision/observation/obs-1')
+        const logic = replayObservationLogic({ id: 'obs-1' })
+        logic.mount()
+        try {
+            expect(logic.values.observation?.session_id).toBe('sess-obs-1')
+            await expectLogic(logic).toDispatchActions(['loadObservationFailure'])
+            expect(logic.values.observation).toBeNull()
+            expect(lemonToast.error).toHaveBeenCalledTimes(1)
         } finally {
             logic.unmount()
         }
