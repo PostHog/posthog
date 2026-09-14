@@ -72,16 +72,15 @@ async def select_status_poll_candidates_activity(inputs: HarmonicStatusPollInput
     """
     from asgiref.sync import sync_to_async  # noqa: PLC0415
 
-    from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
-
+    from products.growth.backend.enrichment import gates  # noqa: PLC0415
     from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch  # noqa: PLC0415
 
     logger = LOGGER.bind()
 
-    if not await sync_to_async(get_instance_setting)("GROWTH_SIGNUP_ENRICHMENT_ENABLED"):
+    if not await sync_to_async(gates.enrichment_enabled)():
         logger.info("harmonic_status_poll_skipped_kill_switch")
         return {"candidates": [], "eligible": 0}
-    if get_instance_region() not in ("US", "EU"):
+    if not gates.region_allowed():
         logger.info("harmonic_status_poll_skipped_region")
         return {"candidates": [], "eligible": 0}
 
@@ -158,15 +157,14 @@ async def poll_status_batch_activity(candidates: list[dict[str, typing.Any]]) ->
     """
     from asgiref.sync import sync_to_async  # noqa: PLC0415
 
-    from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
-
+    from products.growth.backend.enrichment import gates  # noqa: PLC0415
     from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider  # noqa: PLC0415
 
     logger = LOGGER.bind()
 
     empty_result = {"polled": 0, "unobserved": 0, "changed": 0, "stalled": 0}
 
-    if not await sync_to_async(get_instance_setting)("GROWTH_SIGNUP_ENRICHMENT_ENABLED"):
+    if not await sync_to_async(gates.enrichment_enabled)():
         logger.info("harmonic_status_poll_skipped_kill_switch")
         return dict(empty_result)
 

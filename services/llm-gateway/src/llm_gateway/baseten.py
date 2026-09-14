@@ -10,7 +10,7 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
 )
 
 from llm_gateway.anthropic_request import convert_enabled_thinking_to_adaptive, force_stream_usage
-from llm_gateway.anthropic_stream import observe_anthropic_stream
+from llm_gateway.anthropic_stream import repair_anthropic_stream
 from llm_gateway.config import Settings
 
 BASETEN_PUBLIC_MODEL = "@cf/zai-org/glm-5.2"
@@ -71,7 +71,7 @@ def make_baseten_anthropic_call(api_base: str, api_key: str) -> Callable[..., Aw
         _inject_baseten_params(kwargs, api_base, api_key)
         response = await LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler(**kwargs)
         if isinstance(response, AsyncIterator):
-            return observe_anthropic_stream(response, "baseten")
+            return repair_anthropic_stream(response, "baseten")
         return response
 
     return llm_call

@@ -393,6 +393,14 @@ CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY: bool = get_from_env(
     "CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY", False, type_cast=str_to_bool
 )
 
+# Snuffle, the PromQL/LogQL bridge deployed next to the logs cluster, backs the Prometheus- and
+# Loki-compatible query endpoints. Leaving the URL empty turns those endpoints off. Snuffle passes
+# the Basic credential straight through to ClickHouse, so it defaults to the logs cluster user.
+SNUFFLE_URL: str = os.getenv("SNUFFLE_URL", "")
+SNUFFLE_USER: str = os.getenv("SNUFFLE_USER", CLICKHOUSE_LOGS_CLUSTER_USER)
+SNUFFLE_PASSWORD: str = os.getenv("SNUFFLE_PASSWORD", CLICKHOUSE_LOGS_CLUSTER_PASSWORD)
+SNUFFLE_TIMEOUT_SECONDS: int = get_from_env("SNUFFLE_TIMEOUT_SECONDS", 60, type_cast=int)
+
 CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLECTION", "msk_cluster")
 CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION: str = os.getenv(
     "CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION", "warpstream_ingestion"
@@ -601,11 +609,11 @@ CONVERSATIONS_TICKETS_JWT_SECRETS = get_list(
     get_from_env("CONVERSATIONS_TICKETS_JWT_SECRET", "local-dev-conversations-tickets-jwt" if DEBUG or TEST else "")
 )
 
-# Verifies the scoped JWTs the CDP worker's customer analytics account actions send to the
-# internal account routes (the worker mints, Django verifies;
-# products/customer_analytics/backend/presentation/views/internal.py). Comma-separated,
-# newest first. Empty outside dev/test, so the internal routes reject every request until
-# the secret is provisioned and the worker stays on its legacy auth path (#82564).
+# Account actions and customer task creation share these keys but require distinct JWT audiences.
+# The worker mints, Django verifies. Comma-separated, newest first. Empty outside dev/test,
+# so scoped routes fail closed until provisioned. Account actions retain their legacy auth
+# fallback (#82564). Customer task creation has no fallback.
+# The dev/test value must match the worker's default (nodejs/src/cdp/config.ts).
 CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS = get_list(
     get_from_env(
         "CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET", "local-dev-customer-analytics-accounts-jwt" if DEBUG or TEST else ""
@@ -639,6 +647,12 @@ AI_GATEWAY_PUBLIC_URL = os.getenv("AI_GATEWAY_PUBLIC_URL", "http://localhost:808
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+HOGQL_LANGUAGE_SERVICE_URL = get_from_env(
+    "HOGQL_LANGUAGE_SERVICE_URL", "http://localhost:8091" if DEBUG and not TEST else ""
+)
+HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS = get_list(
+    get_from_env("HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS", "local-development-key" if DEBUG and not TEST else "")
+)
 
 # Definitions fleet, which serves remote_config (the eval fleet 404s it). Falls back until set per env.
 FEATURE_FLAGS_DEFINITIONS_SERVICE_URL = os.getenv("FEATURE_FLAGS_DEFINITIONS_SERVICE_URL", FEATURE_FLAGS_SERVICE_URL)

@@ -13,7 +13,6 @@ import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
 
 import { Experiment } from '~/types'
@@ -26,6 +25,7 @@ import {
     type ExperimentSessionEventDeltaResponseApi,
     type ExperimentWatchCardApi,
 } from 'products/experiments/frontend/generated/api.schemas'
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import {
     type ExperimentReplayRecording,
