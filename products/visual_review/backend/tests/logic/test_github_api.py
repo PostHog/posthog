@@ -1,7 +1,5 @@
-"""Unit tests for logic/github_api.py — baseline file reads."""
-
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
@@ -41,6 +39,17 @@ class TestFetchBaselineFile:
         assert github.get_blob_text.call_count == blob_reads
         assert [baseline for baseline, _sha in results] == [{"button--light": {"hash": "v1.k.abc.tag"}}] * 2
         assert [sha for _baseline, sha in results] == list(sha_by_ref.values())
+
+    def test_an_unreachable_cache_still_reads_the_file(self) -> None:
+        github = _github({"feature": "blob-1"})
+
+        with patch("posthog.utils.cache") as broken_cache:
+            broken_cache.get.side_effect = ConnectionError("cache down")
+            broken_cache.set.side_effect = ConnectionError("cache down")
+            baseline, sha = github_api._fetch_baseline_file(github, "org/repo", "snapshots.yml", "feature")
+
+        assert baseline == {"button--light": {"hash": "v1.k.abc.tag"}}
+        assert sha == "blob-1"
 
     def test_a_caller_editing_the_result_does_not_change_the_next_read(self) -> None:
         github = _github({"feature": "blob-1", "other": "blob-1"})

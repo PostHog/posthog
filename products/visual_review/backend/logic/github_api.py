@@ -216,6 +216,11 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
     }
 
 
+# A larger baseline file is parsed without caching, so one repository cannot fill the shared cache
+# with large parsed files.
+_MAX_CACHED_BASELINE_BYTES = 4 * 1024 * 1024
+
+
 def _parse_baseline_file(text: str) -> dict[str, dict]:
     """Identifier to its signed entry, for a version 1 baseline file. Empty for anything else."""
     import yaml
@@ -258,7 +263,10 @@ def _fetch_baseline_file(
                 text = github.get_blob_text(repo_full_name, entry["sha"], entry["size"])
             return _parse_baseline_file(text)
 
-        baselines = content_cache.load_by_hash("baseline_file", entry["sha"], read_and_parse)
+        if entry["size"] > _MAX_CACHED_BASELINE_BYTES:
+            baselines: dict[str, dict] | None = read_and_parse()
+        else:
+            baselines = content_cache.load_by_hash("baseline_file", entry["sha"], read_and_parse)
     except GitHubRateLimitError:
         raise
     except GitHubIntegrationError as e:

@@ -1,13 +1,15 @@
 """Content named by its own hash, parsed once and kept in the cache.
 
 A hash names exactly one content, so a cached value can never be stale and nothing has to
-invalidate it. The timeout only frees memory for content that nobody reads any more.
+invalidate it. The timeout only frees memory for content that nobody reads any more. The cache is
+only an optimization, so a cache that cannot be reached counts as a miss and the content is read
+from its source.
 """
 
 from collections.abc import Callable
 from typing import TypeVar
 
-from django.core.cache import cache
+from posthog.utils import get_safe_cache, safe_cache_set
 
 T = TypeVar("T")
 
@@ -20,10 +22,10 @@ def load_by_hash(kind: str, content_hash: str, load: Callable[[], T | None]) -> 
     None is never cached, so content that could not be read this time is read again next time.
     """
     key = f"visual_review:{kind}:{content_hash}"
-    cached = cache.get(key)
+    cached = get_safe_cache(key)
     if cached is not None:
         return cached
     value = load()
     if value is not None:
-        cache.set(key, value, timeout=_TIMEOUT_SECONDS)
+        safe_cache_set(key, value, timeout=_TIMEOUT_SECONDS)
     return value
