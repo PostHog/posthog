@@ -17,17 +17,23 @@ from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
-    is_mcp_request,
 )
-from posthog.models import Organization, Team, User
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.organization_caching import get_cached_organization_membership
 from posthog.permissions import (
+    ActiveOrganizationPermission,
     APIScopePermission,
+    MCPAccessPermission,
+    VerifiedDomainEnforcementPermission,
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
+    get_authenticator_user_credential,
 )
 from posthog.user_permissions import UserPermissions
 
-from products.access_control.backend.facade.mcp_access import mcp_access_denial
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.reminders.backend.constants import MAX_ACTIVE_REMINDERS_PER_USER, RESOURCE_MODELS, RESOURCE_TYPES
 from products.reminders.backend.models import Reminder
 from products.reminders.backend.scheduling import compute_next_fire_at, exceeds_daily_frequency_cap, resolve_timezone
@@ -45,19 +51,51 @@ def token_scope_restrictions(request: Request) -> tuple[list[str] | None, list[i
     )
 
 
-def deny_mcp_write(request: Request, organization: Organization) -> None:
-    """MCPAccessPermission resolves its target from routing attributes a root viewset lacks, so the
-    read_only_mcp_access cap the mixin applies has to be applied here instead."""
-    denial = mcp_access_denial(organization, is_mcp=is_mcp_request(request), writes=True)
-    if denial is not None:
-        raise PermissionDenied(denial)
+# Tenant boundaries TeamAndOrgViewSetMixin appends in get_permissions, which a view may not remove.
+ORGANIZATION_BOUNDARY_PERMISSIONS = (
+    VerifiedDomainEnforcementPermission,
+    ActiveOrganizationPermission,
+    MCPAccessPermission,
+)
+
+
+def deny_restricted_personal_api_key(request: Request, organization: Organization) -> None:
+    """The third leg of what check_team_and_org_permissions skips for `scope_object = "user"`.
+    Mirrors APIScopePermission._check_organization_personal_api_key_restrictions, which is private
+    and resolves its organization from routing attributes a root viewset does not have.
+    """
+    credential = get_authenticator_user_credential(getattr(request, "successful_authenticator", None))
+    if not isinstance(credential, PersonalAPIKey):
+        return
+    if not organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+        return
+    membership = get_cached_organization_membership(organization.id, cast(User, request.user))
+    if membership is None:
+        return
+    if not organization.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN:
+        raise PermissionDenied(
+            f"Organization '{organization.name}' does not allow using personal API keys. "
+            f"Contact an admin to enable personal API keys for this organization."
+        )
+
+
+def enforce_organization_boundaries(view: viewsets.ModelViewSet, organization: Organization) -> None:
+    """Each boundary resolves its target from routing attributes a root viewset does not have, so
+    the mixin's chain would fall back to the user's current organization, which is a UI preference.
+    Hand each one the organization the request actually acts on instead.
+    """
+    for permission_class in ORGANIZATION_BOUNDARY_PERMISSIONS:
+        permission = permission_class()
+        if not permission.has_object_permission(view.request, view, organization):
+            raise PermissionDenied(getattr(permission, "message", "You cannot write to this organization."))
+    deny_restricted_personal_api_key(view.request, organization)
 
 
 class ReminderSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    # User-scoped endpoint: the user picks the org/team from their own memberships, and
-    # _validate_membership enforces that membership and the credential's reach. No single org/team
-    # is in request context for the scoped PK fields, so suppress the IDOR scoping rule here.
+    # User-scoped endpoint: no single org/team is in request context for the scoped PK fields to
+    # derive from, so suppress the IDOR scoping rule. __init__ narrows both querysets to the
+    # caller's own reach instead.
     organization = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
         queryset=Organization.objects.all(),
         help_text="ID of the organization this reminder belongs to. You must be a member of it.",
@@ -71,6 +109,26 @@ class ReminderSerializer(serializers.ModelSerializer):
             "Required when targeting a specific resource. Must belong to the chosen organization."
         ),
     )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is None or not isinstance(request.user, User):
+            return
+        # Resolve both relations against the caller's reach, so an id outside it fails as
+        # "does not exist" like an unallocated one. Judging reach after resolution instead tells
+        # the caller which ids exist, which maps allocated projects across other tenants.
+        permissions = UserPermissions(cast(User, request.user))
+        organization_ids = list(permissions.organization_memberships.keys())
+        scoped_organizations, scoped_teams = token_scope_restrictions(request)
+        if scoped_organizations is not None:
+            organization_ids = [id for id in organization_ids if str(id) in scoped_organizations]
+        organization_field = cast(serializers.PrimaryKeyRelatedField, self.fields["organization"])
+        organization_field.queryset = Organization.objects.filter(id__in=organization_ids)
+        teams = Team.objects.filter(organization_id__in=organization_ids)
+        if scoped_teams is not None:
+            teams = teams.filter(id__in=scoped_teams)
+        cast(serializers.PrimaryKeyRelatedField, self.fields["team"]).queryset = teams
 
     class Meta:
         model = Reminder
@@ -90,6 +148,7 @@ class ReminderSerializer(serializers.ModelSerializer):
             "next_fire_at",
             "last_fired_at",
             "status",
+            "deleted",
             "created_by",
             "created_at",
             "updated_at",
@@ -161,10 +220,20 @@ class ReminderSerializer(serializers.ModelSerializer):
         scoped_organizations, scoped_teams = token_scope_restrictions(request)
         if scoped_organizations is not None and str(organization.id) not in scoped_organizations:
             raise PermissionDenied(f"This credential has no access to organization ID {organization.id}.")
-        if scoped_teams is not None and (team is None or team.id not in scoped_teams):
-            raise PermissionDenied("This credential is restricted to specific projects.")
+        if scoped_teams is not None:
+            # RootTeamMixin.save stores the row under the parent project, so judge the team the
+            # row lands on. A credential scoped to a child environment does not reach that parent.
+            stored_team_id = (team.parent_team_id or team.id) if team is not None else None
+            if stored_team_id is None or stored_team_id not in scoped_teams:
+                raise PermissionDenied("This credential is restricted to specific projects.")
 
-        deny_mcp_write(request, organization)
+        view = self.context["view"]
+        enforce_organization_boundaries(view, organization)
+        # A PATCH may re-point `organization`. The row's current organization caps the write too,
+        # or a move out of a capped organization would escape that organization's own policy.
+        current_organization = getattr(self.instance, "organization", None)
+        if current_organization is not None and current_organization.id != organization.id:
+            enforce_organization_boundaries(view, current_organization)
 
     def _validate_resource(self, attrs: dict[str, Any], team: Team | None) -> None:
         instance = self.instance
@@ -182,7 +251,14 @@ class ReminderSerializer(serializers.ModelSerializer):
             raise ValidationError(f"Unknown resource_type: {resource_type}")
 
         model, lookup_field, _ = RESOURCE_MODELS[resource_type]
-        if not model._default_manager.filter(team=team, **{lookup_field: resource_id}).exists():
+        resource = model._default_manager.filter(team=team, **{lookup_field: resource_id}).first()
+        if resource is None:
+            raise ValidationError(f"No {resource_type} with id {resource_id} in this project.")
+
+        # Membership in the project is not access to every object in it. Report an object the
+        # caller cannot view as missing, so the message does not confirm that it exists.
+        user = cast(User, self.context["request"].user)
+        if not UserAccessControl(user=user, team=team).check_access_level_for_object(resource, "viewer"):
             raise ValidationError(f"No {resource_type} with id {resource_id} in this project.")
 
     def _validate_active_cap(self) -> None:
@@ -297,6 +373,6 @@ class ReminderViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_destroy(self, instance: Reminder) -> None:
-        deny_mcp_write(self.request, instance.organization)
+        enforce_organization_boundaries(self, instance.organization)
         instance.deleted = True
         instance.save(update_fields=["deleted"])

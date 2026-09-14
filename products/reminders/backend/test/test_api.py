@@ -8,7 +8,7 @@ from parameterized import parameterized
 
 from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.constants import AvailableFeature
-from posthog.models import Organization
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
@@ -138,7 +138,10 @@ class TestReminderAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 403, response.content)
+        # Rejected at field resolution, with the same error an unallocated id gets, so the
+        # response cannot be used to map which projects exist.
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("does not exist", response.content.decode())
         self.assertEqual(Reminder.objects.count(), 0)
 
     def test_list_reminders_hides_a_project_outside_the_credential_reach(self) -> None:
@@ -223,3 +226,107 @@ class TestReminderAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["results"], [])
+
+    def _make_reminder(self, team: Team | None = None) -> Reminder:
+        team = team or self.team
+        fire_at = timezone.now() + timedelta(days=1)
+        return Reminder.objects.create(
+            organization=team.organization,
+            team=team,
+            created_by=self.user,
+            title="Check the funnel",
+            scheduled_at=fire_at,
+            next_fire_at=fire_at,
+        )
+
+    def test_the_soft_delete_patch_the_mcp_tool_sends_actually_deletes(self) -> None:
+        reminder = self._make_reminder()
+        self._authenticate_with_oauth("user:write")
+
+        response = self.client.patch(
+            f"/api/reminders/{reminder.id}/", {"deleted": True}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        reminder.refresh_from_db()
+        self.assertTrue(reminder.deleted)
+
+    def test_update_cannot_move_a_reminder_out_of_a_capped_organization(self) -> None:
+        reminder = self._make_reminder()
+        _, _, other_team = Organization.objects.bootstrap(self.user)
+        self._restrict_organization_to_read_only_mcp()
+        self._authenticate_with_oauth("user:write", scoped_teams=[self.team.id, other_team.id])
+
+        response = self.client.patch(
+            f"/api/reminders/{reminder.id}/",
+            {"organization": str(other_team.organization.id), "team": other_team.id},
+            content_type="application/json",
+            HTTP_USER_AGENT=MCP_USER_AGENT_MARKER,
+        )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        reminder.refresh_from_db()
+        self.assertEqual(reminder.organization_id, self.organization.id)
+
+    def test_writes_are_denied_when_the_organization_is_deactivated(self) -> None:
+        self.organization.is_active = False
+        self.organization.save(update_fields=["is_active"])
+        self._authenticate_with_oauth("user:write")
+
+        response = self.client.post(
+            "/api/reminders/",
+            {
+                "organization": str(self.organization.id),
+                "team": self.team.id,
+                "title": "Review the weekly numbers",
+                "recurrence_interval": "weekly",
+            },
+        )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(Reminder.objects.count(), 0)
+
+    def test_writes_are_denied_when_the_organization_disallows_personal_api_keys(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "Security settings"}
+        ]
+        self.organization.members_can_use_personal_api_keys = False
+        self.organization.save(update_fields=["available_product_features", "members_can_use_personal_api_keys"])
+        membership = self.organization.memberships.get(user=self.user)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save(update_fields=["level"])
+        self._authenticate_with_personal_api_key(["user:write"])
+
+        response = self.client.post(
+            "/api/reminders/",
+            {
+                "organization": str(self.organization.id),
+                "team": self.team.id,
+                "title": "Review the weekly numbers",
+                "recurrence_interval": "weekly",
+            },
+        )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(Reminder.objects.count(), 0)
+
+    def test_a_child_environment_token_cannot_write_onto_the_parent_project(self) -> None:
+        child = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="staging"
+        )
+        self._authenticate_with_oauth("user:write", scoped_teams=[child.id])
+
+        response = self.client.post(
+            "/api/reminders/",
+            {
+                "organization": str(self.organization.id),
+                "team": child.id,
+                "title": "Review the weekly numbers",
+                "recurrence_interval": "weekly",
+            },
+        )
+
+        # RootTeamMixin.save would store this against the parent project, which the credential
+        # does not reach, so the reach check has to judge the team the row lands on.
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(Reminder.objects.count(), 0)
