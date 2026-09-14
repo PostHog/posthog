@@ -11,6 +11,7 @@ Main entry points:
   `posthog.ai_events` directly — accepts the dedicated-column shape and
   handles JSON decoding of heavy columns.
 - format_trace_text_repr: Format full traces with hierarchy
+- format_trace_within_budget: Same, inside a character budget spent newest event first
 - llm_trace_to_formatter_format: Convert LLMTrace to format_trace_text_repr input format
 """
 
@@ -22,7 +23,7 @@ from .message_formatter import (
     reduce_by_uniform_sampling,
     sanitize_surrogates,
 )
-from .trace_formatter import format_trace_text_repr, llm_trace_to_formatter_format
+from .trace_formatter import format_trace_text_repr, format_trace_within_budget, llm_trace_to_formatter_format
 
 __all__ = [
     "FormatterOptions",
@@ -31,6 +32,7 @@ __all__ = [
     "format_event_text_repr",
     "format_event_text_repr_from_ai_events_row",
     "format_trace_text_repr",
+    "format_trace_within_budget",
     "llm_trace_to_formatter_format",
     "reduce_by_uniform_sampling",
     "sanitize_surrogates",

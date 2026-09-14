@@ -8,6 +8,7 @@ supports both interactive frontend markers and plain text for backend/LLM consum
 
 import json
 import base64
+from collections.abc import Iterator
 from typing import Any
 
 from dateutil.parser import isoparse
@@ -16,7 +17,7 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.dataclasses import frozen
 
-from .constants import DEFAULT_MAX_LENGTH, MAX_TREE_DEPTH, SEPARATOR
+from .constants import DEFAULT_MAX_LENGTH, DEFAULT_TRUNCATE_BUFFER, MAX_TREE_DEPTH, SEPARATOR
 from .event_formatter import format_event_text_repr
 from .message_formatter import (
     FormatterLines,
@@ -413,6 +414,9 @@ def _render_event_node(
     event_options: FormatterOptions = (
         {**options, "include_line_numbers": False} if options else {"include_line_numbers": False}
     )
+    event_buffer = (options or {}).get("event_truncate_buffers", {}).get(str(event_id))
+    if event_buffer is not None:
+        event_options["truncate_buffer"] = event_buffer
     event_content = format_event_text_repr(event, event_options)
 
     if include_markers:
@@ -556,3 +560,103 @@ def format_trace_text_repr(
         formatted_text, was_sampled = reduce_by_uniform_sampling(formatted_text, max_length)
 
     return sanitize_surrogates(formatted_text), was_sampled
+
+
+# Floor for a budgeted render. An event this far back in the transcript keeps only a first and last
+# slice of each message, the same amount the trace view shows before a reader expands it.
+MIN_EVENT_TRUNCATE_BUFFER = DEFAULT_TRUNCATE_BUFFER
+# The buffer caps each message, not the whole event, so an event with many messages renders longer
+# than its buffer. Grow the buffer from the floor and stop when the event fills its allowance.
+_MAX_EVENT_FIT_ATTEMPTS = 3
+# Tree prefixes and line numbers are added around an event, so they are invisible while one event is
+# measured and a first pass can still overshoot. Shrink the allocation and render again.
+_MAX_BUDGET_ATTEMPTS = 3
+# Shrink past the measured overshoot, so a second pass lands under the budget instead of just on it.
+_BUDGET_REDUCTION_FACTOR = 0.95
+
+
+def _iter_events(nodes: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    for node in nodes:
+        yield node.get("event", node)
+        yield from _iter_events(node.get("children", []))
+
+
+def _fit_event_buffer(
+    event: dict[str, Any], allowance: int, floor_length: int, options: FormatterOptions
+) -> tuple[int, int]:
+    """Find the largest truncate buffer whose rendered event still fits `allowance`.
+
+    Returns the buffer and the length it renders to. The search starts at the floor and grows, so a
+    measurement never allocates much more than the allowance even when the event holds megabytes.
+    """
+    buffer, rendered = MIN_EVENT_TRUNCATE_BUFFER, floor_length
+    for _ in range(_MAX_EVENT_FIT_ATTEMPTS):
+        if rendered >= allowance:
+            break
+        candidate = min(allowance, buffer * allowance // max(rendered, 1))
+        if candidate <= buffer:
+            break
+        candidate_rendered = len(format_event_text_repr(event, {**options, "truncate_buffer": candidate}))
+        if candidate_rendered > allowance:
+            break
+        buffer, rendered = candidate, candidate_rendered
+    return buffer, rendered
+
+
+def _allocate_event_buffers(hierarchy: list[dict[str, Any]], budget: int, options: FormatterOptions) -> dict[str, int]:
+    """Spend `budget` on the newest event first, so the latest turn keeps its content whole.
+
+    Every event renders at the floor first. Only what the budget has left over that baseline is
+    handed out, newest first, so an older event never spends the budget the newest one needs.
+    """
+    measure_options: FormatterOptions = {**options, "include_line_numbers": False, "max_length": None}
+    floor_options: FormatterOptions = {**measure_options, "truncate_buffer": MIN_EVENT_TRUNCATE_BUFFER}
+    measured = [
+        (event, len(format_event_text_repr(event, floor_options)))
+        for event in _iter_events(hierarchy)
+        if _is_expandable_event(event.get("event", ""))
+    ]
+
+    buffers: dict[str, int] = {}
+    spare = max(0, budget - sum(floor_length for _, floor_length in measured))
+    for event, floor_length in reversed(measured):
+        buffer, rendered = _fit_event_buffer(event, floor_length + spare, floor_length, measure_options)
+        buffers[str(event.get("id", "unknown"))] = buffer
+        spare = max(0, spare - (rendered - floor_length))
+    return buffers
+
+
+def format_trace_within_budget(
+    trace: dict[str, Any],
+    hierarchy: list[dict[str, Any]],
+    budget: int,
+    options: FormatterOptions | None = None,
+) -> str:
+    """Render a trace into at most `budget` characters, spending the budget newest event first.
+
+    The latest events keep their content whole while budget lasts, and the oldest fall back to a
+    first and last slice of each message. An LLM judge grades the latest answer, so the newest turn
+    is the last content worth dropping. Uniform sampling stays as the final guarantee of the cap.
+
+    `options` must not set `max_render_length`: this render is the fallback for a render that
+    already exceeded it.
+    """
+    base: FormatterOptions = {**(options or {}), "truncated": True}
+    # Trace-level input and output render only when the trace has no events, and take the whole
+    # budget then. Otherwise this is the floor for any event the allocation did not reach.
+    base["truncate_buffer"] = MIN_EVENT_TRUNCATE_BUFFER if hierarchy else budget
+
+    allocation = budget
+    text = ""
+    for attempt in range(_MAX_BUDGET_ATTEMPTS):
+        is_last_attempt = attempt == _MAX_BUDGET_ATTEMPTS - 1
+        attempt_options: FormatterOptions = {
+            **base,
+            "event_truncate_buffers": _allocate_event_buffers(hierarchy, allocation, base),
+            "max_length": budget if is_last_attempt else None,
+        }
+        text, _ = format_trace_text_repr(trace, hierarchy, attempt_options)
+        if len(text) <= budget:
+            break
+        allocation = max(MIN_EVENT_TRUNCATE_BUFFER, int(allocation * budget / len(text) * _BUDGET_REDUCTION_FACTOR))
+    return text

@@ -82,6 +82,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     FormatterOptions,
     RenderBudgetExceeded,
     format_trace_text_repr,
+    format_trace_within_budget,
     llm_trace_to_formatter_format,
 )
 
@@ -474,8 +475,8 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
     """Serialize a trace into the canonical text representation for the LLM judge.
 
     Preserve message content when the full transcript fits so the judge does not lose evidence
-    unnecessarily. Oversized transcripts use the shared formatter's truncation and sampling
-    to bound judge cost and context.
+    unnecessarily. An oversized transcript spends the budget on its newest events first, so the
+    answer under judgement survives whole and the oldest turns shrink instead.
     """
     trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
     options: FormatterOptions = {
@@ -493,10 +494,7 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
         pass
 
     del options["max_render_length"]
-    options["truncated"] = True
-    options["max_length"] = JUDGE_TRACE_MAX_CHARS
-    text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
-    return text
+    return format_trace_within_budget(trace_dict, hierarchy, JUDGE_TRACE_MAX_CHARS, options)
 
 
 def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[Any] | None = None) -> dict[str, Any]:

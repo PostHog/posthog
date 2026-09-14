@@ -53,6 +53,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     FormatterOptions,
     RenderBudgetExceeded,
     format_trace_text_repr,
+    format_trace_within_budget,
     llm_trace_to_formatter_format,
 )
 
@@ -339,7 +340,8 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
 
     Preserve message content when the full session fits, including when one trace uses more
     than an equal share of the budget. Oversized sessions split the budget evenly across traces
-    so one long trace cannot crowd out the opening and closing turns.
+    so one long trace cannot crowd out the opening and closing turns, and each trace spends its
+    share on its newest events first so the answer under judgement survives whole.
 
     Returns `None` when the fallback transcript still overshoots the budget, meaning a final slice
     would silently drop trailing traces. The caller must treat that as a `session_too_long_to_judge`
@@ -359,20 +361,22 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
             "collapsed": False,
             "truncated": truncated,
             "include_line_numbers": True,
-            "max_length": per_trace_budget if truncated else None,
+            "max_length": None,
         }
         sections: list[str] = []
         rendered_length = 0
         for index, trace in enumerate(traces, start=1):
             header = f"=== Trace {index} of {len(traces)} (id: {trace.id}) ===\n"
             rendered_length += len(header) + (2 if sections else 0)
-            if not truncated:
-                options["max_render_length"] = JUDGE_SESSION_MAX_CHARS - rendered_length
             trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
-            try:
-                text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
-            except RenderBudgetExceeded:
-                break
+            if truncated:
+                text = format_trace_within_budget(trace_dict, hierarchy, per_trace_budget, options)
+            else:
+                options["max_render_length"] = JUDGE_SESSION_MAX_CHARS - rendered_length
+                try:
+                    text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
+                except RenderBudgetExceeded:
+                    break
             sections.append(header + text)
             rendered_length += len(text)
         else:

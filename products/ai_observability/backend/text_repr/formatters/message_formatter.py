@@ -45,6 +45,7 @@ class FormatterOptions(TypedDict, total=False):
     include_line_numbers: bool  # Prefix each line with line number (default: False)
     max_length: int | None  # Max output length; randomly drop lines if exceeded (default: None)
     max_render_length: int  # Abort oversized renders before sampling or assembling the full transcript
+    event_truncate_buffers: dict[str, int]  # Per-event override of `truncate_buffer`, keyed by event id
 
 
 class ToolCall(TypedDict, total=False):
