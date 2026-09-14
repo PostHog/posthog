@@ -873,15 +873,15 @@ Diffed against: <https://docs.bland.ai/llms.txt>
 
 Note: Source directory has no dynamic table discovery — bland_ai.py exposes a static table catalog only. Bland's API is very large (200+ documented operations), so the remaining gaps above are still a sizeable fraction.
 
-## Blogger — gaps
+## Blogger — adequate
 
 Today (4): `blogs`, `comments`, `pages`, `posts`
 
 Diffed against: <https://blogger.googleapis.com/$discovery/rest?version=v3>
 
-- [ ] `pageViews (v3/blogs/{blogId}/pageviews)` — blog page view counts — the only traffic metric the API exposes and the headline number for a blog (high)
+- ~~`pageViews (v3/blogs/{blogId}/pageviews)`~~ — not reachable: `pageViews.get` is the only read method in the discovery doc that accepts the full `https://www.googleapis.com/auth/blogger` scope alone, without `blogger.readonly`, and its reference page carries the "Requires authorization" banner that the API-key-readable methods do not. View stats are owner-only, so the API key this source collects can never read them and a pageviews table would return 403 for every user.
 
-Note: Discovery doc lists only 8 resources; blogs, posts, pages and comments are all covered. The remaining resources (postUserInfos, blogUserInfos, users) are per-user permission views rather than analytical collections, so coverage is essentially complete.
+Note: Discovery doc lists only 8 resources; blogs, posts, pages and comments are all covered. The remaining resources (postUserInfos, blogUserInfos, users) are per-user permission views rather than analytical collections, and pageViews needs an OAuth credential this source does not collect, so coverage is complete for what an API key can reach.
 
 ## Bluetally — gaps
 
