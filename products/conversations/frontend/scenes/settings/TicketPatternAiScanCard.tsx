@@ -62,12 +62,14 @@ export function TicketPatternAiScanCard(): JSX.Element {
             </div>
             {status?.skill_name ? (
                 <p className="text-xs text-muted-alt mb-0">
+                    {/* Each branch keeps its own element, so a switch removes an element rather than a
+                        text node that a page-translation extension may have replaced. */}
                     {status.last_run_at ? (
-                        <>
+                        <span>
                             Last run <TZLabel time={status.last_run_at} />.{' '}
-                        </>
+                        </span>
                     ) : enabled ? (
-                        'The first run starts within the hour. '
+                        <span>The first run starts within the hour. </span>
                     ) : null}
                     <Link to={urls.inboxScout(status.skill_name)}>Open the scout in the Inbox</Link> to read its notes
                     or change how it works.
