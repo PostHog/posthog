@@ -8,6 +8,32 @@ import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/sche
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const WorkflowsListVersionsSchema = () => {
+    const HogFlowsRevisionsListParams = orvalSchemas.HogFlowsRevisionsListParams()
+    const HogFlowsRevisionsListQueryParams = orvalSchemas.HogFlowsRevisionsListQueryParams()
+    return HogFlowsRevisionsListParams.omit({ project_id: true }).extend(HogFlowsRevisionsListQueryParams.shape)
+}
+
+const workflowsListVersions = (): ToolBase<
+    ReturnType<typeof WorkflowsListVersionsSchema>,
+    WithPostHogUrl<Schemas.PaginatedHogFlowRevisionBasicList>
+> => ({
+    name: 'workflows-list-versions',
+    schema: WorkflowsListVersionsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsListVersionsSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedHogFlowRevisionBasicList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/revisions/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/workflows')
+    },
+})
+
 const WorkflowsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
     return HogFlowsCreateBody
@@ -617,6 +643,7 @@ const workflowsUpdateSchedule = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'workflows-list-versions': workflowsListVersions,
     'workflows-create': workflowsCreate,
     'workflows-discard-draft': workflowsDiscardDraft,
     'workflows-get': workflowsGet,
