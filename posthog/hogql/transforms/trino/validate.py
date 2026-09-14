@@ -53,6 +53,7 @@ _SPECIAL_CALLS = frozenset(
         "arrayfilter",
         "arrayfirst",
         "arrayflatten",
+        "arraylastindex",
         "arraymap",
         "arraymin",
         "arrayslice",

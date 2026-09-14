@@ -1198,6 +1198,10 @@ def test_prints_additional_semantics_safe_trino_expressions(expression: str, exp
         ("user_id IN ['a', 'b']", "contains(ARRAY["),
         ("toDateTime(123)", "CAST(from_unixtime(CAST(123 AS DOUBLE)) AS TIMESTAMP)"),
         ("arrayMax([1, 2])", "array_max(ARRAY[1, 2])"),
+        (
+            "arrayLastIndex(x -> x = 'blue', ['red', 'blue', 'green', 'blue'])",
+            "reduce(transform(ARRAY[%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s, %(hogql_val_3)s],",
+        ),
         ("arraySum([1, 2])", "reduce(ARRAY[1, 2], CAST(0 AS DOUBLE)"),
         ("coalesce(nullIf(true, 0), false)", "coalesce(nullif(CAST(true AS INTEGER), 0), CAST(false AS INTEGER))"),
         ("not(2)", "NOT CAST(2 AS BOOLEAN)"),

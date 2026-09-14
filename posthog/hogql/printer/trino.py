@@ -748,6 +748,8 @@ class TrinoPrinter(PostgresPrinter):
             return self._visit_unary_function(node, "array_min")
         if name == "arrayfirst":
             return self._visit_array_first(node)
+        if name == "arraylastindex":
+            return self._visit_array_last_index(node)
         if name == "arrayconcat":
             return self._visit_variadic_function(node, "concat", minimum=2)
         if name == "arraysum":
@@ -1953,6 +1955,23 @@ class TrinoPrinter(PostgresPrinter):
                 node,
             )
         return f"coalesce({filtered}, {self.visit(ast.Constant(value=default))})"
+
+    def _visit_array_last_index(self, node: ast.Call) -> str:
+        if len(node.args) != 2 or not isinstance(node.args[0], ast.Lambda) or len(node.args[0].args) != 1:
+            self._invalid_function_arguments(
+                node, "arrayLastIndex expects a one-argument lambda and array in Trino mode."
+            )
+        predicate = node.args[0]
+        argument = self._print_identifier(predicate.args[0])
+        matches = f"transform({self.visit(node.args[1])}, {argument} -> {self._visit_predicate(predicate.expr)})"
+        state = "__hogql_last_index_state"
+        matched = "__hogql_last_index_match"
+        return (
+            f"reduce({matches}, ROW(BIGINT '0', BIGINT '0'), "
+            f"({state}, {matched}) -> ROW({state}[1] + 1, "
+            f"IF(COALESCE({matched}, FALSE), {state}[1] + 1, {state}[2])), "
+            f"{state} -> {state}[2])"
+        )
 
     def _visit_count_distinct(self, node: ast.Call) -> str:
         if not node.args:

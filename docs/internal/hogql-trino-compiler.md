@@ -150,7 +150,9 @@ The data modeling shadow path uses these results as an eligibility gate. It requ
 
 The Trino printer supports `countDistinctIf`, `replaceOne`, `toFloat64OrNull`,
 `arrayCount` with a predicate lambda, `countEqual`, `arraySlice`, `arraySort` with
-a single-array key lambda, and `multiSearchAnyCaseInsensitive`. Simple `CASE`
+a single-array key lambda, `arrayLastIndex` with a predicate lambda, and
+`multiSearchAnyCaseInsensitive`. `arrayLastIndex` returns the last matching
+one-based position, or zero when no element matches. Simple `CASE`
 expressions and numeric conditions in `if`/`multiIf` use native Trino conditionals.
 Aliases inside expressions are omitted from SQL; projection aliases are retained.
 String inputs to `toInt` use `TRY_CAST`, returning NULL for strings that do not
