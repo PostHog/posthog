@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render } from '@testing-library/react'
+import { act, fireEvent, render } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 import posthog from 'posthog-js'
 
@@ -51,6 +51,27 @@ describe('PlayerFrame', () => {
         )
         // The frame is same-origin, so any script permission added here runs as the app.
         expect(iframe).toHaveAttribute('sandbox', 'allow-same-origin')
+    })
+
+    // A load event that never arrives used to leave rrweb with nowhere to mount, so the player
+    // showed an empty rectangle for as long as the tab stayed open.
+    it('falls back to the app document when the frame never loads', () => {
+        jest.useFakeTimers()
+        try {
+            const captureSpy = jest.spyOn(posthog, 'captureException')
+            const { container } = renderPlayerFrame()
+
+            act(() => {
+                jest.advanceTimersByTime(10000)
+            })
+
+            expect(container.querySelector('iframe')).toBeNull()
+            const fallback = container.querySelector('div.PlayerFrame__content')
+            expect(sessionRecordingPlayerLogic(logicProps).values.rootFrame).toBe(fallback)
+            expect(captureSpy).toHaveBeenCalledTimes(1)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     // Firefox fires load for the frame's initial about:blank document, which has no mount node.

@@ -2283,7 +2283,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         playerFrameDocumentLoadFailed: () => {
             // The player still works from the app document, so the only sign of this is the report.
-            posthog.captureException(new Error('Replay player frame loaded without its mount node'), {
+            posthog.captureException(new Error('Replay player frame gave up its mount node'), {
                 feature: 'session-recording-player-frame',
                 sessionRecordingId: props.sessionRecordingId,
             })
