@@ -466,6 +466,7 @@ describe('useTaxonomicFilter', () => {
             isLoading: false,
             isFetching: false,
             needsMoreSearchCharacters: false,
+            searchQueryTooLong: false,
             hasRemoteDataSource: false,
             showEmptyState: false,
             showLoadingState: false,

@@ -657,6 +657,59 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('a search past the endpoint cap', () => {
+        // The cohorts endpoint rejects a search over 200 characters with a 400, and a kea loader
+        // failure raises a toast on every keystroke.
+        it.each([
+            { name: 'sends a search at the cap', query: 'x'.repeat(200), expectedRequests: 1 },
+            { name: 'skips a search past the cap', query: 'x'.repeat(201), expectedRequests: 0 },
+            // The endpoint measures the raw parameter before it strips it, so the trailing space
+            // counts. A guard that trims first sends 201 characters and gets the 400 back.
+            {
+                name: 'skips a search the trailing space pushes past the cap',
+                query: `${'x'.repeat(200)} `,
+                expectedRequests: 0,
+            },
+        ])('$name', async ({ query, expectedRequests }) => {
+            const searches: (string | null)[] = []
+            useMocks({
+                get: {
+                    '/api/projects/:team/cohorts/': ({ request }) => {
+                        searches.push(new URL(request.url).searchParams.get('search'))
+                        return [200, { results: [], count: 0 }]
+                    },
+                },
+            })
+            initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const cohortLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'cohortList',
+                listGroupType: TaxonomicFilterGroupType.Cohorts,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts],
+                showNumericalPropsOnly: false,
+            })
+            cohortLogic.mount()
+            await expectLogic(cohortLogic).toFinishAllListeners()
+            searches.length = 0
+
+            await expectLogic(cohortLogic, () => {
+                cohortLogic.actions.setSearchQuery(query)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    searchQueryTooLong: expectedRequests === 0,
+                    showErrorState: false,
+                    showEmptyState: true,
+                })
+
+            expect(searches.filter((search) => search === query)).toHaveLength(expectedRequests)
+            // A skipped search never asked the backend anything, so recording it as a dead end
+            // would report a no-match the backend never returned.
+            const emptyResultCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter empty result')
+            expect(emptyResultCalls).toHaveLength(expectedRequests)
+        })
+    })
+
     describe('remote fetch failure settles the list', () => {
         // Every fetch deliberately 500s — silence the loader error log.
         beforeEach(silenceKeaLoadersErrors)

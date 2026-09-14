@@ -44,6 +44,7 @@ import {
     SelectedProperties,
     SimpleOption,
     SkeletonItem,
+    TRIGRAM_SEARCH_MAX_QUERY_LENGTH,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -1768,6 +1769,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Cohorts',
                         searchPlaceholder: 'cohorts',
                         type: TaxonomicFilterGroupType.Cohorts,
+                        maxSearchQueryLength: TRIGRAM_SEARCH_MAX_QUERY_LENGTH,
                         endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
                         value: 'cohorts',
                         // Cohort populations comfortably fit in one page for
@@ -1793,6 +1795,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Cohorts',
                         searchPlaceholder: 'cohorts',
                         type: TaxonomicFilterGroupType.CohortsWithAllUsers,
+                        maxSearchQueryLength: TRIGRAM_SEARCH_MAX_QUERY_LENGTH,
                         endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
                         clientFilterFirstPage: true,
                         options: COHORTS_WITH_ALL_USERS_OPTIONS,
@@ -1919,6 +1922,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Insights',
                         searchPlaceholder: 'insights',
                         type: TaxonomicFilterGroupType.Insights,
+                        maxSearchQueryLength: TRIGRAM_SEARCH_MAX_QUERY_LENGTH,
                         endpoint: combineUrl(`api/environments/${teamId}/insights/`, {
                             saved: true,
                         }).url,

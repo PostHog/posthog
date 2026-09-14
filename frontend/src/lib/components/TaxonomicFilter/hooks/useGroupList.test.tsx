@@ -156,6 +156,20 @@ describe('useGroupList', () => {
             expect(apiGet).not.toHaveBeenCalled()
         })
 
+        it.each([
+            { name: 'at the maximum length', searchQuery: 'x'.repeat(200), tooLong: false },
+            { name: 'past the maximum length', searchQuery: 'x'.repeat(201), tooLong: true },
+            // The endpoint measures the raw parameter before it strips it, so the trailing space
+            // counts. A guard that trims first sends 201 characters and gets the 400 back.
+            { name: 'at the maximum length plus a trailing space', searchQuery: `${'x'.repeat(200)} `, tooLong: true },
+        ])('$name, searchQueryTooLong is $tooLong', ({ searchQuery, tooLong }) => {
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+            const group = makeGroup({ endpoint: 'api/projects/1/cohorts/', maxSearchQueryLength: 200 })
+            const { result } = renderHook(() => useGroupList({ group, searchQuery }))
+            expect(result.current.searchQueryTooLong).toBe(tooLong)
+            expect(apiGet).toHaveBeenCalledTimes(tooLong ? 0 : 1)
+        })
+
         it('drops the previous page when the query falls below the minimum length', async () => {
             apiGet.mockResolvedValue({ results: [{ name: 'checkout' }], count: 1 })
             const group = makeGroup({ endpoint: 'api/projects/1/whatever', minSearchQueryLength: 3 })
