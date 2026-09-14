@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
     ENDPOINTS,
+    ENTITY_INCREMENTAL_ENDPOINTS,
     INCREMENTAL_FIELDS,
     SHOULD_SYNC_DEFAULT,
 )
@@ -193,7 +194,15 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
+        # Campaigns, ad sets and ads mutate in place, so they merge on their primary keys and are
+        # never append-only: append would stack a new copy of an object every time it changes.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=ENTITY_INCREMENTAL_ENDPOINTS,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MetaAdsResumeConfig]:
         return ResumableSourceManager[MetaAdsResumeConfig](inputs, MetaAdsResumeConfig)

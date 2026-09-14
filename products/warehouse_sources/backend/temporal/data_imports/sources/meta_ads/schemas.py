@@ -71,7 +71,7 @@ ENDPOINTS = (
     *BREAKDOWN_STATS_ENDPOINTS,
 )
 
-INCREMENTAL_ENDPOINTS = (
+STATS_INCREMENTAL_ENDPOINTS = (
     MetaAdsResource.AdStats,
     MetaAdsResource.AdsetStats,
     MetaAdsResource.CampaignStats,
@@ -81,20 +81,9 @@ INCREMENTAL_ENDPOINTS = (
 SHOULD_SYNC_DEFAULT: dict[str, bool] = dict.fromkeys(BREAKDOWN_STATS_ENDPOINTS, False)
 
 
-def _date_start_incremental_field() -> list[IncrementalField]:
-    return [
-        {
-            "label": "date_start",
-            "type": IncrementalFieldType.Date,
-            "field": "date_start",
-            "field_type": IncrementalFieldType.Date,
-        }
-    ]
+def _incremental_field(name: str, field_type: IncrementalFieldType) -> list[IncrementalField]:
+    return [{"label": name, "type": field_type, "field": name, "field_type": field_type}]
 
-
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    endpoint: _date_start_incremental_field() for endpoint in INCREMENTAL_ENDPOINTS
-}
 
 # Insights metrics requested for every breakdown table, at any level, mirroring the plain stats
 # tables. The grain columns (`ad_id`, `adset_id`, `campaign_id`) that identify a row are prepended
@@ -187,6 +176,7 @@ def _breakdown_stats(level: str, breakdowns: list[str], field_names: list[str]) 
 RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
     MetaAdsResource.Ads: {
         "primary_keys": ["id", "account_id"],
+        "entity_updated_time_filter": "ad",
         "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/ads",
         "extra_params": {},
         "field_names": [
@@ -261,6 +251,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
     },
     MetaAdsResource.Adsets: {
         "primary_keys": ["id", "account_id"],
+        "entity_updated_time_filter": "adset",
         "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/adsets",
         "extra_params": {},
         "field_names": [
@@ -333,6 +324,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
     },
     MetaAdsResource.Campaigns: {
         "primary_keys": ["id", "account_id"],
+        "entity_updated_time_filter": "campaign",
         "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/campaigns",
         "extra_params": {},
         "field_names": [
@@ -566,4 +558,20 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
     MetaAdsResource.AdStatsHourly: _breakdown_stats(
         "ad", ["hourly_stats_aggregated_by_advertiser_time_zone"], _hourly_fields(AD_BREAKDOWN_STATS_FIELDS)
     ),
+}
+
+
+ENTITY_INCREMENTAL_ENDPOINTS = frozenset(
+    endpoint for endpoint, schema_def in RESOURCE_SCHEMAS.items() if schema_def.get("entity_updated_time_filter")
+)
+
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    **{
+        endpoint: _incremental_field("date_start", IncrementalFieldType.Date)
+        for endpoint in STATS_INCREMENTAL_ENDPOINTS
+    },
+    **{
+        endpoint: _incremental_field("updated_time", IncrementalFieldType.DateTime)
+        for endpoint in ENTITY_INCREMENTAL_ENDPOINTS
+    },
 }
