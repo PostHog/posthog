@@ -8,9 +8,9 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.logic.services.gateway_usage import (
-    has_gateway_credential,
+    gateway_usage_enabled,
+    process_pending_gateway_usage,
     refresh_task_run_spend,
-    retry_pending_gateway_usage,
 )
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.logic.services.sandbox_usage import (
@@ -60,7 +60,7 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
             run_id = UUID(input.run_id)
             run_team_id = TaskRun.objects.filter(id=run_id).values_list("team_id", flat=True).first()
             accounting_enabled = bool(
-                run_team_id is not None and has_gateway_credential(run_id=run_id, team_id=run_team_id)
+                run_team_id is not None and gateway_usage_enabled(run_id=run_id, team_id=run_team_id)
             )
         except Exception:
             logger.warning(
@@ -95,7 +95,7 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
 
         if accounting_enabled and run_id is not None and run_team_id is not None:
             try:
-                retry_pending_gateway_usage(run_id=run_id, team_id=run_team_id)
+                process_pending_gateway_usage(run_id=run_id, team_id=run_team_id, limit=20)
             except Exception:
                 logger.warning(
                     "cleanup_sandbox_gateway_accounting_retry_failed", extra={"run_id": input.run_id}, exc_info=True
@@ -122,7 +122,7 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
 
     if sandbox is None and accounting_enabled and run_id is not None and run_team_id is not None:
         try:
-            retry_pending_gateway_usage(run_id=run_id, team_id=run_team_id)
+            process_pending_gateway_usage(run_id=run_id, team_id=run_team_id, limit=20)
         except Exception:
             logger.warning(
                 "cleanup_sandbox_gateway_accounting_retry_failed", extra={"run_id": input.run_id}, exc_info=True

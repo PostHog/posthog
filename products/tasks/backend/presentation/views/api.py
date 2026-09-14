@@ -110,12 +110,6 @@ from products.tasks.backend.facade.streams import (
     run_uses_dedicated_stream,
     session_update_type,
 )
-from products.tasks.backend.logic.services.gateway_usage import (
-    finish_gateway_usage_epoch,
-    record_gateway_usage_request,
-    settle_gateway_usage_request,
-    start_gateway_usage_epoch,
-)
 from products.tasks.backend.presentation.serializers import (
     ConnectionTokenResponseSerializer,
     LegacyDesktopAccessResponseSerializer,
@@ -169,8 +163,6 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunErrorResponseSerializer,
-    TaskRunGatewayUsageRequestSerializer,
-    TaskRunGatewayUsageResponseSerializer,
     TaskRunLivingArtifactChartRequestSerializer,
     TaskRunLivingArtifactChartResponseSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
@@ -1817,65 +1809,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return Response(TaskRunDetailSerializer(run).data, status=status.HTTP_202_ACCEPTED)
-
-    @validated_request(
-        request_serializer=TaskRunGatewayUsageRequestSerializer,
-        responses={
-            200: OpenApiResponse(response=TaskRunGatewayUsageResponseSerializer, description="Gateway usage recorded."),
-            403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Sandbox OAuth is required."),
-            404: OpenApiResponse(description="Task run not found."),
-        },
-        summary="Record gateway usage",
-        description="Record gateway request lifecycle events for the current sandbox run.",
-        strict_request_validation=True,
-    )
-    @action(detail=True, methods=["post"], url_path="gateway_usage", required_scopes=["task:read"])
-    def gateway_usage(self, request, pk=None, **kwargs):
-        task_id = self._ensure_task_accessible()
-        if not self._is_sandbox_agent_request(task_id):
-            raise PermissionDenied("Gateway usage is available only to the current task sandbox.")
-
-        data = request.validated_data
-        operation = data["operation"]
-        run_id = UUID(str(pk))
-        if operation == "start":
-            spend = start_gateway_usage_epoch(run_id=run_id, team_id=self.team_id, epoch_id=data["epoch_id"])
-            settled = True
-        elif operation == "request":
-            spend = record_gateway_usage_request(
-                run_id=run_id,
-                team_id=self.team_id,
-                epoch_id=data["epoch_id"],
-                attempt_id=data["attempt_id"],
-                request_id=data.get("request_id"),
-            )
-            settled = False
-        elif operation == "settle":
-            settled, spend = settle_gateway_usage_request(
-                run_id=run_id,
-                team_id=self.team_id,
-                epoch_id=data["epoch_id"],
-                attempt_id=data["attempt_id"],
-                request_id=data["request_id"],
-            )
-        else:
-            spend = finish_gateway_usage_epoch(run_id=run_id, team_id=self.team_id, epoch_id=data["epoch_id"])
-            settled = True
-
-        return Response(
-            TaskRunGatewayUsageResponseSerializer(
-                {
-                    "settled": settled,
-                    "spend": {
-                        "token_cost": spend.token_cost,
-                        "compute_cost": spend.compute_cost,
-                        "token_status": spend.token_status,
-                        "compute_status": spend.compute_status,
-                        "is_final": spend.is_final,
-                    },
-                }
-            ).data
-        )
 
     @validated_request(
         request_serializer=TaskRunUpdateSerializer,

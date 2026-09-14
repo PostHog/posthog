@@ -97,9 +97,10 @@ Run `/migrating-llm-gateway-callers` to inventory and convert a caller.
 ## Task-run accounting
 
 Go-routed cloud runs can use the Tasks request-accounting path described in [task-run spend](../../docs/internal/task-run-spend.md).
-It requires the companion Go gateway receipt changes before enablement.
-The existing standard-credential `GET /v1/usage/{request_id}` must return the scoped credential identity, exact micro-USD cost, and an explicit zero receipt when settlement establishes zero cost.
-Tasks performs the lookup with a backend-held credential; sandbox token permissions do not expand.
+The agent appends request IDs through the existing Tasks API.
+Temporal activities retrieve the existing `cost_usd` response from standard-credential `GET /v1/usage/{request_id}` and persist spend.
+No gateway changes or additional sandbox permissions are required.
+Task attribution trusts the task-bound agent; missing usage, including zero-cost calls without a ledger debit, stays incomplete.
 
 The Python gateway has no equivalent per-request receipt API.
 Python-routed runs, including Pi's existing route, skip this mechanism and retain unavailable token spend.

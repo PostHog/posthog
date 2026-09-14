@@ -83,7 +83,7 @@ from products.tasks.backend.feature_flags import get_model_access_error, is_work
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
-from products.tasks.backend.logic.services.gateway_usage import has_gateway_credential, refresh_task_run_spend
+from products.tasks.backend.logic.services.gateway_usage import gateway_usage_enabled, refresh_task_run_spend
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -2233,6 +2233,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "github_credential_source",
         "spend",
         "_spend_accounting",
+        "gateway_request_ids",
+        "gateway_usage_complete",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
@@ -2785,9 +2787,10 @@ def update_task_run(
     has_output_merge = "output" in validated_data and isinstance(validated_data["output"], dict)
     has_state_merge = "state" in validated_data and isinstance(validated_data["state"], dict)
     if has_state_merge:
-        validated_data["state"] = {
-            k: v for k, v in validated_data["state"].items() if k not in _PROTECTED_RUN_STATE_KEYS
-        }
+        state = validated_data["state"]
+        validated_data["state"] = {k: v for k, v in state.items() if k not in _PROTECTED_RUN_STATE_KEYS}
+        if caller_is_agent and isinstance(state.get("gateway_usage_complete"), bool):
+            validated_data["state"]["gateway_usage_complete"] = state["gateway_usage_complete"]
     state_remove_keys = [
         k for k in (validated_data.get("state_remove_keys") or []) if k not in _PROTECTED_RUN_STATE_KEYS
     ]
@@ -2797,6 +2800,13 @@ def update_task_run(
         if isinstance(raw_state_append, dict)
         else {}
     )
+    gateway_request_id = raw_state_append.get("gateway_request_ids") if isinstance(raw_state_append, dict) else None
+    if (
+        caller_is_agent
+        and isinstance(gateway_request_id, str)
+        and re.fullmatch(r"[A-Za-z0-9_-]{1,255}", gateway_request_id)
+    ):
+        state_append["gateway_request_ids"] = gateway_request_id
     has_state_mutation = has_state_merge or bool(state_remove_keys) or bool(state_append)
     update_fields: set[str] = set()
 
@@ -2846,7 +2856,12 @@ def update_task_run(
             next_state = dict(run.state) if isinstance(run.state, dict) else {}
             for append_key, item in state_append.items():
                 current = next_state.get(append_key)
-                if isinstance(current, list):
+                if append_key == "gateway_request_ids":
+                    current_ids = current if isinstance(current, list) else []
+                    if item not in current_ids:
+                        next_state[append_key] = [*current_ids, item]
+                        next_state["gateway_usage_complete"] = False
+                elif isinstance(current, list):
                     next_state[append_key] = [*current, item]
                 elif current is None:
                     next_state[append_key] = [item]
@@ -2882,7 +2897,7 @@ def update_task_run(
     # (consecutive_failures would double-count). The workflow's status-update activity
     # applies the same guard on its side.
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
-        if has_gateway_credential(run_id=run.id, team_id=run.team_id):
+        if gateway_usage_enabled(run_id=run.id, team_id=run.team_id):
             refresh_task_run_spend(run_id=run.id, team_id=run.team_id)
         handle_loop_run_terminal(run)
 

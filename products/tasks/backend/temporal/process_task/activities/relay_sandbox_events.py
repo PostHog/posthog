@@ -26,6 +26,7 @@ from products.tasks.backend.logic.services.agent_command import (
     validate_sandbox_url,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.gateway_usage import gateway_usage_enabled, process_pending_gateway_usage
 from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
     try_auto_respond_permission_request,
@@ -312,6 +313,7 @@ async def _background_heartbeat(
     inactivity_timeout_seconds: float = INACTIVITY_TIMEOUT_DEFAULT_SECONDS,
     open_tool_calls: set[str] | None = None,
     run_id: str | None = None,
+    task_run: TaskRunModel | None = None,
 ) -> None:
     """Heartbeat to Temporal periodically, independent of event flow.
 
@@ -363,6 +365,21 @@ async def _background_heartbeat(
                     )
                 except Exception as e:
                     logger.warning("relay_workflow_heartbeat_signal_failed", error=str(e))
+            if task_run is not None:
+                await _process_pending_gateway_usage(task_run)
+
+
+@close_db_connections
+def _process_gateway_usage_in_worker(task_run: TaskRunModel) -> None:
+    if gateway_usage_enabled(run_id=task_run.id, team_id=task_run.team_id):
+        process_pending_gateway_usage(run_id=task_run.id, team_id=task_run.team_id, limit=20)
+
+
+async def _process_pending_gateway_usage(task_run: TaskRunModel) -> None:
+    try:
+        await sync_to_async(_process_gateway_usage_in_worker, thread_sensitive=False)(task_run)
+    except Exception:
+        logger.warning("relay_gateway_usage_processing_failed", run_id=str(task_run.id), exc_info=True)
 
 
 def _agent_has_work_in_flight(agent_active: list[bool] | None, open_tool_calls: set[str] | None) -> bool:
@@ -458,6 +475,7 @@ async def _relay_loop(
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             open_tool_calls=open_tool_calls,
             run_id=run_id,
+            task_run=task_run,
         )
     )
 

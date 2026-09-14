@@ -3476,56 +3476,6 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
         return f"Sandbox session {self.sandbox_id} for run {self.task_run_id}"
 
 
-class GatewayUsageCredential(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    task_run = models.ForeignKey("tasks.TaskRun", on_delete=models.CASCADE, related_name="gateway_usage_credentials")
-    bearer_hash = models.CharField(max_length=64)
-    created_at = models.DateTimeField(default=django_timezone.now)
-
-    class Meta:
-        db_table = "posthog_task_gateway_usage_credential"
-        constraints = [
-            models.UniqueConstraint(fields=["task_run", "bearer_hash"], name="task_gateway_usage_credential_unique")
-        ]
-
-
-class GatewayUsageEpoch(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    task_run = models.ForeignKey("tasks.TaskRun", on_delete=models.CASCADE, related_name="gateway_usage_epochs")
-    epoch_id = models.UUIDField()
-    sealed_at = models.DateTimeField(null=True, blank=True)
-    interrupted_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(default=django_timezone.now)
-
-    class Meta:
-        db_table = "posthog_task_gateway_usage_epoch"
-        constraints = [models.UniqueConstraint(fields=["task_run", "epoch_id"], name="task_gateway_usage_epoch_unique")]
-
-
-class GatewayUsageRequest(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    task_run = models.ForeignKey("tasks.TaskRun", on_delete=models.CASCADE, related_name="gateway_usage_requests")
-    epoch = models.ForeignKey("tasks.GatewayUsageEpoch", on_delete=models.CASCADE, related_name="requests")
-    attempt_id = models.UUIDField()
-    gateway_request_id = models.CharField(max_length=255, null=True, blank=True)
-    cost_microusd = models.PositiveBigIntegerField(null=True, blank=True)
-    model = models.CharField(max_length=255, blank=True)
-    provider = models.CharField(max_length=255, blank=True)
-    input_tokens = models.PositiveBigIntegerField(null=True, blank=True)
-    output_tokens = models.PositiveBigIntegerField(null=True, blank=True)
-    cache_read_tokens = models.PositiveBigIntegerField(null=True, blank=True)
-    cache_write_tokens = models.PositiveBigIntegerField(null=True, blank=True)
-    settled_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(default=django_timezone.now)
-
-    class Meta:
-        db_table = "posthog_task_gateway_usage_request"
-        constraints = [
-            models.UniqueConstraint(fields=["epoch", "attempt_id"], name="task_gateway_usage_request_intent_unique")
-        ]
-        indexes = [models.Index(fields=["task_run", "gateway_request_id"], name="task_gateway_usage_request_idx")]
-
-
 class SandboxSnapshot(UUIDModel):
     """Tracks sandbox snapshots used for sandbox environments in tasks."""
 

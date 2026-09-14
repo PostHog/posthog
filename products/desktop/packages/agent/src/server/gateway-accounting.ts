@@ -1,13 +1,11 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type { IncomingHttpHeaders, Server } from "node:http";
 import * as http from "node:http";
 import * as https from "node:https";
 import type { PostHogAPIClient } from "../posthog-api";
 import type { Logger } from "../utils/logger";
+import { GatewayUsageReporter } from "./run-usage";
 
-const REPORT_DEADLINE_MS = 5_000;
-const MAX_CONCURRENT_REPORTS = 4;
-const RETRY_DELAYS_MS = [100, 250, 500];
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
   "keep-alive",
@@ -36,22 +34,6 @@ export interface GatewayAccountingOptions {
   upstreamUrl: string;
   upstreamBearer: string;
   logger: Logger;
-}
-
-function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    const finish = (): void => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    };
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      finish();
-    };
-    const timer = setTimeout(finish, milliseconds);
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
 }
 
 function requestPath(request: http.IncomingMessage): string | null {
@@ -111,7 +93,6 @@ function upstreamPath(upstream: URL, requestUrl: string): string {
 
 export class GatewayAccountingProxy {
   private readonly localBearer = randomBytes(32).toString("hex");
-  private readonly epochId = randomUUID();
   private readonly upstream: URL;
   private server: Server | null = null;
   private port: number | null = null;
@@ -120,12 +101,7 @@ export class GatewayAccountingProxy {
   private readonly activeStreams = new Set<http.IncomingMessage>();
   private readonly dispatches = new Set<Promise<void>>();
   private readonly dispatchControllers = new Set<AbortController>();
-  private readonly reportController = new AbortController();
-  private readonly uncertainIntents = new Set<string>();
-  private readonly reports = new Set<Promise<void>>();
-  private readonly queuedReports: Array<() => Promise<void>> = [];
-  private activeReportCount = 0;
-  private epochStarted = false;
+  private readonly usageReporter: GatewayUsageReporter;
 
   constructor(private readonly options: GatewayAccountingOptions) {
     this.upstream = new URL(options.upstreamUrl);
@@ -135,6 +111,12 @@ export class GatewayAccountingProxy {
     ) {
       throw new Error("gateway accounting requires an HTTP upstream");
     }
+    this.usageReporter = new GatewayUsageReporter(
+      options.api,
+      options.taskId,
+      options.runId,
+      options.logger,
+    );
   }
 
   get baseUrl(): string {
@@ -148,8 +130,7 @@ export class GatewayAccountingProxy {
   }
 
   async start(): Promise<void> {
-    await this.callUsage({ operation: "start", epoch_id: this.epochId });
-    this.epochStarted = true;
+    await this.usageReporter.start();
     this.server = http.createServer((request, response) =>
       this.handle(request, response),
     );
@@ -173,161 +154,15 @@ export class GatewayAccountingProxy {
     for (const controller of this.dispatchControllers) controller.abort();
     for (const request of this.activeRequests) request.destroy();
     for (const stream of this.activeStreams) stream.destroy();
-    const drained = await this.drainWork();
-    if (drained) {
-      if (this.epochStarted) {
-        try {
-          await this.callUsage({ operation: "finish", epoch_id: this.epochId });
-        } catch (error) {
-          this.options.logger.warn(
-            "Failed to finish gateway accounting",
-            error,
-          );
-        }
-      }
-    } else {
-      this.options.logger.warn(
-        "Gateway accounting still has pending work; leaving epoch open",
-      );
-    }
+    await Promise.allSettled([...this.dispatches]);
+    await this.usageReporter.stop();
     this.server = null;
     this.port = null;
-  }
-
-  private async callUsage(
-    operation: Parameters<PostHogAPIClient["gatewayUsage"]>[2],
-    signal?: AbortSignal,
-  ) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REPORT_DEADLINE_MS);
-    try {
-      return await this.options.api.gatewayUsage(
-        this.options.taskId,
-        this.options.runId,
-        operation,
-        AbortSignal.any([controller.signal, ...(signal ? [signal] : [])]),
-      );
-    } finally {
-      clearTimeout(timer);
-    }
   }
 
   private trackDispatch(dispatch: Promise<void>): void {
     this.dispatches.add(dispatch);
     void dispatch.finally(() => this.dispatches.delete(dispatch));
-  }
-
-  private trackReport(task: () => Promise<void>): void {
-    this.queuedReports.push(task);
-    this.runReports();
-  }
-
-  private runReports(): void {
-    while (
-      this.activeReportCount < MAX_CONCURRENT_REPORTS &&
-      this.queuedReports.length > 0
-    ) {
-      const task = this.queuedReports.shift();
-      if (!task) return;
-      this.activeReportCount += 1;
-      const report = task()
-        .catch((error: unknown) =>
-          this.options.logger.warn("Failed to report gateway usage", error),
-        )
-        .finally(() => {
-          this.activeReportCount -= 1;
-          this.reports.delete(report);
-          this.runReports();
-        });
-      this.reports.add(report);
-    }
-  }
-
-  private async drainWork(): Promise<boolean> {
-    const deadline = Date.now() + REPORT_DEADLINE_MS;
-    this.runReports();
-    while (
-      (this.dispatches.size > 0 ||
-        this.uncertainIntents.size > 0 ||
-        this.reports.size > 0 ||
-        this.queuedReports.length > 0) &&
-      Date.now() < deadline
-    ) {
-      const activeWork = [...this.dispatches, ...this.reports];
-      if (activeWork.length === 0 || this.reportController.signal.aborted)
-        return false;
-      const waitController = new AbortController();
-      const workSettled = Promise.allSettled(activeWork).finally(() =>
-        waitController.abort(),
-      );
-      await Promise.race([
-        workSettled,
-        delay(
-          Math.max(1, deadline - Date.now()),
-          AbortSignal.any([
-            waitController.signal,
-            this.reportController.signal,
-          ]),
-        ),
-      ]);
-      this.runReports();
-    }
-    const complete =
-      this.dispatches.size === 0 &&
-      this.uncertainIntents.size === 0 &&
-      this.reports.size === 0 &&
-      this.queuedReports.length === 0;
-    if (!complete) {
-      this.reportController.abort();
-      await Promise.allSettled([...this.dispatches, ...this.reports]);
-    }
-    return complete;
-  }
-
-  private async bindRequest(
-    attemptId: string,
-    requestId: string,
-  ): Promise<boolean> {
-    for (const retryDelay of RETRY_DELAYS_MS) {
-      if (this.reportController.signal.aborted) return false;
-      try {
-        await this.callUsage(
-          {
-            operation: "request",
-            epoch_id: this.epochId,
-            attempt_id: attemptId,
-            request_id: requestId,
-          },
-          this.reportController.signal,
-        );
-        return true;
-      } catch {
-        await delay(retryDelay, this.reportController.signal);
-      }
-    }
-    return false;
-  }
-
-  private async settleRequest(
-    attemptId: string,
-    requestId: string,
-  ): Promise<void> {
-    for (const retryDelay of RETRY_DELAYS_MS) {
-      if (this.reportController.signal.aborted) return;
-      try {
-        const result = await this.callUsage(
-          {
-            operation: "settle",
-            epoch_id: this.epochId,
-            attempt_id: attemptId,
-            request_id: requestId,
-          },
-          this.reportController.signal,
-        );
-        if (result.settled) return;
-      } catch {}
-      await delay(retryDelay, this.reportController.signal);
-    }
   }
 
   private handle(
@@ -363,22 +198,15 @@ export class GatewayAccountingProxy {
     isModelRequest: boolean,
   ): Promise<void> {
     const controller = new AbortController();
+    let requestIdCaptured = false;
     this.dispatchControllers.add(controller);
-    const attemptId = randomUUID();
+    const abort = (): void => controller.abort();
+    const abortOnClose = (): void => {
+      if (!response.writableEnded) abort();
+    };
+    request.once("aborted", abort);
+    response.once("close", abortOnClose);
     try {
-      if (isModelRequest) {
-        this.uncertainIntents.add(attemptId);
-        await this.callUsage(
-          {
-            operation: "request",
-            epoch_id: this.epochId,
-            attempt_id: attemptId,
-          },
-          controller.signal,
-        );
-        this.uncertainIntents.delete(attemptId);
-        if (!this.accepting || controller.signal.aborted) return;
-      }
       const transport = this.upstream.protocol === "https:" ? https : http;
       const { upstreamRequest, upstreamResponse } = await new Promise<{
         upstreamRequest: http.ClientRequest;
@@ -422,34 +250,32 @@ export class GatewayAccountingProxy {
         upstreamRequest.once("error", resolve);
       });
       response.once("close", () => upstreamResponse.destroy());
-      const requestId = upstreamResponse.headers["x-request-id"];
-      const id = Array.isArray(requestId) ? requestId[0] : requestId;
+      const header = upstreamResponse.headers["x-request-id"];
+      const requestId = Array.isArray(header) ? header[0] : header;
+      if (isModelRequest) {
+        if (requestId) {
+          requestIdCaptured = true;
+          this.usageReporter.reportRequestId(requestId);
+        } else this.usageReporter.markRequestIdMissing();
+      }
       response.writeHead(
         upstreamResponse.statusCode ?? 502,
         filteredHeaders(upstreamResponse.headers),
       );
       upstreamResponse.pipe(response);
-      if (isModelRequest && id) {
-        this.trackReport(async () => {
-          if (!(await this.bindRequest(attemptId, id))) return;
-          void streamFinished.then(() =>
-            this.trackReport(() => this.settleRequest(attemptId, id)),
-          );
-        });
-      }
       await Promise.all([streamFinished, requestFinished]);
       this.activeStreams.delete(upstreamResponse);
       this.activeRequests.delete(upstreamRequest);
     } catch (error) {
-      if (!controller.signal.aborted) this.uncertainIntents.delete(attemptId);
+      if (isModelRequest && !requestIdCaptured)
+        this.usageReporter.markRequestIdMissing();
       if (!response.headersSent) response.writeHead(502);
       response.end();
       if (!controller.signal.aborted)
-        this.options.logger.warn(
-          "Failed to record gateway request intent",
-          error,
-        );
+        this.options.logger.warn("Gateway proxy request failed", error);
     } finally {
+      request.off("aborted", abort);
+      response.off("close", abortOnClose);
       this.dispatchControllers.delete(controller);
     }
   }

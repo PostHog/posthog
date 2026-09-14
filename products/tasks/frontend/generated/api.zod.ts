@@ -3136,33 +3136,6 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
     .describe('JSON-RPC request to send a command to the agent server in the sandbox.')
 
 /**
- * Record gateway request lifecycle events for the current sandbox run.
- * @summary Record gateway usage
- */
-export const tasksRunsGatewayUsageCreateBodyRequestIdMax = 255
-
-export const TasksRunsGatewayUsageCreateBody = /* @__PURE__ */ zod.object({
-    operation: zod
-        .enum(['start', 'request', 'settle', 'finish'])
-        .describe(
-            '\* `start` - Start an accounting epoch\n\* `request` - Record or bind a gateway request\n\* `settle` - Settle a gateway request\n\* `finish` - Seal an accounting epoch'
-        )
-        .describe(
-            'Accounting operation to perform for this sandbox run.\n\n\* `start` - Start an accounting epoch\n\* `request` - Record or bind a gateway request\n\* `settle` - Settle a gateway request\n\* `finish` - Seal an accounting epoch'
-        ),
-    epoch_id: zod.uuid().describe('Identifier for the agent process accounting epoch.'),
-    attempt_id: zod
-        .uuid()
-        .optional()
-        .describe('Identifier for one proxied gateway request attempt. Required for request and settle operations.'),
-    request_id: zod
-        .string()
-        .max(tasksRunsGatewayUsageCreateBodyRequestIdMax)
-        .optional()
-        .describe('Gateway request identifier returned by the gateway. Required when settling a request.'),
-})
-
-/**
  * Relay a message from this run to a peer agent run. The body is delivered below a server-composed provenance envelope as a queued (non-steer) turn; attachments are copied into the target run's own artifact storage. `accepted` means queued for delivery, never delivered — the sandbox handoff happens later inside the target's workflow.
  * @summary Send a message to a peer agent run
  */

@@ -89,11 +89,11 @@ def test_cleanup_sandbox_keeps_accounted_compute_open_when_destroy_fails(
         )
         run_objects.filter.return_value.values_list.return_value.first.return_value = 7
         mocker.patch(
-            "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.has_gateway_credential",
+            "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.gateway_usage_enabled",
             return_value=True,
         )
         mocker.patch(
-            "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.retry_pending_gateway_usage"
+            "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.process_pending_gateway_usage"
         )
     sandbox = mocker.Mock(id="sandbox-123")
     sandbox.read_cpu_usage_usec.return_value = 12_345_678
@@ -142,12 +142,12 @@ def test_cleanup_sandbox_retries_and_persists_accounting_before_stream_completio
         "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.TaskRun.objects"
     )
     run_objects.filter.return_value.values_list.return_value.first.return_value = 7
-    has_credential = mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.has_gateway_credential",
+    gateway_usage_is_enabled = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.gateway_usage_enabled",
         return_value=True,
     )
-    retry_pending = mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.retry_pending_gateway_usage"
+    process_pending = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.process_pending_gateway_usage"
     )
     close_session = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.close_sandbox_session"
@@ -168,8 +168,8 @@ def test_cleanup_sandbox_retries_and_persists_accounting_before_stream_completio
     )
 
     sandbox.stop_agent_server.assert_called_once_with()
-    has_credential.assert_called_once_with(run_id=uuid.UUID(run_id), team_id=7)
-    retry_pending.assert_called_once_with(run_id=uuid.UUID(run_id), team_id=7)
+    gateway_usage_is_enabled.assert_called_once_with(run_id=uuid.UUID(run_id), team_id=7)
+    process_pending.assert_called_once_with(run_id=uuid.UUID(run_id), team_id=7, limit=20)
     close_session.assert_called_once()
     refresh_spend.assert_called_once_with(run_id=uuid.UUID(run_id), team_id=7)
     publish_complete.assert_called_once_with(run_id)
@@ -189,11 +189,11 @@ def test_cleanup_sandbox_destroys_when_gateway_usage_retry_fails(activity_enviro
     )
     run_objects.filter.return_value.values_list.return_value.first.return_value = 7
     mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.has_gateway_credential",
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.gateway_usage_enabled",
         return_value=True,
     )
     mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.retry_pending_gateway_usage",
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.process_pending_gateway_usage",
         side_effect=RuntimeError("gateway unavailable"),
     )
     refresh_spend = mocker.patch(

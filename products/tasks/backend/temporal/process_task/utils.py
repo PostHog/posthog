@@ -37,7 +37,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
-from products.tasks.backend.logic.services.gateway_usage import register_gateway_credential
+from products.tasks.backend.logic.services.gateway_usage import enable_gateway_usage
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
@@ -1379,7 +1379,7 @@ def ai_gateway_env_vars(
                 if ai_stage:
                     env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
                 if settings.TASKS_GATEWAY_ACCOUNTING_ENABLED and run_id is not None and task_runtime != "pi":
-                    register_gateway_credential(run_id=UUID(run_id), team_id=team_id, bearer=token)
+                    enable_gateway_usage(run_id=UUID(run_id), team_id=team_id)
                     env_vars[TASK_RUN_GATEWAY_ACCOUNTING_ENV_VAR] = "1"
     return env_vars
 

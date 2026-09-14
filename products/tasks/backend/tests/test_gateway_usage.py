@@ -1,425 +1,201 @@
-import uuid
-import hashlib
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
-from types import SimpleNamespace
 
-from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from posthog.test.base import BaseTest
+from unittest.mock import Mock, patch
 
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.tasks.backend.logic.services.gateway_usage import (
-    GatewayUsageError,
-    finish_gateway_usage_epoch,
-    get_task_run_spend,
+    enable_gateway_usage,
     get_task_spend,
-    record_gateway_usage_request,
-    refresh_task_run_spend,
-    register_gateway_credential,
-    settle_gateway_usage_request,
-    start_gateway_usage_epoch,
+    process_pending_gateway_usage,
 )
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS
-from products.tasks.backend.models import GatewayUsageRequest, SandboxSession, Task, TaskRun
+from products.tasks.backend.models import SandboxSession, Task, TaskRun
 
 
-class TestGatewayUsage(APIBaseTest):
-    def _run(self, *, status: str = TaskRun.Status.IN_PROGRESS) -> TaskRun:
-        task = Task.objects.create(
-            team=self.team,
-            title="gateway accounting",
-            description="",
-            origin_product=Task.OriginProduct.USER_CREATED,
-        )
-        return TaskRun.objects.create(task=task, team=self.team, status=status)
+@override_settings(SANDBOX_AI_GATEWAY_URL="https://gateway.example.com/v1", SANDBOX_AI_GATEWAY_MINT_KEY="phs_test")
+class TestGatewayUsage(BaseTest):
+    def _run(self, *, task: Task | None = None, status: str = TaskRun.Status.IN_PROGRESS) -> TaskRun:
+        task = task or Task.objects.create(team=self.team, title="Usage test", description="")
+        run = TaskRun.objects.create(team=self.team, task=task, status=status, environment=TaskRun.Environment.CLOUD)
+        enable_gateway_usage(run_id=run.id, team_id=self.team.id)
+        return run
 
-    def _receipt(self, bearer: str, *, cost: int = 15_000) -> dict[str, object]:
-        return {
-            "credential_id": hashlib.sha256(bearer.encode()).hexdigest(),
-            "cost_microusd": cost,
-            "model": "example-model",
-            "provider": "example-provider",
-            "input_tokens": 4,
-            "output_tokens": 2,
-            "cache_read_tokens": 1,
-            "cache_write_tokens": 0,
-            "settled_at": "2026-01-01T00:00:00+00:00",
-        }
+    def _report(self, run: TaskRun, ids: list[str], *, complete: bool = False) -> None:
+        TaskRun.update_state_atomic(run.id, updates={"gateway_request_ids": ids, "gateway_usage_complete": complete})
 
-    def _settle(
-        self, *, run: TaskRun, epoch_id: uuid.UUID, attempt_id: uuid.UUID, request_id: str, receipt: dict[str, object]
-    ) -> tuple[bool, object]:
-        response = SimpleNamespace(status_code=200, json=lambda: {**receipt, "request_id": request_id})
-        with (
-            override_settings(
-                SANDBOX_AI_GATEWAY_URL="https://gateway.example/v1", SANDBOX_AI_GATEWAY_MINT_KEY="mint-key"
+    def _receipt(self, request_id: str, cost: str, *, model: str = "model-a") -> Mock:
+        return Mock(
+            status_code=200,
+            json=Mock(
+                return_value={
+                    "request_id": request_id,
+                    "cost_usd": cost,
+                    "model": model,
+                    "provider": "provider-a",
+                    "input_tokens": 100,
+                    "output_tokens": 20,
+                    "settled_at": timezone.now().isoformat(),
+                }
             ),
-            patch("products.tasks.backend.logic.services.gateway_usage.requests.get", return_value=response),
-        ):
-            return settle_gateway_usage_request(
-                run_id=run.id,
-                team_id=self.team.id,
-                epoch_id=epoch_id,
-                attempt_id=attempt_id,
-                request_id=request_id,
-            )
-
-    def _record_settled_request(
-        self,
-        *,
-        run: TaskRun,
-        bearer: str,
-        epoch_id: uuid.UUID,
-        request_id: str,
-        cost: int = 15_000,
-    ) -> uuid.UUID:
-        attempt_id = uuid.uuid4()
-        record_gateway_usage_request(
-            run_id=run.id,
-            team_id=self.team.id,
-            epoch_id=epoch_id,
-            attempt_id=attempt_id,
-            request_id=request_id,
-        )
-        settled, _spend = self._settle(
-            run=run,
-            epoch_id=epoch_id,
-            attempt_id=attempt_id,
-            request_id=request_id,
-            receipt=self._receipt(bearer, cost=cost),
-        )
-        assert settled is True
-        return attempt_id
-
-    def _session(
-        self,
-        *,
-        run: TaskRun,
-        sandbox_id: str,
-        user_attributed_at: datetime | None,
-        ended_at: datetime | None,
-        cpu_request_cores: float | None = None,
-        memory_request_mb: int | None = None,
-    ) -> SandboxSession:
-        now = timezone.now()
-        return SandboxSession.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            task_run=run,
-            sandbox_id=sandbox_id,
-            cpu_cores=1,
-            memory_gb=1,
-            ttl_seconds=24 * 60 * 60,
-            ttl_expires_at=now + timedelta(days=1),
-            user_attributed_at=user_attributed_at,
-            ended_at=ended_at,
-            cpu_request_cores=cpu_request_cores,
-            memory_request_mb=memory_request_mb,
         )
 
-    def test_rotated_credentials_settle_prior_epoch_and_resume_new_epoch(self) -> None:
+    def _process(self, run: TaskRun, *, limit: int = 20):
+        return process_pending_gateway_usage(run_id=run.id, team_id=self.team.id, limit=limit)
+
+    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    def test_unique_request_costs_across_models_and_subagents_use_gateway_prices(self, get: Mock) -> None:
         run = self._run()
-        old_bearer, new_bearer = "old-bearer", "new-bearer"
-        prior_epoch, resumed_epoch = uuid.uuid4(), uuid.uuid4()
-        register_gateway_credential(run_id=run.id, team_id=self.team.id, bearer=old_bearer)
-        start_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=prior_epoch)
-        prior_attempt = uuid.uuid4()
-        record_gateway_usage_request(
-            run_id=run.id,
-            team_id=self.team.id,
-            epoch_id=prior_epoch,
-            attempt_id=prior_attempt,
-            request_id="prior-request",
-        )
-
-        register_gateway_credential(run_id=run.id, team_id=self.team.id, bearer=new_bearer)
-        settled, _spend = self._settle(
-            run=run,
-            epoch_id=prior_epoch,
-            attempt_id=prior_attempt,
-            request_id="prior-request",
-            receipt=self._receipt(old_bearer),
-        )
-        assert settled is True
-        start_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=resumed_epoch)
-        self._record_settled_request(
-            run=run,
-            bearer=new_bearer,
-            epoch_id=resumed_epoch,
-            request_id="resumed-request",
-        )
-
-        assert (
-            GatewayUsageRequest.objects.for_team(self.team.id)
-            .get(epoch__epoch_id=prior_epoch, attempt_id=prior_attempt)
-            .settled_at
-            is not None
-        )
-        assert refresh_task_run_spend(run_id=run.id, team_id=self.team.id).token_cost == 3
-
-    def test_sealed_epoch_with_no_requests_reports_current_zero_token_cost(self) -> None:
-        run = self._run()
-        bearer = "example-bearer"
-        epoch_id = uuid.uuid4()
-        register_gateway_credential(run_id=run.id, team_id=self.team.id, bearer=bearer)
-        start_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=epoch_id)
-
-        spend = finish_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=epoch_id)
-
-        assert spend.token_cost == 0
+        self._report(run, ["parent-request", "subagent-request", "other-model", "parent-request"])
+        get.side_effect = [
+            self._receipt("parent-request", "0.005"),
+            self._receipt("subagent-request", "0.010001"),
+            self._receipt("other-model", "0.000009", model="model-b"),
+        ]
+        spend = self._process(run)
+        assert spend.token_cost == 2
         assert spend.token_status == "current"
+        assert get.call_count == 3
+        get.reset_mock()
+        assert self._process(run).token_cost == 2
+        get.assert_not_called()
+        run.refresh_from_db()
+        receipts = run.state["_spend_accounting"]["receipts"]
+        assert receipts["other-model"]["model"] == "model-b"
+        assert receipts["subagent-request"]["cost_microusd"] == 10_001
+        assert run.state["spend"]["token_cost"] == 2
 
-    def test_resuming_seals_prior_epoch_and_preserves_its_pending_status(self) -> None:
-        run = self._run()
-        epoch_id, resumed_epoch = uuid.uuid4(), uuid.uuid4()
-        register_gateway_credential(run_id=run.id, team_id=self.team.id, bearer="example-bearer")
-        start_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=epoch_id)
-        record_gateway_usage_request(
-            run_id=run.id,
-            team_id=self.team.id,
-            epoch_id=epoch_id,
-            attempt_id=uuid.uuid4(),
-            request_id="pending-request",
-        )
-
-        spend = start_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=resumed_epoch)
-
+    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    def test_missing_receipt_stays_pending_until_a_later_activity_processes_it(self, get: Mock) -> None:
+        run = self._run(status=TaskRun.Status.CANCELLED)
+        self._report(run, ["request-1"], complete=True)
+        get.return_value = Mock(status_code=404)
+        spend = self._process(run)
+        assert spend.token_cost is None
         assert spend.token_status == "partial"
-        assert (
-            GatewayUsageRequest.objects.for_team(self.team.id).get(epoch__epoch_id=epoch_id).epoch.sealed_at is not None
-        )
-
-    def test_terminal_settled_token_cost_is_final_when_compute_is_unavailable(self) -> None:
-        run = self._run(status=TaskRun.Status.COMPLETED)
-        bearer = "example-bearer"
-        epoch_id = uuid.uuid4()
-        register_gateway_credential(run_id=run.id, team_id=self.team.id, bearer=bearer)
-        start_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=epoch_id)
-        self._record_settled_request(run=run, bearer=bearer, epoch_id=epoch_id, request_id="gateway-1")
-
-        spend = finish_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=epoch_id)
-
+        get.return_value = self._receipt("request-1", "0.015")
+        spend = self._process(run)
+        assert spend.token_cost == 2
         assert spend.token_status == "final"
-        assert spend.compute_status == "unavailable"
         assert spend.is_final is False
 
-    def test_pending_receipt_lookup_does_not_turn_unknown_cost_into_zero(self) -> None:
+    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    def test_missing_receipts_do_not_starve_later_request_ids(self, get: Mock) -> None:
         run = self._run()
-        epoch_id, attempt_id = uuid.uuid4(), uuid.uuid4()
-        register_gateway_credential(run_id=run.id, team_id=self.team.id, bearer="example-bearer")
-        start_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=epoch_id)
-        record_gateway_usage_request(
-            run_id=run.id,
-            team_id=self.team.id,
-            epoch_id=epoch_id,
-            attempt_id=attempt_id,
-            request_id="not-yet-settled",
-        )
-        response = SimpleNamespace(status_code=404, json=lambda: {})
+        self._report(run, ["missing", "priced"])
+        get.return_value = Mock(status_code=404)
+        self._process(run, limit=1)
+        get.return_value = self._receipt("priced", "0.10")
+        spend = self._process(run, limit=1)
+        assert get.call_args.args[0].endswith("/v1/usage/priced")
+        assert spend.token_cost == 10
+        assert spend.token_status == "partial"
 
-        with (
-            override_settings(
-                SANDBOX_AI_GATEWAY_URL="https://gateway.example/v1", SANDBOX_AI_GATEWAY_MINT_KEY="mint-key"
+    @parameterized.expand([("0",), ("0.000001",)])
+    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    def test_subcent_receipt_is_known_zero_cents_not_missing(self, cost: str, get: Mock) -> None:
+        run = self._run(status=TaskRun.Status.COMPLETED)
+        self._report(run, ["request-1"], complete=True)
+        get.return_value = self._receipt("request-1", cost)
+        spend = self._process(run)
+        assert spend.token_cost == 0
+        assert spend.token_status == "final"
+
+    @parameterized.expand([("negative", "-1"), ("nan", "NaN"), ("float", 0.5), ("exponent", "1e999999")])
+    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    def test_invalid_gateway_price_cannot_become_spend(self, _name: str, cost: object, get: Mock) -> None:
+        run = self._run()
+        self._report(run, ["request-1"])
+        get.return_value = Mock(
+            status_code=200,
+            json=Mock(
+                return_value={"request_id": "request-1", "cost_usd": cost, "settled_at": timezone.now().isoformat()}
             ),
-            patch("products.tasks.backend.logic.services.gateway_usage.requests.get", return_value=response),
-        ):
-            settled, spend = settle_gateway_usage_request(
-                run_id=run.id,
-                team_id=self.team.id,
-                epoch_id=epoch_id,
-                attempt_id=attempt_id,
-                request_id="not-yet-settled",
-            )
-
-        assert settled is False
+        )
+        spend = self._process(run)
         assert spend.token_cost is None
         assert spend.token_status == "partial"
 
-    def test_duplicate_gateway_request_id_across_attempts_and_epochs_is_charged_once(self) -> None:
-        run = self._run()
-        bearer = "example-bearer"
-        first_epoch, second_epoch = uuid.uuid4(), uuid.uuid4()
-        register_gateway_credential(run_id=run.id, team_id=self.team.id, bearer=bearer)
-        start_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=first_epoch)
-        self._record_settled_request(run=run, bearer=bearer, epoch_id=first_epoch, request_id="gateway-1")
-        start_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=second_epoch)
-        self._record_settled_request(run=run, bearer=bearer, epoch_id=second_epoch, request_id="gateway-1")
-
-        assert refresh_task_run_spend(run_id=run.id, team_id=self.team.id).token_cost == 2
-
-    def test_multiple_models_cache_tokens_and_zero_receipts_retain_gateway_costs(self) -> None:
-        run = self._run()
-        bearer = "example-bearer"
-        epoch_id = uuid.uuid4()
-        register_gateway_credential(run_id=run.id, team_id=self.team.id, bearer=bearer)
-        start_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=epoch_id)
-        for model, cost, cache_read, cache_write in (
-            ("model-a", 4_500, 500, 20),
-            ("model-b", 1_500, 30, 0),
-            ("model-c", 0, 0, 0),
-        ):
-            attempt_id = uuid.uuid4()
-            record_gateway_usage_request(
-                run_id=run.id, team_id=self.team.id, epoch_id=epoch_id, attempt_id=attempt_id, request_id=model
-            )
-            receipt = {
-                **self._receipt(bearer, cost=cost),
-                "model": model,
-                "cache_read_tokens": cache_read,
-                "cache_write_tokens": cache_write,
-            }
-            settled, _ = self._settle(
-                run=run, epoch_id=epoch_id, attempt_id=attempt_id, request_id=model, receipt=receipt
-            )
-            assert settled
-        rows = GatewayUsageRequest.objects.for_team(self.team.id).filter(task_run=run)
-        assert sorted(rows.values_list("model", "cost_microusd", "cache_read_tokens", "cache_write_tokens")) == [
-            ("model-a", 4_500, 500, 20),
-            ("model-b", 1_500, 30, 0),
-            ("model-c", 0, 0, 0),
-        ]
-        assert run.get_current_spend().token_cost == 1
-        assert run.get_current_spend().token_status == "current"
-
-    def test_out_of_order_request_after_epoch_seal_is_rejected(self) -> None:
-        run = self._run()
-        epoch_id = uuid.uuid4()
-        register_gateway_credential(run_id=run.id, team_id=self.team.id, bearer="example-bearer")
-        start_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=epoch_id)
-
-        finish_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=epoch_id)
-        with self.assertRaises(GatewayUsageError):
-            record_gateway_usage_request(
-                run_id=run.id,
-                team_id=self.team.id,
-                epoch_id=epoch_id,
-                attempt_id=uuid.uuid4(),
-                request_id="late-request",
-            )
-
-    def test_current_spend_getter_refreshes_stale_projection(self) -> None:
-        run = self._run()
-        epoch_id = uuid.uuid4()
-        register_gateway_credential(run_id=run.id, team_id=self.team.id, bearer="example-bearer")
-        start_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=epoch_id)
-        run.state = {
-            "spend": {
-                "token_cost": 999,
-                "compute_cost": None,
-                "token_status": "current",
-                "compute_status": "unavailable",
-                "is_final": False,
-            }
-        }
-        run.save(update_fields=["state"])
-
-        spend = get_task_run_spend(run=run)
-
-        assert spend.token_cost == 0
-        assert spend.token_status == "current"
-
-    def test_task_aggregate_uses_precise_sources_and_propagates_partial_unknown_status(self) -> None:
-        bearer = "example-bearer"
-        settled_run = self._run(status=TaskRun.Status.COMPLETED)
-        pending_run = TaskRun.objects.create(task=settled_run.task, team=self.team)
-        first_epoch, second_epoch = uuid.uuid4(), uuid.uuid4()
-        for run, epoch_id in ((settled_run, first_epoch), (pending_run, second_epoch)):
-            register_gateway_credential(run_id=run.id, team_id=self.team.id, bearer=bearer)
-            start_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=epoch_id)
-        self._record_settled_request(
-            run=settled_run, bearer=bearer, epoch_id=first_epoch, request_id="settled", cost=15_000
-        )
-        self._record_settled_request(
-            run=pending_run, bearer=bearer, epoch_id=second_epoch, request_id="pending-epoch", cost=15_000
-        )
-        record_gateway_usage_request(
-            run_id=pending_run.id,
-            team_id=self.team.id,
-            epoch_id=second_epoch,
-            attempt_id=uuid.uuid4(),
-            request_id="still-pending",
-        )
-
-        spend = get_task_spend(team_id=self.team.id, task_id=settled_run.task_id)
-
-        assert spend.token_cost == 3
-        assert spend.token_status == "partial"
-        assert spend.compute_cost is None
-        assert spend.compute_status == "unavailable"
-
-    def test_terminal_compute_cost_freezes_then_reopens_when_a_new_epoch_starts(self) -> None:
-        run = self._run()
-        bearer = "example-bearer"
-        epoch_id = uuid.uuid4()
-        now = timezone.now()
-        self._session(
-            run=run,
-            sandbox_id="closed-sandbox",
-            user_attributed_at=now - timedelta(hours=2),
-            ended_at=now - timedelta(hours=1),
-        )
-        register_gateway_credential(run_id=run.id, team_id=self.team.id, bearer=bearer)
-        start_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=epoch_id)
-
-        finish_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=epoch_id)
-        run.status = TaskRun.Status.COMPLETED
+    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    def test_reporter_completion_and_resume_do_not_reprice_or_double_count(self, get: Mock) -> None:
+        run = self._run(status=TaskRun.Status.COMPLETED)
+        self._report(run, ["old-request"])
+        get.return_value = self._receipt("old-request", "0.015")
+        assert self._process(run).token_status == "partial"
+        self._report(run, ["old-request"], complete=True)
+        assert run.get_current_spend().token_status == "final"
+        enable_gateway_usage(run_id=run.id, team_id=self.team.id)
+        assert run.get_current_spend().token_status == "partial"
+        run.status = TaskRun.Status.IN_PROGRESS
         run.save(update_fields=["status"])
-        final_spend = refresh_task_run_spend(run_id=run.id, team_id=self.team.id)
-        assert final_spend.compute_status == "final"
-        changed_rates = tuple(replace(card, cpu_core_second_usd=Decimal("0.01")) for card in COMPUTE_RATE_CARDS)
-        with patch("products.tasks.backend.logic.services.gateway_usage.COMPUTE_RATE_CARDS", changed_rates):
-            assert refresh_task_run_spend(run_id=run.id, team_id=self.team.id).compute_cost == final_spend.compute_cost
+        self._report(run, ["old-request", "new-request"])
+        get.return_value = self._receipt("new-request", "0.005")
+        assert self._process(run).token_cost == 2
+        assert get.call_count == 2
 
-        start_gateway_usage_epoch(run_id=run.id, team_id=self.team.id, epoch_id=uuid.uuid4())
+    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    def test_getters_only_read_persisted_usage_and_aggregate_all_runs_before_rounding(self, get: Mock) -> None:
+        first = self._run(status=TaskRun.Status.FAILED)
+        second = self._run(task=first.task, status=TaskRun.Status.CANCELLED)
+        for index, run in enumerate((first, second)):
+            request_id = f"request-{index}"
+            self._report(run, [request_id], complete=True)
+            get.return_value = self._receipt(request_id, "0.005")
+            self._process(run)
+        get.reset_mock()
+        assert first.get_current_spend().token_cost == 0
+        assert second.get_current_spend().token_cost == 0
+        assert get_task_spend(team_id=self.team.id, task_id=first.task_id).token_cost == 1
+        get.assert_not_called()
+        self._report(second, ["request-1", "pending"])
+        assert get_task_spend(team_id=self.team.id, task_id=first.task_id).token_status == "partial"
 
-        assert refresh_task_run_spend(run_id=run.id, team_id=self.team.id).compute_status == "current"
+    def test_disabled_and_unfinished_empty_runs_are_not_final_zero(self) -> None:
+        run = self._run(status=TaskRun.Status.COMPLETED)
+        assert run.get_current_spend().token_cost is None
+        self._report(run, [], complete=True)
+        assert run.get_current_spend().token_cost == 0
+        assert run.get_current_spend().token_status == "final"
+        run.state = {}
+        run.save(update_fields=["state"])
+        assert run.get_current_spend().token_status == "unavailable"
 
-    def test_compute_uses_burst_resource_floors_and_excludes_unattributed_prewarm(self) -> None:
+    def test_compute_uses_ledger_attribution_and_preserves_closed_session_rates(self) -> None:
+        run = self._run(status=TaskRun.Status.COMPLETED)
         now = timezone.now()
-        prewarmed_run = self._run()
-        baseline_run = self._run()
-        burst_run = self._run()
-        open_run = self._run()
-        self._session(
-            run=prewarmed_run,
-            sandbox_id="prewarmed-sandbox",
-            user_attributed_at=None,
-            ended_at=now,
-            cpu_request_cores=16,
-            memory_request_mb=16 * 1024,
-        )
-        self._session(
-            run=baseline_run,
-            sandbox_id="closed-baseline-sandbox",
-            user_attributed_at=now - timedelta(hours=3),
-            ended_at=now - timedelta(hours=2),
-        )
-        self._session(
-            run=burst_run,
-            sandbox_id="closed-burst-sandbox",
-            user_attributed_at=now - timedelta(hours=3),
-            ended_at=now - timedelta(hours=2),
-            cpu_request_cores=4,
-            memory_request_mb=4 * 1024,
-        )
-        self._session(
-            run=open_run,
-            sandbox_id="open-burst-sandbox",
-            user_attributed_at=now - timedelta(hours=2),
-            ended_at=None,
-            cpu_request_cores=4,
-            memory_request_mb=4 * 1024,
-        )
-
-        prewarmed_spend = refresh_task_run_spend(run_id=prewarmed_run.id, team_id=self.team.id)
-        baseline_spend = refresh_task_run_spend(run_id=baseline_run.id, team_id=self.team.id)
-        burst_spend = refresh_task_run_spend(run_id=burst_run.id, team_id=self.team.id)
-        open_spend = refresh_task_run_spend(run_id=open_run.id, team_id=self.team.id)
-
-        assert prewarmed_spend.compute_cost == 0
-        assert burst_spend.compute_cost is not None
-        assert baseline_spend.compute_cost is not None
-        assert burst_spend.compute_cost > baseline_spend.compute_cost
-        assert open_spend.compute_status == "current"
+        for name, attributed in (("prewarm", None), ("claimed", now - timedelta(hours=1))):
+            SandboxSession.objects.for_team(self.team.id).create(
+                team=self.team,
+                task_run=run,
+                sandbox_id=name,
+                cpu_cores=4,
+                memory_gb=8,
+                cpu_request_cores=1,
+                memory_request_mb=1024,
+                ttl_seconds=7200,
+                created_at=now - timedelta(hours=2),
+                ttl_expires_at=now + timedelta(hours=1),
+                user_attributed_at=attributed,
+                ended_at=now,
+            )
+        self._report(run, [], complete=True)
+        spend = run.get_current_spend()
+        card = COMPUTE_RATE_CARDS[-1]
+        expected = int(((card.cpu_core_second_usd + card.memory_gib_second_usd) * 3600 * 100).quantize(Decimal(1)))
+        assert spend.compute_cost == expected
+        assert spend.is_final
+        with patch(
+            "products.tasks.backend.logic.services.gateway_usage.COMPUTE_RATE_CARDS",
+            tuple(replace(c, cpu_core_second_usd=Decimal(1)) for c in COMPUTE_RATE_CARDS),
+        ):
+            assert run.get_current_spend().compute_cost == spend.compute_cost
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=["status"])
+        enable_gateway_usage(run_id=run.id, team_id=self.team.id)
+        assert run.get_current_spend().compute_status == "current"

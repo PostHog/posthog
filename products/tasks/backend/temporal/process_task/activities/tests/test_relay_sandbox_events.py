@@ -2,6 +2,7 @@ import json
 import time
 import asyncio
 import importlib
+from collections.abc import Coroutine
 from types import SimpleNamespace
 from typing import cast
 
@@ -1470,6 +1471,37 @@ class TestFlushPendingText:
         parts = ["dropped"]
         await _flush_pending_text(None, parts, [0.0])
         assert parts == []
+
+
+class TestBackgroundHeartbeat:
+    async def test_gateway_outage_does_not_stop_heartbeat(self, mocker) -> None:
+        stop_event = asyncio.Event()
+        task_run = TaskRun(id="00000000-0000-0000-0000-000000000001", team_id=7)
+
+        wait_calls = 0
+
+        async def wait_for_stop(awaitable: Coroutine[object, object, bool], timeout: float) -> None:
+            nonlocal wait_calls
+            awaitable.close()
+            wait_calls += 1
+            if wait_calls == 1:
+                raise TimeoutError
+            stop_event.set()
+
+        def gateway_outage(**_kwargs: object) -> None:
+            raise RuntimeError("gateway unavailable")
+
+        heartbeat = mocker.patch.object(relay_sandbox_events_module.activity, "heartbeat")
+        mocker.patch.object(relay_sandbox_events_module.asyncio, "wait_for", side_effect=wait_for_stop)
+        mocker.patch.object(relay_sandbox_events_module, "gateway_usage_enabled", return_value=True)
+        process_pending = mocker.patch.object(
+            relay_sandbox_events_module, "process_pending_gateway_usage", side_effect=gateway_outage
+        )
+
+        await _background_heartbeat(stop_event, task_run=task_run)
+
+        heartbeat.assert_called_once_with()
+        process_pending.assert_called_once_with(run_id=task_run.id, team_id=7, limit=20)
 
 
 class TestShouldSignalWorkflowHeartbeat:

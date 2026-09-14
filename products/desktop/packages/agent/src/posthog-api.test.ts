@@ -43,7 +43,7 @@ describe("PostHogAPIClient", () => {
     expect(run.state).toEqual(expected);
   });
 
-  it("reports a gateway request with a bounded task-run API call", async () => {
+  it("appends gateway request IDs through the existing task-run PATCH", async () => {
     const client = new PostHogAPIClient({
       apiUrl: "https://app.posthog.com",
       getApiKey: vi.fn().mockResolvedValue("token"),
@@ -51,36 +51,21 @@ describe("PostHogAPIClient", () => {
     });
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: vi.fn().mockResolvedValue({
-        settled: false,
-        spend: {
-          token_cost: null,
-          compute_cost: null,
-          token_status: "partial",
-          compute_status: "unavailable",
-          is_final: false,
-        },
-      }),
+      json: vi.fn().mockResolvedValue({ id: "run-1", state: {} }),
     });
 
-    await expect(
-      client.gatewayUsage("task-1", "run-1", {
-        operation: "request",
-        epoch_id: "epoch-1",
-        attempt_id: "attempt-1",
-      }),
-    ).resolves.toMatchObject({ settled: false });
+    await client.updateTaskRun("task-1", "run-1", {
+      state_append: { gateway_request_ids: "request-1" },
+    });
 
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(
-      "https://app.posthog.com/api/projects/1/tasks/task-1/runs/run-1/gateway_usage/",
+      "https://app.posthog.com/api/projects/1/tasks/task-1/runs/run-1/",
     );
+    expect(init.method).toBe("PATCH");
     expect(JSON.parse(init.body as string)).toEqual({
-      operation: "request",
-      epoch_id: "epoch-1",
-      attempt_id: "attempt-1",
+      state_append: { gateway_request_ids: "request-1" },
     });
-    expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("refreshes once when fetching task run logs gets an auth failure", async () => {
