@@ -698,14 +698,29 @@ def _statement_timeout_as_non_retryable(
     so retrying is futile. On incremental syncs, map it to the same non-retryable
     QueryTimeoutException the server-cursor and windowed read paths already raise,
     with an actionable message. Returns None when the error is not a statement
-    timeout, or the sync is non-incremental (the caller should re-raise the original
-    error so a full re-sync can reorder rows safely).
+    timeout, or the sync is non-incremental — a full-table read restarts from scratch,
+    so the caller keeps it retryable and words it with `_full_table_timeout_error`.
     """
     if not isinstance(error, psycopg.errors.QueryCanceled) or not should_use_incremental_field:
         return None
     return QueryTimeoutException(
         f"10 min timeout statement reached. Please ensure your incremental field "
         f"({incremental_field}) has an appropriate index created"
+    )
+
+
+def _full_table_timeout_error() -> Exception:
+    """Build the timeout error for a full-table read cancelled by the statement_timeout.
+
+    `_statement_timeout_as_non_retryable` covers incremental reads only, so a full-table read used
+    to propagate psycopg's raw "canceling statement due to statement timeout" — driver text that
+    names neither the table nor anything the customer can change. This stays a plain retryable
+    Exception, matching no key in `get_non_retryable_errors`: a full-table read restarts from
+    scratch, so unlike an incremental read it can still finish on a later attempt.
+    """
+    return Exception(
+        "Reading this table hit your database's statement timeout before it finished. Switch the "
+        "table to incremental replication in its sync settings so each run reads less."
     )
 
 
@@ -3987,7 +4002,7 @@ def postgres_source(
                                 "max_standby_streaming_delay or enable hot_standby_feedback on the replica, "
                                 "or sync from the primary database instead."
                             ) from e
-                        raise
+                        raise _full_table_timeout_error() from e
                     except _CONNECTION_DROPPED_ERROR_TYPES as e:
                         if _is_recovery_conflict_error(e):
                             # A recovery conflict raised by the (re)connect itself surfaces as a plain
@@ -4262,7 +4277,7 @@ def postgres_source(
                     )
                     if timeout_error is not None:
                         raise timeout_error from e
-                    raise
+                    raise _full_table_timeout_error() from e
                 except psycopg.errors.LockNotAvailable as e:
                     # The server-cursor DECLARE waited past the source's lock_timeout for a lock
                     # another transaction holds (a concurrent DDL / VACUUM FULL takes ACCESS
