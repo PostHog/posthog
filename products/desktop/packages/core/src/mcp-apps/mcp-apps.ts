@@ -58,7 +58,6 @@ interface ServerConnection {
   name: string;
   client: Client;
   transport: StreamableHTTPClientTransport;
-  /** Config the connection was created with, so reuse can reject a stale one. */
   config: McpServerConnectionConfig;
 }
 
@@ -355,11 +354,9 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     const existing = this.connections.get(serverName);
     if (existing) {
       const current = this.serverConfigs.get(serverName);
-      // A connection keeps the auth headers of the config it was created
-      // with. After a re-registration changes url or headers (a project
-      // switch rewrites X-PostHog-Project-Id), reuse would send requests to
-      // the previous project, so drop the connection and let the fetch
-      // reconnect with the new config.
+      // Reuse would keep the old url/headers after a re-registration (a
+      // project switch rewrites X-PostHog-Project-Id), so reconnect with
+      // the new config instead.
       if (current && configMatches(current, existing.config)) {
         this.log.debug("Reusing existing MCP connection", { serverName });
         return existing;

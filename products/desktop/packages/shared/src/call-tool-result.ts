@@ -30,10 +30,7 @@ export function omitNullCallToolResultFields<T>(result: T): T {
   return stripped as T;
 }
 
-/**
- * Largest serialized MCP tool result a host persists for UI-app rendering
- * (session transcript, tool-call `rawOutput`, cloud events).
- */
+/** Largest serialized MCP tool result a host persists (transcript, rawOutput, cloud events). */
 export const MAX_PERSISTED_MCP_RESULT_BYTES = 1_000_000;
 
 const TRUNCATED_RESULT_MARKER =
@@ -44,17 +41,12 @@ function serializedLength(value: unknown): number {
   try {
     return JSON.stringify(value)?.length ?? 0;
   } catch {
-    // A value JSON cannot serialize cannot be persisted either, so treat it
-    // as oversized and drop the payload.
+    // Unserializable values cannot be persisted either; treat as oversized.
     return Number.POSITIVE_INFINITY;
   }
 }
 
-/**
- * The `_meta` keys a host needs to route a tool result to its UI app. An
- * oversized `_meta` keeps only these; when even the routing subset is too
- * large, it is dropped and the call renders as text.
- */
+/** The `_meta` keys that route a result to its UI app; dropped when even these are too large. */
 function uiRoutingMeta(
   meta: unknown,
   maxBytes: number,
@@ -71,13 +63,11 @@ function uiRoutingMeta(
 }
 
 /**
- * Bound an MCP tool result before a host persists it. Every field is
- * server-controlled, and servers can be third-party, so an oversized payload
- * must not reach the session transcript or the API: it would grow storage
- * and memory without limit. A result within the limit passes through
- * unchanged. A result above the limit is replaced with an explicit truncation
- * marker plus the `_meta` routing keys, so a UI app still renders instead of
- * waiting forever on a result that never arrives.
+ * Bound a server-controlled MCP tool result before a host persists it: an
+ * oversized payload must not grow the transcript and cloud storage without
+ * limit. A result within the limit passes through unchanged; an oversized
+ * one becomes a truncation marker plus the `_meta` routing keys, so a UI
+ * app still renders.
  */
 export function boundPersistedMcpResult<T extends object>(
   result: T,

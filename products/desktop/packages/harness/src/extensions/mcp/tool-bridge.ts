@@ -215,10 +215,9 @@ export function truncateBridgedContent(
 }
 
 /**
- * Structured fields of a `tools/call` result that pi never surfaces to the
- * model, but a host UI needs: an inline UI app rides its payload on
- * `structuredContent` and `_meta` (see the MCP `ui` extension). Callers put
- * them on the tool result's `details`, which stay out of the model context.
+ * `tools/call` fields pi never surfaces to the model but a host UI needs:
+ * a UI app rides its payload on `structuredContent` and `_meta`. Callers
+ * put them on `details`, which stays out of the model context.
  */
 export interface McpResultMeta {
   structuredContent?: Record<string, unknown>;
@@ -226,12 +225,9 @@ export interface McpResultMeta {
 }
 
 /**
- * The envelope a tool result's `details` carries so a host can classify an
- * MCP call and render its UI app: `{ posthog: { mcp: { server, tool,
- * result? } } }`. Both write sites (the bridge's registered tools and the
- * `mcp` proxy tool) and the read side (a host translator, which validates
- * with a schema derived from this type) go through this one declaration, so
- * the sides cannot drift apart.
+ * The envelope on a tool result's `details` that lets a host classify an
+ * MCP call and render its UI app. Both write sites and the host's read
+ * side derive from this one declaration, so they cannot drift apart.
  */
 export interface McpCallDetails {
   posthog: {
@@ -243,13 +239,6 @@ export interface McpCallDetails {
   };
 }
 
-/**
- * Build the `details.posthog` fragment for an MCP tool call: the descriptor
- * a host classifies the call by, plus the structured result fields a UI app
- * renders from, when the tool returned any. Optional fields are spread in
- * only when present, so an absent field stays absent rather than explicit
- * undefined.
- */
 export function mcpCallDetails(
   server: string,
   tool: string,
@@ -306,10 +295,8 @@ export async function invokeTool(
       throw new McpError(text || "Tool reported an error", serverName, "tool");
     }
 
-    // The structured fields never reach the model, but they do reach the
-    // session transcript through `details`, so bound them at the source: a
-    // server-controlled payload above the limit drops, and only the UI
-    // routing metadata survives.
+    // The fields reach the session transcript through `details`, so the
+    // server-controlled payload must be bounded at the source.
     const bounded = boundPersistedMcpResult({
       ...(result.structuredContent !== undefined && {
         structuredContent: result.structuredContent as Record<string, unknown>,

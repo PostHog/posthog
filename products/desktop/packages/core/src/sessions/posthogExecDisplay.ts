@@ -60,21 +60,15 @@ export function getPostHogExecDisplay(
   }
 }
 
-// The pi harness names tools `<prefix>_<server>_<tool>`, so a proxy call to
-// posthog exec carries the full name (`mcp_posthog_exec`), not the bare tool
-// name. The single-underscore form cannot go through parseMcpToolName, which
-// expects the double-underscore canonical key.
-//
-// The structured `posthog.mcp` descriptor cannot replace this match: the
-// display is built from the tool call's INPUT, while the call runs and no
-// result exists yet. The harness writes the descriptor on the tool RESULT
-// (see mcpCallDetails), so the input's `tool` string is the only signal
-// here. `plugin_` is the harness's prefix for the plugin-installed posthog
-// server.
+// The pi harness names tools `<prefix>_<server>_<tool>` with single
+// underscores, which parseMcpToolName rejects (it expects the
+// double-underscore canonical key). The `posthog.mcp` descriptor is
+// written on the tool RESULT, but this display is built from the INPUT
+// while the call runs, so the `tool` string is the only signal.
+// `plugin_` prefixes the plugin-installed posthog server.
 const PI_POSTHOG_EXEC_RE =
   /^(?:[a-zA-Z0-9]+_)?(?:plugin_)?posthog(?:_[^_]+)*_exec$/;
 
-/** Whether the `mcp` proxy tool's `tool` argument targets posthog exec. */
 function isPostHogExecProxyTool(tool: unknown): boolean {
   if (typeof tool !== "string") return false;
   return (
@@ -82,11 +76,6 @@ function isPostHogExecProxyTool(tool: unknown): boolean {
   );
 }
 
-/**
- * Accept the exec arguments directly (`{command, input}`) or wrapped in the
- * desktop Pi harness's `mcp` proxy tool (`{tool, args: "<json>"}`), where
- * the real arguments arrive as a JSON-encoded string.
- */
 function readExecToolInput(
   toolInput: unknown,
 ): { command?: unknown; input?: unknown } | null {
