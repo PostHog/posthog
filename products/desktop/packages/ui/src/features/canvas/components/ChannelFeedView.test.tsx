@@ -123,9 +123,11 @@ afterEach(() => {
 });
 
 // ExpandablePrompt measures how the prompt wraps to decide where to cut and
-// whether to show "more". jsdom does no layout, so simulate a 21px line height
-// and a scrollHeight that grows with text length (≈20 chars/line).
+// whether to show "more". jsdom does no layout, so simulate a 21px line height,
+// a scrollHeight that grows with text length (≈20 chars/line), and a non-zero
+// width — the prompt skips measuring an element that has no width yet.
 function mockLayout(charsPerLine: number) {
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(600);
   const realGetComputedStyle = window.getComputedStyle;
   vi.spyOn(window, "getComputedStyle").mockImplementation((el, ...rest) => {
     const style = realGetComputedStyle(el, ...rest);
