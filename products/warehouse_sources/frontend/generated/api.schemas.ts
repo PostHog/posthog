@@ -31,6 +31,20 @@ export const ExternalDataDestinationTypeEnumApi = {
     S3: 'S3',
 } as const
 
+/**
+ * One source that writes to a destination. Shape only — never used to deserialize.
+ */
+export interface SyncedSourceApi {
+    /** The source's id. */
+    id: string
+    /** How the source is labelled in the UI, prefix included. */
+    name: string
+    /** Which connector this is, e.g. Stripe or Postgres. */
+    source_type: string
+    /** True when only some of the source's tables reach this destination, through their own override. */
+    via_table_override: boolean
+}
+
 export interface ExternalDataDestinationApi {
     readonly id: string
     /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
@@ -63,6 +77,8 @@ export interface ExternalDataDestinationApi {
     readonly created_by: number | null
     /** @nullable */
     readonly updated_at: string | null
+    /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
+    readonly synced_sources: readonly SyncedSourceApi[]
 }
 
 export interface PaginatedExternalDataDestinationListApi {
@@ -106,6 +122,8 @@ export interface PatchedExternalDataDestinationApi {
     readonly created_by?: number | null
     /** @nullable */
     readonly updated_at?: string | null
+    /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
+    readonly synced_sources?: readonly SyncedSourceApi[]
 }
 
 /**
