@@ -4239,6 +4239,9 @@ importers:
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
+      '@types/react-simple-maps':
+        specifier: '*'
+        version: 3.0.6
       '@xyflow/react':
         specifier: '*'
         version: 12.6.0(@types/react@18.3.27)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)

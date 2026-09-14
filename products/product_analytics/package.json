@@ -24,6 +24,7 @@
         "@posthog/quill-components": "workspace:*",
         "@types/d3": "*",
         "@types/react": "*",
+        "@types/react-simple-maps": "*",
         "@xyflow/react": "*",
         "clsx": "*",
         "d3": "*",
