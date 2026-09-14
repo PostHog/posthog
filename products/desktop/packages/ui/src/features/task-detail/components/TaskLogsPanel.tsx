@@ -5,7 +5,7 @@ import {
 import { getTaskRepository } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { Box, Flex } from "@radix-ui/themes";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { BackgroundWrapper } from "../../../primitives/BackgroundWrapper";
 import { ErrorBoundary } from "../../../primitives/ErrorBoundary";
 import { useHostCapabilities } from "../../../shell/useHostCapabilities";
@@ -101,6 +101,15 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
       : undefined;
   const githubConnectionRequired =
     hasError && isGithubConnectionRequiredError(errorMessage);
+  const [githubRecoveryOpen, setGithubRecoveryOpen] = useState(
+    githubConnectionRequired,
+  );
+
+  useEffect(() => {
+    if (githubConnectionRequired) {
+      setGithubRecoveryOpen(true);
+    }
+  }, [githubConnectionRequired]);
 
   useEffect(() => {
     requestFocus(taskId);
@@ -188,9 +197,16 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
                   ? GITHUB_CONNECTION_REQUIRED_MESSAGE
                   : (errorMessage ?? undefined)
               }
-              errorRetryable={errorRetryable}
+              errorRetryable={githubConnectionRequired || errorRetryable}
               hideInput={hideInput}
-              onRetry={githubConnectionRequired ? undefined : handleRetry}
+              onRetry={
+                githubConnectionRequired
+                  ? () => setGithubRecoveryOpen(true)
+                  : handleRetry
+              }
+              retryLabel={
+                githubConnectionRequired ? "Connect GitHub" : undefined
+              }
               onNewSession={isCloud ? undefined : handleNewSession}
               isInitializing={isInitializing}
               isCloud={isCloud}
@@ -202,7 +218,11 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
 
       {dialogProps && <BranchMismatchDialog {...dialogProps} />}
       {githubConnectionRequired ? (
-        <GithubConnectionRequiredRecovery task={task} required />
+        <GithubConnectionRequiredRecovery
+          task={task}
+          open={githubRecoveryOpen}
+          onOpenChange={setGithubRecoveryOpen}
+        />
       ) : null}
     </BackgroundWrapper>
   );

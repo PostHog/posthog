@@ -23,12 +23,13 @@ import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useI
 import { toast } from "@posthog/ui/primitives/toast";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { GithubConnectionRequiredDialog } from "./GithubConnectionRequiredDialog";
 
 interface GithubConnectionRequiredRecoveryProps {
   task: Task;
-  required: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
 function getRecoveryPrompt(task: Task): string {
@@ -41,9 +42,9 @@ function getRecoveryPrompt(task: Task): string {
 
 export function GithubConnectionRequiredRecovery({
   task,
-  required,
+  open,
+  onOpenChange,
 }: GithubConnectionRequiredRecoveryProps) {
-  const [open, setOpen] = useState(required);
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const { localWorkspaces } = useHostCapabilities();
@@ -70,13 +71,13 @@ export function GithubConnectionRequiredRecovery({
         task.id,
         getRecoveryPrompt(task),
       );
-      setOpen(false);
+      onOpenChange(false);
     } catch {
       toast.error("GitHub connected, but the task could not restart", {
         description: "Open the task again and retry.",
       });
     }
-  }, [sessionService, task]);
+  }, [onOpenChange, sessionService, task]);
 
   const { error, isConnecting, isTimedOut, hasError, isPending, connect } =
     useGithubConnect({
@@ -85,13 +86,9 @@ export function GithubConnectionRequiredRecovery({
       onConnected: () => void retryInvestigation(),
     });
 
-  useEffect(() => {
-    if (required) setOpen(true);
-  }, [required]);
-
   const runLocally = useCallback(() => {
     if (!localFolder) return;
-    setOpen(false);
+    onOpenChange(false);
     openTaskInput({
       folderId: localFolder.id,
       folderRepository: repository ?? undefined,
@@ -103,7 +100,7 @@ export function GithubConnectionRequiredRecovery({
         : undefined,
       channelId: task.channel ?? undefined,
     });
-  }, [localFolder, repository, task]);
+  }, [localFolder, onOpenChange, repository, task]);
 
   const connectionMessage = hasError
     ? describeGithubConnectError(error)
@@ -125,7 +122,7 @@ export function GithubConnectionRequiredRecovery({
       }
       approvalPending={isPending}
       canRunLocally={localWorkspaces && !!localFolder}
-      onOpenChange={setOpen}
+      onOpenChange={onOpenChange}
       onConnect={() => {
         if (projectId == null || cloudRegion == null) return;
         void connect();
