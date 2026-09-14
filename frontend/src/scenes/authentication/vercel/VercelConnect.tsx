@@ -31,6 +31,12 @@ interface SessionInfo {
     organizations: Organization[]
 }
 
+const REQUEST_TIMEOUT_MS = 30000
+
+function isTimeout(err: unknown): boolean {
+    return err instanceof DOMException && err.name === 'TimeoutError'
+}
+
 export function VercelConnect(): JSX.Element {
     const { searchParams } = useValues(router)
     const sessionKey = searchParams.session
@@ -59,7 +65,9 @@ export function VercelConnect(): JSX.Element {
             return
         }
 
-        fetch(`/api/vercel/connect/session?session=${encodeURIComponent(sessionKey)}`)
+        fetch(`/api/vercel/connect/session?session=${encodeURIComponent(sessionKey)}`, {
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        })
             .then((res) => {
                 if (!res.ok) {
                     throw new Error('Session expired or invalid')
@@ -75,7 +83,11 @@ export function VercelConnect(): JSX.Element {
                 setLoading(false)
             })
             .catch((err) => {
-                setError(err.message || 'Failed to load session')
+                setError(
+                    isTimeout(err)
+                        ? 'PostHog took too long to answer. Close this window and try again from Vercel.'
+                        : err.message || 'Failed to load session'
+                )
                 setLoading(false)
             })
     }, [sessionKey])
@@ -103,6 +115,7 @@ export function VercelConnect(): JSX.Element {
 
         fetch('/api/vercel/connect/complete', {
             method: 'POST',
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': getCookie('posthog_csrftoken') || '',
@@ -136,7 +149,11 @@ export function VercelConnect(): JSX.Element {
                 }
             })
             .catch((err) => {
-                setError(err.message || 'Failed to link organization')
+                setError(
+                    isTimeout(err)
+                        ? 'PostHog took too long to answer. Your organization may still be linked, so check Vercel before you try again.'
+                        : err.message || 'Failed to link organization'
+                )
                 setLinking(false)
             })
     }

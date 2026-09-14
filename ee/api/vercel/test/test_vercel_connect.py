@@ -13,6 +13,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
 from ee.api.vercel.vercel_connect import _load_connect_session, _sign_connect_session, _validate_next_url
 from ee.vercel.client import OAuthTokenResponse, OperationResult
 
@@ -251,23 +253,24 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.api.vercel.vercel_connect.sync_vercel_connect_feature_flags")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_successful_link_creates_integration_and_resource(self, mock_client_class, mock_vercel_integration):
+    def test_successful_link_creates_integration_and_resource(self, mock_client_class, mock_sync_task):
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.import_resource.return_value = OperationResult(success=True)
         session_token = _seed_session()
 
-        response = self.client.post(
-            self.url,
-            {
-                "session": session_token,
-                "organization_id": str(self.organization.id),
-                "environment_mapping": {"production": self.team.pk},
-            },
-            content_type="application/json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                self.url,
+                {
+                    "session": session_token,
+                    "organization_id": str(self.organization.id),
+                    "environment_mapping": {"production": self.team.pk},
+                },
+                content_type="application/json",
+            )
 
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
@@ -281,6 +284,11 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert org_integration.config["type"] == "connectable"
         assert org_integration.sensitive_config["credentials"]["access_token"] == "vercel_token_123"
         assert org_integration.integration_id == "icfg_connect_test"
+        assert org_integration.config["environment_mapping"] == {
+            "production": self.team.pk,
+            "preview": self.team.pk,
+            "development": self.team.pk,
+        }
 
         resource = Integration.objects.get(
             team=self.team,
@@ -289,27 +297,18 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert resource.integration_id == str(self.team.pk)
         assert resource.config["type"] == "connectable"
 
-        mock_client.import_resource.assert_called_once()
+        mock_sync_task.delay.assert_called_once_with(self.team.pk)
+
         call_kwargs = mock_client.import_resource.call_args[1]
         assert call_kwargs["integration_config_id"] == "icfg_connect_test"
         assert call_kwargs["resource_id"] == str(resource.pk)
         assert call_kwargs["product_id"] == "posthog"
         assert call_kwargs["name"] == self.team.name
-        mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_called_once_with(self.team)
 
-        secrets = call_kwargs["secrets"]
-        secrets_by_name = {secret["name"]: secret for secret in secrets}
+        secrets_by_name = {secret["name"]: secret for secret in call_kwargs["secrets"]}
         assert set(secrets_by_name) == {
-            "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
-            "NEXT_PUBLIC_POSTHOG_HOST",
-            "VITE_POSTHOG_PROJECT_TOKEN",
-            "VITE_POSTHOG_HOST",
-            "NUXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
-            "NUXT_PUBLIC_POSTHOG_HOST",
-            "PUBLIC_POSTHOG_PROJECT_TOKEN",
-            "PUBLIC_POSTHOG_HOST",
+            f"{prefix}{name}" for prefix in EXPECTED_ENV_PREFIXES for name in ("POSTHOG_PROJECT_TOKEN", "POSTHOG_HOST")
         }
-        assert secrets[0]["name"] == "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN"
         for prefix in EXPECTED_ENV_PREFIXES:
             token_secret = secrets_by_name[f"{prefix}POSTHOG_PROJECT_TOKEN"]
             assert token_secret["value"] == self.team.api_token
@@ -319,15 +318,12 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             assert host_secret["value"].startswith(("https://", "http://"))
             assert "environmentOverrides" not in host_secret
 
-    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.api.vercel.vercel_connect.sync_vercel_connect_feature_flags")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_link_with_different_environments_sets_overrides_on_every_prefix(
-        self, mock_client_class, mock_vercel_integration
-    ):
+    def test_link_sets_overrides_on_every_prefix_for_split_environments(self, mock_client_class, _mock_sync_task):
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.import_resource.return_value = OperationResult(success=True)
-
         preview_team = Team.objects.create(
             organization=self.organization, name="Preview Team", api_token="preview_token"
         )
@@ -351,10 +347,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         )
 
         assert response.status_code == status.HTTP_201_CREATED
-
-        call_kwargs = mock_client.import_resource.call_args[1]
-        secrets_by_name = {secret["name"]: secret for secret in call_kwargs["secrets"]}
-
+        secrets_by_name = {secret["name"]: secret for secret in mock_client.import_resource.call_args[1]["secrets"]}
         for prefix in EXPECTED_ENV_PREFIXES:
             token_secret = secrets_by_name[f"{prefix}POSTHOG_PROJECT_TOKEN"]
             assert token_secret["value"] == self.team.api_token
@@ -363,8 +356,30 @@ class TestVercelConnectComplete(VercelConnectTestBase):
                 "development": "development_token",
             }
 
-            host_secret = secrets_by_name[f"{prefix}POSTHOG_HOST"]
-            assert "environmentOverrides" not in host_secret
+            assert "environmentOverrides" not in secrets_by_name[f"{prefix}POSTHOG_HOST"]
+
+    @patch("ee.api.vercel.vercel_connect.sync_vercel_connect_feature_flags")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_link_does_not_send_one_request_per_flag(self, mock_client_class, _mock_sync_task):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.import_resource.return_value = OperationResult(success=True)
+        for index in range(5):
+            FeatureFlag.objects.create(team=self.team, key=f"flag_{index}", name=f"Flag {index}")
+        session_token = _seed_session()
+
+        response = self.client.post(
+            self.url,
+            {
+                "session": session_token,
+                "organization_id": str(self.organization.id),
+                "environment_mapping": {"production": self.team.pk},
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        mock_client.create_experimentation_items.assert_not_called()
 
     def test_non_member_returns_403(self):
         other_org = Organization.objects.create(name="Not My Org")
@@ -403,12 +418,8 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("ee.vercel.integration.VercelIntegration")
-    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_replay_returns_400(self, mock_client_class, _mock_vercel_integration):
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_client.import_resource.return_value = OperationResult(success=True)
+    @patch("ee.api.vercel.vercel_connect.sync_vercel_connect_feature_flags")
+    def test_replay_returns_400(self, _mock_sync_task):
         session_token = _seed_session()
 
         self.client.post(
@@ -459,15 +470,9 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert "already has a Vercel integration" in response.json()["detail"]
         assert OrganizationIntegration.objects.filter(integration_id="icfg_existing").exists()
 
-    @patch("ee.vercel.integration.VercelIntegration")
-    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    @patch("ee.api.vercel.vercel_connect.sync_vercel_connect_feature_flags")
     @patch("ee.api.vercel.vercel_connect._is_installation_orphaned", return_value=True)
-    def test_stale_integration_deleted_and_new_one_created(
-        self, _mock_orphaned, mock_client_class, _mock_vercel_integration
-    ):
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_client.import_resource.return_value = OperationResult(success=True)
+    def test_stale_integration_deleted_and_new_one_created(self, _mock_orphaned, _mock_sync_task):
         OrganizationIntegration.objects.create(
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
@@ -594,9 +599,9 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
         super().setUp()
         self.callback_url = "/connect/vercel/callback"
 
-    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.api.vercel.vercel_connect.sync_vercel_connect_feature_flags")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_end_to_end_callback_to_complete(self, mock_client_class, _mock_vercel_integration):
+    def test_end_to_end_callback_to_complete(self, mock_client_class, _mock_sync_task):
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
@@ -606,7 +611,6 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
             user_id="usr_e2e",
             team_id="team_e2e",
         )
-        mock_client.import_resource.return_value = OperationResult(success=True)
 
         response = self.client.get(self.callback_url, {"code": "good_code"})
         assert response.status_code == 302
@@ -626,9 +630,9 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
         assert complete_response.status_code == status.HTTP_201_CREATED
         assert complete_response.json()["status"] == "linked"
 
-    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.api.vercel.vercel_connect.sync_vercel_connect_feature_flags")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_token_survives_session_flush(self, mock_client_class, _mock_vercel_integration):
+    def test_token_survives_session_flush(self, mock_client_class, _mock_sync_task):
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
@@ -638,7 +642,6 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
             user_id="usr_sso",
             team_id="team_sso",
         )
-        mock_client.import_resource.return_value = OperationResult(success=True)
 
         response = self.client.get(self.callback_url, {"code": "good_code"})
         assert response.status_code == 302
@@ -814,6 +817,24 @@ class TestBackfillVercelConnectableResources(VercelConnectTestBase):
 
         mock_client.import_resource.assert_not_called()
         mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_not_called()
+
+
+class TestSyncVercelConnectFeatureFlagsTask(VercelConnectTestBase):
+    @patch("ee.vercel.integration.VercelIntegration.bulk_sync_feature_flags_to_vercel")
+    def test_task_syncs_the_project_flags(self, mock_bulk_sync):
+        from ee.api.vercel.tasks import sync_vercel_connect_feature_flags
+
+        sync_vercel_connect_feature_flags(self.team.pk)
+
+        mock_bulk_sync.assert_called_once_with(self.team)
+
+    @patch("ee.vercel.integration.VercelIntegration.bulk_sync_feature_flags_to_vercel")
+    def test_task_stops_when_the_project_is_gone(self, mock_bulk_sync):
+        from ee.api.vercel.tasks import sync_vercel_connect_feature_flags
+
+        sync_vercel_connect_feature_flags(-1)
+
+        mock_bulk_sync.assert_not_called()
 
 
 class TestValidateNextUrl(TestCase):
