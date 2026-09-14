@@ -4,8 +4,9 @@ Every write routes through ``FeatureFlagSerializer`` — the only path that hono
 ``@approval_gate``, validation, and activity logging. Consumers (currently experiments)
 call these functions instead of driving the serializer and its DRF context by hand.
 The read helpers (``user_can_edit_flag``, ``flag_disable_requires_approval``,
-``serialize_flags``) expose the flag API's access-control, approval-policy, and
-representation logic behind the same boundary.
+``serialize_flags``, ``get_feature_flag_request_usage``) expose the flag API's
+access-control, approval-policy, representation, and request-usage logic behind
+the same boundary.
 
 Writes do not enforce access control — that lives at the viewset layer. A caller
 acting on behalf of an end user must pre-check ``user_can_edit_flag`` first.
@@ -23,7 +24,8 @@ signal the gate skips on (its policies target human-driven changes, and a reques
 caller cannot surface a 409/change request), so ``ApprovalRequired`` is never raised.
 """
 
-from typing import Any
+from datetime import datetime
+from typing import Any, Literal
 
 from rest_framework.exceptions import ValidationError
 
@@ -36,6 +38,11 @@ from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.request_usage import (
+    FeatureFlagRequestType as FeatureFlagRequestType,
+    FeatureFlagRequestUsage as FeatureFlagRequestUsage,
+    query_feature_flag_request_usage,
+)
 
 
 def _serializer_context(team: Team, user: Any, request: Any | None, *, method: str = "POST") -> dict:
@@ -292,6 +299,14 @@ def serialize_flags(flags: Any, *, context: dict) -> Any:
     access-control-derived fields, so it can only be built for a real request.
     """
     return FeatureFlagSerializer(flags, many=True, context=context).data
+
+
+def get_feature_flag_request_usage(
+    *, team_id: int, date_from: datetime, date_to: datetime, time_interval: Literal["hour", "day"]
+) -> list[FeatureFlagRequestUsage]:
+    return query_feature_flag_request_usage(
+        team_id=team_id, date_from=date_from, date_to=date_to, time_interval=time_interval
+    )
 
 
 def flag_is_active(key: str, *, team_id: int | None = None) -> bool:

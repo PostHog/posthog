@@ -7,7 +7,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseDestroyTablesMixin,
@@ -206,7 +206,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool, include_zero_d
     )
 
 
-@freeze_time("2022-01-10T00:01:00Z")
+@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
 class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
@@ -1188,7 +1188,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
 
             return full_reports
 
-    @freeze_time("2022-01-10T00:01:00Z")
+    @time_machine.travel("2022-01-10T00:01:00Z", tick=False)
     @patch("os.environ", {"DEPLOYMENT": "tests"})
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("ee.sqs.SQSProducer.get_sqs_producer")
@@ -1228,7 +1228,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
         # mock_posthog.capture.assert_has_calls(calls, any_order=True)
 
 
-@freeze_time("2022-01-09T00:01:00Z")
+@time_machine.travel("2022-01-09T00:01:00Z", tick=False)
 class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
@@ -1833,7 +1833,7 @@ class TestQueryUsageReportSQL:
         assert sponsor_params["sponsor_end"] == end + GATEWAY_SPONSORSHIP_LOOKAROUND
 
 
-@freeze_time("2022-01-10T00:01:00Z")
+@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
 class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:
         Team.objects.all().delete()
@@ -2091,7 +2091,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"][str(self.org_1_team_2.id)]["active_hog_transformations_in_period"] == 2
 
 
-@freeze_time("2022-01-10T00:01:00Z")
+@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
 class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:
         Team.objects.all().delete()
@@ -2225,7 +2225,7 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
         assert report["event_count_in_period"] == 0
 
 
-@freeze_time("2022-01-10T00:01:00Z")
+@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
 class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:
         Team.objects.all().delete()
@@ -2327,7 +2327,7 @@ class TestHasNonZeroUsage(TestCase):
         assert has_non_zero_usage(report) is True
 
 
-@freeze_time("2022-01-10T00:01:00Z")
+@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
 class TestCaptureReportTrimsOversizePayload(TestCase):
     @patch("posthog.tasks.usage_report.get_ph_client")
     def test_capture_report_drops_teams_when_payload_too_large(self, mock_client: MagicMock) -> None:
@@ -2367,7 +2367,7 @@ class TestCaptureReportTrimsOversizePayload(TestCase):
         assert len(json.dumps(captured_properties, default=str)) <= MAX_USAGE_REPORT_PAYLOAD_BYTES
 
 
-@freeze_time("2022-01-10T00:01:00Z")
+@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
 class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:
         Team.objects.all().delete()
@@ -2390,7 +2390,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
     def test_external_data_rows_synced_free_period_response(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
     ) -> None:
-        with freeze_time("2025-11-01T00:00:00Z"):
+        with time_machine.travel("2025-11-01T00:00:00Z", tick=False):
             self._setup_teams()
 
             source = ExternalDataSource.objects.create(
@@ -2454,7 +2454,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
     ) -> None:
         self._setup_teams()
 
-        with freeze_time("2025-10-30T00:00:00Z"):
+        with time_machine.travel("2025-10-30T00:00:00Z", tick=False):
             source_4 = ExternalDataSource.objects.create(
                 team_id=4,
                 source_id="source_id_2",
@@ -2463,7 +2463,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 source_type=ExternalDataSourceType.STRIPE,
             )
 
-        with freeze_time("2025-11-07T01:00:00Z"):
+        with time_machine.travel("2025-11-07T01:00:00Z", tick=False):
             source_3 = ExternalDataSource.objects.create(
                 team_id=3,
                 source_id="source_id",
@@ -2526,7 +2526,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
     def test_external_data_rows_synced_before_free_period_response(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
     ) -> None:
-        with freeze_time("2025-10-28T23:59:00Z"):
+        with time_machine.travel("2025-10-28T23:59:00Z", tick=False):
             self._setup_teams()
 
             source = ExternalDataSource.objects.create(
@@ -2846,6 +2846,34 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 records_completed=100 * (i + 1),  # 100, 200, 300
             )
 
+        # The HogQL model is free while it is in closed beta, so its rows are not counted.
+        hogql_batch_export = BatchExport.objects.create(
+            team_id=3,
+            name="Test HogQL export",
+            destination=batch_export_destination,
+            paused=False,
+            model=BatchExport.Model.HOGQL,
+        )
+        with team_scope(team_id=3, canonical=True):
+            hogql_batch_export_on_demand = BatchExportOnDemand.objects.create(
+                team_id=3,
+                destination=batch_export_on_demand_destination,
+                model=BatchExportOnDemand.Model.HOGQL,
+            )
+
+        for hogql_export_kwargs in (
+            {"batch_export": hogql_batch_export},
+            {"batch_export_on_demand": hogql_batch_export_on_demand},
+        ):
+            BatchExportRun.objects.create(
+                data_interval_end=now(),
+                data_interval_start=now() - timedelta(hours=1),
+                finished_at=now(),
+                status=BatchExportRun.Status.COMPLETED,
+                records_completed=5000,
+                **hogql_export_kwargs,
+            )
+
         period = get_previous_day(at=now() + relativedelta(days=1))
         all_reports = _get_all_org_reports(period=period)
 
@@ -3034,7 +3062,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         assert org_2_report["rows_synced_in_period"] == 0
 
 
-@freeze_time("2022-01-10T00:01:00Z")
+@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
 class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:
         Team.objects.all().delete()
@@ -3200,6 +3228,29 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
                 status=DataWarehouseSavedQuery.Status.COMPLETED,
             )
 
+        # A view materialized on the current backend leaves status and last_run_at unwritten.
+        for i in range(3):
+            table = DataWarehouseTable.objects.create(
+                team_id=3,
+                size_in_s3_mib=1,
+            )
+            DataWarehouseSavedQuery.objects.create(
+                team_id=3,
+                name=f"{i}_unstamped_view",
+                table=table,
+                deleted=False,
+                status=None,
+                last_run_at=None,
+            )
+
+        # A soft-deleted view whose backing table has not been cleaned up yet must not count.
+        DataWarehouseSavedQuery.objects.create(
+            team_id=3,
+            name="half_deleted_view",
+            table=DataWarehouseTable.objects.create(team_id=3, size_in_s3_mib=1),
+            deleted=True,
+        )
+
         period = get_previous_day(at=now() + relativedelta(days=1))
         all_reports = _get_all_org_reports(period=period)
 
@@ -3214,10 +3265,10 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
         )
 
         assert org_1_report["organization_name"] == "Org 1"
-        assert org_1_report["dwh_mat_views_storage_in_s3_in_mib"] == 5.0
+        assert org_1_report["dwh_mat_views_storage_in_s3_in_mib"] == 8.0
 
-        assert org_1_report["teams"]["3"]["dwh_mat_views_storage_in_s3_in_mib"] == 5.0
-        assert org_1_report["teams"]["3"]["dwh_total_storage_in_s3_in_mib"] == 5.0
+        assert org_1_report["teams"]["3"]["dwh_mat_views_storage_in_s3_in_mib"] == 8.0
+        assert org_1_report["teams"]["3"]["dwh_total_storage_in_s3_in_mib"] == 9.0
         assert org_1_report["teams"]["4"]["dwh_mat_views_storage_in_s3_in_mib"] == 0
         assert org_1_report["teams"]["4"]["dwh_total_storage_in_s3_in_mib"] == 0
 
@@ -3225,7 +3276,7 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
         assert org_2_report["dwh_mat_views_storage_in_s3_in_mib"] == 0
 
 
-@freeze_time("2022-01-10T00:01:00Z")
+@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
 class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:
         Team.objects.all().delete()
@@ -3632,8 +3683,49 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             assert org_1_report[field] == value, field
             assert team_1_report[field] == value, field
 
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_metrics_usage_metrics(
+        self,
+        billing_task_mock: MagicMock,
+        posthog_capture_mock: MagicMock,
+    ) -> None:
+        self._setup_teams()
 
-@freeze_time("2022-01-10T10:00:00Z")
+        for metric_name, count in {"bytes_ingested": 3_500_000, "records_ingested": 120}.items():
+            create_app_metric2(
+                team_id=self.org_1_team_1.id,
+                app_source="metrics",
+                metric_name=metric_name,
+                count=count,
+            )
+        # Same metric names under the logs app_source must not leak into the metrics counters.
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="logs",
+            metric_name="records_ingested",
+            count=999,
+        )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        all_reports = _get_all_org_reports(period=period)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        expected = {
+            "metrics_records_in_period": 120,
+            "metrics_mb_in_period": 3,
+        }
+        # Only org_1_team_1 has metrics usage, so the org-level rollup equals that team's values.
+        team_1_report = org_1_report["teams"][str(self.org_1_team_1.id)]
+        for field, value in expected.items():
+            assert org_1_report[field] == value, field
+            assert team_1_report[field] == value, field
+
+
+@time_machine.travel("2022-01-10T10:00:00Z", tick=False)
 class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:
         Team.objects.all().delete()
@@ -3746,7 +3838,7 @@ class TestAICreditsRegionHandling(SimpleTestCase):
             )
 
 
-@freeze_time("2022-01-10T10:00:00Z")
+@time_machine.travel("2022-01-10T10:00:00Z", tick=False)
 class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:
         Team.objects.all().delete()
@@ -3854,8 +3946,9 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         assert org_1_report["ai_event_count_in_period"] == 7
         assert org_1_report["teams"]["3"]["ai_event_count_in_period"] == 7
 
+    @parameterized.expand([("posthog_ai",), ("workflows",)])
     @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_ai_credits_with_billable_tools(self, mock_region: MagicMock) -> None:
+    def test_ai_credits_with_billable_tools(self, ai_product: str, mock_region: MagicMock) -> None:
         """Test that generations with non-search tools are billed correctly."""
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
 
@@ -3901,7 +3994,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": True,
-                "ai_product": "posthog_ai",
+                "ai_product": ai_product,
                 "$group_1": "https://us.posthog.com",
             },
         )
@@ -5257,7 +5350,7 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             }
         }
 
-    @freeze_time("2021-10-10T23:01:00Z")
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("ee.sqs.SQSProducer.get_sqs_producer")
     def test_send_usage(self, mock_get_sqs_producer: MagicMock, mock_client: MagicMock) -> None:
@@ -5291,7 +5384,7 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         #     timestamp=None,
         # )
 
-    @freeze_time("2021-10-10T23:01:00Z")
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("ee.sqs.SQSProducer.get_sqs_producer")
     def test_send_usage_cloud(self, mock_get_sqs_producer: MagicMock, mock_client: MagicMock) -> None:
@@ -5387,7 +5480,7 @@ class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTe
         super().setUp()
         materialize("events", "$exception_values")
 
-    @freeze_time("2021-10-10T23:01:00Z")
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("requests.post")
     def test_usage_not_sent_if_zero(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
@@ -5404,7 +5497,7 @@ class TestSendUsageNoLicense(APIBaseTest):
         super().setUp()
         materialize("events", "$exception_values")
 
-    @freeze_time("2021-10-10T23:01:00Z")
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("requests.post")
     def test_no_license(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
@@ -5463,7 +5556,7 @@ class TestSendUsageNoLicense(APIBaseTest):
             _ = team.organization.for_internal_metrics
 
 
-@freeze_time("2021-10-10T23:01:00Z")
+@time_machine.travel("2021-10-10T23:01:00Z", tick=False)
 class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     """Test organization_ids filtering for send_all_org_usage_reports"""
 

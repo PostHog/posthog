@@ -172,6 +172,7 @@ function makeWorkflow(overrides: Partial<WorkflowHealthRow> = {}): WorkflowHealt
         latestRunConclusion: 'success',
         granularity: 'day',
         buckets: [],
+        mergeQueueRunCount: 0,
         ...overrides,
     }
 }
@@ -345,44 +346,28 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '2026-01-01', date_to: '2026-03-01' })
     })
 
-    it('filters workflow health by the shared branch scope, only reloading on a real change', async () => {
-        // Branch lives in the shared filters logic (so it carries into the workflow detail page); the
-        // Workflows tab reads it and reloads workflow health when it's applied.
+    it('scopes workflow health to the shared run group', async () => {
+        // The scope lives in the shared filters logic so it carries into the workflow detail page; the
+        // Workflows tab reads it and reloads workflow health whenever the group changes.
         logic = engineeringAnalyticsLogic()
         logic.mount()
         const filters = engineeringAnalyticsFiltersLogic()
         extraUnmounts.push(filters.mount())
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        // All runs is the default, and the backend already reports every run when the param is absent.
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d' })
 
-        // Typing only stages the value — no reload until applied.
-        filters.actions.setBranchFilter('main')
-        expect(filters.values.branchInput).toBe('main')
-        expect(filters.values.appliedBranch).toBe('')
-
-        // Applying promotes it and reloads with the branch param (trimmed).
-        filters.actions.setBranchFilter('  main  ')
-        filters.actions.applyBranchFilter()
+        filters.actions.setRunScope('pull_request')
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
-        expect(filters.values.appliedBranch).toBe('main')
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', branch: 'main' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', run_scope: 'pull_request' })
 
-        // Re-applying an unchanged value (e.g. a blur with no edit) does not reload.
-        mockWorkflowHealth.mockClear()
-        filters.actions.applyBranchFilter()
-        await expectLogic(logic).toNotHaveDispatchedActions(['loadWorkflowHealth'])
-        expect(mockWorkflowHealth).not.toHaveBeenCalled()
-
-        // The applied branch persists across a date-range reload.
+        // The group persists across a window change.
         filters.actions.setDateRange('-90d', null)
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', branch: 'main' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', run_scope: 'pull_request' })
 
-        // Clearing the box (e.g. the search × button, which only fires onChange('')) applies
-        // immediately — no Enter/blur needed — and drops the filter.
-        filters.actions.setBranchFilter('')
-        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
-        expect(filters.values.appliedBranch).toBe('')
+        filters.actions.setRunScope('all')
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d' })
     })
 

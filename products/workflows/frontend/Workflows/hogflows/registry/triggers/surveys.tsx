@@ -90,17 +90,23 @@ export function buildProperties(
 function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const config = node.data.config as EventTriggerConfig
+    const selectedSurveyId = getSelectedSurveyId(config)
+    const triggerLogic = surveyTriggerLogic({
+        selectedSurveyId: selectedSurveyId === 'any' ? null : selectedSurveyId,
+    })
     const {
         allSurveys,
         filteredSurveys,
+        surveysById,
+        selectedSurveys,
         searchTerm,
         surveysLoading,
+        searchedSurveysLoading,
         moreSurveysLoading,
         hasMoreSurveys,
         responseCounts,
-    } = useValues(surveyTriggerLogic)
-    const { loadMoreSurveys, setSearchTerm } = useActions(surveyTriggerLogic)
-    const selectedSurveyId = getSelectedSurveyId(config)
+    } = useValues(triggerLogic)
+    const { loadMoreSurveys, setSearchTerm } = useActions(triggerLogic)
     const completedOnly = getCompletedResponsesOnly(config)
     const userProperties = getUserProperties(config)
     const filterTestAccounts = config.filters?.filter_test_accounts ?? false
@@ -120,10 +126,11 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
         })
     }
 
-    const selectedSurvey =
-        selectedSurveyId && selectedSurveyId !== 'any' ? allSurveys.find((s) => s.id === selectedSurveyId) : null
+    const hasSpecificSurvey = !!selectedSurveyId && selectedSurveyId !== 'any'
+    const selectedSurvey = hasSpecificSurvey ? (surveysById[selectedSurveyId] ?? null) : null
+    const selectedSurveyMissing = hasSpecificSurvey && selectedSurveys[selectedSurveyId] === null
     const selectedSurveyLabel =
-        selectedSurvey?.name ?? (selectedSurveyId && selectedSurveyId !== 'any' ? 'Loading...' : null)
+        selectedSurvey?.name ?? (hasSpecificSurvey ? (selectedSurveyMissing ? 'Survey not found' : 'Loading...') : null)
 
     const surveyOptions = [
         ...(selectedSurveyId && selectedSurveyLabel
@@ -226,7 +233,7 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
                 <LemonSelect
                     options={surveyOptions}
                     value={selectedSurveyId}
-                    loading={surveysLoading}
+                    loading={surveysLoading || searchedSurveysLoading}
                     onChange={(surveyId) => {
                         if (surveyId === '__search__') {
                             return
@@ -282,7 +289,7 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
                     )
                 }
 
-                if (selectedSurveyId && selectedSurveyId !== 'any' && !surveysLoading && !selectedSurvey) {
+                if (selectedSurveyMissing) {
                     return (
                         <LemonBanner type="warning" className="w-full">
                             <p>

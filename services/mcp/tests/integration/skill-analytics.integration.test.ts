@@ -126,6 +126,7 @@ describe.skipIf(!API_TOKEN)('skill read reaches PostHog with $mcp_skill_name', (
             sessionContext: null,
             allTools: tools,
             scopeGatedTools: [],
+            flagGatedTools: [],
             gatewayToolsEnabled: false,
             distinctId: 'e2e-distinct-id',
             renderUiEnabled: false,

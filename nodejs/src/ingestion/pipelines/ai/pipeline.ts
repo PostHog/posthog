@@ -25,9 +25,8 @@ import {
     createApplyCookielessProcessingStep,
     createApplyEventRestrictionsStep,
     createApplyPersonProcessingRestrictionsStep,
-    createOnlyCookielessRateLimitToOverflowStep,
     createOverflowLaneTTLRefreshStep,
-    createSkipCookielessRateLimitToOverflowStep,
+    createRateLimitToOverflowStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventSchemaStep,
@@ -167,9 +166,10 @@ export function createAiIngestionPipeline<
                     pipelineWritesPersons: false,
                 })
             )
-            // Rate-limit non-cookieless events to overflow before parsing the body.
-            // Cookieless events pass through and are handled post-cookieless below.
-            .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+            // Rate-limit events to overflow before parsing the body, keyed on the
+            // Kafka message key — the partition key capture computed. Cookieless
+            // events count under token:client_ip.
+            .pipeChunk(createRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             .parseMessage()
             .resolveTeam()
             .pipe(createValidateHistoricalMigrationStep())
@@ -186,7 +186,6 @@ export function createAiIngestionPipeline<
             // final distinct_id, so it must run after this batch step.
             .gather()
             .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
-            .pipeChunk(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
             // Read-only batch person fetch (no person writes). The personhog
             // client retries transient gRPC errors for ~150ms; this outer

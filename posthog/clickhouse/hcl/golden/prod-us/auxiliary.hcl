@@ -1042,6 +1042,53 @@ database "posthog" {
     }
   }
 
+  table "person_property_mutation_log" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "event_uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "ingested_at" {
+      type = "DateTime('UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "person_property_mutation_log_data"
+    }
+  }
+
+  table "person_property_mutation_log_data" {
+    order_by     = ["team_id", "event_uuid"]
+    partition_by = "toDate(ingested_at)"
+    ttl          = "ingested_at + toIntervalDay(30)"
+    settings = {
+      index_granularity   = "1024"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "event_uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "ingested_at" {
+      type = "DateTime('UTC')"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.person_property_mutation_log_data"
+      replica_name   = "{replica}-{shard}"
+      version_column = "ingested_at"
+    }
+  }
+
   table "property_values" {
     order_by = ["team_id", "property_type", "property_key", "property_value"]
     ttl      = "last_seen + toIntervalDay(30)"
@@ -1729,6 +1776,58 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_session_replay_features"
       sharding_key    = "sipHash64(session_id)"
+    }
+  }
+
+  table "sharded_billing_usage_records" {
+    order_by     = ["team_id", "toDate(timestamp)", "producer_id", "usage_key", "record_id"]
+    partition_by = "toYYYYMM(timestamp)"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "schema_version" {
+      type = "UInt8"
+    }
+    column "record_id" {
+      type = "String"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
+      replica_name   = "{replica}"
+      version_column = "inserted_at"
     }
   }
 

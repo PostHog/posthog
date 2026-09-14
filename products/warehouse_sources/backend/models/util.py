@@ -197,6 +197,8 @@ CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "UInt16": IntegerDatabaseField,
     "UInt32": IntegerDatabaseField,
     "UInt64": IntegerDatabaseField,
+    "UInt128": IntegerDatabaseField,
+    "UInt256": IntegerDatabaseField,
     "Float8": FloatDatabaseField,
     "Float16": FloatDatabaseField,
     "Float32": FloatDatabaseField,
@@ -205,6 +207,8 @@ CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "Int16": IntegerDatabaseField,
     "Int32": IntegerDatabaseField,
     "Int64": IntegerDatabaseField,
+    "Int128": IntegerDatabaseField,
+    "Int256": IntegerDatabaseField,
     "Tuple": StringJSONDatabaseField,
     "Array": StringArrayDatabaseField,
     "Map": StringJSONDatabaseField,
@@ -212,7 +216,23 @@ CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "Decimal": DecimalDatabaseField,
     "FixedString": StringDatabaseField,
     "Enum8": StringDatabaseField,
+    "Enum16": StringDatabaseField,
+    "IPv4": StringDatabaseField,
+    "IPv6": StringDatabaseField,
+    "JSON": StringJSONDatabaseField,
+    "Variant": UnknownDatabaseField,
+    "Dynamic": UnknownDatabaseField,
 }
+
+
+def hogql_type_name_for_clickhouse_type(clickhouse_type: str) -> str:
+    """Resolve a ClickHouse type name to its HogQL field class name.
+
+    Types absent from ``CLICKHOUSE_HOGQL_MAPPING`` fall back to ``UnknownDatabaseField`` so an
+    unfamiliar column type downgrades to a usable column instead of raising ``KeyError``.
+    """
+    return CLICKHOUSE_HOGQL_MAPPING.get(clean_type(clickhouse_type), UnknownDatabaseField).__name__
+
 
 # Old-style column metadata stores only the ClickHouse type string and resolves through a
 # mapping on every query, so retyping UUID in CLICKHOUSE_HOGQL_MAPPING would flip every
@@ -691,9 +711,14 @@ def _is_safe_public_ip(host: str) -> bool:
         if ip.sixtofour:
             return _is_safe_public_ip(str(ip.sixtofour))
 
-    return not (
-        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
-    )
+    # Require global routability rather than enumerating the families to reject. The enumeration
+    # missed shared address space (100.64.0.0/10), which is neither private nor global to
+    # `ipaddress` but is routinely internal, and which `posthog/security/url_validation.py` and
+    # `rust/common/dns` both already reject. Two families count as global by this measure and
+    # keep their own clause: multicast, and the reserved IPv6 blocks. Reserved matters because
+    # `::/8` holds the NAT64 well-known prefix (64:ff9b::/96) and the deprecated IPv4-compatible
+    # form, both of which carry an embedded IPv4 address that the unwrapping above does not see.
+    return ip.is_global and not ip.is_multicast and not ip.is_reserved
 
 
 # The AWS half matches the global, regional, dashed-regional, dualstack and accelerate endpoints,

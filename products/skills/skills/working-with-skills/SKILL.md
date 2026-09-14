@@ -58,6 +58,9 @@ Editing an existing skill?
   │    └─ Rename .......................... skill-file-rename
   └─ Wholesale bundle reset (rare!) ....... update(files=[...])  # replaces ALL files
 
+Renaming the skill itself?
+  └─► skill-rename                  (keeps versions, files, and owners)
+
 Want a fork as the starting point?
   └─► skill-duplicate               (then update the copy)
 
@@ -139,9 +142,10 @@ posthog:skill-create
 - **File layout convention** — `scripts/` for executable code, `references/`
   for prose docs and examples, `assets/` for templates / data. Agents can rely
   on this for orientation when they only have the manifest.
-- **`allowed_tools`** lists the MCP / built-in tools the skill expects to be
-  callable. Be honest — under-declaring causes silent failures, over-declaring
-  is a security smell.
+- **`allowed_tools`** lists the tools the skill asks to use. It is a request, not a grant: a harness that reads the skill from a file treats the list as pre-approved, and a harness that loads the skill over MCP ignores it until the user approves that grant.
+  List only the tools the skill really uses, because padding the list widens the request.
+  An undeclared tool is not pre-approved, and the harness decides what happens next: it can ask the user, deny the call, or not expose the tool at all.
+  Some products enforce the list themselves, so an omitted tool makes the call fail there.
 - **End with a `## Related skills` footer** when adjacent skills exist: a short
   bullet list of `` `skill-name` `` entries, each with a one-line handoff reason
   ("when to jump there"), so one skill invocation seeds discovery of the next.

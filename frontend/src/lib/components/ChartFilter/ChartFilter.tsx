@@ -4,11 +4,20 @@ import { IconGlobe, IconGraph, IconPieChart, IconRetentionHeatmap, IconTrends } 
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Icon123, IconAreaChart, IconCumulativeChart, IconDonutChart, IconTableChart } from 'lib/lemon-ui/icons'
+import {
+    Icon123,
+    IconAreaChart,
+    IconCumulativeChart,
+    IconDonutChart,
+    IconTableChart,
+    IconTrendingUp,
+} from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 
+import type { TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 function ChartFilterOptionLabel(props: { label: string; description?: string }): JSX.Element {
@@ -20,18 +29,31 @@ function ChartFilterOptionLabel(props: { label: string; description?: string }):
     )
 }
 
-export function ChartFilter(): JSX.Element {
+export function ChartFilter({
+    fullWidth = false,
+    disabledReason,
+}: {
+    fullWidth?: boolean
+    disabledReason?: string
+}): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { display } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { isTrends, isSingleSeriesOutput, formula, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
+    const { isTrends, isSingleSeriesOutput, formula, breakdownFilter, series } = useValues(
+        insightVizDataLogic(insightProps)
+    )
 
     const trendsOnlyDisabledReason = !isTrends ? 'This type is only available in Trends.' : undefined
     const singleSeriesOnlyDisabledReason = !isSingleSeriesOutput
         ? 'This type currently only supports insights with one series, and this insight has multiple series.'
         : undefined
+    const boxPlotDisabledReason =
+        trendsOnlyDisabledReason ||
+        (isBoxPlotMissingProperty(series as TrendsQuery['series'])
+            ? 'Select a numeric property to use a box plot.'
+            : undefined)
 
     const options: LemonSelectOptions<ChartDisplayType> = [
         {
@@ -85,7 +107,7 @@ export function ChartFilter(): JSX.Element {
                     value: ChartDisplayType.BoxPlot,
                     icon: <IconGraph />,
                     label: 'Box plot',
-                    disabledReason: trendsOnlyDisabledReason,
+                    disabledReason: boxPlotDisabledReason,
                     labelInMenu: (
                         <ChartFilterOptionLabel
                             label="Box plot"
@@ -93,22 +115,18 @@ export function ChartFilter(): JSX.Element {
                         />
                     ),
                 },
-                ...(featureFlags[FEATURE_FLAGS.SLOPE_GRAPH_INSIGHT]
-                    ? [
-                          {
-                              value: ChartDisplayType.SlopeGraph,
-                              icon: <IconTrends />,
-                              label: 'Slope graph',
-                              disabledReason: trendsOnlyDisabledReason,
-                              labelInMenu: (
-                                  <ChartFilterOptionLabel
-                                      label="Slope graph"
-                                      description="Change from the start to the end of the range, one line per series."
-                                  />
-                              ),
-                          },
-                      ]
-                    : []),
+                {
+                    value: ChartDisplayType.SlopeGraph,
+                    icon: <IconTrends />,
+                    label: 'Slope graph',
+                    disabledReason: trendsOnlyDisabledReason,
+                    labelInMenu: (
+                        <ChartFilterOptionLabel
+                            label="Slope graph"
+                            description="Change from the start to the end of the range, one line per series."
+                        />
+                    ),
+                },
             ],
         },
         {
@@ -144,7 +162,7 @@ export function ChartFilter(): JSX.Element {
                     ? [
                           {
                               value: ChartDisplayType.Metric,
-                              icon: <IconTrends />,
+                              icon: <IconTrendingUp />,
                               label: 'Metric',
                               labelInMenu: (
                                   <ChartFilterOptionLabel
@@ -238,7 +256,8 @@ export function ChartFilter(): JSX.Element {
             data-attr="chart-filter"
             options={options}
             size="small"
-            disabledReason={editingDisabledReason}
+            fullWidth={fullWidth}
+            disabledReason={editingDisabledReason ?? disabledReason}
         />
     )
 }

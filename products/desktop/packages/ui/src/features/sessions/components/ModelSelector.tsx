@@ -17,6 +17,7 @@ import { gateRestrictedModelPick } from "@posthog/ui/features/billing/modelGate"
 import { ModelCostFooter } from "@posthog/ui/features/sessions/components/ModelCostChip";
 import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
 import { stripDisabledModelOption } from "@posthog/ui/features/sessions/modelOptionFilters";
+import { toPickerOption } from "@posthog/ui/features/sessions/modelPickerOption";
 import {
   flattenSelectOptions,
   useModelConfigOptionForTask,
@@ -114,7 +115,10 @@ export function ModelSelector({
                 {index > 0 && <DropdownMenuSeparator />}
                 <MenuLabel>{group.name}</MenuLabel>
                 {group.options.map((model) => (
-                  <ModelRadioItem key={model.value} model={model} />
+                  <ModelRadioItem
+                    key={model.value}
+                    model={toPickerOption(model)}
+                  />
                 ))}
               </Fragment>
             ))}
@@ -125,7 +129,7 @@ export function ModelSelector({
             onValueChange={handleChange}
           >
             {options.map((model) => (
-              <ModelRadioItem key={model.value} model={model} />
+              <ModelRadioItem key={model.value} model={toPickerOption(model)} />
             ))}
           </DropdownMenuRadioGroup>
         )}

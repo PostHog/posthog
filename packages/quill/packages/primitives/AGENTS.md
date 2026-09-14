@@ -132,21 +132,21 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 
 ## Component Catalog
 
-| Component    | Variants                                                 | Sizes                                                | Notes                                                                                                                  |
-| ------------ | -------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Button       | default, primary, outline, destructive, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg | `loading` overlays a centered spinner and disables the button (width stays stable)                                     |
-| Badge        | default, info, destructive, warning, success, completed  | —                                                    | Semantic status                                                                                                        |
-| Toggle       | default, outline                                         | default, sm, lg, icon                                |                                                                                                                        |
-| Chip         | outline                                                  | sm                                                   | Use with ChipClose                                                                                                     |
-| Separator    | —                                                        | —                                                    | orientation: horizontal/vertical                                                                                       |
-| Spinner      | —                                                        | —                                                    | SVG, accepts svg props                                                                                                 |
-| Skeleton     | —                                                        | —                                                    | Pulsing placeholder div                                                                                                |
-| SkeletonText | —                                                        | —                                                    | lines, minWidth, maxWidth                                                                                              |
-| Progress     | —                                                        | —                                                    | value: 0-100                                                                                                           |
-| Slider       | —                                                        | —                                                    | value, min, max                                                                                                        |
-| Avatar       | —                                                        | lg, default, sm, xs                                  | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                               |
-| ChatGlobe    | —                                                        | —                                                    | Sweeping globe for "browsing the web"; sizes from its container. Still globe under reduced motion                      |
-| AvatarGroup  | —                                                        | default, sm, xs                                      | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children |
+| Component    | Variants                                                                                 | Sizes                                                | Notes                                                                                                                  |
+| ------------ | ---------------------------------------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Button       | default, primary, secondary, outline, destructive, destructive-outline, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg | `loading` overlays a centered spinner and disables the button (width stays stable)                                     |
+| Badge        | default, info, destructive, warning, success, completed                                  | —                                                    | Semantic status                                                                                                        |
+| Toggle       | default, outline                                                                         | default, sm, lg, icon                                |                                                                                                                        |
+| Chip         | outline                                                                                  | sm                                                   | Use with ChipClose                                                                                                     |
+| Separator    | —                                                                                        | —                                                    | orientation: horizontal/vertical                                                                                       |
+| Spinner      | —                                                                                        | —                                                    | SVG, accepts svg props                                                                                                 |
+| Skeleton     | —                                                                                        | —                                                    | Pulsing placeholder div                                                                                                |
+| SkeletonText | —                                                                                        | —                                                    | lines, minWidth, maxWidth                                                                                              |
+| Progress     | —                                                                                        | —                                                    | value: 0-100                                                                                                           |
+| Slider       | —                                                                                        | —                                                    | value, min, max                                                                                                        |
+| Avatar       | —                                                                                        | lg, default, sm, xs                                  | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                               |
+| ChatGlobe    | —                                                                                        | —                                                    | Sweeping globe for "browsing the web"; sizes from its container. Still globe under reduced motion                      |
+| AvatarGroup  | —                                                                                        | default, sm, xs                                      | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children |
 
 ---
 
@@ -440,6 +440,8 @@ For example, drop the default `1rem` viewport padding for full-bleed content: `<
 
 Same shell as Dialog (shared `quill-dialog__*` styles) but `role="alertdialog"`, always modal, backdrop clicks never dismiss, and no X button — the user must pick an action (or Esc). Use for destructive/irreversible confirmations; put Cancel first so it takes initial focus.
 
+**The confirm button in an alert dialog footer is `destructive-outline`.** It carries the same red fill as `destructive`; the border is the whole difference. In a footer that border pairs it with the `outline` Cancel beside it, so the two read as one row of choices rather than a warning sitting next to a button. Keep `destructive` for the trigger out in the app and for `variant="destructive"` menu items, where a borderless fill stands out among neutral controls.
+
 ```tsx
 <AlertDialog>
   <AlertDialogTrigger render={<Button variant="destructive" />}>Delete project</AlertDialogTrigger>
@@ -450,7 +452,7 @@ Same shell as Dialog (shared `quill-dialog__*` styles) but `role="alertdialog"`,
     </AlertDialogHeader>
     <AlertDialogFooter>
       <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
-      <AlertDialogClose render={<Button variant="destructive" />}>Delete</AlertDialogClose>
+      <AlertDialogClose render={<Button variant="destructive-outline" />}>Delete</AlertDialogClose>
     </AlertDialogFooter>
   </AlertDialogContent>
 </AlertDialog>
@@ -1230,8 +1232,9 @@ Each container's CSS handles `flex-shrink: 0` and the per-context size via `svg:
 3. **Badge variants are semantic** — info (blue), warning (yellow), success (green), completed (purple, terminal done state e.g. merged PRs), destructive (red), default (neutral)
 4. **Use `render` on triggers** — DialogTrigger, PopoverTrigger, TooltipTrigger, DrawerTrigger accept `render` to render as the child element
 5. **DropdownMenuItem has variants** — use `variant="destructive"` for dangerous actions; default is `"default"`
-6. **Prefer composition over props** — use CardHeader > CardTitle instead of `<Card title="...">`
-7. **Use `cn()` for class overrides** — import from `@posthog/quill-primitives` to merge Tailwind classes safely
-8. **Follow the spacing conventions** — see Spacing and layout above; `gap-2` between related siblings, `gap-4` between sections, never re-pad primitive internals
-9. **Use `loading` on submit buttons** — any Button that triggers a network request must pass `loading` while the request is in flight; it blocks activation (guarding double-submission) and overlays a spinner without changing the button's width, while staying focusable for screen readers (`aria-disabled` + `aria-busy`, not the native `disabled` attribute)
-10. **Don't size or color icons inside primitives** — see Icons above; component CSS sizes bare svg children per context, and `currentColor` handles tinting
+6. **Alert dialog footers confirm with `destructive-outline`** — `destructive` is for the trigger that opens the confirmation and for destructive menu items; inside an AlertDialog footer the confirm button is `destructive-outline` beside an `outline` Cancel
+7. **Prefer composition over props** — use CardHeader > CardTitle instead of `<Card title="...">`
+8. **Use `cn()` for class overrides** — import from `@posthog/quill-primitives` to merge Tailwind classes safely
+9. **Follow the spacing conventions** — see Spacing and layout above; `gap-2` between related siblings, `gap-4` between sections, never re-pad primitive internals
+10. **Use `loading` on submit buttons** — any Button that triggers a network request must pass `loading` while the request is in flight; it blocks activation (guarding double-submission) and overlays a spinner without changing the button's width, while staying focusable for screen readers (`aria-disabled` + `aria-busy`, not the native `disabled` attribute)
+11. **Don't size or color icons inside primitives** — see Icons above; component CSS sizes bare svg children per context, and `currentColor` handles tinting

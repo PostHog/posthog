@@ -32,7 +32,6 @@ def reverse_content_types(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("ee", "0045_migrate_feature_flags_models"),
-        ("cdp", "0001_migrate_cdp_models"),
     ]
 
     operations = [

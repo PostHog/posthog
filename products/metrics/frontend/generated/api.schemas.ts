@@ -40,10 +40,12 @@ export interface _MetricAttributeValuesResponseApi {
 export interface _MetricAttributeKeyApi {
     /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
     name: string
+    /** Number of distinct recent series with this attribute, based on series metadata. */
+    series_count: number
 }
 
 export interface _MetricAttributeKeysResponseApi {
-    /** Distinct attribute keys (datapoint and resource attributes merged), most frequent first. */
+    /** Distinct attribute keys (datapoint and resource attributes merged), ordered by series count descending. */
     results: _MetricAttributeKeyApi[]
     /** Number of keys returned. */
     count: number
@@ -531,6 +533,18 @@ export interface _HasMetricsResponseApi {
     hasMetrics: boolean
 }
 
+export interface _MetricPickerNameApi {
+    /** Metric name as it appears in the team's data. */
+    name: string
+    /** OTel metric type (gauge, sum, histogram, summary, exponential_histogram). */
+    metric_type: string
+}
+
+export interface _MetricPickerNamesResponseApi {
+    /** Distinct metric names ordered by recent activity. */
+    results: _MetricPickerNameApi[]
+}
+
 export interface _MetricsOverviewServiceApi {
     /** Service that reported metrics inside the window. */
     service_name: string
@@ -780,11 +794,46 @@ export interface _MetricNameApi {
     name: string
     /** OTel metric type (gauge, sum, histogram, summary, exponential_histogram). */
     metric_type: string
+    /** Unit of the metric value, if any (e.g. 'ms', 'By'). */
+    unit?: string
+    /**
+     * When the newest datapoint for this metric arrived, ISO 8601.
+     * @nullable
+     */
+    last_seen?: string | null
+    /** A small downsampled series of the metric's recent shape, for a sparkline. */
+    sparkline?: number[]
 }
 
 export interface _MetricNamesResponseApi {
     /** Distinct metric names ordered by recent activity. */
     results: _MetricNameApi[]
+}
+
+export interface _MetricCatalogValuesParamsApi {
+    /**
+     * Substring filter (case-insensitive) applied to metric names.
+     * @maxLength 255
+     */
+    value?: string
+    /**
+     * Max number of names to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
+     * @maxLength 1024
+     */
+    service?: string
+    /**
+     * Exact metric names to load as a batch. Overrides value and limit.
+     * @minItems 1
+     * @maxItems 20
+     * @items.maxLength 255
+     */
+    names: string[]
 }
 
 export type MetricsAttributeValuesRetrieveParams = {
@@ -835,6 +884,11 @@ export type MetricsAttributesRetrieveParams = {
      */
     limit?: number
     /**
+     * Exact metric name to limit attribute keys to. Omit to list keys across all metrics.
+     * @maxLength 255
+     */
+    metricName?: string
+    /**
      * Substring filter (case-insensitive) applied to attribute keys.
      * @maxLength 255
      */
@@ -850,6 +904,25 @@ export type MetricsErrorSpikesRetrieveParams = {
      * Upper bound (exclusive) for the spike window. Defaults to now if omitted.
      */
     dateTo?: string
+}
+
+export type MetricsNamesRetrieveParams = {
+    /**
+     * Max number of names to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
+     * @maxLength 1024
+     */
+    service?: string
+    /**
+     * Substring filter (case-insensitive) applied to metric names.
+     * @maxLength 255
+     */
+    value?: string
 }
 
 export type MetricsValuesRetrieveParams = {

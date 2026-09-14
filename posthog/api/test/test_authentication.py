@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
@@ -15,8 +15,10 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.asgi import get_asgi_application
 from django.core.cache import cache
+from django.db import connection
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -34,6 +36,7 @@ from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
 from posthog.api.authentication import password_reset_token_generator, social_login_notification
+from posthog.api.email_verification import is_email_verification_disabled
 from posthog.auth import (
     InternalAPIUser,
     OAuthAccessTokenAuthentication,
@@ -145,6 +148,34 @@ class TestLoginPrecheckAPI(APIBaseTest):
         self.assertEqual(len(response_data["webauthn_credentials"]), 1)
         self.assertEqual(response_data["webauthn_credentials"][0]["type"], "public-key")
         self.assertEqual(response_data["webauthn_credentials"][0]["transports"], ["internal", "hybrid"])
+
+    def test_login_precheck_offers_only_the_resolved_accounts_passkeys(self):
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        abandoned = User.objects.create_and_join(self.organization, "twin@posthog.com", None)
+        in_use = User.objects.create_and_join(self.organization, "twin-alt@posthog.com", self.CONFIG_PASSWORD)
+        User.objects.filter(pk=in_use.pk).update(email="Twin@posthog.com", last_login=timezone.now())
+        for owner, credential_id in ((abandoned, b"abandoned-credential"), (in_use, b"in-use-credential")):
+            WebauthnCredential.objects.create(
+                user=owner,
+                credential_id=credential_id,
+                label="Passkey",
+                public_key=b"test-public-key",
+                algorithm=-7,
+                counter=0,
+                transports=["internal"],
+                verified=True,
+            )
+
+        response = self.client.post("/api/login/precheck", {"email": "twin@posthog.com"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [credential["id"] for credential in response.json()["webauthn_credentials"]],
+            [bytes_to_base64url(b"in-use-credential")],
+        )
 
     def test_login_precheck_does_not_return_unverified_webauthn_credentials(self):
         from posthog.models.webauthn_credential import WebauthnCredential
@@ -316,22 +347,21 @@ class TestLoginPrecheckAPI(APIBaseTest):
             response = self.client.post("/api/login/precheck", {"email": "victim-30@posthog.com"})
             self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-    def test_login_precheck_prefers_the_exact_case_match_like_login_does(self):
+    def test_login_precheck_describes_the_account_login_would_authenticate(self):
         # `User.email` is only unique case-*sensitively*, so variations can coexist. Precheck must
-        # describe the same account login would authenticate — an exact-case match wins.
+        # describe the same account login would authenticate: the one still in use, whichever case
+        # the person types.
         User.objects.create_and_join(self.organization, "casey@posthog.com", None)
         with_password = User.objects.create_and_join(self.organization, "casey-alt@posthog.com", self.CONFIG_PASSWORD)
         # `create_user` normalizes the address to lowercase, so write the variation in directly — the
         # accounts this guards against predate that normalization.
-        User.objects.filter(pk=with_password.pk).update(email="Casey@posthog.com")
+        User.objects.filter(pk=with_password.pk).update(email="Casey@posthog.com", last_login=timezone.now())
 
-        response = self.client.post("/api/login/precheck", {"email": "Casey@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["password_login_available"], True)
-
-        response = self.client.post("/api/login/precheck", {"email": "casey@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["password_login_available"], False)
+        for typed_email in ("Casey@posthog.com", "casey@posthog.com"):
+            with self.subTest(email=typed_email):
+                response = self.client.post("/api/login/precheck", {"email": typed_email})
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.json()["password_login_available"], True)
 
 
 class TestLoginAPI(APIBaseTest):
@@ -341,6 +371,20 @@ class TestLoginAPI(APIBaseTest):
     """
 
     CONFIG_AUTO_LOGIN = False
+
+    def test_login_resolves_the_email_through_the_indexed_lower_fold(self):
+        self.user.is_email_verified = True
+        self.user.save()
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # `posthog_user` has an expression index on `LOWER(email)` only, so an `UPPER` comparison
+        # from `email__iexact` falls back to a sequential scan on every login attempt.
+        user_lookups = [q["sql"] for q in queries.captured_queries if 'FROM "posthog_user"' in q["sql"]]
+        self.assertTrue(user_lookups)
+        self.assertFalse([sql for sql in user_lookups if "UPPER(" in sql])
 
     @patch("posthoganalytics.capture")
     def test_user_logs_in_with_email_and_password(self, mock_capture):
@@ -544,6 +588,11 @@ class TestLoginAPI(APIBaseTest):
 
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch("posthog.ph_client.posthoganalytics.get_feature_flag", side_effect=RuntimeError("flags down"))
+    @patch("posthog.ph_client.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags down"))
+    def test_verification_flag_failure_reads_as_verification_required(self, _mock_enabled, _mock_get):
+        assert is_email_verification_disabled(self.user) is False
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.email_verification_code_verifier.send_code")
@@ -852,7 +901,7 @@ class TestTwoFactorAPI(APIBaseTest):
     def test_2fa_expired(self):
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
 
-        with freeze_time("2023-01-01T10:00:00"):
+        with time_machine.travel("2023-01-01T10:00:00", tick=False):
             response = self.client.post(
                 "/api/login",
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
@@ -868,7 +917,7 @@ class TestTwoFactorAPI(APIBaseTest):
                 },
             )
 
-        with freeze_time("2023-01-01T10:30:00"):
+        with time_machine.travel("2023-01-01T10:30:00", tick=False):
             response = self.client.post("/api/login/token", {"token": "abcdefg"})
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(
@@ -1544,7 +1593,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
     # Password reset request
 
-    @freeze_time("2021-10-05T12:00:00")
+    @time_machine.travel("2021-10-05T12:00:00", tick=False)
     @patch("posthoganalytics.capture")
     def test_anonymous_user_can_request_password_reset(self, mock_capture):
         set_instance_setting("EMAIL_HOST", "localhost")
@@ -1595,6 +1644,22 @@ class TestPasswordResetAPI(APIBaseTest):
         # Email should still be sent
         self.assertEqual(len(mail.outbox), 1)
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
+
+    def test_password_reset_reaches_the_account_login_would_authenticate(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        abandoned = User.objects.create_and_join(self.organization, "casey@posthog.com", None)
+        in_use = User.objects.create_and_join(self.organization, "casey-alt@posthog.com", self.CONFIG_PASSWORD)
+        # `create_user` normalizes the address to lowercase, so write the variation in directly — the
+        # accounts this guards against predate that normalization.
+        User.objects.filter(pk=in_use.pk).update(email="Casey@posthog.com", last_login=timezone.now())
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post("/api/reset/", {"email": "casey@posthog.com"})
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {"Casey@posthog.com"})
+        abandoned.refresh_from_db()
+        self.assertIsNone(abandoned.requested_password_reset_at)
 
     def test_reset_with_sso_available(self):
         """
@@ -1728,7 +1793,7 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_invalid_token_returns_error(self):
         valid_token = password_reset_token_generator.make_token(self.user)
 
-        with freeze_time(timezone.now() - timedelta(seconds=86_401)):
+        with time_machine.travel(timezone.now() - timedelta(seconds=86_401), tick=False):
             # tokens expire after one day
             expired_token = password_reset_token_generator.make_token(self.user)
 
@@ -1852,7 +1917,7 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_cant_reset_password_with_invalid_token(self):
         valid_token = password_reset_token_generator.make_token(self.user)
 
-        with freeze_time(timezone.now() - timedelta(seconds=86_401)):
+        with time_machine.travel(timezone.now() - timedelta(seconds=86_401), tick=False):
             # tokens expire after one day
             expired_token = password_reset_token_generator.make_token(self.user)
 
@@ -2023,7 +2088,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             scopes=["*"],
         )
 
-        with freeze_time("2021-08-25T22:10:14.252"):
+        with time_machine.travel("2021-08-25T22:10:14.252", tick=False):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
@@ -2046,7 +2111,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             scopes=["*"],
         )
 
-        with freeze_time("2022-08-25T22:00:14.252"):
+        with time_machine.travel("2022-08-25T22:00:14.252", tick=False):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
@@ -2069,7 +2134,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             scopes=["*"],
         )
 
-        with freeze_time("2021-08-26T22:00:14.252"):
+        with time_machine.travel("2021-08-26T22:00:14.252", tick=False):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
@@ -2088,7 +2153,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             label="X", user=self.user, secure_value=hash_key_value(personal_api_key), scopes=["*"]
         )
 
-        with freeze_time("2022-08-25T22:00:14.252"):
+        with time_machine.travel("2022-08-25T22:00:14.252", tick=False):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
@@ -2111,7 +2176,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             scopes=["*"],
         )
 
-        with freeze_time("2021-08-25T21:14:14.252"):
+        with time_machine.travel("2021-08-25T21:14:14.252", tick=False):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
@@ -2133,7 +2198,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             scopes=["*"],
         )
 
-        with freeze_time("2021-08-24T21:14:14.252"):
+        with time_machine.travel("2021-08-24T21:14:14.252", tick=False):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
@@ -2149,15 +2214,15 @@ class TestTimeSensitivePermissions(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.patch("/api/organizations/@current", {"name": "new name"})
             assert res.status_code == 200
 
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100), tick=False):
             res = self.client.patch("/api/organizations/@current", {"name": "new name"})
             assert res.status_code == 200
 
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.patch("/api/organizations/@current", {"name": "new name"})
             assert res.status_code == 403
             assert res.json() == {
@@ -2172,15 +2237,15 @@ class TestTimeSensitivePermissions(APIBaseTest):
 
     def test_user_after_timeout_modifications_require_reauthentication(self):
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.patch("/api/users/@me", {"first_name": "new name"})
             assert res.status_code == 200
 
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100), tick=False):
             res = self.client.patch("/api/users/@me", {"first_name": "new name"})
             assert res.status_code == 200
 
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.patch("/api/users/@me", {"first_name": "new name"})
             assert res.status_code == 403
             assert res.json() == {
@@ -2195,11 +2260,11 @@ class TestTimeSensitivePermissions(APIBaseTest):
 
     def test_user_can_update_theme_without_recent_authentication(self):
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.patch("/api/users/@me", {"theme_mode": "dark"})
             assert res.status_code == 200
 
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.patch("/api/users/@me", {"theme_mode": "light"})
             assert res.status_code == 200
 
@@ -2215,14 +2280,14 @@ class TestTimeSensitivePermissions(APIBaseTest):
         OrganizationMembership.objects.create(organization=new_org, user=self.user)
 
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             res = self.client.patch(
                 "/api/users/@me",
                 {"set_current_organization": str(new_org.id)},
             )
             assert res.status_code == 200
 
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.patch(
                 "/api/users/@me",
                 {"set_current_organization": str(self.organization.id)},
@@ -2238,13 +2303,13 @@ class TestTimeSensitivePermissions(APIBaseTest):
     )
     def test_user_can_update_non_sensitive_fields_without_recent_authentication(self, _name, payload):
         now = datetime.now()
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.patch("/api/users/@me", payload, format="json")
             assert res.status_code != 403, f"Field update should not require re-authentication, got: {res.json()}"
 
     def test_user_can_update_hedgehog_config_without_recent_authentication(self):
         now = datetime.now()
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.patch(
                 "/api/users/@me/hedgehog_config",
                 {"enabled": True, "color": "red"},
@@ -2257,7 +2322,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
 
         dashboard = Dashboard.objects.create(team=self.team, name="Test")
         now = datetime.now()
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.post(
                 "/api/users/@me/scene_personalisation",
                 {"scene": "Person", "dashboard": dashboard.id},
@@ -2267,7 +2332,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
 
     def test_user_can_mark_a_product_intro_seen_without_recent_authentication(self):
         now = datetime.now()
-        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
             res = self.client.patch(
                 "/api/users/@me/product_intro_seen",
                 {"product_key": "posthog_ai_onboarding"},

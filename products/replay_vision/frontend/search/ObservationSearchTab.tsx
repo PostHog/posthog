@@ -6,18 +6,19 @@ import { IconSearch } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ObservationResultSummary } from '../components/ObservationCard'
-import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
-import type { ObservationSearchResultApi } from '../generated/api.schemas'
+import { ScannerOutputBadge } from '../components/ScannerOutputBadge'
+import type { ObservationSearchResultApi, ReplayObservationApi } from '../generated/api.schemas'
 import { observationDetailUrl } from '../observations/replayObservationLogic'
 import { ReplayScannerTab } from '../replay_scanners/replayScannerSceneLogic'
 import type { ReplayScanner } from '../replay_scanners/types'
 import { scannerLabel } from '../utils/observation'
-import { observationSearchLogic } from './observationSearchLogic'
+import { SEARCH_PAGE_SIZE, observationSearchLogic } from './observationSearchLogic'
 import { snippetSegments } from './snippetSegments'
 
 const CROSS_SCANNER_EXAMPLE_QUERIES = ['users who got stuck and gave up', 'rage clicking out of frustration']
@@ -91,6 +92,18 @@ function countLabel(count: number, truncated: boolean): string {
     return `${count === 1 ? '1 match' : `${count} matches`}, best first`
 }
 
+// Email, then distinct id, then session id: whichever identifies the recorded person first.
+function SubjectLabel({ observation }: { observation: ReplayObservationApi }): JSX.Element {
+    if (observation.recording_subject_email) {
+        return <span className="text-xs text-muted truncate">{observation.recording_subject_email}</span>
+    }
+    return (
+        <span className="font-mono text-xs text-muted truncate">
+            {observation.distinct_id ?? observation.session_id}
+        </span>
+    )
+}
+
 function SearchResultCard({
     result,
     searchedQuery,
@@ -116,12 +129,10 @@ function SearchResultCard({
                 {showScanner && (
                     <>
                         <span className="font-semibold text-sm truncate">{scannerLabel(observation)}</span>
-                        {snapshot && (
-                            <ScannerTypeBadge scannerType={snapshot.scanner_type} size="small" variant="muted" />
-                        )}
+                        {snapshot && <ScannerOutputBadge scannerType={snapshot.scanner_type} size="small" />}
                     </>
                 )}
-                <span className="font-mono text-xs text-muted truncate">{observation.session_id}</span>
+                <SubjectLabel observation={observation} />
                 <span className="ml-auto shrink-0 flex items-center gap-2 text-xs text-muted">
                     {strongMatch && (
                         <LemonTag type="success" size="small">
@@ -168,8 +179,13 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
         recentQueries,
         suggestedQueries,
         suggestedQueriesLoading,
+        page,
+        pageCount,
+        pageResults,
+        pageStartIndex,
+        pageEndIndex,
     } = useValues(logic)
-    const { setQuery, search } = useActions(logic)
+    const { setQuery, search, setPage } = useActions(logic)
     const crossScanner = scanner === null
     // A scanner-scoped search lives in the scanner URL, so a result can point back at the query it came from.
     const returnParams: Record<string, string> =
@@ -258,7 +274,7 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                         <>
                             <div className="text-muted text-sm">{countLabel(results.length, truncated)}</div>
                             <div className="flex flex-col gap-2">
-                                {results.map((result) => (
+                                {pageResults.map((result) => (
                                     <SearchResultCard
                                         key={result.observation.id}
                                         result={result}
@@ -272,6 +288,20 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                                     />
                                 ))}
                             </div>
+                            <PaginationControl
+                                pagination={{
+                                    controlled: true,
+                                    pageSize: SEARCH_PAGE_SIZE,
+                                }}
+                                currentPage={page}
+                                setCurrentPage={setPage}
+                                pageCount={pageCount}
+                                dataSourcePage={pageResults}
+                                entryCount={results.length}
+                                currentStartIndex={pageStartIndex}
+                                currentEndIndex={pageEndIndex}
+                                nouns={['match', 'matches']}
+                            />
                         </>
                     )}
                 </div>

@@ -13,7 +13,6 @@ import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -23,6 +22,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
@@ -103,8 +104,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         draftModeEnabled,
         replyRecipientDescription,
         snoozedUntil,
-        knowledgeGaps,
-        knowledgeGapsLoading,
         emailReplyBlockedReason,
         latestAiMessage,
         feedbackByMessageId,
@@ -131,7 +130,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setDraftContent,
         setDraftIsPrivate,
         setDraftModeEnabled,
-        dismissKnowledgeGap,
         submitAiReplyFeedback,
         startEditingMessage,
         cancelEditingMessage,
@@ -224,7 +222,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     }
 
     return (
-        <SceneContent className="lg:min-h-0 lg:flex-1">
+        <SceneContent className="flex-1 min-h-0 pb-4">
             <SceneTitleSection
                 name={`Ticket: ${ticket?.ticket_number?.toString() || ticket?.id || ''}`}
                 nameSuffix={
@@ -248,14 +246,19 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 )}
             </LemonModal>
 
-            <div className="flex flex-col lg:flex-row items-start lg:min-h-0 lg:flex-1">
+            {/* Overflow clipping is only safe side-by-side, where the thread has a bounded height.
+                Stacked, the thread is content-sized; clipping here would collapse it. */}
+            <div className="flex flex-col gap-y-4 @min-[48rem]/main-content:flex-row @min-[48rem]/main-content:flex-1 @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:overflow-hidden">
                 <div
                     style={{ width: chatPanelWidth(desiredSize) }}
-                    className="relative shrink-0 pr-2 max-w-full lg:max-w-[calc(100%-300px)] mb-4 lg:mb-0"
+                    className="relative shrink-0 max-w-full min-h-80  @min-[48rem]/main-content:pr-2 @min-[48rem]/main-content:max-w-[calc(100%-300px)] @min-[48rem]/main-content:h-full @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:flex @min-[48rem]/main-content:flex-col"
                     ref={chatPanelRef}
                 >
                     {/* Main conversation area */}
                     <ChatView
+                        fillParent
+                        collapseUntilActive
+                        threadId={ticketId}
                         threadExtras={[...reportTimelineExtras(linkedReports), ...discussionExtras]}
                         messages={chatMessages}
                         messagesLoading={messagesLoading}
@@ -279,8 +282,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         unsavedTicketChanges={unsavedTicketChanges}
                         replyDisabledReason={replyDisabledReason}
                         sendDisabledReason={sendDisabledReason}
-                        minHeight="min(400px, calc(100svh - 20rem))"
-                        maxHeight="calc(100svh - 20rem)"
                         latestAiMessageId={latestAiMessage?.id ?? null}
                         feedbackByMessageId={feedbackByMessageId}
                         showAiReplyFeedback={aiSuggestionsEnabled}
@@ -295,13 +296,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         fullEmailLoadingMessageId={fullEmailContentLoading ? fullEmailMessageId : null}
                         onViewFullEmail={loadFullEmail}
                     />
-                    <div className="hidden lg:block">
+                    <div className="hidden @min-[48rem]/main-content:block">
                         <Resizer {...resizerLogicProps} className="z-20" />
                     </div>
                 </div>
 
                 {/* Sidebar with all metadata */}
-                <div className="space-y-4 flex-1 min-w-[300px] pl-2 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pb-4">
+                <div className="space-y-4 flex-1 min-w-[300px] @min-[48rem]/main-content:h-full @min-[48rem]/main-content:pl-2 @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:overflow-y-auto">
                     <LemonCard hoverEffect={false} className="p-3">
                         {/* Customer */}
                         {ticket?.distinct_id && (
@@ -593,14 +594,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     {user?.is_staff && ticket && <StaffActionsPanel />}
 
                     {/* AI Triage Panel */}
-                    {aiSuggestionsEnabled && ticket && (
-                        <AIPanel
-                            aiTriage={ticket.ai_triage}
-                            knowledgeGaps={knowledgeGaps}
-                            knowledgeGapsLoading={knowledgeGapsLoading}
-                            onDismissGap={dismissKnowledgeGap}
-                        />
-                    )}
+                    {aiSuggestionsEnabled && ticket && <AIPanel aiTriage={ticket.ai_triage} />}
 
                     {ticket?.channel_source === 'widget' && (
                         <>

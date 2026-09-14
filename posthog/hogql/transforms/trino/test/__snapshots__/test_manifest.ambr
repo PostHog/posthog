@@ -1,0 +1,19 @@
+# serializer version: 1
+# name: test_transpiles_core_table_with_values_without_django_queries[SELECT event FROM events WHERE event = {event} ORDER BY timestamp DESC LIMIT 1 BY event]
+  tuple(
+    'SELECT "__hogql_trino_source_0"."event" FROM (SELECT "org_catalog"."posthog"."events_production"."event" AS "event", row_number() OVER (PARTITION BY "org_catalog"."posthog"."events_production"."event" ORDER BY "org_catalog"."posthog"."events_production"."timestamp" DESC) AS "__hogql_limit_by_row_0", "org_catalog"."posthog"."events_production"."timestamp" AS "__hogql_order_0" FROM "org_catalog"."posthog"."events_production" WHERE ("org_catalog"."posthog"."events_production"."event" = %(hogql_val_0)s)) AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 1) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC LIMIT 50000',
+    dict({
+      'hogql_val_0': 'signup',
+    }),
+    "SELECT event FROM events WHERE equals(event, 'signup') ORDER BY timestamp DESC LIMIT 1  BY event LIMIT 50000",
+  )
+# ---
+# name: test_transpiles_core_table_with_values_without_django_queries[SELECT event FROM events WHERE event = {event}]
+  tuple(
+    'SELECT "org_catalog"."posthog"."events_production"."event" FROM "org_catalog"."posthog"."events_production" WHERE ("org_catalog"."posthog"."events_production"."event" = %(hogql_val_0)s) LIMIT 50000',
+    dict({
+      'hogql_val_0': 'signup',
+    }),
+    "SELECT event FROM events WHERE equals(event, 'signup') LIMIT 50000",
+  )
+# ---

@@ -1,40 +1,80 @@
-import { RobotIcon } from "@phosphor-icons/react";
-import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
-import { type ReactNode, useMemo } from "react";
+import {
+  type AgentsTab,
+  useAgentsPageActions,
+} from "@posthog/ui/features/agents/agentsPageStore";
+import { leaveSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { TabStrip } from "@posthog/ui/primitives/TabStrip";
+import { Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 
-export function AgentsTabLayout({ children }: { children: ReactNode }) {
-  const headerContent = useMemo(
-    () => (
-      <div className="flex w-full min-w-0 items-center gap-2">
-        <RobotIcon size={12} className="shrink-0 text-gray-10" />
-        <span
-          className="truncate whitespace-nowrap font-medium text-[13px]"
-          title="Agents"
-        >
-          Agents
-        </span>
-      </div>
-    ),
-    [],
-  );
-  useSetHeaderContent(headerContent);
+const TABS: readonly { key: AgentsTab; label: string }[] = [
+  { key: "agents", label: "Agents" },
+  { key: "memory", label: "Memory" },
+  { key: "setup", label: "Setup" },
+];
+
+const TAB_DESCRIPTION: Record<AgentsTab, ReactNode> = {
+  agents: (
+    <>
+      Scheduled agents that watch this project and write reports in{" "}
+      <Link to="/inbox" onClick={leaveSettings} className="underline">
+        Self-driving
+      </Link>
+      .
+    </>
+  ),
+  memory:
+    "Notes your agents keep about this project as they scan it: what they classified, ruled out, or named.",
+  setup:
+    "What your agents watch, what they can reach, and where their reports land.",
+};
+
+/** Page chrome shared by the tabs of the Agents settings page. */
+export function AgentsTabLayout({
+  tab,
+  actions,
+  fill = false,
+  children,
+}: {
+  tab: AgentsTab;
+  actions?: ReactNode;
+  /** The tab owns the height and scrolls its own list, as the agent table does. */
+  fill?: boolean;
+  children: ReactNode;
+}) {
+  const { showTab } = useAgentsPageActions();
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="cursor-default select-none border-(--gray-5) border-b px-6 py-5">
-        <div className="flex flex-col gap-0.5">
-          <h1 className="font-bold text-[22px] text-gray-12 leading-tight tracking-tight">
-            Agents
-          </h1>
-          <p className="max-w-3xl text-[12.5px] text-gray-11 leading-snug">
-            Self-driving agents that watch your project and surface work for
-            review.
-          </p>
-        </div>
+      <div className="flex shrink-0 items-end gap-3 border-(--gray-5) border-b px-6">
+        <TabStrip
+          tabs={TABS}
+          value={tab}
+          onValueChange={showTab}
+          dataAttrPrefix="agents-tab"
+          className="min-w-0 flex-1 overflow-x-auto"
+        />
+        {actions ? (
+          <div className="flex shrink-0 items-center gap-2 pb-1.5">
+            {actions}
+          </div>
+        ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
-        <div className="mx-auto max-w-4xl px-6 py-6">{children}</div>
+      {/* A filling tab scrolls its own list, so the page itself must not scroll. */}
+      <div
+        className={
+          fill ? "flex min-h-0 flex-1 flex-col" : "min-h-0 flex-1 overflow-auto"
+        }
+      >
+        <div
+          className={`mx-auto flex w-full max-w-[90rem] flex-col gap-3 px-6 py-5 ${fill ? "min-h-0 flex-1" : ""}`}
+        >
+          <p className="max-w-3xl text-[12.5px] text-gray-11 leading-snug">
+            {TAB_DESCRIPTION[tab]}
+          </p>
+          {children}
+        </div>
       </div>
     </div>
   );

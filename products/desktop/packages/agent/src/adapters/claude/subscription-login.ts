@@ -6,7 +6,7 @@ import {
   machineClaudeAuthShellEnv,
 } from "./machine-auth";
 
-export type ClaudeAuthAction = "login" | "logout";
+export type ClaudeAuthAction = "login" | "logout" | "setup-token";
 
 export interface ClaudeAuthTerminalCommand {
   command: string;
@@ -25,7 +25,7 @@ export function claudeAuthTerminalCommand(
   claudeCliPath: string,
   machineAuth: MachineClaudeAuth,
 ): ClaudeAuthTerminalCommand {
-  const args = action === "login" ? ["auth", "login"] : ["auth", "logout"];
+  const args = action === "setup-token" ? ["setup-token"] : ["auth", action];
   const isLegacyJs = claudeCliPath.endsWith(".js");
   const parts = isLegacyJs
     ? [process.execPath, claudeCliPath, ...args]

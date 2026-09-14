@@ -24,7 +24,9 @@ from posthog.tasks.email import get_members_to_notify_for_pipeline_error, send_b
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
+from posthog.usage_ingestion.client import UsageRecord, areport_usage
 
+from products.batch_exports.backend.billing import is_billable_run
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillDetails,
@@ -614,6 +616,29 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         finished_at=dt.datetime.now(dt.UTC),
         **update_params,
     )
+
+    # The run is already written, so nothing here must fail the activity
+    try:
+        if (
+            batch_export_run.status == BatchExportRun.Status.COMPLETED
+            and batch_export_run.records_completed
+            and is_billable_run(batch_export_run)
+        ):
+            await areport_usage(
+                [
+                    UsageRecord(
+                        record_id=str(batch_export_run.id),
+                        producer_id="batch-exports",
+                        team_id=inputs.team_id,
+                        usage_key="batch_export_rows",
+                        unit="rows",
+                        quantity=batch_export_run.records_completed,
+                    )
+                ],
+                site="batch_exports",
+            )
+    except Exception:
+        LOGGER.exception("batch_export_run.usage_collection_failed", batch_export_run_id=inputs.id)
 
     if batch_export_run.status == BatchExportRun.Status.FAILED_RETRYABLE:
         # We should never get here as we do not have a retry limit.

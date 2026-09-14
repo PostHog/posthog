@@ -543,16 +543,6 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Manage logs product configuration for this project's canonical environment.
- * Members can read; writing requires project admin, matching the admin-only
- * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
- * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
- */
-export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-/**
  * Projects for the current organization.
  */
 export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ zod
@@ -979,6 +969,10 @@ export const PropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
  */
 export const propertyDefinitionsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const propertyDefinitionsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const propertyDefinitionsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.number())
@@ -990,7 +984,10 @@ export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.o
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(propertyDefinitionsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(propertyDefinitionsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set.'),
 })
 
 /**

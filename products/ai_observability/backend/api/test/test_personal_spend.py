@@ -6,6 +6,7 @@ import json
 import time
 from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -266,6 +267,10 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             **kwargs,
         )
 
+    # The endpoint derives its window from now, and this test snapshots the SQL, so a live
+    # clock writes the current microsecond into the snapshot. This test creates no events,
+    # so pinning the clock ages nothing against ClickHouse retention.
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_empty_result_when_no_events(self) -> None:
         response = self.client.get(ENDPOINT_OK)

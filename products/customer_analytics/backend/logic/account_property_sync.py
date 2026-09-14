@@ -125,6 +125,14 @@ def _value_hash(value: Any) -> str:
     return hashlib.sha256(json.dumps(_json_safe(value), sort_keys=True).encode("utf-8")).hexdigest()
 
 
+def _source_values(rows: list[dict[str, Any]], key_column: str, source_column: str) -> dict[str, Any]:
+    return {
+        str(row[key_column]): _json_safe(row[source_column])
+        for row in rows
+        if row.get(key_column) is not None and source_column in row
+    }
+
+
 def _decode_parquet_rows(data: bytes) -> list[dict[str, Any]]:
     return pq.read_table(io.BytesIO(data)).to_pylist()
 
@@ -387,12 +395,7 @@ async def run_account_property_segment_sync(
                     continue
 
                 phase_started_at = asyncio.get_running_loop().time()
-                values_by_external_id: dict[str, Any] = {}
-                for row in rows:
-                    external_id = row.get(source.key_column)
-                    value = row.get(source_column)
-                    if external_id is not None and value is not None:
-                        values_by_external_id[str(external_id)] = _json_safe(value)
+                values_by_external_id = _source_values(rows, source.key_column, source_column)
                 changed = {
                     external_id: value
                     for external_id, value in values_by_external_id.items()

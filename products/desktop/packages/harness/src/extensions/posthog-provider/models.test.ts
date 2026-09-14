@@ -233,6 +233,17 @@ describe("resolveModelConfigs", () => {
 });
 
 describe("fallbackModelConfigs", () => {
+  it("includes GPT-6 Astra with its gateway capabilities", () => {
+    expect(fallbackModelConfigs("us")).toContainEqual(
+      expect.objectContaining({
+        id: "gpt-6-astra",
+        api: "openai-responses",
+        contextWindow: 922000,
+        maxTokens: 128000,
+      }),
+    );
+  });
+
   it("produces a non-empty, region-scoped model list", () => {
     const configs = fallbackModelConfigs("us");
     expect(configs.length).toBeGreaterThan(0);

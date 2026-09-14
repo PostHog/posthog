@@ -192,7 +192,7 @@ export class ErrorTrackingConsumer {
 
         await this.kafkaConsumer.connect(async (messages) => {
             return await instrumentFn('errorTrackingConsumer.handleEachBatch', async () => {
-                await this.handleKafkaBatch(messages)
+                return await this.handleKafkaBatch(messages)
             })
         })
 
@@ -259,7 +259,7 @@ export class ErrorTrackingConsumer {
         return this.kafkaConsumer.isHealthy()
     }
 
-    public async handleKafkaBatch(messages: Message[]): Promise<void> {
+    public async handleKafkaBatch(messages: Message[]): Promise<{ backgroundTask?: Promise<unknown> }> {
         // Update offset timestamps for lag metrics
         for (const message of messages) {
             if (message.timestamp) {
@@ -278,10 +278,23 @@ export class ErrorTrackingConsumer {
                 error: error instanceof Error ? error.message : String(error),
                 size: messages.length,
             })
+            // Flush scheduled work before the error propagates and crashes the loop
+            await this.flushScheduledWork()
             throw error
-        } finally {
-            // Flush scheduled work and invocation results to prevent memory accumulation
-            await Promise.all([this.promiseScheduler.waitForAll(), this.deps.hogTransformer.processInvocationResults()])
         }
+
+        // Flushing scheduled produces is the slow tail of a batch (broker acks),
+        // so hand it to the consumer as a background task: the consumer fetches
+        // and processes the next batch while this settles, and only stores this
+        // batch's offsets once it has. CONSUMER_MAX_BACKGROUND_TASKS caps how
+        // many batches may overlap this way.
+        return {
+            backgroundTask: instrumentFn('errorTrackingConsumer.awaitScheduledWork', () => this.flushScheduledWork()),
+        }
+    }
+
+    private async flushScheduledWork(): Promise<void> {
+        // Flush scheduled work and invocation results to prevent memory accumulation
+        await Promise.all([this.promiseScheduler.waitForAll(), this.deps.hogTransformer.processInvocationResults()])
     }
 }

@@ -491,7 +491,7 @@ jobs:
               run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"
 
     frontend-bundle-size:
-        name: Frontend bundle size
+        name: Frontend checks
         needs: [changes]
         # Not on the hourly cron: the vs-base comparison build is pull_request-only,
         # so a cron run measures an absolute size with nothing to compare it against.
@@ -574,6 +574,9 @@ jobs:
             # Runs against the PR's own metafile, before the base rebuild overwrites it.
             - name: Check toolbar graph stays inside its module boundary
               run: pnpm --filter=@posthog/frontend check-toolbar-graph
+
+            - name: Check toolbar for CSP eval violations
+              run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
 
             # Keep the PR-side poster available after the base reset below. This is especially
             # important on the PR that introduces or updates the poster itself.
@@ -668,7 +671,7 @@ jobs:
                       echo "Skipping toolbar bundle section — script not present on this checkout"
                   fi
 
-            - name: Check eager graph budgets (warn only)
+            - name: Check eager graph budgets and forbidden imports
               if: always() && github.event_name == 'pull_request'
               run: |
                   if [ ! -f frontend/bin/check-eager-graph.mjs ]; then
@@ -683,10 +686,7 @@ jobs:
                       echo "Skipping eager graph check — no report found (branch may predate the check)"
                       exit 0
                   fi
-                  node frontend/bin/check-eager-graph.mjs --assert-report "$REPORT"
-
-            - name: Check toolbar for CSP eval violations
-              run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
+                  node frontend/bin/check-eager-graph.mjs --assert-report "$REPORT" --fail-forbidden-hits
 
             - name: Calculate dist folder size
               id: dist-size
@@ -1070,10 +1070,11 @@ jobs:
                     echo "Trusted Jest reporter is not available on the checked-out ref for attempt $GITHUB_RUN_ATTEMPT; skipping emit."
                   fi
                   echo "available=$available" >> "$GITHUB_OUTPUT"
+            # Direct install: The trusted PR base used for reporting may predate the local action.
             - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               if: steps.test-reporter.outputs.available == 'true'
               with:
-                  version: '0.11.28'
+                  version: '0.12.5'
             - name: Download Jest results
               if: steps.test-reporter.outputs.available == 'true'
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -1118,7 +1119,7 @@ jobs:
               if: github.run_attempt == '1'
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
+                  client-id: ${{ vars.GH_APP_TELEMETRY_APP_ID }}
                   private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
             - name: Capture running time to PostHog
               if: github.run_attempt == '1'
@@ -1198,7 +1199,7 @@ jobs:
                       }
 
     frontend_tests:
-        needs: [jest, jest-replay-shared, frontend-format, frontend-bundle-size, frontend-typescript-checks]
+        needs: [changes, jest, jest-replay-shared, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -1207,6 +1208,14 @@ jobs:
             - run: exit 0
             - name: Check outcomes
               run: |
+                  # Change detection gates every job below. A failure there skips them all, and
+                  # this gate reads a skip as a pass, so test its result directly. select-jest-tests
+                  # is not tested here: an empty selection makes jest take the full matrix, so a
+                  # failed selector costs runner time but never coverage.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
                   if [[ "${{ needs.jest.result }}" != "success" && "${{ needs.jest.result }}" != "skipped" ]]; then
                     echo "Frontend jest tests failed."
                     exit 1

@@ -5,13 +5,17 @@ from posthog.schema import CachedLogsQueryResponse, LogsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin
+from products.logs.backend.logs_query_runner import (
+    LogsQueryResponse,
+    LogsQueryRunnerMixin,
+    fail_fast_aggregate_settings,
+)
 
 DEFAULT_TARGET_BUCKETS = 10
 MAX_TARGET_BUCKETS = 100
@@ -40,11 +44,7 @@ class CountRangesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
-        return HogQLGlobalSettings(
-            max_execution_time=30,
-            max_bytes_to_read=1_000_000_000,
-            read_overflow_mode="throw",
-        )
+        return fail_fast_aggregate_settings(max_bytes_to_read=1_000_000_000)
 
     def _calculate(self) -> LogsQueryResponse:
         response = execute_hogql_query(
@@ -93,22 +93,6 @@ class CountRangesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
         return f"{count}m"
 
     def to_query(self) -> ast.SelectQuery:
-        # LogsFilterBuilder.where() filters by toStartOfDay(time_bucket) which is
-        # day-precision; explicit per-row timestamp bounds (half-open) align the
-        # group counts with the requested window. Same pattern as CountQueryRunner.
-        where_with_timestamp = ast.And(
-            exprs=[
-                self.where(),
-                parse_expr(
-                    "timestamp >= {date_from} AND timestamp < {date_to}",
-                    placeholders={
-                        "date_from": ast.Constant(value=self.query_date_range.date_from()),
-                        "date_to": ast.Constant(value=self.query_date_range.date_to()),
-                    },
-                ),
-            ]
-        )
-
         query = parse_select(
             """
                 SELECT
@@ -122,7 +106,7 @@ class CountRangesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
             """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
-                "where": where_with_timestamp,
+                "where": self.where_with_timestamp_bounds(),
             },
         )
         assert isinstance(query, ast.SelectQuery)

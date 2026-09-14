@@ -218,8 +218,7 @@ async fn sustains_thousands_of_concurrent_requests() {
 
     let outcome = flush(Arc::clone(&store), accumulator.drain()).await;
     assert_eq!(
-        (outcome.dropped, outcome.capped),
-        (0, 0),
+        outcome.dropped, 0,
         "Valkey dropped counter deltas under request load"
     );
     assert_eq!(

@@ -404,7 +404,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # Never while a swap is staged: an interrupted swap may already have deleted live, leaving temp
     # the only intact copy, and `_give_up` clears the marker that points at it. A ready swap has to be
     # completed however many attempts it took to get here.
-    if swap is None and _exhausted_attempts(pending):
+    if swap is None and _exhausted_attempts(pending, inputs.job_id):
         _give_up(inputs, schema, pending, trigger_reason, logger)
         return
 
@@ -700,8 +700,21 @@ def _handle_budget_exceeded(
     return _handle_failure(inputs, schema, pending, trigger_reason, error, claim_token, logger, charged_attempts)
 
 
-def _exhausted_attempts(pending: dict[str, Any] | None) -> bool:
-    return pending is not None and int(pending.get("attempts", 0)) >= MAX_REPARTITION_ATTEMPTS
+def _exhausted_attempts(pending: dict[str, Any] | None, job_id: str) -> bool:
+    """Whether earlier sync runs already spent the whole retry cap on this rewrite.
+
+    Discounts a charge this run made itself. An attempt is charged before the rewrite (see
+    `_charge_attempt`), and Temporal retries the activity inside one sync, so on the run that charges
+    the last attempt the persisted count already reads the cap when that run's own retry re-reads it.
+    Giving up there abandons the table before the retry runs the rewrite at all, because the cap
+    counts the sync runs that failed and not the retries within one.
+    """
+    if pending is None:
+        return False
+    attempts = int(pending.get("attempts", 0))
+    if pending.get("charged_job_id") == job_id:
+        attempts -= 1
+    return attempts >= MAX_REPARTITION_ATTEMPTS
 
 
 def _give_up(

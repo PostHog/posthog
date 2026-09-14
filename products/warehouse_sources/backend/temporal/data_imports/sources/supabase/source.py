@@ -89,6 +89,11 @@ _SUPABASE_REALTIME_PARTITION_MESSAGE = (
     "the sync."
 )
 
+# The same partitions as they arrive from discovery, where the schema and table names come
+# separately and the display name carries the schema only for a multi-schema source.
+_REALTIME_SCHEMA = "realtime"
+_REALTIME_MESSAGES_TABLE_PREFIX = "messages_"
+
 # Supabase Vault's schema: its `decrypted_secrets` view decrypts every stored secret on read,
 # so sync-enabling it by default would copy a secrets vault into the warehouse.
 _VAULT_SCHEMA = "vault"
@@ -133,8 +138,12 @@ class SupabaseSource(PostgresSource):
         # filtered because scheduled discovery reconciles stored rows against this listing
         # and would disable a vault sync a user deliberately opted into; default-off is
         # honored by the picker, one-shot setup, and auto-sync of newly discovered schemas.
+        # Realtime's dated message partitions default off for the same reason auto-sync
+        # exists: each day brings a new one, and Supabase drops it again days later, so an
+        # automatically enabled partition fails for good (see
+        # `_SUPABASE_REALTIME_PARTITION_MESSAGE`).
         for schema in schemas:
-            if schema.source_schema == _VAULT_SCHEMA:
+            if schema.source_schema == _VAULT_SCHEMA or self._is_realtime_message_partition(schema):
                 schema.should_sync_default = False
 
         # Supabase tables carry arbitrary user columns, so the first discovered candidate
@@ -145,6 +154,12 @@ class SupabaseSource(PostgresSource):
             schema.incremental_fields = rank_incremental_fields(schema.incremental_fields)
 
         return schemas
+
+    @staticmethod
+    def _is_realtime_message_partition(schema: SourceSchema) -> bool:
+        return schema.source_schema == _REALTIME_SCHEMA and (schema.source_table_name or "").startswith(
+            _REALTIME_MESSAGES_TABLE_PREFIX
+        )
 
     @staticmethod
     def _adjust_field(field: _SourceField) -> _SourceField:

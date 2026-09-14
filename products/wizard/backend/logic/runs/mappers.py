@@ -1,6 +1,7 @@
 from products.wizard.backend.facade.contracts import (
     GitRepositoryWorkspace,
     LocalFolderWorkspace,
+    WizardRunCreatorDTO,
     WizardRunDTO,
     WizardWorkspace,
 )
@@ -32,6 +33,8 @@ def record_to_workspace(workspace_type: str, metadata: object) -> WizardWorkspac
 
 
 def record_to_run(run: WizardRun) -> WizardRunDTO:
+    creator = run.created_by
+
     return WizardRunDTO(
         id=run.id,
         team_id=run.team_id,
@@ -48,4 +51,14 @@ def record_to_run(run: WizardRun) -> WizardRunDTO:
         started_at=run.started_at,
         finished_at=run.finished_at,
         deadline_at=run.deadline_at,
+        created_by=(
+            WizardRunCreatorDTO(
+                id=creator.id,
+                first_name=creator.first_name,
+                last_name=creator.last_name,
+                email=creator.email,
+            )
+            if creator is not None
+            else None
+        ),
     )

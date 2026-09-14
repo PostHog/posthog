@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { register } from 'prom-client'
 
 import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 
@@ -562,6 +563,58 @@ describe('UrlFetchConsumer', () => {
         expect(harness.run).not.toHaveBeenCalled()
     })
 
+    it('drops a tracking beacon job without quarantining its record', async () => {
+        const harness = build()
+        const beacon = candidate('beacon', {
+            currentUrl: 'https://analytics.twitter.com/i/adsct?txn_id=abc&p_id=Twitter',
+            host: 'analytics.twitter.com',
+            origin: 'https://analytics.twitter.com',
+            registrableDomain: 'twitter.com',
+        })
+        const image = candidate('logo', {
+            currentUrl: 'https://cdn.twitter.com/logo.png',
+            host: 'cdn.twitter.com',
+            origin: 'https://cdn.twitter.com',
+            registrableDomain: 'twitter.com',
+        })
+        const dropped = jest.spyOn(ImageFetchConsumerMetrics, 'incDropped')
+        const skipped = jest.spyOn(ImageFetchConsumerMetrics, 'incSkipped')
+
+        await expect(
+            harness.consumer.handleBatch([message([beacon, image], 'twitter.com')], NOW_MS)
+        ).resolves.toBeUndefined()
+
+        expect(harness.park).not.toHaveBeenCalled()
+        expect(harness.run).toHaveBeenCalledTimes(1)
+        expect(harness.run.mock.calls[0][0].map((fetched) => fetched.originalRef)).toEqual([image.originalRef])
+        expect(skipped).toHaveBeenCalledWith('tracking_beacon', 1)
+        expect(dropped).not.toHaveBeenCalled()
+    })
+
+    it('does not count a skipped beacon when the batch fails before its commit', async () => {
+        const harness = build()
+        const beacon = candidate('beacon', {
+            currentUrl: 'https://analytics.twitter.com/i/adsct?txn_id=abc&p_id=Twitter',
+            host: 'analytics.twitter.com',
+            origin: 'https://analytics.twitter.com',
+            registrableDomain: 'twitter.com',
+        })
+        const image = candidate('logo', {
+            currentUrl: 'https://cdn.twitter.com/logo.png',
+            host: 'cdn.twitter.com',
+            origin: 'https://cdn.twitter.com',
+            registrableDomain: 'twitter.com',
+        })
+        harness.history.readError = new Error('read failed')
+        const skipped = jest.spyOn(ImageFetchConsumerMetrics, 'incSkipped')
+
+        await expect(harness.consumer.handleBatch([message([beacon, image], 'twitter.com')], NOW_MS)).rejects.toThrow(
+            'read failed'
+        )
+
+        expect(skipped).not.toHaveBeenCalled()
+    })
+
     it('rejects a whole multi-job record when one job belongs to another partition', async () => {
         const harness = build()
         const foreign = candidate('foreign', {
@@ -578,6 +631,7 @@ describe('UrlFetchConsumer', () => {
     })
 
     it('throws when the bulk read fails', async () => {
+        register.resetMetrics()
         const harness = build()
         harness.history.readError = new Error('read failed')
         const observeBatch = jest.spyOn(ImageFetchConsumerMetrics, 'observeBatch')
@@ -590,6 +644,18 @@ describe('UrlFetchConsumer', () => {
         expect(observeStoreDuration).toHaveBeenCalledWith('read', 'error', expect.any(Number))
         expect(startBatch).toHaveBeenCalledTimes(1)
         expect(finishBatch).toHaveBeenCalledTimes(1)
+        const active = await register.getSingleMetric('ml_image_fetch_stage_active')!.get()
+        expect(active.values.every(({ value }) => value === 0)).toBe(true)
+        const durations = await register.getSingleMetric('ml_image_fetch_stage_duration_seconds')!.get()
+        expect(durations.values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    metricName: 'ml_image_fetch_stage_duration_seconds_count',
+                    labels: { stage: 'batch_history_read' },
+                    value: 1,
+                }),
+            ])
+        )
     })
 
     it('throws when the final bulk write fails', async () => {
@@ -601,6 +667,7 @@ describe('UrlFetchConsumer', () => {
     })
 
     it('writes durable state before it flushes buffered republishes', async () => {
+        register.resetMetrics()
         const harness = build()
         const order: string[] = []
         harness.run.mockImplementation((candidates) => {
@@ -620,6 +687,23 @@ describe('UrlFetchConsumer', () => {
         await harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)
 
         expect(order).toEqual(['published', 'history', 'republished'])
+        const durations = await register.getSingleMetric('ml_image_fetch_stage_duration_seconds')!.get()
+        const completedStages = durations.values.map(({ labels }) => labels.stage)
+        expect(completedStages).toEqual(
+            expect.arrayContaining([
+                'batch_parse',
+                'batch_history_read',
+                'batch_filter',
+                'batch_fetch',
+                'batch_prepare_republish',
+                'batch_history_write',
+                'batch_republish_flush',
+                'batch_finalize',
+                'batch_dead_letter',
+            ])
+        )
+        const active = await register.getSingleMetric('ml_image_fetch_stage_active')!.get()
+        expect(active.values.every(({ value }) => value === 0)).toBe(true)
     })
 
     it('throws when the fetch pass reports a lost URL', async () => {

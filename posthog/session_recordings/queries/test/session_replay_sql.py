@@ -31,12 +31,14 @@ INSERT INTO sharded_session_replay_events (
     console_error_count,
     snapshot_source,
     snapshot_library,
+    snapshot_mode,
     size,
     block_urls,
     block_first_timestamps,
     block_last_timestamps,
     retention_period_days,
     is_deleted,
+    surfacing_score,
     _timestamp
 )
 SELECT
@@ -56,12 +58,14 @@ SELECT
     %(console_error_count)s,
     argMinState(cast(%(snapshot_source)s, 'LowCardinality(Nullable(String))'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
     argMinState(cast(%(snapshot_library)s, 'LowCardinality(Nullable(String))'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
+    argMinState(cast(NULL, 'LowCardinality(Nullable(String))'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
     %(size)s,
     %(block_urls)s,
     %(block_first_timestamps)s,
     %(block_last_timestamps)s,
     %(retention_period_days)s,
     %(is_deleted)s,
+    %(surfacing_score)s,
     %(_timestamp)s
 """
 
@@ -143,7 +147,8 @@ def produce_replay_summary(
     block_last_timestamps: list[datetime] | None = None,
     retention_period_days: int | None = None,
     is_deleted: bool = False,
-):
+    surfacing_score: float | None = None,
+) -> None:
     """
     Creates a session replay event in ClickHouse for testing purposes.
     Writes session replay data directly to ClickHouse and creates associated analytics events.
@@ -178,6 +183,7 @@ def produce_replay_summary(
         "block_last_timestamps": block_last_timestamps or [],
         "retention_period_days": retention_period_days or 30,
         "is_deleted": 1 if is_deleted else 0,
+        "surfacing_score": surfacing_score,
     }
 
     if settings.TEST:

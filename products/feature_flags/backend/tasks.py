@@ -16,7 +16,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.capture import capture_batch_internal
 from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
-from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
+from posthog.storage.hypercache_manager import (
+    HYPERCACHE_SIGNAL_UPDATE_COUNTER,
+    get_cache_stats as get_cache_stats_generic,
+)
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 from products.feature_flags.backend.canary import run_local_eval_canary
@@ -489,11 +492,18 @@ def refresh_expiring_flag_definitions_cache_entries(self: PushGatewayTask) -> No
     successful_gauge.set(counts.successful)
     failed_gauge.set(counts.failed)
 
+    # Scan after refresh for metrics (pushes to Pushgateway via get_cache_stats)
+    stats_after = get_cache_stats_generic(FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG)
+
     duration = time.time() - start_time
     logger.info(
         "Completed flag definitions cache refresh",
         successful_refreshes=counts.successful,
         failed_refreshes=counts.failed,
+        total_cached=stats_after.get("total_cached", 0),
+        total_teams=stats_after.get("total_teams", 0),
+        cache_coverage=stats_after.get("cache_coverage", "unknown"),
+        ttl_distribution=stats_after.get("ttl_distribution", {}),
         duration_seconds=duration,
     )
 

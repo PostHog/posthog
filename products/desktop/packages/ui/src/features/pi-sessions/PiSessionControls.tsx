@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
   MenuLabel,
 } from "@posthog/quill";
+import { customModelMeta } from "@posthog/shared";
 import {
   type AgentHarness,
   HarnessSubmenu,
@@ -27,6 +28,7 @@ import {
 } from "@posthog/ui/features/sessions/components/ModelCostChip";
 import { ModelSelectList } from "@posthog/ui/features/sessions/components/ModelSelectList";
 import type { MessagingMode } from "@posthog/ui/features/sessions/messagingModeStore";
+import { toPickerOption } from "@posthog/ui/features/sessions/modelPickerOption";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
 
@@ -107,7 +109,7 @@ export function PiModelSelector({
                 <span className="text-muted-foreground">
                   <PiIcon size={14} weight="bold" className="translate-y-px" />
                 </span>
-                <Spinner size={12} />
+                <Spinner size="sm" />
                 Loading...
               </Button>
             }
@@ -119,7 +121,7 @@ export function PiModelSelector({
             className="min-w-[230px]"
           >
             <DropdownMenuItem disabled>
-              <Spinner size={12} />
+              <Spinner size="sm" />
               Loading models...
             </DropdownMenuItem>
             {onHarnessChange && (
@@ -215,18 +217,29 @@ export function PiModelSelector({
                     }
                   }}
                 >
-                  {models.map((model) => (
-                    <DropdownMenuRadioItem
-                      key={modelKey(model)}
-                      value={modelKey(model)}
-                      closeOnClick={false}
-                    >
-                      <span className="whitespace-nowrap">
-                        {modelLabel(model)}
-                      </span>
-                      <ModelCostChip modelId={model.id} />
-                    </DropdownMenuRadioItem>
-                  ))}
+                  {models.map((model) => {
+                    const pickerModel = toPickerOption({
+                      value: model.id,
+                      name: modelLabel(model),
+                      ...(model.provider === "posthog"
+                        ? {}
+                        : { _meta: customModelMeta() }),
+                    });
+                    return (
+                      <DropdownMenuRadioItem
+                        key={modelKey(model)}
+                        value={modelKey(model)}
+                        closeOnClick={false}
+                      >
+                        <span className="whitespace-nowrap">
+                          {pickerModel.name}
+                        </span>
+                        {pickerModel.kind === "priced" ? (
+                          <ModelCostChip cost={pickerModel.cost} />
+                        ) : null}
+                      </DropdownMenuRadioItem>
+                    );
+                  })}
                 </DropdownMenuRadioGroup>
                 <ModelCostFooter />
               </>

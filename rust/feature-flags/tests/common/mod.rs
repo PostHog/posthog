@@ -558,3 +558,27 @@ pub async fn poll_for_billing_counter_across_buckets(
         "billing counter at {key} did not appear within 1s for buckets {first_bucket}..={last_bucket}"
     );
 }
+
+/// Poll until `last_used_at` is set for the given project secret API key, or panic after ~4s.
+#[allow(dead_code)]
+pub async fn poll_for_psak_last_used_at(
+    context: &feature_flags::utils::test_utils::TestContext,
+    key_id: &str,
+    message: &str,
+) {
+    let mut conn = context.get_non_persons_connection().await.unwrap();
+    for _ in 0..80 {
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM posthog_projectsecretapikey WHERE id = $1 AND last_used_at IS NOT NULL",
+        )
+        .bind(key_id)
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+        if count.0 > 0 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("{message}");
+}

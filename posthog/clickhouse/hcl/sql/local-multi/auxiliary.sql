@@ -133,7 +133,7 @@ CREATE TABLE posthog.kafka_property_values (
   property_key String,
   property_value String,
   property_count UInt64
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_property_values', kafka_num_consumers = 8, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_property_values';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_property_values', kafka_num_consumers = 1, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_property_values';
 CREATE TABLE posthog.message_assets_data (
   team_id Int64,
   function_kind LowCardinality(String),
@@ -159,6 +159,12 @@ CREATE TABLE posthog.message_assets_data (
   INDEX person_id_idx person_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX recipient_idx recipient TYPE bloom_filter(0.01) GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.message_assets_data', '{replica}-{shard}', version) ORDER BY (team_id, function_kind, function_id, invocation_id, action_id) PARTITION BY toYYYYMMDD(sent_at) TTL toDate(sent_at) + toIntervalDay(30) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.person_property_mutation_log_data (
+  team_id Int64,
+  event_uuid UUID,
+  properties String,
+  ingested_at DateTime('UTC')
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_property_mutation_log_data', '{replica}-{shard}', ingested_at) ORDER BY (team_id, event_uuid) PARTITION BY toDate(ingested_at) TTL ingested_at + toIntervalDay(30) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.property_values (
   team_id Int64 CODEC(DoubleDelta, ZSTD(1)),
   property_type LowCardinality(String),
@@ -289,6 +295,21 @@ CREATE TABLE posthog.raw_error_tracking_fingerprint_issue_state (
   _partition UInt64,
   INDEX kafka_timestamp_minmax_raw_error_tracking_fingerprint_issue_state _timestamp TYPE minmax GRANULARITY 3
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.raw_error_tracking_fingerprint_issue_state', '{replica}-{shard}', version) ORDER BY (team_id, fingerprint) SETTINGS index_granularity = 512;
+CREATE TABLE posthog.sharded_billing_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  unit LowCardinality(String),
+  quantity Int64,
+  timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at) ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id) PARTITION BY toYYYYMM(timestamp) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_conversion_goal_attributed_preaggregated (
   team_id Int64,
   job_id UUID,
@@ -1161,6 +1182,12 @@ CREATE TABLE posthog.message_assets (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'message_assets_data');
+CREATE TABLE posthog.person_property_mutation_log (
+  team_id Int64,
+  event_uuid UUID,
+  properties String,
+  ingested_at DateTime('UTC')
+) ENGINE = Distributed('aux', 'posthog', 'person_property_mutation_log_data');
 CREATE TABLE posthog.session_replay_features (
   session_id String,
   team_id Int64,

@@ -8,6 +8,7 @@ inherit it unchanged.
 
 from __future__ import annotations
 
+import re
 import json
 import time
 import shlex
@@ -17,7 +18,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
-from products.tasks.backend.exceptions import SandboxExecutionError
+from products.tasks.backend.exceptions import ProcessTaskFatalError, SandboxExecutionError, SandboxTimeoutError
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
     BASH_ENV_SCRIPT,
@@ -50,7 +51,39 @@ logger = logging.getLogger(__name__)
 
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
+# The whole diagnostics dict rides in the Temporal failure payload, which is capped at about 2 MiB.
+STARTUP_LOG_MAX_BYTES = 64 * 1024
 AGENT_SERVER_HEALTH_DURATION_PREFIX = "__posthog_agent_health_ms="
+
+# The read probe wants a large file the agent-server boot never opens, so its first read is cold:
+# nothing at boot loads the global TypeScript compiler. Its prefix follows the Node install and its
+# largest asset moves between releases, so take the biggest file under either prefix. Nothing above
+# the floor means no usable read, because the interpreter boot paged in would time fast, not cold.
+HOST_PRESSURE_COLD_READ_ROOTS = "/usr/lib/node_modules/typescript /usr/local/lib/node_modules/typescript"
+HOST_PRESSURE_COLD_READ_MIN_BYTES = 1024 * 1024
+HOST_PRESSURE_PROBE_SCRIPT = (
+    'echo "loadavg=$(cat /proc/loadavg 2>/dev/null)"; '
+    'echo "nproc=$(nproc 2>/dev/null)"; '
+    "for f in /proc/pressure/cpu /proc/pressure/io /proc/pressure/memory /sys/fs/cgroup/cpu.stat; do "
+    '  [ -r "$f" ] && echo "$f: $(tr \'\\n\' \' \' < "$f")"; '
+    "done; "
+    'cpu_start=$(date +%s%3N); i=0; while [ "$i" -lt 200000 ]; do i=$((i+1)); done; '
+    'echo "cpu_loop_ms=$(( $(date +%s%3N) - cpu_start ))"; '
+    "spawn_start=$(date +%s%3N); python3 -c pass; "
+    'echo "python_spawn_ms=$(( $(date +%s%3N) - spawn_start ))"; '
+    f'probe_file="$(timeout 10 find {HOST_PRESSURE_COLD_READ_ROOTS} -type f '
+    '-printf "%s\\t%p\\n" 2>/dev/null | sort -rn | head -1 | cut -f2)"; '
+    'probe_size="$(stat -c %s "$probe_file" 2>/dev/null || echo 0)"; '
+    f'if [ "$probe_size" -ge {HOST_PRESSURE_COLD_READ_MIN_BYTES} ]; then '
+    '  read_start=$(date +%s%3N); timeout 20 cat "$probe_file" > /dev/null; '
+    '  echo "cold_read_ms=$(( $(date +%s%3N) - read_start )) file=$probe_file size=$probe_size"; '
+    'else echo "cold_read_ms=unavailable file=${probe_file:-none} size=$probe_size"; fi'
+)
+
+EGRESS_PROBE_MAX_TIME_SECONDS = 3
+# curl(1): "Operation timeout. The specified time-out period was reached according to the conditions."
+CURL_EXIT_OPERATION_TIMEOUT = 28
+CURL_EXIT_PATTERN = re.compile(r"curl_exit=(\d+)$")
 
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
@@ -76,8 +109,56 @@ def _session_init_probe_hosts() -> list[str]:
     return hosts
 
 
-def _start_and_wait_command(command: str) -> str:
-    health_command = build_health_check_command(AGENT_SERVER_PORT, AGENT_SERVER_HEALTH_MAX_ATTEMPTS)
+def _curl_exit_code(line: str) -> int | None:
+    """Read the exit code the probe appends, or None for output from an image that predates it."""
+    match = CURL_EXIT_PATTERN.search(line)
+    return int(match.group(1)) if match else None
+
+
+def _egress_failure_reason(egress: str) -> str | None:
+    """Name the failure the egress probe saw, or None when every host answered.
+
+    A refused connection (curl exit 7) or a failed lookup (exit 6) proves a network policy block.
+    A timeout (exit 28) proves nothing on its own: a slow sandbox and a policy that drops packets
+    silently both look like one. So a timeout is reported as a timeout, and the reader is sent to
+    the host-pressure probe in the same diagnostics rather than to the allowlist. A nonzero exit
+    with no HTTP code means curl never ran or was killed, so that host was never probed at all.
+    """
+    failed: list[str] = []
+    blocked: list[str] = []
+    unprobed: list[str] = []
+    for line in egress.splitlines():
+        exit_code = _curl_exit_code(line)
+        if exit_code == 0:
+            continue
+        curl_reported_no_response = "http_code=000" in line or line.endswith("FAILED")
+        if not curl_reported_no_response and (exit_code is None or "http_code=" in line):
+            continue
+        failed.append(line)
+        if exit_code == CURL_EXIT_OPERATION_TIMEOUT:
+            continue
+        if curl_reported_no_response:
+            blocked.append(line)
+        else:
+            unprobed.append(line)
+    if not failed:
+        return None
+    if blocked:
+        return "egress blocked to required session-init host(s): " + "; ".join(failed)
+    if unprobed:
+        return (
+            "egress probe did not run for required session-init host(s); curl exited without an HTTP code, "
+            "so nothing here rules an allowlist block in or out: " + "; ".join(failed)
+        )
+    return (
+        f"egress probe timed out after {EGRESS_PROBE_MAX_TIME_SECONDS}s to every session-init host it could "
+        "not reach, and none refused the connection; read the host-pressure probe before the allowlist, "
+        "because a starved sandbox and a policy that drops packets silently both time out: " + "; ".join(failed)
+    )
+
+
+def _start_and_wait_command(command: str, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS) -> str:
+    health_command = build_health_check_command(AGENT_SERVER_PORT, max_attempts, pid_file="/tmp/agent-server.pid")
     return (
         f"{command}; launch_status=$?; "
         'if [ "$launch_status" -ne 0 ]; then exit "$launch_status"; fi; '
@@ -135,6 +216,7 @@ class AgentServerLaunchMixin(SandboxBase):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         context_window: str | None = None,
         fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
@@ -150,6 +232,7 @@ class AgentServerLaunchMixin(SandboxBase):
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
+        claude_model_access: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -159,6 +242,7 @@ class AgentServerLaunchMixin(SandboxBase):
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
+            service_tier=service_tier,
             context_window=context_window,
             fast_mode=fast_mode,
             initial_permission_mode=initial_permission_mode,
@@ -171,6 +255,7 @@ class AgentServerLaunchMixin(SandboxBase):
             peer_messaging=peer_messaging,
             unset_bedrock=self.disable_direct_bedrock,
         )
+        subscription_flag = " --claudeSubscription" if claude_model_access == "own-subscription" else ""
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
         # flags, so default runs (and resumes of old snapshots) must not see it.
@@ -194,7 +279,7 @@ class AgentServerLaunchMixin(SandboxBase):
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
-            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}"
+            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}{subscription_flag}"
         )
         launch_started_at = "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)"
 
@@ -214,12 +299,12 @@ class AgentServerLaunchMixin(SandboxBase):
         if allowed_domains is not None:
             return (
                 f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
-                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &)"
+                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} & echo $! > /tmp/agent-server.pid)"
             )
         else:
             return (
                 f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
-                f"(nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
+                f"(nohup {server_cmd} > /tmp/agent-server.log 2>&1 & echo $! > /tmp/agent-server.pid)"
             )
 
     def _termination_failure_reason(self) -> str:
@@ -238,8 +323,13 @@ class AgentServerLaunchMixin(SandboxBase):
                 return diagnostics
 
             diagnostics["sandbox_terminated"] = "false"
-            log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+            log_result = self.execute(
+                f"tail -c {STARTUP_LOG_MAX_BYTES} /tmp/agent-server.log 2>/dev/null || echo 'No log file'",
+                timeout_seconds=5,
+            )
             diagnostics["log"] = log_result.stdout
+            if len(log_result.stdout.encode()) >= STARTUP_LOG_MAX_BYTES:
+                diagnostics["log_truncated"] = "true"
             health_result = self.execute(
                 f"curl -s --max-time 3 http://localhost:{AGENT_SERVER_PORT}/health || echo 'no-health-response'",
                 timeout_seconds=5,
@@ -248,9 +338,9 @@ class AgentServerLaunchMixin(SandboxBase):
 
             egress = self._probe_session_init_egress()
             diagnostics["egress_probe"] = egress
-            blocked = [line for line in egress.splitlines() if "http_code=000" in line or line.endswith("FAILED")]
-            if blocked:
-                diagnostics["failure_reason"] = "egress blocked to required session-init host(s): " + "; ".join(blocked)
+            egress_reason = _egress_failure_reason(egress)
+            if egress_reason:
+                diagnostics["failure_reason"] = egress_reason
             else:
                 diagnostics["failure_reason"] = (
                     "agent server alive but never reported hasSession=true; no egress block detected, "
@@ -258,13 +348,30 @@ class AgentServerLaunchMixin(SandboxBase):
                 )
         except Exception as e:
             diagnostics.setdefault("failure_reason", f"health check failed; diagnostics unavailable: {e}")
+        # Last, and guarded on its own: a starved box can stall this probe too, and that must
+        # not replace the failure reason the checks above already produced.
+        try:
+            diagnostics["host_pressure"] = self._probe_host_pressure()
+        except Exception as e:
+            diagnostics["host_pressure"] = f"unavailable: {e}"
         return diagnostics
+
+    def _probe_host_pressure(self) -> str:
+        """Measure the box, not the agent, so a startup failure can be told apart by cause.
+
+        A slow CPU loop or spawn means CPU starvation. A slow read of a file that boot never
+        touches means the image filesystem is slow to load it, which is what a lazily loaded
+        image looks like on a cold host. Both fast means the agent itself stalled.
+        """
+        return self.execute(HOST_PRESSURE_PROBE_SCRIPT, timeout_seconds=45).stdout.strip()
 
     def _probe_session_init_egress(self) -> str:
         hosts = _session_init_probe_hosts()
         checks = "; ".join(
             f"printf '%s ' {shlex.quote(host)}; "
-            f"curl -sS --max-time 3 -o /dev/null -w 'http_code=%{{http_code}}\\n' https://{host}/ 2>/dev/null || echo FAILED"
+            f"curl -sS --max-time {EGRESS_PROBE_MAX_TIME_SECONDS} -o /dev/null -w 'http_code=%{{http_code}}' "
+            f"https://{host}/ 2>/dev/null; "
+            'echo " curl_exit=$?"'
             for host in hosts
         )
         return self.execute(checks, timeout_seconds=30).stdout.strip()
@@ -284,6 +391,7 @@ class AgentServerLaunchMixin(SandboxBase):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         context_window: str | None = None,
         fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
@@ -299,6 +407,7 @@ class AgentServerLaunchMixin(SandboxBase):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        claude_model_access: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -309,6 +418,9 @@ class AgentServerLaunchMixin(SandboxBase):
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
+        # Before the already-healthy shortcut: images that boot the agent server never relaunch it,
+        # and the agent reads its skill directories when a session starts, not when the server does.
+        self.clear_bundled_skills_if_disabled()
         if self._agent_server_is_healthy() and (allowed_domains is None or self._agentsh_daemon_is_healthy()):
             logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
             return 0 if wait_for_health else None
@@ -349,7 +461,7 @@ class AgentServerLaunchMixin(SandboxBase):
         if not self.agent_server_supports_exec_permission_regex():
             logger.warning(
                 f"Installed agent-server in sandbox {self.id} predates --posthogExecPermissionRegex; "
-                "exec sub-tools will not prompt"
+                "connected-project operations will not prompt"
             )
             exec_permission_regex = None
 
@@ -367,6 +479,7 @@ class AgentServerLaunchMixin(SandboxBase):
             provider,
             model,
             reasoning_effort,
+            service_tier=service_tier,
             context_window=context_window,
             fast_mode=fast_mode,
             initial_permission_mode=initial_permission_mode,
@@ -382,18 +495,35 @@ class AgentServerLaunchMixin(SandboxBase):
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
             posthog_exec_permission_regex=exec_permission_regex,
+            claude_model_access=claude_model_access,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
-        execute_command = _start_and_wait_command(command) if wait_for_health else command
-        timeout_seconds = 30 + health_check_timeout_seconds(AGENT_SERVER_HEALTH_MAX_ATTEMPTS) if wait_for_health else 30
+        max_attempts = 300 if claude_model_access == "own-subscription" else AGENT_SERVER_HEALTH_MAX_ATTEMPTS
+        execute_command = _start_and_wait_command(command, max_attempts) if wait_for_health else command
+        timeout_seconds = 30 + health_check_timeout_seconds(max_attempts) if wait_for_health else 30
         start_time = time.perf_counter()
-        launch_result = self.execute(execute_command, timeout_seconds=timeout_seconds)
+        try:
+            launch_result = self.execute(execute_command, timeout_seconds=timeout_seconds)
+        except SandboxTimeoutError as error:
+            if not wait_for_health:
+                raise
+            raise self._startup_timeout_with_diagnostics(allowed_domains, timeout_seconds) from error
         start_and_health_ms = int((time.perf_counter() - start_time) * 1000)
         if launch_result.exit_code != 0:
             health_duration_ms = _health_duration_ms(launch_result.stdout)
             if wait_for_health and health_duration_ms is not None:
                 diagnostics = self._diagnose_startup_failure(allowed_domains)
+                if (
+                    "claude_credential_unavailable" in launch_result.stdout
+                    or "claude_credential_unavailable" in diagnostics.get("log", "")
+                ):
+                    raise ProcessTaskFatalError(
+                        "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
+                        {"task_id": task_id, "run_id": run_id},
+                        RuntimeError("Claude token unavailable"),
+                        capture=False,
+                    )
                 raise SandboxExecutionError(
                     "Agent-server failed to start",
                     {
@@ -422,8 +552,17 @@ class AgentServerLaunchMixin(SandboxBase):
             return _health_duration_ms(launch_result.stdout)
         return None
 
-    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
-        if self._wait_for_health_check():
+    def wait_for_agent_server_ready(
+        self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
+    ) -> None:
+        max_attempts = 300 if claude_model_access == "own-subscription" else AGENT_SERVER_HEALTH_MAX_ATTEMPTS
+        try:
+            healthy = self._wait_for_health_check(max_attempts=max_attempts)
+        except SandboxTimeoutError as error:
+            raise self._startup_timeout_with_diagnostics(
+                allowed_domains, health_check_timeout_seconds(max_attempts)
+            ) from error
+        if healthy:
             if allowed_domains is not None and not self._agentsh_daemon_is_healthy():
                 raise SandboxExecutionError(
                     "Failed to verify agentsh network enforcement",
@@ -437,6 +576,22 @@ class AgentServerLaunchMixin(SandboxBase):
             "Agent-server failed to start",
             {"sandbox_id": self.id, **diagnostics},
             cause=RuntimeError(diagnostics.get("failure_reason", "Health check failed after retries")),
+        )
+
+    def _startup_timeout_with_diagnostics(
+        self, allowed_domains: list[str] | None, timeout_seconds: int
+    ) -> SandboxTimeoutError:
+        diagnostics = self._diagnose_startup_failure(allowed_domains)
+        logger.warning(
+            "Agent-server health poll timed out in sandbox %s after %ss: %s",
+            self.id,
+            timeout_seconds,
+            diagnostics.get("failure_reason"),
+        )
+        return SandboxTimeoutError(
+            "Agent-server failed to start",
+            {"sandbox_id": self.id, "timeout_seconds": timeout_seconds, **diagnostics},
+            cause=RuntimeError(diagnostics.get("failure_reason", f"health poll exceeded {timeout_seconds}s")),
         )
 
     def mark_repo_ready(self, repo_ready_file: str) -> None:
@@ -518,7 +673,9 @@ class AgentServerLaunchMixin(SandboxBase):
         self, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS, poll_interval: float = 0.5
     ) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
-        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
+        return wait_for_health_check(
+            self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval, pid_file="/tmp/agent-server.pid"
+        )
 
     def _agent_server_is_healthy(self) -> bool:
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)
@@ -534,8 +691,8 @@ class AgentServerLaunchMixin(SandboxBase):
 
     def _free_agent_server_port(self) -> None:
         self.execute(
-            "pkill -TERM -f agent-server 2>/dev/null || true; "
-            "for _ in $(seq 1 10); do pgrep -f agent-server >/dev/null || break; sleep 0.5; done; "
-            "pkill -KILL -f agent-server 2>/dev/null || true",
+            "pkill -TERM -f '[a]gent-server' 2>/dev/null || true; "
+            "for _ in $(seq 1 10); do pgrep -f '[a]gent-server' >/dev/null || break; sleep 0.5; done; "
+            "pkill -KILL -f '[a]gent-server' 2>/dev/null || true",
             timeout_seconds=15,
         )

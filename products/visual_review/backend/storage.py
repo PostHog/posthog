@@ -66,6 +66,13 @@ class ArtifactStorage:
 
         object_storage.delete(self._key(content_hash))
 
+    def delete_paths(self, storage_paths: list[str]) -> list[str]:
+        """Delete objects in bulk by stored key. Returns the paths that were not deleted."""
+        if not settings.OBJECT_STORAGE_ENABLED:
+            return []
+
+        return object_storage.delete_objects(storage_paths)
+
     def write(self, content_hash: str, content: bytes) -> str:
         """
         Directly write content to storage (for server-side uploads like diff images).

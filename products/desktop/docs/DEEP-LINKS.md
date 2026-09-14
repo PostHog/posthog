@@ -113,7 +113,7 @@ posthog-code://inbox
 posthog-code://inbox/report_abc123
 ```
 
-### `posthog-code://scout/<skillSlug>`
+### `posthog-code://scout/<skillName>`
 
 Open a scout's detail page, optionally focused on a specific finding (expanded
 and scrolled into view). This is the link copied by the "Share" CTA on a scout
@@ -121,12 +121,12 @@ emission card.
 
 | Segment / Parameter | Required | Description |
 |---|---|---|
-| `<skillSlug>` | Yes | Scout route slug, i.e. the skill name with the `signals-scout-` prefix stripped (e.g. `error-tracking`) |
+| `<skillName>` | Yes | Full scout skill name (e.g. `signals-scout-error-tracking`, or a bare name such as `my-churn-watch`). Older links carrying the name with the `signals-scout-` prefix stripped still resolve. |
 | `finding` | No | Emission id to expand and scroll to. Best effort – only resolves while the finding is still inside the scout's runs window. |
 
 ```
-posthog-code://scout/error-tracking
-posthog-code://scout/error-tracking?finding=abc123
+posthog-code://scout/signals-scout-error-tracking
+posthog-code://scout/my-churn-watch?finding=abc123
 ```
 
 ### `posthog-code://loop/<loopId>`
@@ -151,6 +151,10 @@ canvas copies an **https** link (`<instance>/code/canvas/<channelId>/<dashboardI
 that resolves to a web interstitial in PostHog Cloud, which fires this scheme
 (or offers the desktop-app download). That way the link works for anyone,
 whether or not they have the app.
+
+Use the link button in the canvas toolbar to copy this link without opening a
+menu. The button has a "Copy link to canvas" tooltip, like the session link
+button. "Copy link" also remains in the canvas options menu.
 
 | Segment | Required | Description |
 |---|---|---|

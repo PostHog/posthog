@@ -37,7 +37,7 @@ import {
     bufferProcessingMode,
     processLogMessageBuffer,
 } from './log-record-avro'
-import type { CompiledMetricRule } from './metrics-rules/compile-metric-rules'
+import type { CompiledMetricRule, MetricRuleSource } from './metrics-rules/compile-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
@@ -347,6 +347,11 @@ export class LogsIngestionConsumer {
     // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
     protected quotaResource: QuotaResource = 'logs_mb_ingested'
     protected appSource = 'logs'
+    // Record source this consumer tallies metric rules for. `appSource` is the
+    // billing/telemetry identity ('logs' | 'traces'); metric rules are tagged with the
+    // record source ('logs' | 'spans') instead, so map between the two explicitly
+    // rather than comparing across vocabularies. TracesIngestionConsumer overrides to 'spans'.
+    protected metricRuleSource: MetricRuleSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
@@ -812,7 +817,10 @@ export class LogsIngestionConsumer {
         if (!state) {
             let rules: CompiledMetricRule[]
             try {
-                rules = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
+                const all = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
+                // Each consumer tallies only its own record source: the logs consumer runs
+                // `logs` rules, the traces consumer runs `spans` rules.
+                rules = all.filter((r) => r.source === this.metricRuleSource)
             } catch (error) {
                 // Fail open: metric rules are a purely additive side feature, so a rules-fetch
                 // failure (e.g. a Postgres blip) must never DLQ or block the log records —
@@ -1167,11 +1175,14 @@ export class LogsIngestionConsumer {
             if (retentionMetric) {
                 this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
             }
-            // Byte-days: ingested bytes weighted by retention days. Summed over a period it is total
-            // storage-duration and scales to any retention day count (average retention =
-            // retention_byte_days / bytes_ingested). Uses credit-adjusted `bytesAllowed` to reconcile
-            // with `bytes_ingested`. Runs beside the per-tier metric above until billing leaves fixed tiers.
-            this.queueUsageMetric(teamId, 'retention_byte_days', stats.bytesAllowed * stats.retentionDays)
+            // Byte-days: ingested bytes weighted by the full retention day count, only for teams that
+            // chose a retention longer than the default. The default tier is covered by `bytes_ingested`,
+            // so it must not be billed a second time here. Uses credit-adjusted `bytesAllowed` to
+            // reconcile with `bytes_ingested`. Runs beside the per-tier metric above until billing
+            // leaves fixed tiers.
+            if (stats.retentionDays !== DEFAULT_LOGS_RETENTION_DAYS) {
+                this.queueUsageMetric(teamId, 'retention_byte_days', stats.bytesAllowed * stats.retentionDays)
+            }
             const source = this.appSource === 'traces' ? 'apm_traces' : 'logs'
             // These records are per-flush aggregates, not one per billed thing, so there is no
             // stable identity to reproduce. A fresh ID per flush is what keeps two pods flushing
