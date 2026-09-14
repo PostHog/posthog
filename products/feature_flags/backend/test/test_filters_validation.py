@@ -181,6 +181,11 @@ class TestFiltersValidation(SimpleTestCase):
                 ["cross_field.operator_requires_string_value"],
             ),
             (
+                "gte_operator_value_over_f64_range",
+                {"groups": [{"properties": [_person_prop(operator="gte", value=10**400)]}]},
+                ["cross_field.operator_requires_string_value"],
+            ),
+            (
                 "gt_operator_list_value",
                 {"groups": [{"properties": [_person_prop(operator="gt", value=[5])]}]},
                 ["cross_field.operator_requires_string_value"],
