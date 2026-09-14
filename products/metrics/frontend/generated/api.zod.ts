@@ -582,3 +582,44 @@ export const MetricsSamplesCreateBody = /* @__PURE__ */ zod.object({
         })
         .describe('The raw-emissions query to execute.'),
 })
+
+/**
+ * Distinct metric names for the team. Backs the catalog UI.
+ */
+export const metricsValuesCreateBodyValueDefault = ``
+export const metricsValuesCreateBodyValueMax = 255
+
+export const metricsValuesCreateBodyLimitDefault = 100
+export const metricsValuesCreateBodyLimitMax = 1000
+
+export const metricsValuesCreateBodyServiceMax = 1024
+
+export const metricsValuesCreateBodyNamesItemMax = 255
+
+export const metricsValuesCreateBodyNamesMax = 20
+
+export const MetricsValuesCreateBody = /* @__PURE__ */ zod.object({
+    value: zod
+        .string()
+        .max(metricsValuesCreateBodyValueMax)
+        .default(metricsValuesCreateBodyValueDefault)
+        .describe('Substring filter (case-insensitive) applied to metric names.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(metricsValuesCreateBodyLimitMax)
+        .default(metricsValuesCreateBodyLimitDefault)
+        .describe('Max number of names to return. Defaults to 100; maximum 1000.'),
+    service: zod
+        .string()
+        .max(metricsValuesCreateBodyServiceMax)
+        .optional()
+        .describe(
+            'Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.'
+        ),
+    names: zod
+        .array(zod.string().max(metricsValuesCreateBodyNamesItemMax))
+        .min(1)
+        .max(metricsValuesCreateBodyNamesMax)
+        .describe('Exact metric names to load as a batch. Overrides value and limit.'),
+})

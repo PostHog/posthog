@@ -55,7 +55,7 @@ class TestClosePrWhenReportDismissed(BaseTest):
         self, _name, source_status, new_status, transition_kwargs, expected_reason
     ):
         report = self._create_report(report_status=source_status)
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             self._save_transition(report, new_status, **transition_kwargs)
         mock_task.delay.assert_called_once_with(
             report_id=str(report.id),
@@ -65,7 +65,7 @@ class TestClosePrWhenReportDismissed(BaseTest):
 
     def test_full_save_on_dismiss_enqueues_close_task(self):
         report = self._create_report()
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 report.transition_to(SignalReport.Status.SUPPRESSED)
                 report.save()
@@ -77,27 +77,27 @@ class TestClosePrWhenReportDismissed(BaseTest):
 
     def test_full_save_without_status_change_does_not_enqueue(self):
         report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 report.title = "edited"
                 report.save()
         mock_task.delay.assert_not_called()
 
     def test_born_suppressed_report_does_not_enqueue(self):
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 self._create_report(report_status=SignalReport.Status.SUPPRESSED)
         mock_task.delay.assert_not_called()
 
     def test_restore_from_suppressed_does_not_enqueue(self):
         report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             self._save_transition(report, SignalReport.Status.POTENTIAL)
         mock_task.delay.assert_not_called()
 
     def test_pipeline_reset_to_potential_does_not_enqueue(self):
         report = self._create_report(report_status=SignalReport.Status.IN_PROGRESS)
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             self._save_transition(report, SignalReport.Status.POTENTIAL, error="not actionable")
         mock_task.delay.assert_not_called()
 
@@ -105,7 +105,7 @@ class TestClosePrWhenReportDismissed(BaseTest):
         # The PR-merge webhook resolves through transition_to directly. Its PR is merged, so the
         # receiver must not try to close it.
         report = self._create_report()
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             self._save_transition(report, SignalReport.Status.RESOLVED)
         mock_task.delay.assert_not_called()
 
@@ -120,7 +120,7 @@ class TestClosePrWhenReportDismissed(BaseTest):
             pr_state=SignalReportAssignment.PrState.OPEN,
         )
 
-        with patch("products.signals.backend.receivers.close_report_tracker_issue") as mock_task:
+        with patch("products.signals.backend.tasks.close_report_tracker_issue") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 update_assignments_for_pull_request(
                     team_ids=[self.team.id],
@@ -136,7 +136,7 @@ class TestClosePrWhenReportDismissed(BaseTest):
         # open with nothing left to answer it.
         report = self._create_report()
 
-        with patch("products.signals.backend.receivers.close_report_tracker_issue") as mock_task:
+        with patch("products.signals.backend.tasks.close_report_tracker_issue") as mock_task:
             self._save_transition(report, SignalReport.Status.DELETED)
 
         mock_task.delay.assert_called_once_with(report_id=str(report.id), team_id=self.team.id, completed=False)
@@ -153,7 +153,7 @@ class TestClosePrWhenReportDismissed(BaseTest):
                 pr_state=SignalReportAssignment.PrState.OPEN,
             )
 
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 update_assignments_for_pull_request(
                     team_ids=[self.team.id],
@@ -169,7 +169,7 @@ class TestClosePrWhenReportDismissed(BaseTest):
 
     def test_unrelated_save_of_suppressed_report_does_not_enqueue(self):
         report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 report.title = "edited"
                 report.save(update_fields=["title"])
