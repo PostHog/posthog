@@ -427,7 +427,7 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         query={
             "kind": "InsightVizNode",
             "source": {
-                "breakdownFilter": {"breakdown": "$geoip_country_code", "breakdown_type": "person"},
+                "breakdownFilter": {"breakdown": "$geoip_country_code", "breakdown_type": "event"},
                 "dateRange": {"date_from": "-30d", "explicitDate": False},
                 "filterTestAccounts": False,
                 "interval": "day",
