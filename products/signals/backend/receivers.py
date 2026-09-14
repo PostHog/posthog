@@ -22,7 +22,10 @@ from posthog.event_usage import groups
 
 from products.signals.backend.implementation_pr import PrCloseReason
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.report_assignments import sync_task_pull_request_to_assignments
+from products.signals.backend.report_assignments import (
+    release_terminal_task_report_claims,
+    sync_task_pull_request_to_assignments,
+)
 from products.signals.backend.report_embeddings import (
     emit_report_embedding,
     emit_report_tombstone,
@@ -49,6 +52,10 @@ def connect_task_run_assignment_sync() -> None:
     connect_task_run_post_save(
         sync_task_run_pr_to_assignments,
         dispatch_uid="signals_sync_task_run_pr_to_assignments",
+    )
+    connect_task_run_post_save(
+        release_terminal_task_report_claims_on_failure,
+        dispatch_uid="signals_release_terminal_task_report_claims",
     )
 
 
@@ -98,6 +105,24 @@ def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, 
                 apply_report_completion(report)
     except Exception:
         logger.exception("signals.task_run_pr_assignment_sync_failed", task_run_id=str(instance.id))
+
+
+def release_terminal_task_report_claims_on_failure(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "status" not in update_fields:
+        return
+    if instance.status not in {"failed", "cancelled"}:
+        return
+    team_id = instance.team_id
+    task_id = str(instance.task_id)
+    transaction.on_commit(lambda: _release_terminal_task_report_claims(team_id=team_id, task_id=task_id))
+
+
+def _release_terminal_task_report_claims(*, team_id: int, task_id: str) -> None:
+    try:
+        release_terminal_task_report_claims(team_id=team_id, task_id=task_id)
+    except Exception:
+        logger.exception("signals.terminal_task_report_claim_release_failed", team_id=team_id, task_id=task_id)
 
 
 def _schedule_tombstone(*, team_id: int, report_id: str, created_at: datetime, reason: str) -> None:

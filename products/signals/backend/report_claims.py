@@ -44,13 +44,31 @@ def claim_from_artefact(claim: SignalReportArtefact) -> ReportClaim:
     )
 
 
-def active_claims(*, team_id: int) -> QuerySet[SignalReportArtefact]:
-    claims = SignalReportArtefact.objects.filter(team_id=team_id, type="work_claim")
-    latest = claims.filter(report_id=OuterRef("report_id")).order_by("-created_at", "-id").values("id")[:1]
+def _active_claims(claims: QuerySet[SignalReportArtefact]) -> QuerySet[SignalReportArtefact]:
+    latest = (
+        SignalReportArtefact.objects.filter(
+            team_id=OuterRef("team_id"), report_id=OuterRef("report_id"), type="work_claim"
+        )
+        .order_by("-created_at", "-id")
+        .values("id")[:1]
+    )
     releases = SignalReportArtefact.objects.filter(
-        team_id=team_id, report_id=OuterRef("report_id"), type="work_release", claim_id=OuterRef("id")
+        team_id=OuterRef("team_id"),
+        report_id=OuterRef("report_id"),
+        type="work_release",
+        claim_id=OuterRef("id"),
     )
     return claims.filter(id=Subquery(latest)).alias(released=Exists(releases)).filter(released=False)
+
+
+def active_claims(*, team_id: int) -> QuerySet[SignalReportArtefact]:
+    return _active_claims(SignalReportArtefact.objects.filter(team_id=team_id, type="work_claim"))
+
+
+def active_task_claims(*, limit: int) -> QuerySet[SignalReportArtefact]:
+    return _active_claims(
+        SignalReportArtefact.objects.filter(type="work_claim", actor_kind="task", task_id__isnull=False)
+    ).order_by("created_at", "id")[:limit]
 
 
 def legacy_claims(*, team_id: int) -> QuerySet[SignalReportAssignment]:
