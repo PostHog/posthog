@@ -48831,6 +48831,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly complaint_rate: number | null;
+      /** Deliveries the provider reports complaints for, which is what `complaint_rate` divides by. Far smaller than `emails_sent`, so a caller deciding whether the rate rests on enough volume has to weigh it against this. Zero when there is no base. */
+      readonly complaint_base: number;
       /** Rates AWS did not return for this provider, from `delivery`, `bounce`, `transient_bounce` and `complaint`. A rate named here is missing, not zero, and the UI says so rather than showing a number. */
       readonly unavailable: readonly string[];
     }
