@@ -235,17 +235,18 @@ def verify_pull_request_state(
         team_id=team_id, repository=repository, pr_number=pr_number, confirmed=False
     )
     update_assignments_for_pull_request(team_ids=[team_id], repository=repository, pr_number=pr_number, pr_state=state)
-    # A merge webhook can land between the read above and this write, where it wins the merge guard
-    # in `update_pull_request_state`. Reopening on the claim read earlier would then undo that merge.
-    if claimed_merge and not _stored_merge_exists(
-        team_id=team_id, repository=repository, pr_number=pr_number, confirmed=True
-    ):
+    if claimed_merge:
         reopen_reports_resolved_without_merge(team_id=team_id, repository=repository, pr_number=pr_number)
     return state
 
 
 def reopen_reports_resolved_without_merge(*, team_id: int, repository: str, pr_number: int) -> int:
-    """Move every report this pull request resolved back to ready. Returns how many moved."""
+    """Move every report this pull request resolved back to ready. Returns how many moved.
+
+    A merge webhook can land while the caller reads GitHub, and `update_pull_request_state` keeps a
+    merge it confirmed. The stored state is read again here, under the report locks that webhook
+    path takes first, so a reopen never undoes a merge GitHub confirmed.
+    """
     from products.signals.backend.implementation_pr import report_ids_for_implementation_pr
 
     report_ids = report_ids_for_implementation_pr(team_id=team_id, repository=repository, pr_number=pr_number)
@@ -255,6 +256,8 @@ def reopen_reports_resolved_without_merge(*, team_id: int, repository: str, pr_n
             .filter(team_id=team_id, id__in=report_ids, status=SignalReport.Status.RESOLVED)
             .order_by("id")
         )
+        if _stored_merge_exists(team_id=team_id, repository=repository, pr_number=pr_number, confirmed=True):
+            return 0
         for report in reports:
             logger.info(
                 "signals.pr_verification.reopened_report",
