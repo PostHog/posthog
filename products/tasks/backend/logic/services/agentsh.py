@@ -11,6 +11,7 @@ from django.core.validators import DomainNameValidator
 import yaml
 
 from products.tasks.backend.constants import SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
+from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +38,16 @@ def read_gh_guard_script() -> bytes:
 
 
 AGENTSH_AUDIT_DB = "/var/lib/agentsh/events.db"
+# Named hosts only: a `*.posthog.com` entry here would admit every host in the
+# zone, including the ingest hosts that accept writes into any project from an
+# unauthenticated caller, so an injected agent could push sandbox data into a
+# PostHog project of its choosing. Hosts the sandbox is handed as a URL come
+# from `_sandbox_urls()` instead of this list.
 INFRASTRUCTURE_DOMAINS = [
-    "*.posthog.com",
     "api.anthropic.com",
+    # The deployment's own app host arrives from `SITE_URL`; this entry covers
+    # the one redirect we know of, `app.posthog.com` to the US host.
+    "us.posthog.com",
     "gateway.us.posthog.com",
     "gateway.eu.posthog.com",
     "ai-gateway.us.posthog.com",
@@ -79,24 +87,35 @@ def _port_from_url(url: str | None) -> int | None:
 
 # Sandbox-host URLs from deployment env or `.env`. Each one is handed to the
 # sandbox as a URL it must call, so its hostname joins the enforced allow rule
-# in every environment (dev's ai-gateway.dev.posthog.dev is outside
-# *.posthog.com, so the static infrastructure list alone can't cover it).
+# in every environment. `SITE_URL` is here because `SANDBOX_API_URL` falls back
+# to it and Streamlit sandboxes read it directly, and the OTLP telemetry hosts
+# are here because the sandbox exporter posts to them in production.
 # Non-standard ports (llm-gateway on 3308, MCP wrangler on 8787) feed the
 # DEBUG-only rule; the enforced rule stays on cloud-routing ports.
 _SANDBOX_URL_SETTINGS = (
+    "SITE_URL",
     "SANDBOX_API_URL",
     "SANDBOX_LLM_GATEWAY_URL",
     "SANDBOX_AI_GATEWAY_URL",
-    "SANDBOX_MCP_URL",
-)
-
-# Sandbox-host URLs that stay out of the enforced rule: telemetry export is not
-# required for the agent to run, so its host is admitted in DEBUG only and prod
-# reaches its collector through `INFRASTRUCTURE_DOMAINS` or not at all.
-_DEBUG_ONLY_URL_SETTINGS = (
     "SANDBOX_AGENT_OTEL_LOGS_URL",
     "SANDBOX_AGENT_OTEL_TRACES_URL",
 )
+
+
+def _sandbox_urls() -> dict[str, str | None]:
+    """Every URL the sandbox is handed as a host it must call, keyed by the
+    setting name used in warnings. The MCP URL is the resolved value, because
+    an unset `SANDBOX_MCP_URL` falls back to a region host derived from
+    `SITE_URL` and that derived host is the one the agent dials.
+    """
+    return {
+        **{name: getattr(settings, name, None) for name in _SANDBOX_URL_SETTINGS},
+        "SANDBOX_MCP_URL": resolve_mcp_url(
+            sandbox_mcp_url=getattr(settings, "SANDBOX_MCP_URL", None),
+            site_url=getattr(settings, "SITE_URL", None),
+        ),
+    }
+
 
 _LOOPBACK_ALIASES = ("localhost", "host.docker.internal")
 
@@ -135,16 +154,15 @@ def _is_loopback(hostname: str) -> bool:
 
 
 def sandbox_url_setting_domains() -> list[str]:
-    """Hostnames parsed from the `SANDBOX_*_URL` settings that are usable on
-    the enforced allow rule. Loopback hosts are skipped silently (agentsh
+    """Hostnames parsed from the sandbox URLs that are usable on the enforced
+    allow rule. Loopback hosts are skipped silently (agentsh
     allows loopback by CIDR and Modal rejects the aliases). Any other
     set-but-unusable value is logged: the URL still reaches the sandbox, so
     silent exclusion here would reproduce the injected-but-blocked failure
     this function exists to prevent.
     """
     domains: list[str] = []
-    for setting_name in _SANDBOX_URL_SETTINGS:
-        value = getattr(settings, setting_name, None)
+    for setting_name, value in _sandbox_urls().items():
         if not value:
             continue
         hostname = _hostname_from_url(value)
@@ -185,13 +203,12 @@ def enforced_egress_domains() -> list[str]:
 
 
 def _get_debug_only_domains() -> list[str]:
-    """Hostnames added ONLY when DEBUG is on: dev loopback aliases plus any
-    sandbox URL hosts parsed from `SANDBOX_*_URL` settings, here paired with
-    the dev ports those services listen on.
+    """Hostnames added ONLY when DEBUG is on: dev loopback aliases plus the
+    sandbox URL hosts.
     """
-    domains: list[str] = ["localhost", "host.docker.internal"]
-    for setting_name in _SANDBOX_URL_SETTINGS + _DEBUG_ONLY_URL_SETTINGS:
-        hostname = _hostname_from_url(getattr(settings, setting_name, None))
+    domains: list[str] = list(_LOOPBACK_ALIASES)
+    for value in _sandbox_urls().values():
+        hostname = _hostname_from_url(value)
         if hostname and hostname not in domains:
             domains.append(hostname)
     return domains
@@ -201,13 +218,13 @@ def _get_debug_only_ports() -> list[int]:
     """Ports added ONLY when DEBUG is on. The prod-safe set is
     `[443, 80, 22]` (cloud routing only); in DEBUG we additionally expose
     Django (8000) and Caddy (8010), plus any non-standard ports parsed from
-    `SANDBOX_*_URL` (e.g. llm-gateway 3308, MCP wrangler 8787). Without this,
+    the sandbox URLs (e.g. llm-gateway 3308, MCP wrangler 8787). Without this,
     locally-hosted services on custom ports are denied at the agentsh
     syscall layer even when their hostname is allowed.
     """
     ports: list[int] = [8000, 8010]
-    for setting_name in _SANDBOX_URL_SETTINGS + _DEBUG_ONLY_URL_SETTINGS:
-        port = _port_from_url(getattr(settings, setting_name, None))
+    for value in _sandbox_urls().values():
+        port = _port_from_url(value)
         if port is not None and port not in ports:
             ports.append(port)
     return ports

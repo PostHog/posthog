@@ -14,6 +14,7 @@ import yaml
 from parameterized import parameterized
 
 from products.tasks.backend.logic.services.agentsh import (
+    _SANDBOX_URL_SETTINGS,
     AGENTSH_AUDIT_DB,
     ENV_WRAPPER_SCRIPT,
     INFRASTRUCTURE_DOMAINS,
@@ -24,6 +25,7 @@ from products.tasks.backend.logic.services.agentsh import (
     generate_env_wrapper,
     generate_policy_yaml,
 )
+from products.tasks.backend.logic.services.network_policy import domain_pattern_matches
 
 
 class TestGenerateConfigYaml(TestCase):
@@ -57,6 +59,17 @@ class TestGenerateConfigYaml(TestCase):
         raw = generate_config_yaml()
         parsed = yaml.safe_load(raw)
         self.assertIsInstance(parsed, dict)
+
+
+# Every sandbox URL setting is pinned off: they feed the enforced allowlist
+# outside DEBUG, so a developer's environment value (an ngrok SANDBOX_API_URL)
+# would otherwise reach these expectations.
+_PINNED_SANDBOX_URLS = override_settings(
+    DEBUG=False,
+    SITE_URL="http://localhost:8010",
+    SANDBOX_MCP_URL=None,
+    **{name: None for name in _SANDBOX_URL_SETTINGS if name != "SITE_URL"},
+)
 
 
 class TestGeneratePolicyYaml(TestCase):
@@ -218,8 +231,8 @@ class TestGeneratePolicyYaml(TestCase):
 
     @override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="https://ai-gateway.dev.posthog.dev")
     def test_configured_gateway_host_reachable_outside_debug(self):
-        # Dev's gateway host is outside *.posthog.com, so only the
-        # settings-derived entry admits it; without one, every routed model
+        # Nothing in the static infrastructure list admits dev's gateway host,
+        # so only the settings-derived entry does; without one, every routed model
         # call in a restricted dev sandbox is denied at the syscall layer.
         policy = yaml.safe_load(generate_policy_yaml([]))
         allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
@@ -234,6 +247,9 @@ class TestGeneratePolicyYaml(TestCase):
             ("SANDBOX_LLM_GATEWAY_URL", "llm-gw.sandbox.example.dev"),
             ("SANDBOX_AI_GATEWAY_URL", "ai-gw.sandbox.example.dev"),
             ("SANDBOX_MCP_URL", "mcp.sandbox.example.dev"),
+            ("SITE_URL", "app.sandbox.example.dev"),
+            ("SANDBOX_AGENT_OTEL_LOGS_URL", "otel-logs.sandbox.example.dev"),
+            ("SANDBOX_AGENT_OTEL_TRACES_URL", "otel-traces.sandbox.example.dev"),
         ]
     )
     def test_each_sandbox_url_setting_reaches_enforced_rule(self, setting_name, host):
@@ -241,6 +257,40 @@ class TestGeneratePolicyYaml(TestCase):
             policy = yaml.safe_load(generate_policy_yaml([]))
         allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
         self.assertIn(host, allow_rule["domains"])
+
+    @parameterized.expand(
+        [
+            ("ingest", "us.i.posthog.com"),
+            ("other_region_ingest", "eu.i.posthog.com"),
+            ("internal_host", "internal-tool.posthog.com"),
+        ]
+    )
+    @_PINNED_SANDBOX_URLS
+    def test_enforced_rule_admits_no_unnamed_posthog_host(self, _name, hostname):
+        # A zone wildcard would admit PostHog's ingest hosts, which accept
+        # writes into any project from an unauthenticated caller, so an
+        # injected agent could push sandbox data into a project it controls.
+        # Sandbox URLs are pinned off here: a deployment that points telemetry
+        # at an ingest host admits that one host by name, which is the contract
+        # this test protects.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        matching = [pattern for pattern in allow_rule["domains"] if domain_pattern_matches(pattern, hostname)]
+        self.assertEqual(matching, [])
+
+    @parameterized.expand(
+        [
+            ("us", "https://us.posthog.com", "mcp.posthog.com"),
+            ("eu", "https://eu.posthog.com", "mcp-eu.posthog.com"),
+        ]
+    )
+    def test_mcp_host_derived_from_site_url_reaches_enforced_rule(self, _name, site_url, mcp_host):
+        # With SANDBOX_MCP_URL unset the sandbox dials a region MCP host
+        # derived from SITE_URL, so the derived value is what must be admitted.
+        with override_settings(DEBUG=False, SANDBOX_MCP_URL=None, SITE_URL=site_url):
+            policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn(mcp_host, allow_rule["domains"])
 
     @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://localhost:3308")
     def test_loopback_sandbox_hosts_stay_off_prod_rule(self):
