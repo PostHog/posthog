@@ -178,16 +178,17 @@ def compute_file_path_problems(file_paths: list[str]) -> list[SkillSpecProblem]:
         # Only the exact sidecar path replaces the generated one; a case variant such as
         # `Agents/OpenAI.yaml` keys a second entry and collides instead.
         if lowered in claimed and path != CODEX_METADATA_PATH:
-            problems.append(
-                SkillSpecProblem(
-                    code=SPEC_PROBLEM_FILE_PATH_COLLIDES,
-                    message=(
-                        f"Rename this file. It differs from '{claimed[lowered]}' only in letter case, so the two "
-                        "become one file on a case-insensitive filesystem."
-                    ),
-                    file_path=path,
+            claimant = claimed[lowered]
+            if path == claimant:
+                # A zip can carry one member twice, and the backslash swap on import can collapse
+                # two members onto one path, so the pair is not always a case variant.
+                message = f"Remove this duplicate. Another file already uses the path '{claimant}'."
+            else:
+                message = (
+                    f"Rename this file. It differs from '{claimant}' only in letter case, so the two "
+                    "become one file on a case-insensitive filesystem."
                 )
-            )
+            problems.append(SkillSpecProblem(code=SPEC_PROBLEM_FILE_PATH_COLLIDES, message=message, file_path=path))
             continue
         claimed[lowered] = path
     for path in claimed.values():

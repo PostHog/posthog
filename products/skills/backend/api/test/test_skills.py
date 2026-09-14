@@ -2476,6 +2476,22 @@ class TestSpecProblems(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("case_variant", ["a.md", "A.md"], "Rename this file."),
+            # A zip can hold one member twice, and the backslash swap on import can collapse two
+            # members onto one path, so a collision is not always a case variant.
+            ("exact_duplicate", ["a.md", "a.md"], "Remove this duplicate."),
+        ]
+    )
+    def test_collision_problem_tells_the_author_what_to_change(
+        self, _label: str, paths: list[str], expected_instruction: str
+    ) -> None:
+        problems = compute_spec_problems("my-skill", "Does things.", paths)
+
+        assert [problem.code for problem in problems] == ["file_path_collides"]
+        assert problems[0].message.startswith(expected_instruction)
+
+    @parameterized.expand(
+        [
             ("bundled_pair", ["assets", "assets/logo.png"], "assets", "Rename 'assets'."),
             # The skill generates `agents/openai.yaml`, so a bundled file named `agents` blocks it.
             ("generated_child", ["agents"], "agents", "Rename 'agents'."),
