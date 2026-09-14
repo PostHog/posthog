@@ -34,6 +34,7 @@ class _WithSqlstate(Exception):
             ),
             True,
         ),
+        (OperationalError("sending query failed: another command is already in progress"), True),
         (OperationalError("connection failed: FATAL: password authentication failed for user"), False),
         (OperationalError("no such database"), False),
     ],
