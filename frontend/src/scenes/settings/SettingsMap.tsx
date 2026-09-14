@@ -899,7 +899,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Choose a log attribute containing JSON to make its nested fields available in filters. This works independently of JSON parse logs.',
                 component: <LogsJsonParseAttributeSettings />,
-                flag: 'LOGS_SETTINGS_JSON_ATTRIBUTE',
+                flag: 'LOGS_JSON_ATTRIBUTE_PARSING',
                 keywords: ['json', 'parse', 'attributes', 'nested', 'structured'],
             },
             {

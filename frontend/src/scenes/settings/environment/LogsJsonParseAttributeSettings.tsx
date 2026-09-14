@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -22,7 +22,13 @@ export function LogsJsonParseAttributeSettings(): JSX.Element {
 
     useEffect(() => {
         setValue(savedKey)
-    }, [savedKey, currentTeam?.id])
+    }, [savedKey])
+
+    if (!currentTeam) {
+        return <LemonSkeleton className="w-1/2 h-4" />
+    }
+
+    const trimmed = value.trim()
 
     return (
         <div className="deprecated-space-y-4">
@@ -36,7 +42,7 @@ export function LogsJsonParseAttributeSettings(): JSX.Element {
                     maxLength={200}
                     placeholder="e.g. attributes"
                     aria-label="JSON log attribute key"
-                    disabled={currentTeamLoading || !currentTeam || !!restrictedReason}
+                    disabled={currentTeamLoading || !!restrictedReason}
                     data-attr="logs-json-parse-attribute-key"
                     className="max-w-md"
                 />
@@ -55,20 +61,10 @@ export function LogsJsonParseAttributeSettings(): JSX.Element {
                     type="primary"
                     onClick={() =>
                         updateCurrentTeam({
-                            logs_settings: {
-                                ...currentTeam?.logs_settings,
-                                json_parse_logs_attribute_key: value.trim(),
-                            },
+                            logs_settings: { ...currentTeam.logs_settings, json_parse_logs_attribute_key: trimmed },
                         })
                     }
-                    disabledReason={
-                        restrictedReason ||
-                        (!currentTeam
-                            ? 'Project is loading'
-                            : value.trim() === savedKey
-                              ? 'No changes to save'
-                              : undefined)
-                    }
+                    disabledReason={restrictedReason || (trimmed === savedKey ? 'No changes to save' : undefined)}
                     loading={currentTeamLoading}
                 >
                     Save
