@@ -319,49 +319,29 @@ class TestWorkspaceScopedLockfile:
         assert "products/desktop: needs node" in detail
 
 
-class TestShadowDriftCompanion:
+class TestShadowDriftCheck:
     @pytest.mark.parametrize(
         "changed,expected_exit,expected_fragment",
         [
-            ([".github/workflows/ci-backend.yml"], 1, "mirror the change into .depot/workflows/ci-backend.yml"),
-            ([".github/workflows/ci-backend.yml", ".depot/workflows/ci-backend.yml"], 0, "both files updated"),
-            # Depot-only is a notice in CI, never a failure. Blocking it would false-block depot tuning.
-            ([".depot/workflows/ci-backend.yml"], 0, ""),
-            (
-                [".github/actions/paths-filter/src/main.ts"],
-                1,
-                "mirror the change into .depot/actions/paths-filter/**",
-            ),
-            (
-                [
-                    ".github/actions/paths-filter/src/main.ts",
-                    ".depot/actions/paths-filter/src/main.ts",
-                ],
-                0,
-                "both files updated",
-            ),
-            ([".depot/actions/paths-filter/src/main.ts"], 0, "both files updated"),
-            ([".github/actions/setup-uv/action.yml"], 1, "mirror the change into .depot/actions/setup-uv/**"),
-            (
-                [".github/actions/pnpm-install/action.yml", ".depot/actions/pnpm-install/action.yml"],
-                0,
-                "both files updated",
-            ),
+            ([".github/actions/setup-uv/action.yml"], 1, "setup-uv drifted"),
+            (["posthog/api/does_not_exist.py"], 0, None),
         ],
     )
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
     @patch("hogli_commands.ci_preflight._fetch_master")
     @patch("hogli_commands.ci_preflight.shutil.which", return_value=None)
-    def test_verdict_matches_ci(
+    @patch("hogli_commands.ci_preflight.mirror_violations", return_value=["setup-uv drifted"])
+    def test_blocks_the_push_only_when_depot_paths_change(
         self,
+        mock_violations: MagicMock,
         mock_which: MagicMock,
         mock_fetch: MagicMock,
         mock_stale: MagicMock,
         mock_emit: MagicMock,
         changed: list[str],
         expected_exit: int,
-        expected_fragment: str,
+        expected_fragment: str | None,
     ) -> None:
         with patch("hogli_commands.ci_preflight.changed_files", return_value=changed):
             result = runner.invoke(cli, ["ci:preflight", "--strict"])

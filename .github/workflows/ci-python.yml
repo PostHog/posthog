@@ -106,9 +106,6 @@ jobs:
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
-                        # ci:preflight reads its Depot mirror pairs from these at runtime
-                        - .github/workflows/ci-backend-shadow-drift.yml
-                        - '.depot/**'
                         - 'tools/owners/**'
                         - 'hogli.yaml'
                         - 'bin/**'
@@ -132,8 +129,6 @@ jobs:
                       hogli:
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/**'
-                        - .github/workflows/ci-backend-shadow-drift.yml
-                        - '.depot/**'
                         - 'hogli.yaml'
                         - 'pyproject.toml'
                         - 'uv.lock'
