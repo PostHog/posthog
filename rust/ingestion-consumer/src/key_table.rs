@@ -76,6 +76,9 @@ struct KeyState {
     /// The epoch of the outstanding run, so its failed messages requeue
     /// under the epoch they were polled in.
     outstanding_epoch: u64,
+    /// Remember revocations until this send settles: its messages live in
+    /// the transport, not the queue. New assignments must remain retryable.
+    revoked_while_outstanding: Vec<(String, i32)>,
     /// The key waits for the parked-retry deadline. A parked key is never
     /// outstanding: it parks only when nothing of its is in flight.
     parked: bool,
@@ -91,6 +94,7 @@ impl KeyState {
             queue: VecDeque::new(),
             outstanding: false,
             outstanding_epoch: 0,
+            revoked_while_outstanding: Vec::new(),
             parked: false,
             redelivering: false,
         }
@@ -164,14 +168,28 @@ impl KeyTable {
 
     /// Return a failed run to the front of its queue, ahead of anything that
     /// arrived while the run was in flight, so the redelivery keeps offset order.
-    /// The messages keep the outstanding run's epoch.
-    fn requeue_front(&mut self, key: &str, messages: Vec<SerializedKafkaMessage>) {
-        self.queued_messages += messages.len();
-        self.queued_bytes += payload_bytes(&messages);
+    /// The messages keep the outstanding run's epoch, except those revoked
+    /// while the send was in flight, which the new owner will replay.
+    fn requeue_front(&mut self, key: &str, mut messages: Vec<SerializedKafkaMessage>) {
         let state = self
             .keys
             .entry(key.to_string())
             .or_insert_with(KeyState::new);
+        if !state.revoked_while_outstanding.is_empty() {
+            messages.retain(|message| {
+                !state
+                    .revoked_while_outstanding
+                    .iter()
+                    .any(|(topic, partition)| {
+                        *topic == message.topic && *partition == message.partition
+                    })
+            });
+        }
+        if messages.is_empty() {
+            return;
+        }
+        self.queued_messages += messages.len();
+        self.queued_bytes += payload_bytes(&messages);
         state.redelivering = true;
         let epoch = state.outstanding_epoch;
         let enqueued_at = Instant::now();
@@ -264,6 +282,7 @@ impl KeyTable {
         match self.keys.get_mut(key) {
             Some(state) if state.outstanding => {
                 state.outstanding = false;
+                state.revoked_while_outstanding.clear();
                 self.outstanding_keys = self.outstanding_keys.saturating_sub(1);
                 true
             }
@@ -282,6 +301,19 @@ impl KeyTable {
         let mut purged = 0usize;
         let mut purged_bytes = 0usize;
         for state in self.keys.values_mut() {
+            if state.outstanding {
+                for &(topic, partition) in &revoked {
+                    if !state.revoked_while_outstanding.iter().any(
+                        |(revoked_topic, revoked_partition)| {
+                            revoked_topic == topic && *revoked_partition == partition
+                        },
+                    ) {
+                        state
+                            .revoked_while_outstanding
+                            .push((topic.to_string(), partition));
+                    }
+                }
+            }
             let before = state.queue.len();
             state.queue.retain(|queued| {
                 let keep =
