@@ -52,6 +52,15 @@ const mockEnv = {
     POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
 } as any
 
+const REGIONAL_BASE_URL = 'https://mcp.us.posthog.com'
+
+// What the regional runtime is configured with in production: the region-pinned host,
+// which is not the host clients connect to.
+const regionalEnv = {
+    MCP_APPS_BASE_URL: REGIONAL_BASE_URL,
+    POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
+} as any
+
 interface MockRedis extends RedisLike {
     _store: Map<string, string>
 }
@@ -159,16 +168,30 @@ describe('ResourceCatalog', () => {
             expect(readMeta['openai/widgetCSP'].resource_domains).toEqual(['https://apps.test'])
         })
 
-        it('pre-merges resource list so getResourcesList returns a stable array', async () => {
-            vi.mocked(fetchAndExtractEntries).mockResolvedValue([makeEntry('a')])
+        it('points the stub and both CSP keys at the connected origin, not the regional base', async () => {
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue([])
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
-            const catalog = new ResourceCatalog(mockEnv, redis)
+            const catalog = new ResourceCatalog(regionalEnv, redis)
             await catalog.warmup()
 
-            const list1 = catalog.getResourcesList().resources
-            const list2 = catalog.getResourcesList().resources
-            expect(list1).toBe(list2)
+            const uri = 'ui://posthog/query-results.html'
+            const connected = 'https://mcp.posthog.com'
+            const listed = catalog.getResourcesList(connected).resources.find((r) => r.uri === uri)
+            const read = await catalog.readResource({ uri }, connected)
+
+            const stub = (read.contents[0] as { text: string }).text
+            expect(stub).toContain(`${connected}/ui-apps/query-results/main.js`)
+            expect(stub).toContain(`${connected}/ui-apps/query-results/styles.css`)
+            expect(stub).not.toContain(REGIONAL_BASE_URL)
+
+            const meta = read.contents[0]?._meta as {
+                ui: { csp: { resourceDomains: string[] } }
+                'openai/widgetCSP': { resource_domains: string[] }
+            }
+            expect(meta['openai/widgetCSP'].resource_domains).toEqual([connected])
+            expect(meta.ui.csp.resourceDomains).toEqual([connected])
+            expect(listed?._meta).toEqual(meta)
         })
 
         it('revalidates context-mill resources on demand', async () => {

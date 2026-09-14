@@ -325,9 +325,9 @@ class McpDispatcher {
             case Method.ToolsCall:
                 return await this.toolExecutor.handleToolCall(params, state!)
             case Method.ResourcesList:
-                return this.resourceCatalog.getResourcesList()
+                return this.resourceCatalog.getResourcesList(props.publicOrigin)
             case Method.ResourcesRead:
-                return await this.resourceCatalog.readResource(params)
+                return await this.resourceCatalog.readResource(params, props.publicOrigin)
             case Method.PromptsList:
                 return this.resourceCatalog.getPromptsList()
             case Method.PromptsGet:

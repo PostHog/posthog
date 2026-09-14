@@ -1,5 +1,6 @@
 import { ApiClient } from '@/api/client'
 import { env } from '@/lib/env'
+import { getPublicUrl, PUBLIC_ORIGIN_HEADER } from '@/lib/routing'
 import type { CloudRegion } from '@/tools/types'
 
 const MCP_HONO_US_URL = 'https://mcp.us.posthog.com'
@@ -85,9 +86,14 @@ export function proxyToHono(request: Request, region: CloudRegion): Promise<Resp
     targetUrl.protocol = target.protocol
     targetUrl.port = target.port
 
+    // The regional runtime builds the UI app stub from this origin, so the widget
+    // assets stay on the host the client connected to.
+    const headers = new Headers(request.headers)
+    headers.set(PUBLIC_ORIGIN_HEADER, getPublicUrl(request).origin)
+
     return fetch(targetUrl.toString(), {
         method: request.method,
-        headers: request.headers,
+        headers,
         body: request.body,
     })
 }

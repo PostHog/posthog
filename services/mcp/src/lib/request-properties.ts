@@ -2,6 +2,7 @@
 // and query params into the same shape, so the logic lives here.
 
 import { resolveEffectiveClientName } from './client-detection'
+import { getPublicOrigin } from './routing'
 import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue, type McpMode } from './utils'
 
 export type Transport = 'streamable-http' | 'sse'
@@ -9,6 +10,8 @@ export type Transport = 'streamable-http' | 'sse'
 export type RequestProperties = {
     userHash: string
     apiToken: string
+    // Origin the client connected to, which a proxied request only carries in a header.
+    publicOrigin?: string | undefined
     sessionId?: string | undefined
     features?: string[] | undefined
     tools?: string[] | undefined
@@ -73,6 +76,7 @@ export function parseRequestProperties(
     return {
         apiToken: token,
         userHash: hash(token),
+        publicOrigin: getPublicOrigin(request),
         sessionId: params.get('sessionId') || undefined,
         organizationId: header(request, 'x-posthog-organization-id') || params.get('organization_id') || undefined,
         projectId: header(request, 'x-posthog-project-id') || params.get('project_id') || undefined,

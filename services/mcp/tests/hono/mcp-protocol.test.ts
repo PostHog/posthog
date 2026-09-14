@@ -1,8 +1,9 @@
 import { setupServer } from 'msw/node'
-import { afterAll, beforeAll } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { createApp } from '@/hono/app'
 import type { RedisLike } from '@/hono/cache/RedisCache'
+import { PUBLIC_ORIGIN_HEADER } from '@/lib/routing'
 
 import {
     defineAuthTests,
@@ -92,3 +93,34 @@ defineCatalogFilterTests('Hono', harness)
 defineExecModeTests('Hono', harness)
 defineSessionTrackingTests('Hono', harness)
 defineStatelessProtocolTests('Hono', harness)
+
+// `mcp.posthog.com` proxies to a regional runtime whose MCP_APPS_BASE_URL names the
+// regional host. A stub pointing there loads no assets: the host allows only the origin
+// the client connected to.
+describe('MCP UI app assets (Hono)', () => {
+    async function readStub(publicOrigin: string): Promise<string> {
+        const response = await app.request('/mcp', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: 'Bearer phx_integration_test_token',
+                [PUBLIC_ORIGIN_HEADER]: publicOrigin,
+            },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'resources/read',
+                params: { uri: 'ui://posthog/query-results.html' },
+            }),
+        })
+        expect(response.status).toBe(200)
+        const body = (await response.json()) as { result: { contents: { text: string }[] } }
+        return body.result.contents[0]!.text
+    }
+
+    it('serves the stub from the origin the client connected to', async () => {
+        const stub = await readStub('https://mcp.posthog.com')
+        expect(stub).toContain('https://mcp.posthog.com/ui-apps/query-results/main.js')
+        expect(stub).toContain('https://mcp.posthog.com/ui-apps/query-results/styles.css')
+    })
+})

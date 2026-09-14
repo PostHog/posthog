@@ -5,33 +5,12 @@ import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { corsHeadersForOAuthMetadata, oauthMetadataPreflightResponse } from '@/lib/oauth-metadata-cors'
 import { RequestProperties } from '@/lib/request-properties'
-import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
+import { buildRedirectUrl, getPublicUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 import type { CloudRegion } from '@/tools/types'
 
 import { proxyToHono, resolveProxyRegion } from './proxy'
-
-// Helper to get the public-facing URL, respecting reverse proxy headers
-// This is needed for local development with ngrok/cloudflared where request.url
-// shows http://localhost but the actual URL is https://...ngrok-free.dev
-function getPublicUrl(request: Request): URL {
-    const url = new URL(request.url)
-
-    // Check for X-Forwarded-Host (ngrok, cloudflared, and most reverse proxies)
-    const forwardedHost = request.headers.get('X-Forwarded-Host')
-    if (forwardedHost) {
-        url.host = forwardedHost
-    }
-
-    // Check for X-Forwarded-Proto (https vs http)
-    const forwardedProto = request.headers.get('X-Forwarded-Proto')
-    if (forwardedProto) {
-        url.protocol = forwardedProto + ':'
-    }
-
-    return url
-}
 
 // Detect region from hostname for EU subdomain routing.
 // This is a workaround for Claude Code's OAuth bug where it ignores the
