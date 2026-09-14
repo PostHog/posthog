@@ -457,6 +457,31 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
         assert get_active_claim(team_id=self.team.id, report_id=report.id) is None
 
+    def test_reconciliation_keeps_claim_until_every_task_run_is_terminal(self):
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        report = self._create_report()
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Signal task",
+            description="Implement the report",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+
+        assert release_terminal_task_report_claims(team_id=self.team.id, task_id=str(task.id)) == 0
+        assert get_active_claim(team_id=self.team.id, report_id=report.id) is not None
+
+        TaskRun.objects.create(team=self.team, task=task, status=TaskRun.Status.FAILED)
+        active_run = TaskRun.objects.create(team=self.team, task=task, status=TaskRun.Status.IN_PROGRESS)
+        assert release_terminal_task_report_claims(team_id=self.team.id, task_id=str(task.id)) == 0
+        assert get_active_claim(team_id=self.team.id, report_id=report.id) is not None
+
+        TaskRun.objects.filter(id=active_run.id).update(status=TaskRun.Status.FAILED)
+        assert release_terminal_task_report_claims(team_id=self.team.id, task_id=str(task.id)) == 1
+        assert get_active_claim(team_id=self.team.id, report_id=report.id) is None
+
     def test_failed_implementation_with_a_pull_request_keeps_the_report_assignment(self):
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
