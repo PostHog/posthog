@@ -2,9 +2,14 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from posthog.schema import BiasRisk, MultipleVariantHandling
+from posthog.schema import BiasRisk, ExposureCoverage, MultipleVariantHandling
 
-from products.experiments.backend.analysis_health import MULTIPLE_VARIANT_BIAS_THRESHOLD, evaluate_bias_risk
+from products.experiments.backend.analysis_health import (
+    EXPOSURE_COVERAGE_MINIMUM_CALLERS,
+    MULTIPLE_VARIANT_BIAS_THRESHOLD,
+    evaluate_bias_risk,
+    evaluate_exposure_coverage,
+)
 
 UNEVEN_2WAY = [{"rollout_percentage": 80}, {"rollout_percentage": 20}]
 EVEN_2WAY = [{"rollout_percentage": 50}, {"rollout_percentage": 50}]
@@ -102,3 +107,43 @@ class TestEvaluateBiasRisk(TestCase):
         )
         assert result is not None
         self.assertGreater(result.multiple_variant_percentage, MULTIPLE_VARIANT_BIAS_THRESHOLD)
+
+
+class TestEvaluateExposureCoverage(TestCase):
+    def test_errored_share_above_threshold_returns_coverage(self):
+        result = evaluate_exposure_coverage(900, {"timeout": 80, "connection_error": 20})
+        self.assertIsInstance(result, ExposureCoverage)
+        assert result is not None
+        self.assertEqual(result.evaluated_entities, 900)
+        self.assertEqual(result.errored_entities, 100)
+        self.assertAlmostEqual(result.errored_percentage, 10.0, places=5)
+
+    def test_error_reasons_are_ordered_largest_first(self):
+        result = evaluate_exposure_coverage(900, {"flag_missing": 10, "timeout": 80, "connection_error": 20})
+        assert result is not None
+        self.assertEqual(list(result.error_reasons), ["timeout", "connection_error", "flag_missing"])
+
+    def test_zero_count_reasons_are_dropped(self):
+        result = evaluate_exposure_coverage(900, {"timeout": 100, "flag_missing": 0})
+        assert result is not None
+        self.assertEqual(result.error_reasons, {"timeout": 100})
+
+    @parameterized.expand(
+        [
+            ("no_errors", 900, {}),
+            ("errored_share_at_threshold", 9900, {"timeout": 100}),
+            ("sample_below_minimum", 90, {"timeout": 5}),
+            ("no_callers_at_all", 0, {}),
+        ]
+    )
+    def test_returns_none_when_not_at_risk(self, _name, evaluated, errors):
+        self.assertIsNone(evaluate_exposure_coverage(evaluated, errors))
+
+    def test_minimum_callers_counts_errored_entities_too(self):
+        # An all-errored population still has to clear the sample floor before it reports.
+        below = EXPOSURE_COVERAGE_MINIMUM_CALLERS - 1
+        self.assertIsNone(evaluate_exposure_coverage(0, {"timeout": below}))
+
+        result = evaluate_exposure_coverage(0, {"timeout": EXPOSURE_COVERAGE_MINIMUM_CALLERS})
+        assert result is not None
+        self.assertAlmostEqual(result.errored_percentage, 100.0, places=5)
