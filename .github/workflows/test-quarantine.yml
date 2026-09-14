@@ -7,6 +7,11 @@ on:
             - tools/hogli-commands/hogli_commands/quarantine/**
             - .github/workflows/test-quarantine.yml
             - .github/actions/setup-uv/**
+    # Warn #alerts-devex before an expired entry starts failing `check`. That happens on a
+    # calendar date rather than on a commit, so nothing in a PR signals it coming.
+    schedule:
+        - cron: '37 8 * * *'
+    workflow_dispatch:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -19,6 +24,8 @@ jobs:
     check-quarantine:
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        env:
+            SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -33,7 +40,64 @@ jobs:
                   enable-cache: false
 
             - name: Check quarantine file
+              if: github.event_name == 'pull_request'
               # Same as `hogli test:quarantine check`, without installing the dev
               # environment: the quarantine core is stdlib-only and the CLI needs
               # only click, so quarantine PRs stay decoupled from lockfile health.
               run: PYTHONPATH=tools/hogli-commands uv run --no-project --with click python -m hogli_commands.quarantine.cli check
+
+            - name: List entries 7 days and 1 day from failing check
+              id: due
+              if: github.event_name != 'pull_request'
+              # Slack rejects a section block over 3000 characters.
+              run: |
+                  delimiter="EOF_$(openssl rand -hex 16)"
+                  {
+                      echo "entries<<$delimiter"
+                      PYTHONPATH=tools/hogli-commands uv run --no-project --with click python -m hogli_commands.quarantine.cli due --in-days 7 --in-days 1 --max-chars 3000
+                      echo "$delimiter"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Notify Slack
+              if: steps.due.outputs.entries != ''
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: ":hourglass_flowing_sand: Test quarantine entries will fail CI soon"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":hourglass_flowing_sand: *Test quarantine entries will fail CI soon.* Remove or re-add each entry in <${{ github.server_url }}/${{ github.repository }}/blob/master/.test_quarantine.json|.test_quarantine.json> before `hogli test:quarantine check` fails on the date shown."
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ${{ toJSON(steps.due.outputs.entries) }}
+
+            # Nobody watches a scheduled run, and a broken alerter otherwise looks the same as nothing being due.
+            - name: Notify Slack on alert failure
+              if: failure() && github.event_name != 'pull_request'
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: ":red_circle: Test quarantine expiry alert failed"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":red_circle: *Test quarantine expiry alert failed.* Entries close to failing `hogli test:quarantine check` may not have been reported."
+                        - type: "actions"
+                          elements:
+                            - type: "button"
+                              text:
+                                type: "plain_text"
+                                text: "View run"
+                              url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

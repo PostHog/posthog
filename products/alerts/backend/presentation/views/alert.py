@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.utils import timezone
 
 import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
@@ -613,7 +614,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         instance = AlertConfiguration.objects.select_for_update().get(pk=instance.pk)
         enabled_changed = "enabled" in validated_data and validated_data["enabled"] != instance.enabled
         resulting_enabled = validated_data.get("enabled", instance.enabled)
-        if enabled_changed and validated_data["enabled"]:
+        enable_now = enabled_changed and validated_data["enabled"]
+        if enable_now:
             apply_enable(instance)
 
         snoozed_until_param = validated_data.pop("snoozed_until", serializers.empty)
@@ -653,14 +655,21 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                     user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
                 )
 
+        evaluation_changed = conditions_or_threshold_changed or any(
+            validated_data.get(field, getattr(instance, field)) != getattr(instance, field)
+            for field in ("condition", "config", "skip_weekend")
+        )
         calculation_interval_changed = (
             "calculation_interval" in validated_data
             and validated_data["calculation_interval"] != instance.calculation_interval
         )
-        if conditions_or_threshold_changed or calculation_interval_changed:
-            if conditions_or_threshold_changed:
+        if enable_now or evaluation_changed or calculation_interval_changed:
+            if evaluation_changed:
                 apply_threshold_change(instance)
-            instance.next_check_at = None
+            # Keep the due timestamp so the scheduler metric can measure a
+            # recheck that remains unhandled. Null is reserved for a brand-new
+            # alert that has never had a scheduling timestamp.
+            instance.next_check_at = timezone.now()
 
         if snooze_changed:
             instance.snoozed_until = snoozed_until

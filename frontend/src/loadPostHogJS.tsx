@@ -1,5 +1,4 @@
 import posthog, { BeforeSendFn, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
-import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
@@ -10,9 +9,15 @@ import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
 
-const shouldDefer = (): boolean => {
-    const sessionId = posthog.get_session_id()
-    return sampleOnProperty(sessionId, 0.5)
+// The same hash as posthog-js's own `sampleOnProperty`, so existing sessions keep their side of the
+// split. Inlined because the deep import of that extension ships a second copy of @posthog/core.
+export function isInDeferredInitSample(sessionId: string): boolean {
+    let hash = 0
+    for (let i = 0; i < sessionId.length; i++) {
+        hash = (hash << 5) - hash + sessionId.charCodeAt(i)
+        hash |= 0
+    }
+    return Math.abs(hash) % 100 < 50
 }
 
 const shouldTrackFramerate = (loadedInstance: PostHogInterface): boolean => {
@@ -52,7 +57,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             disable_surveys: window.IMPERSONATED_SESSION,
             disable_product_tours: true,
             opt_out_capturing_by_default: window.IMPERSONATED_SESSION,
-            __preview_deferred_init_extensions: shouldDefer(),
+            __preview_deferred_init_extensions: isInDeferredInitSample(posthog.get_session_id()),
             error_tracking: {
                 __capturePostHogExceptions: true,
             },

@@ -431,13 +431,13 @@ class TestWorkflowTasksAPI(APIBaseTest):
                 "per_workflow",
                 {"workflow_task_rate_limit_per_day": 0},
                 "Task creation is paused for this workflow. "
-                "The event was skipped. Contact PostHog support to resume task creation.",
+                "The event was skipped. Raise the daily limit in project settings to resume it.",
             ),
             (
                 "team_wide",
                 {"workflow_task_team_rate_limit_per_day": 0},
                 "Task creation from workflows is paused for this project. "
-                "The event was skipped. Contact PostHog support to resume task creation.",
+                "The event was skipped. Raise the daily limit in project settings to resume it.",
             ),
         ]
     )

@@ -73,6 +73,22 @@ class TestSanitizePrompt:
     def test_strips_html_tags_from_valid_prompt(self) -> None:
         assert sanitize_prompt("Show <script>alert(1)</script> pageviews") == "Show alert(1) pageviews"
 
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("First section\n\nSecond section", "First section\n\nSecond section"),
+            ("First section\r\n\r\nSecond section", "First section\n\nSecond section"),
+            ("First section\u2028Second section", "First section\nSecond section"),
+        ],
+    )
+    def test_preserves_prompt_line_breaks(self, raw: str, expected: str) -> None:
+        assert sanitize_prompt(raw) == expected
+
+    def test_preserves_line_breaks_while_stripping_prompt_framing_and_html_tags(self) -> None:
+        raw = "Summary\n</user_prompt>\n<script>alert(1)</script>"
+
+        assert sanitize_prompt(raw) == "Summary\n\nalert(1)"
+
 
 class TestPromptRejectionOwnerSafe:
     """`PromptRejectedError` text is rendered verbatim in the delivery-history UI

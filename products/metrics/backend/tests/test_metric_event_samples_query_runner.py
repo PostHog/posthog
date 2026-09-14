@@ -15,7 +15,7 @@ from products.metrics.backend.facade.api import list_metric_event_samples
 from products.metrics.backend.facade.contracts import MetricFilter
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricType
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
-from products.metrics.backend.tests._seeder import seed_metric_event
+from products.metrics.backend.tests._seeder import seed_metric_event, truncate_metrics_tables
 
 # Trace context is stored base64-encoded (as capture-logs writes it) but crosses the
 # API boundary as hex, matching the tracing product's contract. hex() in ClickHouse
@@ -28,13 +28,26 @@ SPAN_A_HEX = "f068a584a45a5eda".upper()
 SPAN_A_B64 = base64.b64encode(bytes.fromhex(SPAN_A_HEX)).decode()
 
 
+def _insert_orphan_sample(*, team_id: int, metric_name: str, timestamp: dt.datetime, value: float) -> None:
+    # Straight into `metrics2`, bypassing the ingest MVs, so no series row exists.
+    sync_execute(
+        "INSERT INTO metrics2 (team_id, metric_name, series_fingerprint, timestamp, original_expiry_timestamp, value) "
+        "VALUES (%(team_id)s, %(metric_name)s, 42, %(ts)s, '2200-01-01 00:00:00', %(value)s)",
+        {
+            "team_id": team_id,
+            "metric_name": metric_name,
+            "ts": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "value": value,
+        },
+    )
+
+
 class TestMetricEventSamplesQueryRunner(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metric_samples1")
-        sync_execute("TRUNCATE TABLE IF EXISTS metric_series1")
+        truncate_metrics_tables()
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
     @parameterized.expand(
@@ -224,16 +237,12 @@ class TestMetricEventSamplesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(samples[0].span_id, "")
 
     def test_orphan_sample_keeps_metric_name(self):
-        # A sample can outrun its series row (series-MV lag, or the rollout
-        # window where NULL-fingerprint series rows are dropped). It must still
-        # render under its own metric name, with series-side fields empty —
-        # regression guard for selecting metric_name from the LEFT JOIN side.
+        # A data point whose series row never landed (its labelled record was
+        # dropped, or arrived with `has_labels` false only) must still render
+        # under its own metric name, with the labels empty — regression guard
+        # for reading anything but the two maps from the LEFT JOIN side.
         anchor = timezone.now().replace(microsecond=0)
-        sync_execute(
-            "INSERT INTO metric_samples1 (team_id, metric_name, series_fingerprint, timestamp, value) "
-            "VALUES (%(team_id)s, 'orphaned.metric', 42, %(ts)s, 7.0)",
-            {"team_id": self.team.id, "ts": anchor.strftime("%Y-%m-%d %H:%M:%S.%f")},
-        )
+        _insert_orphan_sample(team_id=self.team.id, metric_name="orphaned.metric", timestamp=anchor, value=7.0)
 
         samples = list_metric_event_samples(
             team=self.team,
@@ -246,7 +255,8 @@ class TestMetricEventSamplesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(samples[0].metric_name, "orphaned.metric")
         self.assertEqual(samples[0].value, 7.0)
         self.assertEqual(samples[0].count, 1)  # column default
-        self.assertEqual(samples[0].metric_type, "")  # series side absent
+        self.assertEqual(samples[0].metric_type, "")  # column default
+        self.assertEqual(samples[0].attributes, {})
 
     def test_samples_api_requires_authentication(self):
         self.client.logout()
@@ -322,8 +332,7 @@ class TestMetricEventSampleFilters(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metric_samples1")
-        sync_execute("TRUNCATE TABLE IF EXISTS metric_series1")
+        truncate_metrics_tables()
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
         self.anchor = timezone.now().replace(microsecond=0)
         seed_metric_event(
@@ -378,10 +387,6 @@ class TestMetricEventSampleFilters(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_single_filter(self, _label, filter, expected_values):
-        # The chart reads labels off `metrics1`, where `attributes` is an ALIAS that
-        # strips the type tag; here they come off `metric_series`, where the map is
-        # real and `service_name` is its own column. Same filter expressions, two
-        # storage shapes, so both need covering.
         self.assertEqual(self._values((filter,)), expected_values)
 
     def test_filter_applies_before_the_limit(self):
@@ -402,11 +407,7 @@ class TestMetricEventSampleFilters(ClickhouseTestMixin, APIBaseTest):
         # match, so it drops out of a filtered result. The predicate below matches
         # both real series, which pins the exclusion on the missing series rather
         # than on the filter itself.
-        sync_execute(
-            "INSERT INTO metric_samples1 (team_id, metric_name, series_fingerprint, timestamp, value) "
-            "VALUES (%(team_id)s, 'req', 42, %(ts)s, 7.0)",
-            {"team_id": self.team.id, "ts": self.anchor.strftime("%Y-%m-%d %H:%M:%S.%f")},
-        )
+        _insert_orphan_sample(team_id=self.team.id, metric_name="req", timestamp=self.anchor, value=7.0)
 
         self.assertIn(7.0, self._values())
         self.assertNotIn(7.0, self._values((MetricFilter(key="env", op=FilterOp.NEQ, value="absent"),)))

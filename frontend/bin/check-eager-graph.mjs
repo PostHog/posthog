@@ -23,24 +23,24 @@ const failForbiddenHits = process.argv.includes('--fail-forbidden-hits')
 // The eager graph is everything a root actually SHIPS on the critical path — the bytes a
 // browser downloads and parses before that surface is interactive. It is measured from the
 // esbuild OUTPUT chunks: the root's entry chunk plus every chunk reachable through static
-// (import-statement) chunk edges, plus each visited chunk's attached stylesheet (cssBundle,
-// which is downloaded before render). Lazy (dynamic-import) chunks are excluded, and tree-shaken
+// (import-statement) chunk edges, plus the one stylesheet the page links (see `linkedStylesheet`;
+// it is downloaded before render). Lazy (dynamic-import) chunks are excluded, and tree-shaken
 // code is already gone from the output — so a side-effect-free re-export barrel only costs
 // what its used exports actually ship, not its whole surface (the earlier input-graph metric
 // counted the whole barrel and mistook reachability for shipped weight).
 // Total dist size can't see this regression class (a fake-lazy import moves no total bytes
 // but shifts them onto the eager path), which is why this check exists.
 //
-// Budgets are eager output bytes (shipped JS + eager CSS, minified).
+// Budgets are eager output bytes (shipped JS + the linked stylesheet, minified).
 // Ratchet policy: when a bundle-splitting win lands, lower the budget to lock it in;
 // raise a budget only as a conscious, reviewed decision in the PR that needs it.
 const ROOTS = [
     {
         root: 'src/index.tsx',
         label: 'entry (logged-out pages, app bootstrap)',
-        // 2026-07-01: 3.75 MiB eager output (2.73 MiB JS + 1.02 MiB eager CSS, 21 chunks).
+        // 2026-09-11: 1.54 MiB eager output (0.18 MiB JS + the 1.36 MiB linked stylesheet, 22 files).
         // ~20% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
-        budgetBytes: 4_725_000,
+        budgetBytes: 1_930_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
@@ -67,26 +67,31 @@ const ROOTS = [
         root: ['src/index.tsx', 'src/scenes/App.tsx', 'src/scenes/bootApp.ts'],
         label: 'logged-out boot: index + App + bootApp (preloaded by every page, including /login)',
         // The backend preloads the App closure for logged-out pages too (preload-manifest.json
-        // `js`), so this is the whole JS cost of /login. 2026-09-03: 5.14 MiB eager output = 2.55 MiB
-        // JS (37 chunks) + the three entries' stylesheets (2.60 MiB, of which only index's is linked
-        // at runtime; the others are esbuild's per-entry copies). Before this stack the JS alone was
-        // 7.5 MiB. ~15% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
-        budgetBytes: 5_900_000,
+        // `js`), so this is the whole JS cost of /login. 2026-09-11: 3.51 MiB eager output = 2.14 MiB
+        // JS (608 files) + the 1.36 MiB linked stylesheet.
+        // ~15% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
+        budgetBytes: 4_225_000,
         forbidden: [
             'node_modules/monaco-editor/',
             // Authenticated-only code. Either of these on the App path means a component that
             // logged-out pages render has grown a static import into the logged-in app.
             'src/layout/navigation-3000/navigationLogic.tsx',
             'src/scenes/dashboard/dashboardLogic.tsx',
+            // Nothing a logged-out page renders shows markdown, rich text or a code block; a hit means a
+            // PostHog AI tool card component became a static import.
+            'src/lib/lemon-ui/LemonMarkdown/',
+            'src/lib/components/RichContentEditor/',
+            'src/lib/components/CodeSnippet/',
+            // The taxonomy JSON is a quarter-MiB lookup table for the property editors, not for /login.
+            'src/taxonomy/core-filter-definitions-by-group.json',
         ],
     },
     {
         root: 'src/scenes/AuthenticatedShell.tsx',
         label: 'authenticated shell (every logged-in page)',
-        // 2026-09-03: 7.64 MiB eager output after moving DASHBOARD_WIDGET_PREVIEWS out of the
-        // widget catalog and importing MathAvailability from ActionFilterRow/types instead of the
-        // component. ~15% headroom so routine churn doesn't trip the warn.
-        budgetBytes: 9_200_000,
+        // 2026-09-11: 8.27 MiB eager output = 6.91 MiB JS (2688 files) + the 1.36 MiB linked
+        // stylesheet. ~15% headroom so routine churn doesn't trip the warn.
+        budgetBytes: 9_970_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
@@ -260,6 +265,10 @@ function eagerChunkClosure(entry) {
     return seen
 }
 
+// The page links only the src/index.tsx entry's stylesheet (writePreloadManifest in build.mjs). esbuild
+// gives other chunks a `cssBundle` too, but the browser never downloads those files.
+const linkedStylesheet = outputs[entryChunk('src/index.tsx')]?.cssBundle
+
 const summaryLines = ['## Eager graph check', '', '| Root | Eager size | Budget | Files |', '| --- | --- | --- | --- |']
 const report = { roots: [], errors: [], warnings: [] }
 
@@ -312,24 +321,18 @@ for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
     // Attribute each input module the bytes it actually contributes to the eager chunks —
     // tree-shaken modules contribute nothing, so a barrel only counts its used exports.
     const eagerBytesByFile = new Map()
-    const cssBundlesSeen = new Set()
     let totalBytes = 0
     for (const chunk of eagerChunks) {
         totalBytes += outputs[chunk].bytes
-        // esbuild attaches a JS chunk's stylesheet via `cssBundle`, not an `imports` edge, so
-        // the chunk walk never reaches it — but it's downloaded before render, so count each
-        // distinct eager stylesheet once. Without this, adding a large eager .scss moves real
-        // bytes onto the critical path while the metric stays flat.
-        const cssBundle = outputs[chunk].cssBundle
-        if (cssBundle && !cssBundlesSeen.has(cssBundle)) {
-            cssBundlesSeen.add(cssBundle)
-            totalBytes += outputs[cssBundle]?.bytes || 0
-        }
         for (const [file, info] of Object.entries(outputs[chunk].inputs || {})) {
             if (info.bytesInOutput > 0) {
                 eagerBytesByFile.set(file, (eagerBytesByFile.get(file) || 0) + info.bytesInOutput)
             }
         }
+    }
+    // `cssBundle` is not an `imports` edge, so the chunk walk never reaches the sheet every page links.
+    if (linkedStylesheet) {
+        totalBytes += outputs[linkedStylesheet].bytes
     }
     const largest = [...eagerBytesByFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15)
 

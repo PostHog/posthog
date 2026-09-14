@@ -301,7 +301,7 @@ jobs:
                   - name: Check formatting with prettier
                     run: pnpm --filter=@posthog/nodejs format:check
 
-                  - name: Lint with ESLint
+                  - name: Lint with Oxlint
                     run: pnpm --filter=@posthog/nodejs lint
 
                   # Guards the cdp/ingestion separation: fails on new lane->lane or shared->lane

@@ -221,6 +221,25 @@ async def _create_alert_check(
 
 
 @pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+class TestRetrieveDueAlerts:
+    @time_machine.travel("2026-09-09T12:00:00Z", tick=False)
+    async def test_records_metrics_for_due_alerts(self, ateam) -> None:
+        due_alert = await _create_alert(ateam, next_check_at=datetime(2026, 9, 9, 11, 0, tzinfo=UTC))
+        await _create_alert(ateam, next_check_at=datetime(2026, 9, 9, 13, 0, tzinfo=UTC))
+
+        with patch("posthog.temporal.alerts.activities.record_due_insight_alert_metrics") as record_metrics:
+            result = await ActivityEnvironment().run(retrieve_due_alerts)
+
+        assert [item.alert_id for item in result] == [str(due_alert.id)]
+        record_metrics.assert_called_once()
+        due_count, oldest_due_at, polled_at = record_metrics.call_args.args
+        assert due_count == 1
+        assert oldest_due_at == datetime(2026, 9, 9, 11, 0, tzinfo=UTC)
+        assert polled_at == datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
+
+
+@pytest.mark.asyncio
 @pytest.mark.django_db
 class TestPrepareAlert:
     async def test_skip_when_alert_not_found(self) -> None:

@@ -90,7 +90,6 @@ export function ActivityHeader({
 }): JSX.Element {
     const isPending = status === 'pending'
     const isInProgress = status === 'in_progress'
-    const isFailed = status === 'failed'
 
     const titleNode = (
         <div className="min-w-0 min-h-5 flex items-center">
@@ -118,8 +117,8 @@ export function ActivityHeader({
                 // transitions (and full-document style recalcs) whenever the thread is hovered.
                 'group/activity-header transition-colors duration-500 flex items-center gap-2 px-2 min-h-8 select-none min-w-0',
                 isPending && 'text-muted',
-                isFailed && 'text-danger',
-                !isInProgress && !isPending && !isFailed && 'text-default',
+                // A failed row keeps its title readable; the icon and status word carry the red.
+                !isInProgress && !isPending && 'text-default',
                 hasDetails ? 'cursor-pointer' : 'cursor-default',
                 hasDetails && 'rounded hover:bg-fill-button-tertiary-hover',
                 hasDetails && isDetailsExpanded && 'bg-fill-button-tertiary-active'
