@@ -66,6 +66,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
@@ -131,6 +132,8 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_users_by_uuid,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
+from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
+from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.serializers import (
@@ -150,6 +153,9 @@ from products.signals.backend.serializers import (
     SignalReportArtefactWriteResponseSerializer,
     SignalReportArtefactWriteSerializer,
     SignalReportClaimSerializer,
+    SignalReportListSerializer,
+    SignalReportMetricRefreshRequestSerializer,
+    SignalReportMetricRefreshResponseSerializer,
     SignalReportRefundSerializer,
     SignalReportSerializer,
     SignalSourceConfigSerializer,
@@ -188,6 +194,7 @@ from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
     SignalReportReingestionWorkflowInputs,
 )
+from products.signals.backend.throttles import ReportMetricRefreshThrottle
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -906,12 +913,18 @@ class SignalReportViewSet(
         "id": "id",
     }
 
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self.action == "list":
+            return SignalReportListSerializer
+        return SignalReportSerializer
+
     def safely_get_queryset(self, queryset):
-        if self.action in {"viewed", "pr_ci_statuses"}:
-            # Neither action renders a report, so both skip the rendering annotations and prefetches
-            # every other action's serializer needs. `viewed` is passive telemetry fired right after
-            # the detail request that already rendered the report, and `pr_ci_statuses` only needs to
-            # know which of the requested ids are this team's.
+        if self.action in {"viewed", "pr_ci_statuses", "refresh_metrics"}:
+            # None of these actions renders a report, so they skip the rendering annotations and
+            # prefetches every other action's serializer needs. `viewed` is passive telemetry fired
+            # right after the detail request that already rendered the report, `pr_ci_statuses` only
+            # needs to know which of the requested ids are this team's, and `refresh_metrics` returns
+            # metric snapshots alone.
             qs = queryset.filter(team=self.team)
             return self._apply_signal_report_status_filter(qs)
         if self.action in {"retrieve", "signals"}:
@@ -2400,6 +2413,59 @@ class SignalReportViewSet(
                 action_type=SignalReportAction.ActionType.VIEW,
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # `list` names the viewset's own action inside the class body, so the annotations use `Sequence`.
+    def _refreshable_reports_in_request_order(self, requested_ids: Sequence[str]) -> Sequence[SignalReport]:
+        by_id = {
+            str(report.id): report
+            for report in self.get_queryset().filter(id__in=requested_ids, status__in=CURRENT_REPORT_STATUSES)
+        }
+        return [by_id[report_id] for report_id in dict.fromkeys(requested_ids) if report_id in by_id]
+
+    @validated_request(
+        request_serializer=SignalReportMetricRefreshRequestSerializer,
+        responses={200: OpenApiResponse(response=SignalReportMetricRefreshResponseSerializer)},
+        summary="Refresh the saved metric snapshots of the reports on screen",
+        description=(
+            "Re-run the stored metric queries of the given reports through the query cache and save "
+            "the newest values as their snapshots. Call it when a person opens the inbox list or a "
+            "report, with the ids on screen. Report titles and summaries are point-in-time text and "
+            "never change here; only value, value_at, and series do, and legacy comparisons are cleared. "
+            "A snapshot measured in the last "
+            "15 minutes is served as is. Each call runs at most 40 source series inside a 20-second "
+            "budget, row metrics first; the rest keep their previous snapshot until the next open. "
+            "Returns snapshot-only metrics for every requested report the caller can read whose status "
+            "is ready or pending_input. A report in any other status is left out of the response, and "
+            "its saved snapshots stay as they are."
+        ),
+        operation_id="signals_reports_refresh_metrics_create",
+    )
+    # task:read, like `viewed`: refreshing a number a person is looking at is part of reading it,
+    # and the write is a cache of query output rather than report content.
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="refresh_metrics",
+        required_scopes=["task:read"],
+        throttle_classes=[
+            ReportMetricRefreshThrottle,
+            ClickHouseBurstRateThrottle,
+            ClickHouseSustainedRateThrottle,
+        ],
+    )
+    def refresh_metrics(self, request: ValidatedRequest, **kwargs) -> Response:
+        requested_ids = [str(report_id) for report_id in request.validated_data["report_ids"]]
+        reports = self._refreshable_reports_in_request_order(requested_ids)
+        policy = ReportMetricAccessPolicy(request=request, team=self.team)
+        refresh_report_metric_snapshots(team=self.team, reports=reports, policy=policy)
+        # A refresh runs its queries between the read above and each compare-and-swap, and an edit
+        # landing in that window wins. Read the rows back so the response carries what the edit
+        # left rather than the state this request measured against.
+        serializer = SignalReportMetricRefreshResponseSerializer(
+            {"reports": self._refreshable_reports_in_request_order(requested_ids)},
+            context=self.get_serializer_context(),
+        )
+        return Response(serializer.data)
 
     def _forward_dismissal_note(
         self,

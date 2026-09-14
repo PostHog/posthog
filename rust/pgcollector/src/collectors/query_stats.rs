@@ -64,7 +64,11 @@ impl Collector for QueryStats {
         } else {
             ("pg_stat_statements(false)", "")
         };
-        let cols = statements::pgss_columns(cx.pg_version);
+        let ext = statements::pgss_version(cx);
+        let bundled = statements::bundled_pgss_version(cx.pg_version);
+        let report_stale = ext < bundled && !extra.warned_stale;
+        extra.warned_stale = ext < bundled;
+        let cols = statements::pgss_columns(ext);
         let src = Source {
             name: "query_stats",
             aux_name: "queries",
@@ -83,7 +87,20 @@ impl Collector for QueryStats {
             ),
             text_key: &["queryid", "datname"],
         };
-        statements::collect(&src, cx, prev, extra, true).await
+        let (mut snap, state) = statements::collect(&src, cx, prev, extra, true).await?;
+        if report_stale {
+            let installed = format!("{}.{}", ext.0, ext.1);
+            let bundled = format!("{}.{}", bundled.0, bundled.1);
+            tracing::warn!(server = cx.target.server_id, instance = cx.target.instance, installed, bundled,
+                "pg_stat_statements is behind the server's bundled version; run ALTER EXTENSION pg_stat_statements UPDATE in the maintenance database");
+            snap.events.push(Event {
+                kind: "pgss_stale".into(),
+                subject: cx.target.instance.clone(),
+                before: Some(serde_json::json!({ "extversion": installed })),
+                after: Some(serde_json::json!({ "extversion": bundled, "hint": "run ALTER EXTENSION pg_stat_statements UPDATE in the maintenance database; newer columns are skipped until then" })),
+            });
+        }
+        Ok((snap, state))
     }
 }
 

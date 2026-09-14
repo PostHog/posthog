@@ -111,6 +111,7 @@ ActivityScope = Literal[
     "Metric",
     "TableCertification",
     "DataQualityCheck",
+    "DataQualityCheckSchedule",
     "Billing",
     "Loop",
     "StamphogRepoConfig",
@@ -400,6 +401,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
 
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
+    "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
     "AlertConfiguration": [
         "last_checked_at",
         "next_check_at",
@@ -521,6 +523,7 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     "StamphogRepoConfig": [
         # Reverse relation to the repo's review history. The diff would read every pull request row
         # on each settings toggle, and none of it is configuration.

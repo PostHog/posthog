@@ -141,8 +141,9 @@ RUN_LOG_MIRROR_OTLP_BATCHES_TOTAL = Counter(
 
 LOG_APPEND_UNSERIALIZED_TOTAL = Counter(
     "posthog_tasks_log_append_unserialized_total",
-    "Task-run log appends that ran without the per-object lock (redis unavailable, or contention "
-    "past the blocking timeout), where a concurrent append can still drop entries.",
+    "Task-run log appends that did not hold the per-object lock: refused on contention past the wait "
+    "(the agent retries them) or run unserialized while redis is unavailable.",
+    labelnames=["reason"],
 )
 
 PREWARMED_ACTIVATED_TOTAL = Counter(

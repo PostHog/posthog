@@ -17,6 +17,7 @@ import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
+import { PostHogApiError } from '@/lib/errors'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
@@ -162,6 +163,53 @@ describe('ToolExecutor', () => {
             expect(text).toContain('execute-sql')
             expect(text).toContain('organization-get')
             expect(text).not.toContain('feature-flag-get-all')
+        })
+
+        // Cursor and ChatGPT get the per-tool roster, so they call the skill read
+        // tools here rather than through exec. Left on the generic error shape, the
+        // same miss reads as a service outage for them and as a plain answer for
+        // everyone else — the divergence this rewrite exists to remove.
+        it.each([
+            [
+                'skill-get',
+                { skill_name: 'missing-skill' },
+                '{"detail":"Skill with name \'missing-skill\' not found."}',
+                'No skill named "missing-skill" in this project\'s skills store.',
+            ],
+            [
+                'skill-file-get',
+                { skill_name: 'real-skill', file_path: 'refs/guide.md' },
+                '{"detail":"File \'refs/guide.md\' not found in skill \'real-skill\'."}',
+                'No file "refs/guide.md" in the skill "real-skill".',
+            ],
+        ])('answers a %s miss with the plain message in tools mode', async (name, args, body, expected) => {
+            const state = makeState([{ name }], {
+                context: {
+                    api: {
+                        request: vi.fn().mockRejectedValue(
+                            new PostHogApiError({
+                                status: 404,
+                                statusText: 'Not Found',
+                                body,
+                                url: `https://internal.example.com/api/projects/1/llm_skills/name/${args.skill_name}/`,
+                                method: 'GET',
+                            })
+                        ),
+                    },
+                    cache: {},
+                    env: {},
+                    stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+                    sessionManager: {},
+                    getDistinctId: vi.fn(),
+                    trackEvent: vi.fn(),
+                } as any,
+            })
+
+            const result = (await executor.handleToolCall({ name, arguments: args }, state)) as any
+
+            expect(result.isError).toBeFalsy()
+            expect(result.content[0].text).toContain(expected)
+            expect(result.content[0].text).not.toContain('Request failed')
         })
     })
 

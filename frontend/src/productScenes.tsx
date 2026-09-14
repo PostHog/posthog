@@ -29,7 +29,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     AIObservabilityEvaluationTemplates: () =>
         import('../../products/ai_observability/frontend/evaluations/EvaluationTemplates'),
     AIObservabilityTags: () => import('../../products/ai_observability/frontend/tags/AIObservabilityTagsScene'),
-    AIObservabilityTag: () => import('../../products/ai_observability/frontend/tags/AIObservabilityTag'),
+    AIObservabilityTag: () => import('../../products/ai_observability/frontend/tags/AIObservabilityTagScene'),
     AIObservabilityPrompts: () => import('../../products/ai_observability/frontend/prompts/LLMPromptsScene'),
     AIObservabilityPrompt: () => import('../../products/ai_observability/frontend/prompts/LLMPromptScene'),
     AIObservabilityClusters: () =>
@@ -37,6 +37,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     AIObservabilityCluster: () =>
         import('../../products/ai_observability/frontend/clusters/AIObservabilityClusterScene'),
     Alerts: () => import('../../products/alerts/frontend/AlertsScene'),
+    Annotations: () => import('../../products/annotations/frontend/pages/Annotations'),
     BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/BusinessKnowledgeScene'),
     BusinessKnowledgeSettings: () =>
         import('../../products/business_knowledge/frontend/scenes/BusinessKnowledgeSettingsScene'),
@@ -97,6 +98,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     FeatureFlagsStaffTools: () => import('../../products/feature_flags/frontend/staff/FeatureFlagsStaffToolsScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
+    Group: () => import('../../products/groups/frontend/pages/Group'),
+    Groups: () => import('../../products/groups/frontend/pages/Groups'),
+    GroupsNew: () => import('../../products/groups/frontend/pages/GroupsNew'),
     IdentityMatching: () => import('../../products/growth/frontend/IdentityMatchingScene'),
     AIEnrichment: () => import('../../products/growth/frontend/aiEnrichment/AIEnrichmentScene'),
     LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),

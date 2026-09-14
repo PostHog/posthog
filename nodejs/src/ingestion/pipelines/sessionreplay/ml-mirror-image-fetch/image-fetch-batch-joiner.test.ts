@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { register } from 'prom-client'
 
 import { IMAGE_FETCH_BATCH_JOIN_TIMEOUT_MS, ImageFetchBatchJoiner } from './image-fetch-batch-joiner'
 
@@ -23,7 +24,10 @@ function deferred(): { promise: Promise<void>; resolve: () => void; reject: (err
 }
 
 describe('ImageFetchBatchJoiner', () => {
-    beforeEach(() => jest.useFakeTimers())
+    beforeEach(() => {
+        jest.useFakeTimers()
+        register.resetMetrics()
+    })
     afterEach(() => jest.useRealTimers())
 
     it.each([2, 16])('joins batches from %i consumers before processing', async (consumerCount) => {
@@ -64,10 +68,23 @@ describe('ImageFetchBatchJoiner', () => {
         const first = joiner.handleBatch([message(0)])
         await jest.advanceTimersByTimeAsync(IMAGE_FETCH_BATCH_JOIN_TIMEOUT_MS)
         const second = joiner.handleBatch([message(1)])
+        const active = register.getSingleMetric('ml_image_fetch_stage_active')!
+        expect((await active.get()).values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ labels: { stage: 'consumer_join' }, value: 1 }),
+                expect.objectContaining({ labels: { stage: 'consumer_process' }, value: 1 }),
+            ])
+        )
         pass.reject(error)
 
         await expect(first).rejects.toBe(error)
         await expect(second).rejects.toBe(error)
+        expect((await active.get()).values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ labels: { stage: 'consumer_join' }, value: 0 }),
+                expect.objectContaining({ labels: { stage: 'consumer_process' }, value: 0 }),
+            ])
+        )
     })
 
     it('does not hold a later partial batch behind active processing', async () => {

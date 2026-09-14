@@ -134,6 +134,7 @@ onlyBuiltDependencies:
 catalog:
     # Kea ecosystem - state management
     kea: ^4.0.0-pre.6
+    kea-disposables: ^1.0.0
     kea-forms: ^3.2.0
     kea-loaders: ^3.1.1
     kea-localstorage: ^3.1.0

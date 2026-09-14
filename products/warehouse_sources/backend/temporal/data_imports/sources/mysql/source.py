@@ -179,6 +179,23 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                             SourceFieldSelectConfigOption(label="No", value="false"),
                         ],
                     ),
+                    SourceFieldSelectConfig(
+                        name="verify_server_certificate",
+                        label="Verify the server certificate?",
+                        required=True,
+                        defaultValue="false",
+                        converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
+                        caption=(
+                            "Check that your database's TLS certificate comes from a trusted authority. "
+                            "A self-signed certificate or a private authority does not pass, so leave this off "
+                            "if you use one. Through an SSH tunnel we check the certificate chain but not the "
+                            "hostname, because the tunnel presents your database on a local address."
+                        ),
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="true"),
+                            SourceFieldSelectConfigOption(label="No", value="false"),
+                        ],
+                    ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),

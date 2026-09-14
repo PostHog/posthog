@@ -34,18 +34,26 @@ from products.signals.backend.report_generation.research import (
     run_multi_turn_research,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_metrics import ReportMetric
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_MCP_SCOPES,
     RunAgenticReportInput,
+    _load_previous_research,
     _parse_artefact_content,
     _parse_stored_charts,
+    _parse_stored_metrics,
     run_agentic_report_activity,
 )
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
     select_repository_activity,
 )
-from products.signals.backend.temporal.summary import MarkReportReadyInput, mark_report_ready_activity
+from products.signals.backend.temporal.summary import (
+    MarkReportPendingInput,
+    MarkReportReadyInput,
+    mark_report_pending_input_activity,
+    mark_report_ready_activity,
+)
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.models import Task  # tach-ignore
 
@@ -129,15 +137,49 @@ def _build_research_output_with_duplicate_chart_ids() -> ReportResearchOutput:
     )
 
 
+def _metric(metric_id: str = "affected-users") -> ReportMetric:
+    return ReportMetric(
+        metric_id=metric_id,
+        title="Affected users",
+        kind="affected_users",
+        role="primary",
+        value=42,
+        value_at=datetime.now(UTC),
+        value_format="count",
+        unit="users",
+        query={
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "dateRange": {"date_from": "-30d"},
+                "series": [{"kind": "EventsNode", "event": "$exception", "math": "dau"}],
+            },
+        },
+    )
+
+
+def _build_research_output_with_metric() -> ReportResearchOutput:
+    return _build_research_output().model_copy(update={"metrics": [_metric()]})
+
+
+def _build_research_output_with_duplicate_metric_ids() -> ReportResearchOutput:
+    duplicate = _metric()
+    return _build_research_output().model_copy(
+        update={"metrics": [duplicate, duplicate.model_copy(update={"role": "supporting"})]}
+    )
+
+
 _EXISTING_CHART = {
     "chart_id": "existing",
     "title": "Existing chart",
     "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
 }
 
+_EXISTING_METRIC = _metric("existing-affected-users").model_dump(mode="json")
+
 
 async def _run_activity_with_output(
-    monkeypatch, ateam, report, output, *, charts_enabled=True, repo_selection_as_of=None
+    monkeypatch, ateam, report, output, *, charts_enabled=True, metrics_enabled=True, repo_selection_as_of=None
 ):
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
@@ -146,6 +188,10 @@ async def _run_activity_with_output(
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report._team_report_charts_enabled",
         lambda team_id: charts_enabled,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report._team_report_metrics_enabled",
+        lambda team_id: metrics_enabled,
     )
 
     async def fake_run_multi_turn_research(*args, **kwargs):
@@ -189,6 +235,65 @@ def _build_signals() -> list[SignalData]:
             timestamp=now,
         ),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_load_previous_research_ignores_report_from_another_team(ateam, aorganization):
+    other_team = await database_sync_to_async(Team.objects.create)(
+        organization=aorganization,
+        name=f"SignalsOtherTeam-{random.randint(1, 99999)}",
+    )
+    other_report = await database_sync_to_async(SignalReport.objects.create)(
+        team=other_team,
+        title="Another team's report",
+        summary="Private research from another team.",
+    )
+
+    assert await _load_previous_research(ateam.id, str(other_report.id)) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_load_previous_research_ignores_artefacts_from_another_team(ateam, aorganization):
+    other_team = await database_sync_to_async(Team.objects.create)(
+        organization=aorganization,
+        name=f"SignalsOtherTeam-{random.randint(1, 99999)}",
+    )
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        title="Current team's report",
+        summary="Current team's summary.",
+    )
+    finding = SignalFinding(
+        signal_id="foreign-signal",
+        relevant_code_paths=[],
+        data_queried="Private research from another team.",
+        verified=True,
+    )
+    actionability = ActionabilityAssessment(
+        explanation="Another team's assessment.",
+        actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+        already_addressed=False,
+    )
+    await database_sync_to_async(SignalReportArtefact.objects.bulk_create)(
+        [
+            SignalReportArtefact(
+                team=other_team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING,
+                content=finding.model_dump_json(),
+            ),
+            SignalReportArtefact(
+                team=other_team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                content=actionability.model_dump_json(),
+            ),
+        ]
+    )
+
+    assert await _load_previous_research(ateam.id, str(report.id)) is None
 
 
 @pytest.mark.asyncio
@@ -677,6 +782,41 @@ async def test_run_agentic_report_activity_resolves_charts_payload(
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
+    "name,metrics_enabled,output_factory,expected",
+    [
+        ("enabled_non_empty", True, _build_research_output_with_metric, ["affected-users"]),
+        ("disabled", False, _build_research_output_with_metric, None),
+        # Metrics are the presentation step's whole authored set. Empty removes stale metrics from
+        # the report, while feature-disabled remains the replay-safe preserve signal above.
+        ("enabled_empty", True, _build_research_output, []),
+        ("enabled_cap_bust", True, _build_research_output_with_duplicate_metric_ids, []),
+    ],
+)
+async def test_run_agentic_report_activity_resolves_metrics_payload(
+    monkeypatch, ateam, name, metrics_enabled, output_factory, expected
+):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
+    )
+
+    result = await _run_activity_with_output(
+        monkeypatch,
+        ateam,
+        report,
+        output_factory(),
+        charts_enabled=True,
+        metrics_enabled=metrics_enabled,
+    )
+
+    if expected is None:
+        assert result.metrics is None
+    else:
+        assert [metric["metric_id"] for metric in result.metrics or []] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
     "name,charts,expected",
     [
         # A resolved set replaces the column, in the same transaction as the ready transition.
@@ -716,6 +856,75 @@ async def test_mark_report_ready_activity_applies_charts(ateam, name, charts, ex
         assert stored == [_EXISTING_CHART]
     else:
         assert stored == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "name,metrics,expected",
+    [
+        ("replace", [_metric("new-affected-users").model_dump(mode="json")], "replaced"),
+        ("leave_alone", None, "kept"),
+        ("clear", [], "cleared"),
+    ],
+)
+async def test_mark_report_ready_activity_applies_metrics(ateam, name, metrics, expected):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+        metrics=[_EXISTING_METRIC],
+    )
+
+    await mark_report_ready_activity(
+        MarkReportReadyInput(
+            team_id=ateam.id,
+            report_id=str(report.id),
+            title="Title",
+            summary="Summary",
+            processed_signal_count=2,
+            metrics=metrics,
+        )
+    )
+
+    stored = await database_sync_to_async(lambda: SignalReport.objects.get(id=report.id).metrics)()
+    if expected == "replaced":
+        assert [metric["metric_id"] for metric in stored] == ["new-affected-users"]
+    elif expected == "kept":
+        assert stored == [_EXISTING_METRIC]
+    else:
+        assert stored == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_mark_report_pending_input_activity_applies_metrics_with_draft_prose(ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+        metrics=[_EXISTING_METRIC],
+    )
+    new_metric = _metric("pending-affected-users").model_dump(mode="json")
+
+    await mark_report_pending_input_activity(
+        MarkReportPendingInput(
+            team_id=ateam.id,
+            report_id=str(report.id),
+            title="Draft title",
+            summary="Draft summary",
+            reason="Needs input",
+            metrics=[new_metric],
+        )
+    )
+
+    stored = await database_sync_to_async(lambda: SignalReport.objects.get(id=report.id))()
+    assert stored.status == SignalReport.Status.PENDING_INPUT
+    assert stored.title == "Draft title"
+    assert stored.summary == "Draft summary"
+    assert [metric["metric_id"] for metric in stored.metrics] == ["pending-affected-users"]
 
 
 @pytest.mark.asyncio
@@ -805,6 +1014,13 @@ def test_parse_stored_charts_skips_bad_rows_without_raising():
     assert [chart.chart_id for chart in _parse_stored_charts([valid, invalid], "report-1")] == ["signups-drop"]
     # A non-list (a legacy null / bad column value) is treated as no charts rather than raising.
     assert _parse_stored_charts(None, "report-1") == []
+
+
+def test_parse_stored_metrics_skips_bad_rows_without_raising():
+    valid = _metric().model_dump(mode="json")
+    invalid = {"metric_id": "missing-measurement"}
+    assert [metric.metric_id for metric in _parse_stored_metrics([valid, invalid], "report-1")] == ["affected-users"]
+    assert _parse_stored_metrics(None, "report-1") == []
 
 
 def _actionability(explanation: str) -> ActionabilityAssessment:

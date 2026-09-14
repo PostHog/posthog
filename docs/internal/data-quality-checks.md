@@ -47,3 +47,13 @@ The overview filters readable subject identities in SQL before scanning definiti
 Notification recipient checks retain the existing global warehouse-resource policy. A specific object grant alone does not expand notification delivery eligibility. A subject that no longer resolves sends no notification. Background dependency pinning still resolves references individually; batching that cross-product workflow is separate work.
 
 Catalog access is a project permission resource. Notification visibility follows that permission, including after access is revoked.
+
+## Metric schedules
+
+Each metric with checks has one Temporal Schedule in its canonical project. The first check creates an enabled daily schedule after the check transaction commits and starts an initial run. Available intervals are one hour, six hours, twelve hours, one day, and one week. A deterministic offset spreads recurring executions across each interval.
+
+Temporal owns the interval, pause state, and next execution time. The schedule endpoint reads and updates Temporal directly. Paused schedules return `next_run_at: null`. An unavailable schedule service returns HTTP 503; reload the schedule before retrying an update whose outcome is unknown. Last scheduled run information comes from the caller's readable suite history. Manual runs do not change it.
+
+Scheduled executions skip an occurrence when the previous scheduled workflow is still running. Temporal catches up missed occurrences within 15 minutes and does not pause a schedule after a failed run. Manual runs keep their existing behavior. A scheduled activity rechecks schedule existence and pause state before selecting current enabled checks. An executing check can finish after the schedule is paused. Feature flags, subject existence, and execution permissions are checked in activities.
+
+A reconciler runs every 15 minutes, processing bounded pages of checks and product-filtered Temporal schedules. It repairs missing schedules without changing existing intervals or pause states, and deletes schedules whose metrics no longer exist. Deleting or disabling all checks retains the metric's schedule preferences and executes no check queries. Deleted metrics stop producing check queries immediately, even if schedule cleanup needs a retry.

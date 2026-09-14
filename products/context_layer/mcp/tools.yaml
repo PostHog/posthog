@@ -36,6 +36,12 @@ tools:
     context-layer-pages-update:
         operation: context_layer_pages_update
         enabled: false
+    context-layer-proposals-apply-create:
+        operation: context_layer_proposals_apply_create
+        enabled: false
+    context-layer-proposals-list:
+        operation: context_layer_proposals_list
+        enabled: false
     context-layer-status-retrieve:
         operation: context_layer_status_retrieve
         enabled: false
@@ -139,6 +145,24 @@ tools:
         title: Resolve this task's channel context page
         description: Resolve the current task's channel id to its context wiki page path for an unattended task run.
         feature_flag: context-layer
+    task-context-wiki-page-propose:
+        operation: context_layer_agent_proposals_create
+        enabled: true
+        scopes:
+            - task:write
+            - internal_run:read
+            - context_layer_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Suggest a shared wiki edit
+        description: >
+            Propose a correction to an existing shared Markdown page under org/, areas/, or decisions/. Read it first
+            and pass head_sha as base_head. This stores an immutable suggestion, not a published edit. Ask the user to
+            open Context > Suggested edits, review the diff, and apply it. Tasks cannot approve suggestions or publish
+            bundles. Shared pages cannot include channel_id frontmatter.
+        feature_flag: context-layer
     task-context-wiki-page-retrieve:
         operation: context_layer_agent_pages_retrieve
         enabled: true
@@ -164,5 +188,8 @@ tools:
             destructive: true
             idempotent: false
         title: Update this task's context wiki page
-        description: Replace the current task channel's context wiki page using base_head concurrency.
+        description: >
+            Replace the current task channel's context page. Read it first and pass head_sha as base_head. Shared pages
+            require task-context-wiki-page-propose and human review. Instruction files, generated indexes, scripts, and
+            other channels' pages cannot be edited.
         feature_flag: context-layer

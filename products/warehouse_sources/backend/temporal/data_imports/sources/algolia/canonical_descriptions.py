@@ -109,4 +109,117 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "decision": "Automatic decision on the test outcome, when available.",
         },
     },
+    "conversion_rate": {
+        "description": "Daily conversion rate for tracked searches on the index: conversion events "
+        "divided by tracked searches.",
+        "docs_url": "https://www.algolia.com/doc/rest-api/analytics/#tag/conversions/operation/getConversionRate",
+        "columns": {
+            "date": "Day the metrics cover, in YYYY-MM-DD format.",
+            "rate": "Conversion rate for the day. Null when Algolia received no tracked searches.",
+            "trackedSearchCount": "Number of searches that returned a query ID (click analytics enabled).",
+            "conversionCount": "Number of conversion events attributed to searches on this day.",
+        },
+    },
+    "add_to_cart_rate": {
+        "description": "Daily add-to-cart rate for tracked searches on the index: add-to-cart events divided "
+        "by tracked searches.",
+        "docs_url": "https://www.algolia.com/doc/rest-api/analytics/#tag/conversions/operation/getAddToCartRate",
+        "columns": {
+            "date": "Day the metrics cover, in YYYY-MM-DD format.",
+            "rate": "Add-to-cart rate for the day. Null when Algolia received no tracked searches.",
+            "trackedSearchCount": "Number of searches that returned a query ID (click analytics enabled).",
+            "addToCartCount": "Number of add-to-cart events attributed to searches on this day.",
+        },
+    },
+    "purchase_rate": {
+        "description": "Daily purchase rate for tracked searches on the index: purchase events divided by "
+        "tracked searches.",
+        "docs_url": "https://www.algolia.com/doc/rest-api/analytics/#tag/conversions/operation/getPurchaseRate",
+        "columns": {
+            "date": "Day the metrics cover, in YYYY-MM-DD format.",
+            "rate": "Purchase rate for the day. Null when Algolia received no tracked searches.",
+            "trackedSearchCount": "Number of searches that returned a query ID (click analytics enabled).",
+            "purchaseCount": "Number of purchase events attributed to searches on this day.",
+        },
+    },
+    "revenue": {
+        "description": "Daily revenue attributed to searches on the index, from purchase events. Revenue is the "
+        "event's price multiplied by quantity for each purchased object.",
+        "docs_url": "https://www.algolia.com/doc/rest-api/analytics/#tag/conversions/operation/getRevenue",
+        "columns": {
+            "date": "Day the revenue covers, in YYYY-MM-DD format.",
+            "currencies": "Revenue for the day keyed by currency code, each holding that currency's "
+            "code and revenue amount.",
+        },
+    },
+    "click_through_rate": {
+        "description": "Daily click-through rate for tracked searches on the index: click events divided by "
+        "tracked searches.",
+        "docs_url": "https://www.algolia.com/doc/rest-api/analytics/#tag/clicks/operation/getClickThroughRate",
+        "columns": {
+            "date": "Day the metrics cover, in YYYY-MM-DD format.",
+            "rate": "Click-through rate for the day. Null when there were no queries, 0 when there were "
+            "queries but no click events.",
+            "clickCount": "Number of clicks on search results on this day.",
+            "trackedSearchCount": "Number of searches that returned a query ID (click analytics enabled).",
+        },
+    },
+    "average_click_position": {
+        "description": "Daily average position of clicked search results on the index. A value of 1 means users "
+        "only clicked the first result.",
+        "docs_url": "https://www.algolia.com/doc/rest-api/analytics/#tag/clicks/operation/getAverageClickPosition",
+        "columns": {
+            "date": "Day the metrics cover, in YYYY-MM-DD format.",
+            "average": "Average position of the clicked results. Null until Algolia receives a click event.",
+            "clickCount": "Number of clicks on search results on this day.",
+        },
+    },
+    "users_count": {
+        "description": "Daily count of unique users searching the index. Users are distinguished by their "
+        "user token, or by IP address when no token is sent.",
+        "docs_url": "https://www.algolia.com/doc/rest-api/analytics/#tag/analytics/operation/getUsersCount",
+        "columns": {
+            "date": "Day the count covers, in YYYY-MM-DD format.",
+            "count": "Number of unique users on this day. Daily values do not sum to the period total, "
+            "because a user active on several days counts once per day.",
+        },
+    },
+    "top_filters": {
+        "description": "Filter attributes used most often on the index over the recent period. Only attributes "
+        "listed in the index's attributesForFaceting setting appear here.",
+        "docs_url": "https://www.algolia.com/doc/rest-api/analytics/#tag/filters/operation/getTopFilterAttributes",
+        "columns": {
+            "attribute": "Name of the filter attribute.",
+            "count": "Number of searches that applied a filter on this attribute.",
+        },
+    },
+    "top_filter_values": {
+        "description": "Filter values used most often for each filter attribute on the index over the recent "
+        "period, one row per attribute/operator/value combination.",
+        "docs_url": "https://www.algolia.com/doc/rest-api/analytics/#tag/filters/operation/getTopFilterForAttribute",
+        "columns": {
+            "attribute": "Name of the filter attribute the value belongs to.",
+            "operator": "Character applying the filter, such as ':' for a facet filter or '>' for a numeric filter.",
+            "value": "The filter value.",
+            "count": "Number of searches that applied this attribute, operator and value together.",
+        },
+    },
+    "top_countries": {
+        "description": "Countries with the most searches on the index over the recent period.",
+        "docs_url": "https://www.algolia.com/doc/rest-api/analytics/#tag/analytics/operation/getTopCountries",
+        "columns": {
+            "country": "Country code the searches came from.",
+            "count": "Number of searches from this country.",
+        },
+    },
+    "click_positions": {
+        "description": "Clicks per position range in the index's search results over the recent period, so you "
+        "can see how many clicks the first, second or tenth result received.",
+        "docs_url": "https://www.algolia.com/doc/rest-api/analytics/#tag/clicks/operation/getClickPositions",
+        "columns": {
+            "position": "Range of result positions as [start, end]. Positions 11 and up are summed over "
+            "the range, and -1 marks the end of the result list.",
+            "clickCount": "Number of clicks on results in this position range.",
+        },
+    },
 }

@@ -5,7 +5,8 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { NODE_TYPE_TAG_SETTINGS, STATUS_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
+import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
+import { StatusTag } from 'products/data_modeling/frontend/lineage/StatusTag'
 
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
@@ -60,9 +61,7 @@ export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
 
             {effectiveLastRunStatus && (
                 <OverviewItem label="Status">
-                    <LemonTag type={STATUS_TAG_SETTINGS[effectiveLastRunStatus] ?? 'default'}>
-                        {effectiveLastRunStatus}
-                    </LemonTag>
+                    <StatusTag status={effectiveLastRunStatus} />
                 </OverviewItem>
             )}
 

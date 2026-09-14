@@ -13,6 +13,7 @@ import type {
     DataCatalogMetricsChecksListParams,
     DataQualityCheckApi,
     DataQualityCheckRunApi,
+    DataQualityCheckScheduleApi,
     DataQualityCheckTypeApi,
     DataQualityChecksListParams,
     DataQualityRunRequestApi,
@@ -23,6 +24,7 @@ import type {
     PaginatedDataQualityOverviewCheckListApi,
     PaginatedDataQualitySuiteRunListApi,
     PatchedDataQualityCheckApi,
+    PatchedDataQualityCheckScheduleUpdateApi,
     WarehouseSavedQueriesCheckSuiteRunsListParams,
     WarehouseSavedQueriesChecksListParams,
     WarehouseTablesCheckSuiteRunsListParams,
@@ -360,6 +362,51 @@ export const dataCatalogMetricsChecksRunAllCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getDataCatalogMetricsChecksScheduleRetrieveUrl = (projectId: string, metricId: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/${metricId}/checks/schedule/`
+}
+
+/**
+ * CRUD for one subject's checks, plus the actions that run them and report on them.
+ */
+export const dataCatalogMetricsChecksScheduleRetrieve = async (
+    projectId: string,
+    metricId: string,
+    options?: RequestInit
+): Promise<DataQualityCheckScheduleApi> => {
+    return apiMutator<DataQualityCheckScheduleApi>(
+        getDataCatalogMetricsChecksScheduleRetrieveUrl(projectId, metricId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataCatalogMetricsChecksSchedulePartialUpdateUrl = (projectId: string, metricId: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/${metricId}/checks/schedule/`
+}
+
+/**
+ * CRUD for one subject's checks, plus the actions that run them and report on them.
+ */
+export const dataCatalogMetricsChecksSchedulePartialUpdate = async (
+    projectId: string,
+    metricId: string,
+    patchedDataQualityCheckScheduleUpdateApi?: PatchedDataQualityCheckScheduleUpdateApi,
+    options?: RequestInit
+): Promise<DataQualityCheckScheduleApi> => {
+    return apiMutator<DataQualityCheckScheduleApi>(
+        getDataCatalogMetricsChecksSchedulePartialUpdateUrl(projectId, metricId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedDataQualityCheckScheduleUpdateApi),
+        }
+    )
 }
 
 export const getDataQualityChecksListUrl = (projectId: string, params?: DataQualityChecksListParams) => {

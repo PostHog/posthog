@@ -6,9 +6,7 @@ import {
   ThumbsDown,
   ThumbsUp,
 } from "@phosphor-icons/react";
-import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import { buildTurnRatingMetric } from "@posthog/core/analytics/aiFeedback";
-import { useService } from "@posthog/di/react";
 import {
   Button,
   ChatBubble,
@@ -106,7 +104,6 @@ import {
   CHAT_CONTENT_MAX_WIDTH,
   CHAT_CONTENT_PADDING_INLINE,
 } from "@posthog/ui/features/sessions/constants";
-import { DIFFS_HIGHLIGHTER_OPTIONS } from "@posthog/ui/features/sessions/diffHighlighterOptions";
 import { useAgentConversationItems } from "@posthog/ui/features/sessions/hooks/useAgentConversationItems";
 import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useConversationItems";
 import {
@@ -131,10 +128,6 @@ import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/com
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { track } from "@posthog/ui/shell/analytics";
-import {
-  DIFF_WORKER_FACTORY,
-  type DiffWorkerFactory,
-} from "@posthog/ui/shell/diffWorkerHost";
 import {
   createContext,
   type FocusEvent,
@@ -1354,15 +1347,6 @@ function ChatThreadRenderer({
   isLoadingOlderHistory,
   onLoadOlderHistory,
 }: ChatThreadRendererProps) {
-  const diffWorkerFactory = useService<DiffWorkerFactory>(DIFF_WORKER_FACTORY);
-  const diffsPoolOptions = useMemo(
-    () => ({
-      workerFactory: () => diffWorkerFactory(),
-      totalASTLRUCacheSize: 200,
-    }),
-    [diffWorkerFactory],
-  );
-
   const optimisticItems = useOptimisticItemsForTask(taskId);
   const isCloud = useSessionIsCloud(taskId);
 
@@ -1526,56 +1510,51 @@ function ChatThreadRenderer({
   );
 
   return (
-    <WorkerPoolContextProvider
-      poolOptions={diffsPoolOptions}
-      highlighterOptions={DIFFS_HIGHLIGHTER_OPTIONS}
-    >
-      <SessionTaskIdProvider taskId={taskId}>
-        <ChatThreadChromeProvider value={true}>
-          <ChatMessageScrollerProvider
-            // The windowed body owns following itself (anchorTo end + followOnAppend) — the
-            // engine's own follow would fight it, so it only auto-scrolls when non-virtualized.
-            autoScroll={!virtualized}
-            defaultScrollPosition="end"
-            // `scrollEdgeThreshold` is left at the engine's tight default on purpose. The engine
-            // re-enters "following-bottom" on *every* scroll event taken within the band, which
-            // overrides the free-scrolling its own wheel handler just set — so a wide band traps a
-            // reader scrolling up out of the bottom, and streamed content yanks them back each
-            // frame. `ThreadAutoFollow` is what keeps the thread pinned across the band's width;
-            // unlike the engine it only lets go on a real gesture.
-            scrollPreviousItemPeek={SCROLL_PREVIOUS_ITEM_PEEK}
-          >
-            {virtualized ? (
-              <VirtualThreadScrollBody
+    <SessionTaskIdProvider taskId={taskId}>
+      <ChatThreadChromeProvider value={true}>
+        <ChatMessageScrollerProvider
+          // The windowed body owns following itself (anchorTo end + followOnAppend) — the
+          // engine's own follow would fight it, so it only auto-scrolls when non-virtualized.
+          autoScroll={!virtualized}
+          defaultScrollPosition="end"
+          // `scrollEdgeThreshold` is left at the engine's tight default on purpose. The engine
+          // re-enters "following-bottom" on *every* scroll event taken within the band, which
+          // overrides the free-scrolling its own wheel handler just set — so a wide band traps a
+          // reader scrolling up out of the bottom, and streamed content yanks them back each
+          // frame. `ThreadAutoFollow` is what keeps the thread pinned across the band's width;
+          // unlike the engine it only lets go on a real gesture.
+          scrollPreviousItemPeek={SCROLL_PREVIOUS_ITEM_PEEK}
+        >
+          {virtualized ? (
+            <VirtualThreadScrollBody
+              items={items}
+              flatRows={flatRows}
+              renderRow={renderWindowedRow}
+              onUserInteract={clearKeyboardFocus}
+              footer={footer}
+              renderNav={renderNav}
+              resumeRef={threadResumeRef}
+              olderHistoryCursor={olderHistoryCursor}
+              isLoadingOlderHistory={isLoadingOlderHistory}
+              onLoadOlderHistory={onLoadOlderHistory}
+            />
+          ) : (
+            <>
+              <ThreadScrollBody
+                autoFollowRef={autoFollowRef}
                 items={items}
-                flatRows={flatRows}
-                renderRow={renderWindowedRow}
+                rows={rows}
+                renderItem={renderItem}
+                keyboardFocusedMessageId={keyboardFocusedMessageId}
                 onUserInteract={clearKeyboardFocus}
                 footer={footer}
-                renderNav={renderNav}
-                resumeRef={threadResumeRef}
-                olderHistoryCursor={olderHistoryCursor}
-                isLoadingOlderHistory={isLoadingOlderHistory}
-                onLoadOlderHistory={onLoadOlderHistory}
+                resumeStateRef={threadResumeRef}
               />
-            ) : (
-              <>
-                <ThreadScrollBody
-                  autoFollowRef={autoFollowRef}
-                  items={items}
-                  rows={rows}
-                  renderItem={renderItem}
-                  keyboardFocusedMessageId={keyboardFocusedMessageId}
-                  onUserInteract={clearKeyboardFocus}
-                  footer={footer}
-                  resumeStateRef={threadResumeRef}
-                />
-                {renderNav()}
-              </>
-            )}
-          </ChatMessageScrollerProvider>
-        </ChatThreadChromeProvider>
-      </SessionTaskIdProvider>
-    </WorkerPoolContextProvider>
+              {renderNav()}
+            </>
+          )}
+        </ChatMessageScrollerProvider>
+      </ChatThreadChromeProvider>
+    </SessionTaskIdProvider>
   );
 }

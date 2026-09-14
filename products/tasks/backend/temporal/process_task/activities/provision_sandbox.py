@@ -61,7 +61,6 @@ from products.tasks.backend.logic.services.sandbox import (
     sandbox_repo_path,
     workload_for_origin_product,
 )
-from products.tasks.backend.logic.services.sandbox_config import DEV_STACK_PREVIEW_MEMORY_GB
 from products.tasks.backend.logic.services.sandbox_usage import (
     measure_sandbox_billed_cpu_usage,
     measure_sandbox_cpu_usage,
@@ -754,13 +753,6 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         )
 
 
-def _dev_stack_preview_resources(ctx: TaskProcessingContext) -> dict[str, float | int]:
-    overrides = ctx.sandbox_resource_overrides()
-    if ctx.dev_stack_preview_enabled:
-        overrides.setdefault("memory_gb", DEV_STACK_PREVIEW_MEMORY_GB)
-    return overrides
-
-
 @asyncify
 def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
     ctx = input.context
@@ -787,7 +779,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         # The VM template bakes in Docker (and forces the VM runtime), so the agent
         # can run nested containers; the default template has neither.
         use_vm_sandbox = ctx.use_modal_vm_sandbox
-        resource_overrides = _dev_stack_preview_resources(ctx)
+        resource_overrides = ctx.sandbox_resource_overrides()
         config = SandboxConfig(
             name=prepared.sandbox_name,
             template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,

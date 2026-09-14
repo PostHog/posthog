@@ -115,7 +115,7 @@ submit again.
 (`.Thread/.Composer/.ContextUsage`) compose into any layout — there is no default. Omit
 `RunSurface.Composer` for a no-input surface (that's exactly what `ReadonlyRunSurface` does); render it with
 composer children for an interactive one. For something even more bespoke, drop to the Tier 2 primitives
-(`ThreadView`, `Composer.*`, `ContextUsageBar`) and bind `runStreamLogic` yourself.
+(`ThreadView`, `Composer.*`, `ContextUsageChip`) and bind `runStreamLogic` yourself.
 
 ### Optimistically open a run before it exists
 

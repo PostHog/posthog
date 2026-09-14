@@ -1,8 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Provider } from 'kea'
+import { Provider, getContext } from 'kea'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -32,8 +32,15 @@ jest.mock('~/queries/query', () => ({
 }))
 
 jest.mock('lib/components/AutoSizer', () => ({
-    AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
-        renderProp({ height: 400, width: 400 }),
+    AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) => {
+        const { useState, useRef, useLayoutEffect } = jest.requireActual<typeof import('react')>('react')
+        const [visible, setVisible] = useState(false)
+        const ref = useRef<HTMLDivElement>(null)
+        useLayoutEffect(() => {
+            setVisible(!!ref.current && !ref.current.closest('.hidden'))
+        })
+        return <div ref={ref}>{renderProp({ height: visible ? 400 : 0, width: visible ? 400 : 0 })}</div>
+    },
 }))
 
 describe('TaxonomicFilter', () => {
@@ -104,6 +111,83 @@ describe('TaxonomicFilter', () => {
             expect(screen.getByTestId(inactiveTestId)).not.toHaveClass('LemonTag--primary')
         }
     }
+
+    it('keeps dashboard search to one visible list and a bounded number of store updates', async () => {
+        const propertySearches: string[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team/property_definitions': (info) => {
+                    const search = new URL(info.request.url).searchParams.get('search')
+                    if (search) {
+                        propertySearches.push(search)
+                    }
+                    return mockGetPropertyDefinitions(info)
+                },
+            },
+        })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+            [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+        })
+        const { container } = renderFilter({
+            taxonomicGroupTypes: [
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
+                TaxonomicFilterGroupType.EventMetadata,
+                TaxonomicFilterGroupType.PageviewUrls,
+                TaxonomicFilterGroupType.Screens,
+                TaxonomicFilterGroupType.EmailAddresses,
+                TaxonomicFilterGroupType.Cohorts,
+                TaxonomicFilterGroupType.Elements,
+                TaxonomicFilterGroupType.SessionProperties,
+                TaxonomicFilterGroupType.HogQLExpression,
+                TaxonomicFilterGroupType.DataWarehousePersonProperties,
+            ],
+        })
+        await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
+        expect(container.querySelectorAll(':not(.hidden) > .taxonomic-infinite-list')).toHaveLength(1)
+        let dispatches = 0
+        const unsubscribe = getContext().store.subscribe(() => dispatches++)
+        const searchField = screen.getByTestId('taxonomic-filter-searchfield')
+        jest.useFakeTimers()
+        try {
+            for (const query of ['p', 'pr', 'pro', 'prop', 'prop1']) {
+                dispatches = 0
+                fireEvent.change(searchField, { target: { value: query } })
+                expect(searchField).toHaveValue(query)
+                expect(dispatches).toBeLessThan(5)
+                await act(async () => {
+                    await jest.advanceTimersByTimeAsync(100)
+                })
+            }
+            expect(propertySearches).toEqual([])
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(399)
+            })
+            expect(propertySearches).toEqual([])
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(1)
+            })
+            expect(propertySearches).toEqual(['prop1', 'prop1', 'prop1'])
+        } finally {
+            unsubscribe()
+            jest.useRealTimers()
+        }
+        await screen.findAllByText('prop1')
+        expect(container.querySelectorAll(':not(.hidden) > .taxonomic-infinite-list')).toHaveLength(1)
+
+        await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
+        await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-item-person_properties'))
+        await screen.findByTestId('prop-filter-person_properties-0')
+        expect(container.querySelectorAll(':not(.hidden) > .taxonomic-infinite-list')).toHaveLength(1)
+        await userEvent.click(screen.getByTestId('prop-filter-person_properties-0'))
+        expect(onChangeMock).toHaveBeenCalledWith(
+            expect.objectContaining({ type: TaxonomicFilterGroupType.PersonProperties }),
+            'prop1',
+            expect.objectContaining({ name: 'prop1' })
+        )
+    })
 
     // Search interactions pay taxonomicFilterLogic's real 500ms breakpoint (plus stacked
     // 100ms ones), which is what pushed these tests over CI's per-test timeout. Fake timers
@@ -318,8 +402,6 @@ describe('TaxonomicFilter', () => {
     })
 
     describe('no results - switch to all', () => {
-        // Every group type renders its list (active one visible, the rest hidden via CSS), so the
-        // empty-state button can appear in several hidden tabs at once. Scope queries to the visible tab.
         const inVisibleTab = (elements: HTMLElement[]): HTMLElement | undefined =>
             elements.find((el) => !el.closest('.hidden'))
 
@@ -1517,9 +1599,8 @@ describe('TaxonomicFilter', () => {
                 hideSearchInput: true,
             })
 
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
-            })
+            await screen.findAllByText('All')
+            expect(screen.queryByTestId('prop-filter-events-0')).not.toBeInTheDocument()
 
             expect(screen.queryByText('Categories')).not.toBeInTheDocument()
             expect(screen.queryByTestId(/taxonomic-category-dropdown-trigger-/)).not.toBeInTheDocument()
@@ -1581,16 +1662,15 @@ describe('TaxonomicFilter', () => {
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
             })
 
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
-            })
+            await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
+            expect(screen.queryByTestId('prop-filter-events-0')).not.toBeInTheDocument()
 
             await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
 
             await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-actions'))
 
             await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
+                expect(screen.getByTestId('prop-filter-actions-0').closest('.hidden')).toBeNull()
             })
         })
 
@@ -1600,9 +1680,7 @@ describe('TaxonomicFilter', () => {
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
             })
 
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
-            })
+            await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
 
             // Pill auto-injects the "All" (SuggestedFilters) tab as the default for a
             // multi-group picker, so that's the category showing before and after Tab.
