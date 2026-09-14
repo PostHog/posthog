@@ -1,6 +1,7 @@
 import React from 'react'
 
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
+import { parseStackFrames } from 'lib/utils/parseStackFrames'
 
 /**
  * Report a boot failure straight to the capture API. posthog-js lives inside the App chunk —
@@ -23,6 +24,7 @@ function reportBootFailure(error: unknown): void {
             // storage unavailable or corrupt — report anonymously
         }
         const err = error instanceof Error ? error : new Error(String(error))
+        const frames = parseStackFrames(err.stack)
         const payload = JSON.stringify({
             api_key: apiKey,
             event: '$exception',
@@ -37,8 +39,15 @@ function reportBootFailure(error: unknown): void {
                         type: err.name || 'Error',
                         value: err.message,
                         mechanism: { handled: true, synthetic: false },
+                        // Error tracking reads frames from here only. A top-level `stack` string
+                        // arrives as a plain property, and the issue then shows no frames.
+                        // JSON.stringify drops this property when no frame parsed.
+                        stacktrace: frames.length ? { type: 'raw', frames } : undefined,
                     },
                 ],
+                // Send the raw text as well. The parser skips forms it does not recognize, such as
+                // `at new Promise (<anonymous>)` or a JavaScriptCore `[native code]` frame, so the
+                // frames above can be a partial view of what the browser reported.
                 stack: err.stack,
                 chunk_load_error: isChunkLoadError(error),
             },

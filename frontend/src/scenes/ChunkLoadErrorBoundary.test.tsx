@@ -1,7 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
-import { Component, type ReactNode } from 'react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { Component, Suspense, lazy, type ReactNode } from 'react'
+
+import { retryBootImport } from 'lib/utils/retryImport'
 
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
@@ -61,6 +63,25 @@ describe('ChunkLoadErrorBoundary', () => {
         expect(reload).toHaveBeenCalledTimes(1)
         expect(screen.queryByText('Failed to fetch dynamically imported module')).not.toBeInTheDocument()
         expect(Number(window.localStorage.getItem(RELOAD_GUARD_KEY))).toBeGreaterThan(0)
+    })
+
+    it('reloads once for a chunk that downloads but does not parse', async () => {
+        const reload = jest.fn()
+        const BrokenChunk = lazy(() =>
+            retryBootImport(() => Promise.reject(new SyntaxError("Invalid character '\ufffd'")))
+        )
+
+        render(
+            <TestErrorBoundary>
+                <ChunkLoadErrorBoundary reload={reload}>
+                    <Suspense fallback={<div>loading</div>}>
+                        <BrokenChunk />
+                    </Suspense>
+                </ChunkLoadErrorBoundary>
+            </TestErrorBoundary>
+        )
+
+        await waitFor(() => expect(reload).toHaveBeenCalledTimes(1))
     })
 
     it('surfaces repeated chunk errors instead of reloading in a loop', () => {

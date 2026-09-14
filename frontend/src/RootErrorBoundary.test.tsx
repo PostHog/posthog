@@ -63,6 +63,15 @@ describe('RootErrorBoundary', () => {
         expect(event.distinct_id).toEqual(expect.any(String))
         expect(event.properties.$exception_list[0].value).toBe('boot render kaboom')
         expect(event.properties.chunk_load_error).toBe(false)
+        // frames belong inside the exception, where error tracking reads them
+        expect(event.properties.$exception_list[0].stacktrace).toEqual({
+            type: 'raw',
+            frames: expect.arrayContaining([
+                expect.objectContaining({ function: 'ThrowRenderError', platform: 'web:javascript' }),
+            ]),
+        })
+        // the raw text rides along, so lines the parser skips stay recoverable
+        expect(event.properties.stack).toContain('Error: boot render kaboom')
     })
 
     it('shows load-failure copy for chunk-load errors', () => {

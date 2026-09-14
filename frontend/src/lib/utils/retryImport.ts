@@ -11,6 +11,16 @@ function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
 }
 
 /**
+ * A chunk that downloads but does not parse rejects the import with a `SyntaxError`: mis-encoded or
+ * truncated bytes, or an HTML error page served in place of JavaScript. The browser keeps that
+ * rejection in its module map, so a retry of the same import cannot recover. Only a reload can.
+ * Marking it as a chunk-load error puts it on the single-reload path instead of the crash screen.
+ */
+function isModuleParseError(error: unknown): boolean {
+    return !!error && typeof error === 'object' && (error as { name?: string }).name === 'SyntaxError'
+}
+
+/**
  * Re-attempts a dynamic `import()` on a transient chunk-load failure before giving up.
  *
  * Most "Failed to fetch dynamically imported module" errors are transient — a network blip,
@@ -27,6 +37,10 @@ export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs 
     try {
         return await factory()
     } catch (error) {
+        if (isModuleParseError(error)) {
+            markAsChunkLoadError(error)
+            throw error
+        }
         if (retries <= 0 || !isChunkLoadError(error)) {
             throw error
         }
