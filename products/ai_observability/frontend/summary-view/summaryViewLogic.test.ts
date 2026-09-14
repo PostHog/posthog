@@ -215,7 +215,8 @@ describe('summaryViewLogic', () => {
         expect(summarizationOptions().at(-1)?.signal?.aborted).toBe(true)
     })
 
-    it('asks for no summary on mount when the user only has read access', async () => {
+    it('asks for no summary on mount when the user only has read access, and records the skip', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
         grantSummarizationAccess(AccessControlLevel.Viewer)
 
         logic = summaryViewLogic({ trace, tree: [] })
@@ -226,6 +227,17 @@ describe('summaryViewLogic', () => {
         // would otherwise open a readable trace with a denial banner nobody asked for.
         expect(summarizationOptions()).toHaveLength(0)
         expect(logic.values.summaryError).toBeNull()
+        // No request also means `llma summarization failed` never fires for these users, so the
+        // skip is the only record of the population the guard exists for.
+        expect(captureSpy).toHaveBeenCalledWith(
+            'llma summarization skipped',
+            expect.objectContaining({
+                reason: 'permission_denied',
+                summarize_type: 'trace',
+                mode: 'minimal',
+                source: 'cached_lookup',
+            })
+        )
     })
 
     it('names the missing permission when a refused request reaches the panel', async () => {

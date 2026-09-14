@@ -117,6 +117,8 @@ const PERMISSION_SUMMARY_ERROR =
 
 const SUMMARY_FAILED_EVENT = 'llma summarization failed'
 
+const SUMMARY_SKIPPED_EVENT = 'llma summarization skipped'
+
 /**
  * Summarizing is a POST, so access control asks for the write level on `llm_analytics`, while
  * reading the trace only asks for the read level. A user who can open the trace can still be
@@ -380,16 +382,27 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
         },
     })),
     afterMount(({ props, actions, values }) => {
+        if (!values.dataProcessingAccepted) {
+            return
+        }
         // Asking for a cached summary posts to the summarize endpoint, so a read-only user gets a
         // denial banner on a trace they opened to read. Leave the panel on its empty state, where
         // the disabled button already says what access is missing.
         if (!canSummarize()) {
+            // The guard sends no request, so `llma summarization failed` cannot fire for the users
+            // it exists for. Without this event, that population is the one unmeasured outcome.
+            posthog.capture(SUMMARY_SKIPPED_EVENT, {
+                reason: 'permission_denied',
+                summarize_type: props.trace ? 'trace' : 'event',
+                mode: values.summaryMode,
+                source: props.autoGenerate ? 'auto_generate' : 'cached_lookup',
+            })
             return
         }
-        if (props.autoGenerate && values.dataProcessingAccepted) {
+        if (props.autoGenerate) {
             // Auto-generate was requested (e.g., from URL param)
             actions.generateSummary({ mode: values.summaryMode, forceRefresh: false })
-        } else if (values.dataProcessingAccepted) {
+        } else {
             // Try to load cached summary on mount (will use cache if available)
             actions.loadCachedSummary()
         }
