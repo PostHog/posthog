@@ -2,7 +2,7 @@ import uuid
 import base64
 import datetime
 import contextlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
@@ -893,7 +893,7 @@ class TestGetConnectionMetadata(SimpleTestCase):
         )
 
     @contextlib.contextmanager
-    def _patched_client(self, server_version: str, servers: list[ServerDescription]) -> Iterable[None]:
+    def _patched_client(self, server_version: str, servers: list[ServerDescription]) -> Iterator[None]:
         client = MagicMock()
         client.server_info.return_value = {"version": server_version}
         client.topology_description.server_descriptions.return_value = {server.address: server for server in servers}

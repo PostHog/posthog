@@ -60,5 +60,4 @@ def test_unreachable_source_does_not_stop_the_survey(team) -> None:
     unreachable.refresh_from_db()
     reachable.refresh_from_db()
     assert unreachable.connection_metadata == {}
-    assert reachable.connection_metadata["server_version"] == "7.0.14"
-    assert reachable.connection_metadata["wire_version"] == 21
+    assert reachable.connection_metadata == {"engine": "mongodb", "server_version": "7.0.14", "wire_version": 21}
