@@ -35,6 +35,7 @@ import structlog
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -203,7 +204,10 @@ def _read_decision_rows(team: Team, view_name: str, should_stop: Callable[[], bo
                 ],
                 limit=ast.Constant(value=DECISION_PAGE_SIZE),
             )
-            page = execute_hogql_query(query, team=team, bypass_warehouse_access_control=True).results or []
+            response = execute_hogql_query(
+                query, team=team, workload=Workload.OFFLINE, bypass_warehouse_access_control=True
+            )
+            page = response.results or []
             if len(page) < DECISION_PAGE_SIZE:
                 rows.extend(dict(zip(DECISION_COLUMNS, row)) for row in page)
                 return rows
