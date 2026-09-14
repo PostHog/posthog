@@ -322,8 +322,9 @@ tools:
 
             Read the flag first and send the `version` that read returned. Returns 409 when anyone changed the flag
             after that version, and writes nothing. Read the flag again, check what changed, and decide the rollout
-            against the current definition. Do not retry with the same version: after a call succeeds that version is no
-            longer current, so a blind retry is the same 409.
+            against the current definition. Do not retry with the same version: after a call writes a change that
+            version is no longer current, so a blind retry is the same 409. A call that finds the flag already rolled
+            out to everyone writes nothing and returns the version unchanged.
 
 
             Returns 400 when the flag is multivariate and `variant_key` is missing, when the flag defines no such
@@ -367,8 +368,9 @@ tools:
             definition you read says which condition is which, so never guess an index on a flag with more than one
             condition. Send the `version` that same read returned. Returns 409 when anyone changed the flag after that
             version, and writes nothing. Read the flag again, check the conditions still mean what you thought, and call
-            again with the new version. Do not retry with the same version: after a call succeeds that version is no
-            longer current, so a blind retry is the same 409.
+            again with the new version. Do not retry with the same version: after a call writes a change that version is
+            no longer current, so a blind retry is the same 409. A call that sets the percentage the condition already
+            has writes nothing and returns the version unchanged.
 
 
             On a multivariate flag this sets how many of the matching users get a variant at all. It does not change how
