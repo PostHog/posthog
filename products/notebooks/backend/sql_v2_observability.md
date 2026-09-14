@@ -5,7 +5,7 @@ Companion to [`sql_v2_frame_store.md`](./sql_v2_frame_store.md) — that doc dec
 
 Artifacts:
 
-- [`observability/notebooks-rollout.grafana.json`](../observability/notebooks-rollout.grafana.json) — importable Grafana dashboard (Prometheus/VictoriaMetrics). Its "Transport A/B" row is the flag-on vs flag-off comparison.
+- [`observability/notebooks-rollout.grafana.json`](../observability/notebooks-rollout.grafana.json) — export of the live Grafana dashboard `notebooks-sqlv2-rollout` (Prometheus/VictoriaMetrics). Its "Transport A/B" row is the flag-on vs flag-off comparison. Its "Temporal queue" row shows the health of the worker queue that every notebook workflow shares with other products.
 - [`observability/notebooks-query-log.sql`](../observability/notebooks-query-log.sql) — `query_log_archive` query pack (ClickHouse per-query cost). SQL 9 is the same comparison on the ClickHouse side.
 - Notebook `Vs0Gjpqb` in project 2 ("SQLV2 transport benchmark") — the graduated workload to run under each arm.
 
@@ -21,7 +21,8 @@ It is not in Grafana — production ClickHouse holds customer data and there is 
 The sanctioned path is the internal Metabase under your own SSO session (the `querying-production-databases-via-metabase` skill).
 
 Grafana dashboards are **not code-managed** in this repo — they are edited in the UI, reachable over Tailscale at `grafana-prod-us` / `grafana-prod-eu` (see `tools/infra-scripts/mcp/README.md`).
-The JSON here is an import artifact, not a provisioned source of truth. Import it, then own it in the UI.
+The JSON here is an export of the live dashboard, not a provisioned source of truth.
+Edit the dashboard in the UI, then export its JSON back here in the same change, so that the copy stays current.
 
 ### Attribution is already wired
 
@@ -99,6 +100,32 @@ One deliberate hole: the callback is best-effort, so a kernel-lane run whose san
 
 Still open from the original gap: lost-callback kernel runs (above), the frontend's own poll-to-render latency, and the kernel's presigned _download failure_ modes, which remain observable only as an `input_wait`-heavy failed run (see gap 5).
 
+## Temporal queue health
+
+Every notebook workflow runs on `general-purpose-task-queue`: `notebook-sandbox-cmd-run`, `notebook-frame-materialize`, and `notebook-widget-generate` (`temporal/client.py`).
+Other products share that queue and its workers, so their load can delay notebook runs while the notebooks code is healthy.
+The dashboard's "Temporal queue" row, under "Node runs", shows that shared health.
+
+| Panel                                        | Metric                                                                                            | Scope       |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------- |
+| Queue backlog by task type                   | `temporal_cloud_v1_approximate_backlog_count`                                                     | Whole queue |
+| Tasks that wait over 1s and 10s for a worker | `temporal_activity_schedule_to_start_latency`, `temporal_workflow_task_schedule_to_start_latency` | Whole queue |
+| Sync match ratio                             | `temporal_cloud_v1_poll_success_sync_count` / `temporal_cloud_v1_poll_success_count`              | Whole queue |
+| Worker slot usage                            | `temporal_worker_task_slots_used`, `temporal_worker_task_slots_available`                         | Whole queue |
+| Notebook activity attempt failures           | `temporal_activity_execution_failed{activity_type=~"notebook-.*"}`                                | Notebooks   |
+| Notebook workflow outcomes                   | `temporal_workflow_completed`, `temporal_workflow_failed`                                         | Notebooks   |
+| Workflow task failures on the queue          | `temporal_workflow_task_execution_failed`                                                         | Whole queue |
+
+The queue wait matters most for materializations.
+`notebook-frame-materialize` has a 10-minute `schedule_to_close_timeout` that includes the wait (`temporal/frame_materialize.py`), so a backlog uses up the materialize deadline.
+The worker fleet has a fixed pod count, so a backlog does not add workers.
+
+Three traps when you read or extend the row:
+
+- **Temporal Cloud series are not counters.** Temporal Cloud samples each `temporal_cloud_v1_*` series once a minute as a per-second rate or a gauge. Sum or divide the series directly. `rate()` over them returns wrong values.
+- **SDK histograms use milliseconds and coarse buckets.** The worker sets `durations_as_seconds=False` (`posthog/temporal/common/worker.py`). The schedule-to-start buckets are 100, 500, 1000, 5000, 10000, and 100000 ms, so a percentile over them is a guess. The panel shows the share of tasks over a bucket edge instead.
+- **No metric measures the queue wait for notebooks only.** The schedule-to-start and workflow task failure series carry `task_queue` but no workflow or activity label. Temporal Cloud has series labeled `temporal_workflow_type`, but it emits them only in minutes with events and has no activity latency per type. Its workflow latency for `notebook-sandbox-cmd-run` also includes the result grace sleep.
+
 ## Gaps — suggested follow-ups
 
 Ordered by how much they'd hurt during a rollout.
@@ -162,4 +189,4 @@ Not a rollout blocker, but it is why gap 1 is awkward to close cleanly.
 
 - **Verify the `view` label values** on the two HTTP panels with `list_prometheus_label_values`. The data-plane paths have no `name=` in `urls.py`, so Django derives the view name and the regex in the panel is a guess.
 - **Confirm the notebooks metrics are being scraped at all.** They are defined in the Temporal worker process (`frame_materialize.py`); the general-purpose worker fleet's `/metrics` endpoint must be scraped by vmagent for any of the frame panels to have data.
-- The dashboard is import-only. Grafana here is not provisioned from git, so re-importing overwrites UI edits.
+- The dashboard is import-only. Grafana here is not provisioned from git, so re-importing overwrites UI edits. Export the live dashboard and compare it with the JSON here before you import.
