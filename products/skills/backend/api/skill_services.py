@@ -740,26 +740,31 @@ def rename_skill(team: Team, *, skill_name: str, new_name: str) -> LLMSkill:
         raise LLMSkillRenameNotAllowedError(prefix=blocked_prefix)
 
     with transaction.atomic():
-        locked_version_ids = list(
+        locked_versions = list(
             LLMSkill.objects.select_for_update()
             .filter(team=team, name=skill_name, deleted=False)
             .order_by("version", "created_at", "id")
-            .values_list("id", flat=True)
         )
-        if not locked_version_ids:
+        if not locked_versions:
             raise LLMSkillNotFoundError()
         if new_name == skill_name:
             return _renamed_skill_or_missing(team, new_name)
         if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
             raise LLMSkillDuplicateNameConflictError()
 
-        # Bump updated_at (the .update() bypasses auto_now) so the marketplace plugin version,
-        # derived from max(updated_at) across all team rows, advances — a renamed skill changes
-        # the directory name in the exported tree, so installs must pick the rename up.
-        LLMSkill.objects.filter(team=team, name=skill_name, deleted=False).update(
-            name=new_name,
-            updated_at=timezone.now(),
-        )
+        # Stamp each locked row rather than issuing one `.update()`: the name is the first
+        # frontmatter key of the rendered SKILL.md, so a rename changes the bytes a host downloads,
+        # and neither `.update()` nor `bulk_update` calls `save()` to restamp the digest. A stale
+        # digest is invisible to the backfill, which only repairs rows that carry none.
+        # `updated_at` is set by hand because both paths also bypass auto_now, and the marketplace
+        # plugin version is max(updated_at) across all team rows: a renamed skill changes the
+        # directory name in the exported tree, so installs must pick the rename up.
+        renamed_at = timezone.now()
+        for version in locked_versions:
+            version.name = new_name
+            version.updated_at = renamed_at
+            version.stamp_digest()
+        LLMSkill.objects.bulk_update(locked_versions, ["name", "updated_at", *LLMSkill.DIGEST_FIELDS])
         rename_skill_owners(team, skill_name, new_name)
 
     return _renamed_skill_or_missing(team, new_name)

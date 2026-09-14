@@ -1254,6 +1254,12 @@ class TestLLMSkillAPI(APIBaseTest):
         v2.refresh_from_db()
         assert v2.updated_at > updated_at_before
         assert v1.name == "typo-free"
+        # The name is the first frontmatter key of the rendered SKILL.md, so a digest left behind by
+        # the rename describes bytes no version serves any more.
+        for version in (v1, v2):
+            rendered = version.rendered_skill_md().encode()
+            assert version.skill_md_sha256 == hashlib.sha256(rendered).hexdigest()
+            assert version.skill_md_size == len(rendered)
 
     def test_rename_to_an_existing_name_is_rejected(self):
         self.create_skill(name="source")
