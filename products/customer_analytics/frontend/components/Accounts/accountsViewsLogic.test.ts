@@ -79,19 +79,31 @@ describe('accountsViewsLogic', () => {
             })
     })
 
-    it('holds the first accounts fetch until the persisted view is applied', async () => {
+    it('holds the first accounts fetch until a delayed draft decision permits the persisted view', async () => {
         useMocks({ get: { '/api/projects/:team_id/column_configurations/': { count: 1, results: [buildView()] } } })
         localStorage.setItem(
             `customerAnalytics.accounts.accountsViewsLogic.${MOCK_DEFAULT_TEAM.id}.currentViewId`,
             JSON.stringify('view-1')
         )
-        mountAll()
+        accountsColumnConfigLogic().mount()
+        accountsOverviewTilesLogic().mount()
+        accountsLogic().mount()
+        accountsLogic.actions.setViewStateHydrated(false)
+        logic = accountsViewsLogic()
+        logic.mount()
 
         expect(accountsLogic.values.awaitingSavedView).toBe(true)
         expect(accountsLogic.values.accountsQuerySource).toBeNull()
         expect(accountsLogic.values.metricsQuery).toBeNull()
 
-        await expectLogic(logic).toDispatchActions(['loadViewsSuccess', 'applyView']).toFinishAllListeners()
+        await expectLogic(logic).toDispatchActions(['loadViewsSuccess', 'restoreSavedView']).toFinishAllListeners()
+
+        expect(accountsLogic.values.awaitingSavedView).toBe(true)
+        expect(accountsLogic.values.searchQuery).toBe('')
+
+        await expectLogic(logic, () => accountsLogic.actions.setViewStateHydrated(true))
+            .toDispatchActions(['restoreSavedView', 'applyView'])
+            .toFinishAllListeners()
 
         expect(accountsLogic.values.awaitingSavedView).toBe(false)
         expect(accountsColumnConfigLogic.values.selectColumns).toEqual(['name', 'csm'])

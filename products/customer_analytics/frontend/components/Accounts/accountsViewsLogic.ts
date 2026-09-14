@@ -52,6 +52,7 @@ function shouldAutoApplySavedView(): boolean {
 export interface accountsViewsLogicValues {
     draftRestored: boolean // accountsLogic
     viewState: AccountsViewState // accountsLogic
+    viewStateHydrated: boolean // accountsLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     canEditCurrentView: boolean
@@ -175,6 +176,9 @@ export interface accountsViewsLogicActions {
     reportColumnResize: () => {
         value: true
     }
+    restoreSavedView: () => {
+        value: true
+    }
     resetViewForm: (values?: { name: string; visibility: ViewVisibility }) => {
         values?: {
             name: string
@@ -295,7 +299,14 @@ export type accountsViewsLogicType = MakeLogicType<
 export const accountsViewsLogic = kea<accountsViewsLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsViewsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user'], accountsLogic, ['viewState', 'draftRestored']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['user'],
+            accountsLogic,
+            ['viewState', 'draftRestored', 'viewStateHydrated'],
+        ],
         actions: [accountsLogic, ['applyViewState', 'setAwaitingSavedView', 'syncViewStateToUrl']],
     })),
     actions({
@@ -307,6 +318,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
         setIsCreating: (isCreating: boolean) => ({ isCreating }),
         setViewToDelete: (id: string | null) => ({ id }),
         setViewToEdit: (id: string | null) => ({ id }),
+        restoreSavedView: true,
     }),
     loaders(({ values }) => ({
         views: [
@@ -493,10 +505,20 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             // Background migration failures report the exception without a toast.
             posthog.captureException(error)
         },
-        loadViewsSuccess: ({ views }) => {
+        [accountsLogic.actionTypes.setViewStateHydrated]: () => {
+            actions.restoreSavedView()
+        },
+        loadViewsSuccess: () => {
+            actions.restoreSavedView()
+        },
+        restoreSavedView: () => {
+            if (!values.viewStateHydrated || values.viewsLoading) {
+                return
+            }
+
             let migratedView: ColumnConfigurationApi | null = null
             if (!values.draftRestored && !objectsEqual(values.liveViewState.tiles, DEFAULT_TILES)) {
-                const candidate = views.find(
+                const candidate = values.views.find(
                     (view) =>
                         view.created_by === values.user?.id &&
                         !(view.properties as AccountsViewProperties | undefined)?.tiles?.length
@@ -512,7 +534,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 const view =
                     migratedView?.id === values.currentViewId
                         ? migratedView
-                        : views.find((v) => v.id === values.currentViewId)
+                        : values.views.find((v) => v.id === values.currentViewId)
                 if (view) {
                     actions.applyView(view)
                 }

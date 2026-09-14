@@ -4,6 +4,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { setOAuthContextIds } from 'lib/oauth/oauthClient'
+import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -44,7 +47,7 @@ import {
 import { DEFAULT_ACCOUNT_TAB, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, customPropertySavingKey, savingRoleKey, SEARCH_DEBOUNCE_MS } from './accountsLogic'
 import { accountsOverviewTilesLogic } from './accountsOverviewTilesLogic'
-import { readAccountsViewDraft } from './accountsViewState'
+import { readAccountsViewDraft, writeAccountsViewDraft } from './accountsViewState'
 import { AccountsEvents, DEFAULT_TILES } from './constants'
 
 const assignedToFilterOf = (query: AccountsTableQuery | null): number[] | undefined =>
@@ -367,6 +370,67 @@ describe('accountsLogic', () => {
 
         expect(logic.values.accountsQuerySource?.kind).toBe('AccountsTableQuery')
         expect(logic.values.metricsQuery).not.toBeNull()
+    })
+
+    it.each([
+        ['the user before the team', ['user', 'team']],
+        ['the team before the user', ['team', 'user']],
+    ])('restores a draft when %s resolves without bootstrap or OAuth identity helpers', async (_, arrivals) => {
+        logic.unmount()
+        window.POSTHOG_APP_CONTEXT = undefined
+        setOAuthContextIds(null)
+        teamLogic.actions.loadCurrentTeamSuccess(null)
+        userLogic.actions.loadUserSuccess(null)
+        writeAccountsViewDraft(MOCK_DEFAULT_TEAM.id, MOCK_DEFAULT_USER.uuid, {
+            columns: [...ACCOUNTS_DEFAULT_COLUMNS],
+            sortOrder: null,
+            filters: {
+                search: 'restored after identity',
+                assignmentStatus: 'all',
+                assignedTo: [],
+                tags: [],
+                tileFilter: null,
+                customProperties: [],
+            },
+            tiles: [...DEFAULT_TILES],
+            columnDisplay: {},
+        })
+
+        expect(getCurrentTeamIdOrNone()).toBeNull()
+        expect(getCurrentUserIdOrNone()).toBeNull()
+
+        logic = accountsLogic()
+        logic.mount()
+        expect(logic.values.viewStateHydrated).toBe(false)
+        expect(logic.values.accountsQuerySource).toBeNull()
+
+        accountsColumnConfigLogic.findMounted()!.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.hashParams.view).toBeUndefined()
+
+        for (const arrival of arrivals) {
+            if (arrival === 'user') {
+                userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+            } else {
+                teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+            }
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        expect(logic.values.viewStateHydrated).toBe(true)
+        expect(logic.values.searchQuery).toBe('restored after identity')
+        expect(logic.values.accountsQuerySource).not.toBeNull()
+
+        const otherUser = { ...MOCK_DEFAULT_USER, uuid: 'other-user-uuid' }
+        await expectLogic(logic, () => userLogic.actions.loadUserSuccess(otherUser)).toFinishAllListeners()
+        expect(logic.values.searchQuery).toBe('')
+
+        logic.actions.setSearchQuery('other user draft')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(readAccountsViewDraft(MOCK_DEFAULT_TEAM.id, MOCK_DEFAULT_USER.uuid)?.filters.search).toBe(
+            'restored after identity'
+        )
+        expect(readAccountsViewDraft(MOCK_DEFAULT_TEAM.id, otherUser.uuid)?.filters.search).toBe('other user draft')
     })
 
     it('removes relationship filters when relationship definitions fail to load', async () => {
