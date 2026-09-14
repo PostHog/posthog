@@ -319,7 +319,8 @@ export interface projectNoticeLogicMeta {
                 search: string
                 searchParams: Record<string, any>
             },
-            activeSceneProductKey: ProductKey | null
+            activeSceneProductKey: ProductKey | null,
+            connectionCheckInFlight: boolean
         ) => ProjectNoticeBlueprint | null
     }
 }
@@ -539,6 +540,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 billingLogic.selectors.canAccessBilling,
                 router.selectors.currentLocation,
                 sceneLogic.selectors.activeSceneProductKey,
+                apiStatusLogic.selectors.connectionCheckInFlight,
             ],
             (
                 variant: ProjectNoticeVariant | null,
@@ -555,7 +557,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     search: string
                     searchParams: Record<string, any>
                 },
-                activeSceneProductKey: ProductKey | null
+                activeSceneProductKey: ProductKey | null,
+                connectionCheckInFlight: boolean
             ): ProjectNoticeBlueprint | null => {
                 if (!variant) {
                     return null
@@ -682,12 +685,16 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     case 'internet_connection_issue':
                         return {
                             message:
-                                'PostHog is having trouble connecting to the server. Please check your connection.',
+                                'PostHog is having trouble connecting to the server. Check your connection, then try again.',
                             type: 'warning',
                             action: {
+                                // A reload throws away every loaded scene to answer one question.
+                                // A single request answers it, and clears this banner when it lands.
+                                // The attribute stays `reload-page` because autocapture keys on it.
                                 'data-attr': 'reload-page',
-                                onClick: () => window.location.reload(),
-                                children: 'Reload page',
+                                onClick: () => apiStatusLogic.actions.retryConnection(),
+                                loading: connectionCheckInFlight,
+                                children: 'Try again',
                             },
                         }
                     case 'event_ingestion_restriction':

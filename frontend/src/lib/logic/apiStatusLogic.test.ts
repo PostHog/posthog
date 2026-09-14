@@ -123,4 +123,40 @@ describe('apiStatusLogic', () => {
             errorSpy.mockRestore()
         })
     })
+
+    describe('connection banner', () => {
+        const okResponse = { status: 200, ok: true } as Response
+
+        beforeEach(() => {
+            // Without the common logics there is no background traffic to clear the banner behind us
+            initKeaTests(false)
+            logic = apiStatusLogic()
+            logic.mount()
+        })
+
+        it('raises the banner for a response whose body never arrived', async () => {
+            // The headers of the same response already cleared the banner
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(okResponse)
+                logic.actions.onResponseBodyFailure()
+            }).toFinishAllListeners()
+
+            expect(logic.values.internetConnectionIssue).toBe(true)
+        })
+
+        it.each([
+            ['clears the banner when the check lands', 200, false],
+            ['leaves the banner up when the check fails', 503, true],
+        ])('%s', async (_desc, status, expectedIssue) => {
+            useMocks({ get: { '/api/users/@me/': () => [status, MOCK_DEFAULT_USER] } })
+            logic.actions.setInternetConnectionIssue(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.retryConnection()
+            }).toFinishAllListeners()
+
+            expect(logic.values.internetConnectionIssue).toBe(expectedIssue)
+            expect(logic.values.connectionCheckInFlight).toBe(false)
+        })
+    })
 })

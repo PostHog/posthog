@@ -7,6 +7,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -313,6 +314,36 @@ describe('projectNoticeLogic', () => {
             // Routing prefixes the current project, so assert the targets rather than exact paths.
             expect(router.values.location.pathname).toMatch(new RegExp(`${urls.verifyEmail(MOCK_DEFAULT_USER.uuid)}$`))
             expect(router.values.searchParams.next).toMatch(new RegExp(`${urls.settings('user')}$`))
+
+            logic.unmount()
+        })
+    })
+
+    describe('internet connection banner CTA', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
+                },
+            })
+            initKeaTests()
+        })
+
+        // A reload is a heavy answer to "is the connection back?", and it costs the user every
+        // loaded scene. The CTA has to re-check in place and clear the banner when the check lands.
+        it('re-checks the connection instead of reloading the page', async () => {
+            const logic = projectNoticeLogic()
+            logic.mount()
+            apiStatusLogic.actions.setInternetConnectionIssue(true)
+
+            expect(logic.values.projectNoticeVariant).toEqual('internet_connection_issue')
+
+            await expectLogic(apiStatusLogic, () => {
+                logic.values.projectNotice?.action?.onClick?.({} as any)
+            }).toDispatchActions(['retryConnection', 'setConnectionCheckInFlight'])
+
+            await expectLogic(apiStatusLogic).toFinishAllListeners()
+            expect(apiStatusLogic.values.internetConnectionIssue).toBe(false)
 
             logic.unmount()
         })
