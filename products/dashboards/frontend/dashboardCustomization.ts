@@ -36,7 +36,7 @@ export const DASHBOARD_GRID_COMPACTION_LABELS: Record<DashboardGridCompaction, s
 
 type GridOccupancy = Map<number, Array<LayoutItem | undefined>>
 
-const MAX_FREE_FORM_TILE_HEIGHT_ROWS = 100
+const MAX_TILE_HEIGHT_ROWS = 100
 
 function getOccupants(occupancy: GridOccupancy, item: LayoutItem, cols: number): LayoutItem[] {
     const occupants = new Set<LayoutItem>()
@@ -112,19 +112,22 @@ function resolveCollisions(items: LayoutItem[], cols: number, activeTileId?: str
     return items
 }
 
+// The layout API accepts any integer height, so a saved tile can be arbitrarily tall. The occupancy
+// grid walks one row at a time, and the compactor runs on every pointer frame, so an unbounded height
+// makes a single drag allocate millions of rows.
+function cloneWithBoundedHeight(layout: Layout): LayoutItem[] {
+    return layout.map((item) => ({
+        ...cloneLayoutItem(item),
+        h: Math.min(item.h, MAX_TILE_HEIGHT_ROWS),
+    }))
+}
+
 export function resolveFreePlacementCollisions(layout: Layout, cols: number, activeTileId?: string | null): Layout {
-    return resolveCollisions(
-        layout.map((item) => ({
-            ...cloneLayoutItem(item),
-            h: Math.min(item.h, MAX_FREE_FORM_TILE_HEIGHT_ROWS),
-        })),
-        cols,
-        activeTileId
-    )
+    return resolveCollisions(cloneWithBoundedHeight(layout), cols, activeTileId)
 }
 
 function resolveDragCollisions(layout: Layout, cols: number, activeTileId: string): Layout {
-    return resolveCollisions(layout.map(cloneLayoutItem), cols, activeTileId)
+    return resolveCollisions(cloneWithBoundedHeight(layout), cols, activeTileId)
 }
 
 export function getDashboardTileSpacingGap(tileSpacing?: string): number {
