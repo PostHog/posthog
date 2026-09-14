@@ -6145,6 +6145,7 @@ def create_task(
                 warm_task,
                 team_id,
                 message=pending_user_message or description or None,
+                branch=warm_branch,
                 description=description or None,
                 artifact_ids=pending_user_artifact_ids,
                 auto_publish=warm_auto_publish,
@@ -6976,6 +6977,7 @@ def _activate_warm_run(
     team_id: int,
     *,
     message: str | None,
+    branch: str | None,
     artifact_ids: list[str],
     description: str | None = None,
     auto_publish: bool | None = None,
@@ -6997,7 +6999,7 @@ def _activate_warm_run(
     if description and not (task.description or "").strip():
         task.description = description
         task.save(update_fields=["description", "updated_at"])
-    activation_state_updates: dict[str, object] = {}
+    activation_state_updates: dict[str, object] = {"pr_base_branch": branch}
     if auto_publish is not None:
         # Before the signal: the agent-server re-reads run state when the forwarded
         # first message arrives, so the choice must already be persisted by then.
@@ -7163,6 +7165,7 @@ def warm_task_sandbox(
     )
     extra_state: dict = {
         "branch": branch,
+        "pr_base_branch": branch,
         "initial_permission_mode": resolved_permission_mode,
     }
     if sandbox_environment is not None:
@@ -7287,7 +7290,7 @@ def warm_task_resume_sandbox(
     if validation_error is not None:
         return None
 
-    branch = previous_state.pr_base_branch or previous_run.branch or (previous_run.state or {}).get("branch")
+    branch = previous_state.pr_base_branch
     sandbox_environment_id = previous_state.sandbox_environment_id
     custom_image_id = (previous_run.state or {}).get("custom_image_id")
     if not _warm_sandbox_selection_is_accessible(
@@ -7322,7 +7325,7 @@ def warm_task_resume_sandbox(
     for protected_key in ("wizard_head_branch", "self_driving_head_branch", "github_read_access"):
         if protected_key in (previous_run.state or {}):
             extra_state[protected_key] = (previous_run.state or {})[protected_key]
-    extra_state = {key: value for key, value in extra_state.items() if value is not None}
+    extra_state = {key: value for key, value in extra_state.items() if value is not None or key == "pr_base_branch"}
     stable_selection = {
         key: value
         for key, value in extra_state.items()
@@ -7444,9 +7447,7 @@ def run_task(
         previous_state = parse_run_state(previous_run.state)
         if previous_state.run_source == RunSource.AGENT:
             run_source = RunSource.AGENT
-        previous_branch = (
-            previous_state.pr_base_branch or previous_run.branch or (previous_run.state or {}).get("branch")
-        )
+        previous_branch = previous_state.pr_base_branch
         if branch is not None and branch != previous_branch:
             return contracts.TaskRunResult(
                 error=contracts.TaskValidationError(
@@ -7570,6 +7571,7 @@ def run_task(
                         task,
                         team_id,
                         message=pending_user_message or (task.description or None),
+                        branch=branch,
                         description=task.description or None,
                         artifact_ids=pending_user_artifact_ids,
                         auto_publish=validated_data.get("auto_publish"),
@@ -7676,13 +7678,10 @@ def run_task(
         reasoning_effort = runtime_state_fields["reasoning_effort"]
         context_window = runtime_state_fields["context_window"]
         fast_mode = runtime_state_fields["fast_mode"]
-        if branch is None and prev_state.pr_base_branch is not None:
-            branch = prev_state.pr_base_branch
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)
 
     run_state_values = {
-        "pr_base_branch": branch,
         "pr_authorship_mode": pr_authorship_mode,
         "auto_publish": auto_publish,
         "run_source": run_source,
@@ -7697,9 +7696,10 @@ def run_task(
     if is_pi_task:
         for key in ("runtime_adapter", "provider", "model", "reasoning_effort"):
             run_state_values.pop(key)
+    extra_state = extra_state or {}
+    extra_state["pr_base_branch"] = branch
     for key, value in run_state_values.items():
         if value is not None:
-            extra_state = extra_state or {}
             extra_state[key] = value.value if hasattr(value, "value") else value
 
     reasoning_effort_error = get_reasoning_effort_error(

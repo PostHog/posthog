@@ -3152,11 +3152,12 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.json()["run_error"], "Failed to start task workflow.")
         self.assertIsNotNone(response.json()["latest_run"])
 
+    @parameterized.expand([({"pr_base_branch": "main"},), ({"pr_base_branch": None},), ({},)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_different_resume_branch(self, mock_workflow):
+    def test_run_endpoint_rejects_different_resume_branch(self, base_state, mock_workflow):
         task = self.create_task()
         previous_run = TaskRun.objects.create(
-            task=task, team=self.team, status=TaskRun.Status.COMPLETED, state={"pr_base_branch": "main"}
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, state=base_state
         )
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
@@ -3167,28 +3168,26 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task.runs.count(), 1)
         mock_workflow.assert_not_called()
 
-    @parameterized.expand([(None, "release"), ("release", "release"), (None, None), ("release", None)])
+    @parameterized.expand([({"pr_base_branch": None}, "release"), ({"pr_base_branch": None}, None), ({}, "release")])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_resume_keeps_warm_run_branch(self, requested_branch, stored_branch, mock_workflow):
+    def test_resume_ignores_mutable_run_branch(self, base_state, stored_branch, mock_workflow):
         task = self.create_task()
         previous_run = TaskRun.objects.create(
             task=task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
             branch=stored_branch,
-            state={"branch": "release", "pr_base_branch": None},
+            state={"branch": "release", **base_state},
         )
         payload = {"resume_from_run_id": str(previous_run.id)}
-        if requested_branch is not None:
-            payload["branch"] = requested_branch
 
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/", payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertNotIn("run_error", response.json())
         run = task.runs.exclude(id=previous_run.id).get()
-        self.assertEqual(run.branch, "release")
-        self.assertEqual(run.state["pr_base_branch"], "release")
+        self.assertIsNone(run.branch)
+        self.assertIsNone(run.state["pr_base_branch"])
         mock_workflow.assert_called_once()
 
     @parameterized.expand(
@@ -3197,6 +3196,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("remove", {"state_remove_keys": ["run_source", "pr_base_branch"]}, True),
             ("append", {"state_append": {"run_source": ["manual"], "pr_base_branch": ["other"]}}, True),
             ("empty_list", {"state": []}, False),
+            ("default_branch", {"branch": "other", "state": {"branch": "other"}}, True),
         ]
     )
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
@@ -3206,13 +3206,17 @@ class TestTaskAPI(BaseTaskAPITest):
         self, _name, payload, valid, mock_workflow, _mock_internal, _mock_publish
     ):
         task = self.create_task()
-        run = TaskRun.objects.create(
-            task=task,
-            team=self.team,
-            status=TaskRun.Status.IN_PROGRESS,
-            branch="release",
-            state={"run_source": "agent", "pr_base_branch": "release"},
+        base_branch = None if _name == "default_branch" else "release"
+        start_response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"run_source": "agent", **({"branch": base_branch} if base_branch is not None else {})},
+            format="json",
         )
+        self.assertEqual(start_response.status_code, status.HTTP_200_OK)
+        run = task.runs.get()
+        self.assertEqual(run.state["pr_base_branch"], base_branch)
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=["status"])
         client = self._sandbox_oauth_client(task.id, internal_scope=True)
         response = client.patch(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", payload, format="json")
 
@@ -3224,7 +3228,7 @@ class TestTaskAPI(BaseTaskAPITest):
                 )
         run.refresh_from_db()
         self.assertEqual(run.state["run_source"], "agent")
-        self.assertEqual(run.state["pr_base_branch"], "release")
+        self.assertEqual(run.state["pr_base_branch"], base_branch)
         run.status = TaskRun.Status.COMPLETED
         run.save(update_fields=["status"])
 
@@ -3235,7 +3239,8 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         resumed_run = task.runs.exclude(id=run.id).get()
         self.assertEqual(resumed_run.state["run_source"], "agent")
-        self.assertEqual(resumed_run.state["pr_base_branch"], "release")
+        self.assertEqual(resumed_run.state["pr_base_branch"], base_branch)
+        self.assertEqual(resumed_run.branch, base_branch)
         self.assertEqual(mock_workflow.call_args.kwargs["posthog_mcp_scopes"], "read_only")
 
     @parameterized.expand(

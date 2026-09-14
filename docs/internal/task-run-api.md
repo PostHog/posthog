@@ -29,6 +29,9 @@ To attach files, first create the task, then upload the files, then start its ru
 `POST /api/projects/{team_id}/tasks/{task_id}/run/` starts a run for an existing task.
 Its response includes `run_error` if workflow dispatch fails.
 A resumed run keeps its previous base branch and agent source.
+The server stores the base branch in `pr_base_branch`, including `null` for the repository default.
+Resumes use only this protected value, not the editable run branch or `state.branch`.
+Older runs without a stored base branch use the repository default.
 Cloud resumes of agent-sourced runs require the agent-run feature flag and the internal-project restriction.
 Warm resumes of agent-sourced runs return an empty response without creating a sandbox.
 Agent-sourced runs do not reuse warm sandboxes.

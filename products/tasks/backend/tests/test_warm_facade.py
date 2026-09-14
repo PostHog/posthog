@@ -886,6 +886,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         assert str(dto.id) == str(warm_task.id)
         run.refresh_from_db()
         assert "await_user_message" not in run.state
+        assert run.state["pr_base_branch"] == "main"
 
     def test_does_not_reuse_warm_task_from_a_different_github_integration(self):
         warm_task, _ = self._warm_run()
@@ -912,6 +913,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         assert str(dto.id) == str(warm_task.id)
         run.refresh_from_db()
         assert "await_user_message" not in run.state
+        assert run.state["pr_base_branch"] is None
 
     def test_create_endpoint_returns_structured_compute_quota_denial_before_warm_activation(self):
         warm_task, run = self._warm_run()
@@ -1307,7 +1309,8 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
 
         assert warmed is not None
         warm_run = TaskRun.objects.get(id=warmed.run_id)
-        assert warm_run.branch == "release"
+        assert warm_run.branch == base_branch
+        assert warm_run.state["pr_base_branch"] == base_branch
         assert warm_run.state["resume_from_run_id"] == str(terminal.id)
         assert warm_run.state["snapshot_external_id"] == "snapshot-1"
         assert warm_run.state["await_user_message"] is True
@@ -1337,6 +1340,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
         signal.assert_called_once()
         warm_run.refresh_from_db()
         assert "await_user_message" not in warm_run.state
+        assert warm_run.state["pr_base_branch"] == base_branch
 
     def _terminal_run(self, task: Task) -> TaskRun:
         terminal = task.create_run(
