@@ -221,10 +221,10 @@ def _sanitize_survey_link(
     """
     The link to serve for this question, or None to serve no link at all.
 
-    The scheme is checked here on every read, against the schemes the project allows right now.
-    That is what makes revoking a scheme take effect for a respondent: a link stored while the
-    scheme was allowed stops reaching an SDK the moment the project removes it, with no backfill
-    and no revalidation of surveys already published.
+    The scheme is checked on every read, against the schemes the project allows right now, which
+    is what makes revoking a scheme take effect for a respondent with no backfill and no
+    revalidation of surveys already published. The SDK payload is a rebuilt cache rather than a
+    live read, so a revocation reaches SDKs on the next rebuild of that cache, not the next poll.
 
     `keep_unregistered_schemes` turns that filter off for the authenticated read the editor loads.
     The editor submits the whole questions array back on every save, so dropping the link there
