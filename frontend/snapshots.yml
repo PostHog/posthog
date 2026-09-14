@@ -8156,6 +8156,10 @@ snapshots:
         hash: v1.k794b7964.c7cabd5d71fbeb9c77fd395ad60ca1524e64bb04c38d3b19a4b506aecb2135eb.rNerWVnQ2qhn1NscqDV1Uf8e0HzTup6OKzH1fClOX8s
     scenes-app-inbox-signal-cards--ticket-attachments--light:
         hash: v1.k794b7964.3d52f736d68c7011b4640065d9b8c4fb635e81c48d8d9c65612633642ff4abcf.KbKms7BD6qdUC6giZ-uPeHd_DTtHuCR_JPsi0INgT9U
+    scenes-app-inbox-signal-cards--ticket-without-number--dark:
+        hash: v1.k794b7964.86cf1ef2dc85a65910993d0a47c6cf055b6efb70ea81a4cf665dce88d0b0c140.0xM3XH8z7CJ32sAKvZ_xUnBEyuGf4eBf1SG2-SplZ5A
+    scenes-app-inbox-signal-cards--ticket-without-number--light:
+        hash: v1.k794b7964.015ae3204d23d033c3a0b131e352122cbc3cfa019f66f8f230f059b100f8f2cc.ZMT3pKT2QFcOr116n_hOXdGWTMc0uwzvvfj8DVcWurM
     scenes-app-inbox-signalsourcespanel--armed-but-tools-off--dark:
         hash: v1.k794b7964.ece1c0e16e4970e264f483296aaee56c6e8f271ffd8149c414ae314b1a72c866.kfMXUu0-mbkWvrPMsm0GPuPwIdcSt9t7DfNYHby-X0I
     scenes-app-inbox-signalsourcespanel--armed-but-tools-off--light:
