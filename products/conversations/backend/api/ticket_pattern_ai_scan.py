@@ -111,7 +111,8 @@ class TicketPatternAiScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         }
 
     @extend_schema(responses=AiScanStatusSerializer, description="Whether the AI scan is on for this project.")
-    def list(self, request: Request, **kwargs: Any) -> Response:
+    @action(methods=["GET"], detail=False)
+    def status(self, request: Request, **kwargs: Any) -> Response:
         self._assert_can_read()
         return Response(AiScanStatusSerializer(self._status()).data)
 

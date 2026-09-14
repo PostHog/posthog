@@ -49,6 +49,16 @@ const meta: Meta = {
                     200,
                     { results: overrides, count: overrides.length, next: null, previous: null },
                 ],
+                '/api/projects/:id/conversations/pattern_ai_scan/status/': () => [
+                    200,
+                    {
+                        enabled: true,
+                        scout_config_id: '019f9582-0000-7000-8000-0000000000c1',
+                        skill_name: 'signals-scout-ticket-patterns',
+                        last_run_at: '2026-07-25T10:02:00Z',
+                        ai_consent_granted: true,
+                    },
+                ],
                 '/api/organizations/:id/roles/': () => [
                     200,
                     {
@@ -97,6 +107,27 @@ export const Narrow: Story = {
             <TicketPatternsSection />
         </div>
     ),
+}
+
+export const AiScanNeverEnabled: Story = {
+    ...Enabled,
+    decorators: [
+        withPatternsEnabled,
+        mswDecorator({
+            get: {
+                '/api/projects/:id/conversations/pattern_ai_scan/status/': () => [
+                    200,
+                    {
+                        enabled: false,
+                        scout_config_id: null,
+                        skill_name: null,
+                        last_run_at: null,
+                        ai_consent_granted: false,
+                    },
+                ],
+            },
+        }),
+    ],
 }
 
 export const Disabled: Story = {}

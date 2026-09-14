@@ -22,6 +22,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { TicketTopicOverrideApi, TicketTopicOverrideKindEnumApi } from '../../generated/api.schemas'
+import { TicketPatternAiScanCard } from './TicketPatternAiScanCard'
 import { ticketPatternSettingsLogic } from './ticketPatternSettingsLogic'
 
 const WINDOW_OPTIONS = [
@@ -126,26 +127,29 @@ export function TicketPatternsSection(): JSX.Element {
             <SceneSection
                 title="Ticket patterns"
                 className="my-8"
-                description="Detection looks for several different customers raising the same topic inside a short window and opens a pattern for your team to review. No AI is involved."
+                description="Detection looks for several different customers raising the same topic inside a short window and opens a pattern for your team to review. Detection uses no AI. The AI scan is a separate option."
             >
-                <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
-                    <div className="flex items-center gap-4 justify-between">
-                        <div>
-                            <label className="font-medium">Detect ticket patterns</label>
-                            <p className="text-xs text-muted-alt mb-0">
-                                Runs every 15 minutes on the tickets in this project. Open patterns appear above the
-                                ticket list and on the <Link to={urls.supportPatterns()}>Patterns tab</Link>.
-                            </p>
+                <div className="flex flex-col gap-3">
+                    <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
+                        <div className="flex items-center gap-4 justify-between">
+                            <div>
+                                <label className="font-medium">Detect ticket patterns</label>
+                                <p className="text-xs text-muted-alt mb-0">
+                                    Runs every 15 minutes on the tickets in this project. Open patterns appear above the
+                                    ticket list and on the <Link to={urls.supportPatterns()}>Patterns tab</Link>.
+                                </p>
+                            </div>
+                            <LemonSwitch
+                                checked={settings.enabled}
+                                onChange={(enabled) => updateSettings({ enabled })}
+                                loading={saving}
+                                disabledReason={restrictedReason}
+                                data-attr="ticket-pattern-detection-toggle"
+                            />
                         </div>
-                        <LemonSwitch
-                            checked={settings.enabled}
-                            onChange={(enabled) => updateSettings({ enabled })}
-                            loading={saving}
-                            disabledReason={restrictedReason}
-                            data-attr="ticket-pattern-detection-toggle"
-                        />
-                    </div>
-                </LemonCard>
+                    </LemonCard>
+                    {settings.enabled ? <TicketPatternAiScanCard /> : null}
+                </div>
             </SceneSection>
 
             {settings.enabled ? (

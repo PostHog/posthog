@@ -49,7 +49,7 @@ class TestTicketPatternAiScanAPI(APIBaseTest):
 
     def test_status_reports_no_scout_and_consent(self):
         with patch(f"{FACADE}.scout_for_source", return_value=None):
-            response = self.client.get(self.url)
+            response = self.client.get(f"{self.url}status/")
 
         assert response.json() == {
             "enabled": False,
@@ -123,7 +123,7 @@ class TestTicketPatternAiScanAPI(APIBaseTest):
         assert reports.call_args.args == (self.team.id, SCOUT_SOURCE_PRODUCT, str(self.team.id))
         assert [r["title"] for r in response.json()] == ["Login failures after password reset"]
 
-    @parameterized.expand([("status", "get", ""), ("reports", "get", "reports/"), ("enable", "post", "")])
+    @parameterized.expand([("status", "get", "status/"), ("reports", "get", "reports/"), ("enable", "post", "")])
     def test_a_member_denied_any_ticket_cannot_use_the_scan(self, _name, method, suffix):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()

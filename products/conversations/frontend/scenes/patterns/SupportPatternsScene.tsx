@@ -19,6 +19,7 @@ import { TicketPatternSeverityTag } from '../../components/TicketPatterns/Ticket
 import { ticketPatternsLogic } from '../../components/TicketPatterns/ticketPatternsLogic'
 import type { TicketPatternApi } from '../../generated/api.schemas'
 import { type PatternStatusFilter, supportPatternsSceneLogic } from './supportPatternsSceneLogic'
+import { TicketPatternAiScanFindings } from './TicketPatternAiScanFindings'
 
 export const scene: SceneExport = {
     component: SupportPatternsScene,
@@ -178,6 +179,7 @@ export function SupportPatternsScene(): JSX.Element {
                     }}
                 />
             )}
+            <TicketPatternAiScanFindings />
         </SceneContent>
     )
 }

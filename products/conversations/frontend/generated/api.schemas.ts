@@ -7,6 +7,39 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AiScanStatusApi {
+    /** Whether an AI scan scout exists and is running for this project. */
+    enabled: boolean
+    /**
+     * The Signals scout config behind the scan, for linking into the Inbox.
+     * @nullable
+     */
+    scout_config_id: string | null
+    /**
+     * The scout's skill name in the Skills store.
+     * @nullable
+     */
+    skill_name: string | null
+    /**
+     * When the scout last ran.
+     * @nullable
+     */
+    last_run_at: string | null
+    /** Whether the organization has approved AI data processing. The scan cannot be turned on without it. */
+    ai_consent_granted: boolean
+}
+
+export interface AiScanReportApi {
+    /** Signals report id, for linking into the Inbox. */
+    report_id: string
+    /** Report title, written by the scout. */
+    title: string
+    /** Report summary, written by the scout. Ticket links are inside it. */
+    summary: string
+    /** When the scout run that filed this report started. */
+    filed_at: string
+}
+
 /**
  * * `mute` - Mute
  * * `watch` - Watch

@@ -1,0 +1,75 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import type { AiScanStatusApi } from '../../generated/api.schemas'
+import { ticketPatternAiScanLogic } from './ticketPatternAiScanLogic'
+
+const OFF: AiScanStatusApi = {
+    enabled: false,
+    scout_config_id: null,
+    skill_name: null,
+    last_run_at: null,
+    ai_consent_granted: true,
+}
+
+const ON: AiScanStatusApi = {
+    ...OFF,
+    enabled: true,
+    scout_config_id: 'cfg',
+    skill_name: 'signals-scout-ticket-patterns',
+}
+
+describe('ticketPatternAiScanLogic', () => {
+    let logic: ReturnType<typeof ticketPatternAiScanLogic.build>
+
+    beforeEach(async () => {
+        silenceKeaLoadersErrors()
+        useMocks({
+            get: { '/api/projects/:team_id/conversations/pattern_ai_scan/status/': () => [200, OFF] },
+        })
+        initKeaTests()
+        logic = ticketPatternAiScanLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadStatusSuccess'])
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        resumeKeaLoadersErrors()
+    })
+
+    it('shows the scan as on straight from the enable response', async () => {
+        useMocks({ post: { '/api/projects/:team_id/conversations/pattern_ai_scan/': () => [201, ON] } })
+
+        logic.actions.enableScan()
+        await expectLogic(logic).toMatchValues({ toggling: true })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.status).toEqual(ON)
+        expect(logic.values.toggling).toEqual(false)
+    })
+
+    it('releases the switch and tells the person when enabling fails', async () => {
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
+        useMocks({
+            post: {
+                '/api/projects/:team_id/conversations/pattern_ai_scan/': () => [
+                    403,
+                    { detail: 'AI data processing is not approved for this organization.' },
+                ],
+            },
+        })
+
+        logic.actions.enableScan()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.status).toEqual(OFF)
+        expect(logic.values.toggling).toEqual(false)
+        expect(toast).toHaveBeenCalledWith('AI data processing is not approved for this organization.')
+    })
+})

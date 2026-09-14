@@ -101,6 +101,32 @@ const onPatternsRoute: Decorator = (Story) => {
     return <Story />
 }
 
+// Invented scan findings: what the hourly scout would file beside the detector's own patterns.
+const aiScanOn = {
+    enabled: true,
+    scout_config_id: '019f9582-0000-7000-8000-0000000000c1',
+    skill_name: 'signals-scout-ticket-patterns',
+    last_run_at: '2026-07-25T10:02:00Z',
+    ai_consent_granted: true,
+}
+
+const aiScanReports = [
+    {
+        report_id: '019f9582-0000-7000-8000-0000000000d1',
+        title: 'Exports stall for accounts on the EU region since 09:30',
+        summary:
+            'Four customers on four different domains describe the same stall in different words. The detector has an open pattern for "export", and this adds that all four are on the EU region.',
+        filed_at: '2026-07-25T10:02:00Z',
+    },
+    {
+        report_id: '019f9582-0000-7000-8000-0000000000d2',
+        title: 'Magic link emails arrive late for three customers',
+        summary:
+            'None of the three tickets share a word the detector matches on, but each describes a 20 minute delay.',
+        filed_at: '2026-07-25T09:02:00Z',
+    },
+]
+
 const meta: Meta = {
     title: 'Scenes-App/Support/Patterns',
     component: SupportPatternsScene,
@@ -119,6 +145,8 @@ const meta: Meta = {
                     const results = status ? patterns.filter((p) => status.split(',').includes(p.status)) : patterns
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
+                '/api/projects/:id/conversations/pattern_ai_scan/status/': () => [200, aiScanOn],
+                '/api/projects/:id/conversations/pattern_ai_scan/reports/': () => [200, aiScanReports],
             },
         }),
     ],
@@ -186,6 +214,18 @@ export const Empty: Story = {
                     200,
                     { results: [], count: 0, next: null, previous: null },
                 ],
+            },
+        }),
+    ],
+}
+
+// A paused scout keeps its section so its old findings stay reachable, but says the scan is off.
+export const AiScanPaused: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/conversations/pattern_ai_scan/status/': () => [200, { ...aiScanOn, enabled: false }],
+                '/api/projects/:id/conversations/pattern_ai_scan/reports/': () => [200, []],
             },
         }),
     ],

@@ -10,6 +10,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AiFeedbackRequestApi,
+    AiScanReportApi,
+    AiScanStatusApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
     BulkUpdateTagsUUIDRequestApi,
@@ -60,6 +62,74 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getConversationsPatternAiScanCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/pattern_ai_scan/`
+}
+
+/**
+ * Turn the AI scan on: create the ticket patterns scout for this project from the canonical skill.
+ */
+export const conversationsPatternAiScanCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AiScanStatusApi> => {
+    return apiMutator<AiScanStatusApi>(getConversationsPatternAiScanCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getConversationsPatternAiScanDisableCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/pattern_ai_scan/disable/`
+}
+
+/**
+ * Turn the AI scan off. The scout is paused, not deleted, so its memory and reports survive.
+ */
+export const conversationsPatternAiScanDisableCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsPatternAiScanDisableCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getConversationsPatternAiScanReportsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/pattern_ai_scan/reports/`
+}
+
+/**
+ * What the AI scan has found, newest first. Empty when the scan is off or has found nothing.
+ */
+export const conversationsPatternAiScanReportsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AiScanReportApi[]> => {
+    return apiMutator<AiScanReportApi[]>(getConversationsPatternAiScanReportsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsPatternAiScanStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/pattern_ai_scan/status/`
+}
+
+/**
+ * Whether the AI scan is on for this project.
+ */
+export const conversationsPatternAiScanStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AiScanStatusApi> => {
+    return apiMutator<AiScanStatusApi>(getConversationsPatternAiScanStatusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getConversationsPatternOverridesListUrl = (
     projectId: string,
