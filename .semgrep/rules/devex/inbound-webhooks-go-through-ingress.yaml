@@ -1,0 +1,107 @@
+rules:
+    - id: inbound-webhooks-go-through-ingress
+      message: |
+          Inbound webhook signature verification goes through `posthog.ingress` —
+          never a hand-rolled `hmac` check in a view or a per-product helper.
+
+          Add a `<provider>/` incarnation under `posthog/ingress/` carrying the signature
+          scheme and the delivery parsing, hand it to `build_webhook_view()` in the URLconf,
+          and register the handlers in `products/<product>/backend/webhook_consumers.py`.
+          An endpoint that genuinely needs DRF team scoping (Customer.io) keeps its view and
+          subclasses `posthog.auth.WebhookSignatureAuthentication`, which verifies through the
+          same code.
+
+          Why: a hand-rolled verifier repeats the parts that are easy to get wrong — the
+          constant-time compare, the replay window, the exact signed input — and it lands
+          outside the shared dedup, delivery budget, and delivery metrics, so a wedged
+          consumer is invisible and holds the connection open.
+          See `docs/internal/inbound-webhooks.md` and `posthog/ingress/README.md`.
+
+          The rule fires on `hmac.compare_digest` in a module that also reads one of the known
+          signature headers, on `hmac` inside a function named like a signature verifier, and
+          on a vendor SDK call that verifies an inbound signature.
+          Suppress a legitimate exception with
+          `# nosemgrep: inbound-webhooks-go-through-ingress -- <reason>`.
+      languages: [python]
+      severity: ERROR
+      patterns:
+          - pattern-either:
+                # A module that reads a signature header and compares a digest verifies by hand.
+                # `hmac.new` alone is not enough: signing an outbound request is legitimate.
+                - patterns:
+                      - pattern: hmac.compare_digest(...)
+                      # Both header mappings, and both ways of reading one. The attribute
+                      # names are spelled out rather than bound to a metavariable, because a
+                      # generic `$REQ.$ATTR.get(...)` makes semgrep time out on a large
+                      # module, which drops that file from the scan without failing it.
+                      - pattern-either:
+                            - pattern-inside: |
+                                  ...
+                                  $REQ.headers.get($HEADER, ...)
+                                  ...
+                            - pattern-inside: |
+                                  ...
+                                  $REQ.headers[$HEADER]
+                                  ...
+                            - pattern-inside: |
+                                  ...
+                                  $REQ.META.get($HEADER, ...)
+                                  ...
+                            - pattern-inside: |
+                                  ...
+                                  $REQ.META[$HEADER]
+                                  ...
+                      - metavariable-regex:
+                            metavariable: $HEADER
+                            regex: (?i)^["'](http[_-])?(x[_-](hub[_-]signature[_-]256|slack[_-]signature|pandadoc[_-]signature|cio[_-]signature|vapi[_-]signature)|stripe[_-]signature)["']$
+                # The verifier often sits in its own module, away from the header read, so
+                # catch it by what it is called. Both name shapes a verifier takes: a verb
+                # first (`verify_signature`), or a predicate (`signature_ok`,
+                # `_is_valid_signature`). A name that only signs (`compute_signature`,
+                # `build_test_signature`) carries no validity word and stays out.
+                - patterns:
+                      - pattern-either:
+                            - pattern: hmac.compare_digest(...)
+                            - pattern: hmac.new(...)
+                      - pattern-inside: |
+                            def $VERIFY(...):
+                                ...
+                      - metavariable-regex:
+                            metavariable: $VERIFY
+                            regex: ^_?((is_|has_)?(verify|valid|check|match)[a-z0-9_]*(signature|webhook|digest)[a-z0-9_]*|(is_|has_)?[a-z0-9_]*(signature|webhook|digest)[a-z0-9_]*_(ok|valid|verified|match)[a-z0-9_]*)$
+                # A vendor SDK can own the compare, so neither branch above sees any `hmac`.
+                # These calls only ever verify an inbound signature; nothing signs with them.
+                - patterns:
+                      - pattern-either:
+                            - pattern: stripe.WebhookSignature.verify_header(...)
+                            - pattern: stripe.Webhook.construct_event(...)
+      paths:
+          include:
+              - /common/**/*.py
+              - /ee/**/*.py
+              - /posthog/**/*.py
+              - /products/**/*.py
+          exclude:
+              # Ingress is the sanctioned implementation, and posthog/auth.py is the DRF
+              # adapter that delegates to it.
+              - /posthog/ingress/**
+              - /posthog/auth.py
+              # A test builds a signature to send; it does not verify an inbound one.
+              - '**/test/**'
+              - '**/tests/**'
+              - 'test_*.py'
+              - '*_test.py'
+              # Ratchet. Each entry is a verifier that predates ingress, and the PR that
+              # migrates that endpoint removes its line. The paths are the ones on master,
+              # so the rule holds whether or not the migrations land with it.
+              - /ee/api/vercel/vercel_webhooks.py
+              - /ee/partners/stripe/api/provisioning/signature.py
+              - /posthog/api/github_webhooks/signature.py
+              - /posthog/models/integration/slack.py
+              - /products/conversations/backend/api/github_events.py
+              - /products/conversations/backend/api/slack_events.py
+              - /products/conversations/backend/mailgun.py
+              - /products/conversations/backend/support_slack.py
+              - /products/legal_documents/backend/logic/pandadoc.py
+              - /products/user_interviews/backend/presentation/webhooks.py
+              - /products/workflows/backend/api/ses_events_webhook.py
