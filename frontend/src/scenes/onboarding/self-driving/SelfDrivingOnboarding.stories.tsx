@@ -44,3 +44,19 @@ export const UseCasesDark: Story = {
         },
     },
 }
+
+/** The header chrome past the first step: the labeled Back button and the progress dots that take
+ * the user back to a step they already did. */
+export const StepNavigation: Story = {
+    globals: { theme: 'light' },
+    render: () => {
+        router.actions.replace(urls.onboarding(), { step: 'install' })
+        return <SelfDrivingOnboarding />
+    },
+    parameters: {
+        testOptions: {
+            skipDarkMode: true,
+            waitForSelector: '[data-attr="self-driving-onboarding-back"]',
+        },
+    },
+}
