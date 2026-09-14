@@ -35,6 +35,12 @@ class EtsyEndpointConfig:
     # Filter prefix used to walk history when the schema is NOT synced incrementally. `None` means
     # the endpoint has no time filter at all, so it is paginated by offset alone.
     default_window_param: str | None = None
+    # Etsy rejects a window wider than this outright, so history is walked in narrower slices here.
+    # `None` uses the source-wide default slice.
+    max_window_seconds: int | None = None
+    # Highest offset Etsy serves for this endpoint. `None` uses the source-wide ceiling; an endpoint
+    # Etsy answers anonymously is capped far below it.
+    max_offset: int | None = None
     # Extra query params sent on every request for this endpoint.
     extra_params: dict[str, str] = field(default_factory=dict)
     # Endpoint returns a bare object rather than the {count, results} envelope.
@@ -98,6 +104,9 @@ ETSY_ENDPOINTS: dict[str, EtsyEndpointConfig] = {
         window_params={"created_timestamp": "created"},
         incremental_fields=[_CREATED],
         default_window_param="created",
+        # getReviewsByShop carries no OAuth scope, so Etsy answers it anonymously however the
+        # request is authenticated, and rejects every offset past the first page.
+        max_offset=0,
     ),
     "ledger_entries": EtsyEndpointConfig(
         name="ledger_entries",
@@ -105,8 +114,10 @@ ETSY_ENDPOINTS: dict[str, EtsyEndpointConfig] = {
         primary_keys=["entry_id"],
         window_params={"created_timestamp": "created"},
         incremental_fields=[_CREATED],
-        # Etsy rejects this endpoint without min_created/max_created, so it is always windowed.
+        # Etsy rejects this endpoint without min_created/max_created, so it is always windowed,
+        # and rejects a window wider than 31 days.
         default_window_param="created",
+        max_window_seconds=31 * 24 * 60 * 60,
     ),
 }
 
