@@ -10,6 +10,7 @@ import { CategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/component
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
