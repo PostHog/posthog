@@ -18,11 +18,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportBackfill, BatchExportSource
-from products.batch_exports.backend.tests.api.fixtures import (
-    create_batch_export,
-    create_destination,
-    create_organization,
-)
+from products.batch_exports.backend.tests.api.fixtures import create_destination, create_organization
 from products.batch_exports.backend.tests.api.operations import backfill_batch_export, create_batch_export_ok
 
 if TYPE_CHECKING:
@@ -640,13 +636,21 @@ def test_batch_export_backfill_hogql_interval_validation(
 ) -> None:
     client.force_login(user)
     with team_scope(team_id=team.pk):
-        batch_export = create_batch_export(team, create_destination())
-        batch_export.model = model
+        source = None
+        schema = None
         if model == BatchExport.Model.HOGQL:
-            batch_export.source = BatchExportSource.objects.create(team_id=team.pk, hogql_query=hogql_query)
+            source = BatchExportSource.objects.create(team_id=team.pk, hogql_query=hogql_query)
         else:
-            batch_export.schema = {"hogql_query": hogql_query, "fields": [{"expression": "event", "alias": "event"}]}
-        batch_export.save()
+            schema = {"hogql_query": hogql_query, "fields": [{"expression": "event", "alias": "event"}]}
+        batch_export = BatchExport.objects.create(
+            team=team,
+            name="Backfill interval validation",
+            destination=create_destination(),
+            interval="hour",
+            model=model,
+            source=source,
+            schema=schema,
+        )
 
     with (
         patch("products.batch_exports.backend.api.batch_export.posthoganalytics.feature_enabled", return_value=True),
