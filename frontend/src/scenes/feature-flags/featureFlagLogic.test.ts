@@ -338,6 +338,26 @@ describe('featureFlagLogic', () => {
             expect(logic.values.featureFlag.name).toBe('renamed by the agent')
             expect(logic.values.isFormDirty).toBe(false)
         })
+
+        // The Enabled switch writes to the same form field the refresh folds, so a rename must not
+        // revert a toggle the reader has not saved. The case above edits a field the fold skips,
+        // and asserts the opposite outcome, so it cannot carry this one.
+        it('keeps an unsaved Enabled toggle instead of folding the server value over it', async () => {
+            logic.actions.setFeatureFlag({ ...logic.values.featureFlag, active: false })
+            expect(logic.values.isFormDirty).toBe(true)
+
+            useMocks(serverFlagMock({ name: 'renamed by the agent', active: true }))
+
+            await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
+                .toDispatchActions(['refreshFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.featureFlag.active).toBe(false)
+            // The toggle is the only edit, so folding it would also leave the form reading clean
+            // while the notice says the edits were kept.
+            expect(logic.values.isFormDirty).toBe(true)
+            expect(lemonToast.info).toHaveBeenCalledTimes(1)
+        })
     })
 
     describe('saveFeatureFlag error handling', () => {

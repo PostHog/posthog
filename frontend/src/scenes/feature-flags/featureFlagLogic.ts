@@ -3920,9 +3920,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // Keep the loaded `version` after an agent change. The server runs its stale-write
                 // check only when the submitted version is behind the stored row, and that check is
                 // what stops these unsaved edits from overwriting the fields the agent rewrote.
+                // `active` and `archived` are form fields, so fold one only where the reader has not
+                // edited it. Folding over a local edit drops it, and when it is the only edit the
+                // form goes clean again while the notice below says the edits were kept.
+                const isEditedLocally = (field: 'active' | 'archived'): boolean =>
+                    values.featureFlag[field] !== baseline[field]
                 const persisted = {
-                    active: featureFlagRefresh.active,
-                    archived: featureFlagRefresh.archived,
+                    ...(isEditedLocally('active') ? {} : { active: featureFlagRefresh.active }),
+                    ...(isEditedLocally('archived') ? {} : { archived: featureFlagRefresh.archived }),
                     ...(afterAgentChange ? {} : { version: featureFlagRefresh.version }),
                 }
                 actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
