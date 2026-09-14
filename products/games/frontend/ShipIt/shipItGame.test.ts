@@ -151,7 +151,7 @@ describe('shipItGame', () => {
         expect(enqueued.phase).toBe('queued')
     })
 
-    it('stops offering /trunk merge while CI is red, so the level cannot stall', () => {
+    it('stops forcing /trunk merge tiles while CI is red, so the level cannot stall', () => {
         const ready = stateWith({
             level: LAST_LEVEL,
             progress: 100,
