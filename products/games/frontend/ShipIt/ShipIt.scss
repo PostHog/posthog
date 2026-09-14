@@ -3,6 +3,7 @@
     flex-direction: column;
     gap: 0.75rem;
     max-width: 48rem;
+    margin-inline: auto;
 
     &__board {
         position: relative;
@@ -43,11 +44,14 @@
         transform: translateY(-50%);
     }
 
+    // Centred on the hit line the rules use, so a tile vanishing into the pull request reads as a
+    // collision at every board width rather than only at the widest one.
     &__pr {
-        left: 1rem;
+        left: calc(var(--ship-it-hit) * 100%);
         color: var(--color-text-primary);
         background: var(--color-bg-fill-primary);
         border-color: var(--color-border-primary);
+        transform: translate(-50%, -50%);
     }
 
     // The pull request only advances while it is mergeable, so the player needs to see that state at a glance.
