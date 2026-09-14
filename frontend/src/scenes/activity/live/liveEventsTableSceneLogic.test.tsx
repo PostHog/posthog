@@ -24,11 +24,10 @@ const FATAL_ERROR: LiveStreamError = {
 describe('liveEventsTableSceneLogic', () => {
     let logic: ReturnType<typeof liveEventsLogic.build>
     let sceneLogic: ReturnType<typeof liveEventsTableSceneLogic.build>
-    let streamSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
-        streamSpy = jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
+        jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
         logic = liveEventsLogic()
         logic.mount()
         sceneLogic = liveEventsTableSceneLogic()
@@ -36,9 +35,11 @@ describe('liveEventsTableSceneLogic', () => {
     })
 
     afterEach(() => {
-        sceneLogic.unmount()
+        if (sceneLogic.isMounted()) {
+            sceneLogic.unmount()
+        }
         logic.unmount()
-        streamSpy.mockRestore()
+        jest.restoreAllMocks()
         lemonToast.dismiss()
         cleanup()
     })
@@ -53,6 +54,22 @@ describe('liveEventsTableSceneLogic', () => {
 
         await waitFor(() => expect(screen.getByText(FATAL_ERROR.message)).toBeInTheDocument())
         expect(screen.queryByText(TRANSPORT_ERROR.message)).not.toBeInTheDocument()
+    })
+
+    it.each([
+        ['the stream is paused', (): void => logic.actions.pauseStream()],
+        ['the scene is left', (): void => sceneLogic.unmount()],
+    ])('takes the error toast down when %s', (_label, stopStreaming) => {
+        const errorSpy = jest.spyOn(lemonToast, 'error')
+        const dismissSpy = jest.spyOn(lemonToast, 'dismiss')
+
+        logic.actions.streamErrored(FATAL_ERROR)
+        const toastId = errorSpy.mock.calls[0][1]?.toastId
+
+        stopStreaming()
+
+        expect(toastId).toBeTruthy()
+        expect(dismissSpy).toHaveBeenCalledWith(toastId)
     })
 
     it.each([
