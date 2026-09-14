@@ -4,8 +4,8 @@ import type { DragEvent } from 'react'
 
 import { ScrollArea, ScrollBar } from 'lib/ui/quill'
 
+import { setHogFlowDragImage } from '../dragPreview'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { NODE_HEIGHT, NODE_WIDTH } from '../react_flow_utils/constants'
 import { HogFlowTreeFeaturePreview } from './HogFlowTreeFeaturePreview'
 import { HogFlowTreeNode } from './HogFlowTreeNode'
 import { buildWorkflowTree } from './workflowTree'
@@ -42,19 +42,7 @@ export function HogFlowTreeEditor(): JSX.Element {
         dragStartYRef.current = event.clientY
         const step = event.currentTarget.closest('[data-attr="workflow-tree-step"]')
         if (step instanceof HTMLElement && typeof event.dataTransfer.setDragImage === 'function') {
-            if (dragPreviewElement) {
-                const dragPreview = dragPreviewElement.cloneNode(true) as HTMLDivElement
-                dragPreview.classList.remove('invisible')
-                dragPreview.style.position = 'fixed'
-                dragPreview.style.left = '0'
-                dragPreview.style.top = '0'
-                dragPreview.style.width = `${NODE_WIDTH * 1.5}px`
-                dragPreview.style.height = `${NODE_HEIGHT * 1.5}px`
-                dragPreview.style.transform = 'translate(-101%, -101%)'
-                document.body.appendChild(dragPreview)
-                event.dataTransfer.setDragImage(dragPreview, (NODE_WIDTH * 3) / 4, (NODE_HEIGHT * 3) / 4)
-                window.setTimeout(() => dragPreview.remove())
-            }
+            setHogFlowDragImage(event.dataTransfer, dragPreviewElement)
             step.dataset.workflowTreeDragging = 'true'
             draggedStepRef.current = step
         }

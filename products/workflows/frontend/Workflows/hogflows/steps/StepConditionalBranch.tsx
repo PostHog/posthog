@@ -2,19 +2,19 @@ import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconPlus, IconX } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
-import { getHogFlowBranchColor, getHogFlowBranchStyle, useHogFlowBranchSelection } from '../HogFlowBranchSelection'
+import { useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { batchTriggerLogic } from './batchTriggerLogic'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
-import { HogFlowBranchNameInput } from './HogFlowBranchNameInput'
+import { HogFlowBranchCard } from './HogFlowBranchCard'
 import { getBranchRemovalDisabledReason, isCountableCondition, removeBranchEdge, useNameInputs } from './utils'
 
 type ConditionFilters = Extract<
@@ -75,7 +75,7 @@ export function StepConditionalBranchConfiguration({
 
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
-    const { selectedBranch, setSelectedBranch } = useHogFlowBranchSelection()
+    const { setSelectedBranch } = useHogFlowBranchSelection()
 
     const nodeEdges = edgesByActionId[action.id] ?? []
 
@@ -137,42 +137,27 @@ export function StepConditionalBranchConfiguration({
         <div className="flex flex-col gap-3">
             <StepSchemaErrors />
             {conditions.map((condition, index) => {
-                const branchColor = getHogFlowBranchColor(index)
-                const isBranchSelected = selectedBranch?.actionId === action.id && selectedBranch.index === index
-
                 return (
-                    <div
+                    <HogFlowBranchCard
                         key={index}
-                        className="flex flex-col gap-3 rounded border p-3 transition-colors motion-reduce:transition-none"
-                        style={getHogFlowBranchStyle(index, isBranchSelected)}
-                        onFocusCapture={() => setSelectedBranch({ actionId: action.id, index })}
-                        onPointerDownCapture={() => setSelectedBranch({ actionId: action.id, index })}
-                    >
-                        <div className="flex items-center justify-between gap-2">
-                            <div className="flex min-w-0 flex-1 items-center gap-2">
-                                <HogFlowBranchNameInput
-                                    branchColor={branchColor}
-                                    value={localConditionNames[index] || ''}
-                                    onChange={(value) => handleNameChange(index, value)}
-                                    placeholder={`Condition ${index + 1}`}
-                                    ariaLabel={`Condition ${index + 1} name`}
+                        actionId={action.id}
+                        index={index}
+                        name={localConditionNames[index] || ''}
+                        onNameChange={(value) => handleNameChange(index, value)}
+                        placeholder={`Condition ${index + 1}`}
+                        ariaLabel={`Condition ${index + 1} name`}
+                        onRemove={() => removeCondition(index)}
+                        removeDisabledReason={getBranchRemovalDisabledReason(branchEdges, index, edgesByActionId)}
+                        headerAddon={
+                            isCountableCondition(condition.filters) && (
+                                <ConditionAudienceEstimate
+                                    actionId={action.id}
+                                    index={index}
+                                    filters={condition.filters}
                                 />
-                                {isCountableCondition(condition.filters) && (
-                                    <ConditionAudienceEstimate
-                                        actionId={action.id}
-                                        index={index}
-                                        filters={condition.filters}
-                                    />
-                                )}
-                            </div>
-                            <LemonButton
-                                size="xsmall"
-                                icon={<IconX />}
-                                onClick={() => removeCondition(index)}
-                                disabledReason={getBranchRemovalDisabledReason(branchEdges, index, edgesByActionId)}
-                            />
-                        </div>
-
+                            )
+                        }
+                    >
                         <HogFlowPropertyFilters
                             filtersKey={`condition-branch-condition-${action.id}-${index}`}
                             filters={condition.filters ?? {}}
@@ -185,7 +170,7 @@ export function StepConditionalBranchConfiguration({
                             }
                             typeKey={`workflow-trigger-${index}`}
                         />
-                    </div>
+                    </HogFlowBranchCard>
                 )
             })}
 

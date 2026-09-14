@@ -2,15 +2,15 @@ import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconBalance, IconPlus, IconX } from '@posthog/icons'
+import { IconBalance, IconPlus } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { getHogFlowBranchColor, getHogFlowBranchStyle, useHogFlowBranchSelection } from '../HogFlowBranchSelection'
+import { useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
-import { HogFlowBranchNameInput } from './HogFlowBranchNameInput'
+import { HogFlowBranchCard } from './HogFlowBranchCard'
 import { cohortPercentagesAddUp, normalizeCohortPercentages, parseCohortPercentage, useNameInputs } from './utils'
 
 // Print enough precision that the two figures in the imbalance warning cannot contradict each other:
@@ -28,7 +28,7 @@ export function StepRandomCohortBranchConfiguration({
 
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
-    const { selectedBranch, setSelectedBranch } = useHogFlowBranchSelection()
+    const { setSelectedBranch } = useHogFlowBranchSelection()
 
     const nodeEdges = edgesByActionId[action.id] ?? []
 
@@ -124,28 +124,17 @@ export function StepRandomCohortBranchConfiguration({
             <StepSchemaErrors />
 
             {cohorts.map((cohort, index) => {
-                const branchColor = getHogFlowBranchColor(index)
-                const isBranchSelected = selectedBranch?.actionId === action.id && selectedBranch.index === index
-
                 return (
-                    <div
+                    <HogFlowBranchCard
                         key={index}
-                        className="flex flex-col gap-3 rounded border p-3 transition-colors motion-reduce:transition-none"
-                        style={getHogFlowBranchStyle(index, isBranchSelected)}
-                        onFocusCapture={() => setSelectedBranch({ actionId: action.id, index })}
-                        onPointerDownCapture={() => setSelectedBranch({ actionId: action.id, index })}
+                        actionId={action.id}
+                        index={index}
+                        name={localCohortNames[index] || ''}
+                        onNameChange={(value) => handleNameChange(index, value)}
+                        placeholder={`Cohort ${index + 1}`}
+                        ariaLabel={`Cohort ${index + 1} name`}
+                        onRemove={() => removeCohort(index)}
                     >
-                        <div className="flex items-center justify-between gap-2">
-                            <HogFlowBranchNameInput
-                                branchColor={branchColor}
-                                value={localCohortNames[index] || ''}
-                                onChange={(value) => handleNameChange(index, value)}
-                                placeholder={`Cohort ${index + 1}`}
-                                ariaLabel={`Cohort ${index + 1} name`}
-                            />
-                            <LemonButton size="xsmall" icon={<IconX />} onClick={() => removeCohort(index)} />
-                        </div>
-
                         <div className="flex items-center gap-2">
                             <input
                                 type="number"
@@ -159,7 +148,7 @@ export function StepRandomCohortBranchConfiguration({
                             />
                             <span>%</span>
                         </div>
-                    </div>
+                    </HogFlowBranchCard>
                 )
             })}
 

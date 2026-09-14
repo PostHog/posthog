@@ -18,7 +18,7 @@ import '../registry'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import { PERSON_DEPENDENT_ACTION_TYPES, workflowLogic } from '../../workflowLogic'
-import { NODE_HEIGHT, NODE_WIDTH } from '../react_flow_utils/constants'
+import { setHogFlowDragImage } from '../dragPreview'
 import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import { StepView } from '../steps/components/StepView'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
@@ -204,19 +204,7 @@ function HogFlowEditorToolbarNode({
         showDropzones()
         event.dataTransfer.setData('application/reactflow', action.type)
         event.dataTransfer.effectAllowed = 'move'
-        if (dragPreviewRef.current) {
-            const dragPreview = dragPreviewRef.current.cloneNode(true) as HTMLDivElement
-            dragPreview.classList.remove('invisible')
-            dragPreview.style.position = 'fixed'
-            dragPreview.style.left = '0'
-            dragPreview.style.top = '0'
-            dragPreview.style.width = `${NODE_WIDTH * 1.5}px`
-            dragPreview.style.height = `${NODE_HEIGHT * 1.5}px`
-            dragPreview.style.transform = 'translate(-101%, -101%)'
-            document.body.appendChild(dragPreview)
-            event.dataTransfer.setDragImage(dragPreview, (NODE_WIDTH * 3) / 4, (NODE_HEIGHT * 3) / 4)
-            window.setTimeout(() => dragPreview.remove())
-        }
+        setHogFlowDragImage(event.dataTransfer, dragPreviewRef.current)
     }
 
     const onDragEnd = (): void => {
