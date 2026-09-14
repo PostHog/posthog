@@ -110,6 +110,29 @@ def _is_last_attempt(info: temporalio.activity.Info | None) -> bool:
     return maximum_attempts <= 0 or info.attempt >= maximum_attempts
 
 
+def _cancellation_failure_reason() -> str | None:
+    """Name the deadline behind a task cancel, or None when the cancel did not fail the job.
+
+    Temporal delivers a deadline, an operator pause, reset or cancel, and a worker shutdown as
+    the same task cancel. Only a deadline failed the job: pause and reset run the activity
+    again, and counting a deploy would inflate the series this event exists to measure. A cancel
+    that carries no reason still counts, because a silent failure metric is worse.
+    """
+    try:
+        details = temporalio.activity.cancellation_details()
+    except RuntimeError:
+        details = None
+    if details is None:
+        return "CancelledError"
+    if details.timed_out:
+        return "timed_out"
+    if details.not_found:
+        # A heartbeat deadline drops the activity server side, so the cancel that follows says
+        # not-found rather than timed-out.
+        return "not_found"
+    return None
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -202,17 +225,18 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 result="selected" if result.repository is not None else "no_repo",
             )
             return result
-    except asyncio.CancelledError as e:
+    except asyncio.CancelledError:
         # A start-to-close or heartbeat deadline reaches the activity as a task cancel, which
         # derives from BaseException, so `except Exception` below never sees a timed-out job.
-        if _is_last_attempt(info):
+        cancellation_reason = _cancellation_failure_reason()
+        if cancellation_reason is not None and _is_last_attempt(info):
             _capture_repo_research_event(
                 "signals_repo_research_completed",
                 team,
                 team.organization,
                 input.report_id,
                 result="failed",
-                failure_reason=type(e).__name__,
+                failure_reason=cancellation_reason,
             )
         raise
     except Exception as e:
