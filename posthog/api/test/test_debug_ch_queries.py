@@ -15,7 +15,6 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER
 
-from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
@@ -181,10 +180,24 @@ class TestDebugCHQuery(APIBaseTest):
 
     def test_precompute_overview_counts_every_runner_skip_reason(self):
         # A reason the runner emits but the breakdown omits leaves those reads counted in the
-        # totals while appearing in no skip_reasons bucket.
+        # totals while appearing in no skip_reasons bucket. Literal strings on purpose: the
+        # values are persisted in query_log log_comment, so a renamed enum member must fail here.
         self.user.is_staff = True
         self.user.save()
-        skip_counts = {reason.value: i + 1 for i, reason in enumerate(PrecomputeSkipReason)}
+        skip_counts = {
+            reason: i + 1
+            for i, reason in enumerate(
+                (
+                    "override_direct",
+                    "team_disabled",
+                    "min_runtime",
+                    "activation_config",
+                    "cohort_not_calculated",
+                    "data_warehouse",
+                    "group_aggregation",
+                )
+            )
+        }
         reads_row = (
             "direct_scan",
             sum(skip_counts.values()),  # reads
