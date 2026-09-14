@@ -45,7 +45,11 @@ function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
     }, [workflow.actions])
 
     if (workflow.origin_product === 'loops') {
-        return <LemonTag type="highlight">Loop</LemonTag>
+        return (
+            <Link to={urls.codeLoopLink(workflow.id)}>
+                <LemonTag type="highlight">Loop</LemonTag>
+            </Link>
+        )
     }
     if (hasMessagingAction) {
         return <LemonTag type="completion">Messaging</LemonTag>
