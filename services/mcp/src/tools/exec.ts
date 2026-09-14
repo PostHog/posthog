@@ -1772,6 +1772,7 @@ export function createExecTool(
                                 includeAppData,
                                 distinctId,
                                 includeUiResponseMeta: isInlineUiAppHost,
+                                includeRenderNote: isInlineUiAppHost,
                             })
                         )
                         trackInnerCall?.(tool.name, {

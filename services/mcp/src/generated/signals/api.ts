@@ -189,7 +189,7 @@ export const SignalsReportsPartialUpdateBody = () => zod
     )
 
 /**
- * Claim a report for the current user, internal task, or external MCP agent. A later claim silently takes over ownership. Supply pr_url to attach or replace the report's pull request, or release=true to clear only ownership while preserving the pull request.
+ * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links.
  * @summary Claim or release a signal report
  */
 export const SignalsReportsClaimParams = () => zod.object({
@@ -201,13 +201,31 @@ export const SignalsReportsClaimParams = () => zod.object({
         ),
 })
 
+export const signalsReportsClaimBodyPullRequestsItemMax = 2048
+
+export const signalsReportsClaimBodyPullRequestsMax = 50
+
+export const signalsReportsClaimBodyTakeoverDefault = false
 export const signalsReportsClaimBodyReleaseDefault = false
 
 export const SignalsReportsClaimBody = () => zod.object({
+    claim_id: zod
+        .string()
+        .optional()
+        .describe('Active claim ID returned by an earlier call. Stale claims are rejected.'),
+    pull_requests: zod
+        .array(zod.url().max(signalsReportsClaimBodyPullRequestsItemMax))
+        .max(signalsReportsClaimBodyPullRequestsMax)
+        .optional()
+        .describe("GitHub PR URLs to add to this report's work. Additive and deduplicated; may span repositories."),
+    takeover: zod
+        .boolean()
+        .default(signalsReportsClaimBodyTakeoverDefault)
+        .describe("Explicitly end another actor's claim and take ownership."),
     pr_url: zod
         .url()
         .optional()
-        .describe('Optional GitHub pull request to attach to the claim. The report may be claimed without one.'),
+        .describe('Compatibility alias for adding one PR. Prefer pull_requests for new callers.'),
     release: zod
         .boolean()
         .default(signalsReportsClaimBodyReleaseDefault)
@@ -350,10 +368,14 @@ export const SignalsReportArtefactsCreateHeader = () => zod.object({
 
 export const SignalsReportArtefactsCreateBody = () => zod
     .object({
+        claim_id: zod
+            .string()
+            .optional()
+            .describe('Active claim to attribute this work to. Must belong to the caller and report.'),
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -1427,7 +1449,7 @@ export const SignalsScoutRunsRetrieveParams = () => zod.object({
 })
 
 /**
- * Rewrite a report's title/summary, append a note or fresh evidence, and/or set its suggested reviewers. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them.
+ * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Title/summary edits are best-effort: the pipeline may later re-research them.
  * @summary Edit an existing report for a run
  */
 export const SignalsScoutEditReportParams = () => zod.object({
@@ -1561,6 +1583,12 @@ export const SignalsScoutEditReportBody = () => zod
             .optional()
             .describe(
                 'Optional reviewers to set on the report (each a `github_login` and\/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).'
+            ),
+        repository: zod
+            .string()
+            .nullish()
+            .describe(
+                "Optional repository to point the report at, as `owner\/repo` — the fix for a report that surfaced against the wrong codebase, so you correct it in place instead of filing a duplicate. It replaces the report's current target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Omit the field to leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing under version control could change."
             ),
         charts: zod
             .array(

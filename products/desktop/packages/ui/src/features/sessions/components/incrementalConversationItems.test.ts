@@ -1,12 +1,16 @@
-import type { AcpMessage } from "@posthog/shared";
+import type { AcpMessage, AgentConversationEvent } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
   type BuildResult,
+  buildAgentConversationItems,
   buildConversationItems,
   type ConversationItem,
   type TurnContext,
 } from "./buildConversationItems";
-import { createIncrementalConversationBuilder } from "./incrementalConversationItems";
+import {
+  createIncrementalAgentConversationBuilder,
+  createIncrementalConversationBuilder,
+} from "./incrementalConversationItems";
 
 // --- event builders -------------------------------------------------------
 
@@ -321,6 +325,120 @@ const EQUIVALENCE_CASES = Object.entries(SCENARIOS).flatMap(([name, events]) =>
 );
 
 describe("createIncrementalConversationBuilder", () => {
+  it.each([true, false, null])(
+    "matches Pi history at every prefix (pending=%s)",
+    (pending) => {
+      const events: AgentConversationEvent[] = [
+        {
+          type: "user_message",
+          id: "user-1",
+          timestamp: 1,
+          content: [{ type: "text", text: "Inspect example.ts" }],
+        },
+        {
+          type: "assistant_thought_chunk",
+          timestamp: 2,
+          content: { type: "text", text: "Inspecting" },
+        },
+        {
+          type: "tool_call_started",
+          timestamp: 3,
+          toolCall: {
+            id: "read-1",
+            title: "Read",
+            kind: "read",
+            status: "in_progress",
+          },
+        },
+        {
+          type: "tool_call_updated",
+          timestamp: 4,
+          toolCall: { id: "read-1", status: "completed" },
+        },
+        {
+          type: "assistant_message_chunk",
+          timestamp: 5,
+          content: { type: "text", text: "Found " },
+        },
+        {
+          type: "assistant_message_chunk",
+          timestamp: 6,
+          content: { type: "text", text: "it" },
+        },
+        { type: "turn_completed", timestamp: 7 },
+        {
+          type: "user_message",
+          id: "user-2",
+          timestamp: 8,
+          content: [{ type: "text", text: "Continue" }],
+        },
+        { type: "runtime_status", timestamp: 9, status: "compacting" },
+        {
+          type: "runtime_status",
+          timestamp: 10,
+          status: "compacting",
+          isComplete: true,
+        },
+        {
+          type: "assistant_message_chunk",
+          timestamp: 11,
+          content: { type: "text", text: "Done" },
+        },
+        {
+          type: "assistant_thought_chunk",
+          timestamp: 8.5,
+          content: { type: "text", text: "Late thought" },
+        },
+        { type: "turn_completed", timestamp: 12 },
+      ];
+      const builder = createIncrementalAgentConversationBuilder();
+      for (let count = 1; count <= events.length; count++) {
+        const prefix = events.slice(0, count);
+        expect(normalize(builder.update(prefix, pending))).toEqual(
+          normalize(buildAgentConversationItems(prefix, pending)),
+        );
+      }
+    },
+  );
+
+  it("preserves completed Pi rows while the next turn streams", () => {
+    const events: AgentConversationEvent[] = [
+      {
+        type: "user_message",
+        id: "user-1",
+        timestamp: 1,
+        content: [{ type: "text", text: "Hello" }],
+      },
+      {
+        type: "assistant_message_chunk",
+        timestamp: 2,
+        content: { type: "text", text: "Hello back" },
+      },
+      { type: "turn_completed", timestamp: 3 },
+      {
+        type: "user_message",
+        id: "user-2",
+        timestamp: 4,
+        content: [{ type: "text", text: "Continue" }],
+      },
+    ];
+    const builder = createIncrementalAgentConversationBuilder();
+    const before = builder.update(events, true);
+    const after = builder.update(
+      [
+        ...events,
+        {
+          type: "assistant_message_chunk",
+          timestamp: 5,
+          content: { type: "text", text: "Next" },
+        },
+      ],
+      true,
+    );
+    expect(after.items[0]).toBe(before.items[0]);
+    expect(after.items[1]).toBe(before.items[1]);
+  });
+
   it.each(EQUIVALENCE_CASES)(
     "matches buildConversationItems at every prefix — $name (pending=$pending)",
     ({ events, pending }) => {
