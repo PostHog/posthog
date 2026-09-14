@@ -205,10 +205,11 @@ function planSteps(
             cancelled,
         })
         const stepContext: Context = { ...context, steps: stepContexts as unknown as JsonValue }
+        let contextWithStepEnv: Context = { ...stepContext, env }
         let runs = false
         try {
-            const stepEnv = evaluateEnv(step.env, stepContext, stepStatus)
-            runs = evaluateCondition(step.if, { ...stepContext, env: { ...env, ...stepEnv } }, stepStatus)
+            contextWithStepEnv = { ...stepContext, env: { ...env, ...evaluateEnv(step.env, stepContext, stepStatus) } }
+            runs = evaluateCondition(step.if, contextWithStepEnv, stepStatus)
         } catch (error) {
             errors.push({ job: jobId, step: step.id ?? `#${index}`, where: 'if', message: String(error) })
         }
@@ -216,7 +217,7 @@ function planSteps(
         const outcome: Outcome = runs ? (stub?.outcome ?? 'success') : 'skipped'
         let continueOnError = false
         try {
-            continueOnError = evaluateTemplate(step['continue-on-error'], stepContext, stepStatus) === 'true'
+            continueOnError = evaluateTemplate(step['continue-on-error'], contextWithStepEnv, stepStatus) === 'true'
         } catch (error) {
             errors.push({
                 job: jobId,

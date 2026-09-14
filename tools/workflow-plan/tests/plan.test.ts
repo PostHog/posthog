@@ -134,12 +134,21 @@ on: push
 jobs:
   a:
     runs-on: ubuntu-latest
+    env:
+      ALLOW_FAILURE: 'false'
     steps:
       - id: flaky
         continue-on-error: true
         run: echo
       - id: after-tolerated
         if: steps.flaky.outcome == 'failure' && steps.flaky.conclusion == 'success'
+        run: echo
+      - id: tolerated-by-step-env
+        env:
+          ALLOW_FAILURE: 'true'
+        continue-on-error: \${{ env.ALLOW_FAILURE }}
+        run: echo
+      - id: after-step-env-tolerated
         run: echo
       - id: broken
         run: echo
@@ -154,12 +163,22 @@ jobs:
 `
         const plan = planWorkflow(
             parseWorkflow(source),
-            scenario({ steps: { a: { flaky: { outcome: 'failure' }, broken: { outcome: 'failure' } } } })
+            scenario({
+                steps: {
+                    a: {
+                        flaky: { outcome: 'failure' },
+                        'tolerated-by-step-env': { outcome: 'failure' },
+                        broken: { outcome: 'failure' },
+                    },
+                },
+            })
         )
         const runs = Object.fromEntries(plan.jobs['a']!.steps.map((step) => [step.id, step.runs]))
         expect(runs).toEqual({
             flaky: true,
             'after-tolerated': true,
+            'tolerated-by-step-env': true,
+            'after-step-env-tolerated': true,
             broken: true,
             plain: false,
             'on-failure': true,
