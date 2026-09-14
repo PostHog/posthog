@@ -19,6 +19,7 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.hogql_source import (
+    DATA_INTERVAL_END_PLACEHOLDER,
     UnsupportedHogQLQueryError,
     create_hogql_context_for_batch_export,
     find_interval_placeholders,
@@ -371,7 +372,9 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         # A query bounded by the interval end must wait for replication lag past it before
         # reading, or the run misses rows that settle after it queries. A query without the
         # placeholders is not bounded, so there is nothing to wait for.
-        self.wait_for_data_interval_end = bool(find_interval_placeholders(self.parsed_hogql_query))
+        self.wait_for_data_interval_end = DATA_INTERVAL_END_PLACEHOLDER in find_interval_placeholders(
+            self.parsed_hogql_query
+        )
 
     def get_hogql_query(
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
