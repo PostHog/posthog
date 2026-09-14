@@ -22,6 +22,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.report_assignments import reconcile_terminal_task_report_claims
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names, register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
@@ -132,6 +133,12 @@ async def fetch_enabled_signals_scout_runs_activity(
     schedule is due — most-overdue first, capped at MAX_RUNS_PER_TICK.
     """
     async with Heartbeater():
+        try:
+            released = await database_sync_to_async(reconcile_terminal_task_report_claims, thread_sensitive=False)()
+            if released:
+                logger.info("signals_scout coordinator: released terminal task report claims", count=released)
+        except Exception:
+            logger.exception("signals_scout coordinator: task report claim reconciliation failed")
         # Read the flag payload once, off the DB thread pool — the SDK call can block on a cold
         # cache, and database_sync_to_async's pool is sized for DB-bound work (mirrors the
         # asyncio.to_thread split in ai_observability/team_discovery.py). Enrollment and per-team

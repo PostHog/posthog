@@ -30,7 +30,14 @@ from products.signals.backend.pull_requests import (
     link_pull_request,
     update_pull_request_state,
 )
-from products.signals.backend.report_claims import ReportClaim, actor_owns_claim, claim_from_artefact, get_active_claim
+from products.signals.backend.report_claims import (
+    ReportClaim,
+    active_claims,
+    active_task_claims,
+    actor_owns_claim,
+    claim_from_artefact,
+    get_active_claim,
+)
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -50,6 +57,8 @@ CLAIMABLE_REPORT_STATUSES = frozenset(
         SignalReport.Status.FAILED,
     }
 )
+
+_RECONCILIATION_BATCH_SIZE = 100
 
 
 class ReportClaimConflict(Exception):
@@ -176,6 +185,52 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> Repo
         if claim is not None and not actor_owns_claim(claim, actor):
             raise ReportClaimConflict("This report already has an active claim.")
         return claim or create_claim(report, actor)
+
+
+def release_terminal_task_report_claims(*, team_id: int, task_id: str) -> int:
+    from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
+
+    report_ids = set(
+        active_claims(team_id=team_id).filter(actor_kind="task", task_id=task_id).values_list("report_id", flat=True)
+    )
+    report_ids.update(
+        SignalReportAssignment.objects.for_team(team_id).filter(
+            team_id=team_id,
+            actor_kind="task",
+            actor_task_id=task_id,
+        )
+        .exclude(report_id__in=SignalReportArtefact.objects.filter(type="work_claim").values("report_id"))
+        .values_list("report_id", flat=True)
+    )
+    released = 0
+    for report_id in report_ids:
+        with transaction.atomic():
+            report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
+            if report is None:
+                continue
+            if not tasks_facade.task_runs_are_terminal(task_id, team_id):
+                continue
+            active_claim = get_active_claim(team_id=team_id, report_id=report.id)
+            if active_claim is None or not actor_owns_claim(active_claim, ArtefactAttribution.from_task(task_id)):
+                continue
+            if fetch_implementation_pr_state_for_reports([str(report.id)], team_id=team_id).get(str(report.id)):
+                continue
+            release_claim(active_claim, ArtefactAttribution.from_task(task_id))
+            released += 1
+    return released
+
+
+def reconcile_terminal_task_report_claims(*, limit: int = _RECONCILIATION_BATCH_SIZE) -> int:
+    legacy_claims = SignalReportAssignment.all_teams.filter(actor_kind="task", actor_task_id__isnull=False).exclude(
+        report_id__in=SignalReportArtefact.objects.filter(type="work_claim").values("report_id")
+    )[:limit]
+    task_refs = {(claim.team_id, claim.task_id) for claim in active_task_claims(limit=limit)}
+    task_refs.update((claim.team_id, claim.actor_task_id) for claim in legacy_claims)
+    return sum(
+        release_terminal_task_report_claims(team_id=team_id, task_id=str(task_id))
+        for team_id, task_id in task_refs
+        if task_id is not None
+    )
 
 
 def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
