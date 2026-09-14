@@ -337,6 +337,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                 // No destination means no anchor: `Link` renders a plain button, so a row that only
                 // expands a folder or runs a click handler stops advertising a link to nowhere.
                 to={itemHref}
+                skipTooltipWrapper
                 onClick={(e) => {
                     if (item.disabledReason) {
                         e.preventDefault()

@@ -57,6 +57,12 @@ export type LinkProps = LinkPrimitiveProps & {
     targetBlankIcon?: boolean
     /** If true, the default color will be as normal text with only a link color on hover */
     subtle?: boolean
+    /**
+     * With no `to` the control renders as a `<button>`, wrapped in a `<span>` so a natively
+     * disabled button still gives its tooltip a hover target. Set this to drop the wrapper when
+     * the caller sizes the control itself and the extra inline box would disturb that layout.
+     */
+    skipTooltipWrapper?: boolean
 
     /**
      * Button props to pass to the button primitive.
@@ -241,6 +247,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             disabled,
             disabledReason,
             targetBlankIcon = typeof children === 'string',
+            skipTooltipWrapper,
             buttonProps,
             tooltip,
             tooltipDocLink,
@@ -298,16 +305,13 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         }
 
         if (!to) {
-            const isDisabled = disabled || !!disabledReason
             element = (
                 <Tooltip
                     title={disabledReason ? <span className="italic">{disabledReason}</span> : tooltip || undefined}
                     placement={tooltipPlacement}
                     closeDelayMs={tooltipCloseDelayMs}
                 >
-                    {/* A disabled button fires no mouse events, so the tooltip needs a wrapper to hover.
-                        An enabled one does not, and the extra inline box would break a flex layout. */}
-                    {isDisabled ? <span>{element}</span> : element}
+                    {skipTooltipWrapper ? element : <span>{element}</span>}
                 </Tooltip>
             )
         }
