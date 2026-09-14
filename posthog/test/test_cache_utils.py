@@ -1,11 +1,16 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from time import sleep
 from typing import Optional
 
+import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
-from posthog.cache_utils import cache_for
+from django.test import SimpleTestCase
+
+from posthog.cache_utils import MAX_REFRESH_BACKOFF, cache_for
 
 mocked_dependency = Mock()
 mocked_dependency.return_value = 1
@@ -94,3 +99,62 @@ class TestCacheUtils(APIBaseTest):
             "Background task finished",
             "Post refresh call 1",
         ]
+
+
+failing_dependency = Mock()
+
+
+@cache_for(timedelta(minutes=5), background_refresh=True)
+def fn_background_failing() -> int:
+    return failing_dependency()
+
+
+@contextmanager
+def inline_threads() -> Iterator[list[None]]:
+    started: list[None] = []
+
+    class InlineThread:
+        def __init__(self, target, kwargs=None):
+            self._target = target
+            self._kwargs = kwargs or {}
+
+        def start(self) -> None:
+            started.append(None)
+            self._target(**self._kwargs)
+
+    with patch("posthog.cache_utils.threading.Thread", InlineThread):
+        yield started
+
+
+class TestFailingBackgroundRefresh(SimpleTestCase):
+    def setUp(self):
+        fn_background_failing.clear_cache()
+        failing_dependency.reset_mock(side_effect=True)
+        failing_dependency.return_value = 1
+
+    def test_failed_background_refresh_does_not_raise_and_backs_off(self) -> None:
+        with time_machine.travel("2026-01-01 00:00:00", tick=False) as frozen_time:
+            assert 1 == fn_background_failing(use_cache=True)
+
+            failing_dependency.side_effect = Exception("the refresh failed")
+            frozen_time.shift(timedelta(minutes=6))
+
+            with inline_threads() as started:
+                assert 1 == fn_background_failing(use_cache=True)
+                assert len(started) == 1
+
+                assert 1 == fn_background_failing(use_cache=True)
+                assert len(started) == 1
+
+                frozen_time.shift(MAX_REFRESH_BACKOFF)
+                failing_dependency.side_effect = None
+                failing_dependency.return_value = 2
+
+                assert 2 == fn_background_failing(use_cache=True)
+                assert len(started) == 2
+
+    def test_first_call_still_raises(self) -> None:
+        failing_dependency.side_effect = Exception("the first call failed")
+
+        with self.assertRaises(Exception):
+            fn_background_failing(use_cache=True)
