@@ -97,9 +97,6 @@ SDK that implements rule 3.
 - Registration outcomes are observable through `push_subscription_rejection{code, method}`,
   `push_subscription_discarded{reason}`, and the `push_subscription_discarded` log line, which is
   emitted once per team per minute rather than once per request.
-- `push_subscription_platform_absent{sdk_name}` counts registrations accepted without a `platform`.
-  The label is bounded to known SDK names, with everything else under `other`, because it comes from
-  the user agent.
 - A `push_subscription_rejected` log line for an invalid project token carries the request's `app_id`
   alongside the token fingerprint, so a burst of rejections from one shipped build can be traced to
   the app rather than only to an opaque fingerprint.

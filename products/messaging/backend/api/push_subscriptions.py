@@ -95,22 +95,6 @@ VALID_PLATFORMS = ("android", "ios")
 # `platform` is validated and echoed but never stored: the property is keyed on app_id and the
 # provider is resolved from app_id alone. Requiring it rejected every posthog-android build that
 # loses the field to R8, and a rejected device re-posts on every app open and never registers.
-PUSH_SUBSCRIPTION_PLATFORM_ABSENT_COUNTER = Counter(
-    "push_subscription_platform_absent",
-    "Registrations accepted without a platform field, by SDK.",
-    labelnames=["sdk_name"],
-)
-
-# The label comes from the user agent, which anyone can set, so bound it to the SDKs that exist and
-# fold the rest into one bucket rather than let a caller mint unbounded series.
-_KNOWN_SDK_NAMES = frozenset(
-    {"posthog-android", "posthog-ios", "posthog-flutter", "posthog-react-native", "posthog-kmp"}
-)
-
-
-def _sdk_name_label(request: Request) -> str:
-    name = _parse_user_agent_sdk(request).name
-    return name if name in _KNOWN_SDK_NAMES else "other"
 
 
 # A device registration payload is a handful of short string fields (distinct_id, device_token,
@@ -401,7 +385,6 @@ def push_subscriptions(request: Request):
 
     if not platform:
         platform = None
-        PUSH_SUBSCRIPTION_PLATFORM_ABSENT_COUNTER.labels(sdk_name=_sdk_name_label(request)).inc()
     elif not isinstance(platform, str) or platform not in VALID_PLATFORMS:
         return _rejection_response(
             request,
