@@ -66,7 +66,8 @@ class TestWorkflowProposals(APIBaseTest):
                 "target_value": 0.0,
                 "window": "-7d",
                 "n": 240,
-                "guardrails": [{"metric": "complaint rate", "value": 0.0, "n": 240}],
+                "unit": "rate",
+                "guardrails": [{"metric": "complaint rate", "value": 0.0, "n": 240, "unit": "rate"}],
             },
             "source_type": "scout",
             **overrides,
@@ -260,10 +261,14 @@ class TestWorkflowProposals(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no sample size", {"metric": "email open rate", "current_value": 0.07, "guardrails": []}, "`n`"),
+            (
+                "no sample size",
+                {"metric": "email open rate", "current_value": 0.07, "unit": "rate", "guardrails": []},
+                "`n`",
+            ),
             (
                 "no counter-metrics",
-                {"metric": "email open rate", "current_value": 0.07, "n": 120},
+                {"metric": "email open rate", "current_value": 0.07, "unit": "rate", "n": 120},
                 "guardrails",
             ),
             (
@@ -271,11 +276,28 @@ class TestWorkflowProposals(APIBaseTest):
                 {"metric": "email open rate", "current_open_rate": "8.65%", "n": 208, "guardrails": []},
                 "current_value",
             ),
+            (
+                "a number with no unit",
+                {"metric": "complaints", "current_value": 1, "n": 208, "guardrails": []},
+                "`unit`",
+            ),
+            (
+                "a guardrail with no unit",
+                {
+                    "metric": "email open rate",
+                    "current_value": 0.07,
+                    "unit": "rate",
+                    "n": 120,
+                    "guardrails": [{"metric": "complaints", "value": 1, "n": 120}],
+                },
+                "needs a `unit`",
+            ),
         ]
     )
     def test_a_rate_the_panel_cannot_read_back_is_refused(self, _mock_flag, _name: str, evidence: dict, expected: str):
         # The loop's two worst failures are declaring a win off twenty sends and lifting one metric
         # while harming another. Both are refused at the seam rather than left to a producer's prompt.
+        # A number with no unit is the third: the panel would read a count of 1 as 100%.
         flow_id = self._create_active_flow()
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
@@ -298,8 +320,9 @@ class TestWorkflowProposals(APIBaseTest):
             evidence={
                 "metric": "email open rate",
                 "current_value": 0.07,
+                "unit": "rate",
                 "n": 120,
-                "guardrails": [{"metric": "complaint rate", "value": 0.001, "n": 120}],
+                "guardrails": [{"metric": "complaint rate", "value": 0.001, "n": 120, "unit": "rate"}],
             },
         )
         assert proposal["evidence"]["guardrails"][0]["metric"] == "complaint rate"
