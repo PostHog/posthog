@@ -3,6 +3,7 @@ import json
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
+from datetime import datetime, timedelta
 
 import pytest
 from posthog.test.base import materialized
@@ -832,6 +833,54 @@ def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
     # Should have more mutations after using force=True
     for host in mutations_count_before:
         assert mutations_count_after[host][0][0] > mutations_count_before[host][0][0]
+
+
+def test_reuse_since_refuses_a_mutation_created_before_it(cluster: ClickhouseCluster) -> None:
+    # A command names the dictionaries it joins, never their contents, so the same text stands for
+    # different data on a later run. Adopting the earlier run's finished mutation reports a delete
+    # that never ran, and it is silent: the waiter sees a finished mutation and returns at once.
+    table = EVENTS_DATA_TABLE()
+    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT 10")).result()
+
+    sentinel_uuid = uuid.uuid1()
+
+    def build(reuse_since: datetime | None) -> AlterTableMutationRunner:
+        return AlterTableMutationRunner(
+            table=table,
+            commands={"UPDATE person_id = %(uuid)s WHERE 1 = 1"},
+            parameters={"uuid": sentinel_uuid},
+            reuse_since=reuse_since,
+        )
+
+    wait_and_check_mutations_on_shards(cluster, cluster.map_one_host_per_shard(build(None)).result())
+
+    count_mutations = Query(
+        "SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s",
+        {"table": table},
+    )
+    before = cluster.map_all_hosts(count_mutations).result()
+
+    def last_create_time(client: Client) -> datetime:
+        [[created]] = client.execute(
+            "SELECT max(create_time) FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s",
+            {"table": table},
+        )
+        return created
+
+    # The latest reading across hosts, so the floor sits past the mutation on every one of them.
+    newest = max(cluster.map_all_hosts(last_create_time).result().values())
+
+    # A floor predating the mutation still adopts it, which is what keeps a retry inside one run
+    # from enqueueing the same work twice.
+    cluster.map_one_host_per_shard(build(newest - timedelta(hours=1))).result()
+    adopted = cluster.map_all_hosts(count_mutations).result()
+    for host, rows in before.items():
+        assert adopted[host][0][0] == rows[0][0], "a mutation created after the floor should have been adopted"
+
+    cluster.map_one_host_per_shard(build(newest + timedelta(seconds=1))).result()
+    enqueued = cluster.map_all_hosts(count_mutations).result()
+    for host, rows in before.items():
+        assert enqueued[host][0][0] > rows[0][0], "a mutation created before the floor should not have been adopted"
 
 
 @pytest.mark.parametrize(
