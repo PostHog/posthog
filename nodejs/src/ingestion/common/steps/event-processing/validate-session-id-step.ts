@@ -14,6 +14,18 @@ const MAX_SESSION_ID_DETAIL_LENGTH = 200
 
 const INVALID_EVENT_SESSION_ID: IngestionWarningType = 'invalid_event_session_id'
 
+// `$session_id` is arbitrary, caller-controlled JSON, so the offending value can be an object whose
+// primitive coercion throws (e.g. `{ toString: null }`, or a throwing `valueOf`/`toJSON`). Coerce it
+// defensively: this only feeds the warning's diagnostic `details`, and a crash here would re-throw up
+// the pipeline and poison the partition (Kafka redelivers the same event forever).
+function describeSessionId(sessionId: unknown): string {
+    try {
+        return String(sessionId).slice(0, MAX_SESSION_ID_DETAIL_LENGTH)
+    } catch {
+        return '[unserializable $session_id]'
+    }
+}
+
 /**
  * Emits an `invalid_event_session_id` warning when `$session_id` is present but isn't a valid UUID.
  *
@@ -39,7 +51,7 @@ export function createValidateSessionIdStep<TInput extends ValidateSessionIdStep
                 type: INVALID_EVENT_SESSION_ID,
                 details: {
                     eventUuid: input.normalizedEvent.uuid,
-                    sessionId: String(sessionId).slice(0, MAX_SESSION_ID_DETAIL_LENGTH),
+                    sessionId: describeSessionId(sessionId),
                 },
             })
         }
