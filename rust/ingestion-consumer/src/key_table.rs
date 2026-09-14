@@ -1075,6 +1075,92 @@ mod tests {
         assert_eq!(sched.table().key_count(), 0);
     }
 
+    #[test]
+    fn test_revoked_outstanding_failure_is_not_retried() {
+        let mut sched = scheduler();
+        let live = snapshot(&[A], &[]);
+        let sent = sched.on_groups(&live, "b1", 5, vec![run("t:a", &[1])]);
+        assert_eq!(sent.dispatches.len(), 1);
+
+        // No queued messages exist to identify the outstanding run during purge.
+        let _ = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
+        let settled = sched.on_settled(&live, failed(A, vec![run("t:a", &[1])]));
+        assert!(settled.dispatches.is_empty());
+
+        let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
+        assert!(
+            retry.dispatches.is_empty(),
+            "a failed send must not resurrect revoked work"
+        );
+        assert_eq!(sched.table().key_count(), 0);
+        assert_eq!(sched.table().queued_messages(), 0);
+        assert_eq!(sched.table().queued_bytes(), 0);
+        assert_eq!(sched.table().outstanding_keys(), 0);
+        assert_eq!(sched.table().parked_keys(), 0);
+    }
+
+    #[test]
+    fn test_revoked_outstanding_failure_preserves_kept_partitions() {
+        let mut sched = scheduler();
+        let live = snapshot(&[A], &[]);
+        let mixed_run = || {
+            let mut mixed = run("t:a", &[1, 2, 3, 4]);
+            mixed.messages[1].partition = 1;
+            mixed.messages[2].topic = "other".to_string();
+            mixed.messages[3].partition = 2;
+            mixed
+        };
+        let sent = sched.on_groups(&live, "b1", 5, vec![mixed_run()]);
+        assert_eq!(sent.dispatches.len(), 1);
+
+        let _ = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
+        let _ = sched.on_partitions_revoked(&[("test".to_string(), 2)]);
+        let _ = sched.on_settled(&live, failed(A, vec![mixed_run()]));
+
+        let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
+        assert_eq!(retry.dispatches.len(), 1);
+        assert_eq!(
+            offsets_of(&retry.dispatches[0]),
+            vec![2, 3],
+            "only revoked topic-partitions may be discarded"
+        );
+        assert_eq!(retry.dispatches[0].assignment_epoch, Some(5));
+        let _ = sched.on_settled(&live, delivered(A, &["t:a"]));
+        assert_eq!(sched.table().key_count(), 0);
+        assert_eq!(sched.table().queued_bytes(), 0);
+    }
+
+    #[test]
+    fn test_revoked_outstanding_failure_preserves_reassigned_work() {
+        let mut sched = scheduler();
+        let live = snapshot(&[A], &[]);
+        let sent = sched.on_groups(&live, "b1", 5, vec![run("t:a", &[1])]);
+        assert_eq!(sent.dispatches.len(), 1);
+        let _ = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
+
+        // The same offset is polled again before the old send settles.
+        let queued = sched.on_groups(&live, "b2", 6, vec![run("t:a", &[1, 2])]);
+        assert!(queued.dispatches.is_empty());
+        let _ = sched.on_settled(&live, failed(A, vec![run("t:a", &[1])]));
+
+        let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
+        assert_eq!(retry.dispatches.len(), 1);
+        assert_eq!(offsets_of(&retry.dispatches[0]), vec![1, 2]);
+        assert_eq!(retry.dispatches[0].assignment_epoch, Some(6));
+        assert_eq!(retry.dispatches[0].kind, SendKind::Fresh);
+
+        // Revocation of the old assignment must not suppress this run's retries.
+        let _ = sched.on_settled(&live, failed(A, vec![run("t:a", &[1, 2])]));
+        let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
+        assert_eq!(retry.dispatches.len(), 1);
+        assert_eq!(offsets_of(&retry.dispatches[0]), vec![1, 2]);
+        assert_eq!(retry.dispatches[0].assignment_epoch, Some(6));
+        assert_eq!(retry.dispatches[0].kind, SendKind::Resend);
+        let _ = sched.on_settled(&live, delivered(A, &["t:a"]));
+        assert_eq!(sched.table().key_count(), 0);
+        assert_eq!(sched.table().queued_bytes(), 0);
+    }
+
     // ---- lifecycle ----
 
     #[test]
