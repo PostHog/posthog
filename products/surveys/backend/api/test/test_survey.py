@@ -4051,10 +4051,11 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["questions"][0]["link"] == "example-mobile://home"
 
-    def test_create_rejects_an_app_scheme_with_no_destination(self):
+    @parameterized.expand([("empty", "example-mobile://"), ("blank", "example-mobile:   ")])
+    def test_create_rejects_an_app_scheme_with_no_destination(self, _name: str, link: str):
         self._register_link_schemes("example-mobile")
 
-        response = self._post_link_survey("example-mobile://")
+        response = self._post_link_survey(link)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "Add a destination after example-mobile://"
@@ -8247,6 +8248,8 @@ class TestSurveyQuestionLinkSanitization(SimpleTestCase):
             ("scheme_only_path_kept", "myapp:home", ["https", "mailto", "myapp"], "myapp:home"),
             ("unregistered_app_scheme_dropped", "myapp://home", ["https", "mailto"], None),
             ("app_scheme_without_destination_dropped", "myapp://", ["https", "mailto", "myapp"], None),
+            ("app_scheme_with_blank_destination_dropped", "myapp:   ", ["https", "mailto", "myapp"], None),
+            ("app_scheme_with_only_a_fragment_kept", "myapp://#promo", ["https", "mailto", "myapp"], "myapp://#promo"),
             ("https_without_host_dropped", "https:/thanks", ["https", "mailto", "myapp"], None),
             ("script_dropped", "javascript:alert(1)", ["https", "mailto", "myapp"], None),
             ("unparseable_dropped", "https://[", ["https", "mailto", "myapp"], None),

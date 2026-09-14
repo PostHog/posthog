@@ -731,6 +731,8 @@ export interface ProjectType extends ProjectBasicType {
 
 export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
+    /** App URL schemes this project's survey links may use, beyond https and mailto. */
+    allowed_link_schemes?: string[]
 }
 
 export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-love'

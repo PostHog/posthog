@@ -10,7 +10,9 @@ import {
     surveyLogic,
 } from 'scenes/surveys/surveyLogic'
 import { OpenEndedColumnMap } from 'scenes/surveys/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { MOCK_DEFAULT_TEAM } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -210,7 +212,7 @@ describe('translation validation', () => {
                     language: 'fr',
                     questionIndex: 0,
                     field: 'link',
-                    error: "Must start with https://, mailto:, or your app's URL scheme",
+                    error: 'Must start with https://, mailto:, or an app scheme this project allows',
                 },
                 {
                     language: 'es',
@@ -236,9 +238,16 @@ describe('translation validation', () => {
         ['a scheme-only https link', 'https:not-valid', true],
         ['a script link', 'javascript:alert(1)', true],
         ['a network share link', 'smb://attacker.example/share', true],
-        ['an app scheme deep link', 'example-mobile://home', false],
+        ['an app scheme the project did not register', 'unregistered://home', true],
+        ['a registered app scheme with no destination', 'example-mobile://', true],
+        ['a registered app scheme deep link', 'example-mobile://home', false],
+        ['a registered app scheme with only a fragment', 'example-mobile://#promo', false],
         ['an https link', 'https://posthog.com/docs', false],
     ])('validates default link URLs without requiring translations: %s', async (_name, link, expectsError) => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            survey_config: { allowed_link_schemes: ['example-mobile'] },
+        })
         const survey = createSurveyWithLinkQuestion({ link })
 
         await expectLogic(logic, () => {
@@ -250,7 +259,7 @@ describe('translation validation', () => {
                           language: 'default',
                           questionIndex: 0,
                           field: 'link',
-                          error: "Must start with https://, mailto:, or your app's URL scheme",
+                          error: 'Must start with https://, mailto:, or an app scheme this project allows',
                       },
                   ]
                 : [],

@@ -236,7 +236,9 @@ def _sanitize_survey_link(link: str, allowed_schemes: Sequence[str] = DEFAULT_LI
 
 def _link_has_destination(parsed_url: ParseResult) -> bool:
     """An app scheme addresses a screen, so "myapp://home" and "myapp:home" both count, "myapp://" does not."""
-    return bool(parsed_url.netloc or parsed_url.path or parsed_url.query or parsed_url.fragment)
+    return any(
+        component.strip() for component in (parsed_url.netloc, parsed_url.path, parsed_url.query, parsed_url.fragment)
+    )
 
 
 def sanitize_survey_translations(

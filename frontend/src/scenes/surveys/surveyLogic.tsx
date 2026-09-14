@@ -290,13 +290,32 @@ const isChoiceSurveyQuestion = (question: SurveyQuestion): question is MultipleS
 const isLinkSurveyQuestion = (question: SurveyQuestion): question is LinkSurveyQuestion =>
     question.type === SurveyQuestionType.Link
 
-// The API decides which app schemes a project may deep link into, so the editor checks only what
-// is wrong for every project. An app scheme the project has not registered surfaces on save.
+// The API resolves the same allowlist from survey_config.allowed_link_schemes and rejects the rest,
+// so these two checks have to agree: a scheme the project never registered fails the save, and one
+// this list drops is one the API drops too.
 const NEVER_VALID_LINK_SCHEME_RE = /^(https?|javascript|vbscript|data|file|blob|smb|cifs|nfs):/i
-const APP_LINK_SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/*[^\s]/i
+const APP_LINK_SCHEME_PREFIX_RE = /^([a-z][a-z0-9+.-]*):\/*/i
 
-const isAppSchemeLink = (link: string): boolean =>
-    APP_LINK_SCHEME_RE.test(link) && !NEVER_VALID_LINK_SCHEME_RE.test(link)
+// The setting is free-form JSON, so a stored non-list or non-string entry has to be inert here,
+// the way resolve_allowed_link_schemes drops it on the API side.
+const registeredLinkSchemes = (): string[] => {
+    const registered = teamLogic.values.currentTeam?.survey_config?.allowed_link_schemes
+    return Array.isArray(registered)
+        ? registered.filter((scheme) => typeof scheme === 'string').map((scheme) => scheme.toLowerCase())
+        : []
+}
+
+const isAppSchemeLink = (link: string): boolean => {
+    const scheme = link.match(APP_LINK_SCHEME_PREFIX_RE)
+    if (!scheme || NEVER_VALID_LINK_SCHEME_RE.test(link)) {
+        return false
+    }
+    // An app scheme addresses a screen, so "myapp://" and "myapp:   " open the app at nothing.
+    if (link.slice(scheme[0].length).trim() === '') {
+        return false
+    }
+    return registeredLinkSchemes().includes(scheme[1].toLowerCase())
+}
 
 const isSupportedSurveyLink = (link: string): boolean =>
     link.startsWith('https://') || link.startsWith('mailto:') || isAppSchemeLink(link)
@@ -3522,7 +3541,7 @@ export const surveyLogic = kea<surveyLogicType>([
                                         language: lang,
                                         questionIndex: qIndex,
                                         field: 'link',
-                                        error: "Must start with https://, mailto:, or your app's URL scheme",
+                                        error: 'Must start with https://, mailto:, or an app scheme this project allows',
                                     })
                                 }
                             }
@@ -3560,7 +3579,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             language: 'default',
                             questionIndex: qIndex,
                             field: 'link',
-                            error: "Must start with https://, mailto:, or your app's URL scheme",
+                            error: 'Must start with https://, mailto:, or an app scheme this project allows',
                         })
                     }
                 })
@@ -3866,7 +3885,7 @@ export const surveyLogic = kea<surveyLogicType>([
                                         if (url.protocol !== 'https:') {
                                             return {
                                                 ...questionErrors,
-                                                link: "Use an https:// link, or your app's URL scheme for a mobile deep link.",
+                                                link: 'Use an https:// link, or an app URL scheme this project allows for mobile deep links.',
                                             }
                                         }
                                     } catch {
