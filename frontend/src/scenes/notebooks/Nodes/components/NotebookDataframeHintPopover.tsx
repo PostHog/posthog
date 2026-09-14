@@ -26,10 +26,10 @@ export function NotebookDataframeHintPopover({
             onClickOutside={dismissHint}
             overlay={
                 <div className="flex max-w-80 flex-col gap-2">
-                    <p className="m-0 font-semibold">Store your output to reuse them in a following node!</p>
+                    <p className="m-0 font-semibold">Store your output to reuse it in a following node</p>
                     <p className="m-0 text-muted">
-                        A named output becomes a dataframe later cells can read. SQL nodes reads it as a table name. Python nodes
-                        reads it as a regular variable.
+                        A named output becomes a dataframe later cells can read. SQL nodes read it as a table name.
+                        Python nodes read it as a regular variable.
                     </p>
                     <LemonButton
                         type="primary"
