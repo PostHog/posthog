@@ -379,7 +379,7 @@ def _classify_held_value(key: str, held: Any, token: str) -> Reservation:
 
 # Compose opens a brand-new outbound ticket, so it hashes into its own keyspace — a compose retry
 # must never collapse onto a reply, or vice versa. Bump the version when the contents below change.
-_COMPOSE_KEY_PREFIX = "conversations:compose_dedupe:v2:"
+_COMPOSE_KEY_PREFIX = "conversations:compose_dedupe:v3:"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -400,6 +400,10 @@ class ComposeFingerprint:
     # The resolved recipient person link the create writes onto the ticket. Two composes with the
     # same body but a different recipient point at different people, so they must not collapse.
     distinct_id: str
+    # The user that authored the compose, stored as the opening comment's creator. Two agents that
+    # send identical content to the same recipient are two distinct tickets, so they must not
+    # collapse — only a genuine retry from the same author does.
+    creator_id: int | None
 
     @classmethod
     def build(
@@ -412,6 +416,7 @@ class ComposeFingerprint:
         message: Any,
         rich_content: Any,
         distinct_id: Any,
+        creator_id: int | None,
     ) -> "ComposeFingerprint | None":
         if not email_config_id or not recipient_email or not isinstance(message, str) or not message:
             return None
@@ -423,6 +428,7 @@ class ComposeFingerprint:
             message=message,
             rich_content=rich_content,
             distinct_id=str(distinct_id or ""),
+            creator_id=creator_id,
         )
 
     @property
@@ -436,6 +442,7 @@ class ComposeFingerprint:
                 "message": self.message,
                 "rich_content": self.rich_content,
                 "distinct_id": self.distinct_id,
+                "creator_id": self.creator_id,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -463,6 +470,10 @@ class ComposeFingerprint:
             .first()
         )
         if first is None or first.deleted or first.content != self.message or first.rich_content != self.rich_content:
+            return False
+        # The author is the opening comment's creator, so a different agent's identical compose is
+        # a distinct ticket even when everything else matches.
+        if first.created_by_id != self.creator_id:
             return False
         return True
 
