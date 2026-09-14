@@ -928,14 +928,14 @@ Note: Source uses the Braintree GraphQL API (payments.braintree-api.com/graphql)
 
 ## Braze — gaps
 
-Today (6): `campaigns`, `canvases`, `content_blocks`, `email_templates`, `events`, `segments`
+Today (13): `campaign_analytics`, `campaigns`, `canvas_analytics`, `canvases`, `content_blocks`, `email_templates`, `event_analytics`, `events`, `kpi_dau`, `kpi_mau`, `kpi_new_users`, `kpi_uninstalls`, `segments`
 
 Diffed against: <https://www.braze.com/docs/sitemap.xml>
 
-- [ ] `/campaigns/data_series` — per-campaign per-day sends, opens, clicks, conversions — Braze's headline metric (high)
-- [ ] `/canvas/data_series` — per-canvas per-step time series; the canvases table is unusable analytically without it (high)
-- [ ] `/events/data_series` — custom event occurrence time series for the event names already synced (high)
-- [ ] `/kpi/dau/data_series, /kpi/mau/data_series, /kpi/new_users/data_series, /kpi/uninstalls/data_series` — workspace-level DAU/MAU/new users/uninstalls trends (high)
+- [x] `/campaigns/data_series` — per-campaign per-day sends, opens, clicks, conversions — Braze's headline metric (high)
+- [x] `/canvas/data_series` — per-canvas per-step time series; the canvases table is unusable analytically without it (high)
+- [x] `/events/data_series` — custom event occurrence time series for the event names already synced (high)
+- [x] `/kpi/dau/data_series, /kpi/mau/data_series, /kpi/new_users/data_series, /kpi/uninstalls/data_series` — workspace-level DAU/MAU/new users/uninstalls trends (high)
 - [ ] `/segments/data_series` — segment size over time, the only way to trend audience growth (high)
 - [ ] `/campaigns/details` — enriches the campaign list with message variants, channels, tags and conversion behaviors (high)
 - [ ] `/canvas/details` — canvas step and variant structure needed to attribute canvas analytics (high)
@@ -945,7 +945,7 @@ Diffed against: <https://www.braze.com/docs/sitemap.xml>
 - [ ] `/email/unsubscribes and /email/hard_bounces` — deliverability events joinable to campaigns (medium)
 - [ ] `/catalogs and /catalogs/{catalog_name}/items` — lookup tables resolving catalog item ids referenced in personalization and purchases (medium)
 
-Note: Braze has no OpenAPI/llms.txt (llms.txt 404s), so I enumerated every /docs/api/endpoints/\* page from the docs sitemap and then opened the individual pages to read the literal REST paths (confirmed /campaigns/data_series, /canvas/data_series, /segments/data_series, /events/data_series, /sends/data_series, /kpi/dau/data_series, /sessions/data_series, /purchases/revenue_series, /email/unsubscribes, /canvas/details, /catalogs, /custom_attributes). Today the connector syncs only the six `list` endpoints — every analytics (`data\_series`) endpoint, which is what Braze users actually report on, is missing.
+Note: Braze has no OpenAPI/llms.txt (llms.txt 404s), so I enumerated every /docs/api/endpoints/\* page from the docs sitemap and then opened the individual pages to read the literal REST paths (confirmed /campaigns/data_series, /canvas/data_series, /segments/data_series, /events/data_series, /sends/data_series, /kpi/dau/data_series, /sessions/data_series, /purchases/revenue_series, /email/unsubscribes, /canvas/details, /catalogs, /custom_attributes). The connector now syncs the campaign, Canvas, custom event and workspace KPI `data\_series` endpoints alongside the six `list` endpoints; the remaining analytics gaps are listed above.
 
 ## Breezometer — adequate
 
@@ -1066,14 +1066,15 @@ Note: PostHog's registered api_docs_url (https://docs.buildbetter.app/) no longe
 
 ## Buildkite — gaps
 
-Today (4): `agents`, `builds`, `organizations`, `pipelines`
+Today (9): `agents`, `builds`, `jobs`, `organizations`, `pipelines`, `teams`, `test_suite_runs`, `test_suite_tests`, `test_suites`
 
 Diffed against: <https://buildkite.com/docs/llms.txt>
 
-- [ ] `builds/{number}/jobs` — job-level duration, state, and retry data is the real analytical grain of CI cost and flakiness; builds alone hide it (high)
-- [ ] `analytics/organizations/{org}/suites/{suite}/runs (Test Engine runs)` — test suite run history is Buildkite's headline Test Engine metric and has no equivalent in the current tables (high)
-- [ ] `analytics/organizations/{org}/suites/{suite}/tests (Test Engine tests, label=flaky)` — per-test pass/fail and flaky labelling — the core use case for anyone importing CI data (high)
-- [ ] `organizations/{org}/teams` — lookup table resolving team ownership of the pipelines we already sync (high)
+- [x] `builds/{number}/jobs` — job-level duration, state, and retry data is the real analytical grain of CI cost and flakiness; builds alone hide it (high)
+- [x] `analytics/organizations/{org}/suites/{suite}/runs (Test Engine runs)` — test suite run history is Buildkite's headline Test Engine metric and has no equivalent in the current tables (high)
+- [x] `analytics/organizations/{org}/suites/{suite}/tests (Test Engine tests, label=flaky)` — per-test pass/fail and flaky labelling — the core use case for anyone importing CI data (high)
+- [x] `analytics/organizations/{org}/suites` — the suite list the two Test Engine child tables fan out over, and a lookup in its own right (high)
+- [x] `organizations/{org}/teams` — lookup table resolving team ownership of the pipelines we already sync (high)
 - [ ] `organizations/{org}/teams/{team}/pipelines` — membership table joining teams to pipelines, needed to attribute build cost per team (high)
 - [ ] `organizations/{org}/members` — lookup resolving the user IDs that appear as build creators and job agents (high)
 - [ ] `organizations/{org}/clusters/{cluster}/queues` — lookup resolving the queue an agent or job ran on — required for agent capacity and cost analysis (medium)
@@ -1118,15 +1119,15 @@ Note: The vendor's official API repo (github.com/Buzzsprout/buzzsprout-api) cont
 
 ## CalCom — gaps
 
-Today (6): `bookings`, `event_types`, `me`, `schedules`, `teams`, `webhooks`
+Today (12): `booking_attendees`, `bookings`, `event_types`, `me`, `organization_memberships`, `organization_users`, `routing_form_responses`, `routing_forms`, `schedules`, `team_memberships`, `teams`, `webhooks`
 
 Diffed against: <https://cal.com/docs/api-reference/v2/openapi.json>
 
-- [ ] `/v2/organizations/{orgId}/memberships and /v2/teams/{teamId}/memberships` — membership tables joining users to the teams we already sync — currently no way to attribute a booking to a team member (high)
-- [ ] `/v2/organizations/{orgId}/users` — lookup table resolving the user/host IDs carried on bookings and event types (high)
-- [ ] `/v2/bookings/{bookingUid}/attendees` — attendee-level rows for each booking — the grain needed for no-show and guest analysis (high)
-- [ ] `/v2/organizations/{orgId}/routing-forms/{routingFormId}/responses` — routing form submissions, the lead-qualification data that explains which bookings came from which route (high)
-- [ ] `/v2/organizations/{orgId}/routing-forms` — lookup resolving the routing form IDs on responses and routed bookings (medium)
+- [x] `/v2/organizations/{orgId}/memberships and /v2/teams/{teamId}/memberships` — membership tables joining users to the teams we already sync — currently no way to attribute a booking to a team member (high)
+- [x] `/v2/organizations/{orgId}/users` — lookup table resolving the user/host IDs carried on bookings and event types (high)
+- [x] `/v2/bookings/{bookingUid}/attendees` — attendee-level rows for each booking — the grain needed for no-show and guest analysis (high)
+- [x] `/v2/organizations/{orgId}/routing-forms/{routingFormId}/responses` — routing form submissions, the lead-qualification data that explains which bookings came from which route (high)
+- [x] `/v2/organizations/{orgId}/routing-forms` — lookup resolving the routing form IDs on responses and routed bookings (medium)
 - [ ] `/v2/organizations/{orgId}/teams` — org-level team list; the existing teams table is the personal-scope one and misses org teams (medium)
 - [ ] `/v2/organizations/{orgId}/attributes and /attributes/{attributeId}/options` — lookup tables for the org attributes used to segment and route users (medium)
 - [ ] `/v2/me/ooo and /v2/organizations/{orgId}/users/{userId}/ooo` — out-of-office entries, needed to interpret availability and booking gaps (medium)
