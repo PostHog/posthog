@@ -2300,6 +2300,10 @@ snapshots:
         hash: v1.k794b7964.7115929e94c0ba820dac20a4dab696f15e2cb0e612412b58ad690d67d31ba492.SMCtOwtSj6eBt2XXEVskBE-TRKLhc9HHwI9omv89eHs
     data-catalog-metric-tests--unsupported--light:
         hash: v1.k794b7964.ad9a5d7d21f92578fdfb8e2a50f1e11f57398eaf5b1b96241fc5d4ac09b22882.v1PBeMuXRe8sB14acADHS32KwpKXYIL0jW1DYk9a5Tw
+    data-catalog-metric-tests--unsupported-with-checks--dark:
+        hash: v1.k794b7964.a3b25091271286336f81a496270d4021a6042b824c64f7384b86dcec74824086.2tebc5Ch3qXgjdCdpabCCDPzCRGqYSs9bIHjpdYbnXY
+    data-catalog-metric-tests--unsupported-with-checks--light:
+        hash: v1.k794b7964.b65d5d67492e447bf0cfd4ebe2c2cbd672c2ed85acb00118825be832c0710c11.l7Syt4bnZalWp5VgWOElbJ1nKPsSE4vEt0a7DiHT1OA
     data-warehouse-destinationlist--both-selected--dark:
         hash: v1.k794b7964.5da0169833ea8b87e6d903cb4fc0f4d629a1b1db09149c5fb7c450ef312641a0.MH4OyaTjM18a4cpxtpCHPVm1QWWajZL5cz4NlzbJag0
     data-warehouse-destinationlist--both-selected--light:
