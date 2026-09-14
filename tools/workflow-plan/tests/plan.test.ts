@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Context } from '../src/expressions.ts'
-import { type Outcome, type Scenario, parseWorkflow, planWorkflow } from '../src/plan.ts'
+import { type Outcome, type Scenario, WORKFLOW_SITE, parseWorkflow, planWorkflow } from '../src/plan.ts'
 import { allFiltersChanged, pullRequest, push } from '../src/scenarios.ts'
 
 const scenario = (overrides: Partial<Scenario> = {}, github: Context = pullRequest()): Scenario => ({
@@ -37,6 +37,7 @@ describe('planWorkflow', () => {
         { condition: 'always()', upstream: 'failure', expected: 'success' },
         { condition: 'failure()', upstream: 'failure', expected: 'success' },
         { condition: 'failure()', upstream: 'success', expected: 'skipped' },
+        { condition: "contains('always()', 'always')", upstream: 'failure', expected: 'skipped' },
         { condition: undefined, upstream: 'skipped', expected: 'skipped' },
         { condition: '!cancelled()', upstream: 'skipped', expected: 'success' },
     ])(
@@ -200,6 +201,7 @@ jobs:
         { matrix: '${{ fromJSON(needs.a.outputs.m) }}', output: '{"include":[{"g":1},{"g":2}]}', expected: 2 },
         { matrix: '\n        include: ${{ fromJSON(needs.a.outputs.m) }}', output: '[{"g":1}]', expected: 1 },
         { matrix: '\n        os: [a, b]\n        node: [1, 2]', output: '', expected: 4 },
+        { matrix: '\n        shard: [1, 2]\n        image: ubuntu-${{ github.ref_name }}', output: '', expected: 2 },
         {
             matrix: "${{ needs.a.outputs.m != '' && fromJSON(needs.a.outputs.m) || fromJSON('{\"shard\":[1]}') }}",
             output: '',
@@ -229,6 +231,8 @@ jobs:
     it('records an evaluation error without abandoning the rest of the plan', () => {
         const source = `
 on: push
+env:
+  BROKEN: \${{ unknownFunction() }}
 jobs:
   a:
     if: unknownFunction()
@@ -237,10 +241,23 @@ jobs:
   b:
     runs-on: ubuntu-latest
     steps: [{ run: echo }]
+  c:
+    continue-on-error: \${{ unknownFunction() }}
+    runs-on: ubuntu-latest
+    steps:
+      - id: s
+        continue-on-error: \${{ unknownFunction() }}
+        run: echo
 `
         const plan = planWorkflow(parseWorkflow(source), scenario())
-        expect(plan.errors.map((error) => [error.job, error.where])).toEqual([['a', 'if']])
+        expect(plan.errors.map((error) => [error.job, error.step, error.where])).toEqual([
+            [WORKFLOW_SITE, undefined, 'env'],
+            ['a', undefined, 'if'],
+            ['c', 's', 'continue-on-error'],
+            ['c', undefined, 'continue-on-error'],
+        ])
         expect(plan.jobs['b']?.result).toBe('success')
+        expect(plan.jobs['c']?.result).toBe('success')
     })
 
     it('stubs every filter of a paths-filter step as changed, from block-string or mapping filters', () => {

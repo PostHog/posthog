@@ -13,6 +13,8 @@ import {
 
 export type Outcome = 'success' | 'failure' | 'cancelled' | 'skipped'
 
+export const WORKFLOW_SITE = '<workflow>'
+
 export interface StepStub {
     outputs?: Record<string, string>
     outcome?: Outcome
@@ -83,7 +85,7 @@ export interface JobPlan {
 export interface PlanError {
     job: string
     step?: string
-    where: 'if' | 'env' | 'outputs' | 'matrix'
+    where: 'if' | 'env' | 'outputs' | 'matrix' | 'continue-on-error'
     message: string
 }
 
@@ -212,7 +214,17 @@ function planSteps(
         }
         const stub = stubs[step.id ?? ''] ?? stubs[step.name ?? '']
         const outcome: Outcome = runs ? (stub?.outcome ?? 'success') : 'skipped'
-        const continueOnError = evaluateTemplate(step['continue-on-error'], stepContext, stepStatus) === 'true'
+        let continueOnError = false
+        try {
+            continueOnError = evaluateTemplate(step['continue-on-error'], stepContext, stepStatus) === 'true'
+        } catch (error) {
+            errors.push({
+                job: jobId,
+                step: step.id ?? `#${index}`,
+                where: 'continue-on-error',
+                message: String(error),
+            })
+        }
         const conclusion: Outcome = outcome === 'failure' && continueOnError ? 'success' : outcome
         if (outcome === 'failure' && !continueOnError) {
             failed = true
@@ -238,11 +250,16 @@ export function planWorkflow(workflow: Workflow, scenario: Scenario): WorkflowPl
         runner: { os: 'Linux', arch: 'X64', name: 'workflow-plan' },
         strategy: {},
     }
-    const workflowEnv = evaluateEnv(
-        workflow.env,
-        baseContext,
-        planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
-    )
+    let workflowEnv: Record<string, string> = {}
+    try {
+        workflowEnv = evaluateEnv(
+            workflow.env,
+            baseContext,
+            planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        )
+    } catch (error) {
+        errors.push({ job: WORKFLOW_SITE, where: 'env', message: String(error) })
+    }
 
     for (const jobId of jobOrder(workflow.jobs)) {
         const job = workflow.jobs[jobId]!
@@ -313,7 +330,12 @@ export function planWorkflow(workflow: Workflow, scenario: Scenario): WorkflowPl
             outputs[key] = value.trim()
         }
         const outcome: Outcome = stepPlan.failed ? 'failure' : 'success'
-        const continueOnError = evaluateTemplate(job['continue-on-error'], context, status) === 'true'
+        let continueOnError = false
+        try {
+            continueOnError = evaluateTemplate(job['continue-on-error'], context, status) === 'true'
+        } catch (error) {
+            errors.push({ job: jobId, where: 'continue-on-error', message: String(error) })
+        }
         jobs[jobId] = {
             id: jobId,
             outcome,

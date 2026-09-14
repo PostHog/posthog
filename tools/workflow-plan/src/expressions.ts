@@ -1,5 +1,6 @@
 import { Evaluator, Lexer, Parser, data, wellKnownFunctions } from '@actions/expressions'
 import type { FunctionDefinition } from '@actions/expressions/funcs/info'
+import { TokenType } from '@actions/expressions/lexer'
 import { truthy } from '@actions/expressions/result'
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
@@ -27,7 +28,7 @@ export const CONTEXT_NAMES = [
 ]
 
 // GitHub applies success() implicitly when an `if:` names no status function.
-const STATUS_FUNCTION = /\b(success|failure|cancelled|always)\s*\(/i
+const STATUS_FUNCTIONS = new Set(['success', 'failure', 'cancelled', 'always'])
 const WHOLE_EXPRESSION = /^\$\{\{([\s\S]*)\}\}$/
 const EMBEDDED_EXPRESSION = /\$\{\{([\s\S]*?)\}\}/g
 
@@ -80,7 +81,25 @@ export function evaluateValue(raw: unknown, context: Context, functions: Functio
     if (expression !== undefined) {
         return JSON.parse(JSON.stringify(evaluateExpression(expression, context, functions), data.replacer))
     }
-    return raw.includes('${{') ? JSON.parse(evaluateTemplate(raw, context, functions)) : raw
+    if (!raw.includes('${{')) {
+        return raw
+    }
+    const evaluated = evaluateTemplate(raw, context, functions)
+    try {
+        return JSON.parse(evaluated)
+    } catch {
+        return evaluated
+    }
+}
+
+function namesStatusFunction(expression: string): boolean {
+    const tokens = new Lexer(expression).lex().tokens
+    return tokens.some(
+        (token, index) =>
+            token.type === TokenType.IDENTIFIER &&
+            STATUS_FUNCTIONS.has(token.lexeme.toLowerCase()) &&
+            tokens[index + 1]?.type === TokenType.LEFT_PAREN
+    )
 }
 
 export function evaluateCondition(raw: unknown, context: Context, functions: FunctionMap): boolean {
@@ -88,7 +107,7 @@ export function evaluateCondition(raw: unknown, context: Context, functions: Fun
         return truthy(functions.get('success')!.call())
     }
     let expression = unwrapExpression(String(raw)) ?? String(raw).trim()
-    if (!STATUS_FUNCTION.test(expression)) {
+    if (!namesStatusFunction(expression)) {
         expression = `success() && (${expression})`
     }
     return truthy(evaluateExpression(expression, context, functions))

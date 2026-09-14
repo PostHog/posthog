@@ -17,14 +17,14 @@ const WORKFLOWS_DIR = path.join(REPO_ROOT, '.github/workflows')
 const WORKFLOW_SUFFIXES = ['.yml', '.yaml']
 
 // pnpm --filter runs this from the package directory; INIT_CWD is where the person typed the command.
-function resolveWorkflowPath(argument: string): string {
+function resolveWorkflowPath(argument: string): string | undefined {
     const fromInvocation = path.resolve(process.env['INIT_CWD'] ?? process.cwd(), argument)
     if (existsSync(fromInvocation)) {
         return fromInvocation
     }
     const hasSuffix = WORKFLOW_SUFFIXES.some((suffix) => argument.endsWith(suffix))
     const names = hasSuffix ? [argument] : WORKFLOW_SUFFIXES.map((suffix) => `${argument}${suffix}`)
-    return names.map((name) => path.join(WORKFLOWS_DIR, name)).find(existsSync) ?? fromInvocation
+    return names.map((name) => path.join(WORKFLOWS_DIR, name)).find(existsSync)
 }
 
 // COLORFGBG is "<fg>;<bg>"; ANSI background 7 or 15 means the terminal is light.
@@ -57,6 +57,11 @@ function print(text: string): void {
     process.stdout.write(`${text}\n`)
 }
 
+function fail(message: string): number {
+    process.stderr.write(`${message}\n`)
+    return 2
+}
+
 function main(argv: string[]): number {
     const { values, positionals } = parseArgs({
         args: argv,
@@ -69,6 +74,11 @@ function main(argv: string[]): number {
         return values.help ? 0 : 2
     }
     const workflowPath = resolveWorkflowPath(workflowArgument)
+    if (workflowPath === undefined) {
+        return fail(
+            `no workflow ${workflowArgument} at that path or in ${path.relative(REPO_ROOT, WORKFLOWS_DIR)}\n\n${USAGE}`
+        )
+    }
     const workflow = loadWorkflow(workflowPath)
     const scenarioPlans = defaultScenarios(workflow, workflowPath).map((scenario) => ({
         scenario,
@@ -79,4 +89,8 @@ function main(argv: string[]): number {
     return scenarioPlans.some(({ plan }) => plan.errors.length > 0) ? 1 : 0
 }
 
-process.exitCode = main(process.argv.slice(2))
+try {
+    process.exitCode = main(process.argv.slice(2))
+} catch (error) {
+    process.exitCode = fail(error instanceof Error ? error.message : String(error))
+}

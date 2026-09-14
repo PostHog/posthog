@@ -79,7 +79,7 @@ export function pullRequest(options: PullRequestOptions = {}): Context {
         pull_request: {
             number,
             draft,
-            state: 'open',
+            state: action === 'closed' ? 'closed' : 'open',
             title: 'Example change',
             labels: labels.map((name) => ({ name })),
             user: { login: actor },
