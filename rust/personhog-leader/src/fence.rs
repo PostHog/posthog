@@ -41,12 +41,15 @@
 //! partition to change hands.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
 use dashmap::DashMap;
 use metrics::{counter, gauge, histogram};
-use sqlx::Row;
+use sqlx::{PgPool, Row};
+use tokio::sync::OnceCell;
 use tonic::Status;
 use uuid::Uuid;
 
@@ -394,4 +397,240 @@ pub async fn target_mark_status(
         .bind(person_id)
         .fetch_optional(&mut *conn)
         .await
+}
+
+/// Bounds how long a re-driven op can be answered from rows read for an
+/// earlier attempt; an op's releases run within one saga step.
+const MARK_SNAPSHOT_TTL: Duration = Duration::from_secs(30);
+
+/// Keeps the snapshot map bounded without a sweeper task.
+const MARK_SNAPSHOT_PRUNE_THRESHOLD: usize = 1_000;
+
+const MARK_SNAPSHOTS_TOTAL: &str = "personhog_leader_mark_snapshots_total";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkRow {
+    pub team_id: i64,
+    pub person_id: i64,
+    pub status: String,
+}
+
+#[async_trait]
+pub trait MarkSource: Send + Sync {
+    async fn load_op(&self, op_id: Uuid) -> Result<Vec<MarkRow>, sqlx::Error>;
+}
+
+/// Merge targets are excluded because targets are never destroyed.
+pub struct PgMarkSource {
+    pool: PgPool,
+    op_person_table: String,
+}
+
+#[async_trait]
+impl MarkSource for PgMarkSource {
+    async fn load_op(&self, op_id: Uuid) -> Result<Vec<MarkRow>, sqlx::Error> {
+        let mut conn = crate::pg::acquire_timed(&self.pool, "mark_snapshot").await?;
+        let sql = format!(
+            "SELECT team_id, person_id, status FROM {} \
+             WHERE op_id = $1 AND role <> 'target'",
+            self.op_person_table
+        );
+        let rows = sqlx::query(&sql).bind(op_id).fetch_all(&mut *conn).await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| MarkRow {
+                team_id: i64::from(row.get::<i32, _>("team_id")),
+                person_id: row.get("person_id"),
+                status: row.get("status"),
+            })
+            .collect())
+    }
+}
+
+struct MarkSnapshot {
+    fetched_at: Instant,
+    rows: HashMap<(i64, i64), String>,
+}
+
+/// The committed-release check, answered from one read of the op's rows
+/// per op per pod. The op's victim set is fixed once its claim commits,
+/// and releases only start after the destroying step commits, so a
+/// snapshot taken at the first release is final for every victim of the
+/// op. The row still has to vouch for the (op, person) pair, so the
+/// request alone is never enough.
+pub struct MarkVerifier {
+    source: Arc<dyn MarkSource>,
+    ttl: Duration,
+    snapshots: DashMap<Uuid, Arc<OnceCell<MarkSnapshot>>>,
+}
+
+impl MarkVerifier {
+    pub fn new(fallback: &PgFallback) -> Self {
+        let source = PgMarkSource {
+            pool: fallback.pool.clone(),
+            op_person_table: fallback.lifecycle.op_person.clone(),
+        };
+        Self::with_source(Arc::new(source), MARK_SNAPSHOT_TTL)
+    }
+
+    pub fn with_source(source: Arc<dyn MarkSource>, ttl: Duration) -> Self {
+        Self {
+            source,
+            ttl,
+            snapshots: DashMap::new(),
+        }
+    }
+
+    pub async fn status(
+        &self,
+        op_id: Uuid,
+        team_id: i64,
+        person_id: i64,
+    ) -> Result<Option<String>, sqlx::Error> {
+        loop {
+            let cell = self.cell(op_id);
+            let loaded_now = AtomicBool::new(false);
+            let snapshot = cell
+                .get_or_try_init(|| async {
+                    loaded_now.store(true, Ordering::Relaxed);
+                    counter!(MARK_SNAPSHOTS_TOTAL, "outcome" => "load").increment(1);
+                    let rows = self.source.load_op(op_id).await?;
+                    Ok::<_, sqlx::Error>(MarkSnapshot {
+                        fetched_at: Instant::now(),
+                        rows: rows
+                            .into_iter()
+                            .map(|row| ((row.team_id, row.person_id), row.status))
+                            .collect(),
+                    })
+                })
+                .await?;
+            if loaded_now.load(Ordering::Relaxed) {
+                return Ok(snapshot.rows.get(&(team_id, person_id)).cloned());
+            }
+            // Only a snapshot someone else loaded can expire here, so a TTL
+            // shorter than one load cannot make this loop spin.
+            if snapshot.fetched_at.elapsed() > self.ttl {
+                counter!(MARK_SNAPSHOTS_TOTAL, "outcome" => "expired").increment(1);
+                self.snapshots
+                    .remove_if(&op_id, |_, current| Arc::ptr_eq(current, &cell));
+                continue;
+            }
+            counter!(MARK_SNAPSHOTS_TOTAL, "outcome" => "hit").increment(1);
+            return Ok(snapshot.rows.get(&(team_id, person_id)).cloned());
+        }
+    }
+
+    fn cell(&self, op_id: Uuid) -> Arc<OnceCell<MarkSnapshot>> {
+        if let Some(cell) = self.snapshots.get(&op_id) {
+            return Arc::clone(&cell);
+        }
+        if self.snapshots.len() >= MARK_SNAPSHOT_PRUNE_THRESHOLD {
+            let ttl = self.ttl;
+            self.snapshots.retain(|_, cell| {
+                cell.get()
+                    .is_none_or(|snapshot| snapshot.fetched_at.elapsed() <= ttl)
+            });
+        }
+        Arc::clone(&self.snapshots.entry(op_id).or_default())
+    }
+}
+
+#[cfg(test)]
+mod mark_verifier_tests {
+    use std::sync::atomic::AtomicUsize;
+
+    use super::*;
+
+    struct CountingSource {
+        rows: Vec<MarkRow>,
+        loads: AtomicUsize,
+        fail_next_load: AtomicBool,
+    }
+
+    impl CountingSource {
+        fn sealed(persons: i64) -> Arc<Self> {
+            Arc::new(Self {
+                rows: (1..=persons)
+                    .map(|person_id| MarkRow {
+                        team_id: 1,
+                        person_id,
+                        status: "sealed".to_string(),
+                    })
+                    .collect(),
+                loads: AtomicUsize::new(0),
+                fail_next_load: AtomicBool::new(false),
+            })
+        }
+
+        fn loads(&self) -> usize {
+            self.loads.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl MarkSource for CountingSource {
+        async fn load_op(&self, _op_id: Uuid) -> Result<Vec<MarkRow>, sqlx::Error> {
+            self.loads.fetch_add(1, Ordering::SeqCst);
+            if self.fail_next_load.swap(false, Ordering::SeqCst) {
+                return Err(sqlx::Error::PoolTimedOut);
+            }
+            Ok(self.rows.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn releases_of_one_op_share_one_load_and_unknown_persons_stay_unverified() {
+        let source = CountingSource::sealed(50);
+        let verifier = Arc::new(MarkVerifier::with_source(source.clone(), MARK_SNAPSHOT_TTL));
+        let op = Uuid::now_v7();
+
+        let mut releases = tokio::task::JoinSet::new();
+        for person_id in 1..=50 {
+            let verifier = Arc::clone(&verifier);
+            releases.spawn(async move { verifier.status(op, 1, person_id).await });
+        }
+        while let Some(joined) = releases.join_next().await {
+            let status = joined.expect("lookup task").expect("lookup succeeds");
+            assert_eq!(status.as_deref(), Some("sealed"));
+        }
+        assert_eq!(source.loads(), 1, "one load serves every victim of the op");
+
+        let outside_op = verifier.status(op, 1, 51).await.expect("lookup succeeds");
+        let other_team = verifier.status(op, 2, 1).await.expect("lookup succeeds");
+        assert_eq!(
+            outside_op, None,
+            "a person the op never claimed is unverified"
+        );
+        assert_eq!(other_team, None, "the row must match the team too");
+        assert_eq!(source.loads(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_expired_snapshot_is_read_again() {
+        let source = CountingSource::sealed(1);
+        let verifier = MarkVerifier::with_source(source.clone(), Duration::ZERO);
+        let op = Uuid::now_v7();
+
+        verifier.status(op, 1, 1).await.expect("first lookup");
+        assert_eq!(source.loads(), 1, "the loader keeps its own snapshot");
+        let status = verifier.status(op, 1, 1).await.expect("second lookup");
+        assert_eq!(status.as_deref(), Some("sealed"));
+        assert_eq!(source.loads(), 2, "an expired snapshot is replaced");
+    }
+
+    #[tokio::test]
+    async fn a_failed_load_is_retried_by_the_next_release() {
+        let source = CountingSource::sealed(1);
+        source.fail_next_load.store(true, Ordering::SeqCst);
+        let verifier = MarkVerifier::with_source(source.clone(), MARK_SNAPSHOT_TTL);
+        let op = Uuid::now_v7();
+
+        verifier
+            .status(op, 1, 1)
+            .await
+            .expect_err("the failed load surfaces to the release");
+        let status = verifier.status(op, 1, 1).await.expect("second lookup");
+        assert_eq!(status.as_deref(), Some("sealed"));
+        assert_eq!(source.loads(), 2, "nothing from the failed load is trusted");
+    }
 }

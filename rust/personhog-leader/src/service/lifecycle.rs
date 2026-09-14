@@ -2,6 +2,7 @@
 //! seals its state, and a release closes the fence with the op's outcome.
 //! The single-call and batch handlers share the per-person helpers here.
 
+use std::collections::HashMap;
 use std::time::Instant;
 
 use futures::StreamExt;
@@ -16,7 +17,7 @@ use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::cache::{approx_person_bytes, CachedPerson, PersonCacheKey};
-use crate::fence::{fenced_status, mark_status, mark_statuses, semantic_refusal, FenceState};
+use crate::fence::{fenced_status, mark_statuses, semantic_refusal, FenceState};
 use crate::pg::PgFallback;
 
 use super::{cached_person_to_proto, partition_from_metadata, PersonHogLeaderService};
@@ -34,6 +35,41 @@ const LIFECYCLE_BATCH_CONCURRENCY: usize = 16;
 /// The one error a batch answers for: a semantic refusal is the final
 /// answer for its person and must not hide behind a sibling's transient
 /// error, which the saga would retry.
+impl PersonHogLeaderService {
+    /// Mark statuses for a committed release: fenced persons answer from the
+    /// op's snapshot, the rest read their own row (a retry after settle).
+    async fn release_mark_statuses(
+        &self,
+        lifecycle_db: &PgFallback,
+        op_id: Uuid,
+        team_id: i64,
+        person_ids: &[i64],
+    ) -> Result<HashMap<i64, String>, sqlx::Error> {
+        let (snapshot, rows): (Vec<i64>, Vec<i64>) = match &self.mark_verifier {
+            Some(_) => person_ids.iter().partition(|person_id| {
+                self.fences.contains_key(&PersonCacheKey {
+                    team_id,
+                    person_id: **person_id,
+                })
+            }),
+            None => (Vec::new(), person_ids.to_vec()),
+        };
+        let mut marks = if rows.is_empty() {
+            HashMap::new()
+        } else {
+            mark_statuses(lifecycle_db, op_id, team_id, &rows).await?
+        };
+        if let Some(verifier) = &self.mark_verifier {
+            for person_id in snapshot {
+                if let Some(status) = verifier.status(op_id, team_id, person_id).await? {
+                    marks.insert(person_id, status);
+                }
+            }
+        }
+        Ok(marks)
+    }
+}
+
 #[allow(clippy::result_large_err)]
 fn first_batch_failure(failures: Vec<Status>) -> Result<(), Status> {
     let mut failures = failures.into_iter();
@@ -499,10 +535,13 @@ impl PersonHogLeaderService {
                 };
                 let lifecycle_db = self.lifecycle_db()?;
                 let verify_started = Instant::now();
-                let mark = mark_status(lifecycle_db, op_id, req.team_id, req.person_id).await;
+                let marks = self
+                    .release_mark_statuses(lifecycle_db, op_id, req.team_id, &[req.person_id])
+                    .await;
                 record_release_phase("verify_mark", verify_started);
-                let mark = mark.map_err(mark_lookup_failed)?;
-                self.release_committed(partition, req.team_id, op_id, &release, mark.as_deref())
+                let marks = marks.map_err(mark_lookup_failed)?;
+                let mark = marks.get(&req.person_id).map(String::as_str);
+                self.release_committed(partition, req.team_id, op_id, &release, mark)
                     .await?;
             }
             ReleaseOutcome::Aborted => {
@@ -570,7 +609,9 @@ impl PersonHogLeaderService {
                 let lifecycle_db = self.lifecycle_db()?;
                 let person_ids: Vec<i64> = releases.iter().map(|r| r.person_id).collect();
                 let verify_started = Instant::now();
-                let marks = mark_statuses(lifecycle_db, op_id, team_id, &person_ids).await;
+                let marks = self
+                    .release_mark_statuses(lifecycle_db, op_id, team_id, &person_ids)
+                    .await;
                 record_release_phase("verify_mark", verify_started);
                 let marks = marks.map_err(mark_lookup_failed)?;
                 // The releases run together so their death documents share
