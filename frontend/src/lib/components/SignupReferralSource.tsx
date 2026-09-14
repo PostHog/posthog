@@ -82,7 +82,7 @@ export default function SignupReferralSource({ disabled }: { disabled: boolean }
                     <LemonInput
                         className="ph-ignore-input"
                         data-attr="signup-referral-source"
-                        placeholder=""
+                        placeholder="e.g. a colleague, or a web search"
                         disabled={disabled}
                         value={value ?? ''}
                         onChange={onChange}
