@@ -12,8 +12,9 @@ Import keeps existing custom sounds, skips clips already imported, and preserves
 It updates the selected sound to use the imported clip's new ID when needed.
 Settings missing from a backup keep their current values.
 
-The full backup includes the portable preferences in the main settings store: task and model defaults, notifications, composer behavior, custom instructions, diff display, spend limits, terminal appearance, permission preferences, and Advanced toggles, plus the theme.
+The full backup includes the portable preferences in the main settings store: task and model defaults, notifications, composer behavior, custom instructions, diff display, terminal appearance, and Advanced toggles, plus the theme.
 It excludes accounts and API keys, subscription connections, server-managed settings, workspace and repository paths, cached selections tied to a repository, system shortcuts, power settings, and onboarding history.
+It also excludes bypass-permissions mode and spend limits, since both are machine-local safety controls that normally require their own explicit confirmation; a backup file cannot enable bypass mode or clear a spend cap on the destination machine.
 Custom instruction file syncing stays configured on each machine; the files themselves are not included.
 A custom terminal font must also be installed on the destination machine.
 The backup is a readable JSON file and includes any text you put in custom instructions.
