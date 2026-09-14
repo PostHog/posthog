@@ -1,4 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -73,7 +76,8 @@ describe('the primary event properties model', () => {
             .toMatchValues({ primaryProperties: {} })
     })
 
-    it('leaves the loaded map unchanged when the update request fails', async () => {
+    it('leaves the loaded map unchanged when the update request fails, and still says so', async () => {
+        jest.spyOn(lemonToast, 'error')
         useMocks({
             patch: { '/api/projects/:team_id/event_definitions/:id/': () => [403, { detail: 'nope' }] },
         })
@@ -84,6 +88,10 @@ describe('the primary event properties model', () => {
         })
             .toDispatchActions(['updatePrimaryProperty', 'updatePrimaryPropertySuccess'])
             .toMatchValues({ primaryProperties: { my_event: 'existing_prop' } })
+
+        // The unmount guard sits in this catch block, so a failure while mounted must still report.
+        expect(posthog.captureException).toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalled()
     })
 
     it('does not attempt an update when the event definition lookup fails', async () => {
@@ -105,6 +113,89 @@ describe('the primary event properties model', () => {
             .toMatchValues({ primaryProperties: {} })
 
         expect(updateAttempted).toBe(false)
+    })
+
+    describe('unmounting while a request is in flight', () => {
+        // This model has no mount of its own, so its last holder can unmount mid-request. A loader
+        // that reads values afterwards throws "[KEA] Can not find path", which kea-loaders reports
+        // through its onFailure hook. Nothing to report is the whole point of the guard.
+        const flushPendingLoaders = (): Promise<unknown> => new Promise((resolve) => setTimeout(resolve, 0))
+
+        it('reports nothing when the last holder unmounts mid-load', async () => {
+            let releaseLoad: () => void = () => {}
+            const loadGate = new Promise<void>((resolve) => {
+                releaseLoad = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/event_definitions/primary_properties/': async () => {
+                        await loadGate
+                        return [200, { primary_properties: { my_event: 'existing_prop' } }]
+                    },
+                },
+            })
+
+            logic.actions.loadPrimaryProperties({ names: ['my_event'] })
+            logic.unmount()
+            releaseLoad()
+            await flushPendingLoaders()
+
+            expect(posthog.captureException).not.toHaveBeenCalled()
+        })
+
+        it('still saves a pin the user asked for when the holder unmounts mid-lookup', async () => {
+            let patchAttempted = false
+            let releaseLookup: () => void = () => {}
+            const lookupGate = new Promise<void>((resolve) => {
+                releaseLookup = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/event_definitions/by_name/': async () => {
+                        await lookupGate
+                        return [200, { id: 'def-1', name: 'my_event' }]
+                    },
+                },
+                patch: {
+                    '/api/projects/:team_id/event_definitions/:id/': () => {
+                        patchAttempted = true
+                        return [200, { id: 'def-1', name: 'my_event', primary_property: 'chosen_prop' }]
+                    },
+                },
+            })
+
+            logic.actions.updatePrimaryProperty({ eventName: 'my_event', propertyKey: 'chosen_prop' })
+            logic.unmount()
+            releaseLookup()
+            await flushPendingLoaders()
+
+            // Closing the popover must not cancel the write: the click already asked for the pin.
+            expect(patchAttempted).toBe(true)
+            expect(posthog.captureException).not.toHaveBeenCalled()
+        })
+
+        it('reports nothing when the last holder unmounts mid-pin', async () => {
+            let releaseUpdate: () => void = () => {}
+            const updateGate = new Promise<void>((resolve) => {
+                releaseUpdate = resolve
+            })
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/event_definitions/:id/': async () => {
+                        await updateGate
+                        return [200, { id: 'def-1', name: 'my_event', primary_property: 'chosen_prop' }]
+                    },
+                },
+            })
+
+            logic.actions.updatePrimaryProperty({ eventName: 'my_event', propertyKey: 'chosen_prop' })
+            await flushPendingLoaders() // let the definition lookup resolve, so the PATCH is the in-flight call
+            logic.unmount()
+            releaseUpdate()
+            await flushPendingLoaders()
+
+            expect(posthog.captureException).not.toHaveBeenCalled()
+        })
     })
 
     it('does not mark events as loaded when the load request fails, so they can be retried', async () => {

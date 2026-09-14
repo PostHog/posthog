@@ -82,28 +82,35 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
     loaders(({ values }) => ({
         primaryProperties: {
             __default: {} as Record<string, string>,
-            loadPrimaryProperties: async ({ names }: { names: string[] }) => {
+            loadPrimaryProperties: async ({ names }: { names: string[] }, breakpoint) => {
                 if (names.length === 0) {
                     return values.primaryProperties
                 }
                 const response = await api.eventDefinitions.primaryProperties({ names })
+                // No mount of its own: the last holder can unmount mid-request, taking the store path with it.
+                breakpoint()
                 const next = { ...values.primaryProperties }
                 for (const name of names) {
                     delete next[name]
                 }
                 return { ...next, ...response.primary_properties }
             },
-            updatePrimaryProperty: async ({
-                eventName,
-                propertyKey,
-            }: {
-                eventName: string
-                propertyKey: string | null
-            }) => {
+            updatePrimaryProperty: async (
+                {
+                    eventName,
+                    propertyKey,
+                }: {
+                    eventName: string
+                    propertyKey: string | null
+                },
+                breakpoint
+            ) => {
                 let definitionId: string
                 try {
                     definitionId = (await api.eventDefinitions.byName({ name: eventName })).id
                 } catch (error) {
+                    // First, so an unmount bails before toasting at nobody. A failure while mounted still toasts.
+                    breakpoint()
                     posthog.captureException(error, { action: 'update-primary-property', stage: 'lookup' })
                     lemonToast.error(`We couldn't find a definition for "${eventName}" yet. Please try again shortly.`)
                     return values.primaryProperties
@@ -113,6 +120,7 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
                         eventDefinitionId: definitionId,
                         eventDefinitionData: { primary_property: propertyKey },
                     })
+                    breakpoint()
                     const next = { ...values.primaryProperties }
                     if (updated.primary_property) {
                         next[eventName] = updated.primary_property
@@ -121,6 +129,7 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
                     }
                     return next
                 } catch (error) {
+                    breakpoint()
                     posthog.captureException(error, { action: 'update-primary-property', stage: 'update' })
                     lemonToast.error('Could not update the pinned property. Please try again.')
                     return values.primaryProperties
