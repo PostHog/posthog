@@ -215,14 +215,22 @@ def _sanitize_survey_html(value: str) -> str:
     return nh3_clean_with_allow_list(value) if nh3.is_html(value) else value
 
 
-def _sanitize_survey_link(link: str, allowed_schemes: LinkSchemeLookup | None = None) -> str | None:
+def _sanitize_survey_link(
+    link: str, allowed_schemes: LinkSchemeLookup | None = None, keep_unregistered_schemes: bool = False
+) -> str | None:
     """
     The link to serve for this question, or None to serve no link at all.
 
     The scheme is checked here on every read, against the schemes the project allows right now.
-    That is what makes revoking a scheme take effect: a link stored while the scheme was allowed
-    stops being served the moment the project removes it, with no backfill and no revalidation of
-    surveys already published.
+    That is what makes revoking a scheme take effect for a respondent: a link stored while the
+    scheme was allowed stops reaching an SDK the moment the project removes it, with no backfill
+    and no revalidation of surveys already published.
+
+    `keep_unregistered_schemes` turns that filter off for the authenticated read the editor loads.
+    The editor submits the whole questions array back on every save, so dropping the link there
+    would delete it from the database on the author's next unrelated edit, and re-registering the
+    scheme could not bring it back. A never-registrable scheme is still refused, and the link is
+    still HTML-sanitized, so the looser read serves the author what they stored and nothing more.
 
     The lookup is a callable rather than a list because resolving it reads the team, and almost
     every survey links to https or mailto. Calling it only for the schemes that need it keeps that
@@ -238,6 +246,8 @@ def _sanitize_survey_link(link: str, allowed_schemes: LinkSchemeLookup | None = 
         return _sanitize_survey_html(link) if re.match(EMAIL_REGEX, link) else None
     if not _link_has_destination(parsed_url):
         return None
+    if keep_unregistered_schemes:
+        return None if parsed_url.scheme.lower() in NEVER_REGISTRABLE_LINK_SCHEMES else _sanitize_survey_html(link)
     schemes = allowed_schemes() if allowed_schemes else DEFAULT_LINK_URL_SCHEMES
     return _sanitize_survey_html(link) if parsed_url.scheme in schemes else None
 
@@ -250,7 +260,9 @@ def _link_has_destination(parsed_url: ParseResult) -> bool:
 
 
 def sanitize_survey_translations(
-    translations: dict[str, Any], allowed_schemes: LinkSchemeLookup | None = None
+    translations: dict[str, Any],
+    allowed_schemes: LinkSchemeLookup | None = None,
+    keep_unregistered_schemes: bool = False,
 ) -> dict[str, Any]:
     sanitized_translations = dict(translations)
     for language, translation in translations.items():
@@ -268,7 +280,11 @@ def sanitize_survey_translations(
             ]
         if "link" in sanitized_translation:
             link = sanitized_translation["link"]
-            sanitized_link = _sanitize_survey_link(link, allowed_schemes) if isinstance(link, str) else None
+            sanitized_link = (
+                _sanitize_survey_link(link, allowed_schemes, keep_unregistered_schemes)
+                if isinstance(link, str)
+                else None
+            )
             if sanitized_link is None:
                 sanitized_translation.pop("link")
             else:
@@ -278,7 +294,9 @@ def sanitize_survey_translations(
 
 
 def sanitize_survey_question(
-    question: dict[str, Any], allowed_schemes: LinkSchemeLookup | None = None
+    question: dict[str, Any],
+    allowed_schemes: LinkSchemeLookup | None = None,
+    keep_unregistered_schemes: bool = False,
 ) -> dict[str, Any]:
     sanitized_question = dict(question)
     for field in SURVEY_QUESTION_HTML_FIELDS:
@@ -292,7 +310,9 @@ def sanitize_survey_question(
         ]
     if "link" in sanitized_question:
         link = sanitized_question["link"]
-        sanitized_link = _sanitize_survey_link(link, allowed_schemes) if isinstance(link, str) else None
+        sanitized_link = (
+            _sanitize_survey_link(link, allowed_schemes, keep_unregistered_schemes) if isinstance(link, str) else None
+        )
         if sanitized_link is None:
             sanitized_question.pop("link")
         else:
@@ -1065,28 +1085,23 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
             raise serializers.ValidationError("Appearance must be an object")
         return sanitize_survey_appearance(value)
 
-    @cached_property
-    def _team_link_schemes(self) -> TeamLinkSchemes:
-        return TeamLinkSchemes()
-
     def to_representation(self, instance: Survey) -> dict[str, Any]:
         data = super().to_representation(instance)
         appearance = data.get("appearance")
         if isinstance(appearance, dict):
             data["appearance"] = sanitize_survey_appearance(appearance)
 
-        def allowed_schemes() -> list[str]:
-            return self._team_link_schemes.for_team(instance.team_id)
-
         questions = data.get("questions")
         if isinstance(questions, list):
             data["questions"] = [
-                sanitize_survey_question(question, allowed_schemes) if isinstance(question, dict) else question
+                sanitize_survey_question(question, keep_unregistered_schemes=True)
+                if isinstance(question, dict)
+                else question
                 for question in questions
             ]
         translations = data.get("translations")
         if isinstance(translations, dict):
-            data["translations"] = sanitize_survey_translations(translations, allowed_schemes)
+            data["translations"] = sanitize_survey_translations(translations, keep_unregistered_schemes=True)
         return data
 
 
@@ -1104,10 +1119,19 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         A caller holding the team can pass the resolved list instead of the team id. Max tools
         validates inside async context, where reading the team here would raise.
+
+        Every team-nested viewset already puts the team it loaded in the context, and bulk
+        duplication puts one target team per serializer, so preferring that object over a fresh
+        lookup keeps duplication from re-reading each target team's row.
         """
         resolved = self.context.get("allowed_link_schemes")
         if resolved is not None:
             return list(resolved)
+        get_team = self.context.get("get_team")
+        if callable(get_team):
+            team = get_team()
+            if team is not None:
+                return resolve_allowed_link_schemes(team.survey_config)
         return TeamLinkSchemes().for_team(self.context.get("team_id"))
 
     def _validate_and_sanitize_link(self, link: str) -> str:
@@ -3671,7 +3695,13 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 
     @cached_property
     def _team_link_schemes(self) -> TeamLinkSchemes:
-        return TeamLinkSchemes()
+        """
+        A caller that builds one of these serializers per row shares the memo through the context.
+        The feature flag list does exactly that, one serializer per flag, so without the shared
+        instance each flag re-reads the same team row once its survey carries an app link.
+        """
+        shared = self.context.get("team_link_schemes")
+        return shared if isinstance(shared, TeamLinkSchemes) else TeamLinkSchemes()
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField(), allow_null=True))
     def get_questions(self, survey: Survey) -> list[dict[str, Any]] | None:

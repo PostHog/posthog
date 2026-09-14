@@ -8272,3 +8272,20 @@ class TestSurveyQuestionLinkSanitization(SimpleTestCase):
         sanitized = sanitize_survey_question({"type": "link", "id": "q1", "link": link}, fail_if_called)
 
         assert sanitized["link"] == link
+
+    @parameterized.expand(
+        [
+            ("revoked_app_scheme_kept", "myapp://home", "myapp://home"),
+            ("app_scheme_with_no_destination_dropped", "myapp://", None),
+            ("never_registrable_scheme_dropped", "javascript:alert(1)", None),
+            ("network_share_dropped", "smb://attacker.example/share", None),
+        ]
+    )
+    def test_the_editor_read_keeps_a_link_whose_scheme_is_no_longer_registered(
+        self, _name: str, link: str, expected: str | None
+    ):
+        sanitized = sanitize_survey_question(
+            {"type": "link", "id": "q1", "link": link}, lambda: ["https", "mailto"], keep_unregistered_schemes=True
+        )
+
+        assert sanitized.get("link") == expected

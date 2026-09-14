@@ -146,8 +146,12 @@ import {
     getSurveyEndDateForQuery,
     getSurveyResponseOutcomeBreakdown,
     getSurveyStartDateForQuery,
+    isAppSchemeLink,
+    isSupportedSurveyLink,
     isSurveyRunning,
     isThumbQuestion,
+    registeredLinkSchemes,
+    SURVEY_LINK_SCHEME_ERROR,
     sanitizeSurvey,
     sanitizeSurveyAppearance,
     validateSurveyAppearance,
@@ -289,43 +293,6 @@ const isChoiceSurveyQuestion = (question: SurveyQuestion): question is MultipleS
 
 const isLinkSurveyQuestion = (question: SurveyQuestion): question is LinkSurveyQuestion =>
     question.type === SurveyQuestionType.Link
-
-// The API resolves the same allowlist from survey_config.allowed_link_schemes and rejects the rest,
-// so these two checks have to agree: a scheme the project never registered fails the save, and one
-// this list drops is one the API drops too.
-const NEVER_VALID_LINK_SCHEME_RE = /^(https?|javascript|vbscript|data|file|blob|smb|cifs|nfs):/i
-const APP_LINK_SCHEME_PREFIX_RE = /^([a-z][a-z0-9+.-]*):(\/\/)?/i
-
-// The setting is free-form JSON, so a stored non-list or non-string entry has to be inert here,
-// the way resolve_allowed_link_schemes drops it on the API side.
-const registeredLinkSchemes = (currentTeam: TeamPublicType | TeamType | null): string[] => {
-    const registered = currentTeam?.survey_config?.allowed_link_schemes
-    return Array.isArray(registered)
-        ? registered.filter((scheme) => typeof scheme === 'string').map((scheme) => scheme.toLowerCase())
-        : []
-}
-
-const isAppSchemeLink = (link: string, registered: string[]): boolean => {
-    const scheme = link.match(APP_LINK_SCHEME_PREFIX_RE)
-    if (!scheme || NEVER_VALID_LINK_SCHEME_RE.test(link)) {
-        return false
-    }
-    const rest = link.slice(scheme[0].length)
-    // An app scheme addresses a screen, so "myapp://", "myapp:   " and "myapp://?" all open the
-    // app at nothing. The query and fragment markers are delimiters, not a destination.
-    if (rest.replace(/[?#]/g, '').trim() === '') {
-        return false
-    }
-    // The API's URL parser rejects a square bracket in the authority unless the whole authority is
-    // an IPv6 literal, which a deep link never is, so a bracket here means the save returns a 400.
-    if (scheme[2] && /[[\]]/.test(rest.split(/[/?#]/)[0])) {
-        return false
-    }
-    return registered.includes(scheme[1].toLowerCase())
-}
-
-const isSupportedSurveyLink = (link: string, registered: string[]): boolean =>
-    link.startsWith('https://') || link.startsWith('mailto:') || isAppSchemeLink(link, registered)
 
 const isRatingSurveyQuestion = (question: SurveyQuestion): question is RatingSurveyQuestion =>
     question.type === SurveyQuestionType.Rating
@@ -3592,7 +3559,7 @@ export const surveyLogic = kea<surveyLogicType>([
                                         language: lang,
                                         questionIndex: qIndex,
                                         field: 'link',
-                                        error: 'Must start with https://, mailto:, or an app scheme this project allows',
+                                        error: SURVEY_LINK_SCHEME_ERROR,
                                     })
                                 }
                             }
@@ -3630,7 +3597,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             language: 'default',
                             questionIndex: qIndex,
                             field: 'link',
-                            error: 'Must start with https://, mailto:, or an app scheme this project allows',
+                            error: SURVEY_LINK_SCHEME_ERROR,
                         })
                     }
                 })
