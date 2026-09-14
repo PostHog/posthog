@@ -100,6 +100,10 @@ def _client_config(api_key: str) -> ClientConfig:
         "headers": {"Accept": "application/json"},
         "auth": {"type": "bearer", "token": api_key},
         "paginator": _paginator(),
+        # cash_accounts responses carry account_number/routing_number under generic field names
+        # the name-based sample scrubber doesn't recognise, so keep all Brex bodies out of HTTP
+        # sample capture rather than special-casing one endpoint.
+        "capture": False,
     }
 
 
