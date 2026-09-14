@@ -354,6 +354,8 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Set to `true` alongside a switch to `webhook` sync to backfill the rows that changed between the last sync and the moment the webhook is registered. Without it the webhook only delivers changes from registration onward, so that window stays missing from the table. The backfill reads from the current cursor when the schema has one, and rebuilds the whole table when it does not. Billed per synced row. */
+    backfill_on_sync_type_change?: boolean
 }
 
 export interface PaginatedExternalDataSchemaListApi {
@@ -517,6 +519,8 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    /** Set to `true` alongside a switch to `webhook` sync to backfill the rows that changed between the last sync and the moment the webhook is registered. Without it the webhook only delivers changes from registration onward, so that window stays missing from the table. The backfill reads from the current cursor when the schema has one, and rebuilds the whole table when it does not. Billed per synced row. */
+    backfill_on_sync_type_change?: boolean
 }
 
 /**
