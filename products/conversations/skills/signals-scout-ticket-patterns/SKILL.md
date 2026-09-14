@@ -83,7 +83,9 @@ Slow themes never trip the 6-hour rule, so both speeds are needed.
 
 Trends in junk are worthless.
 Use `conversations-tickets-list` with `tags_exclude` set to the team's spam and exclusion tags.
-Read `scout-scratchpad-search` for `noise:ticket-patterns:` entries that name the tags and sender domains this team has already ruled out; if none exist yet, look at the tags in use with `conversations-tickets-list` and ask what marks spam, auto-closed, or excluded-from-reporting.
+Read `scout-scratchpad-search` for `noise:ticket-patterns:` entries that name the tags and sender domains this team has already ruled out.
+On a first run none exist, and the list tool filters on tags without returning any, so find them yourself: the team's saved views carry `filters.tagsExclude`, which names what support keeps out of its own queues (`conversations-views-list`, then `conversations-views-retrieve`), and `conversations-tickets-retrieve` returns a ticket's `tags`, so a small sample of recent tickets shows the rest.
+A team that tags nothing has nothing to exclude, so use the unexcluded denominator and say so in the report. That is not the same as failing to establish the tags, which is the case that stops you.
 Then the untagged residue: third-party autoresponder loops are the largest junk category and are rarely tagged.
 Drop email tickets with one message, no tags, and vendor auto-acknowledgement phrasing ("your request has been logged", "Ticket ID:", "out of office"), especially when they arrive one per minute from one sender domain.
 Record each such domain as `noise:ticket-patterns:{domain}` and move on.
@@ -195,7 +197,7 @@ A false alarm in a support channel costs more trust than a missed slow theme.
 
 ## MCP tools
 
-Read-only: `conversations-patterns-list`, `execute-sql` over `$conversation_*` events, `read-data-schema`, `conversations-tickets-list`, `conversations-tickets-retrieve`, `conversations-tickets-messages-retrieve`, `inbox-reports-list`, `query-error-tracking-issues-list`, `scout-members-list`.
+Read-only: `conversations-patterns-list`, `execute-sql` over `$conversation_*` events, `read-data-schema`, `conversations-tickets-list`, `conversations-tickets-retrieve`, `conversations-tickets-messages-retrieve`, `conversations-views-list`, `conversations-views-retrieve`, `inbox-reports-list`, `query-error-tracking-issues-list`, `scout-members-list`.
 Harness: `scout-project-profile-get`, `scout-scratchpad-search`, `scout-runs-list`, `scout-runs-retrieve`, `scout-emit-report`, `scout-edit-report`, `scout-scratchpad-remember`.
 
 ## When to stop
