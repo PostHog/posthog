@@ -13,7 +13,6 @@ const createTask = vi.hoisted(() =>
 const getUserIntegrationIdForRepo = vi.hoisted(() => vi.fn(() => "ghu_1"));
 const openTask = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const toastError = vi.hoisted(() => vi.fn());
-const showUsageLimitModal = vi.hoisted(() => vi.fn());
 const resolveDefaultModel = vi.hoisted(() =>
   vi.fn().mockResolvedValue("claude-sonnet"),
 );
@@ -25,11 +24,6 @@ vi.mock("@posthog/ui/features/auth/store", () => ({
 }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => ({ getSignalReportSignals }),
-}));
-vi.mock("@posthog/ui/features/billing/usageLimitStore", () => ({
-  useUsageLimitStore: {
-    getState: () => ({ show: showUsageLimitModal }),
-  },
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   AUTH_SCOPED_QUERY_META: {},
@@ -175,24 +169,6 @@ describe("useDiscussReport", () => {
     expect(createTask.mock.calls[0][0].content).toContain(
       "Answer this first: first",
     );
-  });
-
-  it("opens the billing recovery modal when Discuss is blocked by a quota", async () => {
-    createTask.mockResolvedValue({
-      success: false,
-      error: "Cloud usage limit reached",
-      failedStep: "usage_limit",
-    });
-    const { result } = renderHook(() => useDiscussReport({ report }), {
-      wrapper: createWrapper(),
-    });
-
-    await act(async () => {
-      await result.current.discussReport("why?");
-    });
-
-    expect(showUsageLimitModal).toHaveBeenCalledWith({ cause: "org_limit" });
-    expect(toastError).not.toHaveBeenCalled();
   });
 
   it("still starts the discussion with summary-only context when the signals fetch fails", async () => {

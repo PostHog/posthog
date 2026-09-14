@@ -95,7 +95,6 @@ const ORG_LIMIT_PATTERNS = [
   // Older gateway deployments still send the pre-rename wording.
   "reached its posthog code usage limit",
   "reached its usage limit for this billing period",
-  "quota_limit_exceeded",
   // Per-user free valves — billed orgs have none, so these always mean the
   // free tier is used up.
   "user burst rate limit exceeded",
