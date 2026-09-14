@@ -1,12 +1,12 @@
 import { useHostTRPC } from "@posthog/host-router/react";
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Button,
-  Dialog,
   DialogBody,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
 } from "@posthog/quill";
 import { destroyTerminalSession } from "@posthog/ui/features/terminal/destroyShellTerminal";
 import { Terminal } from "@posthog/ui/features/terminal/Terminal";
@@ -148,11 +148,16 @@ export function ClaudeAuthTerminalDialog({
   }, [sessionId]);
 
   return (
-    <Dialog open onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader>
-          <DialogTitle>{copy.title}</DialogTitle>
-        </DialogHeader>
+    <AlertDialog open onOpenChange={() => undefined}>
+      <AlertDialogContent
+        className="max-w-xl"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") event.preventDefault();
+        }}
+      >
+        <AlertDialogHeader>
+          <AlertDialogTitle>{copy.title}</AlertDialogTitle>
+        </AlertDialogHeader>
         <DialogBody className="flex flex-col gap-3">
           <p className="text-(--gray-11) text-xs leading-relaxed">
             {copy.lead}
@@ -204,7 +209,7 @@ export function ClaudeAuthTerminalDialog({
             </div>
           ) : null}
         </DialogBody>
-        <DialogFooter className="items-center justify-between gap-3">
+        <AlertDialogFooter className="items-center justify-between gap-3">
           <span className="text-(--gray-10) text-[11px]">{hint}</span>
           {started ? (
             <Button
@@ -228,8 +233,8 @@ export function ClaudeAuthTerminalDialog({
               </Button>
             </span>
           )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

@@ -10,7 +10,6 @@ import {
 } from "@phosphor-icons/react";
 import {
   AlertDialog,
-  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -211,7 +210,7 @@ function FreeformEditControls({
         </DropdownMenuContent>
       </DropdownMenu>
       {/* Destructive confirm for "Delete…" — the canvas goes for everyone. */}
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={() => undefined}>
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete canvas</AlertDialogTitle>
@@ -224,14 +223,18 @@ function FreeformEditControls({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose
-              render={
-                <Button variant="outline" size="sm">
-                  Cancel
-                </Button>
-              }
-            />
-            <Button variant="destructive" size="sm" onClick={confirmDelete}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmDeleteOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive-outline"
+              size="sm"
+              onClick={confirmDelete}
+            >
               Delete
             </Button>
           </AlertDialogFooter>

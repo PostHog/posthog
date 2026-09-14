@@ -1,5 +1,13 @@
 import { FolderOpen, Warning } from "@phosphor-icons/react";
-import { AlertDialog, Button, Code, Flex, Text } from "@radix-ui/themes";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+} from "@posthog/quill";
 import { useExistingWorktreeConfirmStore } from "../stores/existingWorktreeConfirmStore";
 
 /**
@@ -15,57 +23,52 @@ export function ExistingWorktreeDialog() {
   const cancel = useExistingWorktreeConfirmStore((s) => s.cancel);
 
   return (
-    <AlertDialog.Root
-      open={isOpen}
-      onOpenChange={(open) => {
-        if (!open) cancel();
-      }}
-    >
-      <AlertDialog.Content maxWidth="460px" size="2">
-        <AlertDialog.Title className="text-base">
-          <Flex align="center" gap="2">
-            <FolderOpen size={18} weight="bold" color="var(--accent-9)" />
-            Worktree already exists
-          </Flex>
-        </AlertDialog.Title>
-        <AlertDialog.Description className="text-sm">
-          A worktree is already checked out on{" "}
-          {branch ? <Code>{branch}</Code> : "this branch"}
-          {worktreePath ? (
-            <>
-              {" "}
-              at <Code>{worktreePath}</Code>
-            </>
-          ) : null}
-          . Continue and use that worktree for this task?
-        </AlertDialog.Description>
+    <AlertDialog open={isOpen} onOpenChange={() => undefined}>
+      <AlertDialogContent className="max-w-[460px]">
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            <span className="flex items-center gap-2">
+              <FolderOpen size={18} weight="bold" color="var(--accent-9)" />
+              Worktree already exists
+            </span>
+          </AlertDialogTitle>
+          <AlertDialogDescription render={<div />}>
+            <p>
+              A worktree is already checked out on{" "}
+              {branch ? <code>{branch}</code> : "this branch"}
+              {worktreePath ? (
+                <>
+                  {" "}
+                  at <code>{worktreePath}</code>
+                </>
+              ) : null}
+              . Continue and use that worktree for this task?
+            </p>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
 
-        <Flex align="start" gap="2" mt="3">
+        <div className="flex items-start gap-2">
           <Warning
             size={16}
             weight="bold"
             color="var(--amber-9)"
             className="mt-px shrink-0"
           />
-          <Text size="1" color="gray">
+          <p className="text-muted-foreground text-sm">
             Deleting this task later removes the worktree and any uncommitted
             work in it, even though it existed beforehand.
-          </Text>
-        </Flex>
+          </p>
+        </div>
 
-        <Flex justify="end" gap="2" mt="4">
-          <AlertDialog.Cancel>
-            <Button variant="soft" color="gray" size="1">
-              Cancel
-            </Button>
-          </AlertDialog.Cancel>
-          <AlertDialog.Action>
-            <Button variant="solid" size="1" onClick={accept}>
-              Use existing worktree
-            </Button>
-          </AlertDialog.Action>
-        </Flex>
-      </AlertDialog.Content>
-    </AlertDialog.Root>
+        <AlertDialogFooter>
+          <Button variant="outline" onClick={cancel}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={accept}>
+            Use existing worktree
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

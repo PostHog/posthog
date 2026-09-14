@@ -78,12 +78,7 @@ export function UsageLimitModalContent({
   onAction: () => void;
 }) {
   return (
-    <AlertDialog
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen) onDismiss();
-      }}
-    >
+    <AlertDialog open={open} onOpenChange={() => undefined}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>

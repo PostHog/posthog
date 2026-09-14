@@ -1,12 +1,12 @@
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Button,
-  Dialog,
   DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
 } from "@posthog/quill";
 
 interface CanvasAgentRequestDialogProps {
@@ -23,26 +23,23 @@ export function CanvasAgentRequestDialog({
   onConfirm,
 }: CanvasAgentRequestDialogProps) {
   return (
-    <Dialog
-      open={prompt !== null}
-      onOpenChange={(open) => {
-        if (!open && !loading) onCancel();
-      }}
-    >
-      <DialogContent className="max-w-lg" showCloseButton={false}>
-        <DialogHeader>
-          <DialogTitle>Ask the canvas agent to make this change?</DialogTitle>
-          <DialogDescription>
+    <AlertDialog open={prompt !== null} onOpenChange={() => undefined}>
+      <AlertDialogContent className="max-w-lg">
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            Ask the canvas agent to make this change?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
             Review the exact request. Accepting starts an agent run that uses
             compute. The result arrives as a draft for review.
-          </DialogDescription>
-        </DialogHeader>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
         <DialogBody>
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded border bg-surface-primary p-3 text-sm">
             {prompt}
           </pre>
         </DialogBody>
-        <DialogFooter>
+        <AlertDialogFooter>
           <Button variant="outline" disabled={loading} onClick={onCancel}>
             Cancel
           </Button>
@@ -54,8 +51,8 @@ export function CanvasAgentRequestDialog({
           >
             Accept and run
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

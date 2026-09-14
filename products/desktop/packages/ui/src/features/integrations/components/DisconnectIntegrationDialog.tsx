@@ -29,12 +29,7 @@ export function DisconnectIntegrationDialog({
   onCancel,
 }: DisconnectIntegrationDialogProps): ReactElement {
   return (
-    <AlertDialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!next && !isPending) onCancel();
-      }}
-    >
+    <AlertDialog open={open} onOpenChange={() => undefined}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
@@ -45,7 +40,7 @@ export function DisconnectIntegrationDialog({
             Cancel
           </Button>
           <Button
-            variant="destructive"
+            variant="destructive-outline"
             onClick={onConfirm}
             loading={isPending}
             disabled={isPending}

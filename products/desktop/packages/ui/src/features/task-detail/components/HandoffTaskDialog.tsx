@@ -1,6 +1,5 @@
 import {
   AlertDialog,
-  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -124,15 +123,7 @@ export function HandoffTaskDialog({
   };
 
   return (
-    <AlertDialog
-      open={open}
-      onOpenChange={(next) => {
-        // Hold the dialog while the request is in flight; closing mid-flight
-        // would look like a cancel while the handoff still goes through.
-        if (!next && isPending) return;
-        onOpenChange(next);
-      }}
-    >
+    <AlertDialog open={open} onOpenChange={() => undefined}>
       <AlertDialogContent className="max-w-md">
         <AlertDialogHeader>
           <AlertDialogTitle>Hand off task</AlertDialogTitle>
@@ -222,13 +213,14 @@ export function HandoffTaskDialog({
           </Field>
         </DialogBody>
         <AlertDialogFooter>
-          <AlertDialogClose
-            render={
-              <Button variant="outline" size="sm" disabled={isPending}>
-                Cancel
-              </Button>
-            }
-          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onOpenChange(false)}
+            disabled={isPending}
+          >
+            Cancel
+          </Button>
           <Button
             variant="primary"
             size="sm"

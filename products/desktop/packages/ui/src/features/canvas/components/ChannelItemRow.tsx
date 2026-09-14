@@ -2,7 +2,6 @@ import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { presenceTier } from "@posthog/core/canvas/presence";
 import {
   AlertDialog,
-  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -595,7 +594,7 @@ export function ChannelItemRow({
       {/* The same confirm the artifacts grid and the canvas header show: a
           canvas goes for everyone in the space, so it isn't a one-click action
           however small the row is. The undo window still follows. */}
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={() => undefined}>
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete canvas</AlertDialogTitle>
@@ -606,15 +605,15 @@ export function ChannelItemRow({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose
-              render={
-                <Button variant="outline" size="sm">
-                  Cancel
-                </Button>
-              }
-            />
             <Button
-              variant="destructive"
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmDeleteOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive-outline"
               size="sm"
               onClick={() => {
                 setConfirmDeleteOpen(false);

@@ -1,6 +1,13 @@
 import { Warning } from "@phosphor-icons/react";
-import { Spinner } from "@posthog/ui/primitives/Spinner";
-import { AlertDialog, Button, Flex, Text } from "@radix-ui/themes";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+} from "@posthog/quill";
 import { useState } from "react";
 
 interface ArchiveRunningTaskDialogProps {
@@ -40,60 +47,47 @@ export function ArchiveRunningTaskDialog({
   };
 
   return (
-    <AlertDialog.Root
-      open={open}
-      onOpenChange={(isOpen) => {
-        if (!isOpen && !isSubmitting) {
-          setError(null);
-          onCancel();
-        }
-      }}
-    >
-      <AlertDialog.Content maxWidth="420px" size="2">
-        <AlertDialog.Title className="text-base">
-          <Flex align="center" gap="2">
-            <Warning size={18} weight="fill" color="var(--orange-9)" />
-            Archive running task?
-          </Flex>
-        </AlertDialog.Title>
-        <AlertDialog.Description className="text-sm">
-          {taskTitle ? `"${taskTitle}"` : "This task"} is still running.
-          {stopsCloudSandbox
-            ? " Archiving it will stop its cloud run and shut down the sandbox."
-            : " Archiving it now will stop the agent."}{" "}
-          You can unarchive it later.
-        </AlertDialog.Description>
+    <AlertDialog open={open} onOpenChange={() => undefined}>
+      <AlertDialogContent className="max-w-[420px]">
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            <span className="flex items-center gap-2">
+              <Warning size={18} weight="fill" color="var(--orange-9)" />
+              Archive running task?
+            </span>
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {taskTitle ? `"${taskTitle}"` : "This task"} is still running.
+            {stopsCloudSandbox
+              ? " Archiving it will stop its cloud run and shut down the sandbox."
+              : " Archiving it now will stop the agent."}{" "}
+            You can unarchive it later.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
 
-        {error ? (
-          <Text color="red" size="2" mt="2" as="div">
-            {error}
-          </Text>
-        ) : null}
+        {error ? <p className="text-destructive text-sm">{error}</p> : null}
 
-        <Flex justify="end" gap="2" mt="4">
-          <AlertDialog.Cancel>
-            <Button
-              variant="soft"
-              color="gray"
-              size="1"
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-          </AlertDialog.Cancel>
-          <AlertDialog.Action>
-            <Button
-              variant="solid"
-              size="1"
-              disabled={isSubmitting}
-              onClick={handleConfirm}
-            >
-              {isSubmitting && <Spinner size="sm" />}
-              Archive
-            </Button>
-          </AlertDialog.Action>
-        </Flex>
-      </AlertDialog.Content>
-    </AlertDialog.Root>
+        <AlertDialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setError(null);
+              onCancel();
+            }}
+            disabled={isSubmitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive-outline"
+            loading={isSubmitting}
+            disabled={isSubmitting}
+            onClick={handleConfirm}
+          >
+            Archive
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

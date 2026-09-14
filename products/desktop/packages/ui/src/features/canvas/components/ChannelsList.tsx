@@ -15,7 +15,6 @@ import {
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import type { ChannelPresence } from "@posthog/core/canvas/presence";
 import {
-  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -1379,7 +1378,7 @@ const ChannelSection = memo(
           {/* Destructive confirm for "Delete channel" — spells out what's removed. */}
           <ConfirmDialog
             open={confirmDeleteOpen}
-            onOpenChange={setConfirmDeleteOpen}
+            onOpenChange={() => undefined}
           >
             <AlertDialogContent className="max-w-md">
               <AlertDialogHeader>
@@ -1403,11 +1402,14 @@ const ChannelSection = memo(
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogClose
-                  render={<Button variant="outline">Cancel</Button>}
-                />
                 <Button
-                  variant="primary"
+                  variant="outline"
+                  onClick={() => setConfirmDeleteOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive-outline"
                   loading={isDeleting}
                   onClick={() =>
                     void confirmDelete().then((ok) => {

@@ -1,6 +1,5 @@
 import {
   AlertDialog,
-  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -47,7 +46,7 @@ export function useSavedSearchActions(feed: TaskFeed | undefined): {
   const dialogs = !feed ? null : (
     <>
       <TaskFeedModal open={editOpen} onOpenChange={setEditOpen} feed={feed} />
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={() => undefined}>
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete saved search?</AlertDialogTitle>
@@ -57,14 +56,14 @@ export function useSavedSearchActions(feed: TaskFeed | undefined): {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose
-              render={
-                <Button variant="outline" size="sm">
-                  Cancel
-                </Button>
-              }
-            />
-            <Button variant="destructive" size="sm" onClick={remove}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmDeleteOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive-outline" size="sm" onClick={remove}>
               Delete
             </Button>
           </AlertDialogFooter>

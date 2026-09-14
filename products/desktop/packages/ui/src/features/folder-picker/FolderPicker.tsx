@@ -11,7 +11,6 @@ import { useService } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import {
   AlertDialog,
-  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -303,9 +302,7 @@ export function FolderPicker({
 
       <AlertDialog
         open={pendingRemoval !== null}
-        onOpenChange={(open) => {
-          if (!open && !isRemoving) setPendingRemoval(null);
-        }}
+        onOpenChange={() => undefined}
       >
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
@@ -316,11 +313,15 @@ export function FolderPicker({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose
-              render={<Button variant="outline">Cancel</Button>}
-            />
             <Button
-              variant="destructive"
+              variant="outline"
+              disabled={isRemoving}
+              onClick={() => setPendingRemoval(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive-outline"
               loading={isRemoving}
               onClick={() => void handleConfirmRemoval()}
             >

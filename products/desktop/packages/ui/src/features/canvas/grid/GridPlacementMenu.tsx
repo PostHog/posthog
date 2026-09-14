@@ -2,7 +2,6 @@ import { DotsThreeIcon } from "@phosphor-icons/react";
 import type { GridPlacement } from "@posthog/core/canvas/gridLayoutSchemas";
 import {
   AlertDialog,
-  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -76,7 +75,7 @@ export function GridPlacementMenu({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={() => undefined}>
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete card?</AlertDialogTitle>
@@ -86,15 +85,15 @@ export function GridPlacementMenu({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose
-              render={
-                <Button variant="outline" size="sm">
-                  Cancel
-                </Button>
-              }
-            />
             <Button
-              variant="destructive"
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmDeleteOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive-outline"
               size="sm"
               disabled={patching}
               onClick={confirmDelete}

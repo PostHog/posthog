@@ -38,14 +38,7 @@ export function BulkArchiveConfirmDialog({
   onCancel,
 }: BulkArchiveConfirmDialogProps): ReactElement {
   return (
-    <AlertDialog
-      open={open}
-      // Escape is guarded the way the Cancel button is. Dismissing mid-archive
-      // would take the progress away while the batch is still finishing.
-      onOpenChange={(next) => {
-        if (!next && !isArchiving) onCancel();
-      }}
-    >
+    <AlertDialog open={open} onOpenChange={() => undefined}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>
@@ -63,7 +56,7 @@ export function BulkArchiveConfirmDialog({
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="destructive-outline"
             onClick={onConfirm}
             loading={isArchiving}
             disabled={isArchiving}

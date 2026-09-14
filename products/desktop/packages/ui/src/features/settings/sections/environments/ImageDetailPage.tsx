@@ -271,12 +271,7 @@ export function ImageDetailPage({
         </div>
       </div>
 
-      <AlertDialog
-        open={confirmOpen}
-        onOpenChange={(next) => {
-          if (!next && !deleteMutation.isPending) setConfirmOpen(false);
-        }}
-      >
+      <AlertDialog open={confirmOpen} onOpenChange={() => undefined}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this image?</AlertDialogTitle>
@@ -294,7 +289,7 @@ export function ImageDetailPage({
               Cancel
             </Button>
             <Button
-              variant="destructive"
+              variant="destructive-outline"
               loading={deleteMutation.isPending}
               disabled={deleteMutation.isPending}
               data-attr="image-detail-archive-confirm"

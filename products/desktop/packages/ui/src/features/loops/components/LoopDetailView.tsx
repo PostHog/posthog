@@ -14,7 +14,6 @@ import { isUploadableSkillSource } from "@posthog/core/message-editor/skillTags"
 import { useHostTRPC } from "@posthog/host-router/react";
 import {
   AlertDialog,
-  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -591,7 +590,7 @@ export function LoopDetailView({
         </Flex>
       </Flex>
 
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+      <AlertDialog open={deleteOpen} onOpenChange={() => undefined}>
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete loop</AlertDialogTitle>
@@ -604,15 +603,16 @@ export function LoopDetailView({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose
-              render={
-                <Button variant="outline" size="sm">
-                  Cancel
-                </Button>
-              }
-            />
             <Button
-              variant="destructive"
+              variant="outline"
+              size="sm"
+              disabled={deleteLoop.isPending}
+              onClick={() => setDeleteOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive-outline"
               size="sm"
               loading={deleteLoop.isPending}
               disabled={deleteLoop.isPending}
@@ -624,7 +624,7 @@ export function LoopDetailView({
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
+      <AlertDialog open={discardOpen} onOpenChange={() => undefined}>
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
@@ -636,14 +636,18 @@ export function LoopDetailView({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose
-              render={
-                <Button variant="outline" size="sm">
-                  Keep editing
-                </Button>
-              }
-            />
-            <Button variant="destructive" size="sm" onClick={discardChanges}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setDiscardOpen(false)}
+            >
+              Keep editing
+            </Button>
+            <Button
+              variant="destructive-outline"
+              size="sm"
+              onClick={discardChanges}
+            >
               Discard changes
             </Button>
           </AlertDialogFooter>

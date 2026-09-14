@@ -79,14 +79,7 @@ function OpenModelSwitchCacheDialog({
   };
 
   return (
-    <AlertDialog
-      open={open}
-      onOpenChange={(next) => {
-        // Only the switch request holds the dialog, and it resolves in about a
-        // second. Nothing else here can lock a person in.
-        if (!next && !isSwitching) onCancel();
-      }}
-    >
+    <AlertDialog open={open} onOpenChange={() => undefined}>
       <AlertDialogContent initialFocus={cancelButtonRef}>
         <AlertDialogHeader>
           <AlertDialogTitle>Switch model mid-session?</AlertDialogTitle>
