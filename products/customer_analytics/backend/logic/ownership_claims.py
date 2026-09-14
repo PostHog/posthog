@@ -23,6 +23,7 @@ account's relationships and audit trail, and every outcome is counted and logged
 """
 
 from collections import Counter
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -59,6 +60,14 @@ class ClaimSourceMisconfigured(Exception):
     """The bound view does not answer one of the documented decision columns."""
 
 
+class SweepStopped(Exception):
+    """The caller asked the sweep to stop, which it does between two pages or two decisions."""
+
+
+def _never() -> bool:
+    return False
+
+
 @frozen
 class ClaimReconciliation:
     team_id: int
@@ -87,12 +96,14 @@ def list_ownership_claim_team_ids() -> list[int]:
     )
 
 
-def reconcile_ownership_claims(team: Team) -> ClaimReconciliation:
+def reconcile_ownership_claims(team: Team, *, should_stop: Callable[[], bool] = _never) -> ClaimReconciliation:
     """Read the project's bound view and apply every decision in it. A project with claims off or no
     usable view bound is skipped, so the scheduled sweep can run for every team. Callers must not run
     two sweeps for one team at once: an older read could apply a claim that a newer read has already
-    seen released. The schedule guarantees this through a fixed workflow id per team and a single
-    attempt per sweep."""
+    seen released. The schedule guarantees this through a fixed workflow id per team, a single
+    attempt per sweep, and ``should_stop``, which a timed-out activity sets so its thread stops
+    between two pages or two decisions; at most the one decision already in flight can still commit
+    beside the next sweep, and the tick after that repairs it."""
     config = get_or_create_team_extension(team, TeamCustomerAnalyticsConfig)
     view = config.ownership_claim_saved_query
     if not config.ownership_claims_enabled or view is None or view.deleted:
@@ -100,13 +111,16 @@ def reconcile_ownership_claims(team: Team) -> ClaimReconciliation:
             logger.warning("ownership_claims.view_deleted", team_id=team.id, view_id=str(view.id))
         return ClaimReconciliation(team_id=team.id, decisions=0, outcomes={}, skipped=True)
     check_decision_columns(view.name, view.columns)
-    rows = _read_decision_rows(team, view.name)
-    return ClaimReconciliation(team_id=team.id, decisions=len(rows), outcomes=_apply_rows(team, rows))
+    rows = _read_decision_rows(team, view.name, should_stop)
+    outcomes = _apply_rows(team, rows, should_stop)
+    return ClaimReconciliation(team_id=team.id, decisions=len(rows), outcomes=outcomes)
 
 
-def _apply_rows(team: Team, rows: list[dict[str, Any]]) -> dict[str, int]:
+def _apply_rows(team: Team, rows: list[dict[str, Any]], should_stop: Callable[[], bool]) -> dict[str, int]:
     outcomes: Counter[str] = Counter()
     for decision in _decisions_by_task(rows, outcomes):
+        if should_stop():
+            raise SweepStopped()
         # Each decision is its own transaction, so one that raises (a unique-index collision with an
         # overlapping sweep, say) is counted and reported without abandoning the rest of the run.
         try:
@@ -160,7 +174,7 @@ def _task_id(row: dict[str, Any]) -> str | None:
         return None
 
 
-def _read_decision_rows(team: Team, view_name: str) -> list[dict[str, Any]]:
+def _read_decision_rows(team: Team, view_name: str, should_stop: Callable[[], bool]) -> list[dict[str, Any]]:
     """Every row of the view, keyed by column name, paged on ``task_id`` so a view of any size is read
     to the end. The view runs as a userless system read, so user-scoped warehouse access control is
     bypassed; tenant isolation still holds through the team."""
@@ -168,6 +182,8 @@ def _read_decision_rows(team: Team, view_name: str) -> list[dict[str, Any]]:
     cursor = ""
     with tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.ACCOUNTS, team_id=team.pk):
         while True:
+            if should_stop():
+                raise SweepStopped()
             query = ast.SelectQuery(
                 select=[ast.Field(chain=[column]) for column in DECISION_COLUMNS],
                 select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
@@ -190,7 +206,13 @@ def _read_decision_rows(team: Team, view_name: str) -> list[dict[str, Any]]:
             last = str(page[-1][0])
             kept = [row for row in page if str(row[0]) != last] or page
             rows.extend(dict(zip(DECISION_COLUMNS, row)) for row in kept)
-            cursor = str(kept[-1][0])
+            next_cursor = str(kept[-1][0])
+            if next_cursor <= cursor:
+                # The page filter compares toString(task_id) in ClickHouse while the cursor is the
+                # Python str() of the value; a column type where the two disagree would return the
+                # same page forever.
+                raise ClaimSourceMisconfigured(f"View {view_name} column task_id does not page as text")
+            cursor = next_cursor
 
 
 def _decision_from_row(row: dict[str, Any]) -> contracts.OwnershipClaimDecision | None:

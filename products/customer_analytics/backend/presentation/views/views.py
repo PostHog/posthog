@@ -38,7 +38,7 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
-from posthog.auth import SessionAuthentication
+from posthog.auth import SessionAuthentication, is_mcp_request
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -2039,7 +2039,10 @@ class AccountViewSet(
         except api.ResourceForbiddenError:
             raise PermissionDenied()
         except api.AccountOwnershipManagedError:
-            raise Conflict("This account's commercial roles are managed here. Clear them before deleting it.")
+            raise Conflict(
+                "This account's commercial roles are managed here, so it can't be deleted. "
+                "Ignore the account to hide it instead."
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -2344,6 +2347,12 @@ class AccountRelationshipDeletePermission(BasePermission):
         return request.method != "DELETE" or TeamMemberStrictManagementPermission().has_permission(request, view)
 
 
+_AGENT_ROLE_MANAGED = (
+    "This account's commercial roles are managed here and can't be changed by an agent. "
+    "Change them from the account page."
+)
+
+
 @extend_schema(
     tags=["customer_analytics"],
     parameters=[
@@ -2403,6 +2412,7 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 definition_id=write.validated_data["definition"],
                 user_id=write.validated_data["user"],
                 created_by=cast(User, request.user),
+                via_agent=is_mcp_request(request),
             )
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2410,6 +2420,8 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             raise ValidationError({"definition": "Relationship definition not found."})
         except api.AccountRelationshipAssigneeNotInOrganization:
             raise ValidationError({"user": "User is not a member of this organization."})
+        except api.AccountRelationshipRoleManagedError:
+            raise Conflict(_AGENT_ROLE_MANAGED)
         return Response(AccountRelationshipSerializer(relationship).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=None, responses={200: AccountRelationshipSerializer})
@@ -2418,12 +2430,16 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         account_id = self._accessible_account_id()
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        relationship = api.end_account_relationship(
-            team_id=self.team_id,
-            account_id=account_id,
-            relationship_id=self.kwargs["pk"],
-            actor=cast(User, request.user),
-        )
+        try:
+            relationship = api.end_account_relationship(
+                team_id=self.team_id,
+                account_id=account_id,
+                relationship_id=self.kwargs["pk"],
+                actor=cast(User, request.user),
+                via_agent=is_mcp_request(request),
+            )
+        except api.AccountRelationshipRoleManagedError:
+            raise Conflict(_AGENT_ROLE_MANAGED)
         if relationship is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipSerializer(relationship).data)
@@ -2441,6 +2457,7 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 account_id=account_id,
                 relationship_id=self.kwargs["pk"],
                 actor=cast(User, request.user),
+                via_agent=is_mcp_request(request),
             )
         except api.AccountRelationshipProtectedError:
             raise Conflict("Commercial role history cannot be deleted. End the assignment instead.")

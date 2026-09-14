@@ -278,20 +278,16 @@ def enroll_role(*, team_id: int, account: Account, role: ownership.OwnershipRole
     no-op that keeps the existing fence.
     """
     with transaction.atomic():
+        # Config before account, the order adoption and track rules take, so the two cannot deadlock.
+        bindings = ownership.lock_role_bindings(team_id)
         locked_account = _lock_or_raise(team_id, account.id)
-        definition_id = ownership.lock_role_bindings(team_id).definition_id_of(role)
-        definition = (
-            AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
-            if definition_id
-            else None
-        )
+        definition = _bound_definition(team_id, bindings, role)
         if definition is None:
             raise RoleUnboundError(role)
         current_fence = ownership.controlled_at(locked_account, role)
         if current_fence is not None:
             return current_fence
-        active = list(_active_relationships(team_id, locked_account, definition))
-        holder = active[0] if active else None
+        holder = _active_relationships(team_id, locked_account, definition).first()
         holder_user = holder.user if holder is not None else None
         controlled_at = ownership.advance_control_timestamp(locked_account, role)
         _record_transition(
@@ -329,7 +325,7 @@ def claim_initial_ae(*, team: Team, decision: contracts.OwnershipClaimDecision) 
                 return _claim_result("blocked", "identity_mismatch", accepted)
             return _claim_result("already_applied", None, accepted)
 
-        definition = _bound_definition(team.id, "ae")
+        definition = _bound_definition(team.id, ownership.role_bindings(team.id), "ae")
         if definition is None:
             return _claim_result("blocked", "role_unbound")
         if not ownership.is_managed(locked_account, "ae"):
@@ -344,9 +340,9 @@ def claim_initial_ae(*, team: Team, decision: contracts.OwnershipClaimDecision) 
         if membership is None:
             return _claim_result("blocked", "assignee_not_member")
 
-        active = list(_active_relationships(team.id, locked_account, definition))
-        if active:
-            return _claim_result("rejected", "role_occupied", active[0])
+        holder = _active_relationships(team.id, locked_account, definition).first()
+        if holder is not None:
+            return _claim_result("rejected", "role_occupied", holder)
         fence = ownership.role_fence(locked_account, "ae", definition)
         rejection = ownership.allocation_rejection(decision.allocated_at, fence)
         if rejection is not None:
@@ -437,9 +433,11 @@ def _lock_account_by_external_id(team_id: int, external_id: str) -> Account | No
     return locked
 
 
-def _bound_definition(team_id: int, role: ownership.OwnershipRole) -> AccountRelationshipDefinition | None:
+def _bound_definition(
+    team_id: int, bindings: ownership.RoleBindings, role: ownership.OwnershipRole
+) -> AccountRelationshipDefinition | None:
     """The definition carrying the role for this team, or None while the role is unbound."""
-    definition_id = ownership.role_bindings(team_id).definition_id_of(role)
+    definition_id = bindings.definition_id_of(role)
     if definition_id is None:
         return None
     return AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()

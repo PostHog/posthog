@@ -103,6 +103,11 @@ class TestOwnershipClaims(BaseTest):
             team_id=self.team.id, account=self.account, definition=self.ae_definition, user=user, actor=self.human
         )
 
+    def _clear_by_human(self) -> None:
+        relationships.end_active(
+            team_id=self.team.id, account=self.account, definition=self.ae_definition, actor=self.human
+        )
+
     def test_claim_fills_an_empty_managed_role(self):
         result = self._claim()
 
@@ -120,9 +125,7 @@ class TestOwnershipClaims(BaseTest):
 
     def test_rereading_an_accepted_task_answers_the_original_decision_after_a_human_clear(self):
         first = self._claim()
-        relationships.end_active(
-            team_id=self.team.id, account=self.account, definition=self.ae_definition, actor=self.human
-        )
+        self._clear_by_human()
         fence = self._fence()
 
         again = self._claim()
@@ -156,9 +159,7 @@ class TestOwnershipClaims(BaseTest):
         elif case == "allocated_within_the_skew_allowance":
             overrides["allocated_at"] = datetime(2026, 1, 1, 0, 4, 59, tzinfo=UTC)
         elif case == "allocated_before_a_human_clear":
-            relationships.end_active(
-                team_id=self.team.id, account=self.account, definition=self.ae_definition, actor=self.human
-            )
+            self._clear_by_human()
         elif case == "allocated_in_the_future":
             overrides["allocated_at"] = timezone.now() + timedelta(days=1)
         elif case == "role_not_managed":
@@ -215,9 +216,7 @@ class TestOwnershipClaims(BaseTest):
         if decision == "after_a_human_transfer":
             self._assign_by_human(self._create_user("successor@posthog.com"))
         else:
-            relationships.end_active(
-                team_id=self.team.id, account=self.account, definition=self.ae_definition, actor=self.human
-            )
+            self._clear_by_human()
         holder_before = self._active_ae()
         fence_before = self._fence()
 
@@ -301,6 +300,29 @@ class TestOwnershipClaims(BaseTest):
         assert read.call_count == 3
         assert result.decisions == len(task_indexes)
         assert result.outcomes.get("duplicate", 0) == duplicates
+
+    def test_a_view_whose_task_id_does_not_page_as_text_is_reported(self):
+        rows = self._view_rows(self._decision(source_ref="task-0"), self._decision(source_ref="task-1"))
+
+        with (
+            patch.object(ownership_claims, "DECISION_PAGE_SIZE", 2),
+            patch.object(ownership_claims, "execute_hogql_query", return_value=SimpleNamespace(results=rows)),
+            self.assertRaises(ownership_claims.ClaimSourceMisconfigured),
+        ):
+            ownership_claims.reconcile_ownership_claims(self.team)
+
+    def test_a_sweep_stops_between_decisions_when_asked(self):
+        rows = self._view_rows(self._decision(source_ref="task-0"), self._decision(source_ref="task-1"))
+        checks = iter([False, False, True])
+
+        with (
+            patch.object(ownership_claims, "execute_hogql_query", return_value=SimpleNamespace(results=rows)),
+            self.assertRaises(ownership_claims.SweepStopped),
+        ):
+            ownership_claims.reconcile_ownership_claims(self.team, should_stop=lambda: next(checks))
+
+        claimed = AccountRelationship.objects.for_team(self.team.id).filter(source_ref__in=["task-0", "task-1"])
+        assert claimed.count() == 1
 
     def test_reconciliation_counts_a_raising_decision_and_continues(self):
         rows = self._view_rows(self._decision(source_ref="boom"), self._decision())

@@ -13,6 +13,7 @@ from parameterized import parameterized
 from redis.exceptions import RedisError
 from rest_framework import status
 
+from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -35,7 +36,10 @@ from products.conversations.backend.models import (
     EmailThreadParticipantKind,
 )
 from products.conversations.backend.models.ticket import Ticket
-from products.customer_analytics.backend.logic import relationships as relationships_logic
+from products.customer_analytics.backend.logic import (
+    ownership,
+    relationships as relationships_logic,
+)
 from products.customer_analytics.backend.models import (
     Account,
     AccountRelationship,
@@ -2955,6 +2959,32 @@ class TestAccountRelationshipViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, ended.status_code, ended.json())
         self.assertIsNotNone(ended.json()["ended_at"])
         self.assertEqual([], self.client.get(self.endpoint).json())
+
+    @parameterized.expand([("agent", True, status.HTTP_409_CONFLICT), ("person", False, status.HTTP_201_CREATED)])
+    def test_only_a_person_can_change_a_managed_role_with_a_personal_key(self, _name, via_agent, expected):
+        definition = self._create_relationship_definition("Account executive")
+        ownership.bind_role(self.team, "ae", definition.id)
+        Account.objects.for_team(self.team.id).filter(id=self.account.id).update(
+            ae_ownership_controlled_at=timezone.now()
+        )
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="agent",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=["account:write"],
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+        user_agent = f"cursor/1.0 {MCP_USER_AGENT_MARKER}" if via_agent else "curl/8.0"
+
+        response = self.client.post(
+            self.endpoint,
+            {"definition": str(definition.id), "user": self.user.id},
+            headers={"authorization": f"Bearer {value}", "user-agent": user_agent},
+        )
+
+        self.assertEqual(expected, response.status_code, response.json())
 
     def test_assign_with_unknown_definition_returns_400(self):
         response = self.client.post(

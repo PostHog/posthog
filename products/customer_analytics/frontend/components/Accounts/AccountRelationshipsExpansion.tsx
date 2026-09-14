@@ -31,10 +31,6 @@ const SOURCE_LABELS: Record<AccountRelationshipSourceEnumApi, string> = {
     migration: 'Migration',
 }
 
-function sourceLabel(source: AccountRelationshipSourceEnumApi | null | undefined): string | null {
-    return source ? SOURCE_LABELS[source] : null
-}
-
 export function AccountRelationshipsExpansion({
     accountId,
     embedded = true,
@@ -89,7 +85,11 @@ export function AccountRelationshipsExpansion({
             key: 'source',
             width: 110,
             render: (_, relationship) =>
-                sourceLabel(relationship.source) ?? <span className="text-muted">Not recorded</span>,
+                relationship.source ? (
+                    SOURCE_LABELS[relationship.source]
+                ) : (
+                    <span className="text-muted">Not recorded</span>
+                ),
         },
         {
             title: 'Started',

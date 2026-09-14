@@ -633,7 +633,9 @@ class OwnershipClaimDecision:
 @dataclass(frozen=True)
 class OwnershipClaimResult:
     """What customer analytics did with a decision. ``rejected`` and ``blocked`` carry a reason;
-    ``blocked`` means the decision may apply after review, ``rejected`` that it never will."""
+    ``blocked`` means the decision may apply after review, ``rejected`` that it does not apply as
+    read. Refusals are not stored, so every sweep evaluates the Task again; in practice only an
+    allocation that was still in the future can turn into an acceptance."""
 
     outcome: OwnershipClaimOutcome
     reason: OwnershipClaimReason | None

@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 
@@ -118,16 +118,19 @@ class TestAdoptAccountOwnershipCommand(BaseTest):
         ownership.bind_role(self.team, "ae", self.ae_definition.id)
         self.empty = create_account(team_id=self.team.id, name="Empty", external_id="org-empty")
         self.held = create_account(team_id=self.team.id, name="Held", external_id="org-held")
-        relationships.assign(
-            team_id=self.team.id,
-            account=self.held,
-            definition=self.ae_definition,
-            user=self.other_user,
-            actor=relationships.Actor.human(self.user),
-        )
+        self._assign(self.held, self.other_user)
         directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, directory, ignore_errors=True)
         self.manifest_path = Path(directory) / "manifest.json"
+
+    def _assign(self, account: Account, user: User) -> None:
+        relationships.assign(
+            team_id=self.team.id,
+            account=account,
+            definition=self.ae_definition,
+            user=user,
+            actor=relationships.Actor.human(self.user),
+        )
 
     def _fingerprints(self) -> dict[tuple[str, str], str]:
         out = StringIO()
@@ -238,13 +241,7 @@ class TestAdoptAccountOwnershipCommand(BaseTest):
             for_held["user_id"] = self.user.id
             proposal, expected = for_held, "conflict (role_managed)"
         elif case == "changed_after_review":
-            relationships.assign(
-                team_id=self.team.id,
-                account=self.empty,
-                definition=self.ae_definition,
-                user=self.other_user,
-                actor=relationships.Actor.human(self.user),
-            )
+            self._assign(self.empty, self.other_user)
             proposal, expected = for_empty, "fingerprint_changed"
         elif case in ("held_by_deleted_user", "empty_over_deleted_user_row"):
             AccountRelationship.objects.for_team(self.team.id).filter(account=self.held).update(user=None)

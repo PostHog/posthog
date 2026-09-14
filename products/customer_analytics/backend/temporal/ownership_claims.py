@@ -21,6 +21,8 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 with workflow.unsafe.imports_passed_through():
+    import threading
+    from collections.abc import Callable
     from datetime import timedelta
 
     from django.conf import settings
@@ -79,11 +81,11 @@ async def ownership_claims_collect_teams_activity(_input: OwnershipClaimsCoordin
     return OwnershipClaimsProjects(team_ids=tuple(team_ids))
 
 
-def _sweep(input: OwnershipClaimsSweepInput) -> ClaimReconciliation:
+def _sweep(input: OwnershipClaimsSweepInput, should_stop: Callable[[], bool]) -> ClaimReconciliation:
     try:
         team = Team.objects.get(id=input.team_id)
         with team_scope(team.id):
-            return reconcile_ownership_claims(team)
+            return reconcile_ownership_claims(team, should_stop=should_stop)
     except (Team.DoesNotExist, ClaimSourceMisconfigured) as error:
         # Neither heals by retrying: a deleted project stays deleted, and a retry cannot add a column
         # to the view. The next tick lists the projects and reads the view again.
@@ -92,8 +94,15 @@ def _sweep(input: OwnershipClaimsSweepInput) -> ClaimReconciliation:
 
 @activity.defn
 async def ownership_claims_sweep_activity(input: OwnershipClaimsSweepInput) -> ClaimReconciliation:
+    stop = threading.Event()
     async with Heartbeater():
-        return await database_sync_to_async(_sweep, thread_sensitive=False)(input)
+        try:
+            return await database_sync_to_async(_sweep, thread_sensitive=False)(input, stop.is_set)
+        finally:
+            # A timed-out or cancelled activity leaves its thread running. The flag makes the thread
+            # stop between two pages or two decisions, so at most the one decision already in flight
+            # can still commit beside the sweep the next tick starts; the tick after that repairs it.
+            stop.set()
 
 
 @workflow.defn(name=OWNERSHIP_CLAIMS_SWEEP_WORKFLOW_NAME)

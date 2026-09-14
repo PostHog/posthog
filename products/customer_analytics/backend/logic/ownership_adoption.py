@@ -154,14 +154,9 @@ def _active_holder(team_id: int, account: Account, definition_id: UUID | None) -
     return (
         AccountRelationship.objects.for_team(team_id)
         .filter(account=account, definition_id=definition_id, ended_at__isnull=True)
-        .select_related("definition")
         .order_by("started_at")
         .first()
     )
-
-
-def _definition(team_id: int, definition_id: UUID) -> AccountRelationshipDefinition:
-    return AccountRelationshipDefinition.objects.for_team(team_id).get(id=definition_id)
 
 
 def _outcome(proposal: RoleProposal, disposition: Disposition, detail: str | None = None) -> ProposalOutcome:
@@ -170,10 +165,12 @@ def _outcome(proposal: RoleProposal, disposition: Disposition, detail: str | Non
 
 def _review_one(team_id: int, proposal: RoleProposal, *, apply: bool) -> ProposalOutcome:
     with transaction.atomic():
+        # The config lock comes before the account lock, the order track rules take, and it holds
+        # the binding still until the proposal is applied or refused.
+        bindings = ownership.lock_role_bindings(team_id)
         account = relationships.lock_account(team_id, proposal.account_id)
         if account is None:
             return _outcome(proposal, "invalid", "account_not_found")
-        bindings = ownership.role_bindings(team_id)
         definition_id = bindings.definition_id_of(proposal.role)
         if definition_id is None:
             return _outcome(proposal, "invalid", "role_unbound")
@@ -216,7 +213,7 @@ def _review_one(team_id: int, proposal: RoleProposal, *, apply: bool) -> Proposa
             relationships.assign(
                 team_id=team_id,
                 account=account,
-                definition=holder.definition if holder is not None else _definition(team_id, definition_id),
+                definition=AccountRelationshipDefinition.objects.for_team(team_id).get(id=definition_id),
                 user=membership.user,
                 actor=actor,
                 emit_event=False,

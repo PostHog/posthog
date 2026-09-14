@@ -8,6 +8,7 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.project import ProjectViewSet
 from posthog.api.project_tags import MAX_TAGS_PER_FILTER
+from posthog.api.team import TeamCustomerAnalyticsConfigSerializer
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
@@ -15,9 +16,11 @@ from posthog.models.person.util import get_person_by_uuid
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.tag import Tag
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person, delete_person
 
+from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
@@ -878,6 +881,18 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.customer_analytics_config.activity_event, "$pageview")
+
+    def test_customer_analytics_config_save_keeps_ownership_fields_written_meanwhile(self):
+        config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        serializer = TeamCustomerAnalyticsConfigSerializer(config, data={"activity_event": "$pageview"}, partial=True)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        TeamCustomerAnalyticsConfig.objects.filter(pk=config.pk).update(ownership_claims_enabled=True)
+
+        serializer.save()
+
+        config.refresh_from_db()
+        self.assertEqual(config.activity_event, "$pageview")
+        self.assertTrue(config.ownership_claims_enabled)
 
     def test_settings_as_of_action_available_on_projects(self):
         # This action previously existed only on /api/environments/ — it must now work on /api/projects/ too.

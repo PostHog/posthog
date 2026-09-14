@@ -15,7 +15,7 @@ from typing import Literal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F, Max
+from django.db.models import F, Max, QuerySet
 from django.db.models.functions import Greatest, Now
 from django.utils import timezone
 
@@ -67,15 +67,15 @@ class RoleBindings:
         return {"ae": self.ae_definition_id, "csm": self.csm_definition_id}[role]
 
 
-def role_bindings(team_id: int) -> RoleBindings:
-    row = (
-        TeamCustomerAnalyticsConfig.objects.filter(team_id=team_id)
-        .values_list(_DEFINITION_FIELD["ae"], _DEFINITION_FIELD["csm"])
-        .first()
-    )
+def _read_bindings(configs: QuerySet[TeamCustomerAnalyticsConfig]) -> RoleBindings:
+    row = configs.values_list(_DEFINITION_FIELD["ae"], _DEFINITION_FIELD["csm"]).first()
     if row is None:
         return RoleBindings()
     return RoleBindings(ae_definition_id=row[0], csm_definition_id=row[1])
+
+
+def role_bindings(team_id: int) -> RoleBindings:
+    return _read_bindings(TeamCustomerAnalyticsConfig.objects.filter(team_id=team_id))
 
 
 class InvalidRoleBindingError(Exception):
@@ -88,15 +88,7 @@ def lock_role_bindings(team_id: int) -> RoleBindings:
 
     Enrollment takes this lock so a binding change cannot slip in between its managed-account
     check and the moment an account becomes managed under the old definition."""
-    row = (
-        TeamCustomerAnalyticsConfig.objects.select_for_update()
-        .filter(team_id=team_id)
-        .values_list(_DEFINITION_FIELD["ae"], _DEFINITION_FIELD["csm"])
-        .first()
-    )
-    if row is None:
-        return RoleBindings()
-    return RoleBindings(ae_definition_id=row[0], csm_definition_id=row[1])
+    return _read_bindings(TeamCustomerAnalyticsConfig.objects.select_for_update().filter(team_id=team_id))
 
 
 def bind_role(team: Team, role: OwnershipRole, definition_id: UUID | None) -> RoleBindings:

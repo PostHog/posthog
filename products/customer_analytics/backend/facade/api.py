@@ -3609,16 +3609,6 @@ def delete_account_for_view(
 ) -> None:
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
-    _log_activity_swallowing(
-        instance=account,
-        scope="Account",
-        activity="deleted",
-        name=account.name,
-        organization_id=organization_id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-    )
     with transaction.atomic():
         # Authority is checked under the same lock adoption and claims take, so an account that
         # became managed a moment ago cannot be deleted on a stale read.
@@ -3627,6 +3617,16 @@ def delete_account_for_view(
             raise Account.DoesNotExist
         if any(_ownership.is_managed(locked, role) for role in _ownership.OWNERSHIP_ROLES):
             raise AccountOwnershipManagedError(account_id)
+        _log_activity_swallowing(
+            instance=account,
+            scope="Account",
+            activity="deleted",
+            name=account.name,
+            organization_id=organization_id,
+            team_id=team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+        )
         # Streams referencing this account must be captured before the delete cascades
         # their membership rows away, then resynced so the account's group key doesn't
         # linger in a Slack destination filter.
@@ -4553,6 +4553,18 @@ class AccountOwnershipManagedError(Exception):
     """The account manages a commercial role, so it cannot be deleted while that authority stands."""
 
 
+class AccountRelationshipRoleManagedError(Exception):
+    """An agent acting for a person reached a commercial role the account manages; only the person
+    may change it."""
+
+
+def _project_api_actor(user: "User | None", via_agent: bool) -> _relationships_logic.Actor:
+    """A person's own request, or an agent acting for them through the MCP server. An agent counts
+    as an autonomous writer, like the in-app AI tool, so it cannot transfer or clear a managed role."""
+    source = AccountRelationshipSource.AI if via_agent else AccountRelationshipSource.HUMAN
+    return _relationships_logic.Actor(source=source, user=user)
+
+
 def _to_account_relationship_definition(
     definition: AccountRelationshipDefinition,
 ) -> contracts.AccountRelationshipDefinition:
@@ -4623,16 +4635,18 @@ def update_account_relationship_definition(
     definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
     if definition is None:
         return None
-    if fields.get("is_single_holder") is False and _ownership.role_bindings(team_id).role_of(definition.id):
-        raise AccountRelationshipDefinitionBoundError(str(definition_id))
-    for attr, value in fields.items():
-        setattr(definition, attr, value)
-    try:
-        definition.save()
-    except IntegrityError:
-        raise AccountRelationshipDefinitionConflictError(
-            "A relationship definition with this name already exists for this team."
-        )
+    with transaction.atomic():
+        # The config lock keeps a binding from landing between this check and the save.
+        if fields.get("is_single_holder") is False and _ownership.lock_role_bindings(team_id).role_of(definition.id):
+            raise AccountRelationshipDefinitionBoundError(str(definition_id))
+        for attr, value in fields.items():
+            setattr(definition, attr, value)
+        try:
+            definition.save(update_fields=[*fields, "updated_at"])
+        except IntegrityError:
+            raise AccountRelationshipDefinitionConflictError(
+                "A relationship definition with this name already exists for this team."
+            )
     return _to_account_relationship_definition(definition)
 
 
@@ -4671,14 +4685,21 @@ class AccountRelationshipAssigneeNotInOrganization(Exception):
 
 
 def assign_account_relationship(
-    *, team_id: int, account_id: str | UUID, definition_id: str | UUID, user_id: int, created_by: "User"
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    definition_id: str | UUID,
+    user_id: int,
+    created_by: "User",
+    via_agent: bool = False,
 ) -> contracts.AccountRelationship:
     """Assign a user to an account relationship. Single-holder definitions hand off — the
     previous active assignment is ended in the same transaction. Idempotent when the user
     already actively holds the relationship.
 
     Raises ``Account_DoesNotExist`` (→ 404), ``AccountRelationshipDefinitionNotFound`` and
-    ``AccountRelationshipAssigneeNotInOrganization`` (→ 400).
+    ``AccountRelationshipAssigneeNotInOrganization`` (→ 400), and ``AccountRelationshipRoleManagedError``
+    (→ 409) when an agent acting for the user reaches a managed commercial role.
     """
     account = Account.objects.for_team(team_id).select_related("team").get(id=account_id)
     definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
@@ -4691,13 +4712,16 @@ def assign_account_relationship(
     )
     if membership is None:
         raise AccountRelationshipAssigneeNotInOrganization(str(user_id))
-    relationship = _relationships_logic.assign(
-        team_id=team_id,
-        account=account,
-        definition=definition,
-        user=membership.user,
-        actor=_relationships_logic.Actor.human(created_by),
-    )
+    try:
+        relationship = _relationships_logic.assign(
+            team_id=team_id,
+            account=account,
+            definition=definition,
+            user=membership.user,
+            actor=_project_api_actor(created_by, via_agent),
+        )
+    except _relationships_logic.ManagedRolePolicyError:
+        raise AccountRelationshipRoleManagedError(str(definition_id))
     return _to_account_relationship(relationship)
 
 
@@ -4707,6 +4731,7 @@ def end_account_relationship(
     account_id: str | UUID,
     relationship_id: str | UUID,
     actor: "User | None" = None,
+    via_agent: bool = False,
 ) -> contracts.AccountRelationship | None:
     """End an active assignment. Returns None when no active assignment matches this account
     (missing, another account's, or already ended) — mapped to 404."""
@@ -4715,10 +4740,12 @@ def end_account_relationship(
             team_id=team_id,
             account_id=account_id,
             relationship_id=str(relationship_id),
-            actor=_relationships_logic.Actor.human(actor),
+            actor=_project_api_actor(actor, via_agent),
         )
     except _relationships_logic.AccountRelationshipNotFound:
         return None
+    except _relationships_logic.ManagedRolePolicyError:
+        raise AccountRelationshipRoleManagedError(str(relationship_id))
     return _to_account_relationship(relationship)
 
 
@@ -4728,13 +4755,14 @@ def delete_account_relationship(
     account_id: str | UUID,
     relationship_id: str | UUID,
     actor: "User | None" = None,
+    via_agent: bool = False,
 ) -> bool:
     try:
         _relationships_logic.delete_relationship(
             team_id=team_id,
             account_id=account_id,
             relationship_id=str(relationship_id),
-            actor=_relationships_logic.Actor.human(actor),
+            actor=_project_api_actor(actor, via_agent),
         )
     except _relationships_logic.AccountRelationshipNotFound:
         return False

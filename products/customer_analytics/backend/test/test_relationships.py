@@ -551,3 +551,4 @@ class TestCommercialRolePolicy(BaseTest):
             )
 
         assert Account.objects.for_team(self.team.id).filter(id=self.account.id).exists()
+        assert not any(row.activity == "deleted" for row in self._activity_rows())

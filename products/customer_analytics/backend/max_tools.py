@@ -123,7 +123,9 @@ UPSERT_ACCOUNT_TOOL_DESCRIPTION = dedent("""
     # Relationships
     Pass `relationships` to assign users to the account's relationships (CSM, Account executive, or
     any definition the team has created), keyed by definition name: the value is the PostHog user id,
-    or null to end the current assignment. Only the named definitions are changed.
+    or null to end the current assignment. Only the named definitions are changed. Roles that
+    Customer analytics manages for the account (AE and CSM, once bound) cannot be changed through
+    this tool; the change is made from the account page.
 
     # Tags
     Pass `tags` to set the account's tags. On update this REPLACES the existing tag set.
