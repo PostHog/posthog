@@ -572,6 +572,31 @@ describe('HogFunctionHandler', () => {
         expect(billableMetrics).toHaveLength(0)
     })
 
+    it('drops the stale execResult when the function fails so the step stores no result', async () => {
+        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
+            finished: true,
+            error: 'Request failed with status 500',
+            execResult: { status: 500, body: 'upstream down' },
+            invocation: invocation as any,
+            logs: [],
+            metrics: [],
+            capturedPostHogEvents: [],
+            warehouseWebhookPayloads: [],
+            messageAssets: [],
+            conversionWatchers: [],
+        })
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(handlerResult.error).toBe('Request failed with status 500')
+        expect(handlerResult.result).toBeUndefined()
+    })
+
     it('should not emit a billable_invocation metric when recipient opts out', async () => {
         ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('opted_out')
 
@@ -905,14 +930,22 @@ describe('HogFunctionHandler', () => {
                 )
             })
 
-            it('fails the step when the task did not complete', async () => {
+            it('fails the step with the outcome as its result when the task did not complete', async () => {
                 invocation.state.currentAction!.resumeResult = {
                     key: dispatchKey,
                     status: 'failed',
                     result: { error_message: 'sandbox crashed' },
                 }
 
-                await expect(execute()).rejects.toThrow('The task failed: sandbox crashed')
+                const { handlerResult } = await execute()
+
+                expect(handlerResult.error).toEqual(new Error('The task failed: sandbox crashed'))
+                expect(handlerResult.result).toEqual({
+                    id: 't1',
+                    run_id: 'r1',
+                    status: 'failed',
+                    error_message: 'sandbox crashed',
+                })
                 expect(executeSpy).not.toHaveBeenCalled()
             })
 
