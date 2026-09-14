@@ -56,19 +56,41 @@ IDs. Resolve the ID by exact name, and exclude deleted rows. A substring match c
 neighboring subject. A soft-deleted row keeps its original name, so a replacement can share that
 name.
 
+Resolve the view first. A materialized view's backing table carries the view's own name, and no
+exposed column tells the two apart. A name that a view answers to is a view. A check on that
+backing table is accepted, and then it stays silent. Materialization selects checks by
+`saved_query_id`, and the only table-side trigger runs after a source sync, which a backing table
+never gets.
+
 - **Saved query (view).** The `id` is the `saved_query_id`.
 
   ```sql
   SELECT id FROM system.data_modeling_views WHERE name = 'orders' AND deleted = 0
   ```
 
-- **Warehouse table.** The subject name is the warehouse table's own name: an imported source
-  prefixes it (e.g. `stripe_charge`), while a self-managed table keeps the name it was created with.
-  The `id` is the `table_id`.
+- **Warehouse table.** Resolve a table only when no view holds the name. The subject name is the
+  warehouse table's own name: an imported source prefixes it (e.g. `stripe_charge`), while a
+  self-managed table keeps the name it was created with. The `id` is the `table_id`. Live tables can
+  share one name, so take the newest. That is the row a query by that name reaches.
 
   ```sql
-  SELECT id FROM system.data_warehouse_tables WHERE name = 'stripe_charge' AND deleted = 0
+  SELECT id, external_data_source_id
+  FROM system.data_warehouse_tables
+  WHERE name = 'stripe_charge' AND deleted = 0
+  ORDER BY created_at DESC
+  LIMIT 1
   ```
+
+  This table is the storage roster, not the supported-subject catalog. When the row carries an
+  `external_data_source_id`, read that source before you use the table ID.
+
+  ```sql
+  SELECT access_method, deleted FROM system.data_warehouse_sources WHERE id = '<source id>'
+  ```
+
+  A deleted source takes its tables out of reach, and the create is rejected. A direct connection is
+  queried through the source, not by table name, so a check on its table is accepted and then errors
+  on every run. Neither is a check subject.
 
   Do not resolve a table ID from `posthog:external-data-schemas-list`. A self-managed table has no
   schema row there. A schema row's own `id` is the sync configuration, not the table; the table ID is
