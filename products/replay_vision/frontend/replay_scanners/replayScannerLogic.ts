@@ -84,6 +84,7 @@ import {
     scannerStepUrlWithParams,
     UNVALIDATED_SCANNER_STEPS,
 } from './scannerEditorSceneLogic'
+import { requestScannerFeedback } from './scannerFeedback'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
@@ -2104,7 +2105,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     await visionScannersPartialUpdate(String(teamId), props.id, { enabled: next })
                     actions.toggleEnabledSuccess(next)
                     refreshVisionQuota()
-                    lemonToast.success(`Scanner ${next ? 'enabled' : 'disabled'}`)
+                    const feedbackOffered = requestScannerFeedback(
+                        next ? 'enabled' : 'disabled',
+                        props.id,
+                        'detail',
+                        teamId
+                    )
+                    if (!next || !feedbackOffered) {
+                        lemonToast.success(`Scanner ${next ? 'enabled' : 'disabled'}`)
+                    }
                 } catch (error: any) {
                     actions.setScannerValue('enabled', !next)
                     const verb = next ? 'enable' : 'disable'
