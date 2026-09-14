@@ -19,11 +19,55 @@ from products.experiments.backend.temporal.models import (
 )
 from products.experiments.backend.temporal.recalculation_logic import (
     _calculate_experiment_metric_for_recalculation_sync,
+    _cancel_metric_query_sync,
     _discover_experiment_metrics_sync,
     _update_recalculation_progress_sync,
 )
 
 logger = structlog.get_logger(__name__)
+
+_CANCEL_KILL_RETRY_INTERVAL_SECONDS = 2.0
+
+
+async def _drain_cancelled_body(
+    task: asyncio.Task[MetricRecalculationResult], recalculation_id: str, metric_uuid: str, attempt: int
+) -> None:
+    # sync_to_async cannot stop its worker thread, and returning while it runs leaves the ClickHouse query, its
+    # DB connection and the runner's result buffers alive and unsupervised. Kill the query so the thread returns
+    # now instead of at max_execution_time, then wait it out, bounded by the activity's per-attempt budget since
+    # the body cannot outlive it by design. The kill repeats because it only hits a query ClickHouse has
+    # registered, and a cancel during the body's Postgres phase precedes that.
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS
+    while not task.done():
+        if loop.time() >= deadline:
+            logger.warning(
+                "experiment_metric_recalculation_drain_after_cancel_timed_out",
+                metric_uuid=metric_uuid,
+                recalculation_id=recalculation_id,
+            )
+            return
+        try:
+            await _cancel_metric_query_sync(recalculation_id, metric_uuid, attempt)
+        except Exception:
+            logger.warning(
+                "experiment_metric_recalculation_query_cancel_failed",
+                metric_uuid=metric_uuid,
+                recalculation_id=recalculation_id,
+                exc_info=True,
+            )
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=_CANCEL_KILL_RETRY_INTERVAL_SECONDS)
+        except TimeoutError:
+            continue
+        except Exception:
+            logger.warning(
+                "experiment_metric_recalculation_drain_after_cancel_failed",
+                metric_uuid=metric_uuid,
+                recalculation_id=recalculation_id,
+                exc_info=True,
+            )
+            return
 
 
 @temporalio.activity.defn
@@ -72,7 +116,7 @@ async def calculate_experiment_metric_for_recalculation(
         return await asyncio.shield(task)
     except asyncio.CancelledError:
         # Keep the worker slot while the uncancellable thread finishes, but bound shutdown cleanup.
-        drain = asyncio.create_task(asyncio.wait_for(asyncio.shield(task), METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS))
+        drain = asyncio.create_task(_drain_cancelled_body(task, recalculation_id, metric_uuid, attempt))
         while True:
             try:
                 await asyncio.shield(drain)
@@ -80,12 +124,4 @@ async def calculate_experiment_metric_for_recalculation(
             except asyncio.CancelledError:
                 if drain.cancelled():
                     break
-            except Exception:
-                logger.warning(
-                    "experiment_metric_recalculation_drain_after_cancel_failed",
-                    metric_uuid=metric_uuid,
-                    recalculation_id=recalculation_id,
-                    exc_info=True,
-                )
-                break
         raise
