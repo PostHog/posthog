@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PostHogAPIClient } from "./posthog-api";
+import { type PostHogAPIClient, PostHogAPIError } from "./posthog-api";
 import { SessionLogWriter } from "./session-log-writer";
 import type { StoredNotification } from "./types";
 
@@ -144,26 +144,131 @@ describe("SessionLogWriter", () => {
       expect(retriedEntries[0].notification.method).toBe("test");
     });
 
-    it("drops entries after max retries", async () => {
+    it("keeps retrying past ten failures and delivers once persistence recovers", async () => {
       const sessionId = "s1";
       logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
 
       mockAppendLog.mockRejectedValue(new Error("persistent failure"));
-
       logWriter.appendRawLine(sessionId, JSON.stringify({ method: "test" }));
 
-      // Flush 10 times (MAX_FLUSH_RETRIES) — entries should be dropped on the 10th
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 12; i++) {
         await logWriter.flush(sessionId);
       }
+      expect(mockAppendLog).toHaveBeenCalledTimes(12);
 
-      expect(mockAppendLog).toHaveBeenCalledTimes(10);
-
-      // After max retries the entries are dropped, so an 11th flush has nothing
-      mockAppendLog.mockClear();
+      mockAppendLog.mockResolvedValue(undefined);
       await logWriter.flush(sessionId);
-      expect(mockAppendLog).not.toHaveBeenCalled();
+
+      expect(mockAppendLog).toHaveBeenCalledTimes(13);
+      const delivered: StoredNotification[] = mockAppendLog.mock.calls[12][2];
+      expect(delivered.map((entry) => entry.notification.method)).toEqual([
+        "test",
+      ]);
     });
+
+    it.each([
+      ["a 404", 404, ["later"]],
+      ["a 503", 503, ["test", "later"]],
+    ])(
+      "after %s the next flush sends %j",
+      async (_label, status, expectedMethods) => {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+        mockAppendLog.mockRejectedValueOnce(
+          new PostHogAPIError(`Failed request: [${status}]`, status),
+        );
+
+        logWriter.appendRawLine(sessionId, JSON.stringify({ method: "test" }));
+        await logWriter.flush(sessionId);
+        logWriter.appendRawLine(sessionId, JSON.stringify({ method: "later" }));
+        await logWriter.flush(sessionId);
+
+        expect(mockAppendLog).toHaveBeenCalledTimes(2);
+        const sent: StoredNotification[] = mockAppendLog.mock.calls[1][2];
+        expect(sent.map((entry) => entry.notification.method)).toEqual(
+          expectedMethods,
+        );
+      },
+    );
+
+    it("retries on schedule while new entries keep arriving during an outage", async () => {
+      vi.useFakeTimers();
+      try {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+        mockAppendLog.mockRejectedValue(new Error("network error"));
+
+        logWriter.appendRawLine(sessionId, JSON.stringify({ method: "test" }));
+        await logWriter.flush(sessionId);
+        expect(mockAppendLog).toHaveBeenCalledTimes(1);
+
+        for (let i = 0; i < 5; i++) {
+          await vi.advanceTimersByTimeAsync(300);
+          logWriter.appendRawLine(
+            sessionId,
+            JSON.stringify({ method: "test" }),
+          );
+        }
+
+        expect(mockAppendLog).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("flush with retry re-sends the batch after a transient failure", async () => {
+      vi.useFakeTimers();
+      try {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+        mockAppendLog
+          .mockRejectedValueOnce(new Error("network error"))
+          .mockResolvedValueOnce(undefined);
+
+        logWriter.appendRawLine(sessionId, JSON.stringify({ method: "test" }));
+        const flushed = logWriter.flush(sessionId, { retry: true });
+        await vi.advanceTimersByTimeAsync(1000);
+        await flushed;
+
+        expect(mockAppendLog).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it.each([
+      ["a small log", 10, 1],
+      ["a log past 4 MiB", 5 * 1024 * 1024, 0],
+    ])(
+      "flushes a burst 6s after the last flush for %s",
+      async (_label, textBytes, expectedFlushes) => {
+        vi.useFakeTimers();
+        try {
+          const sessionId = "s1";
+          logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+          logWriter.appendRawLine(
+            sessionId,
+            JSON.stringify({
+              method: "test",
+              params: { text: "x".repeat(textBytes) },
+            }),
+          );
+          await logWriter.flush(sessionId);
+          mockAppendLog.mockClear();
+
+          vi.advanceTimersByTime(6000);
+          logWriter.appendRawLine(
+            sessionId,
+            JSON.stringify({ method: "test" }),
+          );
+          await vi.advanceTimersByTimeAsync(0);
+
+          expect(mockAppendLog).toHaveBeenCalledTimes(expectedFlushes);
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
   });
 
   describe("sinks", () => {

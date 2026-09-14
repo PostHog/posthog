@@ -117,6 +117,25 @@ export type TaskRunUpdate = Partial<
   state_append?: Record<string, unknown>;
 };
 
+export class PostHogAPIError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "PostHogAPIError";
+  }
+
+  get retryable(): boolean {
+    return (
+      this.status >= 500 ||
+      this.status === 401 ||
+      this.status === 408 ||
+      this.status === 429
+    );
+  }
+}
+
 export class PostHogAPIClient {
   private config: PostHogAPIConfig;
   private userNode: string | null | undefined;
@@ -204,7 +223,7 @@ export class PostHogAPIClient {
       } catch {
         errorMessage = `Failed request: [${response.status}] ${response.statusText}`;
       }
-      throw new Error(errorMessage);
+      throw new PostHogAPIError(errorMessage, response.status);
     }
 
     return response.json();
