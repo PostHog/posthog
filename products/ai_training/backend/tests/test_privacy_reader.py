@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock
 
-from posthog.ai_training_privacy_reader import (
+from products.ai_training.backend.privacy.reader import (
     TrainingDataKey,
     TrainingDataKeyReader,
     TrainingKeyIdentity,
@@ -16,7 +16,7 @@ from posthog.ai_training_privacy_reader import (
 
 class TestTrainingDataKeyReader(TestCase):
     def test_shared_node_envelope_and_owner_binding(self) -> None:
-        path = Path(__file__).parent / "fixtures/ai_training_encryption_vector.json"
+        path = Path(__file__).parent / "fixtures/encryption_vector.json"
         vector = json.loads(path.read_text())
         identity = TrainingKeyIdentity(
             team_id=vector["context"]["teamId"],

@@ -8,10 +8,10 @@ from django.db import connections
 import structlog
 
 from posthog.cache_utils import cache_for
-from posthog.models.ai_training import queue_training_deletion
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.temporal.common.client import sync_connect
 
+from products.ai_training.backend.facade.api import queue_training_deletion
 from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound, batch_export_delete_schedule
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 

@@ -4,8 +4,8 @@ from typing import Any
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from posthog.ai_training_privacy import AITrainingPrivacyStore
-from posthog.ai_training_privacy_reader import KEY_READ_LEASE_SECONDS
+from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS
+from products.ai_training.backend.privacy.store import AITrainingPrivacyStore
 
 
 class Command(BaseCommand):

@@ -51,7 +51,6 @@ from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.ai_training import queue_training_deletion
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.person.bulk_delete import (
@@ -83,6 +82,7 @@ from posthog.utils import (
     relative_date_parse_with_delta_mapping,
 )
 
+from products.ai_training.backend.facade.api import queue_training_deletion
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
 from products.workflows.backend.api.message_assets import (

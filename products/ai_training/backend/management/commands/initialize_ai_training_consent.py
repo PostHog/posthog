@@ -2,7 +2,9 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from posthog.models import Organization
-from posthog.models.ai_training import AITrainingConsent, privacy_enabled, record_training_consent
+
+from products.ai_training.backend.facade.api import privacy_enabled, record_training_consent
+from products.ai_training.backend.models import AITrainingConsent
 
 
 class Command(BaseCommand):

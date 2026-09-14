@@ -13,7 +13,6 @@ from temporalio import common
 
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Detail, LogActivityEntry, bulk_log_activity
-from posthog.models.ai_training import queue_training_deletion
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
 from posthog.models.person.util import (
@@ -27,6 +26,8 @@ from posthog.models.person.util import (
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
+
+from products.ai_training.backend.facade.api import queue_training_deletion
 
 logger = structlog.get_logger(__name__)
 

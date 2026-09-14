@@ -14,8 +14,8 @@ import structlog
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from posthog.ai_training_privacy_reader import KEY_READ_LEASE_SECONDS
-from posthog.models.ai_training import AITrainingPrivacyRequest
+from products.ai_training.backend.models import AITrainingPrivacyRequest
+from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS
 
 logger = structlog.get_logger(__name__)
 

@@ -192,5 +192,3 @@ __all__ = [
     "PromptSequence",
     "UserPromptState",
 ]
-
-from .ai_training import AITrainingConsent as AITrainingConsent, AITrainingPrivacyRequest as AITrainingPrivacyRequest

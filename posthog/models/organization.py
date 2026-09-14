@@ -23,9 +23,10 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.ai_training import record_training_consent
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, generate_slug_candidates, sane_repr
+
+from products.ai_training.backend.facade.api import record_training_consent
 
 if TYPE_CHECKING:
     from posthog.models import Team, User

@@ -1,5 +1,8 @@
 # ML replay data
 
+The Django controls and their tests live in `products/ai_training/backend/`, owned by AI Research.
+Application lifecycle hooks use the product facade; the models share the main database to preserve atomic transactions.
+
 AI Research owns the ML mirror, its encryption keys, and its training readers.
 The mirror collects scrubbed recordings from organizations that consent to AI training.
 Its storage and deletion implementation is separate from production session replay.
