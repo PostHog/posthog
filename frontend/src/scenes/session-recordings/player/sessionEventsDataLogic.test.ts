@@ -8,9 +8,24 @@ import { initKeaTests } from '~/test/init'
 import { RecordingEventType } from '~/types'
 
 import { sessionEventsDataLogic } from './sessionEventsDataLogic'
+import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
 
 describe('sessionEventsDataLogic', () => {
     let logic: ReturnType<typeof sessionEventsDataLogic.build>
+
+    const eventRow = (id: string): any[] => [
+        id,
+        'custom_event',
+        '2024-01-01T00:00:10Z',
+        '',
+        'window-1',
+        'https://example.com/path',
+        'click',
+        800,
+        600,
+        undefined,
+        'distinct-id',
+    ]
 
     const makeEvent = (id: string): RecordingEventType => ({
         id,
@@ -83,5 +98,39 @@ describe('sessionEventsDataLogic', () => {
 
         expect(posthog.captureException).toHaveBeenCalledTimes(reportCalls)
         expect(logic.values.sessionEventsData?.find((e) => e.id === 'event-1')?.fullyLoaded).toBe(true)
+    })
+
+    // A failed loadEvents degrades to no events, which writes the same value a successful load
+    // writes. A second load starts whenever the recording meta loads again, so without a
+    // supersede check the older query's late failure empties the list the newer query filled.
+    it('does not let a superseded failing loadEvents replace newer events', async () => {
+        let rejectFirstQuery: (error: unknown) => void = () => {}
+        const firstQuery = new Promise((_, reject) => {
+            rejectFirstQuery = reject
+        })
+        jest.spyOn(api, 'queryHogQL')
+            .mockReturnValueOnce(firstQuery as any)
+            .mockReturnValueOnce(firstQuery as any)
+            .mockResolvedValueOnce({ results: [eventRow('event-1')] } as any)
+            .mockResolvedValueOnce({ results: [] } as any)
+
+        // The meta success listener starts the first load, which the explicit dispatch below
+        // supersedes while its queries are still in flight.
+        sessionRecordingMetaLogic({ sessionRecordingId: 'test-session' }).actions.loadRecordingMetaSuccess({
+            id: 'test-session',
+            start_time: '2024-01-01T00:00:00Z',
+            end_time: '2024-01-01T00:01:00Z',
+            person: { uuid: 'person-uuid' },
+        } as any)
+
+        logic.actions.loadEvents()
+        await expectLogic(logic).toDispatchActions(['loadEventsSuccess'])
+        expect(logic.values.sessionEventsData).toHaveLength(1)
+
+        rejectFirstQuery(new ApiError('Service Unavailable', 503))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.sessionEventsData).toHaveLength(1)
+        expect(posthog.captureException).not.toHaveBeenCalled()
     })
 })

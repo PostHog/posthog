@@ -271,6 +271,9 @@ AND properties.$lib != 'web'`
                         if (isBreakpoint(e)) {
                             throw e
                         }
+                        // Bail if a newer load has superseded this one, so a late failure cannot
+                        // replace the newer result.
+                        breakpoint()
                         // The player still works without the events list, so degrade to no events
                         // instead of failing the loader. Catching here skips the gate `initKea`
                         // applies to loader failures, so reapply it: a transient gateway failure is
@@ -347,6 +350,9 @@ AND properties.$lib != 'web'`
                         if (isBreakpoint(e)) {
                             throw e
                         }
+                        // Bail if a newer load has superseded this one, so a late failure cannot
+                        // mark a stale event loaded.
+                        breakpoint()
                         // The property expansion is best-effort, because the player keeps working
                         // with properties left unexpanded. Mark the events loaded and move on.
                         // Catching here skips the gate `initKea` applies to loader failures, so
