@@ -57,7 +57,11 @@ def normalize_repository(repository: str) -> str:
     parts = [part for part in path.split("/") if part]
     if len(parts) < 2:
         return value
-    owner, repo = parts[0], parts[1].removesuffix(".git")
+    owner, repo = parts[0], parts[1]
+    # GitHub rejects a repository name ending in `.git`, so any casing of that suffix belongs to
+    # the clone URL rather than to the name.
+    if repo.lower().endswith(".git"):
+        repo = repo[: -len(".git")]
     if not repo:
         return value
     return f"{owner}/{repo}"

@@ -73,6 +73,7 @@ def test_malformed_repository_gets_format_guidance(repository):
         "https://github.com/owner/repo.git",
         "https://github.com/owner/repo/tree/main",
         "git@github.com:owner/repo.git",
+        "https://github.com/owner/repo.GIT",
         "github.com/owner/repo",
     ],
 )
