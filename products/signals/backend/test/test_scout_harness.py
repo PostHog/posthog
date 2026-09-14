@@ -436,6 +436,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             write_scopes=["dashboard:write"],
             structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
             mcp_server_names=["Datadog (EU)"],
+            repositories=["acme-co/service"],
         )
 
         offsets = [
@@ -444,6 +445,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
                 "# Governed metrics",
                 "# External MCP servers",
                 "# Write access",
+                "# Your checkout",
                 "# Structured output",
                 "# Your run identity",
             )
@@ -460,6 +462,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             "signals-scout-prefix-probe",
             "mrr_probe_metric",
             "Datadog",
+            "acme-co/service",
             '"verdict"',
         ):
             assert value not in head, f"{value} interpolated above the per-run block"
