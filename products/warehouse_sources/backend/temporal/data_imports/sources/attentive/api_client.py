@@ -66,13 +66,15 @@ def _events_for_resources(resource_names: list[str]) -> list[str]:
 
 def _format_http_error(error: requests.HTTPError) -> str:
     status_code = error.response.status_code
+    # The customer-facing strings below omit the status, so log it here for every rejection rather
+    # than only the unrecognized ones.
+    LOGGER.warning("Attentive rejected the request", status_code=status_code)
     if status_code == 401:
         return API_KEY_REJECTED_ERROR
     if status_code == 403:
         return WEBHOOKS_PERMISSION_ERROR
     if status_code == 429:
         return RATE_LIMITED_ERROR
-    LOGGER.warning("Attentive rejected the request", status_code=status_code)
     return REQUEST_REJECTED_ERROR
 
 
