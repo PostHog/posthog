@@ -194,7 +194,8 @@ def release_terminal_task_report_claims(*, team_id: int, task_id: str) -> int:
         active_claims(team_id=team_id).filter(actor_kind="task", task_id=task_id).values_list("report_id", flat=True)
     )
     report_ids.update(
-        SignalReportAssignment.objects.for_team(team_id).filter(
+        SignalReportAssignment.objects.for_team(team_id)
+        .filter(
             team_id=team_id,
             actor_kind="task",
             actor_task_id=task_id,
