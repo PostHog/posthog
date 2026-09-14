@@ -11,8 +11,8 @@ import {
     MenuLabel,
 } from '@posthog/quill-primitives'
 
-import { tasksLogic } from '../../../logics/tasksLogic'
-import { TaskAssigneeFilter } from '../../../types/taskTypes'
+import { tasksLogic } from '../../logics/tasksLogic'
+import type { TaskAssigneeFilter } from '../../types/taskTypes'
 
 export function TaskAssigneeFilterMenu(): JSX.Element {
     const { assigneeFilter, isStaffUser } = useValues(tasksLogic)
@@ -22,13 +22,13 @@ export function TaskAssigneeFilterMenu(): JSX.Element {
         <DropdownMenu>
             <DropdownMenuTrigger
                 render={
-                    <Button type="button" size="icon-lg" aria-label="Filter tasks">
+                    <Button type="button" size="icon-sm" aria-label="Filter tasks">
                         <IconFilter />
                     </Button>
                 }
             />
             <DropdownMenuContent align="start" side="bottom" sideOffset={6} className="min-w-fit">
-                <MenuLabel>Show</MenuLabel>
+                <MenuLabel>Show tasks</MenuLabel>
                 <DropdownMenuRadioGroup
                     value={assigneeFilter}
                     onValueChange={(value) => setAssigneeFilter(value as TaskAssigneeFilter)}
@@ -37,7 +37,7 @@ export function TaskAssigneeFilterMenu(): JSX.Element {
                     <DropdownMenuRadioItem value="my_scouts">My scouts</DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="team_scouts">Team scouts</DropdownMenuRadioItem>
                     {isStaffUser && (
-                        <DropdownMenuRadioItem value="all_team">All team tasks (staff)</DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem value="all_team">Everything you can see</DropdownMenuRadioItem>
                     )}
                 </DropdownMenuRadioGroup>
             </DropdownMenuContent>

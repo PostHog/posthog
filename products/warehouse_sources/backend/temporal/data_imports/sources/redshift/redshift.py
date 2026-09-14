@@ -1416,6 +1416,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             # `fetch_table_stats`.
             logger.debug(f"get_rows_to_sync: no privilege to run count query, using 0 as rows to sync: {e}")
             return 0
+        except psycopg.errors.UndefinedTable as e:
+            # The table existed when schema discovery ran but was dropped or renamed before this
+            # count query executed — the same already-known, non-actionable condition
+            # `get_non_retryable_errors` stops the sync for entirely. Row-count estimation is
+            # best-effort (the caller defaults to 0), so skip gracefully instead of reporting the
+            # non-actionable error to error tracking.
+            logger.debug(f"get_rows_to_sync: table no longer exists, using 0 as rows to sync: {e}")
+            return 0
         except Exception as e:
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
             if "Remote request timeout" in str(e):
