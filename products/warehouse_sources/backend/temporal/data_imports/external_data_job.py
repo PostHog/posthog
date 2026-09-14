@@ -119,7 +119,7 @@ LOGGER = get_logger(__name__)
 # Cap retries at 3 in local dev so failing syncs don't loop for tens of minutes while developers
 # iterate; prod cadence is unchanged. Defined at module level so tests can patch them to keep the
 # expensive retry-exhaustion paths fast.
-MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 15
+MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 20
 MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
 
 MISSING_INTEGRATION_MESSAGE = (
