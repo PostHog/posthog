@@ -268,7 +268,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
             )
             detail = (
                 "Task creation is paused for this workflow. "
-                "The event was skipped. Contact PostHog support to resume task creation."
+                "The event was skipped. Raise the daily limit in project settings to resume it."
                 if error.cap == 0
                 else f"This workflow reached its daily limit of {error.cap} tasks. "
                 "The event was skipped. Task creation resumes automatically within 24 hours."
@@ -283,7 +283,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
             )
             detail = (
                 "Task creation from workflows is paused for this project. "
-                "The event was skipped. Contact PostHog support to resume task creation."
+                "The event was skipped. Raise the daily limit in project settings to resume it."
                 if error.cap == 0
                 else f"This project reached its daily limit of {error.cap} tasks created by workflows. "
                 "The event was skipped. Task creation resumes automatically within 24 hours."
