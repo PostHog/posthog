@@ -13,6 +13,7 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { delay } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isUUIDLike } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { isAbortedRequest } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
@@ -831,7 +832,11 @@ export const personsLogic = kea<personsLogicType>([
 
                 if (rawPersonUUID) {
                     const decodedPersonUUID = decodeURIComponent(rawPersonUUID)
-                    if (!values.person || values.person.id != decodedPersonUUID) {
+                    if (!isUUIDLike(decodedPersonUUID)) {
+                        // The person query compares this against a UUID column, so a non-UUID segment
+                        // fails in the query engine. Show the not-found state instead.
+                        actions.setPerson(null)
+                    } else if (!values.person || values.person.id != decodedPersonUUID) {
                         actions.loadPersonUUID(decodedPersonUUID)
                     }
                 }

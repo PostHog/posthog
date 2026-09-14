@@ -191,6 +191,24 @@ describe('personsLogic', () => {
         })
     })
 
+    describe('the /persons/ route', () => {
+        it('loads a person for a UUID segment', async () => {
+            jest.spyOn(api, 'query').mockResolvedValueOnce({ results: [] } as any)
+            router.actions.push('/persons/741cc6c0-7c48-55f2-9b58-1b648a381c9e')
+
+            await expectLogic(logic).toDispatchActions(['loadPersonUUID'])
+        })
+
+        it('shows the not-found state for a non-UUID segment instead of querying', async () => {
+            router.actions.push('/persons/32455318601')
+
+            await expectLogic(logic)
+                .toDispatchActions(['setPerson'])
+                .toNotHaveDispatchedActions(['loadPersonUUID'])
+                .toMatchValues({ person: null, personError: null })
+        })
+    })
+
     describe('loadPersonUUID error handling', () => {
         it('surfaces a genuine load failure as personError', async () => {
             silenceKeaLoadersErrors()
