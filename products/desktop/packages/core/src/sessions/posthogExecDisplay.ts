@@ -60,12 +60,7 @@ export function getPostHogExecDisplay(
   }
 }
 
-// The pi harness names tools `<prefix>_<server>_<tool>` with single
-// underscores, which parseMcpToolName rejects (it expects the
-// double-underscore canonical key). The `posthog.mcp` descriptor is
-// written on the tool RESULT, but this display is built from the INPUT
-// while the call runs, so the `tool` string is the only signal.
-// `plugin_` prefixes the plugin-installed posthog server.
+// Pi names use single underscores, and result metadata is unavailable while a call runs.
 const PI_POSTHOG_EXEC_RE =
   /^(?:[a-zA-Z0-9]+_)?(?:plugin_)?posthog(?:_[^_]+)*_exec$/;
 
@@ -97,7 +92,7 @@ function readExecToolInput(
         return parsed as { command?: unknown; input?: unknown };
       }
     } catch {
-      // Not valid JSON: the caller's args cannot hold an exec command.
+      return null;
     }
   }
   return null;

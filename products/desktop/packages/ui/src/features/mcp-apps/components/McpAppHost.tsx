@@ -54,10 +54,7 @@ export function McpAppHost({
   const [iframeHeight, setIframeHeight] = useState(300);
   const [containerWidth, setContainerWidth] = useState(640);
   const [iframeEl, setIframeEl] = useState<HTMLIFrameElement | null>(null);
-  // Set when the server's URL or headers changed while this app was live.
-  // The iframe keeps rendering the old configuration's HTML, so its bridge
-  // must fail closed rather than call tools or read resources against the
-  // replacement server's credentials.
+  // Block an app that was loaded with an old server configuration.
   const [staleConfig, setStaleConfig] = useState(false);
   const isDarkMode = useThemeStore((s) => s.isDarkMode);
 

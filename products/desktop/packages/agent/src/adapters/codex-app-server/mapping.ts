@@ -416,7 +416,9 @@ function describeTool(item: AppServerItem): ToolDescriptor | null {
         // the schema-valid result an app receives. Stripping here keeps the nulls
         // out of stored transcripts and McpAppsService events, so a delivery path
         // that skips `toCallToolResult` cannot carry them either.
-        rawOutput: boundPersistedMcpResult(item.result),
+        ...(item.result != null
+          ? { rawOutput: boundPersistedMcpResult(item.result) }
+          : {}),
         mcp: { server: item.server ?? "mcp", tool: item.tool ?? "tool" },
       };
     case "dynamicToolCall":

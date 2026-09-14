@@ -104,16 +104,6 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     });
   }
 
-  /**
-   * Pi sessions don't go through AgentService, so nothing registers their
-   * MCP server configs with the MCP Apps service; without registration a
-   * UI-resource tool result fails with "No server config" and renders as
-   * text. Best-effort: on failure the session still starts.
-   *
-   * Discovery is fire-and-forget on purpose: `discoverServer` publishes its
-   * promise in `pendingDiscoveries` synchronously, so a resource fetch that
-   * arrives mid-discovery joins that in-flight promise.
-   */
   private registerMcpAppsServers(servers: McpServerConnection[]): void {
     this.mcpApps.addServerConfigs(
       servers.map((server) => ({

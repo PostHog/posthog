@@ -30,7 +30,6 @@ export function omitNullCallToolResultFields<T>(result: T): T {
   return stripped as T;
 }
 
-/** Largest serialized MCP tool result a host persists (transcript, rawOutput, cloud events). */
 export const MAX_PERSISTED_MCP_RESULT_BYTES = 1_000_000;
 
 const TRUNCATED_RESULT_MARKER =
@@ -41,12 +40,10 @@ function serializedLength(value: unknown): number {
   try {
     return JSON.stringify(value)?.length ?? 0;
   } catch {
-    // Unserializable values cannot be persisted either; treat as oversized.
     return Number.POSITIVE_INFINITY;
   }
 }
 
-/** The `_meta` keys that route a result to its UI app; dropped when even these are too large. */
 function uiRoutingMeta(
   meta: unknown,
   maxBytes: number,
@@ -62,13 +59,6 @@ function uiRoutingMeta(
   return serializedLength(routing) <= maxBytes ? routing : undefined;
 }
 
-/**
- * Bound a server-controlled MCP tool result before a host persists it: an
- * oversized payload must not grow the transcript and cloud storage without
- * limit. A result within the limit passes through unchanged; an oversized
- * one becomes a truncation marker plus the `_meta` routing keys, so a UI
- * app still renders.
- */
 export function boundPersistedMcpResult<T extends object>(
   result: T,
   maxBytes: number = MAX_PERSISTED_MCP_RESULT_BYTES,

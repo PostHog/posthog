@@ -97,8 +97,6 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
   private unavailableServers = new Set<string>();
   private pendingDiscoveries = new Map<string, Promise<void>>();
   private discoveryFailedAt = new Map<string, number>();
-  // Bumped when a server's registered URL or headers change; fetches started
-  // before the bump must not write their results into the caches after it.
   private serverConfigGenerations = new Map<string, number>();
   private readonly log: ScopedLogger;
 
@@ -168,13 +166,6 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     return this.serverConfigGenerations.get(serverName) ?? 0;
   }
 
-  /**
-   * Synchronously invalidate everything a server name served under its old
-   * URL or headers, then close the old connection in the background. Doing
-   * this at registration time — not lazily on the next connection — is what
-   * keeps a cached or already-rendered app from the old configuration talking
-   * to the replacement server with its project or account headers.
-   */
   private handleServerConfigChange(serverName: string): void {
     const hadState =
       this.connections.has(serverName) ||
@@ -455,10 +446,6 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     const existing = this.connections.get(serverName);
     if (existing) {
       const current = this.serverConfigs.get(serverName);
-      // Reuse would keep the old url/headers after a re-registration (a
-      // project switch rewrites X-PostHog-Project-Id). Registration already
-      // invalidates on change; this is the backstop for a config that changed
-      // without going through setServerConfigs/addServerConfigs.
       if (current && configMatches(current, existing.config)) {
         this.log.debug("Reusing existing MCP connection", { serverName });
         return existing;
@@ -580,9 +567,6 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     serverName: string,
     resourceUri: string,
   ): Promise<McpUiResource | null> {
-    // Registration-time invalidation normally evicts these first, but check
-    // before serving from cache: HTML fetched under the old URL/headers must
-    // never render against the replacement server.
     const currentConfig = this.serverConfigs.get(serverName);
     const existingConn = this.connections.get(serverName);
     if (
@@ -705,10 +689,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       serverName,
     };
 
-    // A failed warm-up with no known metadata may have produced a CSP-less
-    // copy; leave it uncached so a later fetch can attach the real CSP. And a
-    // config change mid-fetch makes this result old-configuration content:
-    // do not let it repopulate caches the invalidation just cleared.
+    // Cache only resources that have metadata and still match the active config.
     const cacheable =
       this.configGeneration(serverName) === startGeneration &&
       (warmed ||

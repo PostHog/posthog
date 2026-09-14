@@ -351,8 +351,6 @@ async function callOrConnect(
       server: owner,
       tool: meta.mcpName,
       piName: name,
-      // Same envelope the directly-registered tools write, so a host renders
-      // proxy-routed calls' UI apps the same way.
       posthog: mcpCallDetails(owner, meta.mcpName, {
         structuredContent,
         _meta,

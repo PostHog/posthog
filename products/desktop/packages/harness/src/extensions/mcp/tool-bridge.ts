@@ -214,21 +214,11 @@ export function truncateBridgedContent(
   });
 }
 
-/**
- * `tools/call` fields pi never surfaces to the model but a host UI needs:
- * a UI app rides its payload on `structuredContent` and `_meta`. Callers
- * put them on `details`, which stays out of the model context.
- */
 export interface McpResultMeta {
   structuredContent?: Record<string, unknown>;
   _meta?: Record<string, unknown>;
 }
 
-/**
- * The envelope on a tool result's `details` that lets a host classify an
- * MCP call and render its UI app. Both write sites and the host's read
- * side derive from this one declaration, so they cannot drift apart.
- */
 export interface McpCallDetails {
   posthog: {
     mcp: {
@@ -295,8 +285,6 @@ export async function invokeTool(
       throw new McpError(text || "Tool reported an error", serverName, "tool");
     }
 
-    // The fields reach the session transcript through `details`, so the
-    // server-controlled payload must be bounded at the source.
     const bounded = boundPersistedMcpResult({
       ...(result.structuredContent !== undefined && {
         structuredContent: result.structuredContent as Record<string, unknown>,

@@ -192,14 +192,6 @@ export interface McpAppsDiscoveryCompleteEvent {
   toolKeys: string[];
 }
 
-/**
- * Emitted when a server's registered URL or headers change under the same
- * name (a project switch rewrites X-PostHog-Project-Id). Cached UI resources
- * for the server are already evicted when this fires; hosts must tear down
- * any live app for the server rather than let its bridge invoke tools or read
- * resources against the new credentials. `configGeneration` distinguishes
- * repeat changes.
- */
 export interface McpAppsServerConfigChangedEvent {
   serverName: string;
   configGeneration: number;

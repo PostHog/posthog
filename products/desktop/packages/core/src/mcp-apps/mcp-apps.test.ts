@@ -125,7 +125,6 @@ describe("McpAppsService config resolver", () => {
     await internals(service).getOrCreateConnection("posthog");
     expect(firstClient.close).not.toHaveBeenCalled();
 
-    // Re-registering the same config must not tear down a working connection.
     await internals(service).getOrCreateConnection("posthog");
     expect(firstClient.close).not.toHaveBeenCalled();
 
@@ -133,8 +132,6 @@ describe("McpAppsService config resolver", () => {
     service.addServerConfigs([
       { ...config("posthog"), headers: { "X-PostHog-Project-Id": "2" } },
     ]);
-    // Registration already closed the old connection; the next
-    // getOrCreateConnection creates the replacement rather than reusing it.
     await vi.waitFor(() => {
       expect(firstClient.close).toHaveBeenCalled();
     });
@@ -559,9 +556,6 @@ describe("McpAppsService server config change", () => {
 
     service.addServerConfigs([changedConfig("posthog")]);
 
-    // The cache must already be gone: a fetch right after the config change
-    // misses and refetches through the new connection instead of serving
-    // HTML fetched under the old headers.
     await service.getUiResourceByUri("posthog", REVIEW_URI);
     expect(client.readResource).toHaveBeenCalledTimes(2);
     expect(client.close).toHaveBeenCalled();
@@ -606,7 +600,6 @@ describe("McpAppsService server config change", () => {
     const onConfigChanged = vi.fn();
     service.on(McpAppsServiceEvent.ServerConfigChanged, onConfigChanged);
 
-    // Never connected or cached anything: nothing to invalidate.
     service.addServerConfigs([changedConfig("posthog")]);
     expect(onConfigChanged).not.toHaveBeenCalled();
   });
@@ -619,7 +612,6 @@ describe("McpAppsService server config change", () => {
 
     service.addServerConfigs([changedConfig("posthog")]);
 
-    // The association map was cleared, so rediscovery re-lists tools.
     await expect(
       service.hasUiForTool("mcp__posthog__loops-review"),
     ).resolves.toBe(true);
@@ -648,15 +640,12 @@ describe("McpAppsService server config change", () => {
     connectClient(service, client);
 
     const pending = service.getUiResourceByUri("posthog", REVIEW_URI);
-    // Wait until the read is in flight under the old config, then switch.
     await readStarted;
     service.addServerConfigs([changedConfig("posthog")]);
     releaseRead?.();
     const resource = await pending;
     expect(resource?.html).toBe("<html>old config</html>");
 
-    // The old-config result must not have repopulated the cache: the next
-    // fetch reads through the new connection instead of serving stale HTML.
     client.readResource.mockImplementation(
       async ({ uri }: { uri: string }) => ({
         contents: [

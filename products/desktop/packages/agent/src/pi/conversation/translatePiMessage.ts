@@ -56,8 +56,6 @@ interface PiToolExecutionResult {
   details?: unknown;
 }
 
-// Derive from the harness's one declaration of this envelope
-// (tool-bridge.ts) so the read side cannot drift from the write side.
 const mcpResultMetaSchema: z.ZodType<McpResultMeta> = z.object({
   structuredContent: z.record(z.string(), z.unknown()).optional(),
   _meta: z.record(z.string(), z.unknown()).optional(),
