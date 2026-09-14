@@ -1659,15 +1659,15 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     class NetworkAccess(models.TextChoices):
         """What the scout's sandbox can reach over the network during a run.
 
-        `trusted` maps to the Tasks sandbox `TRUSTED` level (the platform's default
-        trusted-domain allowlist); `full` maps to `FULL` (unrestricted egress). Room is
-        deliberately left for a `custom` choice carrying a user-supplied domain allowlist
-        later — mirror the Tasks `SandboxEnvironment.NetworkAccessLevel` vocabulary when
-        adding it so the mapping in the runner stays one-to-one.
+        The vocabulary mirrors the Tasks `SandboxEnvironment.NetworkAccessLevel` one-to-one, so
+        the runner maps a value straight through to a sandbox level. `trusted` is the platform's
+        default trusted-domain allowlist, `full` is unrestricted egress, and `custom` is the
+        trusted allowlist plus the scout's own `allowed_domains`.
         """
 
         TRUSTED = "trusted", "Trusted domains only"
         FULL = "full", "Full"
+        CUSTOM = "custom", "Trusted domains plus a custom allowlist"
 
     # The `status` side of the `enabled` dual-write: a scout in one of these statuses is
     # scheduled by the coordinator. `pending_pause` still runs; the warning is not a pause.
@@ -1802,6 +1802,19 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         choices=NetworkAccess.choices,
         default=NetworkAccess.TRUSTED,
         db_default=NetworkAccess.TRUSTED,
+    )
+    # Extra hosts a `custom` scout may reach, on top of the trusted allowlist the mode keeps.
+    # Only read when `network_access` is `custom`, and kept when the mode changes so switching
+    # back restores the list a person already curated. Normalized and bounded at the API
+    # boundary by the same Tasks helper the sandbox environments API uses
+    # (`normalize_sandbox_allowed_domains`), so the two surfaces accept exactly the same shapes.
+    # Deliberately NOT excluded from activity logging, for the same reason as `network_access`:
+    # which hosts an unattended agent can reach is a security-relevant change.
+    allowed_domains = ArrayField(
+        models.CharField(max_length=255),
+        default=list,
+        db_default=[],
+        blank=True,
     )
     # Optional agent-model pin for this scout's runs, e.g. `claude-opus-4-5`. Null keeps the
     # normal resolution chain (the `scouts-model-selection` experiment gate, then the pipeline

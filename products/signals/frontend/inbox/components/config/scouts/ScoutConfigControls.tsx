@@ -16,6 +16,7 @@ import type {
 import { SignalScoutConfigNetworkAccessEnumApi } from 'products/signals/frontend/generated/api.schemas'
 import { MODELS } from 'products/tasks/frontend/modelCatalog.generated'
 
+import { scoutAllowedDomains } from '../../../utils/scoutAllowedDomains'
 import {
     dailyCronToTime,
     dayTimeToWeeklyCron,
@@ -33,6 +34,7 @@ import {
     timeToDailyCron,
     weeklyCronToDayTime,
 } from '../../../utils/scoutRunsWindow'
+import { ScoutAllowedDomainsEditor } from './ScoutAllowedDomainsEditor'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
 import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
@@ -103,6 +105,10 @@ export function ScoutConfigForm({
     // config stays the truth for them, including when a failed write rolls it back.
     const [customModePicked, setCustomModePicked] = useState(false)
     const scheduleMode = customModePicked ? SCOUT_CUSTOM_CRON_SCHEDULE_MODE : savedScheduleMode
+    // Same reason as `customModePicked` above: picking custom network access opens the domain editor
+    // before there is anything savable, so that one pick cannot live in the config.
+    const [customNetworkPicked, setCustomNetworkPicked] = useState(false)
+    const networkAccessMode = customNetworkPicked ? SignalScoutConfigNetworkAccessEnumApi.Custom : config.network_access
     const controlsDisabledReason = updating
         ? 'Saving scout settings'
         : config.enabled
@@ -228,14 +234,15 @@ export function ScoutConfigForm({
                     <span className="text-xs text-default">Network access</span>
                     <span className="text-[11.5px] text-muted">
                         What the scout can reach while it runs. Trusted domains cover PostHog, GitHub, and common
-                        package registries. Full access lets it reach any site.
+                        package registries. Custom adds your own domains on top. Full access lets it reach any site.
                     </span>
                 </div>
                 <LemonSelect
                     size="small"
-                    value={config.network_access}
+                    value={networkAccessMode}
                     options={[
                         { value: SignalScoutConfigNetworkAccessEnumApi.Trusted, label: 'Trusted domains' },
+                        { value: SignalScoutConfigNetworkAccessEnumApi.Custom, label: 'Trusted plus custom' },
                         { value: SignalScoutConfigNetworkAccessEnumApi.Full, label: 'Full access' },
                     ]}
                     // Editable while the scout is disabled, unlike the schedule controls: a newly
@@ -244,12 +251,23 @@ export function ScoutConfigForm({
                     disabledReason={updating ? 'Saving scout settings' : undefined}
                     className="w-44"
                     onChange={(value) => {
-                        if (value !== config.network_access) {
+                        // Custom mode is held here until the first domain arrives, because the API
+                        // rejects it with an empty list. Every other mode writes at once, so the
+                        // config stays the truth for them, including when a failed write rolls back.
+                        setCustomNetworkPicked(value === SignalScoutConfigNetworkAccessEnumApi.Custom)
+                        const savable =
+                            value !== SignalScoutConfigNetworkAccessEnumApi.Custom ||
+                            scoutAllowedDomains(config).length > 0
+                        if (savable && value !== config.network_access) {
                             onUpdate(config.id, { network_access: value })
                         }
                     }}
+                    aria-label={`${config.skill_name} network access`}
                 />
             </div>
+            {networkAccessMode === SignalScoutConfigNetworkAccessEnumApi.Custom ? (
+                <ScoutAllowedDomainsEditor config={config} onUpdate={onUpdate} updating={updating} />
+            ) : null}
             {featureFlags[FEATURE_FLAGS.SCOUTS_MODEL_CONFIG] ? (
                 <div className="flex items-center justify-between gap-4">
                     <div className="flex flex-col min-w-0">

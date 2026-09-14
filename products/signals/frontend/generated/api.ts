@@ -996,7 +996,7 @@ export const getSignalsScoutConfigCreateUrl = (projectId: string) => {
 }
 
 /**
- * Register the config for a skill immediately, without waiting for the coordinator to auto-register it — and the way to make a skill without the `signals-scout-` prefix a scout at all. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it. Registering puts the skill's body on the schedule as the scout's prompt, so this call needs `llm_skill:write` and editor access to skills on top of `signal_scout:write`, like creating a scout.
+ * Register the config for a skill immediately, without waiting for the coordinator to auto-register it — and the way to make a skill without the `signals-scout-` prefix a scout at all. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access` (with `allowed_domains` when it is `custom`), and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it. Registering puts the skill's body on the schedule as the scout's prompt, so this call needs `llm_skill:write` and editor access to skills on top of `signal_scout:write`, like creating a scout.
  * @summary Create a scout config
  */
 export const signalsScoutConfigCreate = async (
@@ -1017,7 +1017,7 @@ export const getSignalsScoutConfigUpdateUrl = (projectId: string, id: string) =>
 }
 
 /**
- * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, `emit` (dry-run) posture, `network_access` (trusted-domain allowlist vs full access for the scout's sandbox), or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, `emit` (dry-run) posture, `network_access` (the trusted-domain allowlist, that allowlist plus the scout's own `allowed_domains`, or full access for the scout's sandbox), or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
 export const signalsScoutConfigUpdate = async (

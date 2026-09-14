@@ -112,6 +112,7 @@ const CONFIG: SignalScoutConfigApi = {
     status_changed_at: null,
     auto_pause_exempt: false,
     network_access: 'trusted',
+    allowed_domains: [],
     model: null,
     source_product: null,
     source_id: null,

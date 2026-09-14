@@ -369,6 +369,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "pause_reason": "pause reason",
         "auto_pause_exempt": "never pause for inactivity",
         "write_scopes": "write access",
+        "allowed_domains": "allowed domains",
     },
     # Match the labels the inbox settings show, so an entry reads the way the setting was flipped.
     "SignalTeamConfig": {

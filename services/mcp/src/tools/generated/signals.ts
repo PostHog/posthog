@@ -629,6 +629,9 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.network_access !== undefined) {
             body['network_access'] = params.network_access
         }
+        if (params.allowed_domains !== undefined) {
+            body['allowed_domains'] = params.allowed_domains
+        }
         if (params.auto_pause_exempt !== undefined) {
             body['auto_pause_exempt'] = params.auto_pause_exempt
         }
@@ -751,6 +754,9 @@ const scoutConfigUpdate = (): ToolBase<
         }
         if (params.network_access !== undefined) {
             body['network_access'] = params.network_access
+        }
+        if (params.allowed_domains !== undefined) {
+            body['allowed_domains'] = params.allowed_domains
         }
         if (params.model !== undefined) {
             body['model'] = params.model
@@ -1427,6 +1433,9 @@ const signalsScoutConfigCreate = (): ToolBase<
         if (params.network_access !== undefined) {
             body['network_access'] = params.network_access
         }
+        if (params.allowed_domains !== undefined) {
+            body['allowed_domains'] = params.allowed_domains
+        }
         if (params.auto_pause_exempt !== undefined) {
             body['auto_pause_exempt'] = params.auto_pause_exempt
         }
@@ -1549,6 +1558,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.network_access !== undefined) {
             body['network_access'] = params.network_access
+        }
+        if (params.allowed_domains !== undefined) {
+            body['allowed_domains'] = params.allowed_domains
         }
         if (params.model !== undefined) {
             body['model'] = params.model

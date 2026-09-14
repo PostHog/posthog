@@ -28,6 +28,7 @@ function makeConfig(overrides: Partial<SignalScoutConfig> = {}): SignalScoutConf
         output_destinations: {},
         structured_output_schema: null,
         network_access: 'trusted',
+        allowed_domains: [],
         model: null,
         last_run_at: '2026-06-27T21:30:00Z',
         consecutive_failure_count: 0,
