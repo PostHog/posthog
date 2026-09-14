@@ -23,7 +23,7 @@ CacheKey = tuple[tuple[Any, ...], frozenset[tuple[Any, Any]]]
 MAX_REFRESH_BACKOFF = timedelta(minutes=1)
 
 
-@dataclass()
+@dataclass(frozen=False)
 class CachedFunction(Generic[P, R]):
     _fn: Callable[P, R]
     _cache_time: timedelta
@@ -51,14 +51,16 @@ class CachedFunction(Generic[P, R]):
             try:
                 value = self._fn(*args, **kwargs)
                 self._cache[key] = (now(), value)
-                self._refreshing[key] = None
                 self._refresh_failed_at.pop(key, None)
-            except Exception:
                 self._refreshing[key] = None
+            except Exception:
                 if not in_background:
+                    self._refreshing[key] = None
                     raise
                 # The caller already has the previously cached value, so there is nobody to raise to.
+                # Record the failure before the slot is free, so a concurrent call sees the backoff.
                 self._refresh_failed_at[key] = now()
+                self._refreshing[key] = None
                 logger.exception("cache_for_background_refresh_failed", fn=getattr(self._fn, "__qualname__", None))
 
         if key not in self._cache:
