@@ -62,10 +62,11 @@ def mark_pr_ready(input: MarkPrReadyInput) -> bool:
             )
             raw = github.get_pull_request_babysit_snapshot(input.snapshot.pr_url)
             current = PRSnapshot.from_raw(raw, input.snapshot.pr_url)
+            expected_branch = run.branch or context.branch or input.snapshot.head_ref
             if (
                 not raw.get("success")
-                or not run.branch
-                or raw.get("head_ref") != run.branch
+                or not expected_branch
+                or current.head_ref != expected_branch
                 or current != input.snapshot
                 or not current.can_mark_ready
             ):

@@ -53,6 +53,7 @@ class PRSnapshot:
     mergeable: bool = False
     review_decision: str | None = None
     feedback_complete: bool = False
+    head_ref: str = ""
 
     @property
     def can_mark_ready(self) -> bool:
@@ -84,6 +85,7 @@ class PRSnapshot:
             mergeable=raw.get("mergeable") is True,
             review_decision=raw.get("review_decision"),
             feedback_complete=raw.get("feedback_complete") is True,
+            head_ref=raw.get("head_ref") or "",
             failing_checks=[
                 FailingCheck(key=check["key"], details_url=check.get("details_url"))
                 for check in raw.get("failing_checks") or []
