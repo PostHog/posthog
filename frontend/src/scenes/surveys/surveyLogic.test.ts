@@ -245,6 +245,8 @@ describe('translation validation', () => {
         ['a registered app scheme with only a fragment marker', 'example-mobile://#', true],
         ['a registered app scheme deep link', 'example-mobile://home', false],
         ['a registered app scheme with only a fragment', 'example-mobile://#promo', false],
+        ['a registered app scheme with a malformed authority', 'example-mobile://[', true],
+        ['a registered app scheme with a bracket in the path', 'example-mobile://home/a[b', false],
         ['an https link', 'https://posthog.com/docs', false],
     ]
 
@@ -273,6 +275,31 @@ describe('translation validation', () => {
             })
         }
     )
+
+    it('revalidates a link when the project registers its scheme', async () => {
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, survey_config: {} })
+        const survey = createSurveyWithLinkQuestion({ link: 'example-mobile://home' })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({
+            translationValidationErrors: [
+                {
+                    language: 'default',
+                    questionIndex: 0,
+                    field: 'link',
+                    error: 'Must start with https://, mailto:, or an app scheme this project allows',
+                },
+            ],
+        })
+
+        await expectLogic(logic, () => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                survey_config: { allowed_link_schemes: ['example-mobile'] },
+            })
+        }).toMatchValues({ translationValidationErrors: [] })
+    })
 
     it('does not validate survey root description translations', async () => {
         const survey = {

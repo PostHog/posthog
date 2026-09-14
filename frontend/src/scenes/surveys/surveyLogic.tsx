@@ -298,28 +298,34 @@ const APP_LINK_SCHEME_PREFIX_RE = /^([a-z][a-z0-9+.-]*):(\/\/)?/i
 
 // The setting is free-form JSON, so a stored non-list or non-string entry has to be inert here,
 // the way resolve_allowed_link_schemes drops it on the API side.
-const registeredLinkSchemes = (): string[] => {
-    const registered = teamLogic.values.currentTeam?.survey_config?.allowed_link_schemes
+const registeredLinkSchemes = (currentTeam: TeamPublicType | TeamType | null): string[] => {
+    const registered = currentTeam?.survey_config?.allowed_link_schemes
     return Array.isArray(registered)
         ? registered.filter((scheme) => typeof scheme === 'string').map((scheme) => scheme.toLowerCase())
         : []
 }
 
-const isAppSchemeLink = (link: string): boolean => {
+const isAppSchemeLink = (link: string, registered: string[]): boolean => {
     const scheme = link.match(APP_LINK_SCHEME_PREFIX_RE)
     if (!scheme || NEVER_VALID_LINK_SCHEME_RE.test(link)) {
         return false
     }
+    const rest = link.slice(scheme[0].length)
     // An app scheme addresses a screen, so "myapp://", "myapp:   " and "myapp://?" all open the
     // app at nothing. The query and fragment markers are delimiters, not a destination.
-    if (link.slice(scheme[0].length).replace(/[?#]/g, '').trim() === '') {
+    if (rest.replace(/[?#]/g, '').trim() === '') {
         return false
     }
-    return registeredLinkSchemes().includes(scheme[1].toLowerCase())
+    // The API's URL parser rejects a square bracket in the authority unless the whole authority is
+    // an IPv6 literal, which a deep link never is, so a bracket here means the save returns a 400.
+    if (scheme[2] && /[[\]]/.test(rest.split(/[/?#]/)[0])) {
+        return false
+    }
+    return registered.includes(scheme[1].toLowerCase())
 }
 
-const isSupportedSurveyLink = (link: string): boolean =>
-    link.startsWith('https://') || link.startsWith('mailto:') || isAppSchemeLink(link)
+const isSupportedSurveyLink = (link: string, registered: string[]): boolean =>
+    link.startsWith('https://') || link.startsWith('mailto:') || isAppSchemeLink(link, registered)
 
 const isRatingSurveyQuestion = (question: SurveyQuestion): question is RatingSurveyQuestion =>
     question.type === SurveyQuestionType.Rating
@@ -1494,7 +1500,10 @@ export interface surveyLogicMeta {
         ) => (questionIndex: number, question: MultipleSurveyQuestion | RatingSurveyQuestion, response: any) => any
         hasCycle: (survey: NewSurvey | Survey) => false
         hasBranchingLogic: (survey: NewSurvey | Survey) => boolean
-        translationValidationErrors: (survey: NewSurvey | Survey) => TranslationValidationError[]
+        translationValidationErrors: (
+            survey: NewSurvey | Survey,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => TranslationValidationError[]
         hasTranslationValidationErrors: (translationValidationErrors: TranslationValidationError[]) => boolean
         translationErrorsByQuestion: (
             translationValidationErrors: TranslationValidationError[],
@@ -3315,8 +3324,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 survey.questions.some((question) => question.branching && Object.keys(question.branching).length > 0),
         ],
         translationValidationErrors: [
-            (s) => [s.survey],
-            (survey: NewSurvey | Survey): TranslationValidationError[] => {
+            (s) => [s.survey, s.currentTeam],
+            (
+                survey: NewSurvey | Survey,
+                currentTeam: TeamPublicType | TeamType | null
+            ): TranslationValidationError[] => {
+                const registeredSchemes = registeredLinkSchemes(currentTeam)
                 const errors: TranslationValidationError[] = []
                 const surveyLevelFieldChecks: TranslationFieldCheck<SurveyTranslationField>[] = [
                     { key: 'name', defaultValue: survey.name },
@@ -3537,7 +3550,10 @@ export const surveyLogic = kea<surveyLogicType>([
                                         field: 'link',
                                         error: 'Cannot be empty',
                                     })
-                                } else if (trimmedLink !== '' && !isSupportedSurveyLink(trimmedLink)) {
+                                } else if (
+                                    trimmedLink !== '' &&
+                                    !isSupportedSurveyLink(trimmedLink, registeredSchemes)
+                                ) {
                                     errors.push({
                                         language: lang,
                                         questionIndex: qIndex,
@@ -3575,7 +3591,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 // Also validate default question links
                 survey.questions.forEach((question, qIndex) => {
                     const link = isLinkSurveyQuestion(question) && question.link ? question.link.trim() : ''
-                    if (link && !isSupportedSurveyLink(link)) {
+                    if (link && !isSupportedSurveyLink(link, registeredSchemes)) {
                         errors.push({
                             language: 'default',
                             questionIndex: qIndex,
@@ -3880,7 +3896,7 @@ export const surveyLogic = kea<surveyLogicType>([
                                             link: 'Please enter a valid mailto link (e.g., mailto:example@domain.com).',
                                         }
                                     }
-                                } else if (!isAppSchemeLink(question.link)) {
+                                } else if (!isAppSchemeLink(question.link, registeredLinkSchemes(values.currentTeam))) {
                                     try {
                                         const url = new URL(question.link)
                                         if (url.protocol !== 'https:') {
