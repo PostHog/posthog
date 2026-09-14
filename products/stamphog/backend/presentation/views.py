@@ -283,9 +283,10 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         if slug:
             install_url = f"https://github.com/apps/{slug}/installations/new?state={quote(state)}"
         if client_id:
-            # Authorize-first: an already-installed user gets a silent instant redirect back with an OAuth
-            # code but no installation_id, so the connect button never dead-ends on GitHub's "update
-            # installation" screen. Discovery then finds the installations from the code, server-side.
+            # The connect button opens install_url, so the user can choose repositories on GitHub. GitHub's
+            # redirect after "Configure" on an existing installation carries no OAuth code, so the frontend
+            # sends the browser through authorize_url once: an installed App redirects back at once with a
+            # code, and the sync proves ownership from it.
             authorize_url = (
                 f"https://github.com/login/oauth/authorize?client_id={quote(client_id)}&state={quote(state)}"
             )
