@@ -98,6 +98,18 @@ ISSUE_EVENTS_COLUMNS: dict[str, dict[str, str]] = {
     "created_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
 
+# Contract for the ``github_reviews`` warehouse source: one row per submitted review, fanned out
+# over pull requests with the parent's number injected as ``pr_number``. ``user`` is the reviewer
+# object verbatim as JSON. Same Nullable/string discipline as above.
+REVIEWS_COLUMNS: dict[str, dict[str, str]] = {
+    "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "pr_number": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "user": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "state": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "commit_id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "submitted_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}
+
 # Contract for the ``github_team_members`` warehouse source (org team membership). Member rows
 # are GitHub user objects with the parent team's identity injected by the source fan-out
 # (``team_id`` / ``team_slug`` / ``team_name``); ``login`` + ``team_slug`` are the join keys the

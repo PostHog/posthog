@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AuthorPullRequestTimelinesApi,
+    AuthorSummaryApi,
     BranchPRMatchApi,
     BrokenTestsResultApi,
     CICardSummaryApi,
@@ -17,6 +19,8 @@ import type {
     CISignalsConfigUpdateApi,
     CurrentBranchHealthApi,
     DoraOverviewApi,
+    EngineeringAnalyticsAuthorPullRequestTimelinesParams,
+    EngineeringAnalyticsAuthorSummaryParams,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsBrokenTestsParams,
     EngineeringAnalyticsCiCardsParams,
@@ -68,6 +72,75 @@ import type {
     WorkflowRunDetailApi,
     WorkflowRunnerCostApi,
 } from './api.schemas'
+
+export const getEngineeringAnalyticsAuthorPullRequestTimelinesUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorPullRequestTimelinesParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/author_pull_request_timelines/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/author_pull_request_timelines/`
+}
+
+/**
+ * One author's open pull requests plus those merged in the window (date_from default -30d), each as a timeline of what it waited on from ready for review to merge or now: review, CI, red checks by what turned them green, and the merge queue.
+ */
+export const engineeringAnalyticsAuthorPullRequestTimelines = async (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorPullRequestTimelinesParams,
+    options?: RequestInit
+): Promise<AuthorPullRequestTimelinesApi> => {
+    return apiMutator<AuthorPullRequestTimelinesApi>(
+        getEngineeringAnalyticsAuthorPullRequestTimelinesUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getEngineeringAnalyticsAuthorSummaryUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorSummaryParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/author_summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/author_summary/`
+}
+
+/**
+ * One author's delivery and CI friction over a window (date_from default -30d), each figure next to the same figure over the whole repository: CI spend per merged PR, ready to merged split at the first approval, pushes after approval, merge-queue attempts, and lead time to deploy. Bots and drafts are excluded. Figures whose optional source isn't synced are null and flagged.
+ */
+export const engineeringAnalyticsAuthorSummary = async (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorSummaryParams,
+    options?: RequestInit
+): Promise<AuthorSummaryApi> => {
+    return apiMutator<AuthorSummaryApi>(getEngineeringAnalyticsAuthorSummaryUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getEngineeringAnalyticsAuthorWorkflowCostsUrl = (
     projectId: string,

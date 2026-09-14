@@ -8,9 +8,10 @@ UI grammar for every scene in this product. `frontend/src/AGENTS.md` and the rep
 - Current-state content (a backlog, a "now" signal list) sits outside the panel and must not refetch when a picker changes. If a section does not move with the picker, it does not belong inside the border, and the reverse.
 - Navigation (repo chip and crumbs via `ScopeBar`, `showDate={false}` when the page has its own picker) sits above the panel; it scopes identity, not time.
 
-## One comparison vocabulary
+## One comparison vocabulary per question
 
 - Window-vs-window comparison renders as `WindowComparisonCard` ("This window / Previous window" bars plus a `DeltaBadge`). Nothing else: no invented forms (a muted "was N" companion value was tried and removed), no `MetricTile` delta pills for windowed metrics.
+- Author-vs-repository comparison, on the author page only, renders as `AuthorComparisonCard` ("This author / Repo" bars on one scale). The question there is "is my friction unusual here", which a previous window can't answer. It never compares authors with each other.
 - Table cells hold plain current values via `CountCell` (`components/CountCell.tsx`). Comparison never lives in a table cell.
 
 ## Information altitude

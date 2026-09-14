@@ -1566,3 +1566,165 @@ class PathOwnership:
     team_by_path: Mapping[str, str]
     registry: Mapping[str, TeamEntry]
     resolved: bool
+
+
+@dataclass(frozen=True)
+class AuthorRepoFigure:
+    """One figure measured twice over the same window: over the author's pull requests, and over
+    every non-bot pull request in the repository (the author included). None means the population
+    had nothing to measure, never zero."""
+
+    author: float | None
+    repo: float | None
+
+
+@dataclass(frozen=True)
+class DurationDistribution:
+    """The box-plot summary of one per-PR duration, in seconds, over ``pr_count`` pull requests.
+    Every statistic is None when ``pr_count`` is 0."""
+
+    pr_count: int
+    min_seconds: float | None
+    p05_seconds: float | None
+    p25_seconds: float | None
+    p50_seconds: float | None
+    mean_seconds: float | None
+    p75_seconds: float | None
+    p95_seconds: float | None
+    max_seconds: float | None
+
+
+@dataclass(frozen=True)
+class AuthorRepoDistribution:
+    author: DurationDistribution
+    repo: DurationDistribution
+
+
+@dataclass(frozen=True)
+class AuthorLeadTime:
+    """Lead time to deploy for one author against the repository, over the DORA deployed-PR
+    population (bots and drafts excluded, containment resolved through the deploy's head commit).
+
+    The distributions cover PRs whose first containing deploy succeeded in the window, so the
+    three stages compose. The coverage pair counts PRs merged in the window instead:
+    ``deployed_merged_pr_count`` of ``merged_pr_count`` reached a deploy. Deploy failure share and
+    recovery are per deploy and one deploy ships many PRs, so they are not attributable to an
+    author and are not part of this type.
+    """
+
+    deploy_data_available: bool
+    # The environment names the lead time was scoped to (production by default).
+    environment_scope: str
+    merged_pr_count: int
+    deployed_merged_pr_count: int
+    open_to_deploy: AuthorRepoDistribution
+    open_to_merge: AuthorRepoDistribution
+    merge_to_deploy: AuthorRepoDistribution
+
+
+@dataclass(frozen=True)
+class AuthorSummary:
+    """Delivery and CI friction for one author's pull requests, each figure against the repository.
+
+    Populations: PRs merged in the window, bots and drafts excluded, unless a field says otherwise.
+    Medians are per merged PR. The ``*_available`` flags say which optional source backs a figure;
+    a figure whose source is missing is None rather than a fake zero.
+    """
+
+    author: str
+    # The optional sources behind the figures.
+    jobs_available: bool
+    review_data_available: bool
+    ready_data_available: bool
+    # Plain author counts: no repo figure, because comparing volume ranks people.
+    opened_pr_count: int
+    merged_pr_count: int
+    open_pr_count: int
+    draft_pr_count: int
+    # CI spend. Cost includes merge-queue gate runs, which the PR's landing paid for.
+    cost_per_merged_pr_usd: AuthorRepoFigure
+    billable_minutes_per_merged_pr: AuthorRepoFigure
+    cost_per_push_usd: AuthorRepoFigure
+    total_cost_usd: float | None
+    total_billable_minutes: float | None
+    push_count: int
+    # Getting merged.
+    median_ready_to_merge_seconds: AuthorRepoFigure
+    p90_ready_to_merge_seconds: AuthorRepoFigure
+    median_ready_to_first_approval_seconds: AuthorRepoFigure
+    median_first_approval_to_merge_seconds: AuthorRepoFigure
+    before_first_approval_share: AuthorRepoFigure
+    pushes_after_approval_per_merged_pr: AuthorRepoFigure
+    merge_queue_attempts_per_merged_pr: AuthorRepoFigure
+    failed_merge_queue_share: AuthorRepoFigure
+    lead_time: AuthorLeadTime
+
+
+class PRTimelineSegmentKind(StrEnum):
+    """What a pull request was waiting on during one stretch of its timeline, most specific first.
+
+    CI and queue states win over review states: a red check blocks a merge whatever the review
+    says. The red variants name what turned the check green, which is evidence about the cause,
+    not proof of it.
+    """
+
+    DRAFT = "draft"
+    WAITING_FOR_REVIEW = "waiting_for_review"
+    CHANGES_REQUESTED = "changes_requested"
+    APPROVED_NOT_ENQUEUED = "approved_not_enqueued"
+    # Review state without review data: the stretch is neither CI nor the queue, but who it waits on
+    # is unknown.
+    REVIEW_STATE_UNKNOWN = "review_state_unknown"
+    CI_RUNNING = "ci_running"
+    RED_PASSED_ON_RERUN = "red_passed_on_rerun"
+    RED_MASTER_BROKEN = "red_master_broken"
+    RED_FIXED_BY_PUSH = "red_fixed_by_push"
+    RED_NOT_PROVABLE = "red_not_provable"
+    MERGE_QUEUE = "merge_queue"
+    OUT_OF_MERGE_QUEUE = "out_of_merge_queue"
+
+
+@dataclass(frozen=True)
+class PRTimelineSegment:
+    kind: PRTimelineSegmentKind
+    started_at: datetime
+    ended_at: datetime
+
+
+@dataclass(frozen=True)
+class PRTimeline:
+    """One pull request's delivery timeline, from the moment it was ready for review (or opened,
+    for a draft) to its merge or to now, as consecutive segments with no gaps."""
+
+    number: int
+    title: str
+    repo: RepoRef
+    state: PRState
+    is_draft: bool
+    created_at: datetime
+    # Where the segments start: the last ready_for_review before the end, else created_at.
+    started_at: datetime
+    merged_at: datetime | None
+    # Distinct head commits that triggered CI, merge-queue gate runs excluded.
+    pushes: int
+    estimated_cost_usd: float | None
+    billable_minutes: float | None
+    segments: list[PRTimelineSegment]
+
+
+@dataclass(frozen=True)
+class AuthorPullRequestTimelines:
+    """One author's pull requests on a shared clock: every PR still open, plus every PR merged in
+    the window. Closed-unmerged PRs are not listed. Capped at ``limit`` with ``truncated``."""
+
+    # The author's GitHub avatar from their newest listed PR; empty when nothing is listed.
+    author_avatar_url: str
+    review_data_available: bool
+    jobs_available: bool
+    # True when the Trunk merge-queue table is synced, so an open PR out of the queue is visible.
+    merge_queue_state_available: bool
+    # The "now" every open PR's last segment ends at.
+    generated_at: datetime
+    items: list[PRTimeline]
+    truncated: bool
+    limit: int

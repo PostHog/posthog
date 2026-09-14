@@ -238,6 +238,44 @@ def query_pr_list_costs(
     }
 
 
+# Per-PR billable cost for a population that can be repo-wide (every PR merged in a window), so unlike
+# _LIST_COST_SELECT it carries a floor: runs started before ``run_from`` are left out, which trims the
+# jobs scan for a population of thousands of PRs.
+_FLOORED_PR_COST_SELECT = """
+    SELECT c.pr_number AS pr_number, __COST_AGGREGATES__
+    FROM __COST_SOURCE__ AS c
+    WHERE c.pr_number IN {pr_numbers} AND c.run_started_at >= {run_from}
+    GROUP BY c.pr_number
+    LIMIT 1000000
+"""
+
+
+def query_pr_costs_since(
+    *, curated: CuratedGitHubSource, pr_numbers: list[int], run_from: datetime
+) -> dict[int, PRCostAggregate]:
+    """Per-PR billable cost from the runs started at or after ``run_from``, keyed by PR number.
+
+    Empty when the jobs source isn't synced or no PR numbers are given. Keyed by number alone
+    because a resolved source is one repository's tables.
+    """
+    cost_source = curated.job_cost_source(created_floor=True)
+    if cost_source is None or not pr_numbers:
+        return {}
+    sql = _FLOORED_PR_COST_SELECT.replace("__COST_SOURCE__", cost_source).replace(
+        "__COST_AGGREGATES__", _cost_aggregates()
+    )
+    response = curated.run(
+        sql,
+        query_type="engineering_analytics.pr_costs_since",
+        placeholders={
+            "pr_numbers": ast.Constant(value=pr_numbers),
+            "run_from": ast.Constant(value=run_from),
+            "job_created_floor": run_windowed_job_created_floor_constant(run_from),
+        },
+    )
+    return {int(pr_number): _aggregate(*agg) for pr_number, *agg in response.results or []}
+
+
 # Per-workflow billable cost over a window (Workflows tab), grouped and costed in SQL and keyed by
 # workflow_name. Windowed and optionally branch/run-scope filtered on the run's attributes (the cost
 # source carries run_started_at and run_head_branch alongside the per-job cost columns).

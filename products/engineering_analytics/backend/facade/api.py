@@ -25,6 +25,8 @@ from posthog.models.team import Team
 
 from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
+    AuthorPullRequestTimelines,
+    AuthorSummary,
     BranchPRMatch,
     BrokenTestsResult,
     CICardSummary,
@@ -268,6 +270,42 @@ def list_author_workflow_costs(
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowCost]:
     return logic.build_author_workflow_costs(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        author=author,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def get_author_summary(
+    *,
+    team: Team,
+    author: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> AuthorSummary:
+    return logic.build_author_summary(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        author=author,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def get_author_timelines(
+    *,
+    team: Team,
+    author: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> AuthorPullRequestTimelines:
+    return logic.build_author_timelines(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         author=author,
         date_from=date_from,

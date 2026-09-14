@@ -1,0 +1,400 @@
+"""Curated query: one author's pull requests as delivery timelines.
+
+Fetches the immutable evidence for the author's open PRs and the PRs merged in the window, then
+replays each PR's states with ``logic.pr_timeline``. Every read is scoped to the listed PR
+numbers, so the scans track one author's work rather than the repository's history.
+
+Run attempts come from the jobs table when it is synced: the runs snapshot keeps only a run's
+newest attempt, so a failed first attempt that a re-run turned green is invisible without it.
+Without jobs, each run contributes its newest attempt only and a flake reads as never red.
+"""
+
+from collections import defaultdict
+from datetime import UTC, datetime, timedelta
+
+from posthog.hogql import ast
+
+from products.engineering_analytics.backend.facade.contracts import (
+    AuthorPullRequestTimelines,
+    PRState,
+    PRTimeline,
+    RepoRef,
+)
+from products.engineering_analytics.backend.logic.merge_queue import gate_attempt_expr
+from products.engineering_analytics.backend.logic.pr_timeline import (
+    GateAttempt,
+    MasterFailureIndex,
+    PRTimelineBuilder,
+    PRTimelineInput,
+    ReviewVerdict,
+    RunAttempt,
+)
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    DECISIVE_FAILURE_CONCLUSIONS,
+    DECISIVE_FAILURE_CONCLUSIONS_SQL,
+    run_started_floor_constant,
+    run_windowed_job_created_floor_constant,
+)
+from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_list_costs
+from products.engineering_analytics.backend.logic.views import issue_events
+
+_LIMIT = 200
+
+# Trunk states that mean the entry left the queue without landing.
+_OUT_OF_QUEUE_STATES = frozenset({"failed", "cancelled"})
+
+_PRS_SELECT = f"""
+    SELECT
+        pr.number, pr.title, pr.repo_owner, pr.repo_name, pr.state, pr.is_draft,
+        pr.created_at, pr.merged_at, pr.default_branch, pr.author_avatar_url
+    FROM __PR_SOURCE__ AS pr
+    WHERE pr.author_handle = {{author}}
+        AND (pr.state = 'open' OR (pr.merged_at >= {{date_from}} __DATE_TO__))
+    ORDER BY pr.created_at DESC
+    LIMIT {_LIMIT + 1}
+"""
+
+_TRANSITIONS_SELECT = """
+    SELECT pr_number, event, created_at
+    FROM __EVENTS_SOURCE__ AS se
+    WHERE pr_number IN {pr_numbers}
+    ORDER BY created_at ASC, id ASC
+    LIMIT 100000
+"""
+
+_REVIEWS_SELECT = """
+    SELECT pr_number, state, submitted_at
+    FROM __REVIEWS_SOURCE__ AS rv
+    WHERE pr_number IN {pr_numbers}
+    LIMIT 100000
+"""
+
+_RUNS_SELECT = """
+    SELECT
+        id, pr_number, workflow_name, head_sha, status, conclusion,
+        run_started_at, updated_at, run_attempt, is_merge_queue,
+        __GATE_ATTEMPT__ AS gate_attempt
+    FROM __RUNS_SOURCE__ AS r
+    WHERE pr_number IN {pr_numbers} AND run_started_at >= {run_from}
+    LIMIT 1000000
+"""
+
+# One row per run attempt. Re-run copies are GitHub's re-listing of jobs that never ran again, so
+# they would stretch an attempt back to the previous attempt's start.
+_JOB_ATTEMPTS_SELECT = f"""
+    SELECT
+        run_id,
+        run_attempt,
+        min(started_at) AS started_at,
+        max(completed_at) AS completed_at,
+        countIf(status != 'completed') AS unfinished,
+        groupArrayIf(name, conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) AS failed_jobs
+    FROM __JOBS_SOURCE__ AS j
+    WHERE run_id IN {{run_ids}} AND NOT is_rerun_copy
+    GROUP BY run_id, run_attempt
+    LIMIT 1000000
+"""
+
+_MASTER_FAILURES_SELECT = f"""
+    SELECT j.workflow_name, j.name, j.completed_at
+    FROM __JOBS_SOURCE__ AS j
+    INNER JOIN __RUNS_SOURCE__ AS r ON r.id = j.run_id
+    WHERE r.head_branch = {{default_branch}}
+        AND NOT r.is_merge_queue
+        AND r.run_started_at >= {{run_from}}
+        AND j.conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
+        AND j.completed_at IS NOT NULL
+        AND j.name IN {{job_names}}
+    LIMIT 200000
+"""
+
+_TRUNK_STATE_SELECT = """
+    SELECT pr_number, argMax(state, state_changed_at) AS state
+    FROM __TRUNK_SOURCE__ AS tq
+    WHERE pr_number IN {pr_numbers}
+    GROUP BY pr_number
+"""
+
+
+class AuthorTimelinesQuery:
+    """Collects the evidence for one author's listed PRs and replays each into a timeline."""
+
+    def __init__(
+        self, curated: CuratedGitHubSource, *, author: str, date_from: datetime, date_to: datetime | None
+    ) -> None:
+        self._curated = curated
+        self._author = author
+        self._date_from = date_from
+        self._date_to = date_to
+        self._now = datetime.now(tz=UTC)
+
+    def run(self) -> AuthorPullRequestTimelines:
+        prs = self._query_prs()
+        truncated = len(prs) > _LIMIT
+        prs = prs[:_LIMIT]
+        jobs_available = self._curated.jobs_source() is not None
+        reviews_available = self._curated.reviews_source() is not None
+        trunk_available = self._curated.trunk_merge_queue_source() is not None
+        if not prs:
+            return AuthorPullRequestTimelines(
+                author_avatar_url="",
+                review_data_available=reviews_available,
+                jobs_available=jobs_available,
+                merge_queue_state_available=trunk_available,
+                generated_at=self._now,
+                items=[],
+                truncated=False,
+                limit=_LIMIT,
+            )
+
+        pr_numbers = sorted({int(row[0]) for row in prs})
+        # A day of slack below the oldest listed PR keeps its first CI run inside the scan.
+        run_from = min(row[6] for row in prs) - timedelta(days=1)
+        ready_at = self._query_ready_at(pr_numbers)
+        reviews = self._query_reviews(pr_numbers) if reviews_available else None
+        attempts, gates = self._query_attempts(pr_numbers, run_from)
+        default_branch = next((row[8] for row in prs if row[8]), "")
+        master_failures = self._query_master_failures(attempts, default_branch, run_from)
+        out_of_queue = self._query_out_of_queue(pr_numbers) if trunk_available else set()
+        costs = query_pr_list_costs(curated=self._curated, pr_numbers=pr_numbers)
+
+        items = []
+        for number, title, repo_owner, repo_name, state, is_draft, created_at, merged_at, _branch, _avatar in prs:
+            number = int(number)
+            ended_at = merged_at or self._now
+            is_open = merged_at is None
+            started_at = (
+                created_at if is_open and is_draft else self._started_at(ready_at.get(number, []), created_at, ended_at)
+            )
+            pr_attempts = [attempt for attempt in attempts.get(number, []) if attempt.started_at <= ended_at]
+            builder = PRTimelineBuilder(
+                PRTimelineInput(
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    is_open=is_open,
+                    is_draft=bool(is_draft) and is_open,
+                    attempts=pr_attempts,
+                    gate_attempts=[gate for gate in gates.get(number, []) if gate.started_at <= ended_at],
+                    reviews=reviews.get(number, []) if reviews is not None else None,
+                    trunk_out_of_queue=number in out_of_queue,
+                ),
+                master_failures,
+            )
+            cost = costs.get((repo_owner, repo_name, number))
+            items.append(
+                PRTimeline(
+                    number=number,
+                    title=title or "",
+                    repo=RepoRef(provider="github", owner=repo_owner, name=repo_name),
+                    state=PRState(state),
+                    is_draft=bool(is_draft),
+                    created_at=created_at,
+                    started_at=started_at,
+                    merged_at=merged_at,
+                    pushes=len({attempt.head_sha for attempt in pr_attempts}),
+                    estimated_cost_usd=cost.estimated_cost_usd if cost else None,
+                    billable_minutes=cost.billable_seconds / 60 if cost else None,
+                    segments=builder.build(),
+                )
+            )
+        return AuthorPullRequestTimelines(
+            author_avatar_url=str(prs[0][9] or ""),
+            review_data_available=reviews_available,
+            jobs_available=jobs_available,
+            merge_queue_state_available=trunk_available,
+            generated_at=self._now,
+            items=items,
+            truncated=truncated,
+            limit=_LIMIT,
+        )
+
+    @staticmethod
+    def _started_at(ready_events: list[datetime], created_at: datetime, ended_at: datetime) -> datetime:
+        """The last ready_for_review before the end, else created_at (never drafted, or unsynced)."""
+        before_end = [at for at in ready_events if created_at <= at <= ended_at]
+        return max(before_end) if before_end else created_at
+
+    def _query_prs(self) -> list[tuple]:
+        placeholders: dict[str, ast.Expr] = {
+            "author": ast.Constant(value=self._author),
+            "date_from": ast.Constant(value=self._date_from),
+        }
+        date_to_clause = ""
+        if self._date_to is not None:
+            placeholders["date_to"] = ast.Constant(value=self._date_to)
+            date_to_clause = "AND pr.merged_at <= {date_to}"
+        response = self._curated.run(
+            _PRS_SELECT.replace("__PR_SOURCE__", self._curated.pr_source()).replace("__DATE_TO__", date_to_clause),
+            query_type="engineering_analytics.author_timelines_prs",
+            placeholders=placeholders,
+        )
+        return [row for row in response.results or [] if row[6] is not None]
+
+    def _query_ready_at(self, pr_numbers: list[int]) -> dict[int, list[datetime]]:
+        source = self._curated.issue_events_source()
+        if source is None:
+            return {}
+        response = self._curated.run(
+            _TRANSITIONS_SELECT.replace("__EVENTS_SOURCE__", source),
+            query_type="engineering_analytics.author_timelines_transitions",
+            placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
+        )
+        ready_at: dict[int, list[datetime]] = defaultdict(list)
+        for number, event, created_at in response.results or []:
+            if event == issue_events.READY_FOR_REVIEW_EVENT:
+                ready_at[int(number)].append(created_at)
+        return ready_at
+
+    def _query_reviews(self, pr_numbers: list[int]) -> dict[int, list[ReviewVerdict]]:
+        source = self._curated.reviews_source()
+        assert source is not None
+        response = self._curated.run(
+            _REVIEWS_SELECT.replace("__REVIEWS_SOURCE__", source),
+            query_type="engineering_analytics.author_timelines_reviews",
+            placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
+        )
+        reviews: dict[int, list[ReviewVerdict]] = defaultdict(list)
+        for number, state, submitted_at in response.results or []:
+            reviews[int(number)].append(ReviewVerdict(state=state, submitted_at=submitted_at))
+        return reviews
+
+    def _query_attempts(
+        self, pr_numbers: list[int], run_from: datetime
+    ) -> tuple[dict[int, list[RunAttempt]], dict[int, list[GateAttempt]]]:
+        response = self._curated.run(
+            _RUNS_SELECT.replace("__RUNS_SOURCE__", self._curated.run_source(started_floor=True)).replace(
+                "__GATE_ATTEMPT__", gate_attempt_expr("r.head_branch")
+            ),
+            query_type="engineering_analytics.author_timelines_runs",
+            placeholders={
+                "pr_numbers": ast.Constant(value=pr_numbers),
+                "run_from": ast.Constant(value=run_from),
+                "run_started_floor": run_started_floor_constant(run_from),
+            },
+        )
+        runs = [row for row in response.results or [] if row[6] is not None]
+        job_attempts = self._query_job_attempts([int(row[0]) for row in runs if not row[9]], run_from)
+
+        attempts: dict[int, list[RunAttempt]] = defaultdict(list)
+        gate_runs: dict[tuple[int, str], list[tuple]] = defaultdict(list)
+        for row in runs:
+            (
+                run_id,
+                number,
+                workflow_name,
+                head_sha,
+                status,
+                conclusion,
+                started_at,
+                updated_at,
+                attempt,
+                is_queue,
+                gate,
+            ) = row
+            if is_queue:
+                gate_runs[(int(number), gate)].append(row)
+                continue
+            run_attempts = job_attempts.get(int(run_id))
+            if run_attempts:
+                attempts[int(number)].extend(
+                    RunAttempt(
+                        run_id=int(run_id),
+                        workflow_name=workflow_name or "",
+                        head_sha=head_sha or "",
+                        attempt=job_attempt,
+                        started_at=job_started,
+                        completed_at=job_completed,
+                        failed=bool(failed_jobs),
+                        failed_jobs=tuple(failed_jobs),
+                    )
+                    for job_attempt, job_started, job_completed, failed_jobs in run_attempts
+                )
+                continue
+            completed = status == "completed"
+            attempts[int(number)].append(
+                RunAttempt(
+                    run_id=int(run_id),
+                    workflow_name=workflow_name or "",
+                    head_sha=head_sha or "",
+                    attempt=int(attempt or 1),
+                    started_at=started_at,
+                    completed_at=updated_at if completed else None,
+                    failed=completed and conclusion in DECISIVE_FAILURE_CONCLUSIONS,
+                    failed_jobs=(),
+                )
+            )
+
+        gates: dict[int, list[GateAttempt]] = defaultdict(list)
+        for (number, _gate), rows in gate_runs.items():
+            still_running = any(row[4] != "completed" or row[7] is None for row in rows)
+            gates[number].append(
+                GateAttempt(
+                    started_at=min(row[6] for row in rows),
+                    completed_at=None if still_running else max(row[7] for row in rows),
+                )
+            )
+        return attempts, gates
+
+    def _query_job_attempts(
+        self, run_ids: list[int], run_from: datetime
+    ) -> dict[int, list[tuple[int, datetime, datetime | None, list[str]]]]:
+        source = self._curated.jobs_source(created_floor=True)
+        if source is None or not run_ids:
+            return {}
+        response = self._curated.run(
+            _JOB_ATTEMPTS_SELECT.replace("__JOBS_SOURCE__", source),
+            query_type="engineering_analytics.author_timelines_job_attempts",
+            placeholders={
+                "run_ids": ast.Constant(value=run_ids),
+                "job_created_floor": run_windowed_job_created_floor_constant(run_from),
+            },
+        )
+        by_run: dict[int, list[tuple[int, datetime, datetime | None, list[str]]]] = defaultdict(list)
+        for run_id, run_attempt, started_at, completed_at, unfinished, failed_jobs in response.results or []:
+            if started_at is None:
+                continue
+            by_run[int(run_id)].append(
+                (int(run_attempt or 1), started_at, None if unfinished else completed_at, list(failed_jobs or []))
+            )
+        return by_run
+
+    def _query_master_failures(
+        self, attempts: dict[int, list[RunAttempt]], default_branch: str, run_from: datetime
+    ) -> MasterFailureIndex:
+        job_names = sorted({job for pr_attempts in attempts.values() for a in pr_attempts for job in a.failed_jobs})
+        jobs_source = self._curated.jobs_source(created_floor=True)
+        if not job_names or not default_branch or jobs_source is None:
+            return MasterFailureIndex([])
+        response = self._curated.run(
+            _MASTER_FAILURES_SELECT.replace("__JOBS_SOURCE__", jobs_source).replace(
+                "__RUNS_SOURCE__", self._curated.run_source(started_floor=True)
+            ),
+            query_type="engineering_analytics.author_timelines_master_failures",
+            placeholders={
+                "default_branch": ast.Constant(value=default_branch),
+                "job_names": ast.Constant(value=job_names),
+                "run_from": ast.Constant(value=run_from),
+                "run_started_floor": run_started_floor_constant(run_from),
+                "job_created_floor": run_windowed_job_created_floor_constant(run_from),
+            },
+        )
+        return MasterFailureIndex(
+            [(workflow or "", name or "", completed_at) for workflow, name, completed_at in response.results or []]
+        )
+
+    def _query_out_of_queue(self, pr_numbers: list[int]) -> set[int]:
+        source = self._curated.trunk_merge_queue_source()
+        assert source is not None
+        response = self._curated.run(
+            _TRUNK_STATE_SELECT.replace("__TRUNK_SOURCE__", source),
+            query_type="engineering_analytics.author_timelines_trunk_state",
+            placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
+        )
+        return {int(number) for number, state in response.results or [] if state in _OUT_OF_QUEUE_STATES}
+
+
+def query_author_timelines(
+    *, curated: CuratedGitHubSource, author: str, date_from: datetime, date_to: datetime | None
+) -> AuthorPullRequestTimelines:
+    return AuthorTimelinesQuery(curated, author=author, date_from=date_from, date_to=date_to).run()

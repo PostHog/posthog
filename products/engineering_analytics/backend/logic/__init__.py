@@ -14,6 +14,10 @@ facade.
 # Each builder operates on an already-resolved CuratedGitHubSource: source selection and per-source
 # warehouse access control happen once at the facade, which hands these builders the authorized
 # handle. They validate their own inputs (dates, repo) and read PR/CI data through the handle.
+from products.engineering_analytics.backend.logic.authors import (
+    build_author_summary as build_author_summary,
+    build_author_timelines as build_author_timelines,
+)
 from products.engineering_analytics.backend.logic.ci_signals_config import (
     get_ci_signals_config as get_ci_signals_config,
     update_ci_signals_config as update_ci_signals_config,
