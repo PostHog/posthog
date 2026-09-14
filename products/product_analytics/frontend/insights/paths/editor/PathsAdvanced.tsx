@@ -5,9 +5,10 @@ import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { AvailableFeature, EditorFilterProps, PathEdgeParameters } from '~/types'
+
+import { pathsDataLogic } from 'products/product_analytics/frontend/insights/paths/pathsDataLogic'
 
 import { PathCleaningFilter } from '../filters/PathCleaningFilter'
 
