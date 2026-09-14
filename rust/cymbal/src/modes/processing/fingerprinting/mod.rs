@@ -143,6 +143,7 @@ impl FingerprintVersion {
                     strip_query_strings: true,
                     strip_hashed_chunks: true,
                     basename_only: true,
+                    mask_page_paths: true,
                 },
                 message_normalize: MessageNormalization {
                     mask_quoted: true,
@@ -184,20 +185,58 @@ pub enum ChainSelection {
 pub struct Normalization {
     // "app.js?v=abc123" -> "app.js"
     pub strip_query_strings: bool,
-    // "chunk-PGUQKT6S.js" -> "chunk-*.js" — masks content-hashed build artifact names
+    // "chunk-PGUQKT6S.js" -> "chunk-*.js" — masks content-hashed build artifact names, and
+    // UUID or hyphen-grouped hex ids ("019fffac-b248-73ee-b88b-e5174651dd2e.js" -> "*.js")
     pub strip_hashed_chunks: bool,
     // "/var/mobile/.../<device-uuid>/bundle.js" -> "bundle.js"
     pub basename_only: bool,
+    // "/project/1/insights" -> "<page>". A javascript frame with no script name reports the
+    // document URL as its source, and the frame builder keeps the path of that URL, so the page
+    // a person happened to be on keys the hash and one bug forks into an issue per page.
+    pub mask_page_paths: bool,
 }
 
+// The source of a javascript frame that ran in a page rather than in a script, as hashed in
+// place of the page path.
+const PAGE_SOURCE: &str = "<page>";
+
 static HASHED_CHUNK_TOKEN: OnceLock<Regex> = OnceLock::new();
+static HEX_GROUP_TOKEN: OnceLock<Regex> = OnceLock::new();
+
+// Build hashes are long alphanumeric runs. Most bundler hash alphabets include digits, but
+// esbuild's can land on an all-letter token (chunk-SURMLCAQ.js), so a digit-only test misses
+// those and mints a fresh fingerprint every time the hash happens to roll all-letter.
+// All-uppercase is the second signal: real identifiers that end up in a path (words, camelCase
+// names) are essentially never all-uppercase. (The regex crate has no lookahead, so the checks
+// live here instead of in the pattern.)
+fn looks_like_hash(token: &str) -> bool {
+    token.chars().any(|c| c.is_ascii_digit())
+        || token
+            .chars()
+            .filter(|c| c.is_ascii_alphabetic())
+            .all(|c| c.is_ascii_uppercase())
+}
+
+// Whether a javascript source names a page instead of a script. The frame builder reduces a
+// source URL to its path, so all that is left to go on is the last segment: a script keeps its
+// file extension, a route does not. Other languages always name a file, so they are left alone.
+fn is_page_path(value: &str, lang: &str) -> bool {
+    if lang != "javascript" {
+        return false;
+    }
+    let path = value.split('#').next().unwrap_or(value);
+    !path.rsplit(['/', '\\']).next().unwrap_or("").contains('.')
+}
 
 impl Normalization {
     fn is_noop(&self) -> bool {
-        !(self.strip_query_strings || self.strip_hashed_chunks || self.basename_only)
+        !(self.strip_query_strings
+            || self.strip_hashed_chunks
+            || self.basename_only
+            || self.mask_page_paths)
     }
 
-    fn apply_source<'a>(&self, value: &'a str) -> Cow<'a, str> {
+    fn apply_source<'a>(&self, value: &'a str, lang: &str) -> Cow<'a, str> {
         if self.is_noop() {
             return Cow::Borrowed(value);
         }
@@ -207,33 +246,34 @@ impl Normalization {
                 out.truncate(idx);
             }
         }
+        if self.mask_page_paths && is_page_path(&out, lang) {
+            return Cow::Borrowed(PAGE_SOURCE);
+        }
         if self.basename_only {
             if let Some(idx) = out.rfind(['/', '\\']) {
                 out.drain(..=idx);
             }
         }
         if self.strip_hashed_chunks {
-            // Build hashes are long alphanumeric runs. Most bundler hash alphabets include
-            // digits, but esbuild's can land on an all-letter token (chunk-SURMLCAQ.js), so a
-            // digit-only test misses those and mints a fresh fingerprint every time the hash
-            // happens to roll all-letter. All-uppercase is the second signal: real identifiers
-            // that end up in a path (words, camelCase names) are essentially never all-uppercase,
-            // so treat "has a digit" OR "every letter is uppercase" as a build hash. (The regex
-            // crate has no lookahead, so both checks live in the replacer.)
-            let re = HASHED_CHUNK_TOKEN
+            // Hyphen-grouped hex ids first: the plain token pass only sees runs of 8 or more,
+            // so on its own it keeps a UUID's short groups and every id still hashes apart.
+            let hex_groups = HEX_GROUP_TOKEN.get_or_init(|| {
+                Regex::new(r"[0-9a-fA-F]{4,}(?:-[0-9a-fA-F]{4,})+").expect("valid regex")
+            });
+            let tokens = HASHED_CHUNK_TOKEN
                 .get_or_init(|| Regex::new(r"[A-Za-z0-9]{8,}").expect("valid regex"));
-            out = re
-                .replace_all(&out, |caps: &regex::Captures| {
-                    let token = &caps[0];
-                    let looks_like_hash = token.chars().any(|c| c.is_ascii_digit())
-                        || token.chars().all(|c| c.is_ascii_uppercase());
-                    if looks_like_hash {
-                        "*".to_string()
-                    } else {
-                        token.to_string()
-                    }
-                })
-                .into_owned();
+            for re in [hex_groups, tokens] {
+                out = re
+                    .replace_all(&out, |caps: &regex::Captures| {
+                        let token = &caps[0];
+                        if looks_like_hash(token) {
+                            "*".to_string()
+                        } else {
+                            token.to_string()
+                        }
+                    })
+                    .into_owned();
+            }
         }
         Cow::Owned(out)
     }
@@ -415,7 +455,7 @@ impl FingerprintStrategy {
 
         // Include source and module in the fingerprint either way
         if let Some(source) = &frame.source {
-            fp.update(self.normalize.apply_source(source).as_bytes());
+            fp.update(self.normalize.apply_source(source, &frame.lang).as_bytes());
             included_pieces.push("Source file name");
         }
 
@@ -706,6 +746,21 @@ mod test {
         );
     }
 
+    fn with_source(source: &str) -> Vec<Exception> {
+        vec![exception(
+            "Error",
+            "boom",
+            resolved_stack(vec![frame(
+                "foo",
+                Some(source),
+                Some("foo"),
+                true,
+                true,
+                Some(1),
+            )]),
+        )]
+    }
+
     #[test]
     fn v2_normalizes_volatile_source_paths() {
         let cases = [
@@ -720,22 +775,24 @@ mod test {
                 "/data/app/8CC63366-D88D/bundle.js",
                 "/data/app/A4CD3A3C-8BE6/bundle.js",
             ),
+            // A hyphen-grouped id survives the token pass, which only masks runs of 8 or more.
+            (
+                "019fffac-b248-73ee-b88b-e5174651dd2e.js",
+                "01a02496-ec04-0000-eff4-768c50665d64.js",
+            ),
+            // A frame with no script name reports the page it ran on. The frame builder keeps
+            // the path of that URL, so this is the shape the fingerprint sees.
+            ("/project/1/insights", "/project/2/onboarding"),
+            (
+                "/verify_email/019fffac-b248-73ee-b88b-e5174651dd2e",
+                "/login",
+            ),
+            (
+                "/activity/explore#q=%7B%22kind%22%3A%22one%22%7D",
+                "/activity/explore#q=%7B%22kind%22%3A%22two%22%7D",
+            ),
         ];
         for (source_a, source_b) in cases {
-            let with_source = |source: &str| {
-                vec![exception(
-                    "Error",
-                    "boom",
-                    resolved_stack(vec![frame(
-                        "foo",
-                        Some(source),
-                        Some("foo"),
-                        true,
-                        true,
-                        Some(1),
-                    )]),
-                )]
-            };
             assert_ne!(
                 value(FingerprintVersion::V1, with_source(source_a)),
                 value(FingerprintVersion::V1, with_source(source_b)),
@@ -747,6 +804,43 @@ mod test {
                 "V2 should merge {source_a} vs {source_b}"
             );
         }
+    }
+
+    #[test]
+    fn v2_keeps_distinct_scripts_apart() {
+        let cases = [
+            ("/static/app.js", "/static/vendor.js"),
+            // Word pairs made of hex letters must not read as a hyphen-grouped id.
+            ("cafe-beef.js", "face-added.js"),
+        ];
+        for (source_a, source_b) in cases {
+            assert_ne!(
+                value(FingerprintVersion::V2, with_source(source_a)),
+                value(FingerprintVersion::V2, with_source(source_b)),
+                "V2 should split {source_a} vs {source_b}"
+            );
+        }
+    }
+
+    #[test]
+    fn v2_only_masks_page_paths_for_javascript() {
+        // Other languages always name a file, and an extension is not guaranteed there.
+        let with_lang = |source: &str, lang: &str| {
+            let mut frame = frame("foo", Some(source), Some("foo"), true, true, Some(1));
+            frame.lang = lang.to_string();
+            vec![exception("Error", "boom", resolved_stack(vec![frame]))]
+        };
+
+        assert_ne!(
+            value(
+                FingerprintVersion::V2,
+                with_lang("/opt/app/worker", "python")
+            ),
+            value(
+                FingerprintVersion::V2,
+                with_lang("/opt/app/runner", "python")
+            ),
+        );
     }
 
     #[test]
@@ -858,7 +952,7 @@ mod test {
     fn normalizations_are_identity_when_disabled() {
         let path = "chunk-PGUQKT6S.js?v=1";
         assert!(
-            matches!(Normalization::default().apply_source(path), Cow::Borrowed(s) if s == path)
+            matches!(Normalization::default().apply_source(path, "javascript"), Cow::Borrowed(s) if s == path)
         );
         let msg = "timeout after 30s for 'user' at 0xdeadbeef";
         assert!(matches!(MessageNormalization::default().apply(msg), Cow::Borrowed(s) if s == msg));
