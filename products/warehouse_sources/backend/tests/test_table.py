@@ -23,6 +23,7 @@ from posthog.exceptions import ClickHouseAtCapacity
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
+    DESCRIBE_MAX_EXECUTION_TIME_SECONDS,
     DataWarehouseTable,
     get_hogql_field_for_column,
     run_chdb_query,
@@ -310,7 +311,12 @@ class TestSchemaInferenceMode(BaseTest):
         ) as mock_sync_execute:
             self._table(table_format).get_columns()
 
-        assert "schema_inference_mode" not in mock_sync_execute.call_args.kwargs["settings"]
+        settings = mock_sync_execute.call_args.kwargs["settings"]
+        assert "schema_inference_mode" not in settings
+        # The client waits on ClickHouse with no read timeout of its own, so an unbounded DESCRIBE
+        # holds a web worker for as long as the server runs it, whether or not the caller is still
+        # there. Every format carries the limit, because every format reaches remote storage.
+        assert settings["max_execution_time"] == DESCRIBE_MAX_EXECUTION_TIME_SECONDS
 
     def test_a_failed_describe_raises_instead_of_storing_a_narrower_schema(self) -> None:
         # A degraded schema that persists silently is indistinguishable from the bug being fixed:

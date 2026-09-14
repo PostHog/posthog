@@ -162,6 +162,17 @@ STRUCTURE_KEEPS_TUPLE_ELEMENT_NAMES: frozenset[str] = frozenset({DataWarehouseTa
 # in the time a request has, so the mode belongs on a path that is not a request. Until then the
 # narrow sample stays, and a column the sample missed is reachable by retyping it to String and
 # reading it with JSONExtract.
+
+# A DESCRIBE holds the caller until ClickHouse answers: the client carries no read timeout, so a
+# stalled remote read ties up a web worker for as long as the server keeps the query alive, and a
+# disconnected HTTP client does not release it. These two budgets bound that. The per-query limit is
+# sized well above the slowest legitimate introspection this path performs, so a table whose files
+# genuinely take a while still describes, and the retry budget stops five attempts from stacking into
+# a far longer block. Keep both above what a real DESCRIBE costs, never near it.
+DESCRIBE_MAX_EXECUTION_TIME_SECONDS = 120
+DESCRIBE_RETRY_BUDGET_SECONDS = 300
+
+
 def chdb_set_statements(describe_settings: dict[str, str | int]) -> str:
     """Render settings as SET statements to prefix a chdb query with.
 
@@ -557,7 +568,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self.column_order = list(columns.keys())
 
     def _describe_settings(self) -> dict[str, str | int]:
-        settings: dict[str, str | int] = {**DISABLE_HIVE_PARTITIONING_SETTINGS}
+        settings: dict[str, str | int] = {
+            **DISABLE_HIVE_PARTITIONING_SETTINGS,
+            "max_execution_time": DESCRIBE_MAX_EXECUTION_TIME_SECONDS,
+        }
         if self._is_csv_format() and self.csv_allow_double_quotes is not None:
             settings["format_csv_allow_double_quotes"] = 1 if self.csv_allow_double_quotes else 0
         return settings
@@ -610,6 +624,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             # The cluster is a little broken right now, and so this can intermittently fail.
             # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
             attempts = 5
+            retry_deadline = time.monotonic() + DESCRIBE_RETRY_BUDGET_SECONDS
             for i in range(attempts):
                 try:
                     result = sync_execute(
@@ -619,7 +634,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     )
                     break
                 except Exception as err:
-                    if i >= attempts - 1:
+                    if i >= attempts - 1 or time.monotonic() >= retry_deadline:
                         capture_exception(err)
                         if safe_expose_ch_error:
                             self._safe_expose_ch_error(err)
