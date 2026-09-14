@@ -3,9 +3,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_kafka_consumer::Partition;
-use lifecycle::{ComponentOptions, Manager};
-
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::routing::get;
@@ -13,13 +10,14 @@ use axum::Router;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
-use ingestion_consumer::batcher::Batcher;
 use ingestion_consumer::dispatcher::Dispatcher;
-use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
-use ingestion_consumer::routing::RoutingStrategy;
-use ingestion_consumer::scheduler::SchedulerKind;
-use ingestion_consumer::types::{Accumulator, SerializedKafkaMessage};
+use ingestion_consumer::types::SerializedKafkaMessage;
 use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig, WorkerState};
+
+#[path = "support/batcher.rs"]
+mod batcher_support;
+
+use batcher_support::WorkerlessBatcherHarness;
 
 // ---- FakeWorker ----
 
@@ -477,82 +475,21 @@ async fn test_draining_worker_defers_then_flushes_to_survivor() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn purging_a_just_submitted_key_table_batch_is_not_fatal() {
-    let registry = Arc::new(WorkerRegistry::new(&[], fast_config()));
-    let dispatcher = Arc::new(Dispatcher::with_scheduler(
-        registry,
-        RoutingStrategy::BinPack,
-        SchedulerKind::KeyTable,
-    ));
-    let transport = Arc::new(GrpcTransport::new(
-        GrpcPort::OffsetFromHttp(0),
-        1,
-        Duration::from_secs(30),
-    ));
-    let mut manager = Manager::builder("submission-purge-race-test")
-        .with_trap_signals(false)
-        .build();
-    let handle = manager.register("batcher", ComponentOptions::new());
-    let _monitor = manager.monitor_background();
-    let (batcher, mut outputs) = Batcher::new(
-        Arc::clone(&dispatcher),
-        transport,
-        handle,
-        Duration::from_secs(10),
-        Duration::from_millis(20),
-    );
+    let (batcher, mut scenario) = WorkerlessBatcherHarness::create();
 
-    let mut accumulator = Accumulator::default();
-    accumulator.push(Partition(0), make_msg("a").into());
-    batcher.submit(accumulator);
-    // No await between submit and purge: run_scatter is queued but cannot run
-    // until this current-thread task yields. The submission was accepted and
-    // retained synchronously, then intentionally discarded by revocation.
-    dispatcher.purge_revoked(&[("test".to_string(), 0)]);
+    scenario.submit_message(&batcher, "a");
+    // No await: submit retains the batch synchronously, and purge discards it
+    // before the queued scatter task can run on this current-thread runtime.
+    scenario.purge_revoked_partition();
 
-    match tokio::time::timeout(Duration::from_millis(100), outputs.errors.recv()).await {
-        Err(_) => {}
-        Ok(Some(error)) => panic!("revoked work must not report a routing failure: {error}"),
-        Ok(None) => panic!("batcher error channel closed unexpectedly"),
-    }
+    scenario.expect_no_routing_error().await;
 }
 
 #[tokio::test]
 async fn dropping_an_idle_key_table_batcher_closes_its_outputs() {
-    let registry = Arc::new(WorkerRegistry::new(&[], fast_config()));
-    let dispatcher = Arc::new(Dispatcher::with_scheduler(
-        registry,
-        RoutingStrategy::BinPack,
-        SchedulerKind::KeyTable,
-    ));
-    let transport = Arc::new(GrpcTransport::new(
-        GrpcPort::OffsetFromHttp(0),
-        1,
-        Duration::from_secs(30),
-    ));
-    let mut manager = Manager::builder("batcher-drop-test")
-        .with_trap_signals(false)
-        .build();
-    let handle = manager.register("batcher", ComponentOptions::new());
-    let _monitor = manager.monitor_background();
-    let (batcher, mut outputs) = Batcher::new(
-        dispatcher,
-        transport,
-        handle,
-        Duration::from_secs(10),
-        Duration::from_millis(20),
-    );
+    let (batcher, mut scenario) = WorkerlessBatcherHarness::create();
 
     drop(batcher);
 
-    let completion = tokio::time::timeout(Duration::from_millis(100), outputs.completions.recv())
-        .await
-        .expect("dropping the batcher must not leave an idle retry task retaining its senders");
-    assert!(
-        completion.is_none(),
-        "an idle dropped batcher cannot produce a completion"
-    );
-    assert!(
-        outputs.errors.recv().await.is_none(),
-        "all output senders close with the dropped batcher"
-    );
+    scenario.expect_outputs_closed().await;
 }
