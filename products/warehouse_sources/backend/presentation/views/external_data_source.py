@@ -2811,13 +2811,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ):
                 new_source_model.delete()
                 return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
                     data={
-                        "message": (
-                            f"Table '{schema_name}' has no primary key to sync incrementally on. "
-                            "Set primary_key_columns for it, or choose full_refresh."
-                        )
+                        "message": f"Table '{schema_name}' has no primary key to sync incrementally on. "
+                        "Set primary_key_columns for it, or choose full_refresh."
                     },
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
             metadata_source_catalog: str | None
