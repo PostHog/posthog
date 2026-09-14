@@ -19,7 +19,7 @@ export const GITHUB_CLOUD_TASK_CONNECTION_REQUIRED_MESSAGE =
   "Connect GitHub to run this cloud task with code context.";
 
 export const GITHUB_CODE_CONTEXT_MESSAGE =
-  "GitHub gives PostHog read access to current repository code and keeps background work current.";
+  "PostHog reads the GitHub repositories you authorize so agents can use their latest code. Code changes are sent in a pull request for your review.";
 
 export const GITHUB_ADMIN_ACCESS_REQUEST =
   "PostHog needs read access to diagnose product changes using code context and keep investigations current.";

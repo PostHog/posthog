@@ -1401,37 +1401,26 @@ export function TaskInput({
                 className="absolute bottom-full left-0 mb-2 min-w-0 gap-1"
               >
                 {spaceSelector?.({ disabled: isCreatingTask })}
-                <WorkspaceModeSelect
-                  value={workspaceMode}
-                  onChange={setWorkspaceMode}
-                  adapter={runtime === "pi" ? undefined : adapter}
-                  cloudTarget={cloudTarget}
-                  onCloudTargetChange={setCloudTarget}
-                  hasGithubIntegration={hasGithubIntegration}
-                  isLoadingGithubIntegration={isLoadingIntegrations}
-                  size="1"
-                />
                 {repoOptional && (
-                  <TaskRepositoryChip
-                    cloud={workspaceMode === "cloud"}
-                    repositoryCount={taskRepositories.length}
-                    hasFolder={!!taskFolder}
-                    disabled={isCreatingTask || cloudGithubUnavailable}
-                    onOpen={() => setRepositoryDialogOpen(true)}
-                  />
-                )}
-                {!repoOptional && workspaceMode === "worktree" && (
-                  <EnvironmentSelector
-                    repoPath={effectiveRepoPath ?? null}
-                    value={selectedEnvironment}
-                    onChange={setSelectedEnvironment}
-                    disabled={isCreatingTask}
-                    onCreateEnvironment={() =>
-                      openSettings("environments", {
-                        repoPath: effectiveRepoPath ?? undefined,
-                      })
-                    }
-                  />
+                  <ButtonGroup>
+                    <WorkspaceModeSelect
+                      value={workspaceMode}
+                      onChange={setWorkspaceMode}
+                      adapter={runtime === "pi" ? undefined : adapter}
+                      cloudTarget={cloudTarget}
+                      onCloudTargetChange={setCloudTarget}
+                      hasGithubIntegration={hasGithubIntegration}
+                      isLoadingGithubIntegration={isLoadingIntegrations}
+                      size="1"
+                    />
+                    <TaskRepositoryChip
+                      cloud={workspaceMode === "cloud"}
+                      repositoryCount={taskRepositories.length}
+                      hasFolder={!!taskFolder}
+                      disabled={isCreatingTask || cloudGithubUnavailable}
+                      onOpen={() => setRepositoryDialogOpen(true)}
+                    />
+                  </ButtonGroup>
                 )}
                 {!repoOptional && (
                   <ButtonGroup
@@ -1447,6 +1436,16 @@ export function TaskInput({
                         : undefined
                     }
                   >
+                    <WorkspaceModeSelect
+                      value={workspaceMode}
+                      onChange={setWorkspaceMode}
+                      adapter={runtime === "pi" ? undefined : adapter}
+                      cloudTarget={cloudTarget}
+                      onCloudTargetChange={setCloudTarget}
+                      hasGithubIntegration={hasGithubIntegration}
+                      isLoadingGithubIntegration={isLoadingIntegrations}
+                      size="1"
+                    />
                     {workspaceMode === "cloud" ? (
                       <GitHubRepoPicker
                         value={selectedRepository}
@@ -1525,6 +1524,19 @@ export function TaskInput({
                       anchor={buttonGroupRef}
                     />
                   </ButtonGroup>
+                )}
+                {!repoOptional && workspaceMode === "worktree" && (
+                  <EnvironmentSelector
+                    repoPath={effectiveRepoPath ?? null}
+                    value={selectedEnvironment}
+                    onChange={setSelectedEnvironment}
+                    disabled={isCreatingTask}
+                    onCreateEnvironment={() =>
+                      openSettings("environments", {
+                        repoPath: effectiveRepoPath ?? undefined,
+                      })
+                    }
+                  />
                 )}
                 {!repoOptional && localWorkspaceReady && (
                   <AdditionalDirectoriesButton
