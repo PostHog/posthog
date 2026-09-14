@@ -985,6 +985,9 @@ class ScoutForSource:
     config_id: str
     skill_name: str
     enabled: bool
+    # False when the skill behind the config was archived or renamed. The coordinator skips such a
+    # config, so `enabled` alone would call a scout running that never will.
+    skill_exists: bool
     last_run_at: datetime | None
     slack_channel: str | None
 
@@ -992,6 +995,10 @@ class ScoutForSource:
 def scout_for_source(team_id: int, source_product: str, source_id: str) -> ScoutForSource | None:
     """The scout owned by `(source_product, source_id)` on this team, or None. A source owns at most
     one, so a product can answer "is my AI scan on?" without reading scout tables."""
+    from products.skills.backend.models.skills import (
+        LLMSkill,  # noqa: PLC0415 — keeps the API surface off the import path
+    )
+
     config = (
         SignalScoutConfig.objects.for_team(team_id)
         .filter(source_product=source_product, source_id=source_id)
@@ -1000,11 +1007,15 @@ def scout_for_source(team_id: int, source_product: str, source_id: str) -> Scout
     )
     if config is None:
         return None
+    skill_exists = LLMSkill.objects.filter(
+        team_id=config.team_id, name=config.skill_name, is_latest=True, deleted=False
+    ).exists()
     slack = (config.output_destinations or {}).get("slack") or {}
     return ScoutForSource(
         config_id=str(config.id),
         skill_name=config.skill_name,
         enabled=bool(config.enabled),
+        skill_exists=skill_exists,
         last_run_at=config.last_run_at,
         slack_channel=slack.get("channel") if isinstance(slack, dict) else None,
     )
@@ -1032,6 +1043,14 @@ def update_scout_for_source(
     if enabled is not None and enabled != config.enabled:
         config.enabled = enabled
         update_fields.append("enabled")
+    elif enabled is False and config.status != SignalScoutConfig.Status.PAUSED_BY_USER:
+        # A system pause already has `enabled=False`, so the branch above sees no change. The
+        # source's owner asked for it off, and a system pause lifts itself on a successful probe,
+        # so the human pause has to be written as the status, which no system writer touches.
+        config.status = SignalScoutConfig.Status.PAUSED_BY_USER
+        config.pause_reason = None
+        config.status_changed_at = datetime.now(UTC)
+        update_fields += ["status", "pause_reason", "status_changed_at"]
     if run_cron_schedule is not None and run_cron_schedule != config.run_cron_schedule:
         config.run_cron_schedule = run_cron_schedule
         config.schedule_changed_at = datetime.now(UTC)
@@ -1041,6 +1060,48 @@ def update_scout_for_source(
         update_fields.append("output_destinations")
     if len(update_fields) > 1:
         config.save(update_fields=update_fields)
+    return True
+
+
+def sync_scout_definition_for_source(
+    *,
+    team: "Team",
+    user: Any,
+    source_product: str,
+    config_id: str,
+    description: str,
+    body: str,
+) -> bool:
+    """Bring a source-owned scout's skill up to a definition the source product ships in the repo.
+
+    The general facade keeps skill bodies out of reach because a body edit is skill authoring. This
+    is the one exception: the body comes from a file under review in this repository, not from a
+    request, and the source product owns both the scout and the file. Publishes a new skill version
+    only when the stored definition differs. Returns False when no scout with that config id belongs
+    to the source, or the skill behind it is gone.
+    """
+    from products.skills.backend.api.skill_services import (  # noqa: PLC0415 — keeps the API surface off the import path
+        get_skill_by_name_from_db,
+        publish_skill_version,
+    )
+
+    config = SignalScoutConfig.objects.for_team(team.id).filter(id=config_id, source_product=source_product).first()
+    if config is None:
+        return False
+    skill = get_skill_by_name_from_db(team, config.skill_name)
+    if skill is None:
+        return False
+    if skill.description == description and skill.body == body:
+        return True
+    publish_skill_version(
+        team,
+        user=user,
+        skill_name=config.skill_name,
+        description=description,
+        body=body,
+        base_version=skill.version,
+        version_description="Synced from the repository definition",
+    )
     return True
 
 

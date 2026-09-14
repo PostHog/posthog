@@ -68,7 +68,7 @@ export const getConversationsPatternAiScanCreateUrl = (projectId: string) => {
 }
 
 /**
- * Turn the AI scan on: create the ticket patterns scout for this project from the canonical skill.
+ * Turn the AI scan on: create the ticket patterns scout for this project from the canonical skill, or resume it and bring its skill up to the current canonical definition.
  */
 export const conversationsPatternAiScanCreate = async (
     projectId: string,
@@ -90,8 +90,8 @@ export const getConversationsPatternAiScanDisableCreateUrl = (projectId: string)
 export const conversationsPatternAiScanDisableCreate = async (
     projectId: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getConversationsPatternAiScanDisableCreateUrl(projectId), {
+): Promise<AiScanStatusApi> => {
+    return apiMutator<AiScanStatusApi>(getConversationsPatternAiScanDisableCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })
@@ -102,7 +102,7 @@ export const getConversationsPatternAiScanReportsListUrl = (projectId: string) =
 }
 
 /**
- * What the AI scan has found, newest first. Turning the scan off pauses the scout, so its past findings stay in this list. Empty when nothing has been found.
+ * What the AI scan has found, newest first. Turning the scan off keeps its past findings, so this still answers for a paused scan. Empty when the scan has never run or has found nothing.
  */
 export const conversationsPatternAiScanReportsList = async (
     projectId: string,
