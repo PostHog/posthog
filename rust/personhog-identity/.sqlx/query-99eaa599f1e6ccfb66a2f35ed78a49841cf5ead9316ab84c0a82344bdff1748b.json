@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT step, completed_at IS NOT NULL AS \"completed!\" FROM lifecycle_op_tmp WHERE op_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "step",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "completed!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "99eaa599f1e6ccfb66a2f35ed78a49841cf5ead9316ab84c0a82344bdff1748b"
+}
