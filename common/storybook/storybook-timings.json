@@ -1143,7 +1143,7 @@
         "chromium": 31.702,
         "webkit": 4.317
     },
-    "frontend/src/scenes/paths/Paths.stories.tsx": {
+    "products/product_analytics/frontend/insights/paths/Paths.stories.tsx": {
         "chromium": 17.987,
         "webkit": 5.896
     },
