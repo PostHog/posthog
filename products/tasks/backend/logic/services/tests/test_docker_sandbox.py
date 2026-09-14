@@ -154,4 +154,5 @@ def test_write_file_creates_the_temp_file_before_moving_it(_name: str, payload: 
 
     assert result.exit_code == 0
     assert any("EOF_SANDBOX_WRITE" in command for command in commands), "temp file was never written"
-    assert commands[-1].startswith("mv ")
+    assert commands[-1].startswith("umask 077 && rm -f /tmp/creds.env.tmp-* && ")
+    assert " && mv /tmp/creds.env.tmp-" in commands[-1]
