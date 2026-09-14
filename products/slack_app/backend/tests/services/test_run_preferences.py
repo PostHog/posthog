@@ -28,8 +28,6 @@ CATALOGUE = (
     ModelChoice("codex", "gpt-5.6-sol", "gpt-5.6-sol", ("low", "medium", "high", "xhigh", "max")),
 )
 
-SAVED = AIPreferences(runtime_adapter="claude", model="claude-sonnet-4-6", reasoning_effort="medium")
-
 
 @pytest.fixture
 def catalogue():
@@ -45,87 +43,59 @@ class _Override:
     reasoning_effort: str | None = None
 
 
-def _resolve(
-    saved: AIPreferences,
-    override_model=None,
-    override_effort=None,
-    central_default=None,
-):
-    """Resolve with the saved rows and the central default both stubbed, so these stay
-    unit tests over the precedence rules rather than over the rows behind them."""
-    with (
-        patch.object(run_preferences, "resolve_ai_preferences", return_value=saved),
-        patch.object(run_preferences, "_central_run_default", return_value=central_default),
-    ):
+def _resolve(override_model=None, override_effort=None, central_default=None):
+    """Resolve with the central default stubbed, so these stay unit tests over the
+    precedence rules rather than over the rows behind them."""
+    with patch.object(run_preferences, "_central_run_default", return_value=central_default):
         return resolve_run_preferences(
-            integration=None,  # type: ignore[arg-type]
-            slack_user_id="U1",
             override=_Override(model=override_model, reasoning_effort=override_effort),
-            # Any id will do — the lookup it feeds is stubbed; passing one is what opts the
-            # central-default rung into the chain at all.
+            # Any ids will do — the lookup they feed is stubbed; passing team_id is what
+            # opts the central-default rung into the chain at all.
             team_id=1,
+            user_id=7,
         )
+
+
+CENTRAL = AIPreferences(runtime_adapter="claude", model="claude-fable-5", reasoning_effort=None)
 
 
 class TestResolveRunPreferences:
     @pytest.mark.parametrize(
         "override_model,override_effort,expected",
         [
-            # A model named in the mention replaces the pair outright — the effort saved
-            # against the previous model must not ride along onto a different one.
-            ("claude-fable-5", None, AIPreferences("claude", "claude-fable-5", None)),
-            # An effort on its own applies to whatever model the run was already using.
-            (None, "high", AIPreferences("claude", "claude-sonnet-4-6", "high")),
+            # A model named in the mention wins outright, over central and floor alike.
             ("claude-fable-5", "high", AIPreferences("claude", "claude-fable-5", "high")),
             # Crossing runtimes derives the adapter from the model, never from the request.
             ("gpt-5.6-sol", None, AIPreferences("codex", "gpt-5.6-sol", None)),
             ("CLAUDE-Fable-5", None, AIPreferences("claude", "claude-fable-5", None)),
-            # Nothing on offer matches, so the run keeps its saved preferences.
-            ("gemini-3-pro", None, SAVED),
-            (None, None, SAVED),
+            # Nothing on offer matches, so the run keeps deferring to the central default.
+            ("gemini-3-pro", None, AIPreferences(None, None, None)),
+            (None, None, AIPreferences(None, None, None)),
             # `xhigh` is real for Fable but not for Sonnet 4.6, so it is dropped.
             ("claude-sonnet-4-6", "xhigh", AIPreferences("claude", "claude-sonnet-4-6", None)),
             # A model that exposes no effort setting at all takes none.
             ("moonshotai/kimi-k3", "high", AIPreferences("claude", "moonshotai/kimi-k3", None)),
-            # An effort this model can't do leaves the run alone — including the effort
-            # it already had, which an impossible ask must not clear.
-            (None, "xhigh", SAVED),
         ],
     )
-    def test_mention_override_precedence(self, catalogue, override_model, override_effort, expected):
-        assert _resolve(SAVED, override_model, override_effort) == expected
+    def test_mention_override_precedence_over_a_central_default(
+        self, catalogue, override_model, override_effort, expected
+    ):
+        assert _resolve(override_model, override_effort, central_default=CENTRAL) == expected
 
-    def test_falls_back_to_the_slack_default_when_nothing_is_saved(self, catalogue):
-        """An unset workspace must still get a pinned model, not whatever the agent
-        server would otherwise choose."""
-        assert _resolve(AIPreferences()) == AIPreferences("claude", SLACK_DEFAULT_MODEL, None)
+    def test_falls_back_to_the_slack_default_when_nothing_is_configured(self, catalogue):
+        """A user with no preference anywhere must still get a pinned model, not
+        whatever the agent server would otherwise choose."""
+        assert _resolve() == AIPreferences("claude", SLACK_DEFAULT_MODEL, None)
 
-    def test_override_applies_on_top_of_the_default(self, catalogue):
-        resolved = _resolve(AIPreferences(), override_model="claude-fable-5")
+    def test_override_applies_on_top_of_the_floor(self, catalogue):
+        resolved = _resolve(override_model="claude-fable-5")
         assert resolved == AIPreferences("claude", "claude-fable-5", None)
 
-    def test_derives_the_adapter_for_a_saved_model(self, catalogue):
-        """A stored `(runtime_adapter, model)` pair that disagrees resolves to the
-        adapter the model actually runs on."""
-        saved = AIPreferences(runtime_adapter="codex", model="claude-fable-5", reasoning_effort=None)
-        assert _resolve(saved).runtime_adapter == "claude"
-
-    # Pinning a model unconditionally is what put the project and user defaults out of
-    # reach from Slack, and it fails silently — the run still works, just never on the
-    # configured model. These lock the fall-through in both directions.
-    @pytest.mark.parametrize(
-        "saved,override_model,expected",
-        [
-            (AIPreferences(), None, AIPreferences(None, None, None)),
-            (SAVED, None, SAVED),
-            (AIPreferences(), "claude-fable-5", AIPreferences("claude", "claude-fable-5", None)),
-        ],
-    )
-    def test_with_a_central_default_only_a_slack_selection_pins_the_run(
-        self, catalogue, saved, override_model, expected
-    ):
-        central = AIPreferences(runtime_adapter="claude", model="claude-fable-5", reasoning_effort=None)
-        assert _resolve(saved, override_model=override_model, central_default=central) == expected
+    # The floor pinning a model unconditionally is what put the project and user
+    # defaults out of reach from Slack, and it fails silently — the run still works,
+    # just never on the configured model. This locks the deferral in.
+    def test_a_central_default_leaves_the_triple_empty_for_downstream_resolution(self, catalogue):
+        assert _resolve(central_default=CENTRAL) == AIPreferences(None, None, None)
 
     # An effort named on its own has no model to be validated against while the run is
     # deferring, so without the deferred default it is silently dropped and the mention
@@ -143,7 +113,7 @@ class TestResolveRunPreferences:
         self, catalogue, deferred_model, override_effort, expected
     ):
         central = AIPreferences(runtime_adapter="claude", model=deferred_model, reasoning_effort=None)
-        resolved = _resolve(AIPreferences(), override_effort=override_effort, central_default=central)
+        resolved = _resolve(override_effort=override_effort, central_default=central)
         assert resolved == expected
 
 
