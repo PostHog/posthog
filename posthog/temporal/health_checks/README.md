@@ -61,6 +61,8 @@ class StaleDataCheck(HealthCheck):
 
 Teams not present in the returned dict are considered healthy. Their active issues (for this `kind`) are auto-resolved.
 
+A team with an active issue of this `kind` is always in the batch, even when `active_since_days` would drop it. Otherwise the detector stops running for that team and its issue can never resolve.
+
 The class auto-registers itself when its module is imported — no extra registration call is needed.
 
 ### 2. Register the module
@@ -107,7 +109,7 @@ class HealthCheck:
 | `rollout_percentage`      | `float`                 | `1.0`                      | Fraction of teams to include (0–1, e.g. 0.01 = 1%). Deterministic by team ID                                                      |
 | `not_processed_threshold` | `float`                 | `0.1`                      | Fail the workflow if this fraction of teams are skipped or errored                                                                |
 | `dry_run`                 | `bool`                  | `False`                    | Run detection but skip DB writes (upsert/resolve). Sets the default for scheduled runs; can be overridden per-run in the admin UI |
-| `active_since_days`       | `int \| None`           | `90`                       | Only process teams whose org has a member with `User.last_login` within this many days. Set to `None` to process all teams        |
+| `active_since_days`       | `int \| None`           | `90`                       | Only process teams whose org has a member with `User.last_login` within this many days, plus any team that still has an active issue of this kind. Set to `None` to process all teams |
 
 ## `HealthCheckResult`
 
