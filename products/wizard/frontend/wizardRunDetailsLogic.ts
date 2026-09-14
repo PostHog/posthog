@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
@@ -11,6 +12,7 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { wizardRunsPartialUpdate, wizardRunsRetrieve } from './generated/api'
 import type { WizardRunApi, WizardRunArtifactApi, WizardRunGitDiffArtifactApi } from './generated/api.schemas'
+import { wizardRunEventProperties } from './wizardAnalytics'
 import { loadWizardRunArtifactContent, loadWizardRunArtifacts } from './wizardApi'
 import { wizardRunDiffCanRender, wizardRunIsActive } from './wizardRunDisplay'
 import { wizardRunsLogic } from './wizardRunsLogic'
@@ -274,7 +276,25 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
                         return null
                     }
 
-                    return wizardRunsPartialUpdate(String(values.currentProjectId), runId, { status: 'cancelled' })
+                    const properties = {
+                        event_source: 'wizard_ui',
+                        project_id: String(values.currentProjectId),
+                        wizard_run_id: runId,
+                    }
+                    posthog.capture('wizard run cancel requested', properties)
+                    try {
+                        const run = await wizardRunsPartialUpdate(String(values.currentProjectId), runId, {
+                            status: 'cancelled',
+                        })
+                        posthog.capture('wizard run cancel succeeded', wizardRunEventProperties(run))
+                        return run
+                    } catch (error) {
+                        posthog.capture('wizard run cancel failed', {
+                            ...properties,
+                            http_status: error instanceof ApiError ? error.status : null,
+                        })
+                        throw error
+                    }
                 },
             },
         ],
@@ -323,6 +343,7 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
                 return
             }
 
+            posthog.capture('wizard run viewed', wizardRunEventProperties(run))
             actions.loadRunDetails({ runId: run.id })
             actions.loadRunArtifacts({ runId: run.id })
 
@@ -341,6 +362,13 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
             if (!wizardRunDiffCanRender(artifact.size_bytes)) {
                 return
             }
+
+            posthog.capture('wizard run diff opened', {
+                ...(values.selectedRun?.id === artifact.run_id
+                    ? wizardRunEventProperties(values.selectedRun)
+                    : { event_source: 'wizard_ui', wizard_run_id: artifact.run_id }),
+                artifact_type: artifact.artifact_type,
+            })
 
             // Artifacts are immutable, so reuse the cached content instead of re-downloading it.
             if (values.runDiff?.artifactId !== artifact.id) {

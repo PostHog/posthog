@@ -6,7 +6,7 @@ import datetime as dt
 from urllib.parse import urlsplit
 
 import pytest
-import freezegun
+import time_machine
 import unittest.mock
 
 from django.conf import settings
@@ -97,7 +97,7 @@ async def test_get_file_download_for_run(team, data_interval_start, data_interva
         assert index_file == id_file == file_downloads[index]
 
 
-@freezegun.freeze_time()
+@time_machine.travel(None, tick=False)
 async def test_calculate_expiration_for_file_download(ateam):
     """Test calculating the expiration time given a file download."""
     destination = BatchExportDestination(type=BatchExportDestination.Destination.FILE_DOWNLOAD, config={})

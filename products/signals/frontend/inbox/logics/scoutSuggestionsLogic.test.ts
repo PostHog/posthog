@@ -201,22 +201,27 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.stripVisible).toBe(false)
     })
 
-    // The header button is the entry point whenever the strip is off screen, so it has to cover
-    // both reasons it can be: closed by the person, and empty because the project has no picks.
-    it.each([
-        ['pays for a scan when there is nothing to reopen', [] as ScoutSuggestionItemApi[], 1],
-        ['only reopens the strip when picks are waiting', [CANONICAL_ITEM, CUSTOM_ITEM], 0],
-    ])('the header button %s', async (_name, items, refreshCalls) => {
-        await mountWithBatch(suggestionSet({ items }))
+    it('reopens the closed strip when picks are waiting, without paying for a scan', async () => {
+        await mountWithBatch()
         logic.actions.hideStrip()
         expect(logic.values.stripVisible).toBe(false)
 
         logic.actions.askForSuggestions()
         await expectLogic(logic).toFinishAllListeners()
 
-        // Either way the strip is back on screen: with the picks, or with the scan's skeletons.
         expect(logic.values.stripVisible).toBe(true)
-        expect(mockRefresh).toHaveBeenCalledTimes(refreshCalls)
+        expect(mockRefresh).not.toHaveBeenCalled()
+    })
+
+    // A scan would take minutes with nothing on screen, so a project with no batch gets the chat.
+    it('opens the authoring chat instead of scanning when there is nothing to reopen', async () => {
+        await mountWithBatch(suggestionSet({ items: [] }))
+
+        await expectLogic(logic, () => logic.actions.askForSuggestions()).toDispatchActions([
+            scoutFleetLogic.actionTypes.startScoutChatTask,
+        ])
+
+        expect(mockRefresh).not.toHaveBeenCalled()
     })
 
     it('re-reads the batch instead of paying for a scan when the read never landed', async () => {
@@ -242,7 +247,7 @@ describe('scoutSuggestionsLogic', () => {
         const toast = jest.spyOn(lemonToast, level as 'info' | 'error').mockReturnValue('toast-1')
         await mountWithBatch()
 
-        logic.actions.requestRefresh()
+        logic.actions.requestRefresh('strip')
         await expectLogic(logic).toFinishAllListeners()
         mockList.mockResolvedValue(suggestionSet({ ...(outcome as Partial<ScoutSuggestionSetApi>), items: [] }))
         logic.actions.loadSuggestions()
@@ -331,8 +336,8 @@ describe('scoutSuggestionsLogic', () => {
     it('sends one refresh request however often the button is pressed while it is out', async () => {
         await mountWithBatch()
 
-        logic.actions.requestRefresh()
-        logic.actions.requestRefresh()
+        logic.actions.requestRefresh('strip')
+        logic.actions.requestRefresh('strip')
         expect(logic.values.isRefreshing).toBe(true)
         await expectLogic(logic).toFinishAllListeners()
 
@@ -344,17 +349,41 @@ describe('scoutSuggestionsLogic', () => {
         await mountWithBatch()
         mockRefresh.mockRejectedValueOnce(new ApiError('A refresh is already running for this project.', 409))
 
-        logic.actions.requestRefresh()
+        logic.actions.requestRefresh('strip')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.isRefreshing).toBe(true)
+    })
+
+    // A list request already out when the press lands can bring back the finished batch before the
+    // 409 does. The scan it waits on would then be measured against its own result.
+    it('measures the scan against the batch as of the press, not one that landed during the request', async () => {
+        await mountWithBatch()
+        let refuse: (error: ApiError) => void = () => {}
+        mockRefresh.mockReturnValueOnce(
+            new Promise((_, reject) => {
+                refuse = reject
+            })
+        )
+
+        logic.actions.requestRefresh('strip')
+        mockList.mockResolvedValue(suggestionSet({ generated_at: '2026-09-03T00:00:00Z' }))
+        logic.actions.loadSuggestions()
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess'])
+        refuse(new ApiError('A refresh is already running for this project.', 409))
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.loadSuggestions()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isRefreshing).toBe(false)
     })
 
     it('does not wait for a scan the daily cap refused', async () => {
         await mountWithBatch()
         mockRefresh.mockRejectedValueOnce(new ApiError("You've reached today's limit.", 429))
 
-        logic.actions.requestRefresh()
+        logic.actions.requestRefresh('strip')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.isRefreshing).toBe(false)
@@ -363,7 +392,7 @@ describe('scoutSuggestionsLogic', () => {
     it('keeps waiting when the row was already failed before the refresh', async () => {
         await mountWithBatch(suggestionSet({ status: 'failed' }))
 
-        logic.actions.requestRefresh()
+        logic.actions.requestRefresh('strip')
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.loadSuggestions()
         await expectLogic(logic).toFinishAllListeners()
@@ -375,7 +404,7 @@ describe('scoutSuggestionsLogic', () => {
     it('stops waiting once the scan produces a newer batch', async () => {
         await mountWithBatch()
 
-        logic.actions.requestRefresh()
+        logic.actions.requestRefresh('strip')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.isRefreshing).toBe(true)
 
@@ -383,6 +412,40 @@ describe('scoutSuggestionsLogic', () => {
         logic.actions.loadSuggestions()
         await expectLogic(logic).toFinishAllListeners()
 
+        expect(logic.values.isRefreshing).toBe(false)
+    })
+
+    it('keeps the current picks readable while a scan runs, and says how long it has been going', async () => {
+        await mountWithBatch()
+
+        logic.actions.requestRefresh('strip')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.suggestions).toHaveLength(2)
+        expect(logic.values.refreshElapsedLabel).toEqual('less than a minute so far')
+
+        logic.actions.refreshTick(3 * 60_000)
+        expect(logic.values.refreshElapsedLabel).toEqual('3 min so far')
+    })
+
+    // The scan runs on the server for minutes, so a reload lands back here with it still going.
+    it('resumes a scan after a reload instead of sending a second request', async () => {
+        await mountWithBatch()
+        logic.actions.requestRefresh('strip')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockRefresh).toHaveBeenCalledTimes(1)
+
+        logic.unmount()
+        logic = scoutSuggestionsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isRefreshing).toBe(true)
+        expect(mockRefresh).toHaveBeenCalledTimes(1)
+
+        mockList.mockResolvedValue(suggestionSet({ generated_at: '2026-09-03T00:00:00Z' }))
+        logic.actions.loadSuggestions()
+        await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.isRefreshing).toBe(false)
     })
 

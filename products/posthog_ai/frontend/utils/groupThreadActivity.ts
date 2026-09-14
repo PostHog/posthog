@@ -68,29 +68,22 @@ export function groupThreadActivity(items: ThreadItem[], standaloneToolIds: Read
     return result
 }
 
+/** Groups over 10 items show the first 2 and last 3; the middle opens with one click. */
+export const ACTIVITY_WINDOW_LIMIT = 10
+/** Identical consecutive calls fold into one row only from this many, and only in the hidden middle. */
+export const ACTIVITY_CHAIN_MIN = 3
+
 export function activityWindow<T>(
     items: T[],
-    middlePage: number | null
-): {
-    first: T[]
-    middle: T[]
-    last: T[]
-    hiddenCount: number
-    pageCount: number
-    page: number
-} {
-    const hiddenCount = items.length > 10 ? items.length - 5 : 0
-    const pageCount = Math.ceil(hiddenCount / 10)
-    const page = Math.max(0, Math.min(middlePage ?? 0, pageCount - 1))
+    showMiddle: boolean
+): { first: T[]; middle: T[]; last: T[]; hiddenCount: number } {
+    if (items.length <= ACTIVITY_WINDOW_LIMIT) {
+        return { first: items, middle: [], last: [], hiddenCount: 0 }
+    }
     return {
-        first: hiddenCount ? items.slice(0, 2) : items,
-        middle:
-            hiddenCount && middlePage !== null
-                ? items.slice(2 + page * 10, Math.min(2 + (page + 1) * 10, items.length - 3))
-                : [],
-        last: hiddenCount ? items.slice(-3) : [],
-        hiddenCount,
-        pageCount,
-        page,
+        first: items.slice(0, 2),
+        middle: showMiddle ? items.slice(2, -3) : [],
+        last: items.slice(-3),
+        hiddenCount: items.length - 5,
     }
 }

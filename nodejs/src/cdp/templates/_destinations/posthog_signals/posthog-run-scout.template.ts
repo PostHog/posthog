@@ -31,7 +31,12 @@ if (response.status >= 400) {
   throw Error(f'Failed to run scout ({response.status}): {apiErrorMessage(response)}')
 }
 
-return response.body
+let run := response.body
+if (not empty(run.workflow_id)) {
+  // Park the workflow step until the run finishes: the scout runtime cap plus slack for its wake.
+  run.await := { 'max_wait': '35m', 'label': 'scout run' }
+}
+return run
 `,
     inputs_schema: [
         {

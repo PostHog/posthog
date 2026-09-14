@@ -16,7 +16,7 @@ class TeamConversationsTeamsChannelSync(TeamScopedRootMixin, UUIDModel):
     writes don't contend with the settings blob and survive channel add/remove.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     teams_team_id = models.CharField(max_length=255)
     channel_id = models.CharField(max_length=255)
 

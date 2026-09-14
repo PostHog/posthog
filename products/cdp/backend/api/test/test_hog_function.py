@@ -1,7 +1,7 @@
 import json
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import ANY, MagicMock, patch
 
@@ -364,9 +364,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["attr"] == "template_id"
         assert not HogFunction.objects.filter(template_id="template-hidden-dest").exists()
 
-    def test_create_from_deprecated_template_is_blocked(self):
-        # Deprecated templates are excluded from the template listing but stay resolvable by id,
-        # so the create path must reject them explicitly.
+    def test_create_from_deprecated_template_is_allowed(self):
+        # Deprecated templates are hidden from the listing but stay resolvable by id, so the API must
+        # keep creating from them - integrations reference legacy plugin template ids directly.
         HogFunctionTemplate.objects.create(
             template_id="plugin-deprecated-transformation",
             sha="1.0.0",
@@ -389,10 +389,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "inputs": {},
             },
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "template_id"
-        assert "deprecated" in response.json()["detail"]
-        assert not HogFunction.objects.filter(template_id="plugin-deprecated-transformation").exists()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert HogFunction.objects.filter(template_id="plugin-deprecated-transformation").exists()
 
     @parameterized.expand(
         [
@@ -941,7 +939,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         }
         # Fernet encryption is deterministic, but has a temporal component and utilizes os.urandom() for the IV
-        with freeze_time("2024-01-01T00:01:00Z"):
+        with time_machine.travel("2024-01-01T00:01:00Z", tick=False):
             with patch("os.urandom", return_value=b"\x00" * 16):
                 res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**payload})
         assert res.status_code == status.HTTP_201_CREATED, res.json()
@@ -1858,6 +1856,51 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "type": "validation_error",
         }
 
+    def test_cannot_create_legacy_destination_via_api(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "type": "legacy_destination",
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "attr": "type",
+            "detail": "Cannot create legacy destination functions via this API.",
+            "code": "invalid_input",
+            "type": "validation_error",
+        }
+
+    def test_can_disable_a_migrated_legacy_destination(self):
+        # The serializer resolves template_id on update, so the row has to exist
+        HogFunctionTemplate.objects.create(
+            template_id="plugin-customerio-plugin",
+            sha="1",
+            name="Customer.io",
+            code="",
+            inputs_schema=[{"key": "customerioSiteId", "type": "string"}],
+            type="legacy_destination",
+        )
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="Migrated",
+            type="legacy_destination",
+            template_id="plugin-customerio-plugin",
+            enabled=True,
+            inputs_schema=[{"key": "customerioSiteId", "type": "string"}],
+            inputs={"customerioSiteId": {"value": "site-1"}},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{hog_function.id}/",
+            data={"enabled": False},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        hog_function.refresh_from_db()
+        assert hog_function.enabled is False
+
     def test_transpiled_field_not_populated_for_other_types(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -2114,7 +2157,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_list_hog_functions_ordered_by_execution_order_and_updated_at(self):
         # Create functions with different execution orders and update times
         # First create all functions with the same timestamp
-        with freeze_time("2024-01-01T00:00:00Z"):
+        with time_machine.travel("2024-01-01T00:00:00Z", tick=False):
             self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
                 data={

@@ -149,6 +149,7 @@ class Integration(models.Model):
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_SEARCH_CONSOLE = "google-search-console"
         GOOGLE_SHEETS = "google-sheets"
+        HELPSCOUT = "helpscout"
         HUBSPOT = "hubspot"
         INSTAGRAM = "instagram"
         INTERCOM = "intercom"

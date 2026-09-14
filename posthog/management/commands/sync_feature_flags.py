@@ -19,7 +19,6 @@ INACTIVE_FLAGS = [
     "billing-forecasting-issues",
     "session-reset-on-load",
     "support-message-override",
-    "usage-spend-dashboards",
     "halloween-override",
     "christmas-override",
     "control_support_login",

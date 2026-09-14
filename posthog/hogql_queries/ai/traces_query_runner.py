@@ -272,19 +272,27 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     argMin(distinct_id, timestamp)
                 ) AS first_distinct_id,
                 round(
-                    CASE
-                        -- If all events with latency are generations, sum them all
-                        WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
-                             AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
-                        THEN sumIf(toFloat(properties.$ai_latency),
-                                   event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0
-                             )
-                        -- Otherwise sum the direct children of the trace
-                        ELSE sumIf(toFloat(properties.$ai_latency),
-                                   properties.$ai_parent_id IS NULL
-                                   OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
-                             )
-                    END, 2
+                    coalesce(
+                        -- The root $ai_trace event reports the wall-clock latency of the whole
+                        -- trace, so its children are already inside that number. Same rule as
+                        -- products/ai_observability/backend/queries/sessions.sql.
+                        nullIf(maxIf(toFloat(properties.$ai_latency),
+                                     event = '$ai_trace' AND toFloat(properties.$ai_latency) > 0
+                               ), 0),
+                        CASE
+                            -- If all events with latency are generations, sum them all
+                            WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
+                                 AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
+                            THEN sumIf(toFloat(properties.$ai_latency),
+                                       event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0
+                                 )
+                            -- Otherwise sum the direct children of the trace
+                            ELSE sumIf(toFloat(properties.$ai_latency),
+                                       properties.$ai_parent_id IS NULL
+                                       OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                                 )
+                        END
+                    ), 2
                 ) AS total_latency,
                 sumIf(toFloat(properties.$ai_input_tokens),
                       event IN ('$ai_generation', '$ai_embedding')
@@ -392,7 +400,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 10,
+            "schema_version": 11,
         }
 
     @cached_property

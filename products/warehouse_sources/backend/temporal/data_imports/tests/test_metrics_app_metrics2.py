@@ -1,7 +1,7 @@
 import datetime as dt
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from unittest import TestCase, mock
 
 from parameterized import parameterized
@@ -220,7 +220,7 @@ class TestEmitDataImportAppMetrics(TestCase):
         frozen_now = dt.datetime(2026, 4, 15, 9, 0, 0, tzinfo=dt.UTC)
 
         with (
-            freeze_time(frozen_now),
+            time_machine.travel(frozen_now, tick=False),
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.metrics.get_producer"
             ) as mock_producer_cls,

@@ -11,7 +11,7 @@ export interface NavigationSource {
   path: string;
   label: string;
   settingsCategory: SettingsCategory | null;
-  agentSlug: string | null;
+  agentSkillName: string | null;
   spaceId: string | null;
   feedId: string | null;
 }
@@ -90,10 +90,21 @@ export function resolveNavigationSource(
     path,
     label: sourceLabel(path, category),
     settingsCategory: category,
-    agentSlug: valid.match(/[?&]agent=([^&#]+)/)?.[1] ?? null,
+    agentSkillName: valid.match(/[?&]agent=([^&#]+)/)?.[1] ?? null,
     spaceId: path.match(/^\/spaces\/([^/]+)/)?.[1] ?? null,
     feedId: path.match(/^\/feeds\/([^/]+)/)?.[1] ?? null,
   };
+}
+
+export function hrefPath(href: string): string {
+  return href.replace(/[?#].*$/, "");
+}
+
+/** For callers holding a location as a string, not a parsed one. */
+export function reportSourceHrefFromHref(href: string): string | undefined {
+  const [path, query] = href.split(/[?#]/, 2);
+  if (!isReportPath(path) || !query) return undefined;
+  return validSourceHref(new URLSearchParams(query).get("from") ?? undefined);
 }
 
 export function sourceHrefFromSearch(

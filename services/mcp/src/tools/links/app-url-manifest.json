@@ -254,6 +254,11 @@
         "params": [],
         "scope": "project"
     },
+    "businessKnowledgeSettings": {
+        "template": "/business-knowledge/settings",
+        "params": [],
+        "scope": "project"
+    },
     "canvas": {
         "template": "/canvas",
         "params": [],
@@ -1119,6 +1124,11 @@
         "params": ["tab"],
         "scope": "project"
     },
+    "mcpRegistry": {
+        "template": "/mcp-registry",
+        "params": [],
+        "scope": "project"
+    },
     "metrics": {
         "template": "/metrics",
         "params": [],
@@ -1746,11 +1756,6 @@
     },
     "webScriptsNew": {
         "template": "/web-scripts/new",
-        "params": [],
-        "scope": "project"
-    },
-    "wizard": {
-        "template": "/wizard",
         "params": [],
         "scope": "project"
     },

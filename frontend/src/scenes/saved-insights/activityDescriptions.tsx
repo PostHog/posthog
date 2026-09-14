@@ -4,12 +4,12 @@ import { Fragment } from 'react'
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
     detectBoolean,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
@@ -285,7 +285,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the insight:{' '}
+                    <ActivityLogUserName logItem={logItem} /> created the insight:{' '}
                     {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}
                 </>
             ),
@@ -296,8 +296,8 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted{' '}
-                    {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}
+                    <ActivityLogUserName logItem={logItem} /> deleted {asNotification ? 'your' : 'the'} insight:{' '}
+                    {logItem.detail.name}
                 </>
             ),
         }
@@ -318,8 +318,8 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> shared{' '}
-                    {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}.
+                    <ActivityLogUserName logItem={logItem} /> shared {asNotification ? 'your' : 'the'} insight:{' '}
+                    {logItem.detail.name}.
                 </>
             ),
         }
@@ -329,8 +329,8 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted shared link for{' '}
-                    {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}.
+                    <ActivityLogUserName logItem={logItem} /> deleted shared link for {asNotification ? 'your' : 'the'}{' '}
+                    insight: {logItem.detail.name}.
                 </>
             ),
         }
@@ -380,7 +380,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        prefix={<ActivityLogUserName logItem={logItem} />}
                         suffix={changeSuffix}
                     />
                 ),
@@ -398,7 +398,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> exported{' '}
+                    <ActivityLogUserName logItem={logItem} /> exported{' '}
                     {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} as a {exportType}
                 </>
             ),

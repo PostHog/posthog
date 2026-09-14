@@ -1,18 +1,22 @@
 import { z } from "zod";
 import { isNotification, POSTHOG_NOTIFICATIONS } from "./acpNotifications";
 
+const startupPhaseSchema = z.enum(["sdk_initialization", "setup_hooks"]);
+
 const startupEventSchema = z.object({
   message: z.object({
     method: z.string(),
-    params: z.object({
-      status: z.enum(["sdk_initialization", "setup_hooks"]),
-    }),
+    params: z.object({ status: startupPhaseSchema }),
   }),
 });
 
-export type SessionStartupPhase = z.infer<
-  typeof startupEventSchema
->["message"]["params"]["status"];
+export type SessionStartupPhase = z.infer<typeof startupPhaseSchema>;
+
+export function isSessionStartupPhase(
+  status: string,
+): status is SessionStartupPhase {
+  return startupPhaseSchema.safeParse(status).success;
+}
 
 export function readSessionStartupPhase(
   event: unknown,

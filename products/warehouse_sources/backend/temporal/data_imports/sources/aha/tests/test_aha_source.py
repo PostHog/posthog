@@ -6,7 +6,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aha.source
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aha import AhaSourceConfig
 
 # Endpoints whose Aha! list action exposes the server-side `updated_since` filter.
-_INCREMENTAL_ENDPOINTS = {"products", "features", "epics", "initiatives", "ideas", "todos"}
+_INCREMENTAL_ENDPOINTS = {
+    "products",
+    "features",
+    "epics",
+    "initiatives",
+    "ideas",
+    "todos",
+    "idea_votes",
+    "releases",
+    "requirements",
+}
 _FULL_REFRESH_ENDPOINTS = {"goals", "users"}
 
 

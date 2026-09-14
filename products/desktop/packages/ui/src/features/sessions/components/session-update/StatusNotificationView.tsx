@@ -186,6 +186,14 @@ export function StatusNotificationView({
     );
   }
 
+  if (status === "agent_started") {
+    return (
+      <ChatMarker variant="separator">
+        <ChatMarkerContent>Agent started</ChatMarkerContent>
+      </ChatMarker>
+    );
+  }
+
   if (status === "clearing") {
     if (isComplete) {
       return null;

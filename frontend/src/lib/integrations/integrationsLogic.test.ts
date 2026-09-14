@@ -39,7 +39,7 @@ describe('integrationsLogic', () => {
         // Handlers reset after every test, so register them per test.
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations/': () => [200, { results: integrationsPayload }],
+                '/api/projects/:team_id/integrations/': () => [200, { results: integrationsPayload }],
                 '/api/projects/:team_id/integrations/:id/github_repos/': ({ params, request }) => {
                     const offset = new URL(request.url).searchParams.get('offset') ?? '0'
                     repoRequests.push({ integrationId: String(params.id), offset })

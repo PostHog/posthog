@@ -8,7 +8,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { HideViewedRecordingsOptions, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
     SessionRecordingPlaylistLogicProps,
@@ -17,6 +17,7 @@ import {
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { Experiment, FilterLogicalOperator, TeamType } from '~/types'
 
@@ -55,7 +56,17 @@ const EXPERIMENT = {
     feature_flag_key: 'my-flag',
     start_date: daysAgo(10),
     end_date: null,
-    metrics: [],
+    // The metric-filter reasons need a metric to tick: no mode narrows the list on an empty
+    // selection, so without one the filter never asks the endpoint anything.
+    metrics: [
+        {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            uuid: 'metric-purchase',
+            name: 'Purchase',
+            source: { kind: NodeKind.EventsNode, event: 'purchase' },
+        },
+    ],
     metrics_secondary: [],
     feature_flag: {
         filters: {
@@ -137,10 +148,33 @@ const REASON_CASES: ReasonCase[] = [
                 excluded_metrics: [],
                 filter_test_accounts: true,
             })
+            logic.actions.setMetricSelected('metric-purchase', true)
             logic.actions.setMetricFilterMode('no_metric_activity')
         },
         copy: 'No recordings matched the metric filter.',
         actions: [],
+    },
+    {
+        // A running experiment whose exposures stopped, so the filter's window sits behind
+        // retention. Naming the run's end here would print no date at all.
+        reason: ExperimentReplayListEmptyReason.EndedPastRetention,
+        experimentId: 214,
+        experiment: { start_date: daysAgo(120), end_date: null },
+        setup: (logic) => {
+            ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({
+                session_ids: [],
+                truncated: false,
+                considered_metrics: [],
+                excluded_metrics: [],
+                date_from: daysAgo(90),
+                date_to: daysAgo(60),
+                filter_test_accounts: true,
+            })
+            logic.actions.setMetricSelected('metric-purchase', true)
+            logic.actions.setMetricFilterMode('no_metric_activity')
+        },
+        copy: 'This filter only covers sessions up to',
+        actions: ['experiment-recordings-empty-retention-docs'],
     },
     {
         reason: ExperimentReplayListEmptyReason.MetricFilterFailed,
@@ -148,6 +182,7 @@ const REASON_CASES: ReasonCase[] = [
         experiment: { start_date: daysAgo(10), end_date: null },
         setup: (logic) => {
             ;(experimentsSessionBucketsCreate as jest.Mock).mockRejectedValue({ detail: 'refused' })
+            logic.actions.setMetricSelected('metric-purchase', true)
             logic.actions.setMetricFilterMode('no_metric_activity')
         },
         copy: 'The metric filter could not be loaded',
@@ -281,6 +316,7 @@ describe('ExperimentRecordingsListEmptyState', () => {
             experiment: { ...EXPERIMENT, id: 213 } as Experiment,
         })
         logic.mount()
+        logic.actions.setMetricSelected('metric-purchase', true)
         logic.actions.setMetricFilterMode('no_metric_activity')
         await waitFor(() => expect(logic.values.sessionBucketLoading).toBe(true))
 
@@ -302,6 +338,38 @@ describe('ExperimentRecordingsListEmptyState', () => {
 
         logic.unmount()
     })
+
+    // The server removes the recordings this setting hides before it answers, so they never reach
+    // the browser, `hiddenRecordingsCount` stays zero, and the reason reads as if nothing were
+    // hidden. The note is the only thing that tells the viewer otherwise. 'any-user' hides what the
+    // whole project watched, so copy about this viewer's own watching would be false there.
+    it.each([
+        ['current-user', 214, 'Recordings you have already watched are hidden'],
+        ['any-user', 215, 'Recordings anyone on your team has already watched are hidden'],
+    ] as [HideViewedRecordingsOptions, number, string][])(
+        'notes the %s setting next to the reason it could account for',
+        async (mode, experimentId, copy) => {
+            teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+            playerSettingsLogic.actions.setHideViewedRecordings(mode)
+            const experiment = {
+                ...EXPERIMENT,
+                id: experimentId,
+                start_date: daysAgo(10),
+                end_date: daysAgo(2),
+            } as Experiment
+            const logic = experimentReplayTabLogic({ experiment })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            renderEmptyState(experiment)
+
+            const emptyState = screen.getByTestId('experiment-recordings-empty-state')
+            expect(emptyState).toHaveTextContent('A session can be missing for a few reasons')
+            expect(emptyState).toHaveTextContent(copy)
+
+            logic.unmount()
+        }
+    )
 
     it('answers with the hidden recordings instead of a reason when the list only looks empty', async () => {
         teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)

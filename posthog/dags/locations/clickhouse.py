@@ -67,6 +67,7 @@ defs = dagster.Definitions(
         data_deletion_requests.auto_approve_deletion_requests_schedule,
     ],
     sensors=[
+        clickhouse_cleanup.run_cleanup_sweep_after_deletes,
         deletes.run_deletes_after_squash,
         data_deletion_requests.data_deletion_request_pickup_sensor,
         data_deletion_requests.verify_queued_deletion_requests,
