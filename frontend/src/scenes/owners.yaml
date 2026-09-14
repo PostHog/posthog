@@ -79,6 +79,11 @@ rules:
       owners: team-replay
     - match: '/sessions/'
       owners: team-analytics-platform
+    # Org SSO settings: verified domains, and the SAML/SCIM/OIDC config behind them.
+    - match:
+          - '/settings/organization/IdentityProviderConfig/'
+          - '/settings/organization/VerifiedDomains/'
+      owners: team-platform-features
     - match: '/startups/'
       owners: team-growth
     - match: '/surveys/'
