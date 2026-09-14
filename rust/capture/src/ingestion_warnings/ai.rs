@@ -162,6 +162,7 @@ fn details_for(rejection: &AiRejection) -> Map<String, serde_json::Value> {
 mod tests {
     use super::*;
     use common_ingestion_warnings::test_support::CollectingEmitter;
+    use limiters::redis::QuotaResource;
     use rstest::rstest;
 
     fn request() -> WarningRequestContext {
@@ -344,7 +345,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case::quota(CaptureError::BillingLimit)]
+    #[case::quota(CaptureError::BillingLimit(QuotaResource::Events))]
     #[case::service_unavailable(CaptureError::ServiceUnavailable("down".to_string()))]
     #[case::serialization(CaptureError::NonRetryableSinkError)]
     #[case::kafka(CaptureError::RetryableSinkError)]
