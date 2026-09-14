@@ -31,7 +31,6 @@ from products.signals.backend.pull_requests import (
     update_pull_request_state,
 )
 from products.signals.backend.report_claims import ReportClaim, actor_owns_claim, claim_from_artefact, get_active_claim
-from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -145,6 +144,10 @@ def create_claim(report: SignalReport, actor: ArtefactAttribution) -> ReportClai
 
 def assignment_actor(assignment: SignalReportAssignment) -> ArtefactAttribution:
     if assignment.actor_kind == "task" and assignment.actor_task_id:
+        from products.tasks.backend.facade import (  # noqa: PLC0415 — keeps the tasks facade off the django.setup() path
+            api as tasks_facade,
+        )
+
         if tasks_facade.task_exists(str(assignment.actor_task_id), assignment.team_id):
             return ArtefactAttribution.from_task(str(assignment.actor_task_id))
         return ArtefactAttribution.system()

@@ -2,8 +2,6 @@ from typing import TYPE_CHECKING
 
 from posthog.models.user import User
 
-from products.tasks.backend.facade import api as tasks_facade
-
 if TYPE_CHECKING:
     from products.signals.backend.artefact_attribution import ArtefactAttribution
     from products.signals.backend.models import SignalReport
@@ -21,6 +19,10 @@ _CLIENT_NAMES = {"codex": "Codex", "claude-code": "Claude Code", "cursor": "Curs
 
 def claim_display_name(report: "SignalReport", actor: "ArtefactAttribution") -> str:
     if actor.task_id:
+        from products.tasks.backend.facade import (  # noqa: PLC0415 — keeps the tasks facade off the django.setup() path
+            api as tasks_facade,
+        )
+
         phase = tasks_facade.signal_report_pipeline_stage(actor.task_id, report.team_id)
         if not phase:
             runs = report.associated_task_runs(report_id=str(report.id), team_id=report.team_id)

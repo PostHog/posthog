@@ -41,6 +41,8 @@ FORBIDDEN_AT_SETUP = [
     "posthog.hogql.query",  # query execution entrypoint — drags the layers below in
     "posthog.hogql_queries",  # the query-runner layer (every insight runner)
     "posthog.api.services.query",  # API query service — viewset-request-time only
+    "products.tasks.backend.facade.contracts",  # dozens of pydantic dataclasses — tasks storage and the signals callers of facade.api import at call time
+    "products.signals.backend.contracts",  # dozens of pydantic models — resolve_reviewers imports it at call time
 ]
 
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot

@@ -28,7 +28,6 @@ from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_DISCUSSION,
     TASK_RUN_TYPE_IMPLEMENTATION,
 )
-from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -50,6 +49,10 @@ _PR_BEARING_LEGACY_TASK_RELATIONSHIPS = (TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_
 
 
 def implementation_pr_report_filter(*, team_id: int, active_only: bool = False) -> Q:
+    from products.tasks.backend.facade import (  # noqa: PLC0415 — keeps the tasks facade off the django.setup() path
+        api as tasks_facade,
+    )
+
     assignment_pr = Q(assignment__team_id=team_id, assignment__pr_url__regex=_PULL_REQUEST_URL_PATTERN)
     pull_request_links = SignalReportArtefact.objects.filter(
         team_id=team_id,
@@ -192,6 +195,10 @@ def fetch_implementation_prs_for_reports(report_ids: list[str], *, team_id: int)
             )
         if assignment.actor_task_id:
             tasks_by_report.setdefault(report_id, set()).add(str(assignment.actor_task_id))
+    from products.tasks.backend.facade import (  # noqa: PLC0415 — keeps the tasks facade off the django.setup() path
+        api as tasks_facade,
+    )
+
     task_prs = tasks_facade.get_pull_requests_for_tasks(
         team_id, set().union(*tasks_by_report.values()) if tasks_by_report else set(), pr_bearing_task_run_filter()
     )
@@ -260,6 +267,10 @@ def fetch_implementation_pr_urls_for_reports(report_ids: list[str], *, team_id: 
 
 
 def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number: int) -> list[str]:
+    from products.tasks.backend.facade import (  # noqa: PLC0415 — keeps the tasks facade off the django.setup() path
+        api as tasks_facade,
+    )
+
     # Narrow by task output before resolving reports so webhooks do not scan the whole inbox.
     owner, repo = repository.split("/", 1)
     url_body = rf'[^:"]+://(www\.)?github\.com/+{re.escape(owner)}/+{re.escape(repo)}/+pull/+0*{pr_number}'
