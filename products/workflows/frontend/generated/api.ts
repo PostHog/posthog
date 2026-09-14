@@ -967,9 +967,11 @@ export const getHogFlowsEmailSendingSuspensionRetrieveUrl = (projectId: string) 
 }
 
 /**
- * Cheap read for the scene-wide suspension banner: single-row `TeamWorkflowsConfig` lookup
- * with no reputation computation. Every project member sees this — a suspension stops
- * everyone's email, so hiding it would leave silent send failures unexplained.
+ * Cheap read for the scene-wide email banners: a single-row `TeamWorkflowsConfig` lookup plus
+ * the briefly cached sending allowance, with no reputation computation. Every project member
+ * sees the suspension — it stops everyone's email, so hiding it would leave silent send
+ * failures unexplained. The allowance keeps the reputation endpoint's project-wide gate,
+ * because it pools every workflow's sending.
  */
 export const hogFlowsEmailSendingSuspensionRetrieve = async (
     projectId: string,

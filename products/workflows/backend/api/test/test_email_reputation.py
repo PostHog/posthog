@@ -8,6 +8,9 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import ProductKey
+
+from posthog.clickhouse.query_tagging import Feature, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.integration import Integration
@@ -268,6 +271,82 @@ class TestEmailReputationAPI(APIBaseTest):
         assert data["email_sending_suspended"] is True
         assert data["email_sending_suspended_at"] == suspended_at.isoformat().replace("+00:00", "Z")
         assert data["email_sending_suspension_reason"] == "critical bounce rate"
+
+    def test_email_sending_suspension_endpoint_reports_the_sending_allowance(self):
+        tags_at_query_time = []
+
+        def record_tags(*args, **kwargs):
+            tags_at_query_time.append(get_query_tags())
+            return {self.team.id: {"source": {"email_sent": 7}}}
+
+        with patch(
+            "products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_team_and_source",
+            side_effect=record_tags,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/email_sending_suspension")
+
+        assert response.status_code == status.HTTP_200_OK
+        allowance = response.json()["sending_allowance"]
+        assert allowance["emails_sent_last_hour"] == 7
+        assert allowance["emails_sent_last_day"] == 7
+        # Tier caps are deployment configuration, so assert only that the scene gets numbers to compare against.
+        assert allowance["emails_per_hour"] > 0
+        assert allowance["emails_per_day"] > 0
+        # The allowance reaches ClickHouse, and an untagged query only raises under DEBUG, which
+        # tests never run with. Assert the attribution here instead.
+        assert tags_at_query_time
+        for tags in tags_at_query_time:
+            assert tags.product == ProductKey.WORKFLOWS
+            assert tags.feature == Feature.QUERY
+
+    def test_email_sending_suspension_endpoint_keeps_the_suspension_when_the_allowance_fails(self):
+        suspended_at = timezone.now().replace(microsecond=0)
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "email_sending_suspended_at": suspended_at,
+                "email_sending_suspension_reason": "critical bounce rate",
+            },
+        )
+
+        with patch(
+            "products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_team_and_source",
+            side_effect=Exception("ClickHouse is unreachable"),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/email_sending_suspension")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["sending_allowance"] is None
+        assert data["email_sending_suspended"] is True
+        assert data["email_sending_suspension_reason"] == "critical bounce rate"
+
+    @parameterized.expand(
+        [
+            ("never synced", "", False),
+            ("enabled", "ENABLED", False),
+            ("reinstated", "REINSTATED", False),
+            ("disabled", "DISABLED", True),
+        ]
+    )
+    def test_email_sending_suspension_endpoint_reports_a_provider_pause(
+        self, _name: str, sending_status: str, expected: bool
+    ):
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team, defaults={"ses_tenant_sending_status": sending_status}
+        )
+
+        with patch(
+            "products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_team_and_source",
+            return_value={},
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/email_sending_suspension")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["email_sending_provider_suspended"] is expected
+        # The provider pause is the tenant's, not the staff kill switch, so that flag stays off.
+        assert data["email_sending_suspended"] is False
 
     def _verify_sending_domain(self, domain: str = "mail.example.com") -> None:
         Integration.objects.create(
@@ -536,3 +615,8 @@ class TestEmailReputationAccessControl(APIBaseTest):
         assert data["reputation"] is None
         assert data["isps"] == []
         assert [row["hog_flow_id"] for row in data["workflows"]] == [str(flow.id)]
+
+        # The cheap banner endpoint gates the allowance the same way: it pools every workflow's sending.
+        banner = self.client.get(f"/api/projects/{self.team.id}/hog_flows/email_sending_suspension")
+        assert banner.status_code == status.HTTP_200_OK
+        assert banner.json()["sending_allowance"] is None
