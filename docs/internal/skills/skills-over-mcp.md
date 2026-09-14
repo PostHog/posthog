@@ -17,11 +17,16 @@ So `allowed_tools` is a request for access, not a grant of it.
 | Git marketplace (`…/marketplace.git`)               | A file on disk after `git clone` | Pre-approved                                |
 | Skill bundle, `content=full` (`…/bundle`)           | A file on disk                   | Pre-approved                                |
 | Skill bundle, `content=stub`, and sandbox run state | A pointer file, then MCP         | Ignored until the user approves the grant   |
-| MCP `skill-get` (any caller)                        | An MCP response                  | Ignored until the user approves the grant   |
+| MCP `skill-get`, and `learn project:<skill>`        | An MCP response                  | Ignored until the user approves the grant   |
+| PostHog AI `get_llm_skill`                          | Text in the model's context      | No grant. The list is printed as text       |
 
 Watch the stub path.
 `render_skill_stub_md` writes only the name, the description, and `metadata`, so the pointer file never carries `allowed-tools`.
 The agent then fetches the real skill with `skill-get`, which makes the skill MCP-origin content.
+
+The PostHog AI path is a third case.
+`_format_skill_detail` in `products/skills/backend/tools/skills.py` prints `Allowed tools:` into the text the model reads.
+The tool description tells the model to treat the body as instructions, but nothing acts on the tool list.
 
 ## Why the MCP path ignores the list
 
@@ -45,7 +50,7 @@ Two further rules matter for us:
   `emit_report` / `edit_report` in `allowed_tools` is a scout's opt-in to the report channel.
   The runner grants the report scope only to an opted-in skill, and `_assert_report_tool_opted_in` in `products/signals/backend/scout_harness/views.py` fail-closes each write against the skill version the run snapshotted.
   Keep both layers: `products/tasks/backend/temporal/client.py` over-grants the report scope on a fallback path, and is safe only because that write gate exists.
-- Keep the field. Every delivery path shipping today reads the skill from a file, so the list still does its job there.
+- Keep the field. The file delivery paths still read it, so the list does its job there.
 - Say so in author-facing copy. A skill author who relies on the list needs to know that the MCP path drops it.
 
 ## Where the copy lives
