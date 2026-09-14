@@ -163,7 +163,7 @@ Support's own coping behaviour is a leading indicator: a new canned reply reused
 
 ### Decide
 
-- **Author** when tickets are still arriving on a theme the detector has not opened, or when an open pattern needs a root cause it cannot see. Name the theme, the distinct-customer count, the share vs baseline, the onset, the newest ticket's time, and link the tickets. Most findings are `actionability=requires_human_input`, `repository=NO_REPO`. A live cluster still arriving is P1; one that has stopped is P2; a slow theme is P3.
+- **Author** when tickets are still arriving on a theme the detector has not opened, or when an open pattern needs a root cause it cannot see. Name the theme, the distinct-customer count, the share vs baseline, the onset, the newest ticket's time, and link the tickets. Most findings are `actionability=requires_human_input`, `repository=NO_REPO`. A live cluster still arriving is P1; a slow theme is P3. A cluster whose arrivals have stopped is a memory entry, never a report.
 - **Write for the reader.** Only the title and summary are forwarded to Slack and shown in the Patterns tab. One line a support engineer can act on, then two or three quantified lines. No method notes.
 - **Every report links its tickets in the summary.** Build each link from the ticket's UUID, not its number: the base is the project's `/support/tickets/{id}` path. Anchor text is the human ticket number. Cite 3 to 8, one per distinct customer where you can, and write plus-N-more beyond that. Never cite a ticket you did not read and confirm.
 - **An edit is a new post.** `edit_report` re-forwards the whole report. Post a theme once, then go quiet on it. That is the single worst failure this scout has, worse than a missed theme.
