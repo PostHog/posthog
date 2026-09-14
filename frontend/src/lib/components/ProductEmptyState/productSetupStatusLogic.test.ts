@@ -8,6 +8,17 @@ import { initKeaTests } from '~/test/init'
 
 import { SETUP_STATUS_FAIL_OPEN_MS, productSetupStatusLogic } from './productSetupStatusLogic'
 
+// Mutate `document.hidden` and then fire the event, so the kea disposables plugin pauses and
+// resumes the clock exactly as it does in the browser.
+const setHidden = (hidden: boolean): void => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+    Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => (hidden ? 'hidden' : 'visible'),
+    })
+    document.dispatchEvent(new Event('visibilitychange'))
+}
+
 describe('productSetupStatusLogic', () => {
     beforeEach(() => {
         localStorage.clear()
@@ -178,6 +189,29 @@ describe('productSetupStatusLogic', () => {
 
             expect(logic.values.status).toBe('unknown')
         } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    // The plugin tears the timer down when the tab hides and runs the setup again when it
+    // returns. Switching tabs is the normal response to a slow screen, so a fresh deadline on
+    // each return would hold the spinner for the whole session.
+    it('counts visible time in total, so a tab switch cannot postpone the fail-open', () => {
+        jest.useFakeTimers()
+        try {
+            const logic = mountLogic()
+            jest.advanceTimersByTime(SETUP_STATUS_FAIL_OPEN_MS / 2)
+
+            setHidden(true)
+            jest.advanceTimersByTime(SETUP_STATUS_FAIL_OPEN_MS * 2)
+            // Hidden time does not count, so the clock still owes the other half.
+            expect(logic.values.status).toBe('loading')
+
+            setHidden(false)
+            jest.advanceTimersByTime(SETUP_STATUS_FAIL_OPEN_MS / 2)
+            expect(logic.values.status).toBe('unknown')
+        } finally {
+            setHidden(false)
             jest.useRealTimers()
         }
     })

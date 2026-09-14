@@ -265,6 +265,10 @@ export const productSetupStatusLogic = kea<productSetupStatusLogicType>([
             })
         },
         applyDetectedStatus: ({ status, teamId }) => {
+            if (teamId === values.currentTeamId) {
+                // The current team has its answer, so the clock has nothing left to rescue.
+                cache.disposables.dispose('fail-open')
+            }
             const attempt = values.setupAttempt
             if (
                 status === 'has-data' &&
@@ -318,13 +322,24 @@ export const productSetupStatusLogic = kea<productSetupStatusLogicType>([
                 return
             }
             cache.armedTeamId = values.currentTeamId
+            // The disposables plugin clears the timer when the tab hides and runs this setup
+            // again when the tab comes back. The budget must therefore carry across the pause.
+            // A fresh ten seconds on each return lets a user who switches tabs hold the spinner
+            // for the whole session, which is the stall this clock exists to end. Each arming
+            // owns its budget, so the teardown of an earlier one cannot spend it.
+            const budget = { remainingMs: SETUP_STATUS_FAIL_OPEN_MS }
             cache.disposables.add(() => {
+                const resumedAt = Date.now()
                 const id = window.setTimeout(() => {
+                    budget.remainingMs = 0
                     if (values.status === 'loading') {
                         actions.timeOutLoading(values.currentTeamId)
                     }
-                }, SETUP_STATUS_FAIL_OPEN_MS)
-                return () => clearTimeout(id)
+                }, budget.remainingMs)
+                return () => {
+                    clearTimeout(id)
+                    budget.remainingMs = Math.max(0, budget.remainingMs - (Date.now() - resumedAt))
+                }
             }, 'fail-open')
         },
         // A new team has no answer yet, so the clock starts again for it.
