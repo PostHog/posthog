@@ -61,7 +61,10 @@ QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
     "status": StringDatabaseField(
         name="type",
         nullable=False,
-        description="Query outcome type, e.g. 'QueryFinish' or 'ExceptionWhileProcessing'.",
+        description=(
+            "Query outcome type. One of 'QueryStart', 'QueryFinish', 'ExceptionBeforeStart' or "
+            "'ExceptionWhileProcessing'."
+        ),
     ),
     "exception_code": IntegerDatabaseField(
         name="exception_code", nullable=False, description="ClickHouse exception code if the query failed, else 0."
@@ -137,7 +140,12 @@ class QueryLogArchiveTable(LazyTable):
             elif name == "created_by":
                 return ast.Alias(alias=name, expr=ast.Field(chain=[table_name, "lc_user_id"]))
             elif name == "status":
-                return ast.Alias(alias=name, expr=ast.Field(chain=[table_name, "type"]))
+                # `type` is a ClickHouse Enum8. Without the cast, ClickHouse rejects any
+                # comparison literal that is not one of its members.
+                return ast.Alias(
+                    alias=name,
+                    expr=ast.Call(name="toString", args=[ast.Field(chain=[table_name, "type"])]),
+                )
             elif name == "is_personal_api_key_request":
                 cmp_expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
@@ -218,7 +226,10 @@ class RawQueryLogArchiveTable(Table):
         "type": StringDatabaseField(
             name="type",
             nullable=False,
-            description="Query outcome type, e.g. 'QueryFinish' or 'ExceptionWhileProcessing'.",
+            description=(
+                "Query outcome type. One of 'QueryStart', 'QueryFinish', 'ExceptionBeforeStart' or "
+                "'ExceptionWhileProcessing'."
+            ),
         ),
         "exception_code": IntegerDatabaseField(name="exception_code", nullable=False),
         "exception_name": StringDatabaseField(name="exception_name", nullable=False),
