@@ -80,6 +80,7 @@ from products.signals.backend.scout_harness.run_gates import (
 )
 from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS, scout_costs
 from products.signals.backend.scout_harness.serializers import (
+    REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY,
     EditReportRequestSerializer,
     EditReportResponseSerializer,
     EmitFindingRequestSerializer,
@@ -124,6 +125,7 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutManualRunSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
+    validate_scout_repositories,
 )
 from products.signals.backend.scout_harness.skill_loader import (
     REPORT_CHANNEL_TOOLS,
@@ -2095,6 +2097,30 @@ def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSki
     }
 
 
+def _precheck_scout_repositories(request: Request, *, team: Team, config_id: uuid.UUID) -> bool:
+    """Run the GitHub reachability check for a `repositories` PATCH before the row lock.
+
+    The check may refresh the repository cache over the network, and the PATCH below holds the
+    config row under `select_for_update` while its serializer validates, so run here it never
+    holds the row for GitHub's latency. Returns whether it ran; the serializer then skips it.
+    Malformed input is left to the serializer, which rejects it before it could reach GitHub.
+    """
+    requested = request.data.get("repositories")
+    if not isinstance(requested, list) or not all(isinstance(repository, str) for repository in requested):
+        return False
+    current = (
+        SignalScoutConfig.objects.unscoped()
+        .filter(team_id=team.id, id=config_id)
+        .values_list("repositories", flat=True)
+        .first()
+    )
+    try:
+        validate_scout_repositories(requested, {"team": team}, current=current)
+    except exceptions.ValidationError as error:
+        raise exceptions.ValidationError({"repositories": error.detail}) from error
+    return True
+
+
 def _canonical_team(view: TeamAndOrgViewSetMixin) -> Team:
     """The team scout rows belong to — see `_canonical_team_id` for why a child environment
     resolves to its parent. Costs a query only on a child-environment request."""
@@ -2532,6 +2558,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if self._sets_structured_output_schema(request):
             self._assert_can_author_structured_output_schema()
         config_id = _parse_run_id_or_404(kwargs)
+        repositories_checked = _precheck_scout_repositories(request, team=team, config_id=config_id)
         # The row stays locked from the grant comparison to the save. A whole-config resend that
         # compared against the grant before a concurrent revoke would otherwise write it back,
         # because a model save writes every column off the instance it loaded.
@@ -2554,7 +2581,11 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 config,
                 data=request.data,
                 partial=True,
-                context={**self.get_serializer_context(), "project_id": self.team.project_id},
+                context={
+                    **self.get_serializer_context(),
+                    "project_id": self.team.project_id,
+                    REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY: repositories_checked,
+                },
             )
             serializer.is_valid(raise_exception=True)
             enabling = not config.enabled and serializer.validated_data.get("enabled")

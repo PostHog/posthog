@@ -17,6 +17,8 @@ import { isTerminalSuiteRun, suiteRunOutcome, suiteRunPollListeners, suiteRunSum
 
 const CHECKS_LIMIT = 100
 const SUITE_RUNS_LIMIT = 20
+const FIRST_METRIC_CHECK_ADOPTION_ATTEMPTS = 5
+const FIRST_METRIC_CHECK_ADOPTION_DELAY_MS = 2000
 
 export type CheckPendingKind = 'running' | 'deleting' | 'toggling' | 'loadingRuns' | 'loadingSuiteRunRuns'
 
@@ -57,6 +59,8 @@ export interface dataQualityChecksLogicValues {
     activeSuiteRun: DataQualitySuiteRunApi | null
     checkRunsByCheckId: Record<string, DataQualityCheckRunApi[]>
     checks: DataQualityCheckApi[]
+    checksLoadError: string | null
+    checksLoaded: boolean
     checksLoading: boolean
     enabledChecksCount: number
     health: DataQualitySubjectHealthApi | null
@@ -259,6 +263,21 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
         ],
     })),
     reducers({
+        checksLoadError: [
+            null as string | null,
+            {
+                loadChecks: () => null,
+                loadChecksFailure: (_, { error }) => error,
+            },
+        ],
+        // A refresh runs after every suite run, so a later failure must not take the last good
+        // list off the screen: the panel keeps it and warns instead.
+        checksLoaded: [
+            false,
+            {
+                loadChecksSuccess: () => true,
+            },
+        ],
         checks: {
             upsertCheck: (state: DataQualityCheckApi[], { check }: { check: DataQualityCheckApi }) =>
                 state.some((existing) => existing.id === check.id)
@@ -346,7 +365,7 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
                 ),
         ],
     }),
-    listeners(({ props, values, actions, cache }) => {
+    listeners(({ props, values, actions, cache, selectors }) => {
         // Assigned one by one rather than spread: kea-typegen walks this object literal and crashes
         // on a spread element, which has no property name.
         const poll = suiteRunPollListeners({
@@ -500,13 +519,30 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
                     lemonToast.success(suiteRunSummary(suiteRun))
                 }
             },
+            upsertCheck: (_, __, ___, previousState) => {
+                if (props.subjectType !== 'metric' || selectors.checks(previousState, props).length > 0) {
+                    return
+                }
+                cache.scheduledRunAttemptsLeft = FIRST_METRIC_CHECK_ADOPTION_ATTEMPTS
+                actions.loadSuiteRuns()
+            },
             // A suite started elsewhere, or before this panel opened, is the newest row of the
             // history this logic already loads. Reading it from there costs no extra request.
             loadSuiteRunsSuccess: ({ suiteRuns }) => {
                 const [newest] = suiteRuns
                 if (newest && !isTerminalSuiteRun(newest) && !values.activeSuiteRun) {
+                    cache.scheduledRunAttemptsLeft = 0
                     actions.setActiveSuiteRun(newest)
+                    return
                 }
+                if (values.activeSuiteRun || !cache.scheduledRunAttemptsLeft) {
+                    return
+                }
+                cache.scheduledRunAttemptsLeft -= 1
+                cache.disposables.add(() => {
+                    const timeoutId = setTimeout(() => actions.loadSuiteRuns(), FIRST_METRIC_CHECK_ADOPTION_DELAY_MS)
+                    return () => clearTimeout(timeoutId)
+                }, 'adoptScheduledRun')
             },
             loadSuiteRunsFailure: ({ errorObject }) => {
                 if (isForbidden(errorObject)) {
