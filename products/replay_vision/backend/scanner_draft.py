@@ -1182,9 +1182,7 @@ def _goal_entity_matches(
     # but a scoped token still must hold cohort:read to receive them.
     if _scopes_allow_read(allowed_scopes, "cohort"):
         kinds.add("cohort")
-    # `search_entities` builds its result by unioning one queryset per kind, then orders by the rank
-    # those querysets annotate. With no kind it orders an empty base queryset by a column that was
-    # never added, which raises.
+    # No kind to search means no match to find, so skip the call rather than pay for it.
     if not kinds:
         return _GoalEntityMatches(surveys=[], actions=[], cohorts=[], experiments=[])
 
