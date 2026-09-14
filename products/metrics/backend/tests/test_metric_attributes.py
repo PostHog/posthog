@@ -91,6 +91,16 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
             {"name": "region", "series_count": 1},
         ]
 
+    def test_attributes_metric_name_limits_keys_to_that_metric(self):
+        response = self._get("attributes", {"metricName": "http_requests"})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"] == [
+            {"name": "env", "series_count": 2},
+            {"name": "service_name", "series_count": 2},
+            {"name": "k8s.pod.name", "series_count": 1},
+            {"name": "region", "series_count": 1},
+        ]
+
     def test_attribute_values_returns_values_with_aggregated_counts(self):
         response = self._get("attribute_values", {"key": "env"})
         assert response.status_code == status.HTTP_200_OK
