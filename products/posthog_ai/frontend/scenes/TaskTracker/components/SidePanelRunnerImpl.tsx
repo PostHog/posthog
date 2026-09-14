@@ -50,7 +50,10 @@ function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Ele
     // unlike the foreground stream above, the instruction must ride the FIRST send, before a run exists.
     useAttachedContext([AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM])
 
-    if (!activeCreation && historyExpanded) {
+    // `!composer`: a host that supplies its own composer offers no way into the history list, and the
+    // panel state is shared across hosts — so an expanded history left behind by another one must not
+    // take the place of that composer.
+    if (!activeCreation && historyExpanded && !composer) {
         return (
             <div className="flex flex-col h-full min-h-0">
                 <div className="flex items-center shrink-0 border-b border-primary px-2 py-1">

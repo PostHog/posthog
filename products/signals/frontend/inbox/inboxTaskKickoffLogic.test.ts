@@ -92,6 +92,18 @@ describe('inboxTaskKickoffLogic', () => {
                 expect(startedRuns).toHaveLength(1)
             }
         )
+
+        it('sends Back to the report composer even when the shared panel left history open', () => {
+            const panel = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID })
+            // The PostHog AI side panel shares this panel state, so its history can already be open.
+            panel.actions.setHistoryExpanded(true)
+
+            logic.actions.openReportTask(report, 'report-task', 'report-run')
+            panel.actions.goBack()
+
+            expect(panel.values.historyExpanded).toBe(false)
+            expect(panel.values.activeCreation).toBeNull()
+        })
     })
 
     describe('freeTrialDisabledReason', () => {
