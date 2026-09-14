@@ -181,6 +181,9 @@ class _InvestigationRunner:
         return self._finish_investigation()
 
     async def _finalize_after_tool_budget(self) -> InvestigationRunResult | None:
+        # _run_tool_calls answers every tool_use block before the loop re-reads the budget,
+        # so no tool call is in flight and a plain HumanMessage is valid here. The model API
+        # rejects a request that still holds an unanswered tool_use block.
         self.messages.append(
             HumanMessage(
                 content=(
@@ -209,6 +212,8 @@ class _InvestigationRunner:
             final_tool_calls = getattr(final, "tool_calls", None) or []
             report_args = _final_report_args(final_tool_calls)
             if report_args is None:
+                # Plain-text final answer. Stop the finalize retries so _finish_investigation
+                # parses the text with the JSON fallback.
                 return None
             self.report_args_history.append(report_args)
             try:
