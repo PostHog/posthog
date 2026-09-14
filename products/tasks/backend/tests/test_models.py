@@ -128,6 +128,29 @@ class TestTask(TestCase):
         self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_accepts_a_repository_list(self, mock_execute_workflow):
+        # Provisioning clones `repositories` and keys snapshot reuse on it, while older readers
+        # still take `repository`. A creation path that sets only one of them either clones
+        # nothing or clones only the first repo, so the two must always agree.
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Multi-repo run",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repositories=["PostHog/PostHog", "posthog/posthog-js"],
+            )
+
+        self.assertEqual(task.repositories, ["posthog/posthog", "posthog/posthog-js"])
+        self.assertEqual(task.repository, "posthog/posthog")
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        self.assertEqual(state["repositories"], ["posthog/posthog", "posthog/posthog-js"])
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_threads_github_read_access_into_state(self, mock_execute_workflow):
         from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
             TaskProcessingContext,
