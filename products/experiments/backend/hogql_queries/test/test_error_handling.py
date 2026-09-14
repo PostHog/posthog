@@ -6,6 +6,8 @@ from typing import cast
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from django.test import SimpleTestCase
+
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework.exceptions import ErrorDetail, ValidationError
@@ -13,7 +15,12 @@ from rest_framework.exceptions import ErrorDetail, ValidationError
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.errors import CHQueryErrorFunctionThrowIfValueIsNonZero, CHQueryErrorNotAnAggregate
+from posthog.errors import (
+    CHQueryErrorFunctionThrowIfValueIsNonZero,
+    CHQueryErrorNotAnAggregate,
+    QueryErrorCategory,
+    classify_query_error,
+)
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.experiments.backend.hogql_queries.error_handling import (
@@ -43,7 +50,7 @@ def _record_captures():
         yield captured
 
 
-class TestExperimentErrorHandling(BaseTest):
+class TestExperimentErrorHandling(SimpleTestCase):
     def test_get_user_friendly_message_for_memory_limit_exceeded(self):
         """Test that ClickHouseQueryMemoryLimitExceeded gets a user-friendly message."""
         error = ClickHouseQueryMemoryLimitExceeded()
@@ -170,6 +177,7 @@ class TestExperimentErrorHandling(BaseTest):
 
         detail_list = cast(list[ErrorDetail], context.exception.detail)
         self.assertIn("outside an aggregate", str(detail_list[0]))
+        self.assertEqual(classify_query_error(context.exception), QueryErrorCategory.USER_ERROR)
         mock_capture.assert_not_called()
 
     @patch("products.experiments.backend.hogql_queries.error_handling.capture_exception")
@@ -196,6 +204,7 @@ class TestExperimentErrorHandling(BaseTest):
 
         detail_list = cast(list[ErrorDetail], context.exception.detail)
         self.assertIn("Encountered a null value in stripe.customer_id", str(detail_list[0]))
+        self.assertEqual(classify_query_error(context.exception), QueryErrorCategory.USER_ERROR)
         mock_capture.assert_not_called()
 
     @patch("products.experiments.backend.hogql_queries.error_handling.capture_exception")

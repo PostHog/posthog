@@ -15,6 +15,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
+    UserQueryValidationError,
 )
 
 
@@ -242,7 +243,7 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
     ):
         return QueryErrorCategory.QUERY_PERFORMANCE_ERROR
 
-    if isinstance(e, ExposedHogQLError):
+    if isinstance(e, (ExposedHogQLError, UserQueryValidationError)):
         return QueryErrorCategory.USER_ERROR
 
     return QueryErrorCategory.ERROR

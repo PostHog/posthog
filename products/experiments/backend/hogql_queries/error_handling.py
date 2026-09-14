@@ -27,6 +27,7 @@ from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
+    UserQueryValidationError,
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import ph_scoped_capture
@@ -221,20 +222,14 @@ def _emit_runner_terminal_error_event(runner: Any, error: Exception) -> None:
     )
 
 
-def _metric_config_error(runner: Any, error: Exception, log_event: str, message: str) -> ValidationError:
-    """Turn a ClickHouse error that the metric's own query caused into an actionable
-    ValidationError. The blanket handler below never sees the error, so this decorator runs no
-    capture_exception on it, and classify_experiment_query_error maps the result to
-    validation_error, so the recalculation worker fails it permanently instead of retrying a query
-    that can only fail again. QueryRunner.run still captures the ValidationError at its own
-    boundary, because classify_query_error has no branch for a DRF ValidationError.
-    """
+def _metric_config_error(runner: Any, error: Exception, log_event: str, message: str) -> UserQueryValidationError:
+    """Preserve the user-error classification through the outer query runner's capture and SLO boundary."""
     logger.warning(
         log_event,
         experiment_id=getattr(runner, "experiment_id", None),
         error_message=str(error),
     )
-    user_error = ValidationError(message)
+    user_error = UserQueryValidationError(message)
     _emit_runner_terminal_error_event(runner, user_error)
     return user_error
 
