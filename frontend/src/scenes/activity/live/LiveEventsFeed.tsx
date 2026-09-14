@@ -10,6 +10,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -132,7 +133,13 @@ export function LiveEventsFeed({
                 <span className="text-lg font-title font-semibold leading-tight">Live events are not streaming</span>
                 <span className="text-secondary max-w-md">{streamError.message}</span>
                 {onRetry && !streamError.retrying && (
-                    <LemonButton type="secondary" size="small" onClick={onRetry} className="mt-2">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={onRetry}
+                        className="mt-2"
+                        data-attr="live-events-retry-stream"
+                    >
                         Try again
                     </LemonButton>
                 )}
@@ -151,21 +158,41 @@ export function LiveEventsFeed({
         )
 
     return (
-        <LemonTable
-            className={clsx('LiveEventsTable__table', className)}
-            columns={tableColumns}
-            data-attr="live-events-table"
-            rowKey="uuid"
-            // Each incoming batch re-keys the whole feed, so React removes and reorders row text on
-            // almost every streaming update. On a translated page each of those text nodes is a
-            // `<font>` wrapper React does not own, and the commit throws (react#11538). Rows hold
-            // event names, distinct IDs, URLs, and timestamps, so nothing here needs translation.
-            // The column headers stay outside the opt-out and stay translatable.
-            onRow={() => ({ translate: 'no' })}
-            dataSource={events}
-            useURLForSorting={false}
-            emptyState={emptyState ?? defaultEmptyState}
-            nouns={['event', 'events']}
-        />
+        <>
+            {/* The table shows `emptyState` only when it has no rows, so rows kept from before the
+                break would otherwise hide both the failure and the retry. */}
+            {streamError && !streamPaused && events.length > 0 && (
+                <LemonBanner
+                    type="warning"
+                    action={
+                        onRetry && !streamError.retrying
+                            ? {
+                                  children: 'Try again',
+                                  onClick: onRetry,
+                                  'data-attr': 'live-events-retry-stream',
+                              }
+                            : undefined
+                    }
+                >
+                    {streamError.message}
+                </LemonBanner>
+            )}
+            <LemonTable
+                className={clsx('LiveEventsTable__table', className)}
+                columns={tableColumns}
+                data-attr="live-events-table"
+                rowKey="uuid"
+                // Each incoming batch re-keys the whole feed, so React removes and reorders row text on
+                // almost every streaming update. On a translated page each of those text nodes is a
+                // `<font>` wrapper React does not own, and the commit throws (react#11538). Rows hold
+                // event names, distinct IDs, URLs, and timestamps, so nothing here needs translation.
+                // The column headers stay outside the opt-out and stay translatable.
+                onRow={() => ({ translate: 'no' })}
+                dataSource={events}
+                useURLForSorting={false}
+                emptyState={emptyState ?? defaultEmptyState}
+                nouns={['event', 'events']}
+            />
+        </>
     )
 }
