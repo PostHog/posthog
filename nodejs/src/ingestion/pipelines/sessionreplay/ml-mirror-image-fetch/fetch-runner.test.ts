@@ -719,6 +719,22 @@ describe('FetchRunner', () => {
         expect(attempt.history?.cache?.lastModified).toBeUndefined()
     })
 
+    it.each([
+        ['2023-11', undefined, Date.UTC(2023, 11, 9)],
+        ['2024-02', undefined, Date.UTC(2024, 2, 9)],
+        ['2023-11', 'max-age=60', NOW_MS + 60_000],
+        ['2023-11', 'max-age=99999999', Date.UTC(2023, 11, 9)],
+        ['2023-11', 'no-store', NOW_MS],
+    ])('expires month %s history with cache control %s', async (month, cacheControl, expiresAt) => {
+        const harness = build({ cache: { requestTimeMs: NOW_MS, responseTimeMs: NOW_MS, cacheControl } })
+        const [attempt] = await harness.runner.run(
+            [candidate({ originalRef: `imageurl:v2:7:1:${month}:${'a'.repeat(22)}` })],
+            new Map()
+        )
+        expect(attempt.history?.nextFetchAtMs).toBe(expiresAt)
+        expect(attempt.history?.storageExpiresAtMs).toBe(expiresAt)
+    })
+
     it('extends URL history to the end of explicit freshness', async () => {
         const fortyDaysMs = 40 * 24 * 60 * 60 * 1000
         const harness = build({
