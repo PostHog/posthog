@@ -79,8 +79,6 @@ tools:
                     - shortId
                     - notebook_short_id
         feature_flag: revamped-py-notebooks
-    # Hand-written in services/mcp/src/tools/notebooks/create.ts, because the tool builds the markdown
-    # document from `title` and `markdown`, which the REST create body cannot express.
     notebooks-create:
         operation: notebooks_create
         enabled: false
