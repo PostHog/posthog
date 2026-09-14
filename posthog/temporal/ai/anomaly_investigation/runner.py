@@ -64,6 +64,102 @@ class InvestigationRunResult:
     model: str
 
 
+def _result(report: InvestigationReport, tool_calls_used: int) -> InvestigationRunResult:
+    report.tool_calls_used = tool_calls_used
+    return InvestigationRunResult(report=report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
+
+
+def _validation_error_summary(err: ValidationError) -> str:
+    return "; ".join(f"{'.'.join(str(loc) for loc in detail['loc'])}: {detail['msg']}" for detail in err.errors()[:5])
+
+
+def _final_report_args(tool_calls: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for call in tool_calls:
+        if call.get("name") == FINAL_REPORT_TOOL_NAME:
+            return call.get("args") or {}
+    return None
+
+
+def _salvage_from_history(report_args_history: list[dict[str, Any]]) -> InvestigationReport | None:
+    for args in reversed(report_args_history):
+        report = salvage_report(args)
+        if report is not None:
+            return report
+    return None
+
+
+async def _finalize_after_tool_budget(
+    *,
+    llm_with_final_report: Any,
+    messages: list[Any],
+    config: RunnableConfig,
+    heartbeat: Callable[[], None] | None,
+    report_args_history: list[dict[str, Any]],
+    tool_calls_used: int,
+) -> InvestigationRunResult | None:
+    messages.append(
+        HumanMessage(
+            content=(
+                "Tool call budget exhausted. Submit the final InvestigationReport "
+                "now using whatever evidence you have. Pass hypotheses as a JSON "
+                "array of objects (title, rationale, evidence) and recommendations "
+                "as a JSON array of strings, never as serialized strings."
+            )
+        )
+    )
+    # Sonnet 5 can corrupt nested report fields on this final turn. Let it correct them once.
+    for finalize_attempt in range(2):
+        if heartbeat is not None:
+            heartbeat()
+        try:
+            final = await llm_with_final_report.ainvoke(messages, config=config)
+        except Exception as err:
+            logger.warning("anomaly_investigation.llm_finalize_error", extra={"error": str(err)})
+            report = _salvage_from_history(report_args_history) or _fallback_report(f"LLM finalize call failed: {err}")
+            return _result(report, tool_calls_used)
+        messages.append(final)
+        final_tool_calls = getattr(final, "tool_calls", None) or []
+        report_args = _final_report_args(final_tool_calls)
+        if report_args is None:
+            return None
+        report_args_history.append(report_args)
+        try:
+            return _result(InvestigationReport.model_validate(report_args), tool_calls_used)
+        except ValidationError as err:
+            error_summary = _validation_error_summary(err)
+            logger.warning(
+                "anomaly_investigation.report_validation_error",
+                extra={"error": error_summary, "finalize_attempt": finalize_attempt},
+            )
+            if finalize_attempt == 0:
+                _add_report_correction_messages(messages, final_tool_calls, error_summary)
+                continue
+    return None
+
+
+def _add_report_correction_messages(messages: list[Any], tool_calls: list[dict[str, Any]], error_summary: str) -> None:
+    for call in tool_calls:
+        messages.append(
+            ToolMessage(
+                content=(
+                    f"Report rejected: {error_summary}. Call {FINAL_REPORT_TOOL_NAME} again with corrected "
+                    "arguments: hypotheses must be a JSON array of objects with title, rationale and evidence "
+                    "keys; recommendations must be a JSON array of strings."
+                ),
+                tool_call_id=call.get("id") or call.get("tool_call_id") or "",
+            )
+        )
+
+
+def _fallback_report(reason: str) -> InvestigationReport:
+    return InvestigationReport(
+        verdict="inconclusive",
+        summary=reason,
+        hypotheses=[],
+        recommendations=["Review the insight manually — the agent could not produce a structured report."],
+    )
+
+
 async def run_investigation(
     *,
     team: Team,
@@ -196,72 +292,16 @@ async def run_investigation(
             heartbeat()
 
         if tool_calls_used >= MAX_TOOL_CALLS:
-            # Budget exhausted — no tool_use block in flight so we can send a plain
-            # HumanMessage rather than stubbing pending tool_result pairs.
-            messages.append(
-                HumanMessage(
-                    content=(
-                        "Tool call budget exhausted. Submit the final InvestigationReport "
-                        "now using whatever evidence you have. Pass hypotheses as a JSON "
-                        "array of objects (title, rationale, evidence) and recommendations "
-                        "as a JSON array of strings, never as serialized strings."
-                    )
-                )
+            result = await _finalize_after_tool_budget(
+                llm_with_final_report=llm_with_final_report,
+                messages=messages,
+                config=config,
+                heartbeat=heartbeat,
+                report_args_history=report_args_history,
+                tool_calls_used=tool_calls_used,
             )
-            # Production traces show this finalize turn is where Sonnet 5 mangles the
-            # report args (leaked text-tool-call syntax, flattened hypothesis fields), so
-            # give the model one corrective retry with the validation error before
-            # falling back to salvage.
-            for finalize_attempt in range(2):
-                if heartbeat is not None:
-                    heartbeat()
-                try:
-                    final = await llm_with_final_report.ainvoke(messages, config=config)
-                except Exception as err:
-                    # Swallow final-turn failures and return the best report we can rather
-                    # than bouncing off Temporal retries — MaxChatAnthropic already exhausted
-                    # its built-in retry budget, so another activity attempt is unlikely to help.
-                    logger.warning("anomaly_investigation.llm_finalize_error", extra={"error": str(err)})
-                    salvaged = _salvage_from_history(report_args_history) or _fallback_report(
-                        f"LLM finalize call failed: {err}"
-                    )
-                    salvaged.tool_calls_used = tool_calls_used
-                    return InvestigationRunResult(report=salvaged, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
-                messages.append(final)
-                final_tool_calls = getattr(final, "tool_calls", None) or []
-                report_args = _final_report_args(final_tool_calls)
-                if report_args is None:
-                    # Plain-text final answer; the text-JSON fallback below handles it.
-                    break
-                report_args_history.append(report_args)
-                try:
-                    forced_report = InvestigationReport.model_validate(report_args)
-                except ValidationError as err:
-                    error_summary = _validation_error_summary(err)
-                    logger.warning(
-                        "anomaly_investigation.report_validation_error",
-                        extra={"error": error_summary, "finalize_attempt": finalize_attempt},
-                    )
-                    if finalize_attempt == 0:
-                        # Answer every pending tool_use block or the retry request is
-                        # rejected by the API for dangling tool calls.
-                        for call in final_tool_calls:
-                            messages.append(
-                                ToolMessage(
-                                    content=(
-                                        f"Report rejected: {error_summary}. Call "
-                                        f"{FINAL_REPORT_TOOL_NAME} again with corrected "
-                                        "arguments: hypotheses must be a JSON array of "
-                                        "objects with title, rationale and evidence keys; "
-                                        "recommendations must be a JSON array of strings."
-                                    ),
-                                    tool_call_id=call.get("id") or call.get("tool_call_id") or "",
-                                )
-                            )
-                        continue
-                    break
-                forced_report.tool_calls_used = tool_calls_used
-                return InvestigationRunResult(report=forced_report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
+            if result is not None:
+                return result
             break
 
         try:
@@ -282,10 +322,7 @@ async def run_investigation(
             report_args_history.append(report_args)
             try:
                 structured_report = InvestigationReport.model_validate(report_args)
-                structured_report.tool_calls_used = tool_calls_used
-                return InvestigationRunResult(
-                    report=structured_report, tool_calls_used=tool_calls_used, model=AGENT_MODEL
-                )
+                return _result(structured_report, tool_calls_used)
             except ValidationError as err:
                 report_error = _validation_error_summary(err)
                 logger.warning("anomaly_investigation.report_validation_error", extra={"error": report_error})
@@ -345,8 +382,7 @@ async def run_investigation(
             if not text
             else "Agent final message was not valid InvestigationReport JSON."
         )
-    report.tool_calls_used = tool_calls_used
-    return InvestigationRunResult(report=report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
+    return _result(report, tool_calls_used)
 
 
 def _build_callbacks(*, team: Team, alert: AlertConfiguration | None) -> list[BaseCallbackHandler]:
@@ -371,21 +407,6 @@ def _build_callbacks(*, team: Team, alert: AlertConfiguration | None) -> list[Ba
     return callbacks
 
 
-def _final_report_args(tool_calls: list[dict[str, Any]]) -> dict[str, Any] | None:
-    for call in tool_calls:
-        if call.get("name") == FINAL_REPORT_TOOL_NAME:
-            return call.get("args") or {}
-    return None
-
-
-def _salvage_from_history(report_args_history: list[dict[str, Any]]) -> InvestigationReport | None:
-    for args in reversed(report_args_history):
-        report = salvage_report(args)
-        if report is not None:
-            return report
-    return None
-
-
 def _report_from_tool_calls(tool_calls: list[dict[str, Any]]) -> InvestigationReport | None:
     args = _final_report_args(tool_calls)
     if args is None:
@@ -394,10 +415,6 @@ def _report_from_tool_calls(tool_calls: list[dict[str, Any]]) -> InvestigationRe
         return InvestigationReport.model_validate(args)
     except ValidationError:
         return None
-
-
-def _validation_error_summary(err: ValidationError) -> str:
-    return "; ".join(f"{'.'.join(str(loc) for loc in detail['loc'])}: {detail['msg']}" for detail in err.errors()[:5])
 
 
 def _parse_report_text(content: Any) -> InvestigationReport | None:
@@ -443,12 +460,3 @@ def _stringify(content: Any) -> str:
                 chunks.append(item)
         return "".join(chunks)
     return str(content)
-
-
-def _fallback_report(reason: str) -> InvestigationReport:
-    return InvestigationReport(
-        verdict="inconclusive",
-        summary=reason,
-        hypotheses=[],
-        recommendations=["Review the insight manually — the agent could not produce a structured report."],
-    )
