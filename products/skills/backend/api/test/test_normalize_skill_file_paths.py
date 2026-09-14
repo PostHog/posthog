@@ -1,4 +1,5 @@
 from io import StringIO
+from uuid import UUID
 
 from posthog.test.base import BaseTest
 
@@ -11,28 +12,31 @@ from products.skills.backend.management.commands.normalize_skill_file_paths impo
 from products.skills.backend.marketplace.adapters import SkillBundle, build_skill_bundle
 from products.skills.backend.models import LLMSkill, LLMSkillFile
 
+ROW_A = UUID("0198f000-0000-7000-8000-00000000000a")
+ROW_B = UUID("0198f000-0000-7000-8000-00000000000b")
+
 
 class TestPlanSkillPaths(SimpleTestCase):
     @parameterized.expand(
         [
-            ("separator", [("a", "refs\\guide.md")], [("a", "refs\\guide.md", "refs/guide.md")], [], []),
-            ("already_canonical", [("a", "refs/guide.md")], [], [], []),
+            ("separator", [(ROW_A, "refs\\guide.md")], [(ROW_A, "refs\\guide.md", "refs/guide.md")], [], []),
+            ("already_canonical", [(ROW_A, "refs/guide.md")], [], [], []),
             (
                 "collision_with_stored_path",
-                [("a", "refs\\guide.md"), ("b", "refs/Guide.md")],
+                [(ROW_A, "refs\\guide.md"), (ROW_B, "refs/Guide.md")],
                 [],
                 [("refs\\guide.md", "refs/guide.md")],
                 [],
             ),
             (
                 "collision_between_rewrites",
-                [("a", "refs\\guide.md"), ("b", "Refs\\Guide.md")],
-                [("a", "refs\\guide.md", "refs/guide.md")],
+                [(ROW_A, "refs\\guide.md"), (ROW_B, "Refs\\Guide.md")],
+                [(ROW_A, "refs\\guide.md", "refs/guide.md")],
                 [("Refs\\Guide.md", "Refs/Guide.md")],
                 [],
             ),
-            ("trailing_slash", [("a", "refs/")], [], [], ["refs/"]),
-            ("absolute", [("a", "/refs/guide.md")], [], [], ["/refs/guide.md"]),
+            ("trailing_slash", [(ROW_A, "refs/")], [], [], ["refs/"]),
+            ("absolute", [(ROW_A, "/refs/guide.md")], [], [], ["/refs/guide.md"]),
         ]
     )
     def test_plan(self, _name, rows, rewrites, collisions, unfixable) -> None:

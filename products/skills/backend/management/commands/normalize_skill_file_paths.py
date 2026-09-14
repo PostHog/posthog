@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from itertools import groupby
+from uuid import UUID
 
 from django.core.management.base import BaseCommand
 
@@ -13,19 +14,19 @@ READ_CHUNK_SIZE = 1000
 
 @frozen
 class SkillPathPlan:
-    rewrites: list[tuple[str, str, str]]
+    rewrites: list[tuple[UUID, str, str]]
     collisions: list[tuple[str, str]]
     unfixable: list[tuple[str, str]]
 
 
-def plan_skill_paths(rows: list[tuple[str, str]]) -> SkillPathPlan:
+def plan_skill_paths(rows: list[tuple[UUID, str]]) -> SkillPathPlan:
     """Decide what to do with one skill's file rows, given `(row id, stored path)` pairs.
 
     A path that already normalizes to itself stays untouched. A path whose canonical form collides
     case-insensitively with another path of the same skill is reported, not rewritten: the two rows
     hold different content, so choosing a winner would silently drop one.
     """
-    rewrites: list[tuple[str, str, str]] = []
+    rewrites: list[tuple[UUID, str, str]] = []
     collisions: list[tuple[str, str]] = []
     unfixable: list[tuple[str, str]] = []
     # Seeded with every stored path, so the plan does not depend on the order the rows arrive in.
@@ -85,7 +86,7 @@ class Command(BaseCommand):
             self.style.SUCCESS(f"{verb} {rewritten} path(s); {collided} collision(s); {unfixable} unfixable path(s).")
         )
 
-    def _rows_by_skill(self, team_id: int | None) -> Iterator[tuple[str, list[tuple[str, str]]]]:
+    def _rows_by_skill(self, team_id: int | None) -> Iterator[tuple[UUID, list[tuple[UUID, str]]]]:
         """Stream `(skill id, rows)`, holding one skill's paths in memory at a time.
 
         Ordering by skill id makes the rows arrive grouped, so collision checking sees a whole
