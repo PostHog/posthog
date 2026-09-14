@@ -1,7 +1,7 @@
 import time
 import itertools
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -1143,40 +1143,49 @@ def _capturing_push(registry: CollectorRegistry) -> Iterator[CollectorRegistry]:
     yield registry
 
 
-def _publish(run: clickhouse_cleanup.CleanupRun) -> CollectorRegistry:
+def _publish(run: clickhouse_cleanup.CleanupRun) -> tuple[CollectorRegistry, list[str]]:
     registry = CollectorRegistry()
-    with patch.object(clickhouse_cleanup, "pushed_metrics_registry", lambda job: _capturing_push(registry)):
+    pushed_jobs: list[str] = []
+
+    def fake_push(job: str) -> AbstractContextManager[CollectorRegistry]:
+        pushed_jobs.append(job)
+        return _capturing_push(registry)
+
+    with patch.object(clickhouse_cleanup, "pushed_metrics_registry", fake_push):
         clickhouse_cleanup.publish_sweep_metrics(dagster.build_op_context(), run)
-    return registry
+    return registry, pushed_jobs
 
 
-def test_a_dry_run_publishes_no_metrics():
-    registry = _publish(_sweep_run(dry_run=True))
+def test_a_dry_run_publishes_no_metrics() -> None:
+    registry, pushed_jobs = _publish(_sweep_run(dry_run=True))
 
-    # Publishing would move the last-success gauge, hiding a sweep that has stopped working.
+    # The helper pushes with PUT, which replaces the whole job. Entering it with an empty
+    # registry would delete the last-success gauge, so not entering it at all is the assertion.
+    assert pushed_jobs == []
     assert list(registry.collect()) == []
 
 
-def test_publishes_every_measurement_the_run_took():
+def test_publishes_every_measurement_the_run_took() -> None:
     run = replace(
         _sweep_run(dry_run=False),
         persons_count=11,
         orphaned_count=22,
         revived_person_count=3,
         revived_distinct_id_count=4,
-        queued_for_postgres=11,
+        queued_for_postgres=7,
         mutation_seconds_max=1.5,
         stranded_runs_reaped=2,
     )
 
-    registry = _publish(run)
+    registry, pushed_jobs = _publish(run)
 
+    assert pushed_jobs == [clickhouse_cleanup.SWEEP_METRICS_JOB]
     prefix = "posthog_clickhouse_deletion_sweep_"
-    assert registry.get_sample_value(f"{prefix}backlog_deleted_persons") == 11
-    assert registry.get_sample_value(f"{prefix}backlog_orphaned_distinct_ids") == 22
+    assert registry.get_sample_value(f"{prefix}snapshot_deleted_persons") == 11
+    assert registry.get_sample_value(f"{prefix}snapshot_orphaned_distinct_ids") == 22
     assert registry.get_sample_value(f"{prefix}revived_persons") == 3
     assert registry.get_sample_value(f"{prefix}revived_distinct_ids") == 4
-    assert registry.get_sample_value(f"{prefix}queued_for_postgres") == 11
+    assert registry.get_sample_value(f"{prefix}queued_for_postgres") == 7
     assert registry.get_sample_value(f"{prefix}mutation_seconds_max") == 1.5
     assert registry.get_sample_value(f"{prefix}stranded_runs_reaped") == 2
     last_success = registry.get_sample_value(f"{prefix}last_success_timestamp_seconds")

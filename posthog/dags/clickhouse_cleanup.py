@@ -1254,13 +1254,13 @@ def _sweep_gauges(run: CleanupRun, completed_at: float) -> list[SweepGauge]:
             value=completed_at,
         ),
         SweepGauge(
-            name="posthog_clickhouse_deletion_sweep_backlog_deleted_persons",
-            help_text="Soft-deleted persons the run snapshotted, which is the backlog it found",
+            name="posthog_clickhouse_deletion_sweep_snapshot_deleted_persons",
+            help_text="Soft-deleted persons this run snapshotted. Saturates at the max_persons cap",
             value=run.persons_count,
         ),
         SweepGauge(
-            name="posthog_clickhouse_deletion_sweep_backlog_orphaned_distinct_ids",
-            help_text="Orphaned distinct id mappings the run snapshotted",
+            name="posthog_clickhouse_deletion_sweep_snapshot_orphaned_distinct_ids",
+            help_text="Orphaned distinct id mappings this run snapshotted, under the same cap",
             value=run.orphaned_count,
         ),
         SweepGauge(
