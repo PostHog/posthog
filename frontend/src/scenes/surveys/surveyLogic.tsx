@@ -3310,15 +3310,12 @@ export const surveyLogic = kea<surveyLogicType>([
                         question.branching?.type === SurveyQuestionBranchingType.ResponseBased &&
                         isObject(question.branching?.responseValues)
                     ) {
-                        // The responses the SDK can resolve for this question. It reads the
-                        // destination for the selected response only, so a key outside this list
-                        // is a rule no respondent can trigger.
+                        // The responses the SDK can select; a key outside this list routes nobody.
                         let responses: (string | number)[] = []
                         if (question.type === SurveyQuestionType.SingleChoice) {
                             responses = question.choices.map((_, choiceIndex) => choiceIndex)
                         } else if (isRatingSurveyQuestion(question)) {
-                            // Rating responses are keyed by the buckets the SDK derives from the
-                            // scale, so an unrecognized scale leaves every configured key in place.
+                            // The SDK keys rating responses by bucket. An unknown scale keeps every key.
                             if (question.scale === 2) {
                                 responses = ['positive', 'negative']
                             } else if (question.scale === 10) {
@@ -3329,8 +3326,6 @@ export const surveyLogic = kea<surveyLogicType>([
                         }
 
                         const { responseValues } = question.branching
-                        // Deleting a choice leaves its rule behind, so route only what a
-                        // respondent can select. Without a known response list, keep every key.
                         const destinations =
                             responses.length > 0
                                 ? responses.map((response) => responseValues[String(response)])
@@ -3341,14 +3336,10 @@ export const surveyLogic = kea<surveyLogicType>([
                             }
                         }
 
-                        // The SDK goes to the next question only when the selected response has
-                        // no destination of its own, so a question that routes every response
-                        // never reaches it. Adding the fall-through edge below would invent a path
-                        // no respondent can take, and report a cycle that cannot happen.
+                        // The SDK falls through to the next question only when the selected response
+                        // has no destination, so a question that routes every response never gets
+                        // there. An optional question is the exception, because a skip routes nowhere.
                         if (
-                            // A respondent can skip an optional question. The SDK finds no
-                            // destination for the empty response and goes to the next question,
-                            // so the fall-through edge stays reachable however the responses route.
                             !question.optional &&
                             responses.length > 0 &&
                             responses.every((response) => {

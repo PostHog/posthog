@@ -1269,10 +1269,7 @@ describe('set response-based survey branching', () => {
                     hasCycle: false,
                 })
 
-            // A price ladder: the last question steps back down to the cheaper one when the
-            // respondent says no. Every response is routed on all three, so none of them can
-            // fall through to the question after it, and the step down closes no loop. The
-            // rating question covers the scale buckets, which are keyed differently to choices.
+            // A price ladder that steps back to the cheaper question on a no, with every response routed.
             SURVEY.questions = [
                 {
                     type: SurveyQuestionType.SingleChoice,
@@ -1313,8 +1310,7 @@ describe('set response-based survey branching', () => {
                 },
             ]
             await expectLogic(logic, () => {
-                // A fresh object, because hasCycle memoizes on the survey it is given and the
-                // blocks above hand it the same mutated one.
+                // A fresh object, because hasCycle memoizes on the survey it is given.
                 logic.actions.loadSurveySuccess({ ...SURVEY })
             })
                 .toDispatchActions(['loadSurveySuccess'])
@@ -1322,9 +1318,7 @@ describe('set response-based survey branching', () => {
                     hasCycle: false,
                 })
 
-            // Deleting a choice leaves the rule that routed it behind. The SDK resolves a
-            // response against the choices that remain, so the stale key routes nobody and the
-            // step back to the first question is a path no respondent can take.
+            // The rule left by a deleted choice routes nobody, so its step back is unreachable.
             SURVEY.questions = [
                 {
                     type: SurveyQuestionType.SingleChoice,
@@ -1357,9 +1351,7 @@ describe('set response-based survey branching', () => {
                     hasCycle: false,
                 })
 
-            // The first question routes both of its choices, but it is optional. A respondent
-            // who skips it reaches the second question, which steps back to the first, so the
-            // loop is real even though no listed choice leads into it.
+            // The first question is optional, so a skip falls through into the second, which steps back.
             SURVEY.questions = [
                 {
                     type: SurveyQuestionType.SingleChoice,
