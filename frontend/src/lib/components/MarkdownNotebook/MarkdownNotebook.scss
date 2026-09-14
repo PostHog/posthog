@@ -1122,6 +1122,18 @@ h3.MarkdownNotebook__text-block--heading {
     border-radius: 0.1875rem;
 }
 
+.MarkdownNotebook__insert-item-badge {
+    flex: 0 0 auto;
+    padding: 0 0.25rem;
+    margin-left: auto;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.125rem;
+    color: var(--color-text-secondary);
+    background: var(--color-bg-fill-tertiary);
+    border-radius: 0.1875rem;
+}
+
 .MarkdownNotebook__insert-item:hover,
 .MarkdownNotebook__insert-item:focus-visible,
 .MarkdownNotebook__insert-item--selected {

@@ -3986,7 +3986,7 @@ async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_
     # cost. Each attempt re-executes the whole import activity, so we also shrink the retry budgets
     # to keep the test fast: cap resumable retries at 3 and make the non-retryable path give up after
     # 2 attempts. The contrast (3 retryable attempts vs 2 non-retryable attempts) is what proves the
-    # short-circuit; the prod caps (15 / 3) are just larger values of the same mechanism.
+    # short-circuit; the prod caps (20 / 3) are just larger values of the same mechanism.
     resumable_retry_cap = 3
     non_retryable_attempts = 2
 
