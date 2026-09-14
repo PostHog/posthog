@@ -87,17 +87,9 @@ class Command(BaseCommand):
                 partial += 1
 
             if live_run:
-                # Probing costs a network round trip per source, and the schema-discovery pass
-                # writes this same field, so re-read the row instead of merging into the snapshot
-                # this run started from and dropping whatever landed in between.
-                source.refresh_from_db(fields=["connection_metadata"])
-                # The field is an unconstrained JSONField, so a non-mapping value is replaced
-                # rather than unpacked, which would raise and end the survey.
-                existing = source.connection_metadata if isinstance(source.connection_metadata, dict) else {}
-                # Only connection_metadata is written, so `updated_at` keeps the time of the last
-                # real change to the source and a backfill does not read as a customer edit.
-                source.connection_metadata = {**existing, **metadata}
-                source.save(update_fields=["connection_metadata"])
+                # Probing costs a network round trip per source, so the merge re-reads the row
+                # under a lock rather than trusting the snapshot this run opened with.
+                source.merge_connection_metadata(metadata)
 
         self.stdout.write(f"probed {probed}, failed {failed}, below the pymongo 4.14 floor {below_floor}")
         if partial:

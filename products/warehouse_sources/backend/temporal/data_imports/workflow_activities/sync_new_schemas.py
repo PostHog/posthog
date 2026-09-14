@@ -121,13 +121,9 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             logger.warning("Could not read source server metadata", exc_info=True)
         else:
             if isinstance(server_metadata, dict) and server_metadata:
-                # Merge rather than replace, so the direct-query connection config that shares this
-                # field survives. The field is an unconstrained JSONField, so a non-mapping value is
-                # replaced rather than unpacked, which would raise and fail the pass. `updated_at`
-                # stays out so a probe does not read as a customer edit.
-                existing = source.connection_metadata if isinstance(source.connection_metadata, dict) else {}
-                source.connection_metadata = {**existing, **server_metadata}
-                source.save(update_fields=["connection_metadata"])
+                # `source` was read before schema discovery, which is a network call of its own, so
+                # the merge re-reads the row under a lock rather than trusting that snapshot.
+                source.merge_connection_metadata(server_metadata)
     else:
         raise ValueError(f"Source type missing from SourceRegistry: {source.source_type}")
 

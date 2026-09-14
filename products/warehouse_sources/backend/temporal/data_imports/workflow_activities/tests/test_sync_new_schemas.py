@@ -14,14 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 
-def _patch_common(source_mock, schemas_created=None, source_api_version=None, source_connection_metadata=None):
+def _patch_common(source_mock, schemas_created=None, source_api_version=None):
     """Patch DB + registry so the activity runs without a database or real source."""
     existing_source = mock.MagicMock(
-        source_type="GoogleAds",
-        job_inputs={"k": "v"},
-        deleted=False,
-        api_version=source_api_version,
-        connection_metadata={} if source_connection_metadata is None else source_connection_metadata,
+        source_type="GoogleAds", job_inputs={"k": "v"}, deleted=False, api_version=source_api_version
     )
     objects = mock.MagicMock()
     objects.filter.return_value.exclude.return_value.exists.return_value = True
@@ -42,13 +38,8 @@ def _patch_common(source_mock, schemas_created=None, source_api_version=None, so
     }
 
 
-def _run_activity(source_mock, schemas_created=None, source_api_version=None, source_connection_metadata=None):
-    patches = _patch_common(
-        source_mock,
-        schemas_created,
-        source_api_version=source_api_version,
-        source_connection_metadata=source_connection_metadata,
-    )
+def _run_activity(source_mock, schemas_created=None, source_api_version=None):
+    patches = _patch_common(source_mock, schemas_created, source_api_version=source_api_version)
     with contextlib.ExitStack() as stack:
         entered = {name: stack.enter_context(patcher) for name, patcher in patches.items()}
         sync_new_schemas_activity(SyncNewSchemasActivityInputs(source_id="src", team_id=1))
@@ -163,33 +154,19 @@ def test_auto_enable_not_called_when_nothing_created():
     mocks["auto_enable_new_schemas"].assert_not_called()
 
 
-@pytest.mark.parametrize(
-    "existing,expected",
-    [
-        (
-            {"database": "analytics", "wire_version": 21},
-            {"database": "analytics", "engine": "mongodb", "wire_version": 7},
-        ),
-        # connection_metadata is an unconstrained JSONField, so a non-mapping value has to be
-        # replaced. Unpacking one raises and fails a discovery pass that otherwise succeeded.
-        (["unexpected"], {"engine": "mongodb", "wire_version": 7}),
-    ],
-    ids=["merges_and_the_probed_key_wins", "replaces_a_non_mapping_value"],
-)
-def test_server_metadata_is_merged_onto_the_source(existing, expected):
-    # Assigning instead of merging would drop the other keys this field carries, such as the
-    # direct-query connection config. A freshly probed key still has to win on overlap.
+def test_probed_metadata_goes_through_the_locked_merge():
+    # `source` is read before schema discovery, which is itself a network call, so the write has to
+    # re-read the row. Assigning the field here would drop a write that landed in between.
     source_mock = mock.MagicMock()
     source_mock.parse_config.return_value = {}
     source_mock.get_schemas.return_value = []
     source_mock.get_server_metadata.return_value = {"engine": "mongodb", "wire_version": 7}
 
-    mocks = _run_activity(source_mock, source_connection_metadata=existing)
+    mocks = _run_activity(source_mock)
 
     source = mocks["objects"].get.return_value
-    assert source.connection_metadata == expected
-    # `updated_at` stays out so a probe does not read as a customer edit.
-    source.save.assert_called_once_with(update_fields=["connection_metadata"])
+    source.merge_connection_metadata.assert_called_once_with({"engine": "mongodb", "wire_version": 7})
+    source.save.assert_not_called()
 
 
 def test_failed_server_metadata_probe_leaves_discovery_successful():
@@ -203,4 +180,4 @@ def test_failed_server_metadata_probe_leaves_discovery_successful():
     mocks = _run_activity(source_mock)
 
     mocks["sync_old_schemas_with_new_schemas"].assert_called_once()
-    mocks["objects"].get.return_value.save.assert_not_called()
+    mocks["objects"].get.return_value.merge_connection_metadata.assert_not_called()
