@@ -98,8 +98,8 @@ describe('action.conditional_branch', () => {
                 action.config.delay_duration = '2h'
                 const result = await checkConditions(invocation, action)
                 expect(result).toEqual({
-                    // Should schedule for an hour from now
-                    scheduledAt: DateTime.utc().plus({ hours: 1 }),
+                    // A conditional_branch has no matcher coverage, so it keeps the ten-minute cap.
+                    scheduledAt: DateTime.utc().plus({ minutes: 10 }),
                 })
             })
 
@@ -451,6 +451,25 @@ describe('action.conditional_branch', () => {
             })
 
             expect(result.scheduledAt).toEqual(DateTime.utc().plus({ hours: 1 }))
+        })
+
+        it('keeps the ten-minute cap for a delayed conditional_branch, which the matcher never wakes', async () => {
+            // Every parked-job lookup in the subscription matcher is scoped to wait_until_condition, so
+            // a delayed branch has no wake at all and the re-check is the only thing that advances it.
+            // Sending it through the handler is what exercises the call site that picks the cap.
+            const branchAction = {
+                ...waitAction,
+                type: 'conditional_branch',
+                config: { conditions: [], delay_duration: '4h' },
+            } as unknown as typeof waitAction
+
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: branchAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 10 }))
         })
 
         it('parks a wait shorter than the backstop for its own duration', async () => {

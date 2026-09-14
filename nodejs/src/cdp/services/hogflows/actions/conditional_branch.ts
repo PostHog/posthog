@@ -10,7 +10,13 @@ import { findContinueAction, findNextAction, isEvaluableCondition } from '../hog
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
-const DEFAULT_WAIT_DURATION_SECONDS = 60 * 60
+// A parked conditional_branch has no matcher coverage: every parked-job lookup in the subscription
+// matcher is scoped to wait_until_condition, so this re-check is the only thing that advances a
+// delayed branch.
+const BRANCH_RECHECK_SECONDS = 10 * 60
+// A wait is woken by the matcher on a matching signal, so its re-check only has to reconcile a wake
+// lost between the condition being evaluated and the job being persisted.
+const WAIT_RECHECK_SECONDS = 60 * 60
 
 // Increments only when the periodic re-check advances a wait_until_condition that the subscription
 // matcher did NOT wake (and not an evaluate-on-entry match). It measures how often the backstop is
@@ -109,7 +115,8 @@ export class ConditionalBranchHandler implements ActionHandler {
         const conditionResult = await checkConditions(
             invocation,
             conditionalAction,
-            this.createMemberCohortIdsLoader(invocation)
+            this.createMemberCohortIdsLoader(invocation),
+            action.type === 'wait_until_condition' ? WAIT_RECHECK_SECONDS : BRANCH_RECHECK_SECONDS
         )
 
         const isWait = action.type === 'wait_until_condition'
@@ -183,7 +190,10 @@ function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
 export async function checkConditions(
     invocation: CyclotronJobInvocationHogFlow,
     action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
-    loadMemberCohortIds?: () => Promise<number[]>
+    loadMemberCohortIds?: () => Promise<number[]>,
+    // A wait is normalised into a conditional_branch before it gets here, so the caller decides which
+    // cap applies; the type on `action` can no longer tell the two apart.
+    recheckSeconds: number = BRANCH_RECHECK_SECONDS
 ): Promise<{
     scheduledAt?: DateTime
     nextAction?: HogFlowAction
@@ -218,14 +228,13 @@ export async function checkConditions(
     }
 
     if (action.config.delay_duration) {
-        // Re-park on the hourly cap. The matcher wakes the job early on a matching signal, so this
-        // re-check is a reconciliation backstop rather than the primary path: a wake arriving between
-        // this evaluation and the job being persisted finds no available row, is never replayed, and
-        // nothing else would recover the run before its maximum wait elapsed.
+        // Re-park on the cap for this step type. A wake arriving between this evaluation and the job
+        // being persisted finds no available row and is never replayed, so neither step type can rely
+        // on the matcher alone.
         const scheduledAt = calculatedScheduledAt(
             action.config.delay_duration,
             invocation.state.currentAction?.startedAtTimestamp,
-            DEFAULT_WAIT_DURATION_SECONDS
+            recheckSeconds
         )
 
         if (scheduledAt) {
