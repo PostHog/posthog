@@ -37,10 +37,33 @@ const PI_GENERATION_EVENTS = new Set([
     'tool_call_updated',
 ])
 
+// pi agent event shapes (byte-identical to ee/hogai/sandbox/types.py)
+const PI_EVENT_TYPE = 'pi_event'
+const PI_TURN_COMPLETED_TYPE = 'turn_completed'
+const PI_STOP_REASON_ERROR = 'error'
+
+function asPiTurnCompletedEvent(event: Record<string, unknown>): Record<string, unknown> | null {
+    if (event['type'] !== PI_EVENT_TYPE) {
+        return null
+    }
+    const piEvent = event['event']
+    if (typeof piEvent !== 'object' || piEvent === null) {
+        return null
+    }
+    const inner = piEvent as Record<string, unknown>
+    return inner['type'] === PI_TURN_COMPLETED_TYPE ? inner : null
+}
+
 // isTurnComplete mirrors ee/hogai/sandbox/types.py:is_turn_complete exactly.
-// Matches both the raw ACP prompt response (result.stopReason == "end_turn")
-// and the synthetic _posthog/turn_complete notification.
+// Matches the raw ACP prompt response (result.stopReason == "end_turn"), the synthetic
+// _posthog/turn_complete notification, and the pi-shaped turn_completed event.
+//
+// True for a pi turn that ended in a runtime error too — the turn is over either way. Check
+// isPiTurnError to tell the two apart before treating this as a successful completion.
 export function isTurnComplete(event: Record<string, unknown>): boolean {
+    if (event['type'] === PI_EVENT_TYPE) {
+        return asPiTurnCompletedEvent(event) !== null
+    }
     if (event['type'] !== ACP_NOTIFICATION_TYPE) {
         return false
     }
@@ -58,6 +81,14 @@ export function isTurnComplete(event: Record<string, unknown>): boolean {
         result !== null &&
         (result as Record<string, unknown>)['stopReason'] === STOP_REASON_END_TURN
     )
+}
+
+// isPiTurnError mirrors ee/hogai/sandbox/types.py:pi_turn_error exactly.
+// True when a pi turn_completed event reports a terminal runtime failure, so the caller
+// can route it to a failed run instead of a successful turn completion.
+export function isPiTurnError(event: Record<string, unknown>): boolean {
+    const piTurnCompleted = asPiTurnCompletedEvent(event)
+    return piTurnCompleted !== null && piTurnCompleted['stopReason'] === PI_STOP_REASON_ERROR
 }
 
 // isSessionUpdate mirrors event_ingest.py:_is_session_update exactly.
@@ -111,7 +142,7 @@ export function isAgentGenerationEvent(event: Record<string, unknown>): boolean 
 
 const CALLBACK_TIMEOUT_MS = 10_000
 const RETRY_DELAY_MS = 1000
-const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set(['awaiting_input'])
+const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set(['awaiting_input', 'turn_failed'])
 
 function fetchErrorCode(err: unknown): string | undefined {
     if (!(err instanceof Error)) {
@@ -227,7 +258,8 @@ async function releaseMilestoneClaim(
 // and mirrors event_ingest.py:_heartbeat_workflow_if_needed exactly.
 //
 // Decision tree:
-//  1. isTurnComplete  -> setAgentActive(false), fire awaiting_input callback, return.
+//  1. isTurnComplete  -> setAgentActive(false), fire awaiting_input callback (or turn_failed
+//                        for a pi runtime error), return.
 //  2. isSessionUpdate -> setAgentActive(true), set agentActive=true.
 //  3. else            -> agentActive = getAgentActive().
 //  4. if !agentActive -> return.
@@ -257,9 +289,15 @@ export async function heartbeatWorkflowIfNeeded(
 
     if (isTurnComplete(event)) {
         await redisStream.setAgentActive(false)
-        // Let Django decide whether the run is interactive; it will only
-        // dispatch the push notification for interactive mode runs.
-        fireCallback(runId, 'awaiting_input', false, taskId, teamId, originalToken, config)
+        if (isPiTurnError(event)) {
+            // A pi runtime error ends the turn but is not a successful completion —
+            // fail the run outright rather than reporting the turn as answered.
+            fireCallback(runId, 'turn_failed', false, taskId, teamId, originalToken, config)
+        } else {
+            // Let Django decide whether the run is interactive; it will only
+            // dispatch the push notification for interactive mode runs.
+            fireCallback(runId, 'awaiting_input', false, taskId, teamId, originalToken, config)
+        }
         return
     }
 

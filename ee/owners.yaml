@@ -14,6 +14,6 @@ rules:
     - match: '/support_sidebar_max/'
       owners: team-self-driving
     - match: '/surveys/'
-      owners: team-surveys
+      owners: conversations
     - match: '/tasks/subscriptions/'
       owners: team-analytics-platform
