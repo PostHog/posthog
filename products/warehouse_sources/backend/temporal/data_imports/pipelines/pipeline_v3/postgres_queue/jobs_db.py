@@ -391,9 +391,14 @@ def _stranded_candidate_runs_sql() -> str:
     Loader progress anywhere in a (team_id, schema_id) group spares every run
     in it. The loader serializes a group and claims its batches oldest-first,
     so a run queued behind a long sibling makes no progress of its own until
-    the sibling drains, however many hours that takes. A status write in the
-    group inside the stale window means the group is being drained and its
-    other runs are waiting their turn, not abandoned. The group lease cannot
+    the sibling drains, however many hours that takes. An active-state
+    transition in the group inside the stale window means the group is being
+    drained and its other runs are waiting their turn, not abandoned. Only
+    'executing', 'succeeded' and 'waiting_retry' count, as in
+    ``supersede_other_runs``: a 'failed' write is the reconcile sweep's own
+    output, and heartbeats refresh the status log but not ``state_changed_at``,
+    so a wedged-but-heartbeating loader cannot shield a group forever (its live
+    lease already protects it while it heartbeats). The group lease cannot
     stand in for this check: the loader releases it between claim windows, so
     a busy group is lease-less for an instant many times an hour. The probe
     runs once per group rather than once per run, because a genuinely stale
@@ -415,6 +420,7 @@ def _stranded_candidate_runs_sql() -> str:
                 SELECT 1 FROM {BATCH_TABLE} bp
                 WHERE bp.team_id = g.team_id AND bp.schema_id = g.schema_id
                   AND bp.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                  AND bp.latest_state IN ('executing', 'succeeded', 'waiting_retry')
                   AND bp.state_changed_at > now() - make_interval(secs => %(stale)s)
             )
         )

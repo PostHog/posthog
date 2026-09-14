@@ -1163,6 +1163,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":
+                if is_v3:
+                    # No final batch reached the queue, so the loader can never complete this job.
+                    # A COMPLETED write would release the pipeline lock and let the buffered run
+                    # extract the same table again on top of this run's still-queued batches.
+                    # Set before the buffer-one activity so a failure there cannot skip it.
+                    update_inputs.status = ExternalDataJob.Status.FAILED
+                    update_inputs.internal_error = str(e.cause)
+                    update_inputs.latest_error = WORKER_RESTART_ERROR_MESSAGE
                 # Check if this is a WorkerShuttingDownError - implement Buffer One retry
                 schedule_id = str(inputs.external_data_schema_id)
                 await workflow.execute_activity(
@@ -1171,13 +1179,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     start_to_close_timeout=dt.timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
-                if is_v3:
-                    # No final batch reached the queue, so the loader can never complete this job.
-                    # A COMPLETED write would release the pipeline lock and let the buffered run
-                    # extract the same table again on top of this run's still-queued batches.
-                    update_inputs.status = ExternalDataJob.Status.FAILED
-                    update_inputs.internal_error = str(e.cause)
-                    update_inputs.latest_error = WORKER_RESTART_ERROR_MESSAGE
             elif (
                 isinstance(e.cause, exceptions.ApplicationError)
                 and e.cause.type == "BillingLimitsWillBeReachedException"
