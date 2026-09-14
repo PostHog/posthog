@@ -28,7 +28,6 @@ export interface sharedMetricModalLogicValues {
     hasAnyCompatibleSharedMetrics: boolean
     isCreateMode: boolean
     isEditMode: boolean
-    isLoadingAllSharedMetrics: boolean
     isModalOpen: boolean
     loadedSharedMetrics: SharedMetric[]
     searchTerm: string
@@ -122,10 +121,6 @@ export interface sharedMetricModalLogicMeta {
         compatibleSharedMetrics: (loadedSharedMetrics: SharedMetric[]) => SharedMetric[]
         availableTags: (compatibleSharedMetrics: SharedMetric[]) => string[]
         displayedMetrics: (compatibleSharedMetrics: SharedMetric[], filterTags: string[]) => SharedMetric[]
-        isLoadingAllSharedMetrics: (
-            sharedMetricsResponseLoading: boolean,
-            sharedMetricsResponse: CountedPaginatedResponse<SharedMetric> | null
-        ) => boolean
         isCreateMode: (isEditMode: boolean) => boolean
     }
 }
@@ -298,12 +293,6 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                 filterTags.length === 0
                     ? compatibleSharedMetrics
                     : compatibleSharedMetrics.filter((metric) => metric.tags?.some((tag) => filterTags.includes(tag))),
-        ],
-        // True while the remaining pages are still being fetched in the background.
-        isLoadingAllSharedMetrics: [
-            (s) => [s.sharedMetricsResponseLoading, s.sharedMetricsResponse],
-            (sharedMetricsResponseLoading: boolean, response: CountedPaginatedResponse<SharedMetric> | null): boolean =>
-                sharedMetricsResponseLoading || !!response?.next,
         ],
         isCreateMode: [(s) => [s.isEditMode], (isEditMode: boolean) => !isEditMode],
     }),
