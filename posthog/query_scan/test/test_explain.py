@@ -103,6 +103,22 @@ class TestExplainParsing(SimpleTestCase):
                 1700000000,
                 1800000000,
             ),
+            # HogQL prints now() as now64 and date literals as toDateTime64, and ClickHouse prints a
+            # DateTime64 bound quoted, with a fractional part for now64.
+            (
+                "DateTime64 lower bound, as HogQL's now() renders",
+                "(timestamp in ['1788818422.100868', +Inf))",
+                ["timestamp"],
+                1788818422,
+                None,
+            ),
+            (
+                "DateTime64 range, as HogQL date literals render",
+                "and((timestamp in (-Inf, '1789344000')), (timestamp in ['1788739200', +Inf)))",
+                ["timestamp"],
+                1788739200,
+                1789344000,
+            ),
             ("no timestamp key", "true", [], None, None),
         ]
     )

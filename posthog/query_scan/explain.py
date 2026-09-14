@@ -21,8 +21,11 @@ _SKIP_TYPE = "Skip"
 _MERGE_TREE_READ = "ReadFromMergeTree"
 
 # ClickHouse prints each timestamp clause of the Min-Max condition as `timestamp in [A, +Inf)`,
-# `timestamp in (-Inf, B]` or `timestamp in [A, B]`, in unix seconds. A range with a start and an
-# end comes as two clauses under `and(...)`, the end first, so every clause is read.
+# `timestamp in (-Inf, B]` or `timestamp in [A, B]`, in unix seconds. A DateTime constant prints
+# bare, but a DateTime64 constant prints quoted and can carry a fractional part, as in
+# `['1788818422.100868', +Inf)`. HogQL prints now() as now64 and every date literal as toDateTime64,
+# so the quoted form is what every insight and SQL-editor query produces. A range with a start and
+# an end comes as two clauses under `and(...)`, the end first, so every clause is read.
 _BOUND_RE = re.compile(r"in\s*[\[\(]\s*([^,\[\(]+?)\s*,\s*([^\]\)]+?)\s*[\]\)]")
 
 
@@ -197,7 +200,7 @@ def _parse_timestamp_bounds(condition: str) -> TimestampBounds:
 
 
 def _bound_value(token: str) -> int | None:
-    token = token.strip()
+    token = token.strip().strip("'\"")
     if token.lstrip("+-").lower() == "inf":
         return None
     try:
