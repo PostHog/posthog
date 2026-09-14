@@ -167,6 +167,8 @@ pub struct EventDefinitionsBatch {
     pub names: Vec<String>,
     pub team_ids: Vec<i32>,
     pub project_ids: Vec<i64>,
+    // What the read filter compares against. The write binds a fresh timestamp instead.
+    pub last_seen_ats: Vec<DateTime<Utc>>,
 
     pub cached: Vec<Update>,
 }
@@ -179,6 +181,7 @@ impl EventDefinitionsBatch {
             names: Vec::with_capacity(batch_size),
             team_ids: Vec::with_capacity(batch_size),
             project_ids: Vec::with_capacity(batch_size),
+            last_seen_ats: Vec::with_capacity(batch_size),
             cached: Vec::with_capacity(batch_size),
         }
     }
@@ -188,6 +191,7 @@ impl EventDefinitionsBatch {
         self.names.push(ed.name.clone());
         self.team_ids.push(ed.team_id);
         self.project_ids.push(ed.project_id);
+        self.last_seen_ats.push(ed.last_seen_at);
 
         self.cached.push(Update::Event(ed));
     }
@@ -226,15 +230,20 @@ impl EventDefinitionsBatch {
             "project_id" => self.project_ids.iter().map(|id| *id != value).collect(),
             _ => return 0,
         };
+        self.retain_rows(&keep)
+    }
+
+    pub fn retain_rows(&mut self, keep: &[bool]) -> usize {
         let removed = keep.iter().filter(|k| !**k).count();
         if removed == 0 {
             return 0;
         }
-        retain_by_mask(&mut self.ids, &keep);
-        retain_by_mask(&mut self.names, &keep);
-        retain_by_mask(&mut self.team_ids, &keep);
-        retain_by_mask(&mut self.project_ids, &keep);
-        retain_by_mask(&mut self.cached, &keep);
+        retain_by_mask(&mut self.ids, keep);
+        retain_by_mask(&mut self.names, keep);
+        retain_by_mask(&mut self.team_ids, keep);
+        retain_by_mask(&mut self.project_ids, keep);
+        retain_by_mask(&mut self.last_seen_ats, keep);
+        retain_by_mask(&mut self.cached, keep);
         removed
     }
 }
@@ -430,9 +439,21 @@ pub async fn process_batch(
                 if event_defs.should_flush_batch() {
                     let pool = pool.clone();
                     let cache = cache.clone();
-                    let outbound = event_defs;
+                    let mut outbound = event_defs;
                     event_defs = EventDefinitionsBatch::new(config.write_batch_size);
+                    let read_pool = read_pool.clone();
                     handles.push(tokio::spawn(async move {
+                        if let Some(rp) = &read_pool {
+                            crate::read_filter::filter_event_definitions(
+                                rp,
+                                &mut outbound,
+                                read_budget,
+                            )
+                            .await;
+                        }
+                        if outbound.is_empty() {
+                            return Ok(());
+                        }
                         write_event_definitions_batch(cache, outbound, &pool).await
                     }));
                 }
@@ -493,7 +514,16 @@ pub async fn process_batch(
     if !event_defs.is_empty() {
         let pool = pool.clone();
         let cache = cache.clone();
+        let read_pool = read_pool.clone();
         handles.push(tokio::spawn(async move {
+            let mut event_defs = event_defs;
+            if let Some(rp) = &read_pool {
+                crate::read_filter::filter_event_definitions(rp, &mut event_defs, read_budget)
+                    .await;
+            }
+            if event_defs.is_empty() {
+                return Ok(());
+            }
             write_event_definitions_batch(cache, event_defs, &pool).await
         }));
     }
