@@ -14,6 +14,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team, User
+from posthog.security.pinned_requests import SSRFBlockedError
 
 from products.mcp_store.backend.models import (
     MCPAuditEvent,
@@ -334,6 +335,12 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         [
             ("connect_error", httpx.ConnectError("Connection refused"), 502, "Upstream MCP server unreachable"),
             ("timeout", httpx.TimeoutException("Timed out"), 502, "Upstream MCP server timed out"),
+            (
+                "ssrf_blocked_at_connect",
+                SSRFBlockedError("Disallowed target IP: 127.0.0.1"),
+                400,
+                "URL not allowed: Disallowed target IP: 127.0.0.1",
+            ),
         ]
     )
     @patch("products.mcp_store.backend.proxy.httpx.Client")

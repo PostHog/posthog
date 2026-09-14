@@ -11,6 +11,7 @@ import httpx
 import structlog
 
 from posthog.api.streaming import sse_streaming_response
+from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
@@ -18,6 +19,7 @@ from ee.hogai.utils.asgi import SyncIterableToAsync
 
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
+from .pinned_transport import ValidatingPinnedTransport
 from .policy import GatewayCaller, PolicyContext
 from .url_policy import check_mcp_url_policy, trust_environment_proxy
 
@@ -532,9 +534,14 @@ def proxy_mcp_request(
     if mcp_session_id:
         headers["Mcp-Session-Id"] = mcp_session_id
 
+    # The transport validates each request URL and pins the connection to the
+    # validated IP at connect time, closing the DNS-rebinding window between
+    # check_mcp_url_policy above and this connection (the same guarantee
+    # PinnedIPAdapter gives the requests-based callers).
     client = httpx.Client(
         timeout=UPSTREAM_TIMEOUT,
         trust_env=trust_environment_proxy(installation.url, installation.team_id),
+        transport=ValidatingPinnedTransport(installation.url, installation.team_id),
     )
     try:
         upstream_response, upstream_url = send_mcp_request_with_same_origin_redirect(
@@ -544,6 +551,14 @@ def proxy_mcp_request(
             content=body,
             headers=headers,
             stream=True,
+        )
+    except SSRFBlockedError as exc:
+        client.close()
+        logger.warning("SSRF: blocked proxy request at connect time", url=installation.url, reason=str(exc))
+        return HttpResponse(
+            json.dumps({"error": f"URL not allowed: {exc}"}),
+            content_type="application/json",
+            status=400,
         )
     except httpx.ConnectError:
         client.close()
