@@ -325,11 +325,19 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
 
         const contextMenuContent = itemContextMenu?.(item)
 
+        // Only a string is a real destination. `record.href` is also allowed to be a resolver
+        // function, which can never become an href, and an unreachable row must not render an anchor.
+        const itemHref =
+            item.disabledReason || isEmptyFolder || typeof item.record?.href !== 'string' ? undefined : item.record.href
+
         const linkEl = (
             <Link
                 data-id={item.id}
                 data-attr={`menu-item-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
-                to={item.disabledReason || isEmptyFolder ? '#' : item.record?.href || '#'}
+                // No destination means no anchor: `Link` renders a plain button, so a row that only
+                // expands a folder or runs a click handler stops advertising a link to nowhere.
+                to={itemHref}
+                skipTooltipWrapper
                 onClick={(e) => {
                     if (item.disabledReason) {
                         e.preventDefault()

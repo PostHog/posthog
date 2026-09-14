@@ -4,8 +4,8 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
-import { IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonBanner, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { IconExpand45, IconPin, IconPinFilled } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { execHog } from 'lib/hog'
@@ -22,6 +22,7 @@ import { renderColumnMeta } from '../../DataTable/renderColumnMeta'
 import { getContrastingTextClass } from '../colorUtils'
 import { TableDataCell, convertTableValue, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { ColumnScalar } from '../types'
+import { RowDetailsModal } from './RowDetailsModal'
 
 interface TableProps {
     query: DataVisualizationNode
@@ -32,6 +33,8 @@ interface TableProps {
 }
 
 export const DEFAULT_PAGE_SIZE = 500
+
+const DETAILS_COLUMN_KEY = '__details'
 
 function formatColumnTitle(title: string): React.ReactNode {
     const parts = title.split(/([_-])/)
@@ -168,6 +171,8 @@ export const Table = (props: TableProps): JSX.Element => {
         hasMoreData,
     } = useValues(dataVisualizationLogic)
     const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
+
+    const [detailsRow, setDetailsRow] = useState<TableDataCell<any>[] | null>(null)
 
     const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))
 
@@ -334,6 +339,33 @@ export const Table = (props: TableProps): JSX.Element => {
         }
     )
 
+    // A cell only truncates its value, so a long one (a record id, a JSON blob) has nowhere to go.
+    // The SQL editor's results grid opens the same row in a detail modal, so offer that here too.
+    // Transposing turns rows into the original columns, which makes a per-row detail meaningless.
+    const showRowDetails = !isTransposed && tabularColumns.length > 0
+    const detailsColumn: LemonTableColumn<TableDataCell<any>[], any> = {
+        key: DETAILS_COLUMN_KEY,
+        title: '',
+        width: '2rem',
+        render: (_, data) => (
+            <LemonButton
+                size="xsmall"
+                icon={<IconExpand45 />}
+                onClick={() => setDetailsRow(data)}
+                tooltip="Show row details"
+                aria-label="Show row details"
+            />
+        ),
+    }
+    const columnsWithDetails = showRowDetails ? [detailsColumn, ...tableColumns] : tableColumns
+    const pinnedColumnKeys = showRowDetails ? [DETAILS_COLUMN_KEY, ...pinnedColumns] : pinnedColumns
+    // The modal lists the labels the table shows, so only a rendered string is usable as one.
+    const detailsRowColumnLabels = (): string[] =>
+        tabularColumns.map(({ column, settings }) => {
+            const label = getDisplayedColumnTitle(column.name, settings?.display?.label, props.query, props.context)
+            return typeof label === 'string' ? label : column.name
+        })
+
     return (
         <>
             {hasSortedTable && hasMoreData && (
@@ -344,8 +376,8 @@ export const Table = (props: TableProps): JSX.Element => {
             <LemonTable
                 className="DataVisualizationTable"
                 dataSource={tabularData}
-                columns={tableColumns}
-                pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
+                columns={columnsWithDetails}
+                pinnedColumns={isPinningEnabled ? pinnedColumnKeys : undefined}
                 loading={responseLoading}
                 useURLForSorting={false}
                 onSort={(newSorting) => {
@@ -380,6 +412,14 @@ export const Table = (props: TableProps): JSX.Element => {
                 rowClassName="DataVizRow"
                 embedded={props.embedded}
                 allowContentScroll={!!props.embedded}
+            />
+            {/* The modal shows the value the table cell renders. `cell.value` is converted for sorting and
+                conditional formatting, so it holds epoch seconds for a date or datetime column. */}
+            <RowDetailsModal
+                isOpen={!!detailsRow}
+                onClose={() => setDetailsRow(null)}
+                columns={detailsRow ? detailsRowColumnLabels() : []}
+                values={detailsRow?.map((cell) => cell.formattedValue) ?? null}
             />
         </>
     )
