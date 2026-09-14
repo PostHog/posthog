@@ -17,7 +17,11 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ParsingError
+from posthog.hogql.errors import (
+    ParsingError,
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
+)
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -34,6 +38,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseError,
     get_client as get_clickhouse_client,
 )
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.incremental_write import (
@@ -292,6 +297,15 @@ class InvalidNodeTypeException(Exception):
     """Exception raised when attempting to materialize an invalid node type."""
 
     pass
+
+
+class ModelQueryError(NonReportableError):
+    """The model's own query is invalid, so only its owner can fix it.
+
+    Carries the message of the HogQL error it replaces. The marker keeps the failure out of error
+    tracking: a scheduled model naming a table or column its upstream no longer has fails
+    identically on every run, and the owner already sees it in data modeling health.
+    """
 
 
 @dataclasses.dataclass
@@ -1074,6 +1088,15 @@ async def clear_cdp_staging_activity(inputs: ClearCDPStagingInputs) -> None:
 @activity.defn
 async def materialize_view_activity(inputs: MaterializeViewInputs) -> MaterializeViewResult:
     """Materialize a view by executing its query and writing to delta lake."""
+    try:
+        return await _materialize_view(inputs)
+    except (QueryError, HogQLSyntaxError) as err:
+        # The wider ExposedHogQLError is deliberately left out: the direct SQL adapters raise the
+        # bare base class for failures PostHog owns, such as an unavailable managed warehouse.
+        raise ModelQueryError(str(err)) from err
+
+
+async def _materialize_view(inputs: MaterializeViewInputs) -> MaterializeViewResult:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
