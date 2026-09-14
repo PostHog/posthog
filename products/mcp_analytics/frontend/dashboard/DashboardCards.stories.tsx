@@ -304,6 +304,13 @@ export const ShareByModel: Story = {
 }
 
 export const ShareByModelExpandedNarrow: Story = {
+    play: ({ canvasElement }): void => {
+        const button = canvasElement.querySelector<HTMLButtonElement>('[data-attr="mcp-dashboard-show-all-models"]')
+        if (!button) {
+            throw new Error('Show all models button is missing')
+        }
+        button.click()
+    },
     decorators: [modelPagesDecorator],
     render: () => (
         <div className="w-80">

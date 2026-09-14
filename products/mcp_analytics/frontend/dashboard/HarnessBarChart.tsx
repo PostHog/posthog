@@ -93,6 +93,7 @@ export function HarnessBarChart({
     const config = useChartConfig<BarChartConfig>(
         () => ({
             axisOrientation: 'horizontal',
+            barLayout: 'grouped',
             hideXAxis: true,
             hideYAxis: true,
             showGrid: false,
@@ -100,13 +101,20 @@ export function HarnessBarChart({
             showTickMarks: false,
             margins: { left: 0, right: 0, top: 20, bottom: 0 },
             barCornerRadius: 4,
-            bars: { bandPadding: 0.65, maxBandRange: rows.length * 40, minBarSize: 6, minBarSizeScope: 'hover' },
+            bars: {
+                bandPadding: 0.65,
+                maxBandRange: rows.length * 40,
+                valueDomain: { min: 0, max: totalCalls || 1 },
+                track: true,
+                minBarSize: 6,
+                minBarSizeScope: 'hover',
+            },
         }),
-        [rows.length]
+        [rows.length, totalCalls]
     )
 
     return (
-        <Card className="flex flex-1 flex-col" title="Share of calls by harness">
+        <Card className="flex min-w-0 flex-1 flex-col" title="Share of calls by harness">
             <CardState
                 loading={loading}
                 isEmpty={rows.length === 0}

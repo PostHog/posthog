@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
 import {
     BarChart,
     type BarChartConfig,
@@ -14,6 +13,7 @@ import {
 import { useChartConfig } from 'lib/charts/hooks'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
@@ -109,6 +109,7 @@ export function ModelBarChart({
     const config = useChartConfig<BarChartConfig>(
         () => ({
             axisOrientation: 'horizontal',
+            barLayout: 'grouped',
             hideXAxis: true,
             hideYAxis: true,
             showGrid: false,
@@ -116,15 +117,25 @@ export function ModelBarChart({
             showTickMarks: false,
             margins: { left: 0, right: 0, top: 20, bottom: 0 },
             barCornerRadius: 4,
-            bars: { bandPadding: 0.65, maxBandRange: sortedRows.length * 40 },
+            bars: {
+                bandPadding: 0.65,
+                maxBandRange: sortedRows.length * 40,
+                valueDomain: { min: 0, max: totalCalls || 1 },
+                track: true,
+                minBarSize: 6,
+                minBarSizeScope: 'hover',
+            },
         }),
-        [sortedRows.length]
+        [sortedRows.length, totalCalls]
     )
 
     return (
-        <LemonCard className="flex min-w-0 flex-1 flex-col p-0 overflow-hidden" hoverEffect={false}>
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-                <h3 className="mb-0 text-sm font-semibold">Share of calls by model</h3>
+        <LemonCard
+            className="flex min-w-0 flex-1 flex-col overflow-hidden bg-surface-secondary p-0"
+            hoverEffect={false}
+        >
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3">
+                <h3 className="mb-0 text-sm font-medium">Share of calls by model</h3>
                 <LemonButton
                     type="tertiary"
                     size="xsmall"
@@ -133,12 +144,41 @@ export function ModelBarChart({
                     Explore models
                 </LemonButton>
             </div>
-            <div className="flex flex-col gap-4 p-4">
-                <div className="flex flex-col gap-2">
-                    <div className="flex flex-wrap justify-between gap-1 text-xs">
-                        <span className="font-medium">Model coverage</span>
-                        <span className="text-secondary tabular-nums">{formatNumber(totalCalls)} calls</span>
+            <div className="flex flex-col gap-3 p-3">
+                <div>
+                    <div className="text-xs text-secondary" translate="no">
+                        {formatNumber(totalCalls)} {totalCalls === 1 ? 'call' : 'calls'}
                     </div>
+                    {sortedRows.length > 0 ? (
+                        <div
+                            className="h-80 overflow-y-auto"
+                            translate="no"
+                            tabIndex={0}
+                            role="region"
+                            aria-label="Calls by model"
+                        >
+                            <div className="flex min-h-80 flex-col" style={{ height: sortedRows.length * 40 + 20 }}>
+                                <BarChart
+                                    series={series}
+                                    labels={labels}
+                                    theme={theme}
+                                    config={config}
+                                    tooltip={renderTooltip}
+                                >
+                                    <ModelBarLabels rows={sortedRows} totalCalls={totalCalls} />
+                                </BarChart>
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="mb-0 text-xs text-secondary">
+                            {totalCalls > 0
+                                ? 'No model identifiers were captured for these calls.'
+                                : 'No calls in this period.'}
+                        </p>
+                    )}
+                </div>
+                <div className="flex flex-col gap-2 border-t pt-3">
+                    <span className="text-xs font-medium">Model coverage</span>
                     <LemonProgress
                         percent={identifiedShare}
                         smoothing={false}
@@ -159,28 +199,6 @@ export function ModelBarChart({
                         </span>
                     </div>
                 </div>
-                {sortedRows.length > 0 ? (
-                    <div>
-                        <div className="mb-2 text-xs text-secondary">Reported models · % of all calls</div>
-                        <div className="flex flex-col" style={{ height: sortedRows.length * 40 + 20 }} translate="no">
-                            <BarChart
-                                series={series}
-                                labels={labels}
-                                theme={theme}
-                                config={config}
-                                tooltip={renderTooltip}
-                            >
-                                <ModelBarLabels rows={sortedRows} totalCalls={totalCalls} />
-                            </BarChart>
-                        </div>
-                    </div>
-                ) : (
-                    <p className="mb-0 text-xs text-secondary">
-                        {totalCalls > 0
-                            ? 'No model identifiers were captured for these calls.'
-                            : 'No calls in this period.'}
-                    </p>
-                )}
                 <p className="mb-0 text-xs text-secondary">
                     {sortedRows.some((row) => row.model === 'Other')
                         ? 'Other models includes identified models outside the top six. '
@@ -193,15 +211,16 @@ export function ModelBarChart({
                         size="small"
                         fullWidth
                         center
-                        icon={<IconChevronDown className={expanded ? 'rotate-180' : undefined} />}
                         loading={modelPageLoading}
-                        aria-expanded={expanded}
-                        onClick={() => setExpanded(!expanded)}
+                        data-attr="mcp-dashboard-show-all-models"
+                        onClick={() => setExpanded(true)}
                     >
-                        {expanded ? 'Show fewer models' : 'Show all models'}
+                        Show all models
                     </LemonButton>
                 ) : null}
-                {expanded ? <ModelBreakdownTable filters={filters} totalCalls={totalCalls} /> : null}
+                <LemonModal title="All models" isOpen={expanded} onClose={() => setExpanded(false)} width={640}>
+                    <ModelBreakdownTable filters={filters} totalCalls={totalCalls} />
+                </LemonModal>
             </div>
         </LemonCard>
     )
