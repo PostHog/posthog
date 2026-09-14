@@ -410,6 +410,17 @@ def get_rows(
             )
             served_same_page = page_identity == previous_page_identity
             previous_page_identity = page_identity
+            if served_same_page:
+                # The guard ends the walk here, so the table can come out short while the
+                # sync reports success. A warning rather than a raise, because the repeat
+                # also happens on a complete walk: a server that clamps an out-of-range
+                # page to the last page repeats that page whenever rows were deleted
+                # mid-walk, and failing the sync there would lose a table that is correct.
+                logger.warning(
+                    f"Decagon: {endpoint} served page {page} with the same rows as the page before it, so the "
+                    f"walk ended after {rows_walked} kept rows (reported total: {total}). If the synced row "
+                    f"count looks truncated, check the export pagination contract."
+                )
             if isinstance(total, int | float):
                 exhausted = not items or served_same_page or rows_walked >= total
             else:
