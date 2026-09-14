@@ -103,12 +103,6 @@ export interface liveEventsLogicActions {
     resumeStream: () => {
         value: true
     }
-    streamConnected: () => {
-        value: true
-    }
-    streamErrored: (error: LiveStreamError) => {
-        error: LiveStreamError
-    }
     setClientSideFilters: (clientSideFilters: Record<string, any>) => {
         clientSideFilters: Record<string, any>
     }
@@ -117,6 +111,12 @@ export interface liveEventsLogicActions {
             eventType?: string | null | undefined
             properties?: AnyPropertyFilter[] | undefined
         }
+    }
+    streamConnected: () => {
+        value: true
+    }
+    streamErrored: (error: LiveStreamError) => {
+        error: LiveStreamError
     }
     updateEventsConnection: () => {
         value: true
@@ -134,7 +134,7 @@ export interface liveEventsLogicMeta {
 export type liveEventsLogicType = MakeLogicType<
     liveEventsLogicValues,
     liveEventsLogicActions,
-    Record<string, never>,
+    Record<string, any>,
     liveEventsLogicMeta
 >
 

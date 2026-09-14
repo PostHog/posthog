@@ -13,9 +13,6 @@ export default meta
 
 const Template: StoryFn<typeof LiveEventsFeed> = (props: LiveEventsFeedProps) => <LiveEventsFeed {...props} />
 
-export const WaitingForEvents = Template.bind({})
-WaitingForEvents.args = { events: [] }
-
 export const StreamPaused = Template.bind({})
 StreamPaused.args = { events: [], streamPaused: true }
 
