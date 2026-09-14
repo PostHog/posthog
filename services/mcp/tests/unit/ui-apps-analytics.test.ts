@@ -69,15 +69,15 @@ describe('ui-apps posthog analytics', () => {
         expect(analyticsMockState.instances).toHaveLength(0)
     })
 
-    it('keeps the app rendering when register throws (regression)', async () => {
+    it('keeps a working client when register throws (regression)', async () => {
         analyticsMockState.registerThrows = true
         const { initPostHog, captureAppConnected } = await loadAnalytics()
 
-        // The client exists, but the failed register must reset it, so no
-        // event reaches the half-initialized client.
+        // A failed register loses only the two register properties. The client
+        // still works, so the app keeps its events.
         expect(() => initPostHog('app', '1.0.0')).not.toThrow()
         expect(() => captureAppConnected()).not.toThrow()
         expect(analyticsMockState.instances).toHaveLength(1)
-        expect(analyticsMockState.instances[0]?.captures).toHaveLength(0)
+        expect(analyticsMockState.instances[0]?.captures).toContain('mcp_ui_app_connected')
     })
 })
