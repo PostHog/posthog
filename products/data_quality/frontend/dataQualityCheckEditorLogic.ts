@@ -6,6 +6,7 @@ import { loaders } from 'kea-loaders'
 import { ApiError } from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { performQuery } from '~/queries/query'
@@ -25,6 +26,8 @@ import type { DataQualityCheckApi, DataQualityCheckTypeApi } from './generated/a
 import { CheckTypeEnumApi, DataQualityCheckSeverityEnumApi, SubjectTypeEnumApi } from './generated/api.schemas'
 
 const CHECK_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/
+
+export const METRIC_CHECK_QUERY_TEMPLATE = 'SELECT *\nFROM {metric}\nWHERE <failure condition>'
 
 /** Stable code the API returns when another active check already asserts the same thing. */
 const DUPLICATE_DEFINITION_CODE = 'duplicate_definition'
@@ -138,9 +141,26 @@ export function checkCreatePayload(form: CheckFormValues, requiresColumn: boolea
     }
 }
 
-export function checkEditPayload(form: CheckFormValues, requiresColumn: boolean): CheckEditPayload {
+/** Whether the form asserts something other than what the stored check already asserts. */
+function assertionChanged(definition: CheckDefinitionPayload, check: DataQualityCheckApi): boolean {
+    return (
+        definition.check_type !== check.check_type ||
+        definition.column_name !== (check.column_name ?? '') ||
+        !objectsEqual(definition.config, check.config ?? {})
+    )
+}
+
+export function checkEditPayload(
+    form: CheckFormValues,
+    requiresColumn: boolean,
+    editingCheck: DataQualityCheckApi
+): CheckEditPayload {
+    const definition = definitionPayload(form, requiresColumn)
     return {
-        ...definitionPayload(form, requiresColumn),
+        // The backend revalidates the definition whenever the request carries one, and a subject that
+        // stopped supporting its check fails that. Send it only when the assertion actually changed,
+        // so renaming a check or lowering its severity stays possible.
+        ...(assertionChanged(definition, editingCheck) ? definition : {}),
         severity: form.severity,
         // Sent even when blank, unlike create: an edit is how metadata gets cleared.
         name: form.name,
@@ -263,6 +283,7 @@ export interface dataQualityCheckEditorLogicValues {
     editingCheck: DataQualityCheckApi | null
     isCheckFormSubmitting: boolean
     isCheckFormValid: boolean
+    isMetricSubject: boolean
     isOpen: boolean
     needsWarehouseCatalog: boolean
     openedWithoutSubject: boolean
@@ -291,7 +312,9 @@ export interface dataQualityCheckEditorLogicActions {
     closeEditor: () => {
         value: true
     }
-    loadCheckTypes: () => any
+    loadCheckTypes: () => {
+        value: true
+    }
     loadCheckTypesFailure: (
         error: string,
         errorObject?: any
@@ -301,10 +324,14 @@ export interface dataQualityCheckEditorLogicActions {
     }
     loadCheckTypesSuccess: (
         checkTypes: DataQualityCheckTypeApi[],
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         checkTypes: DataQualityCheckTypeApi[]
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     loadWarehouseCatalog: () => {
         value: true
@@ -333,10 +360,10 @@ export interface dataQualityCheckEditorLogicActions {
         errorObject?: any
     }
     runCustomSqlPreviewSuccess: (
-        customSqlPreview: CustomSqlPreview,
+        customSqlPreview: CustomSqlPreview | null,
         payload?: any
     ) => {
-        customSqlPreview: CustomSqlPreview
+        customSqlPreview: CustomSqlPreview | null
         payload?: any
     }
     setCheckFormManualErrors: (errors: Record<string, any>) => {
@@ -389,6 +416,7 @@ export interface dataQualityCheckEditorLogicActions {
 export interface dataQualityCheckEditorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        isMetricSubject: (subject: DataQualitySubjectRef | null) => boolean
         checkTypeByName: (checkTypes: DataQualityCheckTypeApi[]) => {
             [k: string]: DataQualityCheckTypeApi
         }
@@ -442,6 +470,7 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         values: [databaseTableListLogic, ['views', 'dataWarehouseTables', 'databaseLoading', 'databaseLoadError']],
     })),
     actions({
+        loadCheckTypes: true,
         openEditor: (
             check: DataQualityCheckApi | null,
             subject: DataQualitySubjectRef | null,
@@ -463,14 +492,26 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         checkTypes: [
             [] as DataQualityCheckTypeApi[],
             {
-                loadCheckTypes: async () =>
-                    values.subject ? await checksApi.checkTypes(values.subject) : values.checkTypes,
+                loadCheckTypes: async (_, breakpoint) => {
+                    let checkTypes: DataQualityCheckTypeApi[]
+                    try {
+                        checkTypes = values.subject ? await checksApi.checkTypes(values.subject) : []
+                    } catch (error) {
+                        // A subject change starts a second request. Drop a superseded one so its late
+                        // failure cannot report the catalog as unavailable while the newer one runs.
+                        breakpoint()
+                        throw error
+                    }
+                    breakpoint()
+                    return checkTypes
+                },
             },
         ],
         customSqlPreview: [
             null as CustomSqlPreview | null,
             {
-                runCustomSqlPreview: async (_, breakpoint): Promise<CustomSqlPreview> => {
+                runCustomSqlPreview: async (_, breakpoint): Promise<CustomSqlPreview | null> => {
+                    const subject = values.subject
                     const sql = values.checkForm.customSql.trim()
                     // Force a fresh calculation: the scheduled check run always reads current data, so the
                     // preview must not serve a cached result that could report a different verdict.
@@ -485,10 +526,16 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                         // Cmd+Enter can start a second preview while one is in flight. Drop a superseded
                         // request so its late failure cannot replace the newer result with a stale error.
                         breakpoint()
+                        if (values.subject !== subject) {
+                            return null
+                        }
                         throw error
                     }
                     // Same guard on the success path: a superseded result must not overwrite the newer one.
                     breakpoint()
+                    if (values.subject !== subject) {
+                        return null
+                    }
                     return {
                         sql,
                         columns: response.columns ?? [],
@@ -546,6 +593,7 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         checkTypes: [
             [] as DataQualityCheckTypeApi[],
             {
+                openEditor: () => [],
                 setSubject: () => [],
             },
         ],
@@ -608,6 +656,10 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         ],
     })),
     selectors({
+        isMetricSubject: [
+            (s) => [s.subject],
+            (subject: DataQualitySubjectRef | null): boolean => subject?.subjectType === 'metric',
+        ],
         checkTypeByName: [
             (s) => [s.checkTypes],
             (checkTypes: DataQualityCheckTypeApi[]) =>
@@ -646,12 +698,19 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         checkForm: {
             defaults: EMPTY_CHECK_FORM,
             errors: [
-                (s: any) => [s.checkForm, s.checkTypeByName, s.customSqlEditorError, s.customSqlValidationLoading],
+                (s: any) => [
+                    s.checkForm,
+                    s.checkTypeByName,
+                    s.customSqlEditorError,
+                    s.customSqlValidationLoading,
+                    s.isMetricSubject,
+                ],
                 (
                     form: CheckFormValues,
                     checkTypeByName: Record<string, DataQualityCheckTypeApi>,
                     customSqlEditorError: string | null,
-                    customSqlValidationLoading: boolean
+                    customSqlValidationLoading: boolean,
+                    isMetricSubject: boolean
                 ) => ({
                     name:
                         form.name && !CHECK_NAME_PATTERN.test(form.name)
@@ -692,9 +751,11 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                         form.checkType === CheckTypeEnumApi.CustomSql
                             ? !form.customSql.trim()
                                 ? 'Write the query that selects the failing rows.'
-                                : customSqlValidationLoading
+                                : !isMetricSubject && customSqlValidationLoading
                                   ? 'Checking query...'
-                                  : (customSqlEditorError ?? undefined)
+                                  : !isMetricSubject
+                                    ? (customSqlEditorError ?? undefined)
+                                    : undefined
                             : undefined,
                 }),
             ],
@@ -716,7 +777,7 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                         ? await checksApi.partialUpdate(
                               values.subject,
                               editing.id,
-                              checkEditPayload(form, values.requiresColumn)
+                              checkEditPayload(form, values.requiresColumn, editing)
                           )
                         : await checksApi.create(values.subject, checkCreatePayload(form, values.requiresColumn))
                     // Defaults come from the saved row before closing, so a clean form never trips
@@ -785,11 +846,19 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         }
 
         return {
-            openEditor: ({ check }) => {
-                actions.resetCheckForm(check ? checkToForm(check) : EMPTY_CHECK_FORM)
-                if (!values.checkTypes.length) {
-                    actions.loadCheckTypes()
-                }
+            openEditor: ({ check, subject }) => {
+                actions.resetCheckForm(
+                    check
+                        ? checkToForm(check)
+                        : subject?.subjectType === 'metric'
+                          ? {
+                                ...EMPTY_CHECK_FORM,
+                                checkType: CheckTypeEnumApi.CustomSql,
+                                customSql: METRIC_CHECK_QUERY_TEMPLATE,
+                            }
+                          : EMPTY_CHECK_FORM
+                )
+                actions.loadCheckTypes()
                 ensureWarehouseCatalog()
             },
             setSubject: () => {

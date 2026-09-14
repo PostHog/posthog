@@ -273,6 +273,7 @@ function CustomSqlField(): JSX.Element {
         customSqlPreviewVerdict,
         customSqlQueryKey,
         customSqlSourceQuery,
+        isMetricSubject,
     } = useValues(dataQualityCheckEditorLogic)
     const { runCustomSqlPreview, setCustomSqlEditorError, setCustomSqlValidationLoading } =
         useActions(dataQualityCheckEditorLogic)
@@ -293,7 +294,11 @@ function CustomSqlField(): JSX.Element {
         <LemonField
             name="customSql"
             label="Query"
-            help="Return one row per failure. The check passes when the query returns nothing."
+            help={
+                isMetricSubject
+                    ? 'Query the saved metric output through {metric} exactly once. Return one row per failure; no rows means the check passes. Save the check, then run it to see the result.'
+                    : 'Return one row per failure. The check passes when the query returns nothing.'
+            }
         >
             {({ value, onChange }) => (
                 <div className="flex flex-col gap-2">
@@ -303,32 +308,35 @@ function CustomSqlField(): JSX.Element {
                         onChange={(query) => onChange(query ?? '')}
                         queryKey={customSqlQueryKey}
                         sourceQuery={customSqlSourceQuery}
-                        onError={setCustomSqlEditorError}
-                        onMetadataLoading={setCustomSqlValidationLoading}
-                        onPressCmdEnter={() => runCustomSqlPreview(undefined)}
+                        metadataQuery={isMetricSubject ? '' : undefined}
+                        onError={isMetricSubject ? undefined : setCustomSqlEditorError}
+                        onMetadataLoading={isMetricSubject ? undefined : setCustomSqlValidationLoading}
+                        onPressCmdEnter={isMetricSubject ? undefined : () => runCustomSqlPreview(undefined)}
                         autoFocus
                         minHeight="8rem"
                         maxHeight="40vh"
                     />
-                    <div className="flex flex-col items-end gap-1">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            loading={customSqlPreviewLoading}
-                            disabledReason={
-                                !value?.trim()
-                                    ? 'Write a query before testing it.'
-                                    : (customSqlEditorError ?? undefined)
-                            }
-                            onClick={runCustomSqlPreview}
-                            data-attr="data-quality-check-test-query"
-                        >
-                            Test query
-                        </LemonButton>
-                        {customSqlPreviewStale && (
-                            <span className="text-secondary text-xs">The query changed since the last test.</span>
-                        )}
-                    </div>
+                    {!isMetricSubject && (
+                        <div className="flex flex-col items-end gap-1">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                loading={customSqlPreviewLoading}
+                                disabledReason={
+                                    !value?.trim()
+                                        ? 'Write a query before testing it.'
+                                        : (customSqlEditorError ?? undefined)
+                                }
+                                onClick={runCustomSqlPreview}
+                                data-attr="data-quality-check-test-query"
+                            >
+                                Test query
+                            </LemonButton>
+                            {customSqlPreviewStale && (
+                                <span className="text-secondary text-xs">The query changed since the last test.</span>
+                            )}
+                        </div>
+                    )}
                     {customSqlPreviewError ? (
                         <LemonBanner type="error">{customSqlPreviewError}</LemonBanner>
                     ) : !customSqlPreviewLoading && customSqlPreview && customSqlPreviewVerdict ? (
