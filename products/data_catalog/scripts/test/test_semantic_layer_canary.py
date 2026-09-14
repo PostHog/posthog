@@ -8,6 +8,7 @@ import pytest
 import httpx
 
 from products.data_catalog.scripts.semantic_layer_canary import (
+    MAX_CANCEL_ATTEMPTS,
     BrowserSessionCredentials,
     CanaryRunConfig,
     PermanentCanaryError,
@@ -370,8 +371,18 @@ async def test_execute_canary_resumes_an_open_stream_without_resending_the_quest
     assert [attempt.status for attempt in case_result.attempts] == ["completed"]
 
 
+@pytest.mark.parametrize(
+    "cancel_status,run_status,expected_case_status,expected_cancel_attempts",
+    [
+        (200, "cancelled", "completed", 1),
+        (503, "cancelled", "completed", MAX_CANCEL_ATTEMPTS),
+        (503, "in_progress", "failed", MAX_CANCEL_ATTEMPTS),
+    ],
+)
 @pytest.mark.asyncio
-async def test_execute_canary_cancels_the_run_behind_an_agent_clarification_question() -> None:
+async def test_execute_canary_cancels_the_run_behind_an_agent_clarification_question(
+    cancel_status: int, run_status: str, expected_case_status: str, expected_cancel_attempts: int
+) -> None:
     cancelled: list[str] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -381,7 +392,9 @@ async def test_execute_canary_cancels_the_run_behind_an_agent_clarification_ques
             return _items_response([_dataset_item("ambiguous", question="How engaged are our workspaces?")])
         if request.url.path.endswith("/cancel/"):
             cancelled.append(request.url.path)
-            return httpx.Response(200, json={"id": "task-run-1", "status": "cancelled"})
+            return httpx.Response(cancel_status, json={"id": "task-run-1", "status": "cancelled"})
+        if request.url.path.endswith("/runs/task-run-1/"):
+            return httpx.Response(200, json={"status": run_status})
         if request.method == "POST":
             payload = json.loads(request.content)
             return _open_response(task_id="task-1", task_run_id="task-run-1", trace_id=str(payload["trace_id"]))
@@ -408,10 +421,13 @@ async def test_execute_canary_cancels_the_run_behind_an_agent_clarification_ques
             CanaryRunConfig(dataset_name="semantic-layer-canaries-v1", run_id="run-clarification", max_attempts=1),
         )
 
-    assert result.status == "completed"
-    assert result.cases[0].task_run_id == "task-run-1"
-    assert result.cases[0].clarification_questions == ["Which engagement window?"]
-    assert cancelled == ["/api/projects/2/tasks/task-1/runs/task-run-1/cancel/"]
+    assert result.cases[0].status == expected_case_status
+    assert len(cancelled) == expected_cancel_attempts
+    if expected_case_status == "completed":
+        assert result.cases[0].task_run_id == "task-run-1"
+        assert result.cases[0].clarification_questions == ["Which engagement window?"]
+    else:
+        assert result.cases[0].attempts[-1].error == "cancel_unconfirmed"
 
 
 @pytest.mark.asyncio

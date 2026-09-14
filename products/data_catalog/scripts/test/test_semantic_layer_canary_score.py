@@ -42,6 +42,32 @@ def _tool_call(call_id: str, tool_name: str, raw_input: dict) -> list[dict]:
     ]
 
 
+def _parallel_tool_calls(*calls: tuple[str, str, dict]) -> list[dict]:
+    opened = [
+        _entry(
+            {
+                "sessionUpdate": "tool_call",
+                "toolCallId": call_id,
+                "_meta": {"claudeCode": {"toolName": tool_name}},
+                "rawInput": raw_input,
+            }
+        )
+        for call_id, tool_name, raw_input in calls
+    ]
+    finished = [
+        _entry(
+            {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": call_id,
+                "status": "completed",
+                "rawOutput": "{}",
+            }
+        )
+        for call_id, _tool_name, _raw_input in calls
+    ]
+    return opened + finished
+
+
 def _log(*entry_groups: list[dict]) -> str:
     return "\n".join(json.dumps(entry) for group in entry_groups for entry in group)
 
@@ -132,6 +158,20 @@ class TestScoreCase:
             _tool_call("call-1", "metric-list", {}),
             _tool_call("call-2", "data-catalog-metric-run", {"name": METRIC}),
             _tool_call("call-3", "AskUserQuestion", {"questions": [{"question": "Which customers?"}]}),
+        )
+
+        row = score_case(_case(expected_routing="clarify", expected_metric=None), raw_log)
+
+        assert row["verdict"] == "fail"
+        assert "clarification_asked" in row["failed_checks"]
+
+    def test_a_data_call_beside_the_question_in_one_message_fails(self) -> None:
+        raw_log = _log(
+            _tool_call("call-1", "metric-list", {}),
+            _parallel_tool_calls(
+                ("call-2", "execute-sql", {"query": "SELECT count() FROM events"}),
+                ("call-3", "AskUserQuestion", {"questions": [{"question": "Which customers?"}]}),
+            ),
         )
 
         row = score_case(_case(expected_routing="clarify", expected_metric=None), raw_log)

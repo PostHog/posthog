@@ -548,7 +548,7 @@ class ClarificationAsked(Scorer):
         premature = [
             {"call_id": call.call_id, "tool": call.name}
             for call in parser.get_tool_calls()
-            if _is_data_bearing(call) and not call.is_error and call.position < first_question
+            if _is_data_bearing(call) and not call.is_error and call.position <= first_question
         ]
         if premature:
             return Score(

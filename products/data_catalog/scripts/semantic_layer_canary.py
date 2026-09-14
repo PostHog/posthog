@@ -26,6 +26,8 @@ DEFAULT_DATASET_NAME = "semantic-layer-canaries-v1"
 DEFAULT_MAX_CONCURRENCY = 3
 DEFAULT_MAX_ATTEMPTS = 2
 MAX_STREAM_RECONNECTS = 8
+MAX_CANCEL_ATTEMPTS = 3
+STOPPED_RUN_STATUSES = frozenset({"cancelled", "failed"})
 DEFAULT_TIMEOUT_SECONDS = 1_900.0
 DATASET_PAGE_SIZE = 25
 BROWSER_HELPER_PATH = Path(__file__).with_name("browser_session_credentials.mjs")
@@ -333,16 +335,19 @@ class PostHogCanaryClient:
         return opened
 
     async def cancel_run(self, opened: _ConversationOpenResponse) -> None:
-        try:
-            response = await self._client.post(
-                f"/api/projects/{self.project_id}/tasks/{opened.task_id}/runs/{opened.run_id}/cancel/",
-                json={"reason": "semantic-layer canary: agent asked a clarifying question"},
-            )
-        except (httpx.TimeoutException, httpx.TransportError):
+        for _attempt in range(MAX_CANCEL_ATTEMPTS):
+            try:
+                response = await self._client.post(
+                    f"/api/projects/{self.project_id}/tasks/{opened.task_id}/runs/{opened.run_id}/cancel/",
+                    json={"reason": "semantic-layer canary: agent asked a clarifying question"},
+                )
+            except (httpx.TimeoutException, httpx.TransportError):
+                continue
+            if response.status_code >= 500:
+                continue
+            _raise_for_api_error(response)
             return
-        if response.status_code >= 500:
-            return
-        _raise_for_api_error(response)
+        await self._confirm_cancelled(opened)
 
     async def wait_for_turn(self, opened: _ConversationOpenResponse) -> list[str]:
         last_event_id: str | None = None
@@ -377,7 +382,7 @@ class PostHogCanaryClient:
                     raise RetryableCanaryError("task_stream_reconnect_exhausted") from error
         return []
 
-    async def _confirm_terminal_status(self, opened: _ConversationOpenResponse) -> None:
+    async def _read_run_status(self, opened: _ConversationOpenResponse) -> str:
         try:
             response = await self._client.get(
                 f"/api/projects/{self.project_id}/tasks/{opened.task_id}/runs/{opened.run_id}/"
@@ -386,14 +391,21 @@ class PostHogCanaryClient:
             raise RetryableCanaryError("transport_error") from error
         _raise_for_api_error(response)
         try:
-            task_run = _TaskRunResponse.model_validate(response.json())
+            return _TaskRunResponse.model_validate(response.json()).status
         except (json.JSONDecodeError, ValidationError) as error:
             raise RetryableCanaryError("invalid_task_run_response") from error
-        if task_run.status == "completed":
+
+    async def _confirm_terminal_status(self, opened: _ConversationOpenResponse) -> None:
+        status = await self._read_run_status(opened)
+        if status == "completed":
             return
-        if task_run.status in {"failed", "cancelled"}:
-            raise RetryableCanaryError(f"task_run_{task_run.status}")
+        if status in STOPPED_RUN_STATUSES:
+            raise RetryableCanaryError(f"task_run_{status}")
         raise RetryableCanaryError("missing_turn_completion")
+
+    async def _confirm_cancelled(self, opened: _ConversationOpenResponse) -> None:
+        if await self._read_run_status(opened) not in STOPPED_RUN_STATUSES:
+            raise RetryableCanaryError("cancel_unconfirmed")
 
     def task_url(self, task_id: str, task_run_id: str) -> str:
         return f"{self.host}/project/{self.project_id}/tasks/{task_id}?runId={task_run_id}"
