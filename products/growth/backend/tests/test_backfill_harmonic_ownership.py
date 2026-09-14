@@ -3,9 +3,9 @@ from io import StringIO
 from typing import Any, Optional
 
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
@@ -52,13 +52,15 @@ class _BackfillTestCase(BaseTest):
         data: Optional[dict[str, Any]] = None,
         id: Optional[uuid.UUID] = None,
         with_fetch: bool = True,
+        member: bool = True,
     ) -> OrganizationEnrichment:
         # with_fetch defaults True: every other test in this file models a work-domain org the
         # live pipeline already enriched, which always leaves a fetch row behind. Only the
         # personal-domain selection test needs the fetch-less shape, via with_fetch=False.
         org = Organization.objects.create(name=email)
-        user = User.objects.create_user(email=email, password=None, first_name="t")
-        OrganizationMembership.objects.create(organization=org, user=user)
+        if member:
+            user = User.objects.create_user(email=email, password=None, first_name="t")
+            OrganizationMembership.objects.create(organization=org, user=user)
         kwargs: dict[str, Any] = {"organization": org, "data": data if data is not None else {}}
         if id is not None:
             kwargs["id"] = id
@@ -308,3 +310,264 @@ class TestSummary(_BackfillTestCase):
         assert "acquired_or_merged 2 (66.7% of classified)" in summary
         assert "acquired_or_merged_with_parent 1 (50.0% of acquired_or_merged)" in summary
         capture_mock.assert_called_once()
+
+
+_SEED_FETCH_ROW = ("harmonic", False, {})
+
+
+def _fetch_rows(record: OrganizationEnrichment) -> list[tuple[str, bool, dict[str, Any]]]:
+    return list(
+        OrganizationEnrichmentFetch.objects.filter(organization=record.organization)
+        .order_by("id")
+        .values_list("provider", "is_recheck", "payload")
+    )
+
+
+def _data(record: OrganizationEnrichment) -> dict[str, Any]:
+    record.refresh_from_db()
+    return record.data
+
+
+class TestBackfillHarmonicOwnershipGolden(_BackfillTestCase):
+    def setUp(self):
+        super().setUp()
+        self.pha_client = MagicMock()
+        self.get_client = self.enterContext(patch(f"{_COMMAND_MODULE}.get_client", return_value=self.pha_client))
+        self.capture_exception = self.enterContext(patch(f"{_COMMAND_MODULE}.capture_exception"))
+        self.out = StringIO()
+
+    def _run(self, *args: str, lookups: list[Any], **options: Any) -> str:
+        provider_cls = _mock_provider(lookups)
+        self.enrich_by_domain = provider_cls.return_value.enrich_by_domain
+        with patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls):
+            call_command("backfill_harmonic_ownership", *args, sleep=0, stdout=self.out, **options)
+        return self.out.getvalue()
+
+    def _four_outcomes(self) -> list[OrganizationEnrichment]:
+        return [
+            self._org(
+                email="a@acquired.com", data={"company_type": "STARTUP", "work_email": True}, id=uuid.UUID(int=1)
+            ),
+            self._org(email="b@private.com", data={"headcount": 42}, id=uuid.UUID(int=2)),
+            self._org(email="c@missing.com", data={}, id=uuid.UUID(int=3)),
+            self._org(email="d@silent.com", data={"country": "DE"}, id=uuid.UUID(int=4)),
+        ]
+
+    def _four_lookups(self) -> list[Any]:
+        return [
+            _lookup(
+                ownership_status="ACQUIRED_OR_MERGED",
+                parent_company="Salesforce",
+                parent_company_domain="salesforce.com",
+                enrichment_urn="urn:harmonic:enrichment:1",
+            ),
+            _lookup(ownership_status="PRIVATE", enrichment_urn="urn:harmonic:enrichment:2"),
+            _lookup(found=False, enrichment_urn="urn:harmonic:enrichment:3"),
+            _lookup(ownership_status=None),
+        ]
+
+    def test_writes_archives_and_summarises_every_outcome_in_id_order(self):
+        acquired, private, missing, silent = self._four_outcomes()
+
+        stdout = self._run(lookups=self._four_lookups())
+
+        assert stdout == (
+            "processed 4, fetch_failures 0, not_found 1, no_domain 0, found_no_ownership_status 1, errors 0, "
+            "classified 2 (50.0% of processed), acquired_or_merged 1 (50.0% of classified), "
+            "acquired_or_merged_with_parent 1 (100.0% of acquired_or_merged), "
+            "last_id=00000000-0000-0000-0000-000000000004\n"
+        )
+        assert self.enrich_by_domain.call_args_list == [
+            call("acquired.com"),
+            call("private.com"),
+            call("missing.com"),
+            call("silent.com"),
+        ]
+        assert _data(acquired) == {
+            "company_type": "STARTUP",
+            "work_email": True,
+            "ownership_status": "ACQUIRED_OR_MERGED",
+            "parent_company": "Salesforce",
+            "parent_company_domain": "salesforce.com",
+        }
+        assert _data(private) == {"headcount": 42, "ownership_status": "PRIVATE"}
+        assert _data(missing) == {}
+        assert _data(silent) == {"country": "DE"}
+        assert _fetch_rows(acquired) == [
+            _SEED_FETCH_ROW,
+            (
+                "harmonic",
+                True,
+                {
+                    "companyType": "STARTUP",
+                    "ownershipStatus": "ACQUIRED_OR_MERGED",
+                    "enrichmentUrn": "urn:harmonic:enrichment:1",
+                },
+            ),
+        ]
+        assert _fetch_rows(private) == [
+            _SEED_FETCH_ROW,
+            (
+                "harmonic",
+                True,
+                {"companyType": "STARTUP", "ownershipStatus": "PRIVATE", "enrichmentUrn": "urn:harmonic:enrichment:2"},
+            ),
+        ]
+        assert _fetch_rows(missing) == [
+            _SEED_FETCH_ROW,
+            ("harmonic", True, {"companyFound": False, "enrichmentUrn": "urn:harmonic:enrichment:3"}),
+        ]
+        assert _fetch_rows(silent) == [
+            _SEED_FETCH_ROW,
+            ("harmonic", True, {"companyType": "STARTUP", "ownershipStatus": None, "enrichmentUrn": None}),
+        ]
+        assert self.pha_client.group_identify.call_args_list == [
+            call(
+                "organization",
+                str(acquired.organization_id),
+                properties={
+                    "enrichment_ownership_status": "ACQUIRED_OR_MERGED",
+                    "enrichment_parent_company": "Salesforce",
+                    "enrichment_parent_company_domain": "salesforce.com",
+                },
+            ),
+            call(
+                "organization",
+                str(private.organization_id),
+                properties={"enrichment_ownership_status": "PRIVATE"},
+            ),
+        ]
+        self.pha_client.set.assert_not_called()
+        self.pha_client.shutdown.assert_called_once()
+        self.capture_exception.assert_not_called()
+
+    def test_dry_run_fetches_and_counts_without_writing(self):
+        records = self._four_outcomes()
+
+        stdout = self._run("--dry-run", lookups=self._four_lookups())
+
+        assert stdout == (
+            "processed 4, fetch_failures 0, not_found 1, no_domain 0, found_no_ownership_status 1, errors 0, "
+            "classified 2 (50.0% of processed), acquired_or_merged 1 (50.0% of classified), "
+            "acquired_or_merged_with_parent 1 (100.0% of acquired_or_merged), "
+            "last_id=00000000-0000-0000-0000-000000000004\n"
+        )
+        assert self.enrich_by_domain.call_args_list == [
+            call("acquired.com"),
+            call("private.com"),
+            call("missing.com"),
+            call("silent.com"),
+        ]
+        assert [_data(record) for record in records] == [
+            {"company_type": "STARTUP", "work_email": True},
+            {"headcount": 42},
+            {},
+            {"country": "DE"},
+        ]
+        assert [_fetch_rows(record) for record in records] == [[_SEED_FETCH_ROW]] * 4
+        self.get_client.assert_not_called()
+        self.pha_client.group_identify.assert_not_called()
+        self.pha_client.shutdown.assert_not_called()
+
+    def test_a_provider_failure_is_counted_reported_and_skipped_over(self):
+        broken = self._org(email="a@broken.com", data={"work_email": True}, id=uuid.UUID(int=1))
+        private = self._org(email="b@private.com", data={}, id=uuid.UUID(int=2))
+        error = RuntimeError("harmonic is down")
+
+        stdout = self._run(lookups=[error, _lookup(ownership_status="PRIVATE")])
+
+        assert stdout == (
+            "processed 2, fetch_failures 1, not_found 0, no_domain 0, found_no_ownership_status 0, errors 0, "
+            "classified 1 (50.0% of processed), acquired_or_merged 0 (0.0% of classified), "
+            "acquired_or_merged_with_parent 0 (0.0% of acquired_or_merged), "
+            "last_id=00000000-0000-0000-0000-000000000002\n"
+        )
+        assert self.capture_exception.call_args_list == [
+            call(error, {"organization_id": str(broken.organization_id), "domain": "broken.com"})
+        ]
+        assert _data(broken) == {"work_email": True}
+        assert _fetch_rows(broken) == [_SEED_FETCH_ROW]
+        assert _data(private) == {"ownership_status": "PRIVATE"}
+        assert _fetch_rows(private) == [
+            _SEED_FETCH_ROW,
+            ("harmonic", True, {"companyType": "STARTUP", "ownershipStatus": "PRIVATE", "enrichmentUrn": None}),
+        ]
+        assert self.pha_client.group_identify.call_args_list == [
+            call("organization", str(private.organization_id), properties={"enrichment_ownership_status": "PRIVATE"})
+        ]
+        self.pha_client.set.assert_not_called()
+        self.pha_client.shutdown.assert_called_once()
+
+    def test_after_id_resumes_past_the_given_record(self):
+        first = self._org(email="a@first.com", data={}, id=uuid.UUID(int=1))
+        second = self._org(email="b@second.com", data={}, id=uuid.UUID(int=2))
+        third = self._org(email="c@third.com", data={}, id=uuid.UUID(int=3))
+
+        stdout = self._run(
+            after_id=str(first.id),
+            lookups=[_lookup(ownership_status="PRIVATE"), _lookup(ownership_status="PUBLIC")],
+        )
+
+        assert stdout == (
+            "processed 2, fetch_failures 0, not_found 0, no_domain 0, found_no_ownership_status 0, errors 0, "
+            "classified 2 (100.0% of processed), acquired_or_merged 0 (0.0% of classified), "
+            "acquired_or_merged_with_parent 0 (0.0% of acquired_or_merged), "
+            "last_id=00000000-0000-0000-0000-000000000003\n"
+        )
+        assert self.enrich_by_domain.call_args_list == [call("second.com"), call("third.com")]
+        assert _data(first) == {}
+        assert _fetch_rows(first) == [_SEED_FETCH_ROW]
+        assert _data(second) == {"ownership_status": "PRIVATE"}
+        assert _data(third) == {"ownership_status": "PUBLIC"}
+        assert self.pha_client.group_identify.call_args_list == [
+            call("organization", str(second.organization_id), properties={"enrichment_ownership_status": "PRIVATE"}),
+            call("organization", str(third.organization_id), properties={"enrichment_ownership_status": "PUBLIC"}),
+        ]
+        self.pha_client.shutdown.assert_called_once()
+
+    def test_after_id_past_the_last_record_echoes_it_as_last_id(self):
+        self._org(email="a@first.com", data={}, id=uuid.UUID(int=1))
+
+        stdout = self._run(after_id=str(uuid.UUID(int=1)), lookups=[])
+
+        assert stdout == (
+            "processed 0, fetch_failures 0, not_found 0, no_domain 0, found_no_ownership_status 0, errors 0, "
+            "classified 0 (0.0% of processed), acquired_or_merged 0 (0.0% of classified), "
+            "acquired_or_merged_with_parent 0 (0.0% of acquired_or_merged), "
+            "last_id=00000000-0000-0000-0000-000000000001\n"
+        )
+        self.enrich_by_domain.assert_not_called()
+        self.pha_client.group_identify.assert_not_called()
+        self.pha_client.shutdown.assert_called_once()
+
+    def test_rejects_a_limit_below_one_and_a_negative_sleep(self):
+        with self.assertRaises(CommandError) as limit_error:
+            self._run(lookups=[], limit=0)
+        assert str(limit_error.exception) == "--limit must be at least 1"
+
+        with self.assertRaises(CommandError) as sleep_error:
+            call_command("backfill_harmonic_ownership", sleep=-1, stdout=self.out)
+        assert str(sleep_error.exception) == "--sleep must be at least 0"
+
+        assert self.out.getvalue() == ""
+        self.get_client.assert_not_called()
+
+    def test_counts_a_memberless_org_as_no_domain_and_never_selects_a_personal_domain_record(self):
+        memberless = self._org(email="a@nobody.com", data={"work_email": True}, id=uuid.UUID(int=1), member=False)
+        personal = self._org(email="b@gmail.com", data={"work_email": False}, id=uuid.UUID(int=2))
+
+        stdout = self._run(lookups=[])
+
+        assert stdout == (
+            "processed 1, fetch_failures 0, not_found 0, no_domain 1, found_no_ownership_status 0, errors 0, "
+            "classified 0 (0.0% of processed), acquired_or_merged 0 (0.0% of classified), "
+            "acquired_or_merged_with_parent 0 (0.0% of acquired_or_merged), "
+            "last_id=00000000-0000-0000-0000-000000000001\n"
+        )
+        self.enrich_by_domain.assert_not_called()
+        assert _data(memberless) == {"work_email": True}
+        assert _data(personal) == {"work_email": False}
+        assert _fetch_rows(memberless) == [_SEED_FETCH_ROW]
+        assert _fetch_rows(personal) == [_SEED_FETCH_ROW]
+        self.pha_client.group_identify.assert_not_called()
+        self.pha_client.shutdown.assert_called_once()

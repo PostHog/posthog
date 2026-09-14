@@ -1,7 +1,13 @@
 import json
+import datetime as dt
+import tempfile
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from io import StringIO
+from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import MagicMock, patch
@@ -9,6 +15,7 @@ from unittest.mock import MagicMock, patch
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -244,13 +251,18 @@ class TestAdvisoryLock(_BatchCommandTestCase):
             with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
                 with self.assertRaises(CommandError) as ctx:
                     call_command("enrichment_label_batch", label="test_label", workers=1)
-            assert "already holds the lock" in str(ctx.exception)
+            assert (
+                str(ctx.exception) == "Another enrichment_label_batch run already holds the lock for label 'test_label'"
+            )
             # The unique constraint stops the duplicate row; the lock must stop the call
             # that would pay for it in the first place.
             client.chat.completions.create.assert_not_called()
         finally:
             release_holder.set()
             holder.join(timeout=5)
+
+    def test_the_lock_key_is_stable_across_processes(self):
+        assert batch_command_module._advisory_lock_key("test_label") == -8658742456223998626
 
 
 class TestUnknownAccounting(_BatchCommandTestCase):
@@ -583,4 +595,388 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         output = out.getvalue()
         assert "SKIPPED: no AI consent" in output
         assert "errors 0" in output
+        client.chat.completions.create.assert_not_called()
+
+
+_STORED_RESULT_FIELDS = ("label_name", "prompt_version", "prompt_hash", "model", "output", "inputs")
+
+
+def _stored_results() -> dict[UUID, tuple[Any, ...]]:
+    rows = EnrichmentLabelResult.objects.values_list("organization_id", *_STORED_RESULT_FIELDS)
+    return {row[0]: row[1:] for row in rows}
+
+
+class TestLabelBatchGolden(_BatchCommandTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.capture_exception = MagicMock()
+
+    @contextmanager
+    def _batch(self, client: MagicMock) -> Iterator[StringIO]:
+        clock = MagicMock()
+        clock.monotonic.side_effect = [100.0, 101.5]
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.time", clock),
+            patch(f"{_BATCH_COMMAND_MODULE}.capture_exception", self.capture_exception),
+        ):
+            yield StringIO()
+
+    def test_a_mixed_archive_prints_the_summary_and_stores_one_row_per_attempted_org(self):
+        config = self._config()
+        done_org = Organization.objects.create(name="done")
+        done_fetch = self._fetch(organization=done_org)
+        EnrichmentLabelResult.objects.create(
+            organization=done_org,
+            fetch=done_fetch,
+            label_name="test_label",
+            prompt_version="v1",
+            prompt_hash="irrelevant",
+            model="gpt-5-mini",
+            output={"is_ai": True},
+        )
+        declined_org = Organization.objects.create(name="declined", is_ai_data_processing_approved=False)
+        self._fetch(organization=declined_org)
+        ghost_org = Organization.objects.create(name="ghost")
+        self._fetch(organization=ghost_org, payload={})
+        self._fetch()
+        client = _mock_llm_client()
+        client.chat.completions.create.return_value = _good_response(prompt_tokens=100, completion_tokens=10)
+
+        with self._batch(client) as out:
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
+
+        assert out.getvalue() == (
+            "attempted 2, succeeded 2, skipped_existing 1, skipped_no_ai_consent 1, unknown 1, "
+            "failures 0, aborted 0, prompt_tokens 100, completion_tokens 10, elapsed_seconds 1.5\n"
+        )
+        assert client.chat.completions.create.call_count == 1
+        self.capture_exception.assert_not_called()
+        assert _stored_results() == {
+            done_org.id: ("test_label", "v1", "irrelevant", "gpt-5-mini", {"is_ai": True}, {}),
+            ghost_org.id: (
+                "test_label",
+                "v1",
+                config.content_hash,
+                "gpt-5-mini",
+                {"is_ai": "unknown", "meta": {"skipped": "missing or empty archived payload"}},
+                {"signup_domain": None, "fields": {}},
+            ),
+            self.organization.id: (
+                "test_label",
+                "v1",
+                config.content_hash,
+                "gpt-5-mini",
+                {
+                    "is_ai": True,
+                    "confidence": 0.9,
+                    "reasoning": "x",
+                    "meta": {"prompt_tokens": 100, "completion_tokens": 10},
+                },
+                {"signup_domain": "posthog.com", "fields": {"name": "Acme"}},
+            ),
+        }
+
+    def test_the_circuit_breaker_stops_enumeration_and_raises_with_the_summary(self):
+        self._config()
+        orgs = sorted((Organization.objects.create(name=f"org-{i}") for i in range(3)), key=lambda org: str(org.id))
+        for org in orgs:
+            self._fetch(organization=org)
+        client = _mock_llm_client()
+        client.chat.completions.create.return_value = _bad_response()
+
+        with self._batch(client) as out:
+            with self.assertRaises(CommandError) as ctx:
+                call_command("enrichment_label_batch", label="test_label", workers=1, max_failures=2, stdout=out)
+
+        summary = (
+            "attempted 2, succeeded 0, skipped_existing 0, skipped_no_ai_consent 0, unknown 0, "
+            "failures 2, aborted 0, prompt_tokens 0, completion_tokens 0, elapsed_seconds 1.5"
+        )
+        assert out.getvalue() == f"{summary}\n"
+        assert str(ctx.exception) == f"aborted after 2 consecutive failures ({summary})"
+        assert client.chat.completions.create.call_count == 2
+        assert [call.args[1] for call in self.capture_exception.call_args_list] == [
+            {"organization_id": str(orgs[0].id), "label": "test_label", "prompt_version": "v1"},
+            {"organization_id": str(orgs[1].id), "label": "test_label", "prompt_version": "v1"},
+        ]
+        assert _stored_results() == {}
+
+    def test_a_run_where_every_attempted_org_failed_raises_with_the_summary(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+        client.chat.completions.create.return_value = _bad_response()
+
+        with self._batch(client) as out:
+            with self.assertRaises(CommandError) as ctx:
+                call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
+
+        summary = (
+            "attempted 1, succeeded 0, skipped_existing 0, skipped_no_ai_consent 0, unknown 0, "
+            "failures 1, aborted 0, prompt_tokens 0, completion_tokens 0, elapsed_seconds 1.5"
+        )
+        assert out.getvalue() == f"{summary}\n"
+        assert str(ctx.exception) == f"every attempted org failed ({summary})"
+        assert client.chat.completions.create.call_count == 1
+        assert self.capture_exception.call_count == 1
+        assert _stored_results() == {}
+
+    def test_a_success_rate_below_the_threshold_raises_after_storing_the_successes(self):
+        config = self._config()
+        first_org, second_org = sorted(
+            (Organization.objects.create(name=f"org-{i}") for i in range(2)), key=lambda org: str(org.id)
+        )
+        self._fetch(organization=first_org)
+        self._fetch(organization=second_org)
+        client = _mock_llm_client()
+        client.chat.completions.create.side_effect = [_bad_response(), _good_response()]
+
+        with self._batch(client) as out:
+            with self.assertRaises(CommandError) as ctx:
+                call_command("enrichment_label_batch", label="test_label", workers=1, min_success_rate=0.9, stdout=out)
+
+        summary = (
+            "attempted 2, succeeded 1, skipped_existing 0, skipped_no_ai_consent 0, unknown 0, "
+            "failures 1, aborted 0, prompt_tokens 0, completion_tokens 0, elapsed_seconds 1.5"
+        )
+        assert out.getvalue() == f"{summary}\n"
+        assert str(ctx.exception) == f"success_rate 0.50 is below --min-success-rate 0.9 ({summary})"
+        assert client.chat.completions.create.call_count == 2
+        assert self.capture_exception.call_count == 1
+        assert _stored_results() == {
+            second_org.id: (
+                "test_label",
+                "v1",
+                config.content_hash,
+                "gpt-5-mini",
+                {"is_ai": True, "confidence": 0.9, "reasoning": "x"},
+                {"signup_domain": None, "fields": {"name": "Acme"}},
+            ),
+        }
+
+    @parameterized.expand(
+        [
+            ("no_active_config", None, {}, "No active EnrichmentPromptConfig for label 'test_label'"),
+            (
+                "expected_version_mismatch",
+                {},
+                {"expected_version": "v2"},
+                "label 'test_label' active version is 'v1', expected 'v2'; "
+                "the active version changed after the caller resolved it, aborting",
+            ),
+            (
+                "invalid_output_field_type",
+                {"output_fields": [{"key": "is_ai", "type": "bool", "description": ""}]},
+                {},
+                "enrichment output field 'is_ai' has unknown type 'bool'",
+            ),
+            ("workers_below_one", {}, {"workers": 0}, "--workers must be at least 1"),
+            ("limit_below_one", {}, {"limit": 0}, "--limit must be at least 1"),
+            ("max_failures_below_one", {}, {"max_failures": 0}, "--max-failures must be at least 1"),
+        ]
+    )
+    def test_aborts_before_spend_with_the_exact_message(self, _name, config_overrides, options, message):
+        if config_overrides is not None:
+            self._config(**config_overrides)
+        self._fetch()
+        client = _mock_llm_client()
+
+        with self._batch(client) as out:
+            with self.assertRaises(CommandError) as ctx:
+                call_command("enrichment_label_batch", **{"label": "test_label", "workers": 1, **options}, stdout=out)
+
+        assert str(ctx.exception) == message
+        assert out.getvalue() == ""
+        client.chat.completions.create.assert_not_called()
+        assert _stored_results() == {}
+
+
+class TestLabelDryRunGolden(_BatchCommandTestCase):
+    _HEADER = (
+        "Company                         Domain                    is_ai     confidence  "
+        "reasoning                               \n"
+    )
+
+    def _fetch_minutes_ago(
+        self, minutes: int, organization: Organization | None = None, payload: dict[str, Any] | None = None
+    ) -> OrganizationEnrichmentFetch:
+        fetch = self._fetch(organization=organization, payload=payload)
+        OrganizationEnrichmentFetch.objects.filter(pk=fetch.pk).update(
+            fetched_at=timezone.now() - dt.timedelta(minutes=minutes)
+        )
+        return fetch
+
+    def test_a_sample_prints_one_row_per_fetch_most_recent_first(self):
+        self._config()
+        self._fetch_minutes_ago(1, payload={"name": "Acme Intergalactic Holdings Incorporated"})
+        self._fetch_minutes_ago(2, organization=Organization.objects.create(name="Ghost Co"), payload={})
+        declined_org = Organization.objects.create(name="Declined Co", is_ai_data_processing_approved=False)
+        self._fetch_minutes_ago(3, organization=declined_org, payload={"name": "Declined"})
+        self._fetch_minutes_ago(
+            4, organization=Organization.objects.create(name="Broken Co"), payload={"name": "Broken"}
+        )
+        client = _mock_llm_client()
+        client.chat.completions.create.side_effect = [_good_response(), RuntimeError("gateway down")]
+        out = StringIO()
+
+        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_dry_run", label="test_label", no_color=True, stdout=out)
+
+        assert out.getvalue() == (
+            "Prompt version: v1\n"
+            + self._HEADER
+            + "Acme Intergalactic Holdings I…  posthog.com               true      0.90    "
+            "x                                       \n"
+            "Ghost Co                        -                         unknown   -       "
+            "-                                       \n"
+            "Declined Co                     -                         SKIPPED: no AI consent  -       "
+            "-                                       \n"
+            "Broken Co                       -                         ERROR: gateway down  -       "
+            "-                                       \n"
+            "classified 1, unknown 1, errors 1, skipped_no_ai_consent 1\n"
+        )
+        assert client.chat.completions.create.call_count == 2
+        assert EnrichmentLabelResult.objects.count() == 0
+
+    def test_compare_version_appends_the_stored_prior_verdict_columns(self):
+        prior_config = self._config(
+            version="v0",
+            is_active=False,
+            output_fields=[
+                {"key": "is_ai", "type": "boolean", "description": ""},
+                {"key": "score", "type": "number", "description": ""},
+            ],
+        )
+        self._config()
+        prior_fetch = self._fetch_minutes_ago(1)
+        EnrichmentLabelResult.objects.create(
+            organization=self.organization,
+            fetch=prior_fetch,
+            label_name="test_label",
+            prompt_version="v0",
+            prompt_hash=prior_config.content_hash,
+            model="gpt-5-mini",
+            output={"is_ai": False, "score": 0.25},
+        )
+        self._fetch_minutes_ago(2, organization=Organization.objects.create(name="Other Co"), payload={"name": "Other"})
+        client = _mock_llm_client()
+        out = StringIO()
+
+        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command(
+                "enrichment_label_dry_run", label="test_label", compare_version="v0", no_color=True, stdout=out
+            )
+
+        assert out.getvalue() == (
+            "Prompt version: v1\n"
+            "Company                         Domain                    is_ai     confidence  "
+            "reasoning                                 prev.is_ai  prev.score\n"
+            "Acme                            posthog.com               true      0.90    "
+            "x                                         false     0.25  \n"
+            "Other                           -                         true      0.90    "
+            "x                                         -         -     \n"
+            "classified 2, unknown 0, errors 0, skipped_no_ai_consent 0\n"
+        )
+        assert client.chat.completions.create.call_count == 2
+
+    def test_a_sample_where_every_consenting_row_errored_raises_after_printing_the_table(self):
+        self._config()
+        declined_org = Organization.objects.create(name="Declined Co", is_ai_data_processing_approved=False)
+        self._fetch_minutes_ago(1, organization=declined_org, payload={"name": "Declined"})
+        self._fetch_minutes_ago(
+            2, organization=Organization.objects.create(name="Broken Co"), payload={"name": "Broken"}
+        )
+        client = _mock_llm_client()
+        client.chat.completions.create.side_effect = RuntimeError("gateway down")
+        out = StringIO()
+
+        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+            with self.assertRaises(CommandError) as ctx:
+                call_command("enrichment_label_dry_run", label="test_label", no_color=True, stdout=out)
+
+        assert out.getvalue() == (
+            "Prompt version: v1\n"
+            + self._HEADER
+            + "Declined Co                     -                         SKIPPED: no AI consent  -       "
+            "-                                       \n"
+            "Broken Co                       -                         ERROR: gateway down  -       "
+            "-                                       \n"
+            "classified 0, unknown 0, errors 1, skipped_no_ai_consent 1\n"
+        )
+        assert str(ctx.exception) == (
+            "every sampled row errored (classified 0, unknown 0, errors 1, skipped_no_ai_consent 1)"
+        )
+        assert client.chat.completions.create.call_count == 1
+
+    def test_a_prompt_file_overrides_the_prompt_in_memory_and_marks_the_version(self):
+        config = self._config()
+        self._fetch()
+        client = _mock_llm_client()
+        out = StringIO()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            prompt_path = Path(tmp) / "prompt.txt"
+            prompt_path.write_text("Overridden prompt for {email}")
+            with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+                call_command(
+                    "enrichment_label_dry_run",
+                    label="test_label",
+                    prompt_file=str(prompt_path),
+                    no_color=True,
+                    stdout=out,
+                )
+
+        assert out.getvalue() == (
+            "Prompt version: v1+file\n"
+            + self._HEADER
+            + "Acme                            posthog.com               true      0.90    "
+            "x                                       \n"
+            "classified 1, unknown 0, errors 0, skipped_no_ai_consent 0\n"
+        )
+        assert client.chat.completions.create.call_args.kwargs["messages"][0] == {
+            "role": "system",
+            "content": "Overridden prompt for posthog.com",
+        }
+        config.refresh_from_db()
+        assert config.prompt_text == "... Email: {email}"
+
+    @parameterized.expand(
+        [
+            ("no_active_config", None, {}, "No active EnrichmentPromptConfig for label 'test_label'"),
+            (
+                "invalid_output_field_type",
+                {"output_fields": [{"key": "is_ai", "type": "bool", "description": ""}]},
+                {},
+                "enrichment output field 'is_ai' has unknown type 'bool'",
+            ),
+            ("sample_below_one", {}, {"sample": 0}, "--sample must be at least 1"),
+            (
+                "missing_prompt_file",
+                {},
+                {"prompt_file": "/nonexistent/enrichment_prompt.txt"},
+                "Could not read --prompt-file /nonexistent/enrichment_prompt.txt: "
+                "[Errno 2] No such file or directory: '/nonexistent/enrichment_prompt.txt'",
+            ),
+            (
+                "missing_compare_version",
+                {},
+                {"compare_version": "v9"},
+                "No config 'v9' for label 'test_label' to compare against",
+            ),
+        ]
+    )
+    def test_aborts_before_spend_with_the_exact_message(self, _name, config_overrides, options, message):
+        if config_overrides is not None:
+            self._config(**config_overrides)
+        self._fetch()
+        client = _mock_llm_client()
+        out = StringIO()
+
+        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+            with self.assertRaises(CommandError) as ctx:
+                call_command("enrichment_label_dry_run", label="test_label", stdout=out, **options)
+
+        assert str(ctx.exception) == message
+        assert out.getvalue() == ""
         client.chat.completions.create.assert_not_called()
