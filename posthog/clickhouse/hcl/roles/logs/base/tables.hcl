@@ -663,7 +663,7 @@ database "posthog" {
   table "logs_volume_buckets" {
     order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
     partition_by = "toDate(time_bucket)"
-    ttl          = "time_bucket + toIntervalDay(42)"
+    ttl          = "time_bucket + toIntervalDay(least(retention_days, 42))"
     settings = {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
@@ -689,6 +689,14 @@ database "posthog" {
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    # The team's configured Logs retention (days) at write time, clamped to 42 by the TTL above —
+    # this table exists for anomaly detection's 6-week baseline, not to outlive the raw logs it was
+    # built from. Defaults to 42 so existing/unpopulated rows keep today's TTL until the writer
+    # backfills real per-team values.
+    column "retention_days" {
+      type    = "UInt16"
+      default = "42"
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.logs_volume_buckets"
@@ -719,6 +727,10 @@ database "posthog" {
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
     }
+    column "retention_days" {
+      type    = "UInt16"
+      default = "42"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -730,7 +742,7 @@ database "posthog" {
     order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern"]
     primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version"]
     partition_by = "toDate(time_bucket)"
-    ttl          = "time_bucket + toIntervalDay(42)"
+    ttl          = "time_bucket + toIntervalDay(least(retention_days, 42))"
     settings = {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
@@ -762,6 +774,11 @@ database "posthog" {
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    # See logs_volume_buckets.retention_days — same clamp, same default.
+    column "retention_days" {
+      type    = "UInt16"
+      default = "42"
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.logs_pattern_buckets"
@@ -797,6 +814,10 @@ database "posthog" {
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "retention_days" {
+      type    = "UInt16"
+      default = "42"
     }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
