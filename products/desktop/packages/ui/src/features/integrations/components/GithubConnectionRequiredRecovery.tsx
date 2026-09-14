@@ -97,7 +97,7 @@ export function GithubConnectionRequiredRecovery({
       folderRepository: repository ?? undefined,
       folderRunEnvironment: "local",
       initialPrompt: buildLocalCodeSnapshotPrompt(getRecoveryPrompt(task)),
-      initialMode: task.latest_run?.state.initial_permission_mode ?? "auto",
+      initialMode: "plan",
       reportAssociation: task.signal_report
         ? { reportId: task.signal_report, title: task.title }
         : undefined,

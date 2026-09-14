@@ -100,7 +100,7 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
       ? task.latest_run.state.slack_thread_url
       : undefined;
   const githubConnectionRequired =
-    isGithubConnectionRequiredError(errorMessage);
+    hasError && isGithubConnectionRequiredError(errorMessage);
 
   useEffect(() => {
     requestFocus(taskId);

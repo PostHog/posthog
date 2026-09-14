@@ -3,6 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { GithubConnectionRequiredDialog } from "./GithubConnectionRequiredDialog";
 
+const mockToastError = vi.hoisted(() => vi.fn());
+
+vi.mock("@posthog/ui/primitives/toast", () => ({
+  toast: { error: mockToastError },
+}));
+
 describe("GithubConnectionRequiredDialog", () => {
   it("offers connection, explains access, and copies the admin request", async () => {
     const user = userEvent.setup();
@@ -62,5 +68,31 @@ describe("GithubConnectionRequiredDialog", () => {
         "PostHog needs read access to diagnose product changes using code context and keep investigations current.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("reports a clipboard failure without showing copied state", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error("blocked")) },
+    });
+
+    render(
+      <GithubConnectionRequiredDialog
+        open
+        isConnecting={false}
+        approvalPending
+        canRunLocally={false}
+        onOpenChange={() => undefined}
+        onConnect={() => undefined}
+        onRunLocally={() => undefined}
+      />,
+    );
+
+    await user.click(screen.getByLabelText("Copy access request"));
+
+    expect(mockToastError).toHaveBeenCalledWith(
+      "Couldn't copy the access request",
+    );
   });
 });

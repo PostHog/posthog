@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@posthog/quill";
+import { toast } from "@posthog/ui/primitives/toast";
 import { useCallback, useState } from "react";
 
 interface GithubConnectionRequiredDialogProps {
@@ -53,8 +54,12 @@ export function GithubConnectionRequiredDialog({
   );
 
   const handleCopy = useCallback(async () => {
-    await navigator.clipboard.writeText(GITHUB_ADMIN_ACCESS_REQUEST);
-    setCopied(true);
+    try {
+      await navigator.clipboard.writeText(GITHUB_ADMIN_ACCESS_REQUEST);
+      setCopied(true);
+    } catch {
+      toast.error("Couldn't copy the access request");
+    }
   }, []);
 
   return (
