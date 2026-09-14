@@ -5,23 +5,23 @@ The GitHub App sends deliveries to `/webhooks/github/`.
 
 ## Transport
 
-`posthog/api/github_webhooks/views.py` checks the method and signature, parses the payload, and calls the dispatcher.
-`posthog/urls.py` only registers the routes.
-The secret remains the `GITHUB_WEBHOOK_SECRET` instance setting.
+Transport is `posthog/ingress/`, which serves every inbound webhook PostHog receives.
+Read [`posthog/ingress/README.md`](../../posthog/ingress/README.md) for the registry, the delivery budget, deduplication, and the metrics.
+Only the GitHub-specific parts are below.
 
-`handlers.py` lists the consumers for each event type.
+`posthog/urls.py` registers both routes against `build_webhook_view(build_github_provider("posthog"))`.
+The secret remains the `GITHUB_WEBHOOK_SECRET` instance setting.
+The response is a transport receipt: 202 for every verified delivery, whatever the consumers did.
+
+Each product declares its consumers in `products/<name>/backend/webhook_consumers.py`.
+Core owns the installation lifecycle consumers, which the GitHub incarnation registers itself.
 Keep product-specific work behind the product's facade.
 Product imports remain deferred so loading URL configuration does not load every consumer.
+Keep consumer names stable when moving code: names are part of the deduplication cache key.
 
-`dispatch.py` calls each consumer independently.
-An exception does not prevent sibling consumers from running.
-The first consumer that returns an HTTP response determines the response; otherwise, the dispatcher returns 200.
-An HTTP error response alone does not raise an exception or release the delivery's deduplication entry.
-
-Deduplication uses the delivery ID and consumer name, with a 24-hour cache expiry.
-An exception releases that consumer's entry so a redelivery can retry it.
-A cache failure allows processing to continue.
-Keep consumer names stable when moving code: names are part of the cache key.
+Conversations forwards a delivery for an installation this region does not own to the other region.
+That runs before the fan-out, because forwarding replays the signed bytes that a consumer never sees.
+It does not stop the other consumers from running in this region.
 
 ## PR analytics
 

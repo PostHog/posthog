@@ -9,7 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from django.conf import settings
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
@@ -34,6 +34,11 @@ GITHUB_EVENT_TYPES = frozenset(
 
 # The Stamphog App reviews pull requests and keeps its repo-config rows in step with GitHub.
 STAMPHOG_EVENT_TYPES = frozenset({"pull_request", "installation", "installation_repositories"})
+
+# Work the endpoint owner must do on the raw request before any consumer runs, injected by the
+# URLconf so nothing here imports a product. The customer-facing App uses it for the conversations
+# regional proxy, which forwards the signed bytes and so cannot be expressed as a consumer.
+PreDispatch = Callable[[HttpRequest, Any], HttpResponse | None]
 
 
 def _posthog_app_secret() -> str | None:
@@ -71,11 +76,12 @@ def _installation_context(payload: Mapping[str, Any]) -> dict[str, str]:
 class GitHubProvider(WebhookProvider):
     provider = "github"
 
-    def __init__(self, app: str) -> None:
+    def __init__(self, app: str, *, pre_dispatch: PreDispatch | None = None) -> None:
         secret_getter = _SECRET_GETTERS.get(app)
         if secret_getter is None:
             raise ValueError(f"Unknown GitHub app {app!r}, expected one of {sorted(_SECRET_GETTERS)}")
         self.app = app
+        self._pre_dispatch = pre_dispatch
         self._scheme = HmacSha256(
             secret_getter=secret_getter,
             signature_header="X-Hub-Signature-256",
@@ -84,6 +90,11 @@ class GitHubProvider(WebhookProvider):
 
     def scheme(self) -> SignatureScheme:
         return self._scheme
+
+    def pre_dispatch_response(self, request: HttpRequest, payload: Any) -> HttpResponse | None:
+        if self._pre_dispatch is None:
+            return None
+        return self._pre_dispatch(request, payload)
 
     def deliveries(self, request: HttpRequest, payload: Any) -> Sequence[WebhookDelivery]:
         if not isinstance(payload, Mapping):
@@ -101,8 +112,8 @@ class GitHubProvider(WebhookProvider):
         )
 
 
-def build_github_provider(app: str) -> GitHubProvider:
-    return GitHubProvider(app)
+def build_github_provider(app: str, *, pre_dispatch: PreDispatch | None = None) -> GitHubProvider:
+    return GitHubProvider(app, pre_dispatch=pre_dispatch)
 
 
 def _run_installation_lifecycle(delivery: WebhookDelivery) -> None:

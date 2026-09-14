@@ -53,10 +53,12 @@ class WebhookProvider(ABC):
         return self.scheme().verify(body=request.body, headers=request.headers)
 
     def pre_dispatch_response(self, request: HttpRequest, payload: Any) -> HttpResponse | None:
-        """A response the provider's protocol demands before any consumer runs.
+        """The endpoint owner's last look at the raw request, before any consumer runs.
 
-        Only handshakes belong here (Slack's `url_verification` challenge), never anything a
-        consumer's outcome decides.
+        Two things belong here and nothing else: a handshake the protocol demands (Slack's
+        `url_verification` challenge), and work that needs the signed bytes a consumer never
+        sees (the conversations regional proxy). Never anything a consumer's outcome decides.
+        Returning `None` lets dispatch continue, so a side effect does not cost the fan-out.
         """
         return None
 

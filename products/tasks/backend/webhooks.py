@@ -1,6 +1,5 @@
 from django.db import transaction
 from django.db.models import Case, IntegerField, Q, Value, When
-from django.http import HttpResponse
 
 import structlog
 
@@ -193,10 +192,10 @@ def _capture_task_pr_event(payload: dict, task_run: TaskRun | None, event: GitHu
     capture_pr_event(payload, attribution, event)
 
 
-def handle_pull_request_event(payload: dict) -> HttpResponse:
-    """Process a pre-verified pull_request webhook event.
+def handle_pull_request_event(payload: dict) -> None:
+    """Process a verified pull_request webhook event.
 
-    Called from the shared GitHub webhook dispatcher (unified dispatcher).
+    Registered as the ``tasks_pr_backstop`` ingress consumer.
     """
     action = payload.get("action")
     pull_request = payload.get("pull_request", {})
@@ -205,7 +204,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
 
     if not pr_url:
         logger.warning("github_pr_webhook_no_pr_url", action=action)
-        return HttpResponse(status=200)
+        return
 
     pr_state = pr_state_for_action(action, pull_request)
     analytics_event: GitHubWebhookAnalyticsEvent | None = None
@@ -226,7 +225,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         event_action = action or ""
     else:
         logger.debug("github_pr_webhook_ignored_action", action=action, pr_url=pr_url)
-        return HttpResponse(status=200)
+        return
 
     branch = pull_request.get("head", {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
@@ -291,19 +290,17 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         if task_run and pr_url in claimed_pr_urls:
             _cancel_wizard_run_on_close(task_run)
 
-    return HttpResponse(status=200)
 
+def handle_pull_request_review_event(payload: dict) -> None:
+    """Process a verified pull_request_review webhook event.
 
-def handle_pull_request_review_event(payload: dict) -> HttpResponse:
-    """Process a pre-verified pull_request_review webhook event.
-
-    Called from the shared GitHub webhook dispatcher (unified dispatcher). Captures a
+    Registered as the ``tasks_pr_review`` ingress consumer. Captures a
     ``pr_reviewed`` analytics event for human review submissions (approved,
     changes_requested, commented), attributed to the reviewer when their GitHub
     login resolves to an org member.
     """
     if payload.get("action") != "submitted":
-        return HttpResponse(status=200)
+        return
 
     review = payload.get("review") or {}
     reviewer = review.get("user") or {}
@@ -311,13 +308,13 @@ def handle_pull_request_review_event(payload: dict) -> HttpResponse:
     pr_url = pull_request.get("html_url")
     if not pr_url:
         logger.warning("github_pr_review_webhook_no_pr_url")
-        return HttpResponse(status=200)
+        return
 
     # StampHog, ReviewHog, and CI apps review every self-driving PR, so without this
     # filter the event stream is mostly bots and the human review signal drowns.
     if (reviewer.get("type") or "").lower() == "bot":
         logger.debug("github_pr_review_webhook_bot_review_skipped", pr_url=pr_url)
-        return HttpResponse(status=200)
+        return
 
     branch = (pull_request.get("head") or {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
@@ -334,7 +331,6 @@ def handle_pull_request_review_event(payload: dict) -> HttpResponse:
         pr_source="task" if task_run else "external",
         run_id=str(task_run.id) if task_run else None,
     )
-    return HttpResponse(status=200)
 
 
 def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:

@@ -23,7 +23,6 @@ from posthog.api import (
     user,
 )
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
-from posthog.api.github_webhooks.views import github_webhook
 from posthog.api.integration_connect import integration_connect_redirect
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.hogli_metadata import HOGLI_METADATA_PATH, HogliClientMetadataView
@@ -35,6 +34,8 @@ from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.web_experiment import web_experiments
 from posthog.ee_urls import ee_urlpatterns
 from posthog.frontend_views import home, home_with_region_redirect
+from posthog.ingress.github.provider import build_github_provider
+from posthog.ingress.views import build_webhook_view
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 from posthog.web_bot_auth import http_message_signatures_directory
@@ -42,6 +43,7 @@ from posthog.web_bot_auth import http_message_signatures_directory
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 from products.canvas.backend.artifacts import canvas_artifact
 from products.cdp.backend.api import hog_function_template
+from products.conversations.backend.api.github_events import proxy_github_event_to_owning_region
 from products.conversations.backend.api.internal import InternalTicketView as ConversationsInternalTicketView
 from products.customer_analytics.backend.presentation.views.internal import (
     InternalAccountCustomPropertiesView as CustomerAnalyticsInternalAccountCustomPropertiesView,
@@ -96,6 +98,11 @@ from .views import (
     security_txt,
     stats,
     update_preferences,
+)
+
+# One view for both paths, so the provider is built once per process rather than once per route.
+github_app_webhook = build_webhook_view(
+    build_github_provider("posthog", pre_dispatch=proxy_github_event_to_owning_region)
 )
 
 urlpatterns = [
@@ -358,9 +365,9 @@ urlpatterns = [
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
     opt_slash_path("slack/command-callback", slack_app_command_handler),
     opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
-    # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
-    opt_slash_path("webhooks/github/pr", github_webhook),
-    opt_slash_path("webhooks/github", github_webhook),
+    # GitHub App webhook — ingress fans it out to the tasks, conversations and workflows consumers
+    opt_slash_path("webhooks/github/pr", github_app_webhook),
+    opt_slash_path("webhooks/github", github_app_webhook),
     # Stamphog runs as its own GitHub App with a dedicated inbound endpoint (not the fan-out above)
     opt_slash_path("webhooks/stamphog/github", stamphog_github_webhook),
     # AWS SES tenant reputation events (EventBridge -> SNS HTTPS subscription)

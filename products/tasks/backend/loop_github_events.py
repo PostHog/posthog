@@ -1,9 +1,9 @@
 """GitHub event matching and firing for Loops.
 
-The entry point is ``handle_github_event_for_loops``, registered as a handler in the
-GitHub App webhook fan-out (``posthog.urls.github_webhook``) for the ``pull_request``,
-``issues``, ``issue_comment`` and ``push`` events. Called after signature verification
-and JSON parsing, alongside the other webhook consumers.
+The entry point is ``handle_github_event_for_loops``, registered by
+``products/tasks/backend/webhook_consumers.py`` as the ``loops`` consumer on the GitHub App
+endpoint for the ``pull_request``, ``issues``, ``issue_comment`` and ``push`` events. Called
+after signature verification and JSON parsing, alongside the other consumers.
 """
 
 import time

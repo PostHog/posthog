@@ -4,8 +4,9 @@ The counterpart to ``products.slack_app.backend.slack_workflow_events``, and del
 the same way: resolve the PostHog projects behind the GitHub installation, then write the delivery
 out as-is. A workflow's trigger config decides what it wants, and the CDP consumer evaluates that.
 
-Registered in the GitHub App webhook fan-out (``posthog.urls.github_webhook``), which verifies the
-signature, parses the body, and dedupes redeliveries before any handler runs.
+Registered by ``products/workflows/backend/webhook_consumers.py`` as the ``workflows`` consumer
+on the GitHub App endpoint, which verifies the signature, parses the body, and dedupes redeliveries
+before any consumer runs.
 """
 
 import json
