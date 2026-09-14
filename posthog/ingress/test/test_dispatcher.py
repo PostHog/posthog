@@ -5,8 +5,10 @@ from unittest.mock import Mock, patch
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
+from parameterized import parameterized
+
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
-from posthog.ingress.dispatch.budget import DeliveryBudget
+from posthog.ingress.dispatch.budget import DEFAULT_DELIVERY_BUDGET_SECONDS, DeliveryBudget, delivery_budget_seconds
 from posthog.ingress.dispatch.dedup import DeliveryDedup
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
 from posthog.ingress.dispatch.registry import ConsumerRegistry
@@ -26,13 +28,14 @@ def _delivery(delivery_id: str | None = "delivery-1") -> WebhookDelivery:
     )
 
 
-def _consumer(name: str, handler) -> WebhookConsumer:
+def _consumer(name: str, handler, *, dedup: bool = True) -> WebhookConsumer:
     return WebhookConsumer(
         name=name,
         provider="github",
         app="posthog",
         event_types=frozenset({"pull_request"}),
         handler=handler,
+        dedup=dedup,
     )
 
 
@@ -95,6 +98,18 @@ class TestWebhookDispatcher(SimpleTestCase):
 
         self.assertEqual(handler.call_count, 2)
 
+    def test_a_consumer_that_opted_out_of_dedup_runs_on_every_redelivery(self) -> None:
+        opted_out = Mock()
+        sibling = Mock()
+        dispatcher = _dispatcher([_consumer("alpha", opted_out, dedup=False), _consumer("zulu", sibling)])
+
+        dispatcher.dispatch(_delivery())
+        dispatcher.dispatch(_delivery())
+
+        self.assertEqual(opted_out.call_count, 2)
+        self.assertEqual(sibling.call_count, 1)
+        self.assertIsNone(cache.get(DeliveryDedup.key(provider="github", consumer="alpha", delivery_id="delivery-1")))
+
     def test_a_cache_outage_fails_open_rather_than_dropping_the_delivery(self) -> None:
         handler = Mock()
         with patch.object(cache, "add", side_effect=RuntimeError("cache down")):
@@ -143,3 +158,20 @@ class TestWebhookDispatcher(SimpleTestCase):
             _dispatcher([_consumer("alpha", second)]).dispatch(_delivery(delivery_id="delivery-2"), budget=budget)
 
         second.assert_not_called()
+
+
+class TestDeliveryBudgetSeconds(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("zero_would_skip_every_consumer", 0, DEFAULT_DELIVERY_BUDGET_SECONDS),
+            ("negative_would_skip_every_consumer", -1, DEFAULT_DELIVERY_BUDGET_SECONDS),
+            ("infinity_would_remove_the_backstop", float("inf"), DEFAULT_DELIVERY_BUDGET_SECONDS),
+            ("nan_would_remove_the_backstop", float("nan"), DEFAULT_DELIVERY_BUDGET_SECONDS),
+            ("a_positive_finite_value_is_honored", 2.5, 2.5),
+        ]
+    )
+    def test_a_misconfigured_setting_falls_back_to_the_default(
+        self, _name: str, configured: float, expected: float
+    ) -> None:
+        with override_settings(INGRESS_DELIVERY_BUDGET_SECONDS=configured):
+            self.assertEqual(delivery_budget_seconds(), expected)

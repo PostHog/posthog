@@ -1,7 +1,8 @@
 # Inbound webhooks
 
-Every webhook a third party sends to PostHog goes through `posthog/ingress/`.
+A webhook a third party sends to PostHog goes through `posthog/ingress/`.
 The package verifies the signature, parses the delivery, and runs the consumers that registered for it.
+That is the rule for a new endpoint; the endpoints that predate the package are migrating one at a time, and the PR adding this page wires Stamphog only (see [Endpoints today](#endpoints-today)).
 Read this page before you add an endpoint or a consumer.
 [`posthog/ingress/README.md`](../../posthog/ingress/README.md) holds the package's own reference: the lanes, the dedup rules, and the metric names.
 
@@ -37,6 +38,8 @@ The mark is set before the consumer runs and released when it raises.
 The consumer name is therefore part of the key.
 **Treat a consumer name as fixed once it ships**: renaming one lets a redelivery run it a second time.
 A provider that sends no delivery id skips dedup, and its consumer carries its own idempotency instead.
+A consumer can also opt out with `dedup=False`, which is right when it already keys its own recovery on the delivery id: the mark would otherwise stop a redelivery from ever reaching that recovery path.
+Stamphog is the case today. Leave the flag alone unless the consumer has an idempotency key of its own, because an opted-out consumer redoes the work on every redelivery.
 
 ## How a request becomes deliveries
 
@@ -47,10 +50,11 @@ PandaDoc batches several events into one body, so its incarnation yields one del
 Between verification and dispatch the provider incarnation gets one look at the raw request, through `pre_dispatch_response()`.
 Returning a response there answers the caller and runs no consumer.
 Returning `None` lets dispatch continue.
-Only two things belong there, and both are in use today:
+`pre_dispatch_response()` is a method on the `WebhookProvider` base, so an incarnation overrides it.
+Only two things belong there:
 
-- A handshake the protocol demands. Slack's `url_verification` challenge must be echoed in the body, so the Slack incarnation answers it itself.
-- Work that needs the signed bytes a consumer never sees. Conversations forwards a delivery for a workspace or an installation this region does not own to the other region, which replays those bytes. It is injected as a `pre_dispatch` callable on both the Slack and the GitHub providers, so nothing under `posthog/ingress/` imports a product. The GitHub one always returns `None`, so the other consumers on that endpoint still run in this region.
+- A handshake the protocol demands. Slack's `url_verification` challenge must be echoed in the body, so the Slack incarnation overrides the method and answers it itself. This is the only override today.
+- Work that needs the signed bytes a consumer never sees. Regional proxying is the case: a delivery for a workspace or an installation this region does not own is forwarded to the other region, which replays those bytes. That one cannot be an incarnation override, because the routing belongs to a product and nothing under `posthog/ingress/` imports a product, so it arrives as a callable the product injects into the provider builder. It lands with the Slack and GitHub migrations; neither builder takes one yet.
 
 The dispatcher then looks up the consumers for `(provider, app, event type)` and runs them in name order.
 Order is not a contract.

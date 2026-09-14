@@ -81,6 +81,10 @@ A consumer that names a provider app nobody declares, reuses a name already take
 A handler takes one `WebhookDelivery` and returns nothing.
 It runs synchronously inside the request, isolated: raising is logged and captured, and it releases its own dedup mark so the provider's redelivery reaches it again.
 
+`dedup=False` turns the mark off for one consumer.
+That is right when the consumer already keys its own recovery on the provider's delivery id, so a redelivery is how work that never finished gets picked up — stamphog is the case today.
+Leave it on everywhere else: without an idempotency key of its own, a consumer that opts out does the work again on every redelivery.
+
 ## The delivery budget
 
 Every request gets one wall-clock budget, `INGRESS_DELIVERY_BUDGET_SECONDS` (default 8).
@@ -99,6 +103,7 @@ Add a `<provider>/` subpackage with a `provider.py` holding three things (see `g
 - A `WebhookProvider` subclass — its `scheme()` (from `verify/`), its `deliveries()` (how to read event type, delivery id and context off the request), and any status codes its protocol fixes. The defaults are 403 on a bad signature, 500 when unconfigured, and 202 on success.
 - A `build_<provider>_provider(...)` function returning that provider, which the URLconf hands to `build_webhook_view()`.
 
+Add the module to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, so the registry finds its specs and any core consumers.
 Then register the URL as usual:
 
 ```python

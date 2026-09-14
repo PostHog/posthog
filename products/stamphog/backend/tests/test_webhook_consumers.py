@@ -70,6 +70,18 @@ class TestStamphogGitHubWebhook(SimpleTestCase):
         other_delay.assert_not_called()
 
     @patch(PULL_REQUEST_DELAY)
+    def test_a_redelivery_reaches_the_task_again_because_the_consumer_opts_out_of_dedup(self, mock_delay) -> None:
+        body = json.dumps({"action": "opened"}).encode("utf-8")
+
+        for _ in range(2):
+            request = self._post(body, signature=_signature(body, WEBHOOK_SECRET))
+            assert stamphog_github_webhook(request).status_code == 202
+
+        # The task keys its resume path on the delivery id, so GitHub's redelivery is how a run
+        # that never finished gets picked up. An ingress dedup mark would hold that off for 24 h.
+        assert mock_delay.call_count == 2
+
+    @patch(PULL_REQUEST_DELAY)
     @patch(INSTALLATION_DELAY)
     def test_an_event_type_the_app_does_not_register_is_acked_without_enqueueing(
         self, mock_installation_delay, mock_pull_request_delay

@@ -38,6 +38,9 @@ class WebhookConsumer:
     app: str
     event_types: frozenset[str]
     handler: Callable[[WebhookDelivery], None]
+    # Off for a consumer that already keys its own recovery on the provider's delivery id: the
+    # 24 h mark would otherwise stop a redelivery from ever reaching that recovery path.
+    dedup: bool = True
 
 
 @frozen

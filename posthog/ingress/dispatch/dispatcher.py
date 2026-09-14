@@ -33,8 +33,11 @@ class WebhookDispatcher:
         self._budget_seconds = budget_seconds
 
     def _run(self, consumer: WebhookConsumer, delivery: WebhookDelivery) -> None:
-        if delivery.delivery_id and not self._dedup.claim(
-            provider=delivery.provider, consumer=consumer.name, delivery_id=delivery.delivery_id
+        # A consumer that opted out of dedup claims and releases nothing, so a redelivery always
+        # reaches it. Skipping is not an outcome of its own: it simply runs.
+        delivery_id = delivery.delivery_id if consumer.dedup else None
+        if delivery_id and not self._dedup.claim(
+            provider=delivery.provider, consumer=consumer.name, delivery_id=delivery_id
         ):
             logger.info(
                 "ingress_consumer_deduped",
@@ -58,10 +61,8 @@ class WebhookDispatcher:
                 delivery_id=delivery.delivery_id,
             )
             capture_exception(error)
-            if delivery.delivery_id:
-                self._dedup.release(
-                    provider=delivery.provider, consumer=consumer.name, delivery_id=delivery.delivery_id
-                )
+            if delivery_id:
+                self._dedup.release(provider=delivery.provider, consumer=consumer.name, delivery_id=delivery_id)
             observe_consumer_run(provider=delivery.provider, consumer=consumer.name, outcome="failed")
         else:
             observe_consumer_run(provider=delivery.provider, consumer=consumer.name, outcome="succeeded")

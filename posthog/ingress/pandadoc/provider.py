@@ -44,7 +44,9 @@ class PandaDocProvider(WebhookProvider):
     def verify(self, request: HttpRequest) -> VerificationOutcome:
         # Read through the scheme's own case-insensitive lookup, because Django normalizes a
         # header name to title case and an exact-case match would never find this one.
-        if header_value(request.headers, PANDADOC_SIGNATURE_HEADER):
+        # Presence decides, not truthiness: an empty header is a signature that fails, never a
+        # reason to go looking for a query parameter the caller did not sign with.
+        if header_value(request.headers, PANDADOC_SIGNATURE_HEADER) is not None:
             return self._scheme.verify(body=request.body, headers=request.headers)
         # The query parameter is the fallback only, so a signed header always decides.
         return self._scheme.verify(

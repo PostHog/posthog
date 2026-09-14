@@ -30,5 +30,8 @@ WEBHOOK_CONSUMERS = (
         app="stamphog",
         event_types=frozenset({"pull_request"}) | _INSTALLATION_EVENTS,
         handler=_run_review,
+        # The task resumes its own work off `delivery_id`, so a redelivery is how a run that
+        # never finished gets picked up again. An ingress mark would hold that off for 24 h.
+        dedup=False,
     ),
 )

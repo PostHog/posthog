@@ -19,14 +19,15 @@ def _signature() -> str:
 class TestPandaDocProvider(SimpleTestCase):
     @parameterized.expand(
         [
-            ("header_only", True, None, VerificationOutcome.VERIFIED),
-            ("header_plus_an_unrelated_query_parameter", True, "not-a-signature", VerificationOutcome.VERIFIED),
-            ("query_parameter_only", False, _signature(), VerificationOutcome.VERIFIED),
-            ("neither", False, None, VerificationOutcome.INVALID),
+            ("header_only", _signature(), None, VerificationOutcome.VERIFIED),
+            ("header_plus_an_unrelated_query_parameter", _signature(), "not-a-signature", VerificationOutcome.VERIFIED),
+            ("query_parameter_only", None, _signature(), VerificationOutcome.VERIFIED),
+            ("an_empty_header_does_not_fall_through", "", _signature(), VerificationOutcome.INVALID),
+            ("neither", None, None, VerificationOutcome.INVALID),
         ]
     )
     def test_a_header_signature_is_never_overridden_by_the_query_parameter(
-        self, _name: str, with_header: bool, query_signature: str | None, expected: VerificationOutcome
+        self, _name: str, header: str | None, query_signature: str | None, expected: VerificationOutcome
     ) -> None:
         url = "/webhooks/pandadoc/"
         if query_signature is not None:
@@ -35,7 +36,7 @@ class TestPandaDocProvider(SimpleTestCase):
             url,
             data=BODY,
             content_type="application/json",
-            headers={"X-PandaDoc-Signature": _signature()} if with_header else {},
+            headers={} if header is None else {"X-PandaDoc-Signature": header},
         )
 
         self.assertEqual(build_pandadoc_provider().verify(request), expected)
