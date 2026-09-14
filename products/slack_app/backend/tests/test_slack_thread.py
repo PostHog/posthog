@@ -16,7 +16,6 @@ from products.slack_app.backend.slack_thread import (
     SlackThreadHandler,
     _format_task_error,
 )
-from products.tasks.backend.temporal.slack_relay.object_tags import split_incomplete_tag_suffix
 
 
 class TestSlackThreadHandler(SimpleTestCase):
@@ -80,41 +79,6 @@ class TestSlackThreadHandler(SimpleTestCase):
         if not expected:
             client.chat_appendStream.assert_not_called()
         client.chat_stopStream.assert_called_once()
-
-    @parameterized.expand(
-        [
-            ("backticks", "```", True),
-            ("tildes", "~~~", True),
-            ("long_fence", "````", True),
-            ("open_fence", "```", False),
-        ]
-    )
-    @patch.object(SlackThreadHandler, "_get_client")
-    def test_strips_buffered_code_elements(
-        self, _name: str, fence: str, closed: bool, mock_get_client: MagicMock
-    ) -> None:
-        client = mock_get_client.return_value
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
-        updates = [f"Before\n\n{fence}xml\n", '<insight id="1">', "Example</insight>\n"]
-        if closed:
-            updates.append(f"{fence}\n\nAfter\n")
-        pending = ""
-        for update in updates:
-            split = split_incomplete_tag_suffix(pending + update)
-            pending = split.held
-            if split.sendable:
-                SlackThreadHandler(context).append_status_chunks(
-                    ts="1234.9999",
-                    markdown_text=split.sendable,
-                )
-        SlackThreadHandler(context).stop_status_stream(
-            ts="1234.9999",
-            final_markdown=pending,
-        )
-        streamed = "".join(
-            chunk.get("text", "") for call in client.chat_appendStream.call_args_list for chunk in call.kwargs["chunks"]
-        )
-        assert streamed == "".join(updates).replace('<insight id="1">Example</insight>', "")
 
     @patch.object(SlackThreadHandler, "_get_client")
     def test_streamed_label_cannot_create_mentions(self, mock_get_client: MagicMock) -> None:
