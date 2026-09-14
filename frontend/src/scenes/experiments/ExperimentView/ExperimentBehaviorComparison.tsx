@@ -550,10 +550,12 @@ function WatchShelves({
         // Before the too-early branch, because the backend reports too_early for this case as
         // well and the "check back" it would print is the one thing that does not help here.
         const covered = coveredWindow(deltas)
+        // The variant counts the other banners print are people who had a session, which is not
+        // what this sentence is about, so this one names the enrollment and leaves them out.
         return (
             <LemonBanner type="info">
-                {`Almost everyone exposed between ${covered.from} and ${covered.to} was in one variant, with ${variantCounts}. `}
-                Comparing behavior needs at least{' '}
+                Almost everyone exposed between {covered.from} and {covered.to} was in one variant, so there was nothing
+                to compare. Comparing behavior needs at least{' '}
                 {pluralize(deltas.min_variant_persons, 'exposed person', 'exposed people')} in two variants exposed
                 around the same time, and more time won't change this. A rollout split that changed during the run is
                 the usual cause.

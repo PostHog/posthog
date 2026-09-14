@@ -55,11 +55,15 @@ activity instead would select on something that happens after treatment and can 
 variant: a variant that brings people back more gets more of its people into the window, and the
 people who met the change and did not come back are never compared. First exposure time also
 spans the whole run rather than a trailing window, so an experiment that stopped enrolling weeks
-ago still compares its last enrollees, in the sessions where they met the change. The one case this
-selection does not cover is a rollout split that changed inside the compared stretch: the newest
-enrollees are then almost all in one variant, and walking further back for the thin variant would
-compare people exposed weeks apart, which is the confound the selection removes. That case is
-reported (`WatchEmptyReason.ONE_SIDED_ENROLLMENT`) rather than widened.
+ago still compares its last enrollees, in the sessions where they met the change. While an
+experiment runs, the newest FIRST_SESSION_SETTLING_HOURS of enrollment is held back, because those
+people are still inside the session the comparison would read. The one case this selection does
+not cover is a rollout split that changed inside the compared stretch: the newest enrollees are
+then almost all in one variant, and walking further back for the thin variant would compare people
+exposed weeks apart, which is the confound the selection removes. That case is reported
+(`WatchEmptyReason.ONE_SIDED_ENROLLMENT`) rather than widened, and it is read off how many people
+each variant enrolled rather than off how many of them turned out to have a session, because a
+variant whose people are exposed without a browser session did not enroll one-sidedly.
 
 **One person, one session, from the moment they were exposed.** The sessions a variant is exposed
 in are not a fair denominator: a variant that stops re-evaluating the flag once a user has acted
@@ -67,10 +71,9 @@ contributes fewer later sessions, and those missing sessions are the quiet ones.
 production experiment this reached 3.7x more exposed sessions in one variant off near-identical
 people, which pushed nine in ten event names to one side of the comparison: arithmetic reading as
 behavior. Counting each exposed person once fixes the denominator, and it makes the rows
-independent, which is what the ranking's noise test below assumes. It is not enough on its own,
-because the same imbalance is still in the numerator: on that experiment one variant's people
-averaged seven covered sessions each against the other's two, so they had seven chances to have
-done anything rather than two, and nine in ten event names still leaned one way. So a person is
+independent, which is what the ranking's noise test below assumes. The numerator needs the same
+treatment: on that experiment one variant's people averaged seven covered sessions each against
+the other's two, so they had seven chances to have done anything rather than two. So a person is
 read from one session: the one holding their earliest event at or after their first exposure,
 among their events up to FIRST_SESSION_HORIZON_HOURS after it, which is the session where they met
 the change and the same amount of behavior on both sides. Only rows at or after the first exposure
@@ -160,16 +163,24 @@ from products.experiments.backend.session_exposure import never_session_linked_e
 # between it and the team's whole history.
 MAX_DELTA_SCAN_DAYS = 14
 # Ceiling on the exposed people one comparison covers, most recent first exposure first. Bounds
-# the aggregation state rather than the rows read, and because the cut is on first exposure time
-# across all variants at once, the variants stay covered over the same stretch of enrollment — a
-# comparison split across different stretches of time would be measuring the calendar as much as
-# the variant.
+# the aggregation state rather than the rows read. The cut is on first exposure time across all
+# variants at once, which is what keeps the variants covered over the same stretch of enrollment,
+# for the reason the module docstring gives under "Who is compared".
 MAX_DELTA_SCAN_PERSONS = 20_000
 # How far past a person's first exposure their events are read. Their compared session is the one
 # holding their earliest event in this stretch, so the bound keeps "first session after exposure"
 # meaning the session where they met the change, and it caps the per-(person, session) aggregation
-# state for people with many sessions.
+# state for people with many sessions. Stretches are clamped at the window end, so a person first
+# exposed inside the horizon of an experiment's end date is read over what is left of it: still
+# the session they met the change in, with only its tail missing.
 FIRST_SESSION_HORIZON_HOURS = 24
+# How much of a running experiment's newest enrollment the comparison holds back. A person exposed
+# minutes ago is still inside the session that would be read, so their event names are a partial
+# record of it, and an experiment that enrolls a whole comparison within one hour would otherwise
+# be read entirely from sessions in progress. Held back only while another two variants can still
+# be compared without those people, because a shelf with nothing on it is worse than one read a
+# little early.
+FIRST_SESSION_SETTLING_HOURS = 1
 # Ceiling on (event name x variant) rows one comparison ranks. Distinct event names per project are
 # normally in the hundreds; a project that keys event names by id is what this is for.
 MAX_DELTA_EVENT_ROWS = 10_000
@@ -338,9 +349,9 @@ class WatchEmptyReason(StrEnum):
     # Fewer than two variants cleared MIN_VARIANT_PERSONS.
     TOO_EARLY = "too_early"
     # A special case of TOO_EARLY that more time does not fix: the experiment has more exposed
-    # people than one comparison covers and its newest enrollees are almost all in one variant, so
-    # comparing them with older enrollees of the other variant would measure the calendar as much
-    # as the variant. A rollout split that changed during the run is the usual cause.
+    # people than one comparison covers, and only one variant enrolled enough of the people it
+    # covered. A rollout split that changed during the run is the usual cause, which is why
+    # `_is_one_sided_enrollment` reports this only where the configured split cannot be.
     ONE_SIDED_ENROLLMENT = "one_sided_enrollment"
     # The variants were compared and no event told them apart.
     NO_SEPARATION = "no_separation"
@@ -635,12 +646,10 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
     too_early = len(compared_variant_keys) < 2
 
     # Empty variants read as too early, unless the people exposed have no sessions at all, or the
-    # run has more people than one comparison covers and only one variant reached the floor among
-    # its newest enrollees: waiting adds enrollees of the same one-sided stretch, and walking back
-    # for the thin variant would compare people exposed weeks apart.
+    # enrollment the comparison covered was itself one-sided, which waiting does not fix.
     if scan.exposed_persons_without_session:
         no_comparison_reason = WatchEmptyReason.NO_SESSION_LINKED_EXPOSURES
-    elif scan.enrollment.truncated and len(compared_variant_keys) == 1:
+    elif _is_one_sided_enrollment(scan.enrollment, experiment=experiment, variant_keys=variant_keys):
         no_comparison_reason = WatchEmptyReason.ONE_SIDED_ENROLLMENT
     else:
         no_comparison_reason = WatchEmptyReason.TOO_EARLY
@@ -698,32 +707,49 @@ class _TimeRange:
 
 @frozen
 class _EnrollmentMinute:
-    """One minute of enrollment: when it began, and how many people were first exposed in it."""
+    """One minute of enrollment: when it began, and how many people of each variant were first
+    exposed in it."""
 
     minute: datetime
-    people: int
+    people_by_variant: dict[str, int]
+
+    @property
+    def people(self) -> int:
+        return sum(self.people_by_variant.values())
 
 
 @frozen
 class _ComparedEnrollment:
     """The people one comparison covers, and the stretches of time their first sessions can fall in.
 
-    Everyone first exposed at or after `cutoff` is compared; `end` is where the newest stretch
-    stops, the window end while enrollment continues. When nobody has been exposed both sit on the
-    window end, so the compared span is empty rather than a claim about a stretch nobody was read
-    in. The ranges are newest first, the order the walk admits them in, and disjoint.
+    Everyone first exposed at or after `cutoff` and before `enrolled_before` is compared; `end` is
+    where the newest stretch stops, the window end while enrollment continues. When nobody has
+    been exposed all three sit on the window end, so the compared span is empty rather than a
+    claim about a stretch nobody was read in. The ranges are newest first, the order the walk
+    admits them in, and disjoint.
     """
 
     cutoff: datetime
+    # One minute past the newest first exposure the comparison covers, so the people read are
+    # exactly the ones counted below: the newest minutes are held back while an experiment runs,
+    # and an exposure can land between the nomination query and the queries that follow it.
+    enrolled_before: datetime
     end: datetime
     persons: int
+    # How many people each variant enrolled inside the compared stretch, whether or not they
+    # turned out to have a session. What "one variant enrolled almost everyone" is decided from.
+    persons_by_variant: dict[str, int]
+    # The same count over the whole run. Separates a variant that is thin everywhere, which is the
+    # configured split, from one that stopped enrolling part way through, which is a split that
+    # changed.
+    run_persons_by_variant: dict[str, int]
     ranges: tuple[_TimeRange, ...]
     # True when more people were exposed than one comparison covers, so the oldest enrollees were
     # left out.
     truncated: bool
 
 
-@dataclass(frozen=True)
+@frozen
 class SessionEventDeltaScan:
     """What the scan returned: per (event name, variant) the number of that variant's exposed people
     who did it in their first session after exposure, plus each variant's own totals under the empty
@@ -762,10 +788,10 @@ class _QuerySetup:
         # aside; the comparison never reads them, because compared variants carry real keys only.
         return exposed_persons_select(self.linkage, include_multiple_variant=True)
 
-    def compared_population(self, cutoff: datetime) -> ast.SelectQuery:
-        """The population narrowed to the people the comparison covers: everyone first exposed at
-        or after the cutoff. Wrapped rather than filtered inside the linkage's select, whose
-        first_exposure_time is an aggregate of its own GROUP BY."""
+    def compared_population(self, enrollment: _ComparedEnrollment) -> ast.SelectQuery:
+        """The population narrowed to the people the comparison covers: everyone first exposed
+        inside the compared enrollment. Wrapped rather than filtered inside the linkage's select,
+        whose first_exposure_time is an aggregate of its own GROUP BY."""
         return ast.SelectQuery(
             select=[
                 ast.Field(chain=["distinct_id"]),
@@ -774,14 +800,23 @@ class _QuerySetup:
                 ast.Field(chain=["first_exposure_time"]),
             ],
             select_from=ast.JoinExpr(table=self.population()),
-            where=ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["first_exposure_time"]),
-                right=ast.Constant(value=cutoff),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["first_exposure_time"]),
+                        right=ast.Constant(value=enrollment.cutoff),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Lt,
+                        left=ast.Field(chain=["first_exposure_time"]),
+                        right=ast.Constant(value=enrollment.enrolled_before),
+                    ),
+                ]
             ),
         )
 
-    def population_joined(self, left_alias: str, *, cutoff: datetime) -> ast.JoinExpr:
+    def population_joined(self, left_alias: str, *, enrollment: _ComparedEnrollment) -> ast.JoinExpr:
         """A join of the compared population onto `left_alias`, keyed on distinct id.
 
         GLOBAL for the same reason the recordings list joins this population GLOBAL: the subquery
@@ -790,7 +825,7 @@ class _QuerySetup:
         """
         return ast.JoinExpr(
             join_type="GLOBAL INNER JOIN",
-            table=self.compared_population(cutoff),
+            table=self.compared_population(enrollment),
             alias="population",
             constraint=ast.JoinConstraint(
                 expr=ast.CompareOperation(
@@ -965,21 +1000,22 @@ def _metric_event_names(metrics: list[MetricEventSource]) -> set[str]:
 def _nominate_enrollment(setup: _QuerySetup, *, window_end: datetime) -> _ComparedEnrollment:
     """Which exposed people this comparison covers, decided from the population alone.
 
-    Read as per-minute counts of first exposures, newest minute first, rather than one row per
-    person: the walk below only needs to know how many people each stretch of time admits, minute
-    buckets keep the result under HogQL's returned-rows ceiling however many people the run has,
-    and they make the cutoff a clean boundary the population filter can reproduce exactly. One row
-    past the person cap, so a run with exactly that many minutes of enrollment is not read as cut
-    short. MULTIPLE_VARIANT_KEY people are in, so the count of people the analysis set aside is
-    taken over the same people the comparison reads.
+    Read as per-minute counts of first exposures split by variant, newest minute first, rather than
+    one row per person: the walk below only needs to know how many people of each variant a stretch
+    of time admits, minute buckets keep the result under HogQL's returned-rows ceiling however many
+    people the run has, and they make the cutoff a clean boundary the population filter can
+    reproduce exactly. MULTIPLE_VARIANT_KEY people are in, so the count of people the analysis set
+    aside is taken over the same people the comparison reads.
     """
     first_exposures = ast.SelectQuery(
         select=[
             # One value per person by construction: the exposure linkage stamps a person's first
-            # exposure on every one of their distinct ids.
+            # exposure, and the variant the analysis attributes them, on every one of their
+            # distinct ids.
             ast.Alias(
                 alias="first_exposure", expr=ast.Call(name="min", args=[ast.Field(chain=["first_exposure_time"])])
             ),
+            ast.Alias(alias="variant", expr=ast.Call(name="any", args=[ast.Field(chain=["variant"])])),
         ],
         select_from=ast.JoinExpr(table=setup.population()),
         group_by=[ast.Field(chain=["person_id"])],
@@ -989,26 +1025,118 @@ def _nominate_enrollment(setup: _QuerySetup, *, window_end: datetime) -> _Compar
             ast.Alias(
                 alias="minute", expr=ast.Call(name="toStartOfMinute", args=[ast.Field(chain=["first_exposure"])])
             ),
+            ast.Field(chain=["variant"]),
             ast.Alias(alias="people", expr=ast.Call(name="count", args=[])),
         ],
         select_from=ast.JoinExpr(table=first_exposures),
-        group_by=[ast.Field(chain=["minute"])],
+        group_by=[ast.Field(chain=["minute"]), ast.Field(chain=["variant"])],
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["minute"]), order="DESC")],
-        limit=ast.Constant(value=MAX_DELTA_SCAN_PERSONS + 1),
+        # Every row carries at least one person, and one minute holds at most one row per variant
+        # plus one for the people who saw several. A result this long therefore has more people in
+        # its complete minutes than the person cap, so the walk stops before the oldest minute,
+        # whose rows the limit may have cut in half. One row past that, so a run whose enrollment
+        # exactly fills the cap is not read as cut short.
+        limit=ast.Constant(value=MAX_DELTA_SCAN_PERSONS + len(setup.variant_keys) + 2),
     )
-    buckets = [_EnrollmentMinute(minute=row[0], people=int(row[1])) for row in setup.run(minutes)]
-    return _plan_compared_enrollment(
-        buckets,
-        window_end=window_end,
-        horizon=timedelta(hours=FIRST_SESSION_HORIZON_HOURS),
-        day_budget=timedelta(days=MAX_DELTA_SCAN_DAYS),
-        person_cap=MAX_DELTA_SCAN_PERSONS,
+
+    # Rows of one minute are adjacent, because the minute is the only sort key, so inserting them
+    # in arrival order keeps the buckets newest first as well.
+    people_by_minute: dict[datetime, dict[str, int]] = {}
+    for minute, variant, people in setup.run(minutes):
+        people_by_minute.setdefault(minute, {})[str(variant)] = int(people)
+    buckets = [
+        _EnrollmentMinute(minute=minute, people_by_variant=people_by_variant)
+        for minute, people_by_variant in people_by_minute.items()
+    ]
+
+    run_persons_by_variant = _persons_by_variant(buckets)
+
+    def plan(walked: list[_EnrollmentMinute]) -> _ComparedEnrollment:
+        return _plan_compared_enrollment(
+            walked,
+            run_persons_by_variant=run_persons_by_variant,
+            window_end=window_end,
+            horizon=timedelta(hours=FIRST_SESSION_HORIZON_HOURS),
+            day_budget=timedelta(days=MAX_DELTA_SCAN_DAYS),
+            person_cap=MAX_DELTA_SCAN_PERSONS,
+        )
+
+    if setup.experiment.end_date is None:
+        # An experiment that is still running is read from settled enrollment where there is any,
+        # for the reason FIRST_SESSION_SETTLING_HOURS gives. Nothing is held back once that would
+        # leave fewer than two variants with enough people to compare, which is the case on an
+        # experiment whose whole enrollment is minutes old.
+        settled = plan(
+            [bucket for bucket in buckets if bucket.minute < window_end - timedelta(hours=FIRST_SESSION_SETTLING_HOURS)]
+        )
+        if len(_enrolled_variant_keys(settled, setup.variant_keys)) >= 2:
+            return settled
+    return plan(buckets)
+
+
+def _persons_by_variant(buckets: list[_EnrollmentMinute]) -> dict[str, int]:
+    totals: dict[str, int] = {}
+    for bucket in buckets:
+        for variant, people in bucket.people_by_variant.items():
+            totals[variant] = totals.get(variant, 0) + people
+    return totals
+
+
+def _enrolled_variant_keys(enrollment: _ComparedEnrollment, variant_keys: list[str]) -> list[str]:
+    """The variants with enough people in the compared enrollment to be compared at all.
+
+    Counted over the people the variant enrolled, not over the ones that turned out to have a
+    session: whether a variant enrolled is a fact about the rollout, and a variant whose people are
+    all exposed server-side has no session for any of them.
+    """
+    return [key for key in variant_keys if enrollment.persons_by_variant.get(key, 0) >= MIN_VARIANT_PERSONS]
+
+
+def _is_one_sided_enrollment(
+    enrollment: _ComparedEnrollment, *, experiment: Experiment, variant_keys: list[str]
+) -> bool:
+    """Whether the enrollment the comparison covered, rather than the run being young, is why
+    nothing could be compared.
+
+    Two things have to hold. The comparison had to leave older enrollees out, and only one variant
+    can have enrolled enough of the people it covered. Then the thin variants have to be thin
+    because enrollment changed, not because the flag was configured that way: an intentionally
+    small variant on a low-traffic experiment stays under the floor in every stretch of the run,
+    and telling that reader their split changed and that waiting cannot help would name a cause
+    that never happened. A variant that reached the floor over the whole run but not inside the
+    compared stretch did stop enrolling, and under an even configured split there is nothing else
+    left to explain the imbalance.
+    """
+    if not enrollment.truncated:
+        return False
+    enrolled = _enrolled_variant_keys(enrollment, variant_keys)
+    if len(enrolled) != 1:
+        return False
+    thin = [key for key in variant_keys if key not in enrolled]
+    return _configured_split_is_even(experiment, variant_keys) or any(
+        enrollment.run_persons_by_variant.get(key, 0) >= MIN_VARIANT_PERSONS for key in thin
     )
+
+
+def _configured_split_is_even(experiment: Experiment, variant_keys: list[str]) -> bool:
+    """Whether the flag gives every compared variant the same share of the rollout.
+
+    Read over the compared variants only, so a variant the experiment excludes cannot make an even
+    split read as an uneven one.
+    """
+    compared = set(variant_keys)
+    shares = {
+        variant.get("rollout_percentage")
+        for variant in experiment.feature_flag.variants or []
+        if variant.get("key") in compared
+    }
+    return len(shares) == 1
 
 
 def _plan_compared_enrollment(
     buckets: list[_EnrollmentMinute],
     *,
+    run_persons_by_variant: dict[str, int],
     window_end: datetime,
     horizon: timedelta,
     day_budget: timedelta,
@@ -1021,12 +1149,19 @@ def _plan_compared_enrollment(
     people first exposed in it are read up to the horizon after their own first exposure. Stretches
     that overlap merge, so a busy week costs the budget once however many minutes it holds, and a
     gap between two bursts of enrollment costs nothing. A whole minute is admitted or none of it,
-    so at most one minute of enrollment can overshoot the cap. Free of ClickHouse so the cost bound
-    can be tested on its own.
+    so the compared set can exceed the person cap by as many people as one minute of enrollment
+    holds, which on a project that enrolls thousands of people a minute is thousands. The cap
+    absorbs that because it bounds aggregation state rather than the rows read. Free of ClickHouse
+    so the cost bound can be tested on its own.
+
+    `run_persons_by_variant` is counted over the whole run rather than over `buckets`, because the
+    caller holds the newest minutes back from the walk on a running experiment and those people are
+    enrolled all the same.
     """
     ranges: list[_TimeRange] = []
     covered = timedelta(0)
     persons = 0
+    persons_by_variant: dict[str, int] = {}
     cutoff = window_end
     truncated = False
     for bucket in buckets:
@@ -1046,11 +1181,18 @@ def _plan_compared_enrollment(
             ranges.append(_TimeRange(start=start, end=end))
         covered += extra
         persons += bucket.people
+        for variant, people in bucket.people_by_variant.items():
+            persons_by_variant[variant] = persons_by_variant.get(variant, 0) + people
         cutoff = start
     return _ComparedEnrollment(
         cutoff=cutoff,
+        # Whole minutes at both ends. The newest minute the walk was given is always admitted, so
+        # one minute past its start is where the people it counted stop.
+        enrolled_before=min(buckets[0].minute, window_end) + timedelta(minutes=1) if ranges else window_end,
         end=ranges[0].end if ranges else window_end,
         persons=persons,
+        persons_by_variant=persons_by_variant,
+        run_persons_by_variant=run_persons_by_variant,
         ranges=tuple(ranges),
         truncated=truncated,
     )
@@ -1118,7 +1260,7 @@ def _query_event_deltas(
         ],
         select_from=ast.JoinExpr(
             table=ast.Field(chain=["events"]),
-            next_join=setup.population_joined("events", cutoff=enrollment.cutoff),
+            next_join=setup.population_joined("events", enrollment=enrollment),
         ),
         where=ast.And(exprs=setup.row_conditions(enrollment)),
         group_by=[ast.Field(chain=["population", "person_id"]), ast.Field(chain=["$session_id"])],
@@ -1126,11 +1268,9 @@ def _query_event_deltas(
 
     # One row per exposed person: which variant they saw, how many sessions of theirs fall in the
     # horizon, and what they did in the first of them. Only the first, because the variants don't
-    # necessarily get the same number of sessions per person — a variant that stops re-evaluating
-    # the flag once someone has acted contributes fewer later sessions, and a person seen in seven
-    # sessions has seven times the chance to have done anything than one seen in two. Measured on a
-    # production experiment that difference alone put nine in ten event names on the same side of
-    # the comparison; one session each removes it.
+    # necessarily get the same number of sessions per person, and a person seen in seven sessions
+    # has seven times the chance to have done anything than one seen in two. The module docstring's
+    # "One person, one session" carries the measurement behind that.
     person_rows = ast.SelectQuery(
         select=[
             # One value per person by construction: the population attributes each person exactly
@@ -1733,7 +1873,7 @@ def _recordings_for_cards(
         ],
         select_from=ast.JoinExpr(
             table=ast.Field(chain=["events"]),
-            next_join=setup.population_joined("events", cutoff=enrollment.cutoff),
+            next_join=setup.population_joined("events", enrollment=enrollment),
         ),
         where=ast.And(exprs=[*setup.row_conditions(enrollment), wanted_event_rows]),
         group_by=[ast.Field(chain=["$session_id"])],

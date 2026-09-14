@@ -96,12 +96,15 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         metrics: Optional[list[dict[str, Any]]] = None,
         key: str = "checkout-cta",
         variants: Optional[list[str]] = None,
+        variant_rollouts: Optional[list[int]] = None,
         exposure_criteria: Optional[dict[str, Any]] = None,
         team: Optional[Team] = None,
         created_by: Optional[User] = None,
         start_date: datetime = EXPERIMENT_START,
     ) -> Experiment:
         team = team or self.team
+        variant_keys = variants or ["control", "test"]
+        rollouts = variant_rollouts or [50] * len(variant_keys)
         flag = FeatureFlag.objects.create(
             team=team,
             key=key,
@@ -109,7 +112,10 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             created_by=self.user,
             filters={
                 "multivariate": {
-                    "variants": [{"key": key, "rollout_percentage": 50} for key in variants or ["control", "test"]]
+                    "variants": [
+                        {"key": variant_key, "rollout_percentage": rollout}
+                        for variant_key, rollout in zip(variant_keys, rollouts)
+                    ]
                 }
             },
         )
@@ -885,10 +891,14 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         [
             # The cap lands inside the one-sided stretch: the run has plenty of people, but the
             # newest enrollees are all in one variant, and waiting adds more of the same.
-            ("newest_enrollees_one_sided", 3, "one_sided_enrollment", True, [("control", 0), ("test", 3)]),
+            ("newest_enrollees_one_sided", 3, 0, "one_sided_enrollment", True, [("control", 0), ("test", 3)]),
             # The whole run fits: the thin variant is small because the experiment is, and "check
             # back" is the right answer.
-            ("whole_run_compared", 100, "too_early", False, [("control", 2), ("test", 5)]),
+            ("whole_run_compared", 100, 0, "too_early", False, [("control", 2), ("test", 5)]),
+            # Control kept enrolling into the newest stretch, and its people were exposed without
+            # a browser session. Nothing could be compared, but the rollout never changed, so
+            # naming a changed split would name a cause that did not happen.
+            ("thin_variant_enrolled_without_sessions", 3, 3, "too_early", True, [("control", 0), ("test", 3)]),
         ]
     )
     @patch.object(session_event_deltas, "MIN_VARIANT_PERSONS", 3)
@@ -896,6 +906,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         self,
         _name: str,
         person_cap: int,
+        unsessioned_control_people: int,
         expected_reason: str,
         truncated: bool,
         expected_variants: list[tuple[str, int]],
@@ -906,6 +917,8 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             self._variant(variant, [["pricing_faq"]] * 2)
         for _ in range(3):
             self._session(variants=["test"], events=["pricing_faq"], at=EXPOSED_AT + timedelta(hours=1))
+        for _ in range(unsessioned_control_people):
+            self._unsessioned_exposure("control", at=EXPOSED_AT + timedelta(hours=1))
         flush_persons_and_events()
 
         with patch.object(session_event_deltas, "MAX_DELTA_SCAN_PERSONS", person_cap):
@@ -917,6 +930,65 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert data["too_early"] is True
         assert data["sessions_truncated"] is truncated
         assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == expected_variants
+
+    @parameterized.expand(
+        [
+            # The small variant never reaches the floor anywhere in the run, so it is thin because
+            # of the split it was given. Telling this reader their split changed, and that waiting
+            # cannot help, would be wrong twice.
+            ("small_variant_is_thin_over_the_whole_run", 2, "too_early"),
+            # The same configured split, but control did reach the floor earlier in the run, so it
+            # stopped enrolling part way through and waiting will not bring it back.
+            ("small_variant_stopped_enrolling", 3, "one_sided_enrollment"),
+        ]
+    )
+    @patch.object(session_event_deltas, "MIN_VARIANT_PERSONS", 3)
+    @patch.object(session_event_deltas, "MAX_DELTA_SCAN_PERSONS", 3)
+    def test_an_intentionally_small_variant_is_not_reported_as_a_split_that_changed(
+        self, _name: str, control_people: int, expected_reason: str
+    ) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC], variant_rollouts=[10, 90])
+        self._variant("control", [["pricing_faq"]] * control_people)
+        for _ in range(3):
+            self._session(variants=["test"], events=["pricing_faq"], at=EXPOSED_AT + timedelta(hours=1))
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        assert data["cards"] == []
+        assert data["sessions_truncated"] is True
+        assert data["empty_reason"] == expected_reason
+
+    @parameterized.expand(
+        [
+            # Enrollment older than the settling hour carries the comparison, so the people
+            # exposed minutes ago, still inside the session that would be read, are left out.
+            ("older_enrollment_carries_the_comparison", True, 1),
+            # Holding the newest hour back would leave nothing to compare at all, so those people
+            # are read as they stand.
+            ("nothing_older_to_compare", False, 2),
+        ]
+    )
+    @rank_anything
+    def test_the_newest_hour_of_enrollment_is_held_back_while_the_experiment_runs(
+        self, _name: str, older_enrollment: bool, compared_test_people: int
+    ) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        if older_enrollment:
+            for variant in ("control", "test"):
+                self._session(variants=[variant], events=["pricing_faq"], at=NOW - timedelta(hours=5))
+        else:
+            self._session(variants=["control"], events=["pricing_faq"], at=NOW - timedelta(minutes=10))
+        for _ in range(2):
+            self._session(variants=["test"], events=["pricing_faq"], at=NOW - timedelta(minutes=10))
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [
+            ("control", 1),
+            ("test", compared_test_people),
+        ]
 
     @rank_anything
     def test_people_are_compared_in_their_first_session_after_exposure_however_long_ago(self) -> None:
@@ -1397,7 +1469,11 @@ class TestComparedEnrollmentWalk(SimpleTestCase):
         ranges: list[tuple[timedelta, timedelta]],
     ) -> None:
         enrollment = _plan_compared_enrollment(
-            [_EnrollmentMinute(minute=self._at(offset), people=people) for offset, people in buckets],
+            [
+                _EnrollmentMinute(minute=self._at(offset), people_by_variant={"test": people})
+                for offset, people in buckets
+            ],
+            run_persons_by_variant={},
             window_end=self.WINDOW_END,
             horizon=self.HORIZON,
             day_budget=day_budget,
@@ -1405,7 +1481,14 @@ class TestComparedEnrollmentWalk(SimpleTestCase):
         )
 
         assert enrollment.persons == persons
+        # Counted over the minutes the walk admitted, not over every minute it was offered.
+        assert enrollment.persons_by_variant == ({"test": persons} if persons else {})
         assert enrollment.truncated is truncated
         assert enrollment.cutoff == self._at(cutoff)
+        # The compared population is bounded at the newest admitted minute as well, so people
+        # exposed past it are not read against counts that never included them.
+        assert enrollment.enrolled_before == (
+            self._at(buckets[0][0]) + timedelta(minutes=1) if ranges else self.WINDOW_END
+        )
         assert enrollment.ranges == tuple(_TimeRange(start=self._at(start), end=self._at(end)) for start, end in ranges)
         assert enrollment.end == (enrollment.ranges[0].end if ranges else self.WINDOW_END)
