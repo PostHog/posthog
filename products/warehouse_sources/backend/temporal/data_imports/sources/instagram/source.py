@@ -36,7 +36,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.instagram import (
     AUTH_ERROR_PREFIX,
+    BAD_REQUEST_ERROR_PREFIX,
     PERMISSION_ERROR_PREFIX,
+    REQUEST_BUDGET_ERROR_PREFIX,
     InstagramAPIError,
     InstagramAuthError,
     InstagramPermissionError,
@@ -136,6 +138,23 @@ Connect your Instagram account, then pick the professional account you want to s
             # Retrying can't bring the row back; only reconnecting can.
             "Integration not found": (
                 "The Instagram connection for this source no longer exists. Reconnect your Instagram account."
+            ),
+            # Every 400 Meta does not attribute to auth, permissions or throttling. The usual cause is
+            # an account node this token cannot read, which the account field lets you type by hand.
+            # Retrying cannot change the answer, so stop and name the thing to fix.
+            BAD_REQUEST_ERROR_PREFIX: (
+                "Instagram rejected the request for this account. Check the Instagram account ID is a "
+                "professional account linked to your Facebook page, then reconnect this source."
+            ),
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            # The client's own per-sync call cap. A fresh attempt gets a fresh budget and resumes from
+            # the last checkpoint, so the schema stays enabled — this only replaces the raw text.
+            REQUEST_BUDGET_ERROR_PREFIX: (
+                "This sync stopped after it spent its Instagram API request budget. The next sync "
+                "continues from where it stopped."
             ),
         }
 
