@@ -164,16 +164,16 @@ Escalating to the next rung is the last resort, not the default.
     pending on the next line. Test setup may shorten internal delays without changing
     production behavior.
 - **No `time.sleep` / arbitrary waits.** A sleep is a flake waiting to happen, and it
-  slows every run. Replace it with the matching control above or `freeze_time`.
+  slows every run. Replace it with the matching control above or `time_machine.travel`.
 - **An absolute date in a test is a time bomb until you pin the clock.**
   A fixture date keeps its meaning only while the real clock stays where you left it.
   If anything under test measures that date against `now` — an age, a window, a "recent" flag, an expiry — the assertion holds today and fails some weeks later, on every open branch at once.
   Pinning a date into application state is not pinning the clock: a test that sets an "evaluated at" value to a fixed instant, and leaves the wall clock real, still fails when real time drifts past the window, because the code re-reads `now` and the two stop agreeing.
-  Pin the process clock to the instant the fixtures speak in — `freeze_time` in Python, `jest.useFakeTimers()` with `jest.setSystemTime()` in Jest, released by `jest.useRealTimers()` in a `finally` — or write the fixture relative to `now` (`now - 2 days`), so the distance is what the test states.
+  Pin the process clock to the instant the fixtures speak in — `time_machine.travel(..., tick=False)` in Python, `jest.useFakeTimers()` with `jest.setSystemTime()` in Jest, released by `jest.useRealTimers()` in a `finally` — or write the fixture relative to `now` (`now - 2 days`), so the distance is what the test states.
   Pinning the clock covers only what reads it inside your process; the next rule covers the rest.
-  Ask this of every absolute date in a test, not only of an explicit `freeze_time`: _what does this assert when today is a year past it?_ If the answer is not "the same thing", fix it before you commit.
+  Ask this of every absolute date in a test, not only of an explicit frozen clock: _what does this assert when today is a year past it?_ If the answer is not "the same thing", fix it before you commit.
 - **A frozen clock doesn't freeze the infrastructure.**
-  `freeze_time` patches the clock inside your process; everything outside it still runs on the real one — ClickHouse TTL, Postgres `now()` defaults, S3 lifecycle rules, another service's token-expiry check.
+  `time_machine.travel` patches the clock inside your process; everything outside it still runs on the real one — ClickHouse TTL, Postgres `now()` defaults, S3 lifecycle rules, another service's token-expiry check.
   So freezing to an absolute date and then writing rows that something judges by age builds a **time bomb**: green for weeks, then red forever once wall-clock time drifts past the retention window.
   It fails on every branch at once, so it reads as though whichever PR is in front of you caused it — and that misattribution, not the fix, is where the time goes.
   Most ClickHouse tables are already safe: they build their TTL through `ttl_period()` ([`posthog/clickhouse/kafka_engine.py`](../../../posthog/clickhouse/kafka_engine.py)), which returns `""` under `settings.TEST`, so tests get no TTL at all.

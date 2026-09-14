@@ -168,26 +168,27 @@ class TestRelaySlackMessage(TestCase):
     @parameterized.expand(
         [
             # The converter turns the heading into inline bold, which survives an inline mention.
-            ("mrkdwn", False, "<@U123> *Heading*"),
-            ("markdown", True, "<@U123>\n\n## Heading"),
+            ("mrkdwn_heading", False, "## Heading\n\nBody text.", "<@U123> *Heading*"),
+            ("markdown_heading", True, "## Heading\n\nBody text.", "<@U123>\n\n## Heading"),
+            ("markdown_prose", True, "Done. Your model is set.", "<@U123> Done."),
         ]
     )
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
-    def test_the_mention_keeps_off_the_line_the_answer_opens(
-        self, _name, markdown, expected_opening, mock_delete_progress, mock_post
+    def test_the_mention_leaves_the_answers_opening_line_only_where_markdown_needs_it(
+        self, _name, markdown, text, expected_opening, mock_delete_progress, mock_post
     ):
-        # Markdown reads a heading only at the start of a line, so a mention glued to the front
-        # of the answer renders the `##` as literal text. That is the formatting the gate exists
-        # to keep, and it is the opening of every mentioned reply.
+        # Markdown reads a heading only at the start of a line, so a mention glued to the front of
+        # that answer renders the `##` as literal text. An answer that opens with prose has no such
+        # constraint, and reads as one message with the mention in its first line.
         with patch(
             "products.slack_app.backend.slack_thread.SlackThreadHandler.renders_markdown", return_value=markdown
         ):
             relay_slack_message(
                 RelaySlackMessageInput(
                     run_id=str(self.task_run.id),
-                    relay_id=f"relay-mention-{markdown}",
-                    text="## Heading\n\nBody text.",
+                    relay_id=f"relay-mention-{_name}",
+                    text=text,
                 )
             )
 

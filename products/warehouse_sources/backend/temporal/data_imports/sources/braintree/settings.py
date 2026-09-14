@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -45,7 +47,7 @@ _DISPUTE_FIELDS = """
 """
 
 
-@dataclass
+@frozen
 class BraintreeEndpointConfig:
     # Field on the GraphQL `search` root.
     search_field: str
@@ -55,12 +57,19 @@ class BraintreeEndpointConfig:
     primary_key: str = "id"
     incremental_fields: list[IncrementalField] = field(default_factory=lambda: list(_CREATED_AT_INCREMENTAL_FIELDS))
     partition_key: str = "createdAt"
+    # Field on `input_type` that filters on the node's `createdAt`, or None when the
+    # vendor's search input declares no equivalent. Sending a field the input type
+    # doesn't define is a GraphQL validation error, not an ignored filter.
+    created_at_search_field: str | None = "createdAt"
 
 
-# Braintree's GraphQL search supports createdAt range filters on these
-# streams, giving genuine server-side incremental. Result ordering is not
-# documented, so incremental streams declare sort_mode="desc" — the pipeline
-# then commits the watermark only when a run completes.
+# `TransactionSearchInput` and `RefundSearchInput` both accept a createdAt range
+# filter, giving those streams genuine server-side incremental. `DisputeSearchInput`
+# does not (it filters on receivedDate/replyByDate/effectiveDate instead), so disputes
+# re-read the full set each run and rely on the primary-key merge to dedupe — the node
+# still exposes createdAt, so the incremental cursor and partition key are unchanged.
+# Result ordering is not documented, so incremental streams declare sort_mode="desc" —
+# the pipeline then commits the watermark only when a run completes.
 BRAINTREE_ENDPOINTS: dict[str, BraintreeEndpointConfig] = {
     "transactions": BraintreeEndpointConfig(
         search_field="transactions",
@@ -76,6 +85,7 @@ BRAINTREE_ENDPOINTS: dict[str, BraintreeEndpointConfig] = {
         search_field="disputes",
         input_type="DisputeSearchInput",
         node_fields=_DISPUTE_FIELDS,
+        created_at_search_field=None,
     ),
 }
 

@@ -18,6 +18,12 @@ export interface CodexOptions {
   model?: string;
   reasoningEffort?: string;
   /**
+   * OpenAI service tier requested for every turn on the thread ("default" |
+   * "priority" | "flex"). Sent as `thread/start`'s `serviceTier`; codex drops
+   * it when the model catalogue doesn't advertise that tier for the model.
+   */
+  serviceTier?: string;
+  /**
    * Static HTTP headers forwarded on every request to the PostHog gateway
    * (the codex equivalent of Claude's `ANTHROPIC_CUSTOM_HEADERS`). Carries the
    * `x-posthog-property-*` attribution headers the gateway lifts onto the

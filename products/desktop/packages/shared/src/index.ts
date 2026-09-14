@@ -254,11 +254,14 @@ export {
   workflowAgentStateSchema,
 } from "./orchestration";
 export {
+  CLIPBOARD_ATTACHMENT_DIR_NAME,
+  CLIPBOARD_ATTACHMENT_PREFIX,
   compactHomePath,
   expandTildePath,
   getFileExtension,
   getFileName,
   isAbsolutePath,
+  isClipboardAttachmentPath,
   pathToFileUri,
   toRelativePath,
 } from "./path";
@@ -374,8 +377,13 @@ export {
   readMcpToolName,
   readParentToolCallId,
 } from "./tool-meta";
+export { isTranscriptNeutralNotificationMethod } from "./transcript-neutral-notifications";
 export { TypedEventEmitter } from "./typed-event-emitter";
-export { isSafeExternalUrl, isSafePostHogUrl } from "./url";
+export {
+  isSafeExternalUrl,
+  isSafeGitHubPullRequestUrl,
+  isSafePostHogUrl,
+} from "./url";
 export { getCloudUrlFromRegion } from "./urls";
 export {
   buildVideoDataUrl,

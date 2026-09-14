@@ -61,6 +61,15 @@ _UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE = (
     "Remove the passphrase, or paste your encrypted private key, then {action}"
 )
 
+# Shown when `validate_credentials` hits a transient connect blip (see `get_retryable_errors`). The
+# sync path retries such a blip quietly, but interactive validation has nothing to retry
+# automatically, so it tells the user it was a brief blip and to try again rather than capturing it
+# as an unexpected bug or claiming their (correct) connection details are wrong.
+_TRANSIENT_CONNECTION_MESSAGE = (
+    "Could not reach Snowflake while checking your credentials. This is usually a brief network or "
+    "service blip rather than a configuration problem. Please try again."
+)
+
 # Snowflake rejects the login (250001 / 08001) when the account enforces multi-factor auth for the
 # connecting user. The server phrases this several ways, and the bare "MFA authentication is
 # required" variant carries the account host and vendor codes, so it must not reach the customer
@@ -403,6 +412,13 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             for key, value in SnowflakeErrors.items():
                 if key in error_msg:
                     return False, value
+
+            # A transient connect blip is not a credential or config problem, so classify it the way
+            # the sync path does (`get_retryable_errors`) and surface a "try again" message instead of
+            # capturing it as an unexpected bug. Mirrors `planetscale_mysql`'s validate_credentials.
+            for pattern in self.get_retryable_errors():
+                if pattern in error_msg:
+                    return False, _TRANSIENT_CONNECTION_MESSAGE
 
             capture_exception(e)
             return False, "Could not connect to Snowflake. Please check all connection details are valid."

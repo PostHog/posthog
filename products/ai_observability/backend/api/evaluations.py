@@ -17,7 +17,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import monitor
@@ -41,6 +40,7 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 
+from ..evaluation_conditions import build_condition_filter
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..models.evaluation_config import EvaluationConfig
@@ -1224,18 +1224,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
         team = Team.objects.get(id=self.team_id)
 
-        # Build the trigger-condition filter once (OR between condition sets, AND within each).
-        # Both targets reuse it — for traces it filters which triggering generation qualifies.
-        condition_exprs: list[ast.Expr] = []
-        for condition in conditions:
-            props = condition.get("properties", [])
-            if props:
-                condition_exprs.append(property_to_expr(props, team))
-        condition_filter: ast.Expr | None = None
-        if len(condition_exprs) == 1:
-            condition_filter = condition_exprs[0]
-        elif condition_exprs:
-            condition_filter = ast.Or(exprs=condition_exprs)
+        # Both targets reuse it; for traces it filters which triggering generation qualifies.
+        condition_filter = build_condition_filter(conditions, team)
 
         if target == EvaluationTarget.SESSION.value:
             return _test_hog_over_sessions(

@@ -7,6 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.errors import (
@@ -527,9 +528,9 @@ def _property_scope(property_type: ast.PropertyType, context: HogQLContext) -> P
     except (HogQLNotImplementedError, QueryError, ResolutionError):
         return PropertyScope.UNKNOWN
 
-    if isinstance(resolved_table, EventsTable):
+    if isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
         return PropertyScope.EVENT
-    if isinstance(resolved_table, (EventsPersonSubTable, PersonsTable, RawPersonsTable)):
+    if isinstance(resolved_table, EventsPersonSubTable | PersonsTable | RawPersonsTable):
         return PropertyScope.PERSON
     if isinstance(resolved_table, GroupsTable):
         return PropertyScope.GROUP

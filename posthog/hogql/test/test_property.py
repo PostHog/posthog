@@ -1,7 +1,7 @@
 from collections.abc import Iterable
 from typing import Any, Literal, Optional, Union, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
 from unittest.mock import MagicMock, patch
 
@@ -415,7 +415,7 @@ class TestProperty(BaseTest):
             ("is_date_exact_relative", "-1y", "is_date_exact", ast.CompareOperationOp.Eq, "2025-04-09 12:00:00"),
         ]
     )
-    @freeze_time("2026-04-09T12:00:00Z")
+    @time_machine.travel("2026-04-09T12:00:00Z", tick=False)
     def test_property_to_expr_date_operator_relative(self, _name, value, operator, op, expected_rhs):
         result = self._property_to_expr({"type": "event", "key": "a", "value": value, "operator": operator})
         assert isinstance(result, ast.CompareOperation)
@@ -2119,7 +2119,7 @@ class TestProperty(BaseTest):
         )
 
     def test_behavioral_explicit_datetime_bounds(self):
-        with freeze_time("2024-05-15T12:00:00Z"):
+        with time_machine.travel("2024-05-15T12:00:00Z", tick=False):
             expected_from = relative_date_parse("-7d", self.team.timezone_info)
             self.assertEqual(
                 self._property_to_expr(
@@ -2184,7 +2184,7 @@ class TestProperty(BaseTest):
             )
 
     def test_behavioral_explicit_datetime_to_bounds_a_relative_window(self):
-        with freeze_time("2024-05-15T12:00:00Z"):
+        with time_machine.travel("2024-05-15T12:00:00Z", tick=False):
             expected_to = relative_date_parse("-1d", self.team.timezone_info)
             self.assertEqual(
                 self._property_to_expr(self._behavioral_filter(explicit_datetime_to="-1d")),

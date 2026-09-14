@@ -641,6 +641,24 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert Task.objects.filter(team=self.team).filter(task_visibility_q(teammate.id)).filter(id=task_id).exists()
         assert Task.objects.filter(team=self.team).filter(task_control_q(teammate.id)).filter(id=task_id).exists()
 
+    def test_a_teammate_cannot_finish_a_workflow_run_on_the_workflows_behalf(self) -> None:
+        task = self._seed_workflow_task(TaskRun.Status.IN_PROGRESS)
+        run = task.latest_run
+        assert run is not None
+        self.client.force_login(self._create_user("teammate@posthog.com"))
+
+        with patch("products.tasks.backend.facade.api.resume_workflow_step_for_run") as resume:
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+                {"status": "completed", "output": {"final_message": "forged"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.IN_PROGRESS
+        resume.assert_not_called()
+
     def test_a_request_without_a_prompt_is_rejected(self) -> None:
         response = self.client.post(
             self.url,
@@ -650,6 +668,30 @@ class TestWorkflowTasksAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+
+    def test_the_output_fields_become_the_tasks_json_schema_and_reach_the_prompt(self) -> None:
+        response = self._post({"output_fields": {"verdict": "string", "score": "number"}})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+        assert task.json_schema == {
+            "type": "object",
+            "properties": {
+                "verdict": {"type": "string", "maxLength": RESULT_STRING_CAP},
+                "score": {"type": "number"},
+            },
+            "required": ["verdict", "score"],
+        }
+        prompt = TaskRun.objects.get(task=task).state["initial_prompt_override"]
+        assert "verdict (string), score (number)" in prompt
+        assert f"Keep each text field within {RESULT_STRING_CAP} characters" in prompt
+
+    def test_rejects_output_fields_the_step_result_cannot_carry(self) -> None:
+        response = self._post({"output_fields": {"final_message": "string"}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "output_fields"
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
     def test_includes_the_triggering_event_in_the_agent_prompt(self) -> None:
@@ -967,6 +1009,10 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
                 {"prompt": "p", "slack_context": {"integration_id": 1, "thread_ts": "1.0"}},
                 "slack_context",
             ),
+            ("output_field_unknown_type", {"prompt": "p", "output_fields": {"verdict": "object"}}, "output_fields"),
+            ("output_field_bad_name", {"prompt": "p", "output_fields": {"task-result": "string"}}, "output_fields"),
+            ("output_field_reserved_name", {"prompt": "p", "output_fields": {"pr_urls": "string"}}, "output_fields"),
+            ("output_fields_empty", {"prompt": "p", "output_fields": {}}, "output_fields"),
             (
                 "slack_context_bad_integration_id",
                 {

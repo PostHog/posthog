@@ -77,10 +77,13 @@ class TestCheckoutComSource:
         [
             "503 Server Error: Service Unavailable for url: https://api.checkout.com/payments/search",
             "503 Server Error: Service Unavailable for url: https://api.sandbox.checkout.com/payments/search",
-            # A run stopped at its per-run API budget is incomplete, not broken: it raises so
-            # the schema never reports Completed over an unfilled range, and the retry resumes
-            # from the last checkpointed window. Classified as a bug, it would page instead.
-            f"{SYNC_BUDGET_EXCEEDED_MARKER} for payment_actions before reaching 2024-03-01T00:00:00Z",
+            # A run stopped at its per-run API budget without landing rows is incomplete, not
+            # broken: it raises so the schema never reports Completed over an unfilled range,
+            # and the retry resumes from the last checkpointed window.
+            f"{SYNC_BUDGET_EXCEEDED_MARKER}: payment_actions is 3 days behind and this run stopped "
+            "before closing the gap.",
+            # Jobs in flight across the marker rename keep their old message text.
+            "Checkout.com sync hit its per-run API budget for payment_actions before reaching 2024-03-01T00:00:00Z",
         ],
     )
     def test_retryable_errors_match_transient_and_partial_run_failures(self, observed_error):

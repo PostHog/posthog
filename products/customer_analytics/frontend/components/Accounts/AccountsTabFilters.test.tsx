@@ -131,45 +131,12 @@ describe('AccountsTabFilters', () => {
         expect(screen.getByText('All accounts')).toBeInTheDocument()
     })
 
-    it('the assignment dropdown offers the three mutually exclusive statuses', () => {
+    it('updates the Accounts assignment status from the shared picker', () => {
         renderFilters()
 
         fireEvent.click(screen.getByText('All accounts'))
+        fireEvent.click(screen.getByText('Assigned to anyone'))
 
-        const labels = ['Unassigned only', 'Assigned to anyone', 'All assignment statuses']
-        for (const label of labels) {
-            expect(screen.getByText(label)).toBeInTheDocument()
-        }
-    })
-
-    it.each([
-        ['Unassigned only', 'unassigned'],
-        ['Assigned to anyone', 'assigned'],
-    ])('selecting "%s" sets the canonical assignment status', (label, status) => {
-        renderFilters()
-
-        fireEvent.click(screen.getByText('All accounts'))
-        fireEvent.click(screen.getByText(label))
-
-        expect(logic.values.assignmentStatus).toBe(status)
-    })
-
-    // Regression: the picker must summarize a URL-restored filter from the id count
-    // alone, without waiting on the lazily-loaded org members list — otherwise the
-    // control looks empty (the default label) until the dropdown is opened.
-    it('reflects a restored assigned-to filter as a count', () => {
-        logic.actions.setAssignedToFilter([1, 2])
-        renderFilters()
-
-        expect(screen.getByText('Assigned to 2 people')).toBeInTheDocument()
-        expect(screen.queryByText('All accounts')).not.toBeInTheDocument()
-    })
-
-    it('labels the assigned-to picker "Unassigned only" when that status is active', () => {
-        logic.actions.setAssignmentStatus('unassigned')
-        renderFilters()
-
-        expect(screen.getByText('Unassigned only')).toBeInTheDocument()
-        expect(screen.queryByText('All accounts')).not.toBeInTheDocument()
+        expect(logic.values.assignmentStatus).toBe('assigned')
     })
 })

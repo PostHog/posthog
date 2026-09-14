@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from itertools import batched
+from typing import TypeVar
 from uuid import UUID
 
 from django.db import connections, transaction
@@ -22,6 +23,8 @@ from ..storage import ArtifactStorage
 from . import artifact_store, run_queries
 
 logger = structlog.get_logger(__name__)
+
+T = TypeVar("T")
 
 # A superseded run on a PR branch is history that no page reads after the next
 # push replaces it. Its last readers are the "stale" review-state filter and the
@@ -45,9 +48,9 @@ ARTIFACT_ORPHAN_GRACE_DAYS = 7
 
 ARTIFACT_SWEEP_BATCH = 500
 
-# Caps per invocation. The task runs daily and catches up over several days,
-# which keeps the first sweep of a large backlog off one long transaction.
-MAX_RUNS_PER_SWEEP = 2_000
+# Caps per invocation. The task runs daily and catches up over several days, so
+# a large backlog does not have to clear in one night.
+MAX_RUNS_PER_SWEEP = 10_000
 MAX_ARTIFACTS_PER_SWEEP = 20_000
 
 # The caps above bound rows, not wall clock. Deletes over the backlog are slow
@@ -271,6 +274,20 @@ class RetentionSweep:
                 objects_leaked=objects_leaked,
             )
         return ArtifactSweepResult(deleted=deleted, objects_leaked=objects_leaked)
+
+
+def rotate_for_day(items: list[T], day: date) -> list[T]:
+    """Move the start of the list on by one place a day.
+
+    The repos share one time budget, so a repo with a backlog big enough to
+    spend it keeps the repos behind it from being swept at all. A fixed order
+    starves the same repos every night, and rotating the start gives each of
+    them the front of the queue in turn.
+    """
+    if not items:
+        return items
+    offset = day.toordinal() % len(items)
+    return items[offset:] + items[:offset]
 
 
 def sweep_repo(repo: Repo, now: datetime | None = None, deadline: float | None = None) -> RetentionSweepResult:

@@ -790,11 +790,11 @@ def get_outcomes_for_signal_source_slice(
 
     Reports are counted only if the row still exists for this team and is not soft-deleted; a
     report usually aggregates signals from several sources, so these are contributions, not sole
-    causes. PR counts come from the same implementation-PR resolution the inbox uses (latest
-    PR-bearing task run per report), deduplicated by URL since reports can share a task's PR.
+    causes. PR counts include all linked implementation PRs, deduplicated by URL because several
+    reports can share a PR.
     """
     from products.signals.backend.implementation_pr import (  # noqa: PLC0415 — keeps the tasks facade off this module's import path
-        fetch_implementation_pr_state_for_reports,
+        fetch_implementation_prs_for_reports,
     )
 
     stats = fetch_signal_stats_for_source_slice(
@@ -813,9 +813,9 @@ def get_outcomes_for_signal_source_slice(
         .exclude(status=SignalReport.Status.DELETED)
         .values_list("id", flat=True)
     ]
-    prs = fetch_implementation_pr_state_for_reports(report_ids)
-    pr_urls = {pr.url for pr in prs.values()}
-    merged_pr_urls = {pr.url for pr in prs.values() if pr.merged}
+    prs = fetch_implementation_prs_for_reports(report_ids, team_id=team.id)
+    pr_urls = {pr.url for report_prs in prs.values() for pr in report_prs}
+    merged_pr_urls = {pr.url for report_prs in prs.values() for pr in report_prs if pr.merged}
     return SignalSourceSliceOutcomes(
         signal_count=stats.signal_count,
         report_count=len(report_ids),

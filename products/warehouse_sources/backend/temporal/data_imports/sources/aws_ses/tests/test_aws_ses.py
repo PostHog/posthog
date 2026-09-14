@@ -3,7 +3,7 @@ import datetime as dt
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -152,7 +152,7 @@ class TestSendRequest:
         session.get.return_value = make_response(200, {})
         credentials = Credentials("AKIAEXAMPLE", "secret")
 
-        with freeze_time("2026-08-07T10:00:00Z"):
+        with time_machine.travel("2026-08-07T10:00:00Z", tick=False):
             send_request(session, credentials, "eu-west-1", "/v2/email/account")
 
         assert session.get.call_args[0][0] == "https://email.eu-west-1.amazonaws.com/v2/email/account"

@@ -26,48 +26,36 @@ something outside the watched subtree, because the watch would then miss the cod
 The check is strict equality, not "no worse than": a line that disappears must be deleted from the
 file in the same change, so the file can never go stale behind the code.
 
-Regenerate after removing uses:
+The two directions are not symmetric. A line that went away is regenerated out:
 
     bin/hogli product:crossings --all --write-baseline
+
+That command refuses to write while the scan holds a line the file does not, so a new line is
+never absorbed. Change the caller back, or seal the relation. A coupling that must stand is a
+hand-edited line in the baseline plus an amendment in products/architecture.md § Wiring couplings,
+which is what a reviewer reads.
 """
 
 from hogli_commands.product.crossings import (
     BASELINE_PATH,
     all_crossing_uses,
-    disallowed_uses,
+    baseline_drift,
+    baseline_drift_message,
     names_defined_in,
     read_baseline,
+    scanned_baseline_lines,
     wiring_location_label,
 )
 
-REGENERATE = "bin/hogli product:crossings --all --write-baseline"
-
 
 def test_disallowed_crossing_uses_match_the_baseline() -> None:
-    scanned = sorted(use.as_baseline_line() for use in disallowed_uses(all_crossing_uses()))
+    scanned = scanned_baseline_lines(all_crossing_uses())
     recorded = sorted(read_baseline())
     if scanned == recorded:
         return
 
-    added = [line for line in scanned if line not in recorded]
-    removed = [line for line in recorded if line not in scanned]
-    report = "\n".join([*(f"  + {line}" for line in added), *(f"  - {line}" for line in removed)])
-    raise AssertionError(
-        f"{BASELINE_PATH.name} no longer matches the repo.\n"
-        "A '+' line is a new disallowed use of a product model class. Counts may only go down, so "
-        "change the caller: move the query, serializer or write into the model's own product and "
-        "call a facade function instead. A 'get_model' line is an apps.get_model reference from "
-        "outside the owning product; it is a coupling the import linters cannot see, and it belongs "
-        "behind a facade function too. A 'reverse-accessor(...)' line is a boundary-crossing relation "
-        'field without related_name="+" (a query:<name> row means an explicit related_query_name '
-        "keeps filter() traversal alive); seal it, remove the explicit query name, and give "
-        "callers a facade read function. "
-        "A 'drives(...)' line is a test outside the product that executes "
-        "one of its query runners; move that test into the product. Only a doctrine amendment in "
-        "products/architecture.md § Wiring couplings can add a line.\n"
-        f"A '-' line means a use went away — good, but the file must record that too. Run: {REGENERATE}\n"
-        f"{report}"
-    )
+    drift = baseline_drift(recorded, scanned)
+    raise AssertionError(baseline_drift_message(drift.grown, drift.shrunk))
 
 
 # product_analytics watches backend/hogql_queries/trends/ alone, because trends is the only subtree

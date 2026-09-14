@@ -9,6 +9,7 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.aircall import (
     AircallResumeConfig,
+    AircallTruncationError,
     _build_params,
     _build_url,
     _reaches_record_cap,
@@ -34,6 +35,13 @@ def _response(items_key: str, items: list[dict[str, Any]], next_link: str | None
     body = {"meta": {"next_page_link": next_link}, items_key: items}
     resp = Response()
     resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+def _plain_response(status_code: int, body: dict[str, Any]) -> Response:
+    resp = Response()
+    resp.status_code = status_code
     resp._content = json.dumps(body).encode()
     return resp
 
@@ -286,25 +294,26 @@ class TestPagination:
         assert "from=10000" in requests_seen[200]["url"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_a_capped_window_cursor_cannot_advance(self, MockSession):
+    def test_raises_when_a_capped_window_cursor_cannot_advance(self, MockSession):
         # Every record in the capped window shares the boundary timestamp, so a re-anchored
-        # window would repeat the same query forever. Truncate instead of looping.
+        # window would repeat the same query forever and the rest of the window is unreachable.
+        # Raise so the run fails visibly instead of finalizing as complete with missing data.
         session = MockSession.return_value
         over_cap_link = "https://api.aircall.io/v1/contacts?order=asc&per_page=50&page=201"
-        requests_seen = _wire(session, [_response("contacts", [{"id": 1, "created_at": 200}], over_cap_link)])
+        _wire(session, [_response("contacts", [{"id": 1, "created_at": 200}], over_cap_link)])
 
         manager = _make_manager()
-        _rows(
-            _source(
-                "contacts",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=200,
-                incremental_field="created_at",
+        with pytest.raises(AircallTruncationError):
+            _rows(
+                _source(
+                    "contacts",
+                    manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=200,
+                    incremental_field="created_at",
+                )
             )
-        )
 
-        assert len(requests_seen) == 1
         manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -345,6 +354,52 @@ class TestPagination:
         assert requests_seen[0]["params"] == {"per_page": 50, "order": "asc", "from": 1700000000}
         # started_at did not advance past the watermark, so no re-anchored window is issued.
         assert len(requests_seen) == 1
+
+
+class TestConversationIntelligenceFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_rows_carry_call_id_from_parent(self, MockSession):
+        # The per-call sub-resource is fanned out over the calls list. Each child row must carry
+        # the parent call id as `call_id` (the primary key), overriding whatever the body itself
+        # holds, so one CI object per call stays uniquely keyed.
+        session = MockSession.return_value
+        requests_seen = _wire(
+            session,
+            [
+                _response("calls", [{"id": 1, "started_at": 100}, {"id": 2, "started_at": 200}], None),
+                _plain_response(200, {"id": 55, "content": "hi", "call_id": 999}),
+                _plain_response(200, {"id": 66, "content": "yo"}),
+                # The calls paginator re-anchors once the first window ends; an empty window stops it.
+                _response("calls", [], None),
+            ],
+        )
+
+        rows = _rows(_source("call_transcriptions", _make_manager()))
+
+        assert [(row["call_id"], row["id"], row["content"]) for row in rows] == [(1, 55, "hi"), (2, 66, "yo")]
+        child_urls = [req["url"] for req in requests_seen if "transcription" in (req["url"] or "")]
+        assert child_urls == [
+            "https://api.aircall.io/v1/calls/1/transcription",
+            "https://api.aircall.io/v1/calls/2/transcription",
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_calls_without_ci_data_are_skipped(self, MockSession):
+        # A call with no AI data answers 404; that call is skipped rather than sinking the table.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response("calls", [{"id": 1, "started_at": 100}, {"id": 2, "started_at": 200}], None),
+                _plain_response(404, {"error": "not found"}),
+                _plain_response(200, {"id": 66, "content": "yo"}),
+                _response("calls", [], None),
+            ],
+        )
+
+        rows = _rows(_source("call_evaluations", _make_manager()))
+
+        assert [row["call_id"] for row in rows] == [2]
 
 
 class TestAircallSourceResponse:

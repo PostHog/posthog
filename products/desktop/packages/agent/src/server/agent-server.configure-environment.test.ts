@@ -464,7 +464,9 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     }
   });
 
-  const buildServer = (): TestableServer =>
+  const buildServer = (
+    overrides: { serviceTier?: "default" | "priority" | "flex" } = {},
+  ): TestableServer =>
     new AgentServer({
       port: 0,
       jwtPublicKey: "test-key",
@@ -474,6 +476,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
       mode: "background",
       taskId: "test-task-id",
       runId: "test-run-id",
+      ...overrides,
     }) as unknown as TestableServer;
 
   const parseBlob = (headerLines: string): Record<string, unknown> => {
@@ -570,6 +573,19 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     expect(Object.keys(env.openaiCustomHeaders ?? {})).toEqual([
       "X-PostHog-Properties",
     ]);
+  });
+
+  // The gateway writes the tier into the OpenAI body from this header, so a
+  // run that loses it silently runs on the standard queue and a flex trial
+  // measures nothing. Codex-only: the Claude header lines never carry it.
+  it("sends a configured service tier as X-PostHog-Service-Tier on the OpenAI record", () => {
+    const env = buildServer({ serviceTier: "flex" }).configureEnvironment({
+      originProduct: "signal_report",
+      aiStage: "scout",
+    });
+
+    expect(env.openaiCustomHeaders?.["X-PostHog-Service-Tier"]).toBe("flex");
+    expect(env.anthropicCustomHeaders).not.toContain("X-PostHog-Service-Tier");
   });
 
   it("keeps non-signals products on their existing ai_product name", () => {

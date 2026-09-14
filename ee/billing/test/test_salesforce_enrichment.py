@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
@@ -145,7 +145,7 @@ class TestYCCompanyDetection(BaseTest):
 
 
 class TestHarmonicDataTransformation(BaseTest):
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_with_fixture(self):
         """Test transform_harmonic_data output structure and field mapping with real fixture."""
         harmonic_response = load_harmonic_fixture()
@@ -208,7 +208,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert isinstance(tags_v2, list)
         assert len(tags_v2) == 3
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_prepare_salesforce_update_data_with_fixture(self):
         """Test complete pipeline: fixture → transform → Salesforce field mapping."""
         # Load and transform fixture data
@@ -264,7 +264,7 @@ class TestHarmonicDataTransformation(BaseTest):
         for key, value in salesforce_data.items():
             assert value is not None, f"Field {key} should not be None"
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_missing_funding(self):
         """Test transform_harmonic_data handles missing funding section."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -276,7 +276,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert result["funding"] == {}
         assert result["company_info"]["name"] == "Example Corp"  # Other data preserved
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_missing_company_fields(self):
         """Test transform_harmonic_data handles missing company info fields."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -293,7 +293,7 @@ class TestHarmonicDataTransformation(BaseTest):
         # Other fields should still work
         assert result["company_info"]["website"] == "https://example.com"
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_malformed_website(self):
         """Test transform_harmonic_data handles malformed website data."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -304,7 +304,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert result is not None
         assert result["company_info"]["website"] is None  # Safely handles type mismatch
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_malformed_founding_date(self):
         """Test transform_harmonic_data handles malformed founding date."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -315,7 +315,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert result is not None
         assert result["company_info"]["founding_date"] is None  # Safely handles type mismatch
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_missing_traction_metrics(self):
         """Test transform_harmonic_data handles missing tractionMetrics."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -328,7 +328,7 @@ class TestHarmonicDataTransformation(BaseTest):
         # Other sections should still work
         assert result["company_info"]["name"] == "Example Corp"
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_metric_missing_latest_value(self):
         """Test transform_harmonic_data handles metrics without latestMetricValue."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -343,7 +343,7 @@ class TestHarmonicDataTransformation(BaseTest):
         # Other metrics should still be present
         assert "webTraffic" in result["metrics"]
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_metric_with_null_latest_value(self):
         """Test transform_harmonic_data handles metrics with null latestMetricValue."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -357,7 +357,7 @@ class TestHarmonicDataTransformation(BaseTest):
         # Other metrics should still be present
         assert "webTraffic" in result["metrics"]
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_empty_historical_metrics(self):
         """Test transform_harmonic_data handles empty historical data."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -370,7 +370,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert result["metrics"]["headcount"]["current_value"] == 5015
         assert result["metrics"]["headcount"]["historical"] == {}
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_missing_tags(self):
         """Test transform_harmonic_data handles missing tags."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -383,7 +383,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert result["tags"] == []
         assert result["tagsV2"] == []
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_prepare_salesforce_update_no_primary_tag_uses_first(self):
         """Test Salesforce update falls back to first tag when there's no primary tag."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -399,7 +399,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert salesforce_data is not None
         assert salesforce_data["harmonic_industry__c"] == "Enterprise Software"
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_prepare_salesforce_update_empty_tags(self):
         """Test Salesforce update when both tags and tagsV2 arrays are empty."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -414,7 +414,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert salesforce_data is not None
         assert "harmonic_industry__c" not in salesforce_data
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_prepare_salesforce_update_with_primary_tag(self):
         """Test Salesforce update correctly extracts primary tag."""
         harmonic_data = load_harmonic_fixture()
@@ -426,7 +426,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert salesforce_data is not None
         assert salesforce_data["harmonic_industry__c"] == "Enterprise Software"
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_prepare_salesforce_update_fallback_to_tagsv2_market_vertical(self):
         """Test Salesforce update falls back to tagsV2 MARKET_VERTICAL when tags is empty."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -440,7 +440,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert salesforce_data is not None
         assert salesforce_data["harmonic_industry__c"] == "Business Intelligence"
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_prepare_salesforce_update_fallback_to_tagsv2_first_tag(self):
         """Test Salesforce update falls back to first tagsV2 tag when no MARKET_VERTICAL."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -459,7 +459,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert salesforce_data is not None
         assert salesforce_data["harmonic_industry__c"] == "Software"
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_prepare_salesforce_update_skips_empty_displayvalue(self):
         """Test Salesforce update skips tags with empty displayValue."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -476,7 +476,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert salesforce_data is not None
         assert salesforce_data["harmonic_industry__c"] == "Fallback"
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_includes_is_yc_company_field(self):
         """Test transform_harmonic_data includes is_yc_company field."""
         harmonic_data = load_harmonic_fixture()
@@ -489,7 +489,7 @@ class TestHarmonicDataTransformation(BaseTest):
         # The fixture has investors but not YC, so this should be False
         assert result["is_yc_company"] is False
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_includes_is_yc_company_with_yc_investor(self):
         """Test transform_harmonic_data sets is_yc_company=True when YC is an investor."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -504,7 +504,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert result is not None
         assert result["is_yc_company"] is True
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_is_yc_company_false_missing_funding(self):
         """Test transform_harmonic_data sets is_yc_company=False when no funding section."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -515,7 +515,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert result is not None
         assert result["is_yc_company"] is False
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_prepare_salesforce_update_includes_yc_company_flag(self):
         """Test Salesforce update includes harmonic_is_yc_company__c field."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -529,7 +529,7 @@ class TestHarmonicDataTransformation(BaseTest):
         assert "harmonic_is_yc_company__c" in salesforce_data
         assert salesforce_data["harmonic_is_yc_company__c"] is True
 
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_prepare_salesforce_update_yc_company_false(self):
         """Test Salesforce update includes harmonic_is_yc_company__c=False when not YC funded."""
         harmonic_data = copy.deepcopy(load_harmonic_fixture())
@@ -631,7 +631,7 @@ class TestSalesforceAccountQuery(BaseTest):
 
 class TestSpecificDomainEnrichment(BaseTest):
     @pytest.mark.asyncio
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     async def test_specific_domain_enrichment_success(self):
         """Test enriching a specific domain returns Harmonic data and updates Salesforce."""
         harmonic_response = load_harmonic_fixture()
@@ -680,7 +680,7 @@ class TestSpecificDomainEnrichment(BaseTest):
                         assert len(update_records) == 2
 
     @pytest.mark.asyncio
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     async def test_specific_domain_enrichment_with_full_url(self):
         """Test enriching a specific domain from a full URL."""
         harmonic_response = load_harmonic_fixture()
@@ -715,7 +715,7 @@ class TestSpecificDomainEnrichment(BaseTest):
         assert "excluded" in result["error"]
 
     @pytest.mark.asyncio
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     async def test_specific_domain_enrichment_no_harmonic_data(self):
         """Test handling when Harmonic returns no data for domain."""
         mock_accounts = [
@@ -738,7 +738,7 @@ class TestSpecificDomainEnrichment(BaseTest):
                 assert "No Harmonic data found" in result["error"]
 
     @pytest.mark.asyncio
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     async def test_specific_domain_no_salesforce_accounts(self):
         """Test handling when no Salesforce accounts match the domain."""
         with patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain", return_value=[]):
@@ -752,7 +752,7 @@ class TestSpecificDomainEnrichment(BaseTest):
             assert "No Salesforce accounts found" in result["error"]
 
     @pytest.mark.asyncio
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     async def test_specific_domain_calls_salesforce_and_updates(self):
         """Test that specific_domain queries Salesforce and updates matching accounts."""
         harmonic_response = load_harmonic_fixture()
@@ -783,7 +783,7 @@ class TestSpecificDomainEnrichment(BaseTest):
                         assert result["summary"]["salesforce_update_succeeded"] is True
 
     @pytest.mark.asyncio
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     async def test_specific_domain_multiple_accounts_all_updated(self):
         """Test that when multiple Salesforce accounts match a domain, all are updated."""
         harmonic_response = load_harmonic_fixture()
@@ -833,7 +833,7 @@ class TestSpecificDomainEnrichment(BaseTest):
                         assert updated_ids == {"001ACCOUNT1", "001ACCOUNT2", "001ACCOUNT3"}
 
     @pytest.mark.asyncio
-    @freeze_time("2025-07-29T12:00:00Z")
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     async def test_specific_domain_enrichment_returns_updated_account_data(self):
         """Test that updated_salesforce_accounts contains the refreshed SF data after update."""
         harmonic_response = load_harmonic_fixture()

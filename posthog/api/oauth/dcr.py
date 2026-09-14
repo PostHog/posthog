@@ -31,6 +31,7 @@ from posthog.rate_limit import IPThrottle
 from posthog.scopes import filter_to_unprivileged_scopes
 
 from .client_name import sanitize_client_name, validate_client_name
+from .logo_uri import MAX_LOGO_URI_LENGTH, usable_logo_uri
 
 logger = structlog.get_logger(__name__)
 
@@ -100,6 +101,12 @@ class DCRRequestSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Space-delimited OAuth scopes (RFC 7591). Sets the client's scope ceiling; privileged scopes are stripped, and a set that strips to nothing is rejected. Omit to use the default scope set.",
     )
+    logo_uri = serializers.CharField(
+        max_length=MAX_LOGO_URI_LENGTH,
+        required=False,
+        allow_blank=True,
+        help_text="HTTPS URL of the client's logo, shown on the consent screen and on the login and signup screens. A URL that is not HTTPS, or whose host resolves to a loopback, private, metadata or internal address, is dropped and left out of the response.",
+    )
 
 
 class DynamicClientRegistrationView(APIView):
@@ -140,6 +147,8 @@ class DynamicClientRegistrationView(APIView):
         # the create() call simple -- we just don't return it in the response.
         plaintext_secret = generate_client_secret()
 
+        logo_uri = usable_logo_uri(data.get("logo_uri"))
+
         requested_scope = data.get("scope")
         app_scopes = filter_dcr_scopes(requested_scope) if requested_scope else []
 
@@ -161,6 +170,7 @@ class DynamicClientRegistrationView(APIView):
         try:
             app = OAuthApplication.objects.create(
                 name=client_name,
+                logo_uri=logo_uri,
                 redirect_uris=" ".join(data["redirect_uris"]),
                 client_type=client_type,
                 client_secret=plaintext_secret,
@@ -236,6 +246,11 @@ class DynamicClientRegistrationView(APIView):
 
         if data.get("client_name"):
             response_data["client_name"] = client_name
+
+        # RFC 7591 Section 3.2.1: the response carries the metadata as registered, so a client
+        # whose logo was dropped sees `logo_uri` absent rather than echoed back.
+        if logo_uri:
+            response_data["logo_uri"] = logo_uri
 
         # RFC 7591 Section 3.2.1: when the server modifies requested scopes, it
         # returns the registered `scope` so the client sees the privileged-strip.

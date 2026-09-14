@@ -7,6 +7,63 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * Typed account properties: external-system ids. Role assignments live under `relationships`.
+ */
+export type ExternalAccountApiProperties = { [key: string]: unknown }
+
+export interface ExternalAccountAssignmentApi {
+    /** PostHog user id of the assigned user. */
+    user_id: number
+    /** Email address of the assigned user. */
+    email: string
+}
+
+/**
+ * Active relationship assignments keyed by definition name (e.g. 'CSM'). Definitions with no active assignment are omitted.
+ */
+export type ExternalAccountApiRelationships = { [key: string]: ExternalAccountAssignmentApi[] }
+
+/**
+ * Every team custom property definition keyed by name, with the account's active value or null.
+ */
+export type ExternalAccountApiCustomProperties = { [key: string]: unknown }
+
+export interface ExternalAccountApi {
+    /** Account UUID. */
+    id: string
+    /**
+     * External account key — the group key the account is linked to.
+     * @nullable
+     */
+    external_id: string | null
+    /** Human-readable account name. */
+    name: string
+    /**
+     * When the account churned, or null if it has not churned.
+     * @nullable
+     */
+    churned_at: string | null
+    /**
+     * When Track Rules ignored the account, or null if it is tracked.
+     * @nullable
+     */
+    ignored_at: string | null
+    /** Typed account properties: external-system ids. Role assignments live under `relationships`. */
+    properties: ExternalAccountApiProperties
+    /** Tag names on the account, sorted alphabetically. */
+    tags: string[]
+    /** Active relationship assignments keyed by definition name (e.g. 'CSM'). Definitions with no active assignment are omitted. */
+    relationships: ExternalAccountApiRelationships
+    /** Every team custom property definition keyed by name, with the account's active value or null. */
+    custom_properties: ExternalAccountApiCustomProperties
+}
+
+export interface ExternalAccountErrorApi {
+    /** What went wrong with the request. */
+    error: string
+}
+
 export interface ExternalAccountListAssignmentApi {
     /** PostHog user id of the assigned user. */
     user_id: number
@@ -1149,6 +1206,13 @@ export const BounceRatePageViewModeApi = {
     UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
 } as const
 
+export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
+
+export const FilterLogicalOperatorApi = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
 export type CustomBotFieldApi = (typeof CustomBotFieldApi)[keyof typeof CustomBotFieldApi]
 
 export const CustomBotFieldApi = {
@@ -1173,28 +1237,29 @@ export type CustomBotMatcherApi = (typeof CustomBotMatcherApi)[keyof typeof Cust
 export const CustomBotMatcherApi = {
     Contains: 'contains',
     Regex: 'regex',
+    Exact: 'exact',
     Cidr: 'cidr',
 } as const
 
-export interface CustomBotDefinitionApi {
-    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
-    category?: string | null
+export interface CustomBotConditionApi {
     id: string
-    /** The event property this rule reads. */
+    /** The event property this condition reads. */
     key: CustomBotFieldApi
     matcher: CustomBotMatcherApi
-    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
-    name: string
     /** Matched against the property named by `key`. */
     pattern: string
 }
 
-export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
-
-export const FilterLogicalOperatorApi = {
-    And: 'AND',
-    Or: 'OR',
-} as const
+export interface CustomBotRuleApi {
+    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+    category?: string | null
+    /** Whether every condition must match (AND) or any one of them (OR). */
+    combiner: FilterLogicalOperatorApi
+    id: string
+    items: CustomBotConditionApi[]
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+    name: string
+}
 
 export type CustomChannelFieldApi = (typeof CustomChannelFieldApi)[keyof typeof CustomChannelFieldApi]
 
@@ -1340,7 +1405,7 @@ export interface HogQLQueryModifiersApi {
     bounceRateDurationSeconds?: number | null
     bounceRatePageViewMode?: BounceRatePageViewModeApi | null
     convertToProjectTimezone?: boolean | null
-    customBotDefinitions?: CustomBotDefinitionApi[] | null
+    customBotDefinitions?: CustomBotRuleApi[] | null
     customChannelTypeRules?: CustomChannelRuleApi[] | null
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
     debug?: boolean | null
@@ -3976,6 +4041,13 @@ export interface UserCustomerAnalyticsConfigApi {
 export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
     /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
     pinned_properties?: PinnedAccountPropertyApi[]
+}
+
+export type CustomerAnalyticsExternalAccountRetrieveParams = {
+    /**
+     * External account key: the group key the account is linked to.
+     */
+    external_id: string
 }
 
 export type CustomerAnalyticsExternalAccountsRetrieveParams = {

@@ -209,7 +209,7 @@ describe('RateLimiterService', () => {
                 ],
                 30
             )
-            expect(claim).toEqual({ granted: true, deniedIndex: null })
+            expect(claim).toEqual({ granted: true, deniedIndex: null, retryAfterMs: null, reserved: false })
             // Both pools were charged: the remainder is all that is left to claim.
             expect(await limiter.claimUpTo({ key: KEY_A, requested: 50, capacity: 50, refillPerSecond: 0 })).toBe(20)
             expect(await limiter.claimUpTo({ key: KEY_B, requested: 100, capacity: 100, refillPerSecond: 0 })).toBe(70)
@@ -226,9 +226,37 @@ describe('RateLimiterService', () => {
                 ],
                 30
             )
-            expect(claim).toEqual({ granted: false, deniedIndex: 1 })
+            // refillPerSecond 0 means the missing tokens never accrue, so no horizon is reported.
+            expect(claim).toEqual({ granted: false, deniedIndex: 1, retryAfterMs: null, reserved: false })
             expect(await limiter.claimUpTo({ key: KEY_A, requested: 50, capacity: 50, refillPerSecond: 0 })).toBe(50)
             expect(await limiter.claimUpTo({ key: KEY_B, requested: 10, capacity: 10, refillPerSecond: 0 })).toBe(10)
+        })
+
+        it('reports on denial how long until the missing tokens accrue', async () => {
+            // Cold start: the denying bucket holds exactly its capacity of 10, so the request
+            // for 30 is missing 20 tokens. At 2 tokens/s that is 10 seconds.
+            const claim = await limiter.claimAllOrNothingPair(
+                [
+                    { key: KEY_A, capacity: 50, refillPerSecond: 0 },
+                    { key: KEY_B, capacity: 10, refillPerSecond: 2 },
+                ],
+                30
+            )
+            expect(claim).toEqual({ granted: false, deniedIndex: 1, retryAfterMs: 10_000, reserved: false })
+        })
+
+        it('reports the slower bucket when both are short', async () => {
+            // Both buckets are 20 tokens short of the request. The first one covers that in 10
+            // seconds, the second needs 40. Reporting the first would wake the caller while the
+            // second still cannot grant, costing a whole extra dequeue and reschedule.
+            const claim = await limiter.claimAllOrNothingPair(
+                [
+                    { key: KEY_A, capacity: 10, refillPerSecond: 2 },
+                    { key: KEY_B, capacity: 10, refillPerSecond: 0.5 },
+                ],
+                30
+            )
+            expect(claim).toEqual({ granted: false, deniedIndex: 0, retryAfterMs: 40_000, reserved: false })
         })
 
         it('fails closed when the Lua call throws', async () => {
@@ -244,7 +272,145 @@ describe('RateLimiterService', () => {
                 ],
                 5
             )
-            expect(claim).toEqual({ granted: false, deniedIndex: null })
+            expect(claim).toEqual({ granted: false, deniedIndex: null, retryAfterMs: null, reserved: false })
+        })
+
+        it('hands successive reserved denials distinct, later slots, paced by the slower bucket', async () => {
+            // Both buckets are short, so the slower one (0.5/s) sets the pace. The first
+            // caller waits 40s (its missing tokens). The next one gets the slot after
+            // that, a full 60s later. Nobody wakes at the same time.
+            const buckets: [
+                { key: string; capacity: number; refillPerSecond: number },
+                { key: string; capacity: number; refillPerSecond: number },
+            ] = [
+                { key: `${KEY_A}/resv`, capacity: 10, refillPerSecond: 2 },
+                { key: `${KEY_B}/resv`, capacity: 10, refillPerSecond: 0.5 },
+            ]
+            const first = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
+            const second = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
+
+            expect(first.granted).toBe(false)
+            expect(first.reserved).toBe(true)
+            // First in line pays only the 40s shortfall, not a full 60s slot.
+            expect(first.retryAfterMs).toBe(40_000)
+            expect(second.reserved).toBe(true)
+            expect(second.retryAfterMs!).toBeGreaterThan(first.retryAfterMs!)
+            expect(second.retryAfterMs!).toBeLessThanOrEqual(100_000)
+        })
+
+        it('stops advancing the reservation cursor at the horizon', async () => {
+            const buckets: [
+                { key: string; capacity: number; refillPerSecond: number },
+                { key: string; capacity: number; refillPerSecond: number },
+            ] = [
+                { key: `${KEY_A}/resv-cap`, capacity: 50, refillPerSecond: 0 },
+                { key: `${KEY_B}/resv-cap`, capacity: 10, refillPerSecond: 2 },
+            ]
+            // The first slot (10s) fits inside the 20s horizon. The next one would not,
+            // so everyone after the first just gets "come back in 20s" with no slot.
+            const first = await limiter.claimAllOrNothingPair(buckets, 30, 20_000)
+            const second = await limiter.claimAllOrNothingPair(buckets, 30, 20_000)
+            const third = await limiter.claimAllOrNothingPair(buckets, 30, 20_000)
+
+            expect(first.retryAfterMs).toBe(10_000)
+            expect(first.reserved).toBe(true)
+            expect(second.retryAfterMs).toBe(20_000)
+            expect(second.reserved).toBe(false)
+            expect(third.retryAfterMs).toBe(20_000)
+            expect(third.reserved).toBe(false)
+        })
+
+        it('keeps one reservation line when the slower bucket changes', async () => {
+            const buckets: [
+                { key: string; capacity: number; refillPerSecond: number },
+                { key: string; capacity: number; refillPerSecond: number },
+            ] = [
+                { key: `${KEY_A}/line`, capacity: 10, refillPerSecond: 2 },
+                { key: `${KEY_B}/line`, capacity: 100, refillPerSecond: 0.5 },
+            ]
+            // The second bucket still covers the request, so the first one (10s
+            // shortfall, 15s spacing) sets the pace for the first two denials.
+            const first = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
+            const second = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
+
+            // Now drain the second bucket so it becomes the slower one. The line has
+            // to continue behind the parked sends. A cursor kept only on the bucket
+            // that is currently slower would start a fresh line here and hand this
+            // send a slot at ~16s, ahead of the send already parked at ~25s.
+            await limiter.claimUpTo({ key: buckets[1].key, requested: 78, capacity: 100, refillPerSecond: 0.5 })
+            const third = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
+
+            expect(first.reserved).toBe(true)
+            expect(second.retryAfterMs!).toBeGreaterThan(first.retryAfterMs!)
+            expect(third.reserved).toBe(true)
+            expect(third.retryAfterMs!).toBeGreaterThan(second.retryAfterMs!)
+        })
+    })
+
+    describe('claimOrReserve', () => {
+        const RESERVE_KEY = `${KEY}/reserve`
+        const req = { key: RESERVE_KEY, requested: 1, capacity: 2, refillPerSecond: 2 }
+
+        it('grants normally without reserving a slot', async () => {
+            const claim = await limiter.claimOrReserve(req, 60_000)
+            expect(claim).toEqual({ granted: 1, retryAfterMs: null, reserved: false })
+        })
+
+        it('hands successive denials distinct, later slots', async () => {
+            // Drain the bucket so every claim below is a full denial. At 2 tokens/s each
+            // reservation advances the slot cursor by 500ms, so three denied callers park
+            // at three different times instead of all retrying against the next token.
+            await limiter.claimUpTo({ ...req, requested: 2 })
+
+            const first = await limiter.claimOrReserve(req, 60_000)
+            const second = await limiter.claimOrReserve(req, 60_000)
+            const third = await limiter.claimOrReserve(req, 60_000)
+
+            expect(first.granted).toBe(0)
+            expect(first.retryAfterMs).toBeGreaterThan(0)
+            // Strictly later each time; the spacing is ~500ms minus wall-clock elapsed
+            // between calls, so bound it loosely rather than exactly.
+            expect(second.retryAfterMs!).toBeGreaterThan(first.retryAfterMs!)
+            expect(third.retryAfterMs!).toBeGreaterThan(second.retryAfterMs!)
+            expect(third.retryAfterMs!).toBeLessThanOrEqual(1_500)
+            // All three got their own slot, so each can park on it exactly.
+            expect([first.reserved, second.reserved, third.reserved]).toEqual([true, true, true])
+        })
+
+        it('charges the first denial only for the tokens the bucket is short of', async () => {
+            // One token takes 4s to refill. Drain the bucket, wait 1s so a quarter of a
+            // token is back, then get denied. The slot must only cover what is still
+            // missing (~3s), not the full 4s: the quarter token is credit already earned.
+            const partialReq = { key: `${RESERVE_KEY}/partial`, requested: 1, capacity: 1, refillPerSecond: 0.25 }
+            await limiter.claimUpTo(partialReq)
+            await new Promise((resolve) => setTimeout(resolve, 1_000))
+
+            const denial = await limiter.claimOrReserve(partialReq, 60_000)
+
+            expect(denial.granted).toBe(0)
+            expect(denial.reserved).toBe(true)
+            // A slow test runner only makes the slot shorter (more refill happened).
+            // Charging the full interval would report 4s and fail this bound.
+            expect(denial.retryAfterMs).toBeGreaterThan(0)
+            expect(denial.retryAfterMs).toBeLessThanOrEqual(3_000)
+        })
+
+        it('stops advancing the cursor at the horizon', async () => {
+            // One 1s slot fits the 1s horizon. The first denial takes it; everyone after
+            // just gets "come back in 1s" with no slot, so the cursor cannot run away.
+            const slowReq = { key: `${RESERVE_KEY}/capped`, requested: 1, capacity: 1, refillPerSecond: 1 }
+            await limiter.claimUpTo({ ...slowReq })
+
+            const first = await limiter.claimOrReserve(slowReq, 1_000)
+            const second = await limiter.claimOrReserve(slowReq, 1_000)
+            const third = await limiter.claimOrReserve(slowReq, 1_000)
+
+            expect(first.retryAfterMs).toBeLessThanOrEqual(1_000)
+            expect(second.retryAfterMs).toBe(1_000)
+            expect(third.retryAfterMs).toBe(1_000)
+            // Only the first got a slot. The other two share one wake time and are told so,
+            // which is the caller's cue to spread its own wake.
+            expect([first.reserved, second.reserved, third.reserved]).toEqual([true, false, false])
         })
     })
 })

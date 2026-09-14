@@ -1,12 +1,12 @@
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
     detectBoolean,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -132,7 +132,7 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        prefix={<ActivityLogUserName logItem={logItem} />}
                         suffix={changeSuffix}
                     />
                 ),
@@ -144,8 +144,8 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted{' '}
-                    <DescribeType logItem={logItem} /> {nameAndLink(logItem)}
+                    <ActivityLogUserName logItem={logItem} /> deleted <DescribeType logItem={logItem} />{' '}
+                    {nameAndLink(logItem)}
                 </>
             ),
         }

@@ -1,5 +1,9 @@
 import { ContainerModule } from "inversify";
 import { CanvasApplicationService } from "./canvasApplicationService";
+import {
+  CANVAS_CONNECTOR_PERMISSION_SERVICE,
+  CanvasConnectorPermissionService,
+} from "./canvasConnectorPermissionService";
 import { CanvasDataService } from "./canvasDataService";
 import { CanvasListService } from "./canvasListService";
 import { CanvasTemplatesService } from "./canvasTemplatesService";
@@ -41,6 +45,9 @@ export const canvasCoreModule = new ContainerModule(({ bind }) => {
 // because it runs in the desktop renderer and web app, while canvasCoreModule's
 // persistence services run host-side behind tRPC.
 export const canvasApplicationModule = new ContainerModule(({ bind }) => {
+  bind(CANVAS_CONNECTOR_PERMISSION_SERVICE)
+    .to(CanvasConnectorPermissionService)
+    .inSingletonScope();
   bind(CanvasListService).toSelf().inSingletonScope();
   bind(CANVAS_LIST_SERVICE).toService(CanvasListService);
 
