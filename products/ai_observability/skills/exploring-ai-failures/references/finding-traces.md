@@ -17,12 +17,30 @@ So measure what this project sets before you group by it.
 (`$ai_trace_name` is the older name for the same thing, kept for older data.)
 
 ```sql
-SELECT coalesce(nullIf(toString(properties.$ai_span_name), ''),
-                nullIf(toString(properties.$ai_trace_name), ''), '(not set)') AS kind, count() AS n
-FROM events
-WHERE event = '$ai_trace' AND timestamp >= now() - INTERVAL 7 DAY
-GROUP BY kind ORDER BY n DESC
+SELECT coalesce(name, '(not set)') AS kind, count() AS traces
+FROM (
+    SELECT
+        toString(properties.$ai_trace_id) AS trace_id,
+        ifNull(
+            argMinIf(ifNull(nullIf(toString(properties.$ai_span_name), ''),
+                            nullIf(toString(properties.$ai_trace_name), '')),
+                     timestamp, event = '$ai_trace'),
+            argMin(ifNull(nullIf(toString(properties.$ai_span_name), ''),
+                          nullIf(toString(properties.$ai_trace_name), '')), timestamp)
+        ) AS name
+    FROM events
+    WHERE event IN ('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding',
+                    '$ai_metric', '$ai_feedback')
+        AND timestamp >= now() - INTERVAL 7 DAY
+        AND notEmpty(toString(properties.$ai_trace_id))
+    GROUP BY trace_id
+)
+GROUP BY kind ORDER BY traces DESC
 ```
+
+The root `$ai_trace` event is emitted last, so a run still going or one that crashed partway has child
+events but no root. This counts every trace and falls back to a child event's name, the way the traces
+list does. Group on `$ai_trace` alone and those runs vanish, which hides the failures you came to find.
 
 ### 2. App-set tags on generations
 
