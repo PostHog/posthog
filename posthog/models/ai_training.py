@@ -54,9 +54,6 @@ def privacy_enabled() -> bool:
 
 @contextmanager
 def record_training_consent(organization_id: uuid.UUID, allowed: bool) -> Iterator[None]:
-    if not privacy_enabled():
-        yield
-        return
     with transaction.atomic():
         state, created = AITrainingConsent.objects.get_or_create(organization_id=organization_id)
         state = AITrainingConsent.objects.select_for_update().get(organization_id=organization_id)

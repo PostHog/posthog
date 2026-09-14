@@ -22,6 +22,7 @@ The version applies to the whole session, including a session that crosses the c
 
 An organization has one current consent state: allowed, grant timestamp, change timestamp, and revision.
 Django records a consent change and its delivery request in the same transaction as the organization change.
+This recording starts when the controls code deploys, even before the privacy table is configured.
 A background worker publishes that state to DynamoDB.
 Conditional revision checks prevent delayed requests from replacing newer state.
 
@@ -31,8 +32,10 @@ Granting consent again permits new sessions with fresh keys.
 Sessions from an earlier consent period remain excluded, including delayed Kafka messages and retries.
 A delayed withdrawal only removes keys from the withdrawn period or earlier periods.
 
-Run `python manage.py initialize_ai_training_consent` to initialize existing organizations after enabling the privacy table.
-The command preserves consent state that a concurrent application change has already created.
+The deployment migration job initializes existing organizations automatically when the privacy table is configured.
+Initialization runs after PostgreSQL migrations and requires no AWS access.
+A failure stops the deployment job; a retry preserves existing consent periods and requests.
+Initialization preserves consent state that a concurrent application change has already created.
 The privacy worker must publish the initial state before v2 collection starts.
 Missing consent state blocks v2 collection.
 

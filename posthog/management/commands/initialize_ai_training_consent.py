@@ -12,7 +12,9 @@ class Command(BaseCommand):
         if not privacy_enabled():
             raise CommandError("AI_RESEARCH_REPLAY_PRIVACY_TABLE is not configured")
         initialized = 0
-        for organization_id in Organization.objects.values_list("id", flat=True).iterator(chunk_size=200):
+        initialized_organizations = AITrainingConsent.objects.filter(revision__gt=0).values("organization_id")
+        organizations = Organization.objects.exclude(id__in=initialized_organizations)
+        for organization_id in organizations.values_list("id", flat=True).iterator(chunk_size=200):
             with transaction.atomic():
                 AITrainingConsent.objects.get_or_create(organization_id=organization_id)
                 state = AITrainingConsent.objects.select_for_update().get(organization_id=organization_id)

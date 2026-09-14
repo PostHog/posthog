@@ -246,4 +246,9 @@ if run_scope "temporal-schedules"; then
     fi
 fi
 
+if run_scope "postgres" && [ -n "${AI_RESEARCH_REPLAY_PRIVACY_TABLE:-}" ]; then
+    echo "Initializing AI training consent..."
+    python manage.py initialize_ai_training_consent
+fi
+
 echo "All migrations completed successfully."

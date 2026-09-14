@@ -4,6 +4,7 @@ from uuid import UUID
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.core.management import call_command
 from django.db import DatabaseError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
@@ -12,7 +13,7 @@ from parameterized import parameterized
 
 from posthog.ai_training_privacy import AITrainingPrivacyStore, DynamoResponse, item_key, session_key
 from posthog.api.person import PersonViewSet
-from posthog.models import Person, Team
+from posthog.models import Organization, Person, Team
 from posthog.models.ai_training import (
     AITrainingConsent,
     AITrainingPrivacyRequest,
@@ -119,22 +120,52 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
 
 @override_settings(AI_RESEARCH_REPLAY_PRIVACY_TABLE="test-table")
 class TestAITrainingConsentOutbox(TestCase):
-    def test_reconsent_has_a_new_timestamp_and_rollback_preserves_the_previous_state(self) -> None:
-        organization_id = UUID("00000000-0000-0000-0000-000000000007")
-        with record_training_consent(organization_id, True):
+    @parameterized.expand([("",), ("test-table",)])
+    def test_reconsent_has_a_new_timestamp_and_rollback_preserves_the_previous_state(self, table: str) -> None:
+        with self.settings(AI_RESEARCH_REPLAY_PRIVACY_TABLE=table):
+            organization_id = UUID("00000000-0000-0000-0000-000000000007")
+            with record_training_consent(organization_id, True):
+                pass
+            first = AITrainingConsent.objects.get(organization_id=organization_id)
+            with record_training_consent(organization_id, False):
+                pass
+            with record_training_consent(organization_id, True):
+                pass
+            resumed = AITrainingConsent.objects.get(organization_id=organization_id)
+            self.assertGreater(resumed.granted_at_ms, first.granted_at_ms)
+            self.assertEqual(resumed.revision, 3)
+            with self.assertRaises(ValueError), record_training_consent(organization_id, False):
+                raise ValueError("rollback")
+            self.assertTrue(AITrainingConsent.objects.get(organization_id=organization_id).allowed)
+            self.assertEqual(AITrainingPrivacyRequest.objects.unscoped().count(), 3)
+
+    def test_deployment_initialization_preserves_existing_consent_and_is_safe_to_retry(self) -> None:
+        existing_id = UUID("00000000-0000-0000-0000-000000000007")
+        missing_id = UUID("00000000-0000-0000-0000-000000000008")
+        denied_id = UUID("00000000-0000-0000-0000-000000000009")
+        Organization.objects.bulk_create(
+            [
+                Organization(id=existing_id, name="Existing", slug="existing", is_ai_training_opted_in=True),
+                Organization(id=missing_id, name="Missing", slug="missing", is_ai_training_opted_in=True),
+                Organization(id=denied_id, name="Denied", slug="denied", is_ai_training_opted_in=False),
+            ]
+        )
+        with self.settings(AI_RESEARCH_REPLAY_PRIVACY_TABLE=""), record_training_consent(existing_id, True):
             pass
-        first = AITrainingConsent.objects.get(organization_id=organization_id)
-        with record_training_consent(organization_id, False):
-            pass
-        with record_training_consent(organization_id, True):
-            pass
-        resumed = AITrainingConsent.objects.get(organization_id=organization_id)
-        self.assertGreater(resumed.granted_at_ms, first.granted_at_ms)
-        self.assertEqual(resumed.revision, 3)
-        with self.assertRaises(ValueError), record_training_consent(organization_id, False):
-            raise ValueError("rollback")
-        self.assertTrue(AITrainingConsent.objects.get(organization_id=organization_id).allowed)
-        self.assertEqual(AITrainingPrivacyRequest.objects.unscoped().count(), 3)
+        existing = AITrainingConsent.objects.get(organization_id=existing_id)
+        for _ in range(2):
+            call_command("initialize_ai_training_consent")
+            self.assertEqual(
+                AITrainingConsent.objects.get(organization_id=existing_id).granted_at_ms, existing.granted_at_ms
+            )
+            self.assertTrue(AITrainingConsent.objects.get(organization_id=missing_id).allowed)
+            self.assertFalse(AITrainingConsent.objects.get(organization_id=denied_id).allowed)
+            self.assertEqual(AITrainingPrivacyRequest.objects.unscoped().count(), 3)
+        with record_training_consent(existing_id, False):
+            Organization.objects.filter(id=existing_id).update(is_ai_training_opted_in=False)
+        call_command("initialize_ai_training_consent")
+        self.assertFalse(AITrainingConsent.objects.get(organization_id=existing_id).allowed)
+        self.assertEqual(AITrainingPrivacyRequest.objects.unscoped().count(), 4)
 
     def test_queue_filters_invalid_session_ids_and_retains_distinct_ids_in_bulk(self) -> None:
         session_id = "01a09f92-e780-7000-8000-000000000001"
