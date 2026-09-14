@@ -176,7 +176,7 @@ place.
    ruled out). Stash a `report:` pointer with the new `report_id`.
 2. **Material update** — you already reported this insight's anomaly, but there's new evidence
    (it's still firing, escalated, spread to related insights, or correlates with a fresh
-   deploy). → **Edit** the existing report (`edit_report`): `append_note` with the new evidence
+   deploy). → **Edit** the existing report (`edit_report`): use `append_evidence` for the new observation
    (link a fresh notebook for the new window). Don't author a second report for the same move.
 3. **Already covered** — the report exists and the move is unchanged, still within the window.
    → Skip; optionally refresh the `report:` pointer's note in place.
@@ -191,7 +191,7 @@ Good entries are future-run actionable — the next run reads them and changes b
 key:     report:anomaly_detection:insight:SRVNODib
 content: "report_id 0192f3a1-... — authored 2026-06-07 for the spike on 'LLM Costs By AI
          Product': daily sum 3.4x the 8-Saturday baseline (z=5.1), started 06-06. If still
-         elevated next run, edit_report (append_note) to escalate as sustained; if back within
+         elevated next run, use `edit_report(append_evidence=...)` to escalate as sustained; if back within
          baseline, leave the report and stop."
 ```
 

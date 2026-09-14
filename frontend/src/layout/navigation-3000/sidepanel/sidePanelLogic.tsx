@@ -176,10 +176,15 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 tabs.push(SidePanelTab.Max)
                 tabs.push(SidePanelTab.Notebooks)
 
-                if (sceneSidePanelContext?.activity_scope && hasAvailableFeature(AvailableFeature.AUDIT_LOGS)) {
-                    tabs.push(SidePanelTab.Activity)
+                // Activity entries and comments are both stored against the scene's activity scope. A
+                // scene that declares none has nothing to show, and the discussion panel can only
+                // render its "not supported here" state.
+                if (sceneSidePanelContext?.activity_scope) {
+                    if (hasAvailableFeature(AvailableFeature.AUDIT_LOGS)) {
+                        tabs.push(SidePanelTab.Activity)
+                    }
+                    tabs.push(SidePanelTab.Discussion)
                 }
-                tabs.push(SidePanelTab.Discussion)
 
                 if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
                     tabs.push(SidePanelTab.AccessControl)

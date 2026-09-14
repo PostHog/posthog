@@ -3,6 +3,26 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::types::{Json, Uuid};
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, sqlx::Type)]
+#[serde(transparent)]
+#[sqlx(transparent)]
+pub struct PropertyMatchingVersion(pub i16);
+
+impl PropertyMatchingVersion {
+    pub const LEGACY: Self = Self(1);
+    pub const EXPLICIT: Self = Self(2);
+
+    pub fn uses_explicit_matching(self) -> bool {
+        self == Self::EXPLICIT
+    }
+}
+
+impl Default for PropertyMatchingVersion {
+    fn default() -> Self {
+        Self::LEGACY
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize, sqlx::FromRow)]
 pub struct Team {
     pub id: TeamId,
@@ -55,6 +75,9 @@ pub struct Team {
     // deserializing to `false` (full events), fail-safe.
     #[serde(default)]
     pub minimal_flag_called_events: bool,
+    // Cache entries written before this field existed retain legacy matching.
+    #[serde(default)]
+    pub property_matching_version: PropertyMatchingVersion,
 }
 
 fn default_timezone() -> String {
@@ -109,5 +132,9 @@ mod tests {
             serde_json::from_value(legacy_json).expect("legacy blob must still deserialize");
 
         assert!(!team.minimal_flag_called_events);
+        assert_eq!(
+            team.property_matching_version,
+            PropertyMatchingVersion::LEGACY
+        );
     }
 }

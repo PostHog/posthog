@@ -27,6 +27,7 @@ import {
     isUsageAtOrOverLimit,
     projectUsage,
     summarizeUsage,
+    selectionCoversEveryProject,
 } from './billing-utils'
 
 describe('summarizeUsage', () => {
@@ -736,35 +737,45 @@ describe('canViewUsageAndSpend', () => {
 })
 
 describe('isMemberUsageSpendReadAccessEnabled', () => {
-    // Dropping the usage-spend-dashboards half of this lets a view-only member reach Usage and Spend
-    // by URL while the account menu and settings sidebar hide Billing from them entirely.
     it.each<{ case: string; featureFlags: FeatureFlagsSet; expected: boolean }>([
         {
-            case: 'both flags are on',
-            featureFlags: {
-                [FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]: true,
-                [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: true,
-            },
+            case: 'the grant is on',
+            featureFlags: { [FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]: true },
             expected: true,
         },
         {
-            case: 'the grant is on but there are no dashboards to reach',
-            featureFlags: {
-                [FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]: true,
-                [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: false,
-            },
+            case: 'the grant is off',
+            featureFlags: { [FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]: false },
             expected: false,
         },
-        {
-            case: 'the dashboards are on but the grant is not',
-            featureFlags: {
-                [FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]: false,
-                [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: true,
-            },
-            expected: false,
-        },
-        { case: 'neither flag is present', featureFlags: {}, expected: false },
+        { case: 'the flag is not present', featureFlags: {}, expected: false },
     ])('returns $expected when $case', ({ featureFlags, expected }) => {
         expect(isMemberUsageSpendReadAccessEnabled(featureFlags)).toBe(expected)
+    })
+})
+
+describe('selectionCoversEveryProject', () => {
+    const options = [{ key: '1' }, { key: '2' }, { key: '3' }]
+
+    it('treats selecting every project as no filter', () => {
+        expect(selectionCoversEveryProject([1, 2, 3], options)).toBe(true)
+    })
+
+    it('keeps a partial selection as a filter', () => {
+        expect(selectionCoversEveryProject([1, 2], options)).toBe(false)
+    })
+
+    it('keeps an empty selection alone, since that already means every project', () => {
+        expect(selectionCoversEveryProject([], options)).toBe(false)
+        expect(selectionCoversEveryProject(undefined, options)).toBe(false)
+    })
+
+    it('does not claim coverage before the project list has loaded', () => {
+        expect(selectionCoversEveryProject([1, 2, 3], [])).toBe(false)
+    })
+
+    it('covers a deleted project that still appears as an option', () => {
+        // The options include projects that have usage but no longer exist.
+        expect(selectionCoversEveryProject([1, 2, 3, 99], [...options, { key: '99' }])).toBe(true)
     })
 })

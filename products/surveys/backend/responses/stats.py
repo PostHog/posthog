@@ -24,7 +24,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models import Team
 
 from products.surveys.backend.models import Survey
-from products.surveys.backend.responses.fetch_rows import SUBMISSION_GROUPING_KEY
+from products.surveys.backend.responses.fetch_rows import RESPONSE_EVENT_FILTER, SUBMISSION_GROUPING_KEY
 from products.surveys.backend.util import SurveyEventName, get_archived_response_uuids
 
 
@@ -178,10 +178,10 @@ def calculate_rates(stats: SurveyStats) -> SurveyRates:
     return rates
 
 
-def _latest_sent_event_uuids_subquery(scan_conditions: str) -> str:
-    """HogQL subquery selecting the uuid of the latest "survey sent" event per submission.
+def _latest_response_event_uuids_subquery(scan_conditions: str) -> str:
+    """Select the latest response event UUID per submission.
 
-    Multiple partial "survey sent" events can exist per submission; only the latest per
+    Several sent, dismissed, or abandoned events can exist per submission; only the latest per
     $survey_submission_id counts, and events without one count by their own uuid (see
     SUBMISSION_GROUPING_KEY). Grouping per $survey_id keeps a submission id scoped to its
     survey. `scan_conditions` must start with " AND " and only narrows the scan window; it
@@ -189,9 +189,9 @@ def _latest_sent_event_uuids_subquery(scan_conditions: str) -> str:
     against every sent event in the window.
     """
     return f"""(
-                SELECT argMax(uuid, timestamp)
+                SELECT argMax(uuid, tuple(timestamp, uuid))
                 FROM events
-                WHERE event = '{SurveyEventName.SENT}'{scan_conditions}
+                WHERE {RESPONSE_EVENT_FILTER}{scan_conditions}
                 GROUP BY properties.$survey_id, {SUBMISSION_GROUPING_KEY}
             )"""
 
@@ -274,27 +274,26 @@ def get_survey_stats(
         conditions.append("properties.$survey_id IN {survey_ids}")
         placeholders["survey_ids"] = ast.Constant(value=[str(id) for id in active_survey_ids])
 
-    # Partially-completed submissions carry a synthetic "survey dismissed" event; don't count those.
-    conditions.append("(event != {dismissed} OR coalesce(properties.$survey_partially_completed, '') != 'true')")
-
     condition_sql = "".join(f"\n            AND {condition}" for condition in conditions)
 
-    sent_dedup_sql = f"(event != {{sent}} OR uuid IN {_latest_sent_event_uuids_subquery(date_conditions)})"
+    sent_dedup_sql = (
+        f"(NOT {RESPONSE_EVENT_FILTER} OR uuid IN {_latest_response_event_uuids_subquery(date_conditions)})"
+    )
 
     tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
 
     # Query 1: Base Stats
     base_stats_query = f"""
         SELECT
-            event AS event_name,
+            if({RESPONSE_EVENT_FILTER}, {{sent}}, event) AS event_name,
             count() AS total_count,
             count(DISTINCT person_id) AS unique_persons,
             if(count() > 0, min(timestamp), NULL) AS first_seen,
             if(count() > 0, max(timestamp), NULL) AS last_seen
         FROM events
-        WHERE event IN ({{shown}}, {{dismissed}}, {{sent}}){condition_sql}
+        WHERE (event IN ({{shown}}, {{dismissed}}, {{sent}}) OR {RESPONSE_EVENT_FILTER}){condition_sql}
             AND {sent_dedup_sql}
-        GROUP BY event
+        GROUP BY event_name
     """
     results_base = execute_hogql_query(
         base_stats_query,
@@ -310,10 +309,10 @@ def get_survey_stats(
         FROM (
             SELECT person_id
             FROM events
-            WHERE event IN ({{dismissed}}, {{sent}}){condition_sql}
+            WHERE (event = {{dismissed}} OR {RESPONSE_EVENT_FILTER}){condition_sql}
             GROUP BY person_id
-            HAVING countIf(event = {{dismissed}}) > 0
-               AND countIf(event = {{sent}}) > 0
+            HAVING countIf(event = {{dismissed}} AND NOT {RESPONSE_EVENT_FILTER}) > 0
+               AND countIf({RESPONSE_EVENT_FILTER}) > 0
         )
     """
     dismissed_and_sent_count_result = execute_hogql_query(
@@ -370,7 +369,7 @@ def get_survey_stats(
 def get_survey_responses_count(
     *, team: Team, exclude_archived: bool = False, survey_ids: list[str] | None = None
 ) -> dict[str, int]:
-    """Count unique "survey sent" responses per survey, keyed by survey id.
+    """Count captured submissions per survey, including incomplete responses.
 
     Only events since the earliest survey start date in the project are scanned. With no
     started survey there can be no responses, so that case returns empty without a query.
@@ -382,7 +381,7 @@ def get_survey_responses_count(
         return {}
 
     placeholders: dict[str, ast.Expr] = {"since": ast.Constant(value=earliest_start_date)}
-    conditions = [f"uuid IN {_latest_sent_event_uuids_subquery(' AND timestamp >= {since}')}"]
+    conditions = [f"uuid IN {_latest_response_event_uuids_subquery(' AND timestamp >= {since}')}"]
 
     if exclude_archived:
         archived_uuids = get_archived_response_uuids(None, team.pk)
@@ -401,7 +400,7 @@ def get_survey_responses_count(
     query = f"""
         SELECT properties.$survey_id AS survey_id, count()
         FROM events
-        WHERE event = '{SurveyEventName.SENT}'
+        WHERE {RESPONSE_EVENT_FILTER}
             AND timestamp >= {{since}}{condition_sql}
         GROUP BY survey_id
         LIMIT {MAX_SELECT_RETURNED_ROWS}

@@ -2,10 +2,10 @@
 
 Kept apart from `tools/notes.py` on purpose. Importing anything under `tools/` runs that package's
 `__init__`, which pulls in every harness tool, and the Django admin form needs this rule at
-registry load. This module reaches only the skills model and the scout skill prefix.
+registry load. This module reaches only the skills and scout-config models.
 """
 
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.signals.backend.models import SignalScoutConfig
 from products.skills.backend.models.skills import LLMSkill
 
 # Audiences that are a stage of the report pipeline rather than a scout. A stage is not an
@@ -14,7 +14,9 @@ from products.skills.backend.models.skills import LLMSkill
 # rides the existing `skill_name` column under a `pipeline:` prefix that no scout name can
 # collide with (scouts are `signals-scout-*`), which needs no column and no migration. The read
 # side needs no change either: `list_notes` matches `skill_name` exactly, so a stage sees its own
-# notes plus the blank-target ones, and a scout never sees a pipeline note.
+# notes plus the blank-target ones, and a scout never sees a pipeline note. A scout may carry any
+# valid skill name, so the prefix is what keeps the two families apart: a scout named
+# `pipeline:...` is impossible, because a skill name may not contain a colon.
 PIPELINE_AUDIENCE_PREFIX = "pipeline:"
 PIPELINE_AUDIENCE_REPORT_RESEARCH = f"{PIPELINE_AUDIENCE_PREFIX}report-research"
 PIPELINE_AUDIENCE_IMPLEMENTATION = f"{PIPELINE_AUDIENCE_PREFIX}implementation"
@@ -56,14 +58,15 @@ def validate_note_target(*, team_id: int, skill_name: str) -> None:
                 f"{', '.join(sorted(PIPELINE_AUDIENCES))}"
             )
         return
-    if not skill_name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
-        raise InvalidNoteError(
-            f"skill_name must be blank (a note for every scout), a scout skill name starting with "
-            f"'{SIGNALS_SCOUT_SKILL_PREFIX}', or a pipeline audience "
-            f"({', '.join(sorted(PIPELINE_AUDIENCES))})"
-        )
     if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, deleted=False).exists():
         raise InvalidNoteError(
             f"no scout skill named '{skill_name}' exists on this project — check `scout-config-list` "
             "for the roster, or author the skill first"
+        )
+    # A scout is a skill with a config, so the config row is what a note can be addressed to.
+    # Without this check a note could target an ordinary skill that never runs and never reads it.
+    if not SignalScoutConfig.objects.for_team(team_id).filter(skill_name=skill_name).exists():
+        raise InvalidNoteError(
+            f"'{skill_name}' is a skill on this project but not a scout — register a scout config "
+            "for it first, or check `scout-config-list` for the roster"
         )

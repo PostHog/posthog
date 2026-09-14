@@ -48,6 +48,9 @@ DatabricksErrors = {
     "Name or service not known": "Can't resolve the server hostname. Check the server hostname and try again.",
     "Failed to resolve": "Can't resolve the server hostname. Check the server hostname and try again.",
     "is blocked by Databricks IP ACL for workspace": "PostHog's IP address is blocked by your Databricks workspace's IP access control list. Add PostHog's IP addresses to the workspace's IP ACL, then try again.",
+    # Workspace-level entitlement, not a Unity Catalog grant — a separate admin setting from
+    # PERMISSION_DENIED/INSUFFICIENT_PERMISSIONS above.
+    "databricks-sql-access or workspace-consume entitlements": "Your Databricks credentials don't have the databricks-sql-access or workspace-consume entitlement. Grant one of those entitlements to the connecting user or service principal in your Databricks workspace admin settings, then try again.",
 }
 
 
@@ -186,6 +189,9 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
             # Workspace-level IP ACL rejection — a customer-side network config that retrying can
             # never satisfy. Match the stable phrase, ignoring the appended IP and workspace id.
             "is blocked by Databricks IP ACL for workspace": "PostHog's IP address is blocked by your Databricks workspace's IP access control list. Add PostHog's IP addresses to the workspace's IP ACL, then resync.",
+            # Workspace-level entitlement, not a Unity Catalog grant — a separate admin setting from
+            # PERMISSION_DENIED/INSUFFICIENT_PERMISSIONS above.
+            "databricks-sql-access or workspace-consume entitlements": "Your Databricks credentials don't have the databricks-sql-access or workspace-consume entitlement. Grant one of those entitlements to the connecting user or service principal in your Databricks workspace admin settings, then resync.",
         }
 
     def validate_credentials(

@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { McpConfig } from "@posthog/harness/extensions/mcp/config";
 import type {
+  CloudRegion,
   McpServerConnection,
   McpToolPermissionDecision,
   McpToolPermissionRequest,
@@ -49,7 +50,7 @@ export type PiRpcClient = RpcClient & {
 };
 
 export interface PiRpcProviderOptions {
-  region?: "us" | "eu" | "dev";
+  region?: CloudRegion;
   apiKey: string;
   baseUrl?: string;
   headers?: Record<string, string>;

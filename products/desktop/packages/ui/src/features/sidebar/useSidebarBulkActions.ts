@@ -137,7 +137,7 @@ export function useSidebarBulkActions(
     if (selectedCount === 0 || isArchiving) return;
     setIsArchiving(true);
     const store = useArchivingTasksStore.getState();
-    for (const id of taskIds) store.startArchiving(id);
+    for (const id of taskIds) store.startArchiving(id, "hidden");
     try {
       const { archived, failed } = await archiveTasksImperative(
         taskIds,

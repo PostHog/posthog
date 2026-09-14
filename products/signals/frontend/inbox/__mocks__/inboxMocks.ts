@@ -16,8 +16,9 @@ function nextId(): string {
 }
 
 export function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
+    const id = overrides.id ?? nextId()
     return {
-        id: nextId(),
+        id,
         title: 'Untitled report',
         summary: null,
         status: SignalReportStatus.READY,
@@ -33,6 +34,27 @@ export function makeReport(overrides: Partial<SignalReport> = {}): SignalReport 
         already_addressed: null,
         source_products: [],
         implementation_pr_url: null,
+        assignee: null,
+        pull_requests: overrides.implementation_pr_url
+            ? [
+                  {
+                      id: nextId(),
+                      url: overrides.implementation_pr_url,
+                      state:
+                          overrides.implementation_pr_state ??
+                          (overrides.implementation_pr_merged ? 'merged' : 'unknown'),
+                      merged: overrides.implementation_pr_merged ?? false,
+                      claim_id: null,
+                      attached_at: BASE_DATE,
+                      attached_by: {
+                          kind: 'task',
+                          user: null,
+                          agent: null,
+                          task_id: `${id}-task-impl`,
+                      },
+                  },
+              ]
+            : [],
         ...overrides,
     }
 }
@@ -128,6 +150,7 @@ export const pullRequestReports: SignalReport[] = [
         signal_count: 12,
         source_products: ['error_tracking'],
         implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12001',
+        implementation_pr_state: 'draft',
         is_suggested_reviewer: true,
     }),
     makeReport({
@@ -140,6 +163,7 @@ export const pullRequestReports: SignalReport[] = [
         signal_count: 31,
         source_products: ['error_tracking'],
         implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12002',
+        implementation_pr_state: 'open',
     }),
     makeReport({
         title: 'perf(dashboards): paginate cohort filter resolution',
@@ -218,6 +242,7 @@ const finishedRuns: SignalReport[] = [
         signal_count: 12,
         source_products: ['error_tracking'],
         implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12001',
+        implementation_pr_state: 'draft',
     }),
     makeReport({
         title: 'Investigate webhook delivery failures',

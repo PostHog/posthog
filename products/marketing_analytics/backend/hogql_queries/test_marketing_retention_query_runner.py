@@ -1,5 +1,5 @@
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from parameterized import parameterized
@@ -265,7 +265,7 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
 
         self.assertTrue(response.results[0].values[0].complete)
 
-    @freeze_time("2023-01-11T10:00:00Z")
+    @time_machine.travel("2023-01-11T10:00:00Z", tick=False)
     def test_the_period_still_being_lived_through_is_incomplete(self):
         # On an open-ended range `date_to` is the end of today, which is in the future, so comparing
         # against it alone marks today complete and renders a partial day as a finished number.

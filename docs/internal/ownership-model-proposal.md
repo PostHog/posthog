@@ -119,16 +119,15 @@ This keeps all 68 products at zero migration cost and preserves `hogli product:l
 
 ### Slack derivation: measured, not assumed
 
-Checked every team slug in use against live Slack channels, re-verified 2026-07-15 against the 30 slugs left after the migration:
+Checked every team slug in use against live Slack channels (first pass 2026-07-15). The counts below follow the root `owners.yaml` registry, over the 30 slugs in use:
 
-- 24/30: `#<slug>` exists verbatim, so no entry is needed.
-- 6/30 need an entry in the root `teams:` registry (below):
-  - `clickhouse`, `conversations`, `batch-exports` — these predate the `team-` convention and are the real org slugs; `team-clickhouse` and friends do not exist as GitHub teams, so the slugs cannot be "fixed" and the channel is `#team-<slug>`.
+- 22/30: `#<slug>` exists verbatim, so no entry is needed.
+- 8/30 need an entry in the root `teams:` registry (below):
+  - `ai-research`, `batch-exports`, `clickhouse`, `conversations`, `mcp-analytics`, `platform-ux` — these predate the `team-` convention and are the real org slugs; `team-clickhouse` and friends do not exist as GitHub teams, so the slugs cannot be "fixed" and the channel is `#team-<slug>`.
   - `team-data-stack` → `#group-data-stack`.
-  - `team-posthog-code` → `#team-desktop`, the name the channel was created under.
-  - `logs` → `#team-apm`: the `logs` and `apm` GitHub teams have identical membership, APM ("Logs, Metrics and Traces") having absorbed logs.
+  - `team-posthog-desktop` → `#team-desktop`, the name the channel was created under.
 
-So the derived default is right for 80% of teams and the rest carry one entry each.
+So the derived default is right for most teams and the rest carry one entry each.
 
 Nothing validates that a derived channel actually exists — a wrong or dead channel fails silently.
 An opt-in Slack-API check in `owners:lint`, mirroring the existing opt-in live GitHub-team validation, would close that gap; it is not built.

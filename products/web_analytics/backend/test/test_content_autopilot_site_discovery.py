@@ -7,6 +7,8 @@ from parameterized import parameterized
 from products.web_analytics.backend.content_autopilot.site_discovery import (
     _MAX_DISCOVERY_REQUESTS,
     discover_site,
+    has_same_public_origin,
+    has_same_public_site,
     normalize_site_origin,
 )
 from products.web_analytics.backend.public_url_fetch import FetchedPublicUrl, PublicUrlFetchError
@@ -23,10 +25,19 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
             ("default_port", "https://example.com:443/path", "https://example.com"),
             ("custom_port", "http://example.com:8080/path", "http://example.com:8080"),
             ("fully_qualified_dot", "https://example.com./path", "https://example.com"),
+            ("unicode_host", "https://ПРИМЕР.РФ/guides?q=1", "https://xn--e1afmkfd.xn--p1ai"),
+            ("punycode_host", "https://xn--e1afmkfd.xn--p1ai", "https://xn--e1afmkfd.xn--p1ai"),
+            ("ipv6_host", "https://[::1]:8443/path", "https://[::1]:8443"),
         ]
     )
     def test_normalizes_site_origin(self, _name: str, raw_url: str, expected: str) -> None:
         self.assertEqual(normalize_site_origin(raw_url), expected)
+
+    def test_matches_one_site_across_unicode_and_punycode_spellings(self) -> None:
+        punycode_sitemap = "https://xn--e1afmkfd.xn--p1ai/sitemap.xml"
+
+        self.assertTrue(has_same_public_origin(punycode_sitemap, normalize_site_origin("https://пример.рф")))
+        self.assertTrue(has_same_public_site(punycode_sitemap, "https://пример.рф"))
 
     @parameterized.expand(
         [
@@ -101,7 +112,7 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
         ]
     )
     @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
-    def test_records_a_sitemap_redirect_only_when_it_stays_on_the_site(
+    def test_keeps_a_redirected_sitemap_url_on_the_profile_origin(
         self, _name: str, redirect_target: str, stays_on_site: bool, fetch_public_url: MagicMock
     ) -> None:
         def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
@@ -116,9 +127,8 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
         result = discover_site("https://example.com")
 
         self.assertEqual(result["sitemap_detected"], stays_on_site)
-        self.assertEqual(
-            result["source_urls"], [redirect_target] if stays_on_site else ["https://example.com/sitemap.xml"]
-        )
+        self.assertEqual(result["source_urls"], ["https://example.com/sitemap.xml"])
+        self.assertEqual(result["domain"], "https://example.com")
 
     @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
     def test_caps_the_requests_one_discovery_sends(self, fetch_public_url: MagicMock) -> None:

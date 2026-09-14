@@ -213,6 +213,11 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             self.get_oauth_integration(config.tiktok_integration_id, team_id)
             return True, None
         except Exception as e:
+            if isinstance(e, ValueError) and "Integration not found" in str(e):
+                # The integration was deleted/disconnected while the source still references it —
+                # an expected user state, not an error worth reporting (get_oauth_integration raises
+                # ValueError("Integration not found: <id>")).
+                return False, "TikTok Ads integration not found. Please reconnect your TikTok Ads integration."
             capture_exception(e)
             return False, f"Failed to validate TikTok Ads credentials: {str(e)}"
 

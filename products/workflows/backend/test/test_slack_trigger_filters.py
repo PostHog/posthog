@@ -47,8 +47,12 @@ class TestSlackTriggerFilters(ClickhouseTestMixin, APIBaseTest):
         bytecode = json.loads(json.dumps(create_bytecode(expr).bytecode))
         return execute_bytecode(bytecode, globals or SLACK_MESSAGE_GLOBALS).result is True
 
-    def test_channel_filter_matches_the_bare_id(self):
-        assert self._matches([_prop("channel", ["C0ALERTS"], "exact")])
+    def test_channel_filter_matches_any_listed_bare_id(self):
+        properties = [_prop("channel", ["C0ALERTS", "C0INCIDENTS"], "exact")]
+
+        assert self._matches(properties)
+        assert self._matches(properties, _event(channel="C0INCIDENTS"))
+        assert not self._matches(properties, _event(channel="C0OTHER"))
 
     def test_channel_filter_does_not_match_the_picker_composite(self):
         # The picker identifies a channel as `C123|#name`; storing that verbatim compiled a filter

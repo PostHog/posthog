@@ -29,6 +29,7 @@ import type { Logger } from "../../../utils/logger";
 import { tryParsePartialJson } from "../../../utils/partial-json";
 import { classifyAgentError } from "../../error-classification";
 import { type EnrichedReadCache, registerHookCallback } from "../hooks";
+import { traceIdFromHookStderr } from "../session/traceparent-hook";
 import type {
   Session,
   ToolUpdateMeta,
@@ -735,12 +736,28 @@ export async function handleSystemMessage(
         contextSize: session.contextSize,
       });
       break;
-    case "hook_response":
-      logger.info("Hook response received", {
+    case "hook_response": {
+      // The traceparent hook reports the running turn's trace id on stderr —
+      // the same id the LLM gateway stamps on the turn's $ai_generation
+      // events. The session nonce keeps other UserPromptSubmit hooks (user or
+      // repo settings) from colliding with this channel. A mid-turn steer
+      // fires the hook again; the newer echo replaces the held id on purpose,
+      // so the turn's rating attaches to the segment that produced its final
+      // answer.
+      const traceId =
+        message.hook_event === "UserPromptSubmit" &&
+        message.outcome === "success"
+          ? traceIdFromHookStderr(message.stderr, session.traceparentHookNonce)
+          : null;
+      if (traceId) {
+        session.currentTurnTraceId = traceId;
+      }
+      logger.debug("Hook response received", {
         hookName: message.hook_name,
         hookEvent: message.hook_event,
       });
       break;
+    }
     case "status":
       if (message.status === "compacting") {
         logger.info("Session compacting started", { sessionId });
@@ -904,6 +921,7 @@ export type ResultMessageHandlerResult = {
 
 export function handleResultMessage(
   message: SDKResultMessage,
+  madeProgress = false,
 ): ResultMessageHandlerResult {
   const usage = extractUsageFromResult(message);
 
@@ -928,9 +946,10 @@ export function handleResultMessage(
           classification === "subscription_usage_limit"
             ? new RequestError(ACP_INTERNAL_ERROR_CODE, message.result, {
                 classification,
+                madeProgress,
               })
             : RequestError.internalError(
-                { classification, result: message.result },
+                { classification, result: message.result, madeProgress },
                 message.result,
               );
         return { shouldStop: true, error, usage };
@@ -942,11 +961,13 @@ export function handleResultMessage(
         return { shouldStop: true, stopReason: "max_tokens", usage };
       }
       if (message.is_error) {
+        const result = message.errors.join(", ") || message.subtype;
+        const classification = classifyAgentError(result);
         return {
           shouldStop: true,
           error: RequestError.internalError(
-            undefined,
-            message.errors.join(", ") || message.subtype,
+            { classification, result, madeProgress },
+            result,
           ),
           usage,
         };

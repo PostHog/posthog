@@ -3,13 +3,15 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInputSelect, LemonTag } from '@posthog/lemon-ui'
 
+import { GuidedWizardPanel } from 'lib/components/GuidedWizard/GuidedWizardPanel'
+import { GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardSection'
+
 import { BaseLanguagePicker } from '../../BaseLanguagePicker'
 import { COMMON_LANGUAGES, getSurveyLanguageLabel, getSurveyLanguageName } from '../../language'
 import { LegacyTranslationKeysPanel } from '../../LegacyTranslationKeysPanel'
 import { surveyLogic } from '../../surveyLogic'
 import { SurveyTranslationFields } from '../../SurveyTranslationFields'
 import { useSurveyTranslationsForm } from '../../useSurveyTranslationsForm'
-import { WizardPanel, WizardSection } from '../WizardLayout'
 
 function getLanguageLabel(language: string): string {
     return (
@@ -47,8 +49,8 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
         !!activeLanguage && aiGeneratedTranslationFields.some((path) => path.includes(`.${activeLanguage}.`))
 
     return (
-        <WizardSection title="Translations">
-            <WizardPanel className="space-y-4">
+        <GuidedWizardSection title="Translations">
+            <GuidedWizardPanel className="space-y-4">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                     <h4 className="m-0 text-sm font-semibold uppercase tracking-wide text-muted">Original language</h4>
                     <span className="text-sm">
@@ -172,7 +174,7 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                         <SurveyTranslationFields activeLanguage={activeLanguage} />
                     </div>
                 ) : null}
-            </WizardPanel>
-        </WizardSection>
+            </GuidedWizardPanel>
+        </GuidedWizardSection>
     )
 }

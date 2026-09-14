@@ -1,8 +1,10 @@
 from typing import Any
 
 from django.db import transaction
+from django.db.models import F, Value
+from django.db.models.functions import Length, Replace
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -190,6 +192,51 @@ class LLMSkillListQuerySerializer(serializers.Serializer):
     )
 
 
+class LLMSkillSearchQuerySerializer(serializers.Serializer):
+    query = serializers.CharField(
+        min_length=1,
+        max_length=200,
+        trim_whitespace=True,
+        help_text="Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.",
+    )
+
+
+class LLMSkillSearchMatchSerializer(serializers.Serializer):
+    matched_field = serializers.ChoiceField(
+        choices=["name", "description", "body", "file_path", "file_content"],
+        help_text="Skill field that matched the search query.",
+    )
+    path = serializers.CharField(
+        required=False,
+        help_text="Skill-relative file path for body or bundled-file matches. Omitted for name and description matches.",
+    )
+    line = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text="One-based line containing the match when the result came from a body or bundled file.",
+    )
+    excerpt = serializers.CharField(help_text="Short excerpt showing why this skill matched.")
+
+
+class LLMSkillSearchResultSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Unique skill name.")
+    description = serializers.CharField(help_text="What this skill does and when to use it.")
+    matches = LLMSkillSearchMatchSerializer(
+        many=True,
+        help_text="Up to two locations that matched the search query, ordered by field relevance.",
+    )
+
+
+@extend_schema_serializer(many=False)
+class LLMSkillSearchResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Number of matching skills returned, capped at 10.")
+    results = LLMSkillSearchResultSerializer(many=True, help_text="Matching ordinary skills in relevance order.")
+
+
+class LLMSkillSearchErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Explanation of why the skill search could not complete.")
+
+
 class LLMSkillResolveQuerySerializer(LLMSkillFetchQuerySerializer):
     version_id = serializers.UUIDField(
         required=False,
@@ -231,9 +278,20 @@ class LLMSkillFileSerializer(serializers.ModelSerializer):
 
 
 class LLMSkillFileManifestSerializer(serializers.ModelSerializer):
+    line_count = serializers.IntegerField(help_text="Number of lines in the file content.")
+    char_count = serializers.IntegerField(help_text="Number of characters in the file content.")
+    size = serializers.IntegerField(
+        allow_null=True,
+        help_text="Size of the file content in bytes. Null on rows written before digests were stamped.",
+    )
+    sha256 = serializers.CharField(
+        allow_null=True,
+        help_text="Hex SHA-256 of the file content. Null on rows written before digests were stamped.",
+    )
+
     class Meta:
         model = LLMSkillFile
-        fields = ["path", "content_type"]
+        fields = ["path", "content_type", "line_count", "char_count", "size", "sha256"]
 
 
 class LLMSkillFileInputSerializer(serializers.Serializer):
@@ -345,7 +403,10 @@ class LLMSkillPublishSerializer(serializers.Serializer):
     allowed_tools = serializers.ListField(
         child=serializers.CharField(validators=[validate_allowed_tool]),
         required=False,
-        help_text="List of pre-approved tools the skill may use. Tool names cannot contain whitespace.",
+        help_text="Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the "
+        "skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. "
+        "A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list "
+        "until the user approves that grant.",
     )
     metadata = serializers.DictField(
         required=False,
@@ -440,7 +501,10 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         child=serializers.CharField(validators=[validate_allowed_tool]),
         required=False,
         default=list,
-        help_text="List of pre-approved tools the skill may use. Tool names cannot contain whitespace.",
+        help_text="Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the "
+        "skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. "
+        "A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list "
+        "until the user approves that grant.",
     )
     metadata = serializers.DictField(
         required=False,
@@ -460,7 +524,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         "Empty for scout sandbox fetches of skills that haven't opted into the report channel.",
     )
     files = serializers.SerializerMethodField(
-        help_text="Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/.",
+        help_text="Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/.",
     )
     outline = serializers.SerializerMethodField(
         help_text="Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents.",
@@ -581,7 +645,17 @@ class LLMSkillSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(LLMSkillFileManifestSerializer(many=True))
     def get_files(self, instance: LLMSkill) -> list[dict[str, Any]]:
-        return [dict(row) for row in LLMSkillFile.objects.filter(skill=instance).values("path", "content_type")]
+        # Counts are computed in the database so the manifest never fetches file contents. The byte
+        # size comes from the stamped column rather than a `Length()` count, which counts characters.
+        annotated = LLMSkillFile.objects.filter(skill=instance).annotate(
+            char_count=Length("content"),
+            line_count=Length("content") - Length(Replace("content", Value("\n"))) + 1,
+            size=F("content_size"),
+            sha256=F("content_sha256"),
+        )
+        return [
+            dict(row) for row in annotated.values("path", "content_type", "line_count", "char_count", "size", "sha256")
+        ]
 
     @extend_schema_field(LLMSkillOutlineEntrySerializer(many=True))
     def get_outline(self, instance: LLMSkill) -> list[dict[str, Any]]:
@@ -632,8 +706,10 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             return attrs
 
         if name is not None and self.instance.name != name:
+            # Renaming moves every version row and the owner rows together, which this path can't
+            # do — the dedicated rename endpoint owns it.
             raise serializers.ValidationError(
-                {"name": "Skill name cannot be changed after creation."},
+                {"name": "Use the rename endpoint to change a skill's name."},
                 code="immutable",
             )
 
@@ -749,6 +825,17 @@ class LLMSkillDuplicateSerializer(serializers.Serializer):
     new_name = serializers.CharField(
         max_length=64,
         help_text="Name for the duplicated skill. Must be unique.",
+    )
+
+    def validate_new_name(self, value: str) -> str:
+        return validate_skill_name_value(value)
+
+
+class LLMSkillRenameSerializer(serializers.Serializer):
+    new_name = serializers.CharField(
+        max_length=MAX_SKILL_NAME_LENGTH,
+        help_text="New name for the skill. Must be unique in the project, and must not start with "
+        "'signals-scout-' or 'review-hog-'.",
     )
 
     def validate_new_name(self, value: str) -> str:

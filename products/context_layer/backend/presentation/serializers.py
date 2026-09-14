@@ -136,6 +136,24 @@ class WikiPageWriteSerializer(serializers.Serializer):
     )
 
 
+class WikiPageProposalWriteSerializer(WikiPageWriteSerializer):
+    base_head = serializers.CharField(
+        max_length=64, help_text="The head_sha returned when reading the page. Required to bind the proposed edit."
+    )
+
+
+class WikiPageProposalSerializer(serializers.Serializer):
+    id = serializers.UUIDField(
+        help_text="Immutable suggested edit ID. Only its author can apply it through the user API."
+    )
+    task_id = serializers.UUIDField(help_text="Task that proposed the edit.")
+    path = serializers.CharField(help_text="Shared wiki page to review.")
+    original_content = serializers.CharField(help_text="Page content at the revision the proposal is based on.")
+    content = serializers.CharField(help_text="Proposed page content. This is not published wiki content.")
+    base_head = serializers.CharField(help_text="Wiki revision the proposal is based on.")
+    created_at = serializers.DateTimeField(help_text="When the edit was proposed.")
+
+
 class CommitBundleSerializer(serializers.Serializer):
     """Request body for landing agent commits posted back as a git bundle."""
 

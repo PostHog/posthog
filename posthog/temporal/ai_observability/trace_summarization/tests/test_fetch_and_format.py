@@ -80,6 +80,18 @@ class TestFormatGenerationTextRepr:
         assert "--- Output ---" in result
         assert "DISTINCTIVE_OUTPUT_MARKER" in result
 
+    def test_stays_within_budget_while_repairing_surrogates(self):
+        generation_data = {
+            "model": "gpt-4",
+            "input": "\ud83d\ude00" * 1000,
+            "output": "short",
+        }
+
+        result = _format_generation_text_repr(generation_data, max_length=200)
+
+        assert len(result) <= 200
+        assert result.encode("utf-8")
+
     def test_truncated_input_keeps_head_and_tail(self):
         generation_data = {
             "input": "SYSTEM_PROMPT_HEAD " + "x" * 5000 + " NEWEST_MESSAGE_TAIL",

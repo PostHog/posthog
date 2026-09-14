@@ -343,7 +343,7 @@ def _collect_planned_runs(
             # brand-new canonical scouts as rows — both rare, and both catch up on the team's next
             # `sync` (follow-up if needed: a slow fleet-wide prune/seed sweep off the dispatch path).
             live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld_for_team)
-        # Skip enabled configs whose `signals-scout-*` skill was deleted or is no longer the
+        # Skip enabled configs whose skill was deleted or is no longer the
         # latest version: dispatching them would spawn a child workflow that fails fast in
         # load_skill_for_run on every tick.
         for config in SignalScoutConfig.all_teams.filter(team_id=team.id, enabled=True, skill_name__in=live_skills):

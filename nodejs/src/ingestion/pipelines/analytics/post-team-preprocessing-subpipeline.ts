@@ -16,7 +16,6 @@ import {
     createApplyCookielessProcessingStep,
     createApplyPersonProcessingRestrictionsStep,
     createDedupeFeatureFlagCalledStep,
-    createOnlyCookielessRateLimitToOverflowStep,
     createOverflowLaneTTLRefreshStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
@@ -47,8 +46,6 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     eventSchemaEnforcementEnabled: boolean
     cookielessManager: CookielessManager
-    preservePartitionLocality: boolean
-    overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
     featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     personsPrefetchEnabled: boolean
@@ -75,8 +72,6 @@ export function createPostTeamPreprocessingSubpipeline<
         eventSchemaEnforcementManager,
         eventSchemaEnforcementEnabled,
         cookielessManager,
-        preservePartitionLocality,
-        overflowRedirectService,
         overflowLaneTTLRefreshService,
         featureFlagCalledDedupService,
         personsPrefetchEnabled,
@@ -115,10 +110,6 @@ export function createPostTeamPreprocessingSubpipeline<
             // Any steps that depend on the final distinct ID must run after this step.
             .gather()
             .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
-            // Rate-limit only cookieless events using the hashed distinct_id assigned by the
-            // cookieless step. Non-cookieless events were rate-limited pre-parse in the joined
-            // pipeline via createSkipCookielessRateLimitToOverflowStep.
-            .pipeChunk(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             // Refresh TTLs for overflow lane events (keeps Redis flags alive)
             .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
             // Drop redundant $feature_flag_called events (keep-first Redis claim).

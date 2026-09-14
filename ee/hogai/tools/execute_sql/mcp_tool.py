@@ -15,7 +15,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLOutputParserMixin
 from ee.hogai.context.insight.context import InsightContext
-from ee.hogai.mcp_tool import MCPTool, mcp_tool_registry
+from ee.hogai.mcp_tool import MCPTool, MCPToolResult, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.execute_sql.direct_connection_suggestions import build_direct_connection_suggestion
 from ee.hogai.tools.execute_sql.import_suggestions import build_import_suggestion, extract_unknown_tables
@@ -60,7 +60,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
     name = "execute_sql"
     args_schema = ExecuteSQLMCPToolArgs
 
-    async def execute(self, args: ExecuteSQLMCPToolArgs) -> str:
+    async def execute(self, args: ExecuteSQLMCPToolArgs) -> MCPToolResult:
         query: AssistantHogQLQuery | HogQLQuery
         taxonomy_warnings: list[HogQLNotice] = []
         if args.connectionId:
@@ -109,7 +109,10 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             prompt_template="{{{results}}}", truncate_results=args.truncate, include_prompt_framing=False
         )
 
-        return _prepend_taxonomy_warnings(results, taxonomy_warnings)
+        return MCPToolResult(
+            content=_prepend_taxonomy_warnings(results, taxonomy_warnings),
+            structured_content={"query": query.model_dump(mode="json", exclude_none=True)},
+        )
 
     async def _maybe_unknown_table_suggestion(self, validation_message: str) -> str | None:
         """When a query fails on an unknown table, say where that table actually is.

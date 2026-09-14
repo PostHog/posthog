@@ -42,6 +42,12 @@ class MetricRunResponseSerializer(serializers.Serializer):
     results = _FreeJSONField(
         allow_null=True, help_text="The query results, for an executable metric. Null for a markdown metric."
     )
+    columns = serializers.ListField(
+        child=serializers.CharField(),
+        allow_null=True,
+        help_text="Names of the result columns, in the order of the values in each positional result row. "
+        "Null when the results are already labeled, or the query kind returns no column names.",
+    )
     compiled_query = serializers.CharField(allow_null=True, help_text="The compiled HogQL, when available.")
     query_status = _FreeJSONField(allow_null=True, help_text="Async query status, when the run is not blocking.")
     posthog_url = serializers.CharField(

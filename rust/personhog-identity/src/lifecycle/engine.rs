@@ -16,7 +16,7 @@
 //! renew/release match only while `attempt` is unchanged, so a displaced
 //! driver cannot extend or clear a stealer's lease.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -37,6 +37,7 @@ const SWEEPER_RESUMED_TOTAL: &str = "personhog_lifecycle_sweeper_resumed_total";
 const STEP_FAILURES_TOTAL: &str = "personhog_lifecycle_step_failures_total";
 const OPS_PARKED_TOTAL: &str = "personhog_lifecycle_ops_parked_total";
 const OPS_PARKED: &str = "personhog_lifecycle_ops_parked";
+const STEP_DURATION_MS: &str = "personhog_lifecycle_step_duration_ms";
 
 /// How many abandoned ops one sweep pass will pick up.
 const SWEEP_BATCH_SIZE: i64 = 100;
@@ -58,6 +59,10 @@ pub enum SagaError {
     /// Another instance held the lease past our deadline.
     #[error("another instance is driving this operation")]
     Busy,
+    /// The drive's own execute deadline elapsed; a same-op-id retry
+    /// resumes it. `Busy` instead means contention.
+    #[error("execute deadline elapsed")]
+    DeadlineElapsed,
     /// A leader RPC (fence, release, fold) failed transiently. The step made
     /// no durable progress; a retry with the same op_id re-drives it. Boxed
     /// so the rare failure does not widen every step's Result.
@@ -123,6 +128,9 @@ impl From<SagaError> for Status {
             SagaError::Busy => Status::unavailable(
                 "another instance is driving this operation; retry with the same op_id",
             ),
+            SagaError::DeadlineElapsed => Status::unavailable(
+                "execute deadline elapsed while the operation was still being driven; retry with the same op_id",
+            ),
             SagaError::Leader(status) => Status::unavailable(format!(
                 "leader call failed ({}: {}); retry with the same op_id",
                 status.code(),
@@ -134,6 +142,17 @@ impl From<SagaError> for Status {
             SagaError::CorruptState(msg) => Status::internal(msg),
         }
     }
+}
+
+fn record_step_duration(row: &OpRow, start: Instant) {
+    common_metrics::histogram(
+        STEP_DURATION_MS,
+        &[
+            ("op_type".to_string(), row.op_type.clone()),
+            ("step".to_string(), row.step.clone()),
+        ],
+        start.elapsed().as_secs_f64() * 1000.0,
+    );
 }
 
 /// One row of `lifecycle_op`: the complete checkpoint of an operation.
@@ -183,6 +202,9 @@ pub struct EngineConfig {
     pub poll_interval: Duration,
     /// Log a warning when an op's attempt counter reaches this value.
     pub attempt_alert_threshold: i32,
+    /// Rows one GC pass may delete, so a post-backlog sweep never holds
+    /// locks for long; the next pass continues.
+    pub gc_batch_limit: i64,
 }
 
 pub struct Engine {
@@ -292,7 +314,10 @@ impl Engine {
         if row.completed_at.is_some() {
             return Ok(row);
         }
-        driver.run_step(&self.pool, &row).await?;
+        let step_start = Instant::now();
+        let stepped = driver.run_step(&self.pool, &row).await;
+        record_step_duration(&row, step_start);
+        stepped?;
         self.load(op_id).await?.ok_or_else(|| {
             SagaError::CorruptState(format!("op {op_id} vanished while being driven"))
         })
@@ -327,13 +352,17 @@ impl Engine {
             };
             if let Some(completed_at) = row.completed_at {
                 if claim_attempt.is_some() {
-                    // We drove it over the line (vs attaching to an op that
-                    // was already done).
+                    // A stolen lease double-counts alongside the stealer;
+                    // exact attribution would cost a query per completion.
+                    // Call-driven completions raced ahead of the sweeper;
+                    // a growing sweeper share means ops are being abandoned.
+                    let driver_kind = if wait_for_lease { "call" } else { "sweeper" };
                     common_metrics::inc(
                         OPS_COMPLETED_TOTAL,
                         &[
                             ("op_type".to_string(), row.op_type.clone()),
                             ("final_step".to_string(), row.step.clone()),
+                            ("driver".to_string(), driver_kind.to_string()),
                         ],
                         1,
                     );
@@ -348,8 +377,11 @@ impl Engine {
                 return Ok(row);
             }
             if tokio::time::Instant::now() >= deadline {
+                // With the claim in hand the drive was simply slow, not
+                // contended.
                 if let Some(attempt) = claim_attempt {
                     self.release_lease(op_id, attempt).await.ok();
+                    return Err(SagaError::DeadlineElapsed);
                 }
                 return Err(SagaError::Busy);
             }
@@ -401,7 +433,10 @@ impl Engine {
                 }
             }
 
-            if let Err(err) = driver.run_step(&self.pool, &row).await {
+            let step_start = Instant::now();
+            let stepped = driver.run_step(&self.pool, &row).await;
+            record_step_duration(&row, step_start);
+            if let Err(err) = stepped {
                 // Attributable escalation: a persistently failing op (a
                 // corrupt row, a wedged leader call) shows up as this
                 // counter climbing for one op_type/kind, not as generic
@@ -412,9 +447,10 @@ impl Engine {
                     SagaError::Leader(_) => "leader",
                     SagaError::LeaderRefused(_) => "leader_refused",
                     SagaError::CorruptState(_) => "corrupt_state",
-                    // Not constructed by drivers; collapsed so dashboards
-                    // never chase dead labels.
-                    SagaError::RequestMismatch(_) | SagaError::Busy => "other",
+                    // Collapsed: these carry no attribution worth a label.
+                    SagaError::RequestMismatch(_)
+                    | SagaError::Busy
+                    | SagaError::DeadlineElapsed => "other",
                 };
                 common_metrics::inc(
                     STEP_FAILURES_TOTAL,
@@ -547,16 +583,7 @@ impl Engine {
         row: &OpRow,
         status: &Status,
     ) -> Result<bool, sqlx::Error> {
-        // The reason becomes a metric label; cap it so a misbehaving
-        // peer cannot mint unbounded label cardinality.
-        let reason = personhog_common::grpc::semantic_refusal_reason(status)
-            .filter(|r| {
-                r.len() <= 64
-                    && r.chars()
-                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
-            })
-            .unwrap_or("unknown")
-            .to_string();
+        let reason = personhog_common::grpc::refusal_reason_label(status).to_string();
         let parked = sqlx::query!(
             r#"
             UPDATE lifecycle_op
@@ -692,10 +719,15 @@ impl Engine {
         let result = sqlx::query!(
             r#"
             DELETE FROM lifecycle_op
-            WHERE completed_at IS NOT NULL
-              AND completed_at < now() - make_interval(secs => $1)
+            WHERE op_id IN (
+                SELECT op_id FROM lifecycle_op
+                WHERE completed_at IS NOT NULL
+                  AND completed_at < now() - make_interval(secs => $1)
+                LIMIT $2
+            )
             "#,
             retention.as_secs_f64(),
+            self.config.gc_batch_limit,
         )
         .execute(&self.pool)
         .await?;

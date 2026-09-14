@@ -2,6 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconPlayFilled } from '@posthog/icons'
 
+import { usePublishNotebookComponentRunHandler } from 'lib/components/MarkdownNotebook/componentRunHandlers'
 import type { NotebookComponentToolbarProps } from 'lib/components/MarkdownNotebook/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
@@ -51,6 +52,14 @@ function EditableNotebookGeneratedWidgetRunButton({
     })
     const { dataRefreshInFlight, runDataDependenciesDisabledReason } = useValues(logic)
     const { runDataDependencies } = useActions(logic)
+
+    // A refresh in flight blocks the shortcuts, matching the button, which is disabled while it loads.
+    usePublishNotebookComponentRunHandler({
+        run: runDataDependencies,
+        disabledReason: dataRefreshInFlight
+            ? 'This widget is already running'
+            : (runDataDependenciesDisabledReason ?? null),
+    })
 
     return (
         <LemonButton

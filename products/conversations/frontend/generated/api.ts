@@ -12,8 +12,8 @@ import type {
     AiFeedbackRequestApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
-    BulkUpdateTagsRequestApi,
-    BulkUpdateTagsResponseApi,
+    BulkUpdateTagsUUIDRequestApi,
+    BulkUpdateTagsUUIDResponseApi,
     ComposeTicketApi,
     ComposeTicketResponseApi,
     ConversationsTicketsListParams,
@@ -363,14 +363,14 @@ export const getConversationsTicketsBulkUpdateTagsCreateUrl = (projectId: string
  */
 export const conversationsTicketsBulkUpdateTagsCreate = async (
     projectId: string,
-    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    bulkUpdateTagsUUIDRequestApi: BulkUpdateTagsUUIDRequestApi,
     options?: RequestInit
-): Promise<BulkUpdateTagsResponseApi> => {
-    return apiMutator<BulkUpdateTagsResponseApi>(getConversationsTicketsBulkUpdateTagsCreateUrl(projectId), {
+): Promise<BulkUpdateTagsUUIDResponseApi> => {
+    return apiMutator<BulkUpdateTagsUUIDResponseApi>(getConversationsTicketsBulkUpdateTagsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(bulkUpdateTagsRequestApi),
+        body: JSON.stringify(bulkUpdateTagsUUIDRequestApi),
     })
 }
 

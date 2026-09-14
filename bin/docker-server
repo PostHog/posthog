@@ -1,4 +1,53 @@
 #!/bin/bash
-# Wrapper script for backward compatibility
-# Calls the Nginx Unit server script
-exec "$(dirname "$0")/docker-server-unit" "$@"
+set -e
+
+./bin/migrate-check
+
+# prometheus_client needs a shared directory to aggregate metrics across workers.
+export PROMETHEUS_MULTIPROC_DIR=$(mktemp -d)
+chmod -R 777 $PROMETHEUS_MULTIPROC_DIR
+
+export PROMETHEUS_METRICS_EXPORT_PORT=8001
+export STATSD_PORT=${STATSD_PORT:-8125}
+
+# The granian CLI reads every GRANIAN_* var natively, so these only set the
+# defaults that differ from granian's own.
+
+# asgi serves posthog.asgi:application, wsgi serves posthog.wsgi:application
+export GRANIAN_INTERFACE=${GRANIAN_INTERFACE:-asgi}
+export GRANIAN_HOST=${GRANIAN_HOST:-0.0.0.0}
+# Under ASGI a sync view holds its worker for the whole request
+# (thread_sensitive=True), so concurrency comes only from adding workers. Under
+# WSGI it comes from the blocking thread pool, steered by
+# GRANIAN_BACKPRESSURE/GRANIAN_BLOCKING_THREADS.
+export GRANIAN_WORKERS=${GRANIAN_WORKERS:-4}
+export GRANIAN_LOG_LEVEL=${GRANIAN_LOG_LEVEL:-warning}
+export GRANIAN_LOG_ACCESS_ENABLED=${GRANIAN_LOG_ACCESS_ENABLED:-true}
+export GRANIAN_RESPAWN_FAILED_WORKERS=${GRANIAN_RESPAWN_FAILED_WORKERS:-true}
+
+# Granian's native Prometheus exporter (worker spawns/respawns, blocking
+# pool utilization and queue depth, connections, GIL wait). Binds
+# loopback-only (granian's default address); bin/granian_metrics.py merges
+# its output into the port-8001 scrape response, so no extra scrape target
+# is needed.
+export GRANIAN_METRICS_ENABLED=${GRANIAN_METRICS_ENABLED:-true}
+export GRANIAN_METRICS_PORT=${GRANIAN_METRICS_PORT:-9090}
+
+if [ "$GRANIAN_INTERFACE" = "wsgi" ]; then
+    APP_TARGET="posthog.wsgi:application"
+else
+    APP_TARGET="posthog.asgi:application"
+    # uvloop drives the Python asyncio loop; WSGI has none.
+    export GRANIAN_LOOP=${GRANIAN_LOOP:-uvloop}
+fi
+
+# The container runs as root, so drop the application itself to an unprivileged
+# user. PROMETHEUS_MULTIPROC_DIR is world-writable and the ports are >1024.
+DROP_PRIVILEGES="setpriv --reuid=nobody --regid=nogroup --clear-groups"
+
+$DROP_PRIVILEGES python ./bin/granian_metrics.py &
+METRICS_PID=$!
+
+trap 'kill $METRICS_PID 2>/dev/null; rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
+
+exec $DROP_PRIVILEGES granian "$APP_TARGET"

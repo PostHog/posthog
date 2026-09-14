@@ -88,6 +88,8 @@ export interface FlatThreadRow {
   turnTimestamp?: number;
   /** Set alongside {@link turnTimestamp}: identifies the turn its footer actions act on. */
   turnId?: string;
+  /** Set alongside {@link turnId}: the gateway trace id the turn's rating joins on, null when unknown. */
+  turnTraceId?: string | null;
   /** Set alongside {@link turnTimestamp}: the agent response as plain text, for its copy button. */
   turnCopyText?: string;
 }
@@ -97,14 +99,25 @@ export interface FlatThreadRow {
  * by the last step in its run). Undefined while the turn is still streaming, since the timestamp
  * only appears once the whole turn is done.
  */
-export function completedTurnTimestamp(turn: AgentTurn): number | undefined {
+function lastSessionUpdate(turn: AgentTurn) {
   for (let i = turn.items.length - 1; i >= 0; i--) {
     const item = turn.items[i];
     const last = item.type === "tool_group" ? item.items.at(-1) : item;
-    if (last?.type !== "session_update") continue;
-    return last.turnContext.turnComplete ? last.timestamp : undefined;
+    if (last?.type === "session_update") return last;
   }
   return undefined;
+}
+
+export function completedTurnTimestamp(turn: AgentTurn): number | undefined {
+  const last = lastSessionUpdate(turn);
+  return last?.turnContext.turnComplete ? last.timestamp : undefined;
+}
+
+export function completedTurnTraceId(turn: AgentTurn): string | null {
+  const last = lastSessionUpdate(turn);
+  return last?.turnContext.turnComplete
+    ? (last.turnContext.traceId ?? null)
+    : null;
 }
 
 /** Viewport distance from the top of the loaded window that triggers an older-history page load. */
@@ -165,6 +178,7 @@ export function flattenTurnRows(rows: TurnRow[]): FlatThreadRow[] {
         timestamp == null
           ? undefined
           : (buildTurnCopyText(row.items) ?? undefined);
+      const traceId = timestamp == null ? null : completedTurnTraceId(row);
       for (let i = 0; i < row.items.length; i++) {
         const item = row.items[i];
         const isTrailing = i === row.items.length - 1;
@@ -175,6 +189,7 @@ export function flattenTurnRows(rows: TurnRow[]): FlatThreadRow[] {
           isTrailingInTurn: isTrailing,
           turnTimestamp: isTrailing ? timestamp : undefined,
           turnId: isTrailing ? row.id : undefined,
+          turnTraceId: isTrailing ? traceId : undefined,
           turnCopyText: isTrailing ? copyText : undefined,
         });
       }

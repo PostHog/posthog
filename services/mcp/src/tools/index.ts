@@ -10,8 +10,9 @@ import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
 import experimentListDeprecated from './experiments/listDeprecated'
-// Feature flags (get-definition-by-key is hand-written; get-definition-by-id is codegen)
+// Feature flags
 import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
+import updateFeatureFlagPreservingGroups from './featureFlags/updateFeatureFlag'
 // Feedback
 import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
@@ -21,11 +22,13 @@ import queryInsight from './insights/query'
 // Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
 import loopsReview from './loops/loopsReview'
+import { mergeToolFactories } from './mergeToolFactories'
 // Notebooks (edit + cell tools are hand-written — generated CRUD lives in generated/notebooks.ts)
 import notebookAddCell from './notebooks/addCell'
 import notebookCreateMarkdown from './notebooks/createMarkdown'
 import notebookDeleteCell from './notebooks/deleteCell'
 import notebookEdit from './notebooks/edit'
+import notebookSetVariables from './notebooks/setVariables'
 import notebookUpdateCell from './notebooks/updateCell'
 // Organizations
 import getOrganizations from './organizations/getOrganizations'
@@ -86,6 +89,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Feature flags (get-definition-by-key is hand-written; get-definition by numeric id is codegen)
     'feature-flag-get-definition-by-key': featureFlagGetDefinitionByKey,
+    'update-feature-flag': updateFeatureFlagPreservingGroups,
 
     'path-cleaning-rules-update': updatePathCleaning,
 
@@ -110,6 +114,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-add-cell': notebookAddCell,
     'notebooks-create-markdown': notebookCreateMarkdown,
     'notebooks-delete-cell': notebookDeleteCell,
+    'notebooks-set-variables': notebookSetVariables,
     'notebooks-update-cell': notebookUpdateCell,
 
     // Debug
@@ -157,7 +162,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
 /** Build one tool by name, from the hand-written and generated registries alike. */
 function resolveToolBase(name: string): ToolBase<ZodObjectAny> | undefined {
-    return { ...TOOL_MAP, ...GENERATED_TOOL_MAP }[name]?.()
+    return mergeToolFactories({ generated: GENERATED_TOOL_MAP, handwritten: TOOL_MAP })[name]?.()
 }
 
 export const getToolsFromContext = async (
@@ -167,7 +172,7 @@ export const getToolsFromContext = async (
     // Check org AI consent to gate tools that use LLMs internally (cached in StateManager)
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
     const effectiveOptions = aiConsentGiven !== undefined ? { ...options, aiConsentGiven } : options
-    const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+    const effectiveMap = mergeToolFactories({ generated: GENERATED_TOOL_MAP, handwritten: TOOL_MAP })
     const excludeTools = options?.excludeTools ?? []
     const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []

@@ -1,7 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import {
     ConfigScopeEnumApi,
@@ -135,5 +137,78 @@ describe('identityProviderConfigLogic', () => {
             saml_acs_url: 'https://idp.example.com/sso',
             saml_x509_cert: 'certificate',
         })
+        // Saving keeps the user on the configuration page (the URL adopts the saved config's id)
+        // so the generated SCIM base URL and one-time token remain visible.
+        expect(router.values.location.pathname).toContain(
+            urls.identityProviderConfig(ConfigScopeEnumApi.Saml, CREATED_CONFIG.id)
+        )
+    })
+
+    it('keeps a user-edited name when the config list loads after the form is interactive', async () => {
+        useMocks({
+            get: {
+                '/api/organizations/:organization/domains': { count: 0, next: null, previous: null, results: [] },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSO_SETTINGS_REDESIGN], {
+            [FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]: true,
+        })
+        const logic = identityProviderConfigLogic({ configScope: ConfigScopeEnumApi.Scim, configId: 'new' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setIdentityProviderConfigFormValues({ name: 'Okta production' })
+        logic.actions.loadIdentityProviderConfigsSuccess([CREATED_CONFIG])
+
+        expect(logic.values.identityProviderConfigForm.name).toBe('Okta production')
+        expect(logic.values.identityProviderConfigFormChanged).toBe(true)
+
+        logic.unmount()
+    })
+
+    it('reconciles the default name from the loaded config list while the form is untouched', async () => {
+        useMocks({
+            get: {
+                '/api/organizations/:organization/domains': { count: 0, next: null, previous: null, results: [] },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSO_SETTINGS_REDESIGN], {
+            [FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]: true,
+        })
+        const logic = identityProviderConfigLogic({ configScope: ConfigScopeEnumApi.Scim, configId: 'new' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The initial guess assumed no existing configs; the list arriving later corrects it.
+        expect(logic.values.identityProviderConfigForm.name).toBe('Default SCIM configuration')
+        logic.actions.loadIdentityProviderConfigsSuccess([{ ...CREATED_CONFIG, config_scope: ConfigScopeEnumApi.Scim }])
+
+        expect(logic.values.identityProviderConfigForm.name).toBe('')
+        expect(logic.values.identityProviderConfigFormChanged).toBe(false)
+
+        logic.unmount()
+    })
+
+    it('clears a stale delete confirmation when the delete modal reopens', async () => {
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSO_SETTINGS_REDESIGN], {
+            [FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]: true,
+        })
+        const logic = identityProviderConfigLogic({ configScope: ConfigScopeEnumApi.Saml, configId: 'new' })
+        logic.mount()
+
+        logic.actions.openDeleteModal()
+        logic.actions.setDeleteConfirmation('Delete x')
+        expect(logic.values.isDeleteModalOpen).toBe(true)
+
+        logic.actions.closeDeleteModal()
+        logic.actions.openDeleteModal()
+
+        expect(logic.values.isDeleteModalOpen).toBe(true)
+        expect(logic.values.deleteConfirmation).toBe('')
+
+        logic.unmount()
     })
 })

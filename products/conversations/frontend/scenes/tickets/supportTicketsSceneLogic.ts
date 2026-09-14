@@ -552,6 +552,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
         activeView: [
             null as SavedTicketView | null,
+            { persist: true },
             {
                 setActiveView: (_, { view }) => view,
                 clearActiveView: () => null,

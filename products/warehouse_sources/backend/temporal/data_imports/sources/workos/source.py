@@ -77,7 +77,7 @@ class WorkOSSource(
             name=SchemaExternalDataSourceType.WORK_OS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="WorkOS",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your WorkOS API key to sync your WorkOS data into the PostHog Data warehouse.
 
 You can find your API key in the [WorkOS Dashboard](https://dashboard.workos.com/) under **API Keys**.

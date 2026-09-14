@@ -31,9 +31,15 @@ import {
   ANALYTICS_EVENTS,
   type ChannelsSurface,
 } from "@posthog/shared/analytics-events";
+import type { UserBasic } from "@posthog/shared/domain-types";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { MemberList } from "@posthog/ui/features/canvas/components/MemberList";
+import { MemberSearch } from "@posthog/ui/features/canvas/components/MemberSearch";
 import { useChannelMutations } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
+import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { useUpdateTaskChannelRepositories } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
@@ -41,7 +47,7 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 const MAX_CONTEXT_NAME_LENGTH = 80;
 
@@ -55,7 +61,7 @@ const DESCRIPTION_EXAMPLES = [
 
 const DESCRIPTION_ROTATION_INTERVAL_MS = 5000;
 
-const CREATE_STEPS = ["name", "describe", "repositories"] as const;
+const CREATE_STEPS = ["name", "describe", "repositories", "members"] as const;
 type CreateStep = (typeof CREATE_STEPS)[number];
 
 const EASE_OUT: [number, number, number, number] = [0.215, 0.61, 0.355, 1];
@@ -122,6 +128,21 @@ export function CreateChannelModal({
     number | null
   >(null);
   const [star, setStar] = useState(true);
+  const [visibility, setVisibility] = useState<"public" | "private">("public");
+  const [memberIds, setMemberIds] = useState<number[]>([]);
+  const authClient = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client: authClient });
+  const { members: orgMembers } = useOrgMembers();
+  const selectedMembers = useMemo(
+    () =>
+      memberIds
+        .map((id) => orgMembers.find((member) => member.id === id))
+        .filter((member): member is UserBasic => !!member),
+    [memberIds, orgMembers],
+  );
+  const memberSearchExcludes = currentUser
+    ? [...memberIds, currentUser.id]
+    : memberIds;
   const [step, setStep] = useState<CreateStep>("name");
   const [direction, setDirection] = useState(1);
   const descriptionHelperId = useId();
@@ -144,6 +165,8 @@ export function CreateChannelModal({
       setRepositories([]);
       setRepositoryIntegration(null);
       setStar(true);
+      setVisibility("public");
+      setMemberIds([]);
       setStep("name");
     }
   }
@@ -168,10 +191,14 @@ export function CreateChannelModal({
     }
   };
 
-  const submitCreate = async (linkSelectedRepositories: boolean) => {
+  const submitCreate = async () => {
     let contextId: string;
     try {
-      const channel = await createChannel(trimmedName, { star });
+      const channel = await createChannel(trimmedName, {
+        star,
+        channelType: visibility,
+        memberIds: visibility === "private" ? memberIds : [],
+      });
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
         action_type: "create",
         surface,
@@ -191,7 +218,7 @@ export function CreateChannelModal({
       return;
     }
 
-    if (linkSelectedRepositories && repositories.length > 0) {
+    if (repositories.length > 0) {
       try {
         await linkRepositories.mutateAsync({
           channelId: contextId,
@@ -450,6 +477,29 @@ export function CreateChannelModal({
             <DialogBody viewportClassName="flex flex-col gap-3">
               <Item variant="outline">
                 <ItemContent>
+                  <ItemTitle>
+                    <Label htmlFor="context-private">
+                      Private {spacesLayout ? "space" : "channel"}
+                    </Label>
+                  </ItemTitle>
+                  <ItemDescription>
+                    Only invited members can see it. Off means everyone in the
+                    project can.
+                  </ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                  <Switch
+                    id="context-private"
+                    checked={visibility === "private"}
+                    disabled={busy}
+                    onCheckedChange={(on) =>
+                      setVisibility(on ? "private" : "public")
+                    }
+                  />
+                </ItemActions>
+              </Item>
+              <Item variant="outline">
+                <ItemContent>
                   <ItemTitle>Repositories</ItemTitle>
                   <ItemDescription>
                     New tasks in this {spacesLayout ? "space" : "channel"} can
@@ -468,8 +518,6 @@ export function CreateChannelModal({
                   />
                 </ItemActions>
               </Item>
-              {/* Last stop before both create buttons, so the toggle is in view when
-              the space is actually made. */}
               <Item variant="outline">
                 <ItemContent>
                   <ItemTitle>
@@ -502,17 +550,70 @@ export function CreateChannelModal({
                 Back
               </Button>
               <Button
-                variant="default"
-                disabled={busy}
-                onClick={() => void submitOnce(() => submitCreate(false))}
+                variant="primary"
+                disabled={!canAdvance}
+                loading={busy}
+                onClick={() => {
+                  if (visibility === "private") {
+                    goToStep("members");
+                  } else {
+                    void submitOnce(submitCreate);
+                  }
+                }}
               >
-                Skip
+                {visibility === "private" ? "Next" : "Create"}
+              </Button>
+            </DialogFooter>
+          </>
+        );
+      case "members":
+        return (
+          <>
+            <DialogHeader>
+              <DialogTitle>Invite people</DialogTitle>
+              <DialogDescription>
+                Choose project members who can access this private{" "}
+                {spacesLayout ? "space" : "channel"}. You already have access
+                and can add people later.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="px-4 pt-4">
+              <MemberSearch
+                excludeIds={memberSearchExcludes}
+                onPick={(id) => setMemberIds((ids) => [...ids, id])}
+                disabled={busy}
+                placeholder="Add people…"
+              />
+            </div>
+            <DialogBody
+              className="flex max-h-[50vh] flex-col"
+              viewportClassName="flex flex-col"
+            >
+              <MemberList
+                members={selectedMembers}
+                currentUser={currentUser ?? null}
+                disabled={busy}
+                onRemove={(id) =>
+                  setMemberIds((ids) =>
+                    ids.filter((memberId) => memberId !== id),
+                  )
+                }
+              />
+            </DialogBody>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                className="sm:mr-auto"
+                disabled={busy}
+                onClick={() => goToStep("repositories")}
+              >
+                Back
               </Button>
               <Button
                 variant="primary"
-                disabled={busy || repositories.length === 0}
+                disabled={!canAdvance}
                 loading={busy}
-                onClick={() => void submitOnce(() => submitCreate(true))}
+                onClick={() => void submitOnce(submitCreate)}
               >
                 Create
               </Button>

@@ -8,8 +8,8 @@
 //!
 //! Deliberate differences from the live `/flags` pipeline:
 //! - Auth is the `INTERNAL_REQUEST_TOKEN` bearer token only — no SDK token, no team lookup
-//!   by token. The team is still loaded by id (once per page) to read its timezone, so
-//!   naive datetime filters evaluate in the team's local time exactly like live `/flags`.
+//!   by token. The team is still loaded by id once per page to read its timezone and
+//!   property-matching version, matching live `/flags`.
 //! - The handler bypasses the `/flags` request pipeline entirely, so no billing or
 //!   flag-analytics counters are emitted, and dedicated `flags_batch_eval_*` ops metrics
 //!   track batch traffic. The per-person matcher still emits its own evaluation metrics
@@ -23,7 +23,7 @@
 //! The paged scan walks `posthog_person.id` ascending across a live table, so the run sees
 //! a moving snapshot rather than a point-in-time one: persons inserted above the current
 //! cursor mid-run are included, persons inserted below it (or deleted) are not. Flag
-//! definitions are pinned by `expected_version`, but person membership is eventually
+//! definitions and property-matching semantics are pinned, but person membership is eventually
 //! consistent with the table at the time each page is scanned. This matches the existing
 //! cohort-generation contract (a later refresh reconciles drift).
 
@@ -59,6 +59,7 @@ use crate::{
         FLAG_BATCH_EVAL_PERSONS_COUNTER, FLAG_BATCH_EVAL_REQUESTS_COUNTER, FLAG_BATCH_EVAL_TIME,
     },
     router,
+    team::team_models::{PropertyMatchingVersion, Team},
 };
 
 #[derive(Debug, Deserialize)]
@@ -75,6 +76,9 @@ pub struct BatchFlagEvaluationRequest {
     /// treated as 0.
     #[serde(default)]
     pub expected_version: Option<i32>,
+    /// Optimistic-lock pin for the team's property matching semantics.
+    #[serde(default)]
+    pub expected_property_matching_version: Option<i16>,
     /// Exclusive lower bound on `posthog_person.id`; 0 (default) starts from the beginning.
     #[serde(default)]
     pub cursor: i64,
@@ -89,6 +93,8 @@ pub struct BatchFlagEvaluationResponse {
     pub next_cursor: Option<i64>,
     /// Number of persons in this page whose evaluation failed (they are skipped, not matched).
     pub errors_count: u64,
+    /// Matching semantics used for this page.
+    pub property_matching_version: i16,
 }
 
 const DEFAULT_LIMIT: i64 = 1_000;
@@ -102,6 +108,7 @@ pub enum BatchFlagEvaluationError {
     FlagInactive,
     GroupAggregatedFlag,
     VersionConflict { expected: i32, actual: i32 },
+    PropertyMatchingVersionConflict { expected: i16, actual: i16 },
     Upstream(FlagError),
 }
 
@@ -115,6 +122,7 @@ impl BatchFlagEvaluationError {
             Self::FlagInactive => "flag_inactive",
             Self::GroupAggregatedFlag => "group_aggregated_flag",
             Self::VersionConflict { .. } => "version_conflict",
+            Self::PropertyMatchingVersionConflict { .. } => "property_matching_version_conflict",
             Self::Upstream(_) => "upstream_error",
         }
     }
@@ -122,20 +130,22 @@ impl BatchFlagEvaluationError {
 
 impl IntoResponse for BatchFlagEvaluationError {
     fn into_response(self) -> Response {
-        let (status, error, detail, actual_version) = match self {
+        let (status, error, detail, actual_version, actual_property_matching_version) = match self {
             Self::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
                 "unauthorized",
                 "Missing or invalid internal request token".to_string(),
                 None,
+                None,
             ),
             Self::InvalidRequest(detail) => {
-                (StatusCode::BAD_REQUEST, "invalid_request", detail, None)
+                (StatusCode::BAD_REQUEST, "invalid_request", detail, None, None)
             }
             Self::PayloadTooLarge => (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "payload_too_large",
                 format!("Request body exceeds the {MAX_BATCH_BODY_BYTES}-byte limit"),
+                None,
                 None,
             ),
             Self::FlagNotFound => (
@@ -143,11 +153,13 @@ impl IntoResponse for BatchFlagEvaluationError {
                 "flag_not_found",
                 "No flag with this key exists for this team".to_string(),
                 None,
+                None,
             ),
             Self::FlagInactive => (
                 StatusCode::BAD_REQUEST,
                 "flag_inactive",
                 "Flag is not active".to_string(),
+                None,
                 None,
             ),
             Self::GroupAggregatedFlag => (
@@ -155,11 +167,22 @@ impl IntoResponse for BatchFlagEvaluationError {
                 "group_aggregated_flag",
                 "Group-aggregated flags are not supported for batch evaluation".to_string(),
                 None,
+                None,
             ),
             Self::VersionConflict { expected, actual } => (
                 StatusCode::CONFLICT,
                 "version_conflict",
                 format!("Flag version is {actual}, expected {expected}; the flag changed during cohort generation"),
+                Some(actual),
+                None,
+            ),
+            Self::PropertyMatchingVersionConflict { expected, actual } => (
+                StatusCode::CONFLICT,
+                "property_matching_version_conflict",
+                format!(
+                    "Property matching version is {actual}, expected {expected}; matching semantics changed during cohort generation"
+                ),
+                None,
                 Some(actual),
             ),
             Self::Upstream(e) => {
@@ -167,13 +190,16 @@ impl IntoResponse for BatchFlagEvaluationError {
                 // JSON envelope consistent with the other variants.
                 let status = StatusCode::from_u16(e.status_code())
                     .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-                (status, "upstream_error", e.to_string(), None)
+                (status, "upstream_error", e.to_string(), None, None)
             }
         };
 
         let mut body = serde_json::json!({ "error": error, "detail": detail });
         if let Some(actual) = actual_version {
             body["actual_version"] = serde_json::json!(actual);
+        }
+        if let Some(actual) = actual_property_matching_version {
+            body["actual_property_matching_version"] = serde_json::json!(actual);
         }
         (status, Json(body)).into_response()
     }
@@ -369,6 +395,30 @@ async fn handle_batch_flag_evaluation(
     }
     let target_key = target.key.clone();
 
+    let expected_property_matching_version = request
+        .expected_property_matching_version
+        .unwrap_or(PropertyMatchingVersion::LEGACY.0);
+    let mut team = Team::from_pg_by_id(
+        state.database_pools.non_persons_reader.clone(),
+        request.team_id,
+    )
+    .await
+    .map_err(BatchFlagEvaluationError::Upstream)?;
+    if team.property_matching_version.0 != expected_property_matching_version {
+        team = Team::from_pg_by_id(
+            state.database_pools.non_persons_writer.clone(),
+            request.team_id,
+        )
+        .await
+        .map_err(BatchFlagEvaluationError::Upstream)?;
+        if team.property_matching_version.0 != expected_property_matching_version {
+            return Err(BatchFlagEvaluationError::PropertyMatchingVersionConflict {
+                expected: expected_property_matching_version,
+                actual: team.property_matching_version.0,
+            });
+        }
+    }
+
     // Mirror the live pipeline's exclusion of inactive flags so dependency conditions on
     // them pre-seed as false instead of evaluating.
     let filtered_out_flag_ids: HashSet<i32> = flags_vec
@@ -421,17 +471,7 @@ async fn handle_batch_flag_evaluation(
         .config
         .realtime_cohort_evaluation_team_ids
         .includes_team(request.team_id);
-
-    // Read the team's timezone from Postgres so naive datetime filter values (IS_DATE_* and
-    // relative dates) are interpreted in the team's local time, matching live `/flags`
-    // evaluation and HogQL/ClickHouse cohort membership. The live path reads the same
-    // `team.timezone`; this is one PK lookup per page, negligible against the per-page
-    // person scan. Falls back to UTC for an unrecognized timezone string.
-    let team = state
-        .flag_service()
-        .get_team_by_id(request.team_id)
-        .await
-        .map_err(BatchFlagEvaluationError::Upstream)?;
+    let use_explicit_exact_matching = team.property_matching_version.uses_explicit_matching();
     let team_timezone = team.parsed_timezone();
 
     let mut matched_person_uuids: Vec<Uuid> = Vec::new();
@@ -458,6 +498,7 @@ async fn handle_batch_flag_evaluation(
         )
         .with_cohort_membership_provider(state.cohort_membership_provider.clone())
         .with_realtime_cohort_evaluation(enable_realtime_cohort_evaluation)
+        .with_explicit_exact_matching(use_explicit_exact_matching)
         .with_membership_stamp_policy(state.config.realtime_cohort_membership_stamp_policy)
         .with_rayon_dispatcher(state.rayon_dispatcher.clone())
         .with_parallel_eval_threshold(state.config.parallel_eval_threshold)
@@ -516,6 +557,7 @@ async fn handle_batch_flag_evaluation(
         matched_person_uuids,
         next_cursor,
         errors_count,
+        property_matching_version: team.property_matching_version.0,
     })
 }
 

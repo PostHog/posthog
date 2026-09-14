@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from products.posthog_ai.eval_harness.log_parser import SKILL_TOOL_NAME
+from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot
 from products.posthog_ai.evals.error_tracking.scorers import (
     ERROR_TRACKING_WRITE_TOOLS,
     QUERY_ISSUE_EVENTS_TOOL,
@@ -209,6 +210,96 @@ def test_skill_triggered_skips_when_the_case_declares_no_direction(expected: dic
     score = SkillTriggered(_SKILL, name="trigger")._run_eval_sync(
         {"raw_log": _raw_tool_log([(SKILL_TOOL_NAME, {"skill": _SKILL}, "loaded")])},
         expected,
+    )
+
+    assert score.score is None
+
+
+@pytest.mark.parametrize(
+    "calls,expected_score,expected_answer_tool",
+    [
+        # Typed answer followed by an execute-sql validation call: the typed
+        # tool wins, the trailing SQL is validation. Reading only the last
+        # call instead of the answer scored this 0.
+        (
+            [
+                ("query-trends", {"query": {}}, {"results": []}),
+                ("execute-sql", {"query": "SELECT count() FROM events"}, "1"),
+            ],
+            1.0,
+            "query-trends",
+        ),
+        # execute-sql as the only answer-producing call: it is the answer.
+        ([("execute-sql", {"query": "SELECT count() FROM events"}, "1")], 0.0, "execute-sql"),
+        # Typed answer, no trailing SQL.
+        ([("query-trends", {"query": {}}, {"results": []})], 1.0, "query-trends"),
+        # information_schema discovery is not answer-producing and is dropped.
+        (
+            [
+                ("execute-sql", {"query": "SELECT * FROM system.information_schema.tables"}, "t"),
+                ("query-trends", {"query": {}}, {"results": []}),
+            ],
+            1.0,
+            "query-trends",
+        ),
+        # Two typed answers: the last typed call is the answer.
+        (
+            [
+                ("query-funnel", {"query": {}}, {"results": []}),
+                ("query-trends", {"query": {}}, {"results": []}),
+            ],
+            1.0,
+            "query-trends",
+        ),
+        # Intermediary calls after the typed answer never become the answer.
+        (
+            [
+                ("query-trends", {"query": {}}, {"results": []}),
+                ("read-data-schema", {"kind": "events"}, "ok"),
+                ("exec", {"command": "search"}, "ok"),
+            ],
+            1.0,
+            "query-trends",
+        ),
+        # execute-sql answer followed by an intermediary call: the SQL is
+        # still the answer, the intermediary is ignored.
+        (
+            [
+                ("execute-sql", {"query": "SELECT count() FROM events"}, "1"),
+                ("read-data-schema", {"kind": "events"}, "ok"),
+            ],
+            0.0,
+            "execute-sql",
+        ),
+        # Any typed query-* runner counts, not only trends/funnel: a runner
+        # outside the original four (web analytics here) is still
+        # answer-producing, so it scores as the answer rather than being skipped.
+        ([("query-web-stats", {"query": {}}, {"results": []})], 1.0, "query-web-stats"),
+    ],
+)
+def test_answer_tool_call_not_reads_answer_not_last_call(
+    calls: list[tuple], expected_score: float, expected_answer_tool: str
+) -> None:
+    score = AnswerToolCallNot(forbidden="execute-sql", preferred={"query-trends", "query-funnel"})._run_eval_sync(
+        {"raw_log": _raw_tool_log(calls)}
+    )
+
+    assert score.score == expected_score
+    assert score.metadata["answer_tool_call"] == expected_answer_tool
+
+
+@pytest.mark.parametrize(
+    "calls",
+    [
+        # Only schema-discovery SQL ran: no answer-producing call.
+        [("execute-sql", {"query": "SELECT * FROM system.information_schema.tables"}, "t")],
+        # Only intermediary (non-query) calls ran: no answer-producing call.
+        [("read-data-schema", {"kind": "events"}, "ok"), ("exec", {"command": "search"}, "ok")],
+    ],
+)
+def test_answer_tool_call_not_skips_when_nothing_answer_producing_ran(calls: list[tuple]) -> None:
+    score = AnswerToolCallNot(forbidden="execute-sql", preferred={"query-trends"})._run_eval_sync(
+        {"raw_log": _raw_tool_log(calls)}
     )
 
     assert score.score is None

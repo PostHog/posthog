@@ -108,6 +108,8 @@ class SourceInputs:
     # Resolved from the schema for a source that declares a `history_lookback`; `None` means
     # unbounded. See `sources/common/history_window.py`.
     history_start: Optional[datetime.datetime] = None
+    # Start of the previous successful sync (the job's created_at), so a safe lower bound for "seen".
+    last_synced_at: Optional[datetime.datetime] = None
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None
     # Multi-schema import context, read by `resolve_source_location`.
@@ -123,3 +125,6 @@ class SourceInputs:
     # True when extraction batches should be bounded by accumulated bytes rather than by the
     # sampled row count alone. Evaluated once per run alongside `fanout_warehouse_reuse`.
     byte_bounded_extraction: bool = False
+    # Temporal's attempt number for this activity, starting at 1. A source can read a retry
+    # differently from a first run, because the first run has already shown what fails.
+    activity_attempt: int = 1

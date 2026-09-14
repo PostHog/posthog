@@ -287,6 +287,119 @@ async fn test_version_mismatch_returns_conflict_with_actual_version() -> Result<
 }
 
 #[tokio::test]
+async fn test_property_matching_version_mismatch_returns_conflict() -> Result<()> {
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await?;
+    let server = ServerHandle::for_config(batch_eval_config()).await;
+
+    context
+        .insert_flag(
+            team.id,
+            Some(flag_row(
+                team.id,
+                "matching-version-flag",
+                json!({"groups": [{"rollout_percentage": 100}]}),
+            )),
+        )
+        .await?;
+
+    let mut body = batch_body(team.id, "matching-version-flag", 0);
+    body["expected_property_matching_version"] = json!(2);
+    let res = send_batch_request(&server, Some(INTERNAL_TOKEN), &body).await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    let json_response = res.json::<Value>().await?;
+    assert_eq!(json_response["error"], "property_matching_version_conflict");
+    assert_eq!(json_response["actual_property_matching_version"], json!(1));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_team_property_matching_version_selects_live_and_batch_semantics() -> Result<()> {
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await?;
+    let server = ServerHandle::for_config(batch_eval_config()).await;
+
+    context
+        .insert_flag(
+            team.id,
+            Some(flag_row(
+                team.id,
+                "boolean-property-flag",
+                json!({
+                    "groups": [{
+                        "properties": [{
+                            "key": "key",
+                            "value": false,
+                            "type": "person",
+                            "operator": "exact"
+                        }],
+                        "rollout_percentage": 100
+                    }]
+                }),
+            )),
+        )
+        .await?;
+    let distinct_id = "non-boolean-value";
+    context
+        .insert_person(
+            team.id,
+            distinct_id.to_string(),
+            Some(json!({"key": "banana"})),
+        )
+        .await?;
+    let person_uuid = context
+        .get_person_uuid_by_distinct_id(team.id, distinct_id)
+        .await?;
+
+    let legacy_response = send_batch_request(
+        &server,
+        Some(INTERNAL_TOKEN),
+        &batch_body(team.id, "boolean-property-flag", 0),
+    )
+    .await
+    .json::<Value>()
+    .await?;
+    assert_eq!(legacy_response["property_matching_version"], json!(1));
+    assert_eq!(matched_uuids(&legacy_response), vec![person_uuid]);
+
+    let mut conn = context.get_non_persons_connection().await?;
+    sqlx::query(
+        "INSERT INTO feature_flags_teamfeatureflagsconfig \
+         (team_id, minimal_flag_called_events, property_matching_version) \
+         VALUES ($1, false, 2)",
+    )
+    .bind(team.id)
+    .execute(&mut *conn)
+    .await?;
+
+    let live_response = server
+        .send_flags_request(
+            json!({"token": team.api_token, "distinct_id": distinct_id}).to_string(),
+            Some("2"),
+            None,
+        )
+        .await;
+    assert_eq!(live_response.status(), StatusCode::OK);
+    let live_response = live_response.json::<Value>().await?;
+    assert_eq!(
+        live_response["flags"]["boolean-property-flag"]["enabled"],
+        json!(false)
+    );
+
+    let mut explicit_body = batch_body(team.id, "boolean-property-flag", 0);
+    explicit_body["expected_property_matching_version"] = json!(2);
+    let explicit_response = send_batch_request(&server, Some(INTERNAL_TOKEN), &explicit_body)
+        .await
+        .json::<Value>()
+        .await?;
+    assert_eq!(explicit_response["property_matching_version"], json!(2));
+    assert!(matched_uuids(&explicit_response).is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_null_expected_version_coerces_to_zero() -> Result<()> {
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await?;

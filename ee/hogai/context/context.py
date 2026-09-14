@@ -372,18 +372,21 @@ class AssistantContextManager(AssistantContextMixin):
         if ui_context.notebooks:
             from ee.hogai.context.notebook.context import NotebookContext
 
-            # Only the inline-AI branch below renders cell guidance, and the lookup costs a thread
-            # handoff and a read of `user.organization`. Skip it when no notebook needs it, and read
-            # it once for the ones that do.
-            sql_v2_enabled = (
-                await database_sync_to_async(notebooks_facade.is_sql_v2_enabled)(self._user)
-                if any(nb.markdown_with_insertion_placeholder for nb in ui_context.notebooks)
-                else False
-            )
+            # Flag lookups read `user.organization`; keep them off the event loop and skip them
+            # when no notebook needs inline authoring guidance.
+            sql_v2_enabled = False
+            widgets_enabled = False
+            if any(nb.markdown_with_insertion_placeholder for nb in ui_context.notebooks):
+                sql_v2_enabled = await database_sync_to_async(notebooks_facade.is_sql_v2_enabled)(self._user)
+                widgets_enabled = await database_sync_to_async(notebooks_facade.is_notebook_widget_enabled)(self._user)
             notebook_texts = []
             for nb in ui_context.notebooks:
                 if nb.markdown_with_insertion_placeholder:
-                    notebook_texts.append(self._format_markdown_notebook_context(nb, sql_v2_enabled=sql_v2_enabled))
+                    notebook_texts.append(
+                        self._format_markdown_notebook_context(
+                            nb, sql_v2_enabled=sql_v2_enabled, widgets_enabled=widgets_enabled
+                        )
+                    )
                     continue
 
                 ctx = await NotebookContext.from_short_id(self._team, nb.id)
@@ -441,7 +444,9 @@ class AssistantContextManager(AssistantContextMixin):
             )
         return None
 
-    def _format_markdown_notebook_context(self, notebook: MaxNotebookContext, *, sql_v2_enabled: bool) -> str:
+    def _format_markdown_notebook_context(
+        self, notebook: MaxNotebookContext, *, sql_v2_enabled: bool, widgets_enabled: bool
+    ) -> str:
         title = _sanitize_inline_prompt_value(notebook.name or f"Notebook {notebook.id}")
         inline_request_id = _sanitize_inline_prompt_value(notebook.insertion_placeholder_block_id or "unknown")
         response_marker = _sanitize_inline_prompt_value(notebook.insertion_placeholder_marker or "Thinking...")
@@ -485,7 +490,7 @@ class AssistantContextManager(AssistantContextMixin):
                     "- The user may ask you to change selected text, nearby content, or the entire notebook. "
                     "Preserve unrelated content only when the request's scope is local."
                 ),
-                cell_guidance_prompt(sql_v2_enabled=sql_v2_enabled),
+                cell_guidance_prompt(sql_v2_enabled=sql_v2_enabled, widgets_enabled=widgets_enabled),
                 (
                     "When the current user asks you to change broad notebook content, use notebook tools against "
                     "the current notebook instead of explaining how the user could do it. "

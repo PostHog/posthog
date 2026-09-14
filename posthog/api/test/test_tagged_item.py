@@ -1,8 +1,19 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.tagged_item import (
+    BULK_UPDATE_TAGS_MAX_IDS,
+    BULK_UPDATE_TAGS_MAX_OPERATIONS,
+    BULK_UPDATE_TAGS_MAX_TAGS,
+    BulkUpdateTagsRequestSerializer,
+    BulkUpdateTagsUUIDRequestSerializer,
+)
 from posthog.models import ActivityLog, Organization, Tag, Team
 from posthog.models.tagged_item import TaggedItem
 
@@ -415,3 +426,43 @@ class TestBulkUpdateTags(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["type"] == "validation_error"
         assert response.json()["attr"] == "ids"
+
+
+SERIALIZER_VARIANTS = [
+    ("int_ids", BulkUpdateTagsRequestSerializer, lambda n: list(range(n))),
+    ("uuid_ids", BulkUpdateTagsUUIDRequestSerializer, lambda n: [str(uuid4()) for _ in range(n)]),
+]
+
+
+class TestBulkUpdateTagsRequestValidation(SimpleTestCase):
+    @parameterized.expand(SERIALIZER_VARIANTS)
+    def test_rejects_too_many_tags(self, _name, serializer_class, make_ids):
+        serializer = serializer_class(
+            data={
+                "ids": make_ids(1),
+                "action": "add",
+                "tags": [f"tag-{i}" for i in range(BULK_UPDATE_TAGS_MAX_TAGS + 1)],
+            }
+        )
+        assert not serializer.is_valid()
+        assert "tags" in serializer.errors
+
+    @parameterized.expand(SERIALIZER_VARIANTS)
+    def test_rejects_tag_longer_than_tag_name_column(self, _name, serializer_class, make_ids):
+        serializer = serializer_class(data={"ids": make_ids(1), "action": "add", "tags": ["x" * 256]})
+        assert not serializer.is_valid()
+        assert "tags" in serializer.errors
+
+    @parameterized.expand(SERIALIZER_VARIANTS)
+    def test_rejects_ids_times_distinct_tags_over_cap(self, _name, serializer_class, make_ids):
+        tags = [f"tag-{i}" for i in range(BULK_UPDATE_TAGS_MAX_OPERATIONS // BULK_UPDATE_TAGS_MAX_IDS + 1)]
+        serializer = serializer_class(data={"ids": make_ids(BULK_UPDATE_TAGS_MAX_IDS), "action": "add", "tags": tags})
+        assert not serializer.is_valid()
+        assert "must not exceed" in str(serializer.errors["tags"][0])
+
+    @parameterized.expand(SERIALIZER_VARIANTS)
+    def test_duplicate_tags_count_once_toward_the_cap(self, _name, serializer_class, make_ids):
+        # 100 entries normalizing to 20 distinct tags: 500 ids x 20 tags == the cap, not over it.
+        tags = [f"Tag-{i % 20}" for i in range(BULK_UPDATE_TAGS_MAX_TAGS)]
+        serializer = serializer_class(data={"ids": make_ids(BULK_UPDATE_TAGS_MAX_IDS), "action": "add", "tags": tags})
+        assert serializer.is_valid(), serializer.errors

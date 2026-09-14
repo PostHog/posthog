@@ -7,7 +7,6 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("experiments", "0001_migrate_experiments_models"),
         ("posthog", "1055_cohort_last_backfill_person_properties_at"),
     ]
 

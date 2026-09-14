@@ -38,9 +38,11 @@ from __future__ import annotations
 from products.data_catalog.evals.constants import (
     APPROVED_METRIC_NAME,
     CURRENT_TOP_CUSTOMERS_METRIC_NAME,
+    DAILY_ACTIVE_ORGS_METRIC_NAME,
     DECOY_INSIGHT_NAMES,
     DEFINITION_INSIGHT_NAME,
     DRIFTED_METRIC_NAME,
+    MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME,
     METRIC_CREATE_TOOL,
     METRIC_UPDATE_TOOL,
     OPERATIONAL_METRIC_NAME,
@@ -60,9 +62,11 @@ from products.data_catalog.evals.scorers import (
 from products.data_catalog.evals.seeders import (
     seed_ambiguous_top_customers_metrics,
     seed_approved_metric,
+    seed_daily_active_orgs_metric,
     seed_definition_insight,
     seed_drifted_metric,
     seed_failing_top_customers_metric,
+    seed_mcp_tool_call_fail_pct_metric,
     seed_metric_listing_catalog,
     seed_operational_metric,
     seed_proposed_metric,
@@ -437,6 +441,41 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                     )
                 },
             },
+        ),
+        SandboxedEvalCase(
+            name="metric_phrase_active_orgs",
+            prompt="How many organizations are active each day?",
+            expected={
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {
+                    "metric_name": DAILY_ACTIVE_ORGS_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+            },
+            setup=seed_daily_active_orgs_metric,
+        ),
+        SandboxedEvalCase(
+            name="metric_phrase_mcp_fail_skill",
+            prompt="What percentage of hosted MCP tool calls failed each day, and which tools are driving the failures?",
+            expected={
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {
+                    "metric_name": MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Found the approved metric '{MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME}' before any schema or "
+                        "raw-data discovery, ran it through data-catalog-metric-run for the daily failure-rate "
+                        "headline, and only then answered which tools drive the failures with supplemental SQL "
+                        "over $mcp_tool_call grouped by tool, clearly labeled noncanonical or clearly distinguished "
+                        "from the canonical headline. Skipping the canonical run because an MCP analytics skill "
+                        "offers a ready query, re-deriving the headline rate by hand, omitting the requested "
+                        "per-tool breakdown, or presenting that breakdown as canonical is a failure."
+                    )
+                },
+            },
+            setup=seed_mcp_tool_call_fail_pct_metric,
         ),
         # Injected-listing arm, mirroring the scout harness's pre-fetched catalog paragraph
         # (products/signals/backend/scout_harness/prompt.py): the run prompt hands the agent the
