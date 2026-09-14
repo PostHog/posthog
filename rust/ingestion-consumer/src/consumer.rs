@@ -153,14 +153,22 @@ impl InFlightPoll {
     }
 }
 
-/// Remove revoked partitions from the in-flight polls, and remove polls left
-/// empty. Only the revoked partitions' slices go: a poll's kept partitions
-/// keep their counts and settle their ledger charges at commit, so the
-/// frontier never crosses a hole. Dropping whole polls here froze kept
-/// partitions' commits under cooperative rebalancing.
+/// A partition revocation stamped with the ledger generation started by the
+/// revoke. Poll slices from earlier generations are stale; slices collected
+/// after a later reassignment must survive a delayed notification.
+#[derive(Clone, Debug)]
+struct RevokedPartition {
+    topic_partition: TopicPartition,
+    generation: u64,
+}
+
+/// Remove revoked partitions from in-flight polls, and remove polls left
+/// empty. Only slices from before that partition's revoke generation go: a
+/// poll's kept or newly reassigned slices retain their counts and settle their
+/// ledger charges at commit, so the frontier never crosses a hole.
 fn strip_revoked_partitions(
     in_flight_polls: &mut VecDeque<InFlightPoll>,
-    revoked: &[TopicPartition],
+    revoked: &[RevokedPartition],
 ) -> u64 {
     let mut stripped: u64 = 0;
     for poll in in_flight_polls.iter_mut() {
@@ -168,7 +176,10 @@ fn strip_revoked_partitions(
         let mut removed_covered = 0u32;
         let mut removed_accepted = 0u32;
         poll.partitions.retain(|topic_partition, deliveries| {
-            if revoked.contains(topic_partition) {
+            if revoked.iter().any(|revoked| {
+                revoked.topic_partition == *topic_partition
+                    && deliveries.generation < revoked.generation
+            }) {
                 removed_delivered += deliveries.delivered;
                 removed_covered += deliveries.covered;
                 removed_accepted += deliveries.accepted;
@@ -280,7 +291,7 @@ pub struct IngestionConsumer<K: KafkaInput, B: BatchSubmitter> {
     topic_offset_ledger: Arc<TopicOffsetLedger>,
     /// Partitions revoked since the loop last looked, fed by the rebalance
     /// callback. Only populated under the key-table scheduler.
-    revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
+    revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
 }
 
 impl<K: KafkaInput, B: BatchSubmitter> IngestionConsumer<K, B> {
@@ -297,7 +308,9 @@ impl<K: KafkaInput, B: BatchSubmitter> IngestionConsumer<K, B> {
         // callbacks reset the same baselines the commit path checks against.
         let commit_sentinel = kafka.context().commit_sentinel();
         let topic_offset_ledger = kafka.context().topic_offset_ledger();
-        let revoked_partitions: Arc<Mutex<Vec<TopicPartition>>> = Arc::new(Mutex::new(Vec::new()));
+        let revoke_ledger = Arc::clone(&topic_offset_ledger);
+        let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
+            Arc::new(Mutex::new(Vec::new()));
         let hook_revoked = (batcher.scheduler_kind() == SchedulerKind::KeyTable)
             .then(|| Arc::clone(&revoked_partitions));
         let batcher = Arc::new(batcher);
@@ -309,11 +322,16 @@ impl<K: KafkaInput, B: BatchSubmitter> IngestionConsumer<K, B> {
                 batcher.purge_revoked(partitions);
             }
             if let Some(list) = &hook_revoked {
-                list.lock().unwrap().extend(
-                    partitions
-                        .iter()
-                        .map(|(topic, partition)| TopicPartition::new(topic, *partition)),
-                );
+                list.lock()
+                    .unwrap()
+                    .extend(partitions.iter().map(|(topic, partition)| {
+                        let topic_partition = TopicPartition::new(topic, *partition);
+                        let generation = revoke_ledger.generation(&topic_partition);
+                        RevokedPartition {
+                            topic_partition,
+                            generation,
+                        }
+                    }));
             }
         }));
         Self {
@@ -522,7 +540,7 @@ impl<K: KafkaInput, B: BatchSubmitter> IngestionConsumer<K, B> {
     /// covered; its offsets stay uncommitted and replay under the new
     /// assignment, and its late completions are discarded as stale.
     fn drop_revoked_polls(&self, in_flight_polls: &mut VecDeque<InFlightPoll>) {
-        let revoked: Vec<TopicPartition> =
+        let revoked: Vec<RevokedPartition> =
             std::mem::take(&mut *self.revoked_partitions.lock().unwrap());
         if revoked.is_empty() {
             return;
