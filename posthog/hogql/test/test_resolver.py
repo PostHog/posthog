@@ -145,6 +145,16 @@ class TestResolver(BaseTest):
 
         resolve_types(expr, self.context, dialect="clickhouse")
 
+    def test_condition_operand_dialect_guard(self) -> None:
+        # A direct query resolves against its target dialect. MySQL coerces a value in a condition
+        # position, so only the ClickHouse pass may reject one.
+        expr = self._select("SELECT 1 FROM events WHERE distinct_id AND event = 'test'")
+
+        resolve_types(expr, self.context, dialect="mysql")
+
+        with self.assertRaises(QueryError):
+            resolve_types(expr, self.context, dialect="clickhouse")
+
     def test_resolve_limit_percent_expression_guard_clickhouse(self):
         expr = self._select("SELECT 1 FROM events LIMIT (60 + 7) %")
 

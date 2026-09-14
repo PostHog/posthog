@@ -226,9 +226,11 @@ CONDITION_INCOMPATIBLE_TYPES = (
 )
 
 
-def resolve_condition_operand_type(expr: ast.Expr, context: HogQLContext) -> ConstantType:
+def resolve_condition_operand_type(expr: ast.Expr, context: HogQLContext, dialect: HogQLDialect) -> ConstantType:
     constant_type = (expr.type or ast.UnknownType()).resolve_constant_type(context)
-    if isinstance(constant_type, CONDITION_INCOMPATIBLE_TYPES):
+    # Only ClickHouse rejects these types. A direct query resolves against its target dialect, and
+    # an engine such as MySQL coerces a value in a condition position, so the query is valid there.
+    if dialect == "clickhouse" and isinstance(constant_type, CONDITION_INCOMPATIBLE_TYPES):
         printed_type = constant_type.print_type()
         # The resolver rewrites a column reference into a field or, for property and lazy-join
         # access, an alias over the expression that reads it.
@@ -2597,19 +2599,21 @@ class Resolver(CloningVisitor):
 
     def visit_and(self, node: ast.And):
         node = super().visit_and(node)
-        operand_types = [resolve_condition_operand_type(expr, self.context) for expr in node.exprs]
+        operand_types = [resolve_condition_operand_type(expr, self.context, self.dialect) for expr in node.exprs]
         node.type = ast.BooleanType(nullable=any(operand_type.nullable for operand_type in operand_types))
         return node
 
     def visit_or(self, node: ast.Or):
         node = super().visit_or(node)
-        operand_types = [resolve_condition_operand_type(expr, self.context) for expr in node.exprs]
+        operand_types = [resolve_condition_operand_type(expr, self.context, self.dialect) for expr in node.exprs]
         node.type = ast.BooleanType(nullable=any(operand_type.nullable for operand_type in operand_types))
         return node
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
-        node.type = ast.BooleanType(nullable=resolve_condition_operand_type(node.expr, self.context).nullable)
+        node.type = ast.BooleanType(
+            nullable=resolve_condition_operand_type(node.expr, self.context, self.dialect).nullable
+        )
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
