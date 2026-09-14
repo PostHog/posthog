@@ -440,6 +440,11 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "that is valid for time: { ts: Timestamp(1000000000, 1) } with id: 1234567890', "
                 "'code': 211, 'codeName': 'KeyNotFound'}",
             ),
+            (
+                "server_too_old",
+                "Server at cluster.abc.mongodb.net:27017 reports wire version 7, but this version of "
+                "PyMongo requires at least 8 (MongoDB 4.2).",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -476,6 +481,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
             ("document_missing_id", "one of its documents has no _id field", "view"),
             ("key_not_found", "No keys found for HMAC", "key management"),
+            ("server_too_old", "version of PyMongo requires at least", "upgrade the cluster"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):

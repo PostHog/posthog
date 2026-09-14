@@ -547,14 +547,17 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # A source added a column mid-stream, so the parquet parts under one table disagree on
         # column count. ClickHouse reads the same files fine; only chdb refuses the mixed set.
         "reading from files with different schema is not possible",
-        # chdb 4 links delta-kernel only in its Linux wheels, so macOS dev boxes have no deltaLake().
-        "unknown table function deltalake",
     )
+    # chdb 4 links delta-kernel only in its Linux wheels, so macOS dev boxes have no deltaLake().
+    # On Linux the same error means the engine lost Delta support and has to reach error tracking.
+    _MACOS_ONLY_SUPPRESSED_CHDB_ERROR_SUBSTRING = "unknown table function deltalake"
 
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
         if not isinstance(err, RuntimeError):
             return False
         message = str(err).lower()
+        if sys.platform == "darwin" and self._MACOS_ONLY_SUPPRESSED_CHDB_ERROR_SUBSTRING in message:
+            return True
         return any(substring in message for substring in self._SUPPRESSED_CHDB_ERROR_SUBSTRINGS)
 
     def set_columns(self, columns: dict[str, Any]) -> None:
