@@ -209,7 +209,6 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         raise CanonicalSkillParseError(f"SKILL.md frontmatter is not valid YAML: {skill_file}: {e}") from e
     if not isinstance(frontmatter, dict):
         raise CanonicalSkillParseError(f"SKILL.md frontmatter must be a mapping: {skill_file}")
-
     name = frontmatter.get("name")
     description = frontmatter.get("description")
     if not isinstance(name, str) or not name:
@@ -234,7 +233,6 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
             raise CanonicalSkillParseError(
                 f"Companion skill name must match its directory: got {name!r} in {skill_file}"
             )
-
     # The agentskills.io spec uses `allowed-tools` (hyphen). We prefer the spec form, but accept
     # the underscore form too — it predated the spec alignment in this codebase and is used by
     # other PHS skills. Reject if both keys are set so a future divergence doesn't go unnoticed.
@@ -260,15 +258,14 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         )
 
     config_tags = _parse_config_tags(frontmatter, skill_file, is_scout=is_scout)
-
     body = raw[match.end() :]
-    # Enforce the same per-skill limits the REST API uses (skill_services.py). The seed
-    # bypasses `create_skill_file` (no service-layer "create from scratch with files"
-    # helper exists), so check at parse time — a canonical too big to seed should fail
-    # loudly in CI / local seed runs, not silently exceed the documented capacity.
     if len(body.encode("utf-8")) > _MAX_SKILL_BODY_BYTES:
         raise CanonicalSkillParseError(f"SKILL.md body exceeds the {_MAX_SKILL_BODY_BYTES} byte limit: {skill_file}")
 
+    # Enforce the same per-skill limits the REST API uses (skill_services.py). The seed
+    # bypasses `create_skill_file` (no service-layer "create from scratch with files"
+    # helper exists), so bundled files must fail before a database write exceeds the
+    # documented capacity.
     files: list[CanonicalSkillFile] = []
     for subdir_name in _ALLOWED_BUNDLE_SUBDIRS:
         subdir = skill_dir / subdir_name

@@ -1320,7 +1320,8 @@ CREATE TABLE posthog.metric_series2 (
   INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
   INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
+  INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metric_series2', '{replica}-{shard}', last_seen) ORDER BY (team_id, metric_name, series_fingerprint) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.metric_series_distributed (
   team_id Int32,

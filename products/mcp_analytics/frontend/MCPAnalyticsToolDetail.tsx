@@ -31,7 +31,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
@@ -39,6 +38,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { MCPToolFailureOccurrenceItem } from '~/queries/schema/schema-general'
 import { SceneExport } from '~/scenes/sceneTypes'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
 import { formatMs, formatMsAsSeconds, formatNumber } from './dashboard/formatters'

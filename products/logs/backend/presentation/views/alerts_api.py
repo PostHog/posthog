@@ -22,27 +22,31 @@ from posthog.schema import LogsAlertFilters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.exceptions import as_drf_validation_error
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils import relative_date_parse
 
-from products.alerts.backend.facade.api import (
-    DESTINATION_SPECS,
+from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
-    AlertScheduleRestriction,
     DestinationType,
+)
+from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
+    configured_destination_template_ids,
     create_alert_destination_hog_functions,
+    destination_template_id,
     list_alert_destination_groups,
-    owned_alert_destinations_qs,
+    redact_destination_data,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
-    validate_and_normalize_schedule_restriction,
     validate_destination_data,
 )
+from products.alerts.backend.facade.scheduling import validate_and_normalize_schedule_restriction
+from products.alerts.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
@@ -399,22 +403,16 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES)))
     def get_destination_types(self, obj: LogsAlertConfiguration) -> list[str]:
-        # Only template_id is read. Reading the whole destination would pull its stored
-        # inputs, several KB per row, for every alert on the page.
         # N+1 is acceptable: max 20 alerts per team, each query a fast indexed lookup.
-        configured_template_ids = set(
-            owned_alert_destinations_qs(
-                team_id=obj.team_id,
-                alert_ids=[str(obj.id)],
-                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-            )
-            .values_list("template_id", flat=True)
-            .distinct()
+        configured_template_ids = configured_destination_template_ids(
+            team_id=obj.team_id,
+            alert_id=str(obj.id),
+            allowed_event_ids=LOGS_ALERT_EVENT_IDS,
         )
         return sorted(
             destination_type.value
             for destination_type in LOGS_DESTINATION_TYPES
-            if DESTINATION_SPECS[destination_type].template_id in configured_template_ids
+            if destination_template_id(destination_type) in configured_template_ids
         )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -665,7 +663,7 @@ class LogsAlertConfigurationDetailSerializer(LogsAlertConfigurationSerializer):
             {
                 "hog_function_ids": list(group.hog_function_ids),
                 "enabled": group.fully_enabled,
-                **DESTINATION_SPECS[DestinationType(group.data["type"])].redact(group.data),
+                **redact_destination_data(group.data),
             }
             for group in groups
         ]
@@ -1014,7 +1012,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert = self._get_locked_alert()
             configs = [
                 build_alert_destination_config(
-                    team=alert.team,
                     spec=EVENT_KIND_CONFIG[kind],
                     alert_id=str(alert.id),
                     alert_name=alert.name,
@@ -1023,12 +1020,16 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
                 for kind in EVENT_KINDS
             ]
-            hog_functions = create_alert_destination_hog_functions(
-                configs,
-                request=self.request,
-                alert_id=str(alert.id),
-                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-            )
+            try:
+                hog_function_ids = create_alert_destination_hog_functions(
+                    configs,
+                    team_id=alert.team_id,
+                    created_by_id=cast(User, request.user).id,
+                    alert_id=str(alert.id),
+                    allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+                )
+            except AlertDestinationValidationError as error:
+                raise as_drf_validation_error(error)
 
         report_user_action(
             request.user,
@@ -1036,7 +1037,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             {"alert_id": str(alert.id), "type": data["type"], "event_kinds": list(EVENT_KINDS)},
             request=request,
         )
-        response = LogsAlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
+        response = LogsAlertDestinationResponseSerializer({"hog_function_ids": list(hog_function_ids)})
         return Response(response.data, status=201)
 
     @extend_schema(
@@ -1060,12 +1061,15 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             largest_server_group = max((len(group.hog_function_ids) for group in groups), default=0)
             if len(hog_function_ids) > max(MAX_DESTINATION_IDS_PER_DELETE_REQUEST, largest_server_group):
                 raise ValidationError({"hog_function_ids": "Too many destination IDs."})
-            soft_delete_alert_destinations(
-                team_id=self.team_id,
-                alert_id=str(alert.id),
-                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-                hog_function_ids=hog_function_ids,
-            )
+            try:
+                soft_delete_alert_destinations(
+                    team_id=self.team_id,
+                    alert_id=str(alert.id),
+                    allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+                    hog_function_ids=hog_function_ids,
+                )
+            except AlertDestinationValidationError as error:
+                raise as_drf_validation_error(error)
 
         report_user_action(
             request.user,

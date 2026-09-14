@@ -6,6 +6,7 @@ rather than being sprinkled across every dismissal entrypoint (Slack, REST, bulk
 
 import json
 from datetime import datetime, timedelta
+from functools import partial
 from typing import Any
 
 from django.db import transaction
@@ -58,28 +59,43 @@ def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, 
         if update_fields is not None and "output" not in update_fields:
             return
         output = instance.output if isinstance(instance.output, dict) else {}
-        pr_url = output.get("pr_url")
-        if not isinstance(pr_url, str) or not pr_url:
+        from products.signals.backend.pull_requests import apply_report_completion
+        from products.tasks.backend.facade.api import read_pr_urls
+
+        pr_urls = read_pr_urls(output)
+        if not pr_urls:
             return
         ai_stage = (instance.state or {}).get("ai_stage")
         if ai_stage in {"research", "repo_selection"} or (isinstance(ai_stage, str) and ai_stage.startswith("scout:")):
             return
-        updated = sync_task_pull_request_to_assignments(
-            team_id=instance.team_id,
-            task_id=str(instance.task_id),
-            pr_url=pr_url,
-            pr_state=output.get("pr_state") if isinstance(output.get("pr_state"), str) else None,
-            pr_merged=output.get("pr_merged") is True,
-        )
-        if updated:
-            team_id = instance.team_id
-            task_id = str(instance.task_id)
-            # The pull request now exists, so it can carry a reference to the tracker issue the run
-            # opened. Off the request path because it calls GitHub, and after commit so a rolled-back
-            # sync never edits a pull request body.
-            transaction.on_commit(
-                lambda: link_report_tracker_issues.delay(team_id=team_id, task_id=task_id, pr_url=pr_url)
+        with transaction.atomic():
+            reports = list(
+                SignalReport.objects.select_for_update()
+                .filter(team_id=instance.team_id)
+                .filter(SignalReport.reports_for_task_filter(str(instance.task_id)))
+                .order_by("id")
             )
+            for pr_url in pr_urls:
+                primary = pr_url == output.get("pr_url")
+                updated = sync_task_pull_request_to_assignments(
+                    team_id=instance.team_id,
+                    task_id=str(instance.task_id),
+                    pr_url=pr_url,
+                    pr_state=output.get("pr_state") if primary and isinstance(output.get("pr_state"), str) else None,
+                    pr_merged=primary and output.get("pr_merged") is True,
+                )
+                if updated:
+                    # Dispatch after commit so a rolled-back sync never edits a pull request body.
+                    transaction.on_commit(
+                        partial(
+                            link_report_tracker_issues.delay,
+                            team_id=instance.team_id,
+                            task_id=str(instance.task_id),
+                            pr_url=pr_url,
+                        )
+                    )
+            for report in reports:
+                apply_report_completion(report)
     except Exception:
         logger.exception("signals.task_run_pr_assignment_sync_failed", task_run_id=str(instance.id))
 

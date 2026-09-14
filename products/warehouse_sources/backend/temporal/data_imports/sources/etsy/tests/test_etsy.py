@@ -1,5 +1,6 @@
 import json
 import time
+import logging
 from collections.abc import Iterable, Iterator
 from typing import Any, Optional, cast
 
@@ -194,6 +195,15 @@ class TestEtsyTransport:
         )
         with pytest.raises(HTTPError):
             _collect(session, "shop_sections")
+
+    def test_client_error_logs_the_response_body(self, caplog: pytest.LogCaptureFixture) -> None:
+        # requests' raise_for_status() message carries only the status and URL, so the body is the
+        # only place Etsy's actual rejection reason (e.g. an invalid parameter) survives to be triaged.
+        session = _FakeSession([_response({"error": "invalid min_created"}, status=400)])
+        with caplog.at_level(logging.ERROR), pytest.raises(HTTPError):
+            _collect(session, "shop_sections")
+
+        assert any("invalid min_created" in record.message for record in caplog.records)
 
     def test_shop_id_is_discovered_when_not_configured(self) -> None:
         session = _FakeSession([_response({"user_id": 7, "shop_id": 4242}), _page(_rows(1), 1)])

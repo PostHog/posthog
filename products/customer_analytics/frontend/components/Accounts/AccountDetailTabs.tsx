@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { LemonTabs } from '@posthog/lemon-ui'
@@ -12,6 +12,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabContent'
 import { AccountEventStreamToggle } from '../EventStream/AccountEventStreamToggle'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
+import { accountBillingLogic } from './accountBillingLogic'
 import { AccountConversationsExpansion } from './AccountConversationsExpansion'
 import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansion'
 import { AccountMeetingsExpansion } from './AccountMeetingsExpansion'
@@ -38,6 +39,7 @@ export function AccountDetailTabs({
     rightSlot,
     embedded = true,
 }: AccountDetailTabsProps): JSX.Element {
+    useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'usage' }))
     const { featureFlags } = useValues(featureFlagLogic)
     const visibleActiveTab = getVisibleAccountExpansionTab(activeTab, featureFlags)
     const canCreateTasks = userHasAccess(AccessControlResourceType.CustomerAnalytics, AccessControlLevel.Editor)

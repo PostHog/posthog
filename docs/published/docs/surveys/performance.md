@@ -8,6 +8,8 @@ The inline metrics show **Shown**, **Responses**, and **Response rate**. Turn on
 
 The results toolbar contains the date range and **Filters**, which expands response filters, property filters, and **Show archived**. The Filters badge counts active response and property filters plus the archived toggle; the visible date range is separate. **Clear filters** appears when filters are active and resets the date range, response filters, property filters, and archived toggle. Find **View insights** in the toolbar's overflow menu. Configure survey notifications in the **Notifications** tab.
 
+On the **Summary** tab, use **Export responses** on the right of the toolbar to download all answers matching the current filters as CSV or Excel, across all table pages. The **Responses** tab has an export control in the table.
+
 The outcome bar shows responses, dismissals without answers, and unanswered surveys. Each label includes its count and percentage, so small segments remain readable. Hover over the bar to inspect the counts in the chart tooltip.
 
 **Response completion** describes the submissions that contain answers:

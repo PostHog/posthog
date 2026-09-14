@@ -48,6 +48,12 @@ tools:
     data-catalog-metrics-checks-runs-list:
         operation: data_catalog_metrics_checks_runs_list
         enabled: false
+    data-catalog-metrics-checks-schedule-partial-update:
+        operation: data_catalog_metrics_checks_schedule_partial_update
+        enabled: false
+    data-catalog-metrics-checks-schedule-retrieve:
+        operation: data_catalog_metrics_checks_schedule_retrieve
+        enabled: false
     data-catalog-metrics-checks-update:
         operation: data_catalog_metrics_checks_update
         enabled: false

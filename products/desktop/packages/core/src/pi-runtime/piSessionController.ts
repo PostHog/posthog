@@ -116,9 +116,40 @@ export type PiSessionProvider = PiSessionFactory;
 
 export type PiSubmitResult = "prompt" | "steer" | "followUp" | "compact";
 
+type TextEvent = Extract<
+  AgentConversationEvent,
+  {
+    type: "assistant_message_chunk" | "assistant_thought_chunk";
+  }
+>;
+
+const STREAM_BATCH_MS = 16;
+
 type PiTurnState =
   | { phase: "active"; startedAt?: number; stopReason?: string }
   | { phase: "completed" };
+
+function isTerminalCloudStatus(status: TaskRunStatus | undefined): boolean {
+  return (
+    status === "completed" || status === "failed" || status === "cancelled"
+  );
+}
+
+// Reopening reloads history, so keeping it after transport disposal only retains memory.
+function disposedSessionState(): Partial<PiControllerSessionState> {
+  return {
+    connectionState: "disconnected",
+    events: [],
+    models: [],
+    modelsLoaded: false,
+    thinkingLevels: [],
+    thinkingLevelsLoaded: false,
+    commands: [],
+    queue: { steering: [], followUp: [] },
+    status: undefined,
+    mcpToolPermissionRequests: new Map(),
+  };
+}
 
 type PiOperation =
   | "prompt"
@@ -178,11 +209,31 @@ export class PiSessionController {
   private readonly cancelAuthRestoration = new Map<string, () => void>();
   private readonly taskRunIds = new Map<string, string>();
   private readonly activeTaskIds = new Set<string>();
+  private readonly pendingText = new Map<
+    string,
+    {
+      events: TextEvent[];
+      /** Source ids held in this batch. They reach `session.events` only at
+       * flush, so without them a repeat delivery inside one window would pass
+       * the dedup guard and mutate turn state. */
+      sourceIds: Set<string>;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+  private readonly eventSources = new Map<
+    string,
+    {
+      events: AgentConversationEvent[];
+      ids: Set<string>;
+    }
+  >();
+
   private readonly notificationContexts = new Map<
     string,
     PiSessionNotificationContext
   >();
   private readonly turnStates = new Map<string, PiTurnState>();
+  private readonly submissionsInFlight = new Map<string, number>();
 
   constructor(
     @inject(PI_SESSION_PROVIDER) private readonly provider: PiSessionProvider,
@@ -210,6 +261,12 @@ export class PiSessionController {
 
   ensureConnected(taskId: string, taskRunId?: string): Promise<void> {
     this.activeTaskIds.add(taskId);
+    return this.reconnect(taskId, taskRunId);
+  }
+
+  // Reconnects without claiming view ownership, so a reconnect that outlives its
+  // view cannot pin the session against eviction.
+  private reconnect(taskId: string, taskRunId?: string): Promise<void> {
     this.bindTaskRun(taskId, taskRunId);
     this.ensureSubscription(taskId);
 
@@ -280,18 +337,32 @@ export class PiSessionController {
   disconnect(taskId: string): void {
     this.activeTaskIds.delete(taskId);
     this.disposeTask(taskId);
+    this.updateSession(taskId, { connectionState: "disconnected" });
   }
 
   disconnectAll(): void {
     const taskIds = new Set([
+      ...Object.keys(this.store.getState().sessions),
       ...this.activeTaskIds,
       ...this.sessions.keys(),
       ...this.subscriptions.keys(),
       ...this.notificationContexts.keys(),
     ]);
     for (const taskId of taskIds) {
-      this.disconnect(taskId);
+      this.activeTaskIds.delete(taskId);
+      this.disposeTaskResources(taskId);
     }
+    // One store write, because a write per task copies the whole record each time.
+    this.store.setState((state) => {
+      const sessions = { ...state.sessions };
+      for (const taskId of taskIds) {
+        const session = sessions[taskId];
+        if (session) {
+          sessions[taskId] = { ...session, ...disposedSessionState() };
+        }
+      }
+      return { sessions };
+    });
   }
 
   async retry(taskId: string): Promise<void> {
@@ -308,7 +379,7 @@ export class PiSessionController {
       const session = await this.getPiSession(taskId);
       await session.retry?.();
       this.resetTransport(taskId);
-      await this.ensureConnected(taskId, taskRunId);
+      await this.reconnect(taskId, taskRunId);
     } catch (error) {
       throw this.recordOperationFailure(taskId, "retry", error);
     }
@@ -327,6 +398,7 @@ export class PiSessionController {
     const requests = new Map(this.getSession(taskId).mcpToolPermissionRequests);
     requests.delete(request.requestId);
     this.updateSession(taskId, { mcpToolPermissionRequests: requests });
+    this.disposeInactiveSessionIfIdle(taskId);
   }
 
   async clearQueue(taskId: string): Promise<PiQueueSnapshot> {
@@ -362,7 +434,7 @@ export class PiSessionController {
         taskRunId,
       );
       this.resetTransport(taskId);
-      await this.ensureConnected(taskId, resumedRun.id);
+      await this.reconnect(taskId, resumedRun.id);
     } catch (error) {
       throw this.recordOperationFailure(taskId, "restart", error);
     }
@@ -401,7 +473,43 @@ export class PiSessionController {
     return messagingMode === "steer" ? "steer" : "followUp";
   }
 
+  // A submission only marks its turn pending after its first await, so hold the
+  // session from the moment it is requested.
   async submit(
+    taskId: string,
+    text: string,
+    isStreaming: boolean,
+    messagingMode: PiMessagingMode,
+    deferredConfig?: PiDeferredConfig,
+  ): Promise<PiSubmitResult> {
+    this.submissionsInFlight.set(
+      taskId,
+      (this.submissionsInFlight.get(taskId) ?? 0) + 1,
+    );
+    try {
+      return await this.runSubmission(
+        taskId,
+        text,
+        isStreaming,
+        messagingMode,
+        deferredConfig,
+      );
+    } finally {
+      this.endSubmission(taskId);
+      this.disposeInactiveSessionIfIdle(taskId);
+    }
+  }
+
+  private endSubmission(taskId: string): void {
+    const remaining = (this.submissionsInFlight.get(taskId) ?? 1) - 1;
+    if (remaining > 0) {
+      this.submissionsInFlight.set(taskId, remaining);
+      return;
+    }
+    this.submissionsInFlight.delete(taskId);
+  }
+
+  private async runSubmission(
     taskId: string,
     text: string,
     isStreaming: boolean,
@@ -481,6 +589,7 @@ export class PiSessionController {
           followUp: action === "followUp" ? [message] : [],
         });
       }
+      const previousTurnState = this.turnStates.get(taskId);
       this.markTurnPending(taskId);
       if (currentSession.resumeRequired) {
         this.updateSession(taskId, { connectionState: "connecting" });
@@ -525,6 +634,7 @@ export class PiSessionController {
           this.applyQueue(taskId, controllerSession.queue);
         }
         this.setTurnStreaming(taskId, wasStreaming);
+        this.restoreTurnState(taskId, previousTurnState);
         const operation = queuesMessage ? "queue" : "prompt";
         throw this.recordOperationFailure(
           taskId,
@@ -580,6 +690,7 @@ export class PiSessionController {
       throw this.recordOperationFailure(taskId, "bash", error);
     } finally {
       this.updateSession(taskId, { isBashRunning: false });
+      this.disposeInactiveSessionIfIdle(taskId);
     }
   }
 
@@ -602,6 +713,7 @@ export class PiSessionController {
       const session = await this.getPiSession(taskId);
       await session.client.abortBash();
       this.updateSession(taskId, { isBashRunning: false });
+      this.disposeInactiveSessionIfIdle(taskId);
     } catch (error) {
       throw this.recordOperationFailure(taskId, "cancel", error);
     }
@@ -644,7 +756,7 @@ export class PiSessionController {
         this.applyPersistedConfig(taskId, session);
         this.updateSession(taskId, { cloudStatus: session.cloudStatus });
         unsubscribeConversation = session.onConversationEvent(
-          (event, context) => this.handleEvent(taskId, event, context),
+          (event, context) => this.receiveEvent(taskId, event, context),
           (error) => this.applySessionError(taskId, error),
           (cloudStatus) => this.handleCloudStatus(taskId, cloudStatus),
         );
@@ -732,6 +844,7 @@ export class PiSessionController {
         return;
       }
 
+      this.flushText(taskId);
       const currentSession = this.getSession(taskId);
       const conversationEvents = events.filter(
         (event) => event.type !== "queue_update",
@@ -780,8 +893,10 @@ export class PiSessionController {
       this.setSession(taskId, {
         connectionState: "connected",
         events: reconciledEvents,
+        cloudStatus: currentSession.cloudStatus ?? session.cloudStatus,
         status: resolvedStatus,
         stats,
+        historyVersion: currentSession.historyVersion + 1,
         models: currentSession.models,
         modelsLoaded: currentSession.modelsLoaded,
         thinkingLevels: currentSession.thinkingLevels,
@@ -845,6 +960,87 @@ export class PiSessionController {
     }
   }
 
+  private receiveEvent(
+    taskId: string,
+    event: AgentConversationEvent,
+    context?: PiConversationEventContext,
+  ): void {
+    if (
+      event.type !== "assistant_message_chunk" &&
+      event.type !== "assistant_thought_chunk"
+    ) {
+      this.flushText(taskId);
+      this.handleEvent(taskId, event, context);
+      return;
+    }
+    const pending = this.pendingText.get(taskId);
+    if (
+      event.sourceId &&
+      (this.sourceIndex(taskId).ids.has(event.sourceId) ||
+        pending?.sourceIds.has(event.sourceId))
+    )
+      return;
+    // Track activity immediately so navigation cannot dispose a pending batch.
+    this.applyTurnEvent(taskId, event, context?.isLive ?? true);
+    if (!this.getSession(taskId).status?.isStreaming) {
+      this.setTurnStreaming(taskId, true);
+    }
+    if (pending) {
+      pending.events.push(event);
+      if (event.sourceId) pending.sourceIds.add(event.sourceId);
+    } else {
+      this.pendingText.set(taskId, {
+        events: [event],
+        sourceIds: new Set(event.sourceId ? [event.sourceId] : []),
+        timer: setTimeout(() => this.flushText(taskId), STREAM_BATCH_MS),
+      });
+    }
+  }
+
+  private sourceIndex(taskId: string): {
+    events: AgentConversationEvent[];
+    ids: Set<string>;
+  } {
+    const events = this.getSession(taskId).events;
+    let index = this.eventSources.get(taskId);
+    if (!index || index.events !== events) {
+      index = {
+        events,
+        ids: new Set(
+          events.flatMap((event) => (event.sourceId ? [event.sourceId] : [])),
+        ),
+      };
+      this.eventSources.set(taskId, index);
+    }
+    return index;
+  }
+
+  private flushText(taskId: string): void {
+    const pending = this.pendingText.get(taskId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingText.delete(taskId);
+    const session = this.getSession(taskId);
+    const index = this.sourceIndex(taskId);
+    const accepted = pending.events.filter((event) => {
+      if (!event.sourceId) return true;
+      if (index.ids.has(event.sourceId)) return false;
+      index.ids.add(event.sourceId);
+      return true;
+    });
+    if (accepted.length === 0) return;
+    const events = [...session.events, ...accepted];
+    const liveEvents = this.liveEvents.get(taskId) ?? [];
+    liveEvents.push(...accepted);
+    this.liveEvents.set(taskId, liveEvents);
+    index.events = events;
+    this.updateSession(taskId, {
+      events,
+      connectionState: "connected",
+      error: session.error?.scope === "operation" ? session.error : undefined,
+    });
+  }
+
   private handleEvent(
     taskId: string,
     event: AgentConversationEvent,
@@ -860,10 +1056,8 @@ export class PiSessionController {
     }
 
     const session = this.getSession(taskId);
-    if (
-      event.sourceId &&
-      session.events.some((existing) => existing.sourceId === event.sourceId)
-    ) {
+    const index = this.sourceIndex(taskId);
+    if (event.sourceId && index.ids.has(event.sourceId)) {
       return;
     }
 
@@ -879,7 +1073,8 @@ export class PiSessionController {
       );
     }
 
-    const liveEvents = [...(this.liveEvents.get(taskId) ?? []), event];
+    const liveEvents = this.liveEvents.get(taskId) ?? [];
+    liveEvents.push(event);
     this.liveEvents.set(taskId, liveEvents);
     let status = session.status;
     if (status && event.type === "runtime_status") {
@@ -925,6 +1120,12 @@ export class PiSessionController {
       events.push(event);
     }
 
+    if (existingUserMessageIndex >= 0) {
+      this.eventSources.delete(taskId);
+    } else {
+      if (event.sourceId) index.ids.add(event.sourceId);
+      index.events = events;
+    }
     const latestSession = this.getSession(taskId);
     const preserveConnectionError =
       event.type === "runtime_error" &&
@@ -936,6 +1137,8 @@ export class PiSessionController {
           ? latestSession.connectionState
           : "connected",
       events,
+      historyVersion:
+        session.historyVersion + (existingUserMessageIndex >= 0 ? 1 : 0),
       status,
       error:
         preserveConnectionError || preserveOperationError
@@ -945,8 +1148,8 @@ export class PiSessionController {
 
     if (event.type === "turn_completed") {
       void this.refreshStats(taskId);
-      this.disposeInactiveSessionIfIdle(taskId);
     }
+    this.disposeInactiveSessionIfIdle(taskId);
   }
 
   private reconcileTurnState(
@@ -1046,7 +1249,11 @@ export class PiSessionController {
   }
 
   private handleCloudStatus(taskId: string, cloudStatus: TaskRunStatus): void {
+    this.flushText(taskId);
     this.updateSession(taskId, { cloudStatus });
+    // The cloud client emits its synthetic turn_completed straight after this
+    // callback, so let that event notify before the session can be disposed.
+    queueMicrotask(() => this.disposeInactiveSessionIfIdle(taskId));
   }
 
   private async loadStats(
@@ -1286,6 +1493,7 @@ export class PiSessionController {
       queue,
       status: this.withPendingMessageCount(taskId, queue),
     });
+    this.disposeInactiveSessionIfIdle(taskId);
   }
 
   private withPendingMessageCount(
@@ -1358,6 +1566,7 @@ export class PiSessionController {
   private removeUserMessage(taskId: string, messageId: string): void {
     const session = this.getSession(taskId);
     this.updateSession(taskId, {
+      historyVersion: session.historyVersion + 1,
       events: session.events.filter(
         (event) => event.type !== "user_message" || event.id !== messageId,
       ),
@@ -1384,6 +1593,7 @@ export class PiSessionController {
     const session = await this.getPiSession(taskId);
     const status = await session.client.getState();
     this.updateSession(taskId, { status });
+    this.disposeInactiveSessionIfIdle(taskId);
   }
 
   private async sendCloudUserMessage(
@@ -1442,8 +1652,7 @@ export class PiSessionController {
     this.liveEvents.delete(taskId);
     this.queueRevisions.delete(taskId);
     this.queuesToRestore.delete(taskId);
-    this.activeTaskIds.delete(taskId);
-    await this.ensureConnected(taskId, resumedRun.id);
+    await this.reconnect(taskId, resumedRun.id);
     return this.getPiSession(taskId);
   }
 
@@ -1472,22 +1681,50 @@ export class PiSessionController {
 
   private shouldRetainInactiveSession(taskId: string): boolean {
     const session = this.getSession(taskId);
+    const turnState = this.turnStates.get(taskId);
     if (
       session.connectionState === "connecting" ||
       session.status?.isStreaming ||
-      this.turnStates.get(taskId)?.phase === "active"
+      session.status?.isCompacting ||
+      this.submissionsInFlight.has(taskId) ||
+      session.isBashRunning ||
+      session.authRestoring ||
+      // A turn that already recorded a failure receives no turn_completed, so it
+      // is finished, not in flight. A recovering turn clears the failure on its
+      // next activity event.
+      (turnState?.phase === "active" && turnState.stopReason === undefined)
     ) {
       return true;
     }
+    if (isTerminalCloudStatus(session.cloudStatus)) {
+      // A finished run can no longer answer a permission request or drain a queue.
+      return false;
+    }
     return (
-      session.cloudStatus !== undefined &&
-      session.cloudStatus !== "completed" &&
-      session.cloudStatus !== "failed" &&
-      session.cloudStatus !== "cancelled"
+      session.cloudStatus !== undefined ||
+      session.mcpToolPermissionRequests.size > 0 ||
+      session.queue.steering.length > 0 ||
+      session.queue.followUp.length > 0
     );
   }
 
+  private restoreTurnState(
+    taskId: string,
+    turnState: PiTurnState | undefined,
+  ): void {
+    if (turnState) {
+      this.turnStates.set(taskId, turnState);
+      return;
+    }
+    this.turnStates.delete(taskId);
+  }
+
   private disposeTask(taskId: string): void {
+    this.disposeTaskResources(taskId);
+    this.updateSession(taskId, disposedSessionState());
+  }
+
+  private disposeTaskResources(taskId: string): void {
     this.cancelAuthRestoration.get(taskId)?.();
     this.resetTransport(taskId);
     this.taskRunIds.delete(taskId);
@@ -1495,11 +1732,15 @@ export class PiSessionController {
     this.queueRevisions.delete(taskId);
     this.queuesToRestore.delete(taskId);
     this.turnStates.delete(taskId);
+    this.submissionsInFlight.delete(taskId);
     this.notificationContexts.delete(taskId);
-    this.updateSession(taskId, { mcpToolPermissionRequests: new Map() });
   }
 
   private resetTransport(taskId: string): void {
+    const pending = this.pendingText.get(taskId);
+    if (pending) clearTimeout(pending.timer);
+    this.pendingText.delete(taskId);
+    this.eventSources.delete(taskId);
     this.advanceSessionVersion(taskId);
     this.disposeConversationSubscription(taskId);
     this.sessions.delete(taskId);
@@ -1556,6 +1797,7 @@ export class PiSessionController {
   }
 
   private applySessionError(taskId: string, error: unknown): void {
+    this.flushText(taskId);
     const failure = normalizeSessionError(error);
     const classified = classifyPromptFailure(error);
     this.updateSession(taskId, {

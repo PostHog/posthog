@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     IncrementalFieldMissingFromDataError,
-    PublishedFiles,
     get_incremental_field_value,
     notify_revenue_analytics_that_sync_has_completed,
     run_post_load_operations,
@@ -274,7 +273,7 @@ class TestZeroRowSkip:
         job.created_at = _JOB_CREATED_AT
 
         maintenance = AsyncMock()
-        publish = AsyncMock(return_value=PublishedFiles(folder="folder", file_count=1))
+        publish = AsyncMock(return_value="folder")
         bookkeeping = AsyncMock()
         post_load_step = AsyncMock()
         with (
