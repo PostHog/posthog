@@ -948,14 +948,14 @@ Note: BreezoMeter is now Google Maps Platform: the connector calls airquality.go
 
 ## Brex — gaps
 
-Today (8): `budgets`, `card_transactions`, `cash_transactions`, `departments`, `expenses`, `locations`, `users`, `vendors`
+Today (13): `budgets`, `card_accounts`, `card_transactions`, `cards`, `cash_accounts`, `cash_transactions`, `departments`, `expenses`, `locations`, `spend_limits`, `transfers`, `users`, `vendors`
 
 Diffed against: <https://developer.brex.com/llms.txt>
 
-- [ ] `GET /v2/cards (Team API)` — lookup resolving the card id carried on card transactions and expenses (high)
-- [ ] `GET /v2/accounts/card and GET /v2/accounts/cash (Transactions API)` — lookup resolving the account ids on both transaction tables; cash accounts are already fetched internally but not exposed (high)
-- [ ] `GET /v1/transfers (Payments API)` — outbound bill-pay/ACH/wire transactions, entirely absent from card and cash transactions (high)
-- [ ] `GET /v2/spend_limits (Budgets API v2)` — the limit objects budgets and cards are governed by; budgets alone do not show spend controls (high)
+- [x] `GET /v2/cards (Team API)` — lookup resolving the card id carried on card transactions and expenses (high)
+- [x] `GET /v2/accounts/card and GET /v2/accounts/cash (Transactions API)` — lookup resolving the account ids on both transaction tables; cash accounts are already fetched internally but not exposed (high)
+- [x] `GET /v1/transfers (Payments API)` — outbound bill-pay/ACH/wire transactions, entirely absent from card and cash transactions (high)
+- [x] `GET /v2/spend_limits (Budgets API v2)` — the limit objects budgets and cards are governed by; budgets alone do not show spend controls (high)
 - [ ] `GET /v3/accounting/records (Accounting API)` — the accounting ledger export — how finance teams reconcile Brex spend to the GL (high)
 - [ ] `GET /v1/fields and GET /v1/fields/{field_id}/values (Fields API)` — lookup resolving the custom field ids/values tagged on expenses and transactions (medium)
 - [ ] `GET /v2/titles (Team API)` — lookup resolving the title id on users, alongside the departments and locations already synced (medium)
@@ -965,7 +965,7 @@ Diffed against: <https://developer.brex.com/llms.txt>
 - [ ] `GET /v1/linked_accounts (Payments API)` — lookup resolving the external bank accounts transfers move money to and from (medium)
 - [ ] `GET /v2/legal_entities (Team API)` — lookup for multi-entity companies, needed to split spend by entity (low)
 
-Note: developer.brex.com serves an SPA (the openapi.json URLs return HTML), but the llms.txt index plus the per-API markdown mirrors (e.g. https://developer.brex.com/openapi/team\_api.md) list every operation with its literal path. Brex ships nine APIs — Accounting, Budgets, Expenses, Fields, Onboarding, Payments, Team, Transactions, Travel — and the connector covers pieces of only four. Note the connector already calls /v2/accounts/cash internally to fan out cash transactions but never exposes it as a table.
+Note: developer.brex.com serves an SPA (the openapi.json URLs return HTML), but the llms.txt index plus the per-API markdown mirrors (e.g. https://developer.brex.com/openapi/team\_api.md) list every operation with its literal path. Brex ships nine APIs — Accounting, Budgets, Expenses, Fields, Onboarding, Payments, Team, Transactions, Travel — and the connector covers pieces of only four. The connector now also exposes /v2/accounts/cash as its own table, alongside the fan-out it already drove.
 
 ## Browserbase — **thin**
 
