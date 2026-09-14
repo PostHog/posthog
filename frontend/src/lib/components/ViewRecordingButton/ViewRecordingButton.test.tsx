@@ -27,4 +27,20 @@ describe('recordingDisabledReason', () => {
         expect(recordingDisabledReason(undefined, undefined, undefined)).not.toBeNull()
         expect(typeof recordingDisabledReason(undefined, undefined, undefined)).not.toBe('string')
     })
+
+    it.each([
+        ['log line' as const, 'No recording for this log line'],
+        ['span' as const, 'No recording for this span'],
+    ])('names the row for a %s', (subject, expected) => {
+        expect(recordingDisabledReason('0190-good-session', undefined, false, subject)).toBe(expected)
+    })
+
+    // A recording row already is a session, so the session-id guidance would send the reader nowhere.
+    it.each([
+        ['recording' as const, 'This recording is not available'],
+        ['session' as const, 'No recording for this session'],
+    ])('does not ask a %s row for a session id', (subject, expected) => {
+        expect(recordingDisabledReason(undefined, undefined, undefined, subject)).toBe(expected)
+        expect(recordingDisabledReason('', undefined, true, subject)).toBe(expected)
+    })
 })

@@ -27,6 +27,9 @@ export enum RecordingPlayerType {
     Modal = 'modal',
 }
 
+/** The kind of row the button sits on, so the disabled copy names what the reader is looking at. */
+export type RecordingSubject = 'event' | 'log line' | 'span' | 'session' | 'recording'
+
 type ViewRecordingProps = {
     sessionId: string | undefined
     recordingStatus?: string
@@ -38,6 +41,7 @@ type ViewRecordingProps = {
     hasRecording?: boolean
     /** If true, automatically check if a recording exists for this session via batched API call */
     checkRecordingExists?: boolean
+    subject?: RecordingSubject
     /** When provided, short-circuits the kea fetch (e.g. parent list already has the outcome on each row). */
 }
 
@@ -65,6 +69,7 @@ export default function ViewRecordingButton({
     matchingEvents,
     hasRecording,
     checkRecordingExists = false,
+    subject = 'event',
     variant = ViewRecordingButtonVariant.Button,
     iconOnly = false,
     noPadding = false,
@@ -100,6 +105,7 @@ export default function ViewRecordingButton({
         matchingEvents,
         openPlayerIn,
         hasRecording,
+        subject,
     })
 
     const { recordingViewed, recordingViewedLoading } = useValues(
@@ -197,23 +203,29 @@ export default function ViewRecordingButton({
     )
 }
 
+const noRecordingReason = (subject: RecordingSubject): string =>
+    subject === 'recording' ? 'This recording is not available' : `No recording for this ${subject}`
+
 export const recordingDisabledReason = (
     sessionId: unknown,
     recordingStatus: string | undefined,
-    hasRecording?: boolean
+    hasRecording?: boolean,
+    subject: RecordingSubject = 'event'
 ): JSX.Element | string | null => {
     if (sessionId != null && typeof sessionId !== 'string') {
-        return 'No recording for this event'
+        return noRecordingReason(subject)
     }
     const isValidSessionId = typeof sessionId === 'string' && sessionId !== ''
-    if (!isValidSessionId && hasRecording === false) {
-        return 'No recording for this event'
+    // A session or recording row already is a session, so the advice to send session IDs does not apply to it.
+    const isSessionRow = subject === 'session' || subject === 'recording'
+    if (!isValidSessionId && (hasRecording === false || isSessionRow)) {
+        return noRecordingReason(subject)
     } else if (!isValidSessionId) {
         return (
             <>
-                No session ID associated with this event.{' '}
+                This {subject} has no session ID, so there is no recording to open.{' '}
                 <Link to="https://posthog.com/docs/data/sessions#automatically-sending-session-ids">Learn how</Link> to
-                set it on all events.
+                send session IDs.
             </>
         )
     } else if (recordingStatus && !['active', 'sampled', 'buffering'].includes(recordingStatus)) {
@@ -227,7 +239,7 @@ export const recordingDisabledReason = (
             </>
         )
     } else if (hasRecording === false) {
-        return 'No recording for this event'
+        return noRecordingReason(subject)
     }
     return null
 }
@@ -261,6 +273,7 @@ export function useRecordingButton({
     matchingEvents,
     openPlayerIn,
     hasRecording,
+    subject = 'event',
 }: ViewRecordingProps): {
     onClick: () => void
     disabledReason: JSX.Element | string | null
@@ -288,7 +301,7 @@ export function useRecordingButton({
         }
     }
 
-    const disabledReason = recordingDisabledReason(sessionId, recordingStatus, hasRecording)
+    const disabledReason = recordingDisabledReason(sessionId, recordingStatus, hasRecording, subject)
     const warningReason = recordingWarningReason(recordingDuration, minimumDuration, recordingStatus, hasRecording)
 
     return { onClick, disabledReason, warningReason }

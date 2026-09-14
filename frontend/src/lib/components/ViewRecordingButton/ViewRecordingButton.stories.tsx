@@ -45,3 +45,14 @@ export function LinkVariant(): JSX.Element {
         </div>
     )
 }
+
+export function Unavailable(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-y-2 grow-0 items-start">
+            <ViewRecordingButton sessionId={undefined} type="secondary" />
+            <ViewRecordingButton sessionId={undefined} subject="log line" type="secondary" />
+            <ViewRecordingButton sessionId={undefined} subject="recording" type="secondary" />
+            <ViewRecordingButton sessionId="123456789" hasRecording={false} subject="session" type="secondary" />
+        </div>
+    )
+}
