@@ -3,7 +3,6 @@ import {
   BookOpenTextIcon,
   ChatsCircleIcon,
   CodeIcon,
-  FileTextIcon,
   LockSimpleIcon,
   SquaresFourIcon,
   UsersThreeIcon,
@@ -26,7 +25,6 @@ import type { OnboardingLandingDestination } from "@posthog/shared/analytics-eve
 import { SpacesIcon } from "@posthog/ui/features/canvas/components/SpacesIcon";
 import { type ReactNode, useState } from "react";
 import {
-  autoresearchPreview,
   composerPreview,
   loopsPreview,
   selfDrivingPreview,
@@ -42,6 +40,8 @@ interface StartAction {
   key: string;
   label: string;
   href: string;
+  /** Reported destination when the action opens something other than its tab. */
+  destination?: OnboardingLandingDestination;
   comingSoon?: boolean;
 }
 
@@ -63,18 +63,25 @@ export interface TaskSpaceHrefs {
 
 const posthogMention = <span className="font-mono">@posthog</span>;
 
-function buildStartPaths(taskSpaceHrefs: TaskSpaceHrefs): StartPath[] {
+function buildStartPaths(
+  taskSpaceHrefs: TaskSpaceHrefs,
+  autoresearchAvailable: boolean,
+): StartPath[] {
   return [
     {
       destination: "tasks",
       label: "You",
-      badge: "Most common",
       title: "You describe a change",
       lead: "Write a brief in a new task and send it to an agent. Add context first if you want: files, constraints, and what done looks like.",
       facts: [
         "Works in your personal space or a team space",
         "The thread stays open, so you can reply to steer the agent mid-run",
         "Ask for a canvas instead of code if you want a doc or data view",
+        ...(autoresearchAvailable
+          ? [
+              "Turn on autoresearch to have the agent improve a metric across attempts",
+            ]
+          : []),
       ],
       actions: [
         {
@@ -87,6 +94,16 @@ function buildStartPaths(taskSpaceHrefs: TaskSpaceHrefs): StartPath[] {
           label: "Create task in personal",
           href: taskSpaceHrefs.personal,
         },
+        ...(autoresearchAvailable
+          ? [
+              {
+                key: "autoresearch",
+                label: "Start autoresearch",
+                href: `${taskSpaceHrefs.general}?mode=autoresearch`,
+                destination: "autoresearch" as const,
+              },
+            ]
+          : []),
       ],
       preview: composerPreview,
     },
@@ -98,29 +115,10 @@ function buildStartPaths(taskSpaceHrefs: TaskSpaceHrefs): StartPath[] {
       facts: [
         "Nothing runs until you choose to work on it",
         "Each item links back to the signal it came from",
-        "Usually ends in a report, sometimes a code change",
+        "Each report has the finding, its likely cause, and the evidence",
       ],
       actions: [{ key: "self-driving", label: "View inbox", href: "/inbox" }],
       preview: selfDrivingPreview,
-    },
-    {
-      destination: "autoresearch",
-      label: "Autoresearch",
-      title: "A metric drives the work",
-      lead: "Name a metric. The agent forms a hypothesis, makes a change, measures it, and uses the result to plan the next attempt. You review the attempt that won.",
-      facts: [
-        "Works for anything you can measure, like latency, bundle size, or conversion",
-        "Every attempt is its own thread, and the winner becomes a code change",
-        "Measurements land in a canvas so the team keeps them",
-      ],
-      actions: [
-        {
-          key: "autoresearch",
-          label: "Start autoresearch",
-          href: `${taskSpaceHrefs.general}?mode=autoresearch`,
-        },
-      ],
-      preview: autoresearchPreview,
     },
     {
       destination: "slack",
@@ -173,12 +171,6 @@ const results = [
     description:
       "A shared doc, data view, or small tool. It lives in the space, and anyone can edit it.",
     icon: <SquaresFourIcon size={16} />,
-  },
-  {
-    title: "Report",
-    description:
-      "The finding, its likely cause, the evidence, and suggested next steps.",
-    icon: <FileTextIcon size={16} />,
   },
 ];
 
@@ -249,7 +241,7 @@ function StartActionButton({
           href={action.href}
           onClick={(event) => {
             event.preventDefault();
-            onOpenDestination(destination, action.href);
+            onOpenDestination(action.destination ?? destination, action.href);
           }}
         />
       }
@@ -262,6 +254,7 @@ function StartActionButton({
 
 export interface OnboardingLandingProps {
   selfDrivingAvailable: boolean;
+  autoresearchAvailable: boolean;
   taskSpaceHrefs: TaskSpaceHrefs;
   onOpenDestination: OpenDestination;
 }
@@ -270,12 +263,13 @@ const pageColumn = "mx-auto w-full max-w-5xl px-6";
 
 export function OnboardingLanding({
   selfDrivingAvailable,
+  autoresearchAvailable,
   taskSpaceHrefs,
   onOpenDestination,
 }: OnboardingLandingProps) {
   const [activePath, setActivePath] =
     useState<OnboardingLandingDestination>("tasks");
-  const startPaths = buildStartPaths(taskSpaceHrefs);
+  const startPaths = buildStartPaths(taskSpaceHrefs, autoresearchAvailable);
   const visiblePaths = selfDrivingAvailable
     ? startPaths
     : startPaths.filter((path) => path.destination !== "self-driving");
@@ -366,10 +360,10 @@ export function OnboardingLanding({
               Then you review the result
             </Heading>
             <Text size="sm" variant="muted">
-              Same three, whichever way it started
+              The same, whichever way it started
             </Text>
           </div>
-          <Card className="grid @3xl:grid-cols-3 grid-cols-1 gap-0 overflow-hidden py-0">
+          <Card className="grid @3xl:grid-cols-2 grid-cols-1 gap-0 overflow-hidden py-0">
             {results.map((result) => (
               <div
                 key={result.title}

@@ -6,6 +6,7 @@ const meta = {
   component: OnboardingLanding,
   args: {
     selfDrivingAvailable: true,
+    autoresearchAvailable: true,
     taskSpaceHrefs: {
       general: "/spaces/general/new",
       personal: "/spaces/personal/new",

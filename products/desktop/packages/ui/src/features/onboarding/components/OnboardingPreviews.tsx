@@ -8,10 +8,8 @@ import {
   PlusIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import type { AutoresearchDraftConfig } from "@posthog/core/autoresearch/schemas";
 import { Badge, Button } from "@posthog/quill";
 import type { SignalReportPriority } from "@posthog/shared/types";
-import { AutoresearchComposerControls } from "@posthog/ui/features/autoresearch/AutoresearchComposerControls";
 import { PriorityMonogram } from "@posthog/ui/features/inbox/components/PriorityMonogram";
 import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import type { ReactNode } from "react";
@@ -180,35 +178,6 @@ export const slackPreview = (
         ))}
       </ul>
     </div>
-  </FauxScene>
-);
-
-const exampleAutoresearchDraft: AutoresearchDraftConfig = {
-  direction: "maximize",
-  targetValue: null,
-  maxIterations: 10,
-  implementModel: null,
-  measureModel: null,
-  implementEffort: null,
-  measureEffort: null,
-};
-
-const ignoreChange = () => {};
-
-// The real composer controls, so the preview cannot drift from what the composer shows.
-export const autoresearchPreview = (
-  <FauxScene>
-    <FauxComposerContext />
-    <div className="rounded-(--radius-2) border border-border bg-card p-3.5">
-      <AutoresearchComposerControls
-        draft={exampleAutoresearchDraft}
-        modelOptions={[]}
-        effortOptions={[]}
-        onChange={ignoreChange}
-        onExit={ignoreChange}
-      />
-    </div>
-    <FauxComposer placeholder="Example: Reduce memory usage measured by `pnpm bench:memory`" />
   </FauxScene>
 );
 

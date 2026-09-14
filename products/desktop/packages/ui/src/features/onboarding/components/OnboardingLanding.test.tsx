@@ -15,7 +15,7 @@ describe("OnboardingLanding", () => {
     ["@posthog in Slack", "onboarding-start-slack", "slack", "/settings/slack"],
     ["Self-driving", "onboarding-start-self-driving", "self-driving", "/inbox"],
     [
-      "Autoresearch",
+      null,
       "onboarding-start-autoresearch",
       "autoresearch",
       `${taskSpaceHrefs.general}?mode=autoresearch`,
@@ -27,6 +27,7 @@ describe("OnboardingLanding", () => {
       const { container } = render(
         <OnboardingLanding
           selfDrivingAvailable
+          autoresearchAvailable
           taskSpaceHrefs={taskSpaceHrefs}
           onOpenDestination={onOpenDestination}
         />,
@@ -48,6 +49,7 @@ describe("OnboardingLanding", () => {
     const { container } = render(
       <OnboardingLanding
         selfDrivingAvailable
+        autoresearchAvailable
         taskSpaceHrefs={taskSpaceHrefs}
         onOpenDestination={onOpenDestination}
       />,
@@ -66,18 +68,22 @@ describe("OnboardingLanding", () => {
     expect(onOpenDestination).not.toHaveBeenCalled();
   });
 
-  it("hides the self-driving tab when the destination is unavailable", () => {
-    render(
+  it("hides self-driving and autoresearch when they are unavailable", () => {
+    const { container } = render(
       <OnboardingLanding
         selfDrivingAvailable={false}
+        autoresearchAvailable={false}
         taskSpaceHrefs={taskSpaceHrefs}
         onOpenDestination={vi.fn()}
       />,
     );
 
     expect(
-      screen.getByRole("tab", { name: "Autoresearch" }),
+      container.querySelector('[data-attr="onboarding-start-tasks-general"]'),
     ).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Self-driving" })).toBeNull();
+    expect(
+      container.querySelector('[data-attr="onboarding-start-autoresearch"]'),
+    ).toBeNull();
   });
 });
