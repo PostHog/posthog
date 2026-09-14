@@ -35,7 +35,11 @@ from posthog.taxonomy.property_access import restricted_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
 from products.actions.backend.models.action import Action
-from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.event_definitions.backend.models.property_definition import (
+    PropertyDefinition,
+    PropertyType,
+    effective_project_id_expr,
+)
 
 from ee.hogai.chat_agent.taxonomy.format import (
     enrich_props_with_descriptions,
@@ -217,7 +221,11 @@ class TaxonomyAgentToolkit:
         names: list[str],
         group_type_index: int | None = None,
     ) -> dict[str, str]:
-        """Map property name -> sanitized user-authored description from the team's property definitions.
+        """Map property name -> sanitized user-authored description from the project's property definitions.
+
+        Scoped to the project, so a description written in any environment of the project is
+        visible here. `effective_project_id_expr()` falls back to `team_id` for legacy rows whose
+        `project_id` is still null.
 
         Only the enterprise `PropertyDefinition` model carries a `description` field, so this is a
         no-op on non-EE builds. Descriptions live only in Postgres and never influence which
@@ -231,7 +239,8 @@ class TaxonomyAgentToolkit:
         )
 
         qs = (
-            EnterprisePropertyDefinition.objects.filter(team=self._team, type=property_type, name__in=names)
+            EnterprisePropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=self._team.project_id, type=property_type, name__in=names)
             .exclude(description__isnull=True)
             .exclude(description="")
         )
