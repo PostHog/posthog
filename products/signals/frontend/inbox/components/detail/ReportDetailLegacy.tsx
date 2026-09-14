@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { ReactNode, useCallback, useState } from 'react'
 
 import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
-import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -25,6 +25,7 @@ import {
     parsePrUrlParts,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
+import { reportPullRequests } from '../../utils/reportPullRequests'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
@@ -547,16 +548,29 @@ function prFilesUrl(prUrl: string): string {
  * the branch's diff against the default branch alongside the overview. Runs keep their own `AgentRunDetail`.
  */
 export function ReportDetailLegacy({ report, tab }: { report: SignalReport; tab: InboxTabKey }): JSX.Element {
-    const { latestCommitArtefact, reportArtefacts } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const logic = inboxReportDetailLogic({ reportId: report.id, report })
+    const { latestCommitArtefact, reportArtefacts, selectedPullRequest } = useValues(logic)
+    const { selectPullRequest } = useActions(logic)
 
-    const prUrl = safeHttpUrl(report.implementation_pr_url)
+    const prUrl = safeHttpUrl(selectedPullRequest.url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
     const hasPr = !!(prRef && prUrl)
 
     // The report's branch to diff comes from the latest "Commit pushed" artefact; only offer the diff
     // tab when that artefact carries the repo + branch the diff endpoint needs.
     const commit = latestCommitArtefact ? (latestCommitArtefact.content as CommitContent) : null
-    const canDiff = !!(commit?.repository && commit?.branch)
+    const linkedPr = report.pull_requests?.find((pr) => pr.url === prUrl)
+    const canDiff =
+        !!(commit?.repository && commit?.branch) &&
+        (!linkedPr ||
+            (linkedPr.attached_by?.task_id != null &&
+                linkedPr.attached_by.task_id === latestCommitArtefact?.task_id &&
+                commit.repository.toLowerCase() === prRef?.repoSlug.toLowerCase() &&
+                report.pull_requests?.filter(
+                    (pr) =>
+                        pr.attached_by?.task_id === linkedPr.attached_by?.task_id &&
+                        parsePrUrlParts(pr.url)?.repoSlug.toLowerCase() === prRef?.repoSlug.toLowerCase()
+                ).length === 1))
     // A PR-bearing report always gets the tab bar right away — driven by `hasPr` (immediate) rather than
     // the diff artefact (a beat later), so the tabs don't pop in and shift the layout. While the commit
     // artefact is still loading, the tab label and body show skeletons.
@@ -589,7 +603,13 @@ export function ReportDetailLegacy({ report, tab }: { report: SignalReport; tab:
                 canDiff && commit ? (
                     <PullRequestDiffPanel report={report} commit={commit} />
                 ) : hasPr ? (
-                    <PullRequestDiffPending artefactsLoaded={artefactsLoaded} />
+                    artefactsLoaded && prUrl ? (
+                        <LemonButton to={prFilesUrl(prUrl)} targetBlank>
+                            View this PR's files in GitHub
+                        </LemonButton>
+                    ) : (
+                        <PullRequestDiffPending artefactsLoaded={artefactsLoaded} />
+                    )
                 ) : undefined
             }
             diffBranchTag={
@@ -617,6 +637,17 @@ export function ReportDetailLegacy({ report, tab }: { report: SignalReport; tab:
                 ) : undefined
             }
         >
+            {reportPullRequests(report).length > 1 && (
+                <LemonSelect
+                    value={selectedPullRequest.url}
+                    onChange={selectPullRequest}
+                    options={reportPullRequests(report).map((pr) => ({
+                        value: pr.url,
+                        label: `${parsePrUrlParts(pr.url)?.repoSlug}#${parsePrUrlParts(pr.url)?.number} (${pr.state})`,
+                    }))}
+                    data-attr="inbox-report-select-pull-request"
+                />
+            )}
             {hasPr && <PrChecksSection report={report} />}
         </InboxDetailFrameLegacy>
     )

@@ -2346,6 +2346,19 @@ class TestTaskAPI(BaseTaskAPITest):
             self.assertIn(expected_detail, response.json()["error"])
             self.assertFalse(Task.objects.filter(title="Report task").exists())
 
+    def test_implementation_creation_respects_an_external_claim(self):
+        from products.signals.backend.models import SignalReport, SignalReportAssignment
+
+        report = SignalReport.objects.create(team=self.team)
+        assignment = SignalReportAssignment.all_teams.create(
+            team=self.team, report=report, actor_kind="agent", actor_user=self.user, actor_agent="test-agent"
+        )
+        response = self._post_signal_report_task(report.id, "implementation")
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.actor_agent, "test-agent")
+        self.assertFalse(Task.objects.filter(title="Report task").exists())
+
     @parameterized.expand(
         [
             # Another task took the slot this one released, so rerunning would make two live

@@ -8,11 +8,11 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
-import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 
 import { groupsModel } from '~/models/groupsModel'
 import { BreakdownAttributionType, FunnelConversionWindowTimeUnit, StepOrderValue } from '~/types'
 
+import { GroupIntroductionFooter } from 'products/groups/frontend/components/GroupsIntroduction'
 import { FUNNEL_STEP_COUNT_LIMIT } from 'products/product_analytics/frontend/insights/funnels/editor/FunnelsQuerySteps'
 import { TIME_INTERVAL_BOUNDS } from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 

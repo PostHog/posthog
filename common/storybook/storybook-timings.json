@@ -1151,7 +1151,7 @@
         "chromium": 12.236,
         "webkit": 2.119
     },
-    "frontend/src/scenes/persons/PersonScene.stories.tsx": {
+    "products/persons/frontend/pages/PersonScene.stories.tsx": {
         "chromium": 14.518,
         "webkit": 2.907
     },
