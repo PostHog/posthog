@@ -366,7 +366,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         kafka_producer.clone(),
         config.ingestion_warnings_topic.clone(),
     );
-    let fence_scan_pool = fallback.as_ref().map(|f| f.pool.clone());
+    let fence_scan = fallback.clone();
     let mut fence_repair_nudge: Option<Arc<Notify>> = None;
     let fenced = if config.kafka_transactional_fencing {
         // Every one of these is derived from LEASE_TTL rather than set
@@ -523,7 +523,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         },
         Arc::clone(&fences),
-        fence_scan_pool,
+        fence_scan,
         num_partitions,
         Arc::clone(&warm_pools),
         fenced.clone(),

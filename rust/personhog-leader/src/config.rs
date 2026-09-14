@@ -277,6 +277,7 @@ pub struct Config {
     /// PG row as current, which is only true of the writer's own target.
     /// Prod pairs posthog_person on both sides; the dev validation stack
     /// pairs personhog_person_tmp on both — flip them together at cutover.
+    /// The saga tables follow this choice (`LifecycleTables::paired_with`).
     #[envconfig(default = "posthog_person")]
     pub fallback_table: String,
 

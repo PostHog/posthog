@@ -1344,7 +1344,11 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
 
     let partition_a = partition_for_person(team_id, fenced_a, NUM_PARTITIONS);
     let fences: FenceMap = Arc::new(DashMap::new());
-    let installed = rebuild_partition_fences(&pool, &fences, partition_a, NUM_PARTITIONS)
+    let fallback = PgFallback {
+        pool: pool.clone(),
+        table: "posthog_person".to_string(),
+    };
+    let installed = rebuild_partition_fences(&fallback, &fences, partition_a, NUM_PARTITIONS)
         .await
         .expect("scan runs");
 
@@ -1381,7 +1385,7 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
             op_type: personhog_proto::personhog::types::v1::LifecycleOpType::Delete,
         },
     );
-    let reinstalled = rebuild_partition_fences(&pool, &fences, ghost_partition, NUM_PARTITIONS)
+    let reinstalled = rebuild_partition_fences(&fallback, &fences, ghost_partition, NUM_PARTITIONS)
         .await
         .expect("re-warm runs");
     assert!(

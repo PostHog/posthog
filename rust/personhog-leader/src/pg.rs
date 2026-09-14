@@ -18,6 +18,37 @@ pub struct PgFallback {
     pub table: String,
 }
 
+impl PgFallback {
+    pub fn lifecycle_tables(&self) -> LifecycleTables {
+        LifecycleTables::paired_with(&self.table)
+    }
+}
+
+/// The saga tables paired with a person table. Identity writes marks to
+/// the pair matching its person table, so the fence checks must read the
+/// same pair or every committed release fails closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LifecycleTables {
+    pub op: &'static str,
+    pub op_person: &'static str,
+}
+
+impl LifecycleTables {
+    pub fn paired_with(person_table: &str) -> Self {
+        if person_table == "personhog_person_tmp" {
+            Self {
+                op: "lifecycle_op_tmp",
+                op_person: "lifecycle_op_person_tmp",
+            }
+        } else {
+            Self {
+                op: "lifecycle_op",
+                op_person: "lifecycle_op_person",
+            }
+        }
+    }
+}
+
 /// Take a fallback-pool connection, recording the wait: the pool is small
 /// and shared by cache-miss loads and the sagas' mark checks.
 pub async fn acquire_timed(

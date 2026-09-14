@@ -133,18 +133,40 @@ pub struct MergeSourceEntry {
 }
 
 /// Whether another driver advanced or settled the op past our step.
-async fn op_moved_on(pool: &PgPool, op: &OpRow) -> Result<bool, SagaError> {
-    let current = sqlx::query!(
-        r#"SELECT step, completed_at FROM lifecycle_op WHERE op_id = $1"#,
-        op.op_id
-    )
-    .fetch_optional(pool)
-    .await?;
+async fn op_moved_on(
+    pool: &PgPool,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<bool, SagaError> {
+    let sql = format!(
+        "SELECT step, completed_at IS NOT NULL FROM {} WHERE op_id = $1",
+        tables.lifecycle_op
+    );
+    let current: Option<(String, bool)> = sqlx::query_as(&sql)
+        .bind(op.op_id)
+        .fetch_optional(pool)
+        .await?;
     Ok(match current {
         // A vanished row was completed and garbage-collected.
         None => true,
-        Some(row) => row.completed_at.is_some() || row.step != op.step,
+        Some((step, completed)) => completed || step != op.step,
     })
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct PersonRef {
+    person_id: i64,
+    person_uuid: Uuid,
+}
+
+/// A sealed source row. `ordinal` and `sealed` are set before any reader
+/// selects on `status = sealed`, so a NULL decodes as the corrupt state it is.
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct SealedSource {
+    person_id: i64,
+    person_uuid: Uuid,
+    ordinal: i32,
+    sealed: Value,
 }
 
 /// The recorded `lifecycle_op.outcome` payload: one entry per requested
@@ -356,22 +378,10 @@ impl MergeOpExecutor {
     // handler signatures this feeds into.
     #[allow(clippy::result_large_err)]
     pub async fn find(&self, op_id: Uuid) -> Result<Option<OpRow>, Status> {
-        sqlx::query_as!(
-            OpRow,
-            r#"
-            SELECT op_id, op_type, team_id::bigint as "team_id!", step, attempt,
-                   request as "request: Value", outcome as "outcome: Value",
-                   created_at, completed_at,
-                   (lease_expires_at IS NOT NULL AND lease_expires_at >= now())
-                       as "lease_live!"
-            FROM lifecycle_op
-            WHERE op_id = $1
-            "#,
-            op_id
-        )
-        .fetch_optional(self.engine.pool())
-        .await
-        .map_err(|e| Status::internal(format!("database error: {e}")))
+        self.engine
+            .load(op_id)
+            .await
+            .map_err(|e| Status::internal(format!("database error: {e}")))
     }
 
     /// Whether this terminal row is a disposable claim abort.
@@ -392,20 +402,28 @@ impl MergeOpExecutor {
         let mut tx = begin_timed(self.engine.pool())
             .await
             .map_err(|e| Status::internal(format!("discard begin failed: {e}")))?;
-        let deleted = sqlx::query!(
+        let tables = self.engine.tables();
+        let discard_sql = format!(
             r#"
-            DELETE FROM lifecycle_op
+            DELETE FROM {lifecycle_op}
             WHERE op_id = $1
               AND completed_at IS NOT NULL
               AND (outcome->>'claim_abort')::boolean IS TRUE
             "#,
-            op_id
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| Status::internal(format!("discard failed: {e}")))?;
+            lifecycle_op = tables.lifecycle_op,
+        );
+        let deleted = sqlx::query(&discard_sql)
+            .bind(op_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| Status::internal(format!("discard failed: {e}")))?;
         if deleted.rows_affected() > 0 {
-            sqlx::query!("DELETE FROM lifecycle_op_person WHERE op_id = $1", op_id)
+            let marks_sql = format!(
+                "DELETE FROM {} WHERE op_id = $1",
+                tables.lifecycle_op_person
+            );
+            sqlx::query(&marks_sql)
+                .bind(op_id)
                 .execute(&mut *tx)
                 .await
                 .map_err(|e| Status::internal(format!("discard marks failed: {e}")))?;
@@ -591,6 +609,7 @@ impl MergeDriver {
     async fn claim(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
         let request = parse_request(op)?;
         let team_id = op.team_id as i32;
+        let lop_table = &self.tables.lifecycle_op_person;
         // Conflict reasons emit only after a commit (see record_conflicts).
         let mut conflicts: Vec<(&'static str, u64)> = Vec::new();
         let mut tx = begin_timed(pool).await?;
@@ -618,7 +637,7 @@ impl MergeDriver {
                 })
                 .collect();
             conflicts.push(("target_vanished", dispositions.len() as u64));
-            return abort_in_claim_tx(tx, op, dispositions, conflicts).await;
+            return abort_in_claim_tx(tx, &self.tables, op, dispositions, conflicts).await;
         };
         let (target_person_id, target_person_uuid) = (target.person_id, target.person_uuid);
 
@@ -728,39 +747,40 @@ impl MergeDriver {
         let roles: Vec<String> = rows.iter().map(|r| r.2.to_string()).collect();
         let ordinals: Vec<Option<i32>> = rows.iter().map(|r| r.3).collect();
 
-        let marked: Vec<i64> = sqlx::query_scalar!(
+        let mark_sql = format!(
             r#"
-            INSERT INTO lifecycle_op_person
+            INSERT INTO {lop_table}
                 (op_id, team_id, person_id, person_uuid, role, ordinal, status)
             SELECT $1, $2, u.person_id, u.person_uuid, u.role, u.ordinal, $6
             FROM unnest($3::bigint[], $4::uuid[], $5::text[], $7::int[])
                 AS u(person_id, person_uuid, role, ordinal)
             ON CONFLICT (team_id, person_id) WHERE status IN ('marked', 'sealed') DO NOTHING
             RETURNING person_id
-            "#,
-            op.op_id,
-            team_id,
-            &ids,
-            &uuids,
-            roles.as_slice(),
-            STATUS_MARKED,
-            ordinals.as_slice() as _,
-        )
-        .fetch_all(&mut *tx)
-        .await?;
+            "#
+        );
+        let marked: Vec<i64> = sqlx::query_scalar(&mark_sql)
+            .bind(op.op_id)
+            .bind(team_id)
+            .bind(&ids)
+            .bind(&uuids)
+            .bind(&roles)
+            .bind(STATUS_MARKED)
+            .bind(&ordinals)
+            .fetch_all(&mut *tx)
+            .await?;
 
+        let unmark_sql =
+            format!("UPDATE {lop_table} SET status = $2 WHERE op_id = $1 AND status = $3");
         if !marked.contains(&target_person_id) {
             // Another live op holds the target: abort. Flip whatever this
             // insert claimed back out of the mark set in the same commit —
             // nothing outside our rows has happened.
-            sqlx::query!(
-                "UPDATE lifecycle_op_person SET status = $2 WHERE op_id = $1 AND status = $3",
-                op.op_id,
-                STATUS_ABORTED,
-                STATUS_MARKED,
-            )
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query(&unmark_sql)
+                .bind(op.op_id)
+                .bind(STATUS_ABORTED)
+                .bind(STATUS_MARKED)
+                .execute(&mut *tx)
+                .await?;
             let mut converted = 0;
             for d in dispositions.iter_mut() {
                 if d.decision == DECISION_PENDING_MERGE {
@@ -769,7 +789,7 @@ impl MergeDriver {
                 }
             }
             conflicts.push(("target_marked", converted));
-            return abort_in_claim_tx(tx, op, dispositions, conflicts).await;
+            return abort_in_claim_tx(tx, &self.tables, op, dispositions, conflicts).await;
         }
 
         // Sources another live op holds: record the skip (the status keeps
@@ -783,22 +803,23 @@ impl MergeDriver {
         if !conflicted.is_empty() {
             let conflicted_ids: Vec<i64> = conflicted.iter().map(|c| c.0).collect();
             let conflicted_uuids: Vec<Uuid> = conflicted.iter().map(|c| c.1).collect();
-            sqlx::query!(
+            let conflict_sql = format!(
                 r#"
-                INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status)
+                INSERT INTO {lop_table} (op_id, team_id, person_id, person_uuid, role, status)
                 SELECT $1, $2, u.person_id, u.person_uuid, $5, $6
                 FROM unnest($3::bigint[], $4::uuid[]) AS u(person_id, person_uuid)
                 ON CONFLICT (op_id, person_id) DO NOTHING
-                "#,
-                op.op_id,
-                team_id,
-                &conflicted_ids,
-                &conflicted_uuids,
-                ROLE_SOURCE,
-                STATUS_SKIPPED_CONFLICT,
-            )
-            .execute(&mut *tx)
-            .await?;
+                "#
+            );
+            sqlx::query(&conflict_sql)
+                .bind(op.op_id)
+                .bind(team_id)
+                .bind(&conflicted_ids)
+                .bind(&conflicted_uuids)
+                .bind(ROLE_SOURCE)
+                .bind(STATUS_SKIPPED_CONFLICT)
+                .execute(&mut *tx)
+                .await?;
             let mut converted = 0;
             for d in dispositions.iter_mut() {
                 if d.decision == DECISION_PENDING_MERGE
@@ -823,14 +844,12 @@ impl MergeDriver {
             .get(&request.target_distinct_id)
             .is_some_and(|r| r.person_id == target_person_id);
         if !target_still_live {
-            sqlx::query!(
-                "UPDATE lifecycle_op_person SET status = $2 WHERE op_id = $1 AND status = $3",
-                op.op_id,
-                STATUS_ABORTED,
-                STATUS_MARKED,
-            )
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query(&unmark_sql)
+                .bind(op.op_id)
+                .bind(STATUS_ABORTED)
+                .bind(STATUS_MARKED)
+                .execute(&mut *tx)
+                .await?;
             let mut converted = 0;
             for d in dispositions.iter_mut() {
                 if d.decision == DECISION_PENDING_MERGE {
@@ -839,7 +858,7 @@ impl MergeDriver {
                 }
             }
             conflicts.push(("target_vanished", converted));
-            return abort_in_claim_tx(tx, op, dispositions, conflicts).await;
+            return abort_in_claim_tx(tx, &self.tables, op, dispositions, conflicts).await;
         }
         let dropped = reconcile_pending_claims(
             &mut dispositions,
@@ -849,18 +868,19 @@ impl MergeDriver {
             &mut conflicts,
         );
         if !dropped.is_empty() {
-            sqlx::query!(
+            let drop_sql = format!(
                 r#"
-                UPDATE lifecycle_op_person SET status = $2
+                UPDATE {lop_table} SET status = $2
                 WHERE op_id = $1 AND person_id = ANY($3) AND status = $4
-                "#,
-                op.op_id,
-                STATUS_DROPPED,
-                &dropped,
-                STATUS_MARKED,
-            )
-            .execute(&mut *tx)
-            .await?;
+                "#
+            );
+            sqlx::query(&drop_sql)
+                .bind(op.op_id)
+                .bind(STATUS_DROPPED)
+                .bind(&dropped)
+                .bind(STATUS_MARKED)
+                .execute(&mut *tx)
+                .await?;
         }
 
         if !dispositions
@@ -869,19 +889,20 @@ impl MergeDriver {
         {
             // Every source fell out: release the target's just-taken mark
             // and end the op. No fences exist yet.
-            sqlx::query!(
+            let clear_sql = format!(
                 r#"
-                UPDATE lifecycle_op_person SET status = $2
+                UPDATE {lop_table} SET status = $2
                 WHERE op_id = $1 AND role = $3 AND status = $4
-                "#,
-                op.op_id,
-                STATUS_CLEARED,
-                ROLE_TARGET,
-                STATUS_MARKED,
-            )
-            .execute(&mut *tx)
-            .await?;
-            return abort_in_claim_tx(tx, op, dispositions, conflicts).await;
+                "#
+            );
+            sqlx::query(&clear_sql)
+                .bind(op.op_id)
+                .bind(STATUS_CLEARED)
+                .bind(ROLE_TARGET)
+                .bind(STATUS_MARKED)
+                .execute(&mut *tx)
+                .await?;
+            return abort_in_claim_tx(tx, &self.tables, op, dispositions, conflicts).await;
         }
 
         // Persist the claim record on the target row; the terminal outcome
@@ -889,17 +910,18 @@ impl MergeDriver {
         let claim_record = serde_json::to_value(ClaimRecord { dispositions }).map_err(|e| {
             SagaError::CorruptState(format!("failed to serialize claim record: {e}"))
         })?;
-        sqlx::query!(
-            "UPDATE lifecycle_op_person SET moved = $2 WHERE op_id = $1 AND role = $3",
-            op.op_id,
-            claim_record,
-            ROLE_TARGET,
-        )
-        .execute(&mut *tx)
-        .await?;
+        let record_sql =
+            format!("UPDATE {lop_table} SET moved = $2 WHERE op_id = $1 AND role = $3");
+        sqlx::query(&record_sql)
+            .bind(op.op_id)
+            .bind(claim_record)
+            .bind(ROLE_TARGET)
+            .execute(&mut *tx)
+            .await?;
 
         if !advance_step_in_tx(
             &mut tx,
+            &self.tables,
             op.op_id,
             MergeStep::Started.as_str(),
             MergeStep::Claimed.as_str(),
@@ -921,6 +943,7 @@ impl MergeDriver {
 /// in the same commit is the whole abort.
 async fn abort_in_claim_tx(
     mut tx: Tx<'_>,
+    tables: &IdentityTables,
     op: &OpRow,
     dispositions: Vec<Disposition>,
     conflicts: Vec<(&'static str, u64)>,
@@ -936,6 +959,7 @@ async fn abort_in_claim_tx(
     outcome["claim_abort"] = Value::Bool(true);
     if !complete_op_in_tx(
         &mut tx,
+        tables,
         op.op_id,
         MergeStep::Started.as_str(),
         STEP_ABORTED,
@@ -969,16 +993,8 @@ impl MergeDriver {
     /// the takeover scan can mint, bounded the same way.
     async fn seal(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
         let request = parse_request(op)?;
-        let sources = sqlx::query!(
-            r#"
-            SELECT person_id, person_uuid FROM lifecycle_op_person
-            WHERE op_id = $1 AND role = $2 AND status IN ('marked', 'sealed')
-            "#,
-            op.op_id,
-            ROLE_SOURCE,
-        )
-        .fetch_all(pool)
-        .await?;
+        let lop_table = &self.tables.lifecycle_op_person;
+        let sources = live_sources(pool, &self.tables, op).await?;
 
         let mut sealed: Vec<(i64, SealedSnapshot)> = Vec::new();
         let mut vanished: Vec<i64> = Vec::new();
@@ -1068,29 +1084,13 @@ impl MergeDriver {
                 .collect();
             self.release_fences(op, &remaining).await?;
             let mut tx = begin_timed(pool).await?;
-            settle_drops(&mut tx, op, &vanished, &identified).await?;
-            sqlx::query!(
-                r#"
-                UPDATE lifecycle_op_person SET status = $2
-                WHERE op_id = $1 AND role = $3 AND status IN ('marked', 'sealed')
-                "#,
-                op.op_id,
-                STATUS_ABORTED,
-                ROLE_SOURCE,
-            )
-            .execute(&mut *tx)
-            .await?;
-            sqlx::query!(
-                "UPDATE lifecycle_op_person SET status = $2 WHERE op_id = $1 AND role = $3",
-                op.op_id,
-                STATUS_CLEARED,
-                ROLE_TARGET,
-            )
-            .execute(&mut *tx)
-            .await?;
-            let outcome = build_outcome(&mut tx, op, Some(AbortOutcome::Conflict)).await?;
+            settle_drops(&mut tx, &self.tables, op, &vanished, &identified).await?;
+            abort_marks(&mut tx, &self.tables, op).await?;
+            let outcome =
+                build_outcome(&mut tx, &self.tables, op, Some(AbortOutcome::Conflict)).await?;
             if !complete_op_in_tx(
                 &mut tx,
+                &self.tables,
                 op.op_id,
                 MergeStep::Claimed.as_str(),
                 STEP_ABORTED,
@@ -1108,31 +1108,33 @@ impl MergeDriver {
         }
 
         let mut tx = begin_timed(pool).await?;
-        settle_drops(&mut tx, op, &vanished, &identified).await?;
+        settle_drops(&mut tx, &self.tables, op, &vanished, &identified).await?;
         let sealed_ids: Vec<i64> = sealed.iter().map(|(id, _)| *id).collect();
         let sealed_jsons: Vec<Value> = sealed
             .iter()
             .map(|(_, snapshot)| serde_json::to_value(snapshot))
             .collect::<Result<_, _>>()
             .map_err(|e| SagaError::CorruptState(format!("failed to serialize seal: {e}")))?;
-        sqlx::query!(
+        let seal_sql = format!(
             r#"
-            UPDATE lifecycle_op_person lop
+            UPDATE {lop_table} lop
             SET status = $4, sealed = u.sealed
             FROM unnest($2::bigint[], $3::jsonb[]) AS u(person_id, sealed)
             WHERE lop.op_id = $1 AND lop.person_id = u.person_id
               AND lop.status IN ('marked', 'sealed')
-            "#,
-            op.op_id,
-            &sealed_ids,
-            &sealed_jsons,
-            STATUS_SEALED,
-        )
-        .execute(&mut *tx)
-        .await?;
+            "#
+        );
+        sqlx::query(&seal_sql)
+            .bind(op.op_id)
+            .bind(&sealed_ids)
+            .bind(&sealed_jsons)
+            .bind(STATUS_SEALED)
+            .execute(&mut *tx)
+            .await?;
 
         if !advance_step_in_tx(
             &mut tx,
+            &self.tables,
             op.op_id,
             MergeStep::Claimed.as_str(),
             MergeStep::SourcesSealed.as_str(),
@@ -1159,42 +1161,16 @@ impl MergeDriver {
         from_step: MergeStep,
         status: &Status,
     ) -> Result<(), SagaError> {
-        let live = sqlx::query!(
-            r#"
-            SELECT person_id, person_uuid FROM lifecycle_op_person
-            WHERE op_id = $1 AND role = $2 AND status IN ('marked', 'sealed')
-            "#,
-            op.op_id,
-            ROLE_SOURCE,
-        )
-        .fetch_all(pool)
-        .await?;
+        let live = live_sources(pool, &self.tables, op).await?;
         let pairs: Vec<(i64, Uuid)> = live.iter().map(|s| (s.person_id, s.person_uuid)).collect();
 
         let mut tx = begin_timed(pool).await?;
-        sqlx::query!(
-            r#"
-            UPDATE lifecycle_op_person SET status = $2
-            WHERE op_id = $1 AND role = $3 AND status IN ('marked', 'sealed')
-            "#,
-            op.op_id,
-            STATUS_ABORTED,
-            ROLE_SOURCE,
-        )
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query!(
-            "UPDATE lifecycle_op_person SET status = $2 WHERE op_id = $1 AND role = $3",
-            op.op_id,
-            STATUS_CLEARED,
-            ROLE_TARGET,
-        )
-        .execute(&mut *tx)
-        .await?;
+        abort_marks(&mut tx, &self.tables, op).await?;
         // Fence contention never reaches this abort; it retries at the step.
-        let outcome = build_outcome(&mut tx, op, Some(AbortOutcome::Refused)).await?;
+        let outcome = build_outcome(&mut tx, &self.tables, op, Some(AbortOutcome::Refused)).await?;
         if !complete_op_in_tx(
             &mut tx,
+            &self.tables,
             op.op_id,
             from_step.as_str(),
             STEP_ABORTED,
@@ -1280,10 +1256,52 @@ fn snapshot_from_sealed(person: &Person) -> Result<SealedSnapshot, SagaError> {
     })
 }
 
+async fn live_sources(
+    pool: &PgPool,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<Vec<PersonRef>, SagaError> {
+    let sql = format!(
+        r#"
+        SELECT person_id, person_uuid FROM {lop_table}
+        WHERE op_id = $1 AND role = $2 AND status IN ('marked', 'sealed')
+        "#,
+        lop_table = tables.lifecycle_op_person,
+    );
+    Ok(sqlx::query_as::<_, PersonRef>(&sql)
+        .bind(op.op_id)
+        .bind(ROLE_SOURCE)
+        .fetch_all(pool)
+        .await?)
+}
+
+/// Settle a pre-flip abort's marks: sources `aborted`, target `cleared`.
+async fn abort_marks(
+    tx: &mut Tx<'_>,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<(), SagaError> {
+    let lop_table = &tables.lifecycle_op_person;
+    let sources_sql = format!(
+        r#"
+        UPDATE {lop_table} SET status = $2
+        WHERE op_id = $1 AND role = $3 AND status IN ('marked', 'sealed')
+        "#
+    );
+    sqlx::query(&sources_sql)
+        .bind(op.op_id)
+        .bind(STATUS_ABORTED)
+        .bind(ROLE_SOURCE)
+        .execute(&mut **tx)
+        .await?;
+    clear_target_mark(tx, tables, op).await
+}
+
 /// Settle sources that dropped out during the seal: `dropped` releases
 /// their marks; the claim record's decisions flip to the drop reason.
 async fn settle_drops(
     tx: &mut Tx<'_>,
+    tables: &IdentityTables,
     op: &OpRow,
     vanished: &[i64],
     identified: &[i64],
@@ -1292,19 +1310,21 @@ async fn settle_drops(
     if all.is_empty() {
         return Ok(());
     }
-    sqlx::query!(
+    let lop_table = &tables.lifecycle_op_person;
+    let drop_sql = format!(
         r#"
-        UPDATE lifecycle_op_person SET status = $2
+        UPDATE {lop_table} SET status = $2
         WHERE op_id = $1 AND person_id = ANY($3) AND status IN ('marked', 'sealed')
-        "#,
-        op.op_id,
-        STATUS_DROPPED,
-        &all,
-    )
-    .execute(&mut **tx)
-    .await?;
+        "#
+    );
+    sqlx::query(&drop_sql)
+        .bind(op.op_id)
+        .bind(STATUS_DROPPED)
+        .bind(&all)
+        .execute(&mut **tx)
+        .await?;
 
-    let mut record = claim_record(tx, op).await?;
+    let mut record = claim_record(tx, tables, op).await?;
     for disposition in record.dispositions.iter_mut() {
         if disposition.decision != DECISION_PENDING_MERGE {
             continue;
@@ -1322,14 +1342,13 @@ async fn settle_drops(
     }
     let updated = serde_json::to_value(&record)
         .map_err(|e| SagaError::CorruptState(format!("failed to serialize claim record: {e}")))?;
-    sqlx::query!(
-        "UPDATE lifecycle_op_person SET moved = $2 WHERE op_id = $1 AND role = $3",
-        op.op_id,
-        updated,
-        ROLE_TARGET,
-    )
-    .execute(&mut **tx)
-    .await?;
+    let record_sql = format!("UPDATE {lop_table} SET moved = $2 WHERE op_id = $1 AND role = $3");
+    sqlx::query(&record_sql)
+        .bind(op.op_id)
+        .bind(updated)
+        .bind(ROLE_TARGET)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }
 
@@ -1345,19 +1364,8 @@ impl MergeDriver {
     /// terminal outcome's survivor, durable without ever re-folding.
     async fn fold(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
         let request = parse_request(op)?;
-        let target = target_row(pool, op).await?;
-        let sources = sqlx::query!(
-            r#"
-            SELECT person_id, ordinal as "ordinal!", sealed as "sealed!" FROM lifecycle_op_person
-            WHERE op_id = $1 AND role = $2 AND status = $3
-            ORDER BY ordinal
-            "#,
-            op.op_id,
-            ROLE_SOURCE,
-            STATUS_SEALED,
-        )
-        .fetch_all(pool)
-        .await?;
+        let target = target_row(pool, &self.tables, op).await?;
+        let sources = sealed_sources(pool, &self.tables, op).await?;
 
         // The fold verifies each snapshot's identity and orders by the
         // ordinal itself, so the request carries the recorded pair order
@@ -1428,7 +1436,7 @@ impl MergeDriver {
                         // under a live claim the pre-flip abort is safe.
                         if personhog_common::grpc::semantic_refusal_reason(&status)
                             == Some("fold-unverified")
-                            && op_moved_on(pool, op).await?
+                            && op_moved_on(pool, &self.tables, op).await?
                         {
                             tracing::info!(
                                 op_id = %op.op_id,
@@ -1462,16 +1470,19 @@ impl MergeDriver {
         });
 
         let mut tx = begin_timed(pool).await?;
-        sqlx::query!(
-            "UPDATE lifecycle_op_person SET sealed = $2 WHERE op_id = $1 AND role = $3",
-            op.op_id,
-            survivor,
-            ROLE_TARGET,
-        )
-        .execute(&mut *tx)
-        .await?;
+        let survivor_sql = format!(
+            "UPDATE {} SET sealed = $2 WHERE op_id = $1 AND role = $3",
+            self.tables.lifecycle_op_person
+        );
+        sqlx::query(&survivor_sql)
+            .bind(op.op_id)
+            .bind(survivor)
+            .bind(ROLE_TARGET)
+            .execute(&mut *tx)
+            .await?;
         if !advance_step_in_tx(
             &mut tx,
+            &self.tables,
             op.op_id,
             MergeStep::SourcesSealed.as_str(),
             MergeStep::DocumentFolded.as_str(),
@@ -1490,23 +1501,41 @@ impl MergeDriver {
     }
 }
 
-struct TargetRow {
-    person_id: i64,
-    person_uuid: Uuid,
+async fn target_row(
+    pool: &PgPool,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<PersonRef, SagaError> {
+    let sql = format!(
+        "SELECT person_id, person_uuid FROM {} WHERE op_id = $1 AND role = $2",
+        tables.lifecycle_op_person
+    );
+    Ok(sqlx::query_as::<_, PersonRef>(&sql)
+        .bind(op.op_id)
+        .bind(ROLE_TARGET)
+        .fetch_one(pool)
+        .await?)
 }
 
-async fn target_row(pool: &PgPool, op: &OpRow) -> Result<TargetRow, SagaError> {
-    let row = sqlx::query!(
-        "SELECT person_id, person_uuid FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
-        op.op_id,
-        ROLE_TARGET,
-    )
-    .fetch_one(pool)
-    .await?;
-    Ok(TargetRow {
-        person_id: row.person_id,
-        person_uuid: row.person_uuid,
-    })
+async fn sealed_sources(
+    pool: &PgPool,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<Vec<SealedSource>, SagaError> {
+    let sql = format!(
+        r#"
+        SELECT person_id, person_uuid, ordinal, sealed FROM {lop_table}
+        WHERE op_id = $1 AND role = $2 AND status = $3
+        ORDER BY ordinal
+        "#,
+        lop_table = tables.lifecycle_op_person,
+    );
+    Ok(sqlx::query_as::<_, SealedSource>(&sql)
+        .bind(op.op_id)
+        .bind(ROLE_SOURCE)
+        .bind(STATUS_SEALED)
+        .fetch_all(pool)
+        .await?)
 }
 
 fn encode_json_map(value: &Value) -> Result<Vec<u8>, SagaError> {
@@ -1525,29 +1554,27 @@ fn encode_json_map(value: &Value) -> Result<Vec<u8>, SagaError> {
 /// source marks stay: they are the fences' durable record until release.
 async fn flip(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
     let team_id = op.team_id as i32;
+    let lop_table = &tables.lifecycle_op_person;
     let mut tx = begin_timed(pool).await?;
 
-    let target = {
-        let row = sqlx::query!(
-            "SELECT person_id FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
-            op.op_id,
-            ROLE_TARGET,
-        )
+    let target_sql = format!("SELECT person_id FROM {lop_table} WHERE op_id = $1 AND role = $2");
+    let target: i64 = sqlx::query_scalar(&target_sql)
+        .bind(op.op_id)
+        .bind(ROLE_TARGET)
         .fetch_one(&mut *tx)
         .await?;
-        row.person_id
-    };
-    let mut sources: Vec<i64> = sqlx::query_scalar!(
+    let sources_sql = format!(
         r#"
-        SELECT person_id FROM lifecycle_op_person
+        SELECT person_id FROM {lop_table}
         WHERE op_id = $1 AND role = $2 AND status = $3
-        "#,
-        op.op_id,
-        ROLE_SOURCE,
-        STATUS_SEALED,
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+        "#
+    );
+    let mut sources: Vec<i64> = sqlx::query_scalar(&sources_sql)
+        .bind(op.op_id)
+        .bind(ROLE_SOURCE)
+        .bind(STATUS_SEALED)
+        .fetch_all(&mut *tx)
+        .await?;
     sources.sort_unstable();
 
     // Lock every row up front in id order; the writer's flush does the
@@ -1576,14 +1603,15 @@ async fn flip(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), 
         .await?;
 
     let repointed = repoint_distinct_ids(&mut tx, tables, team_id, &sources, target).await?;
-    record_moved_mappings(&mut tx, op, &sources, &repointed).await?;
+    record_moved_mappings(&mut tx, tables, op, &sources, &repointed).await?;
     move_cohort_membership(&mut tx, tables, &sources, target).await?;
     move_hash_key_overrides(&mut tx, tables, team_id, &sources, target).await?;
     tombstone_sealed_sources(&mut tx, tables, op, team_id).await?;
-    clear_target_mark(&mut tx, op).await?;
+    clear_target_mark(&mut tx, tables, op).await?;
 
     if !advance_step_in_tx(
         &mut tx,
+        tables,
         op.op_id,
         MergeStep::DocumentFolded.as_str(),
         MergeStep::Flipped.as_str(),
@@ -1652,6 +1680,7 @@ async fn repoint_distinct_ids(
 /// later ClickHouse emission (or an operator) reads back (delete parity).
 async fn record_moved_mappings(
     tx: &mut Tx<'_>,
+    tables: &IdentityTables,
     op: &OpRow,
     sources: &[i64],
     repointed: &[RepointedDid],
@@ -1672,19 +1701,21 @@ async fn record_moved_mappings(
     if moved_ids.is_empty() {
         return Ok(());
     }
-    sqlx::query!(
+    let moved_sql = format!(
         r#"
-        UPDATE lifecycle_op_person lop
+        UPDATE {lop_table} lop
         SET moved = u.moved
         FROM unnest($2::bigint[], $3::jsonb[]) AS u(person_id, moved)
         WHERE lop.op_id = $1 AND lop.person_id = u.person_id
         "#,
-        op.op_id,
-        &moved_ids,
-        &moved_json,
-    )
-    .execute(&mut **tx)
-    .await?;
+        lop_table = tables.lifecycle_op_person,
+    );
+    sqlx::query(&moved_sql)
+        .bind(op.op_id)
+        .bind(&moved_ids)
+        .bind(&moved_json)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }
 
@@ -1763,11 +1794,12 @@ async fn tombstone_sealed_sources(
             properties_last_updated_at = '{{}}'::jsonb,
             properties_last_operation = '{{}}'::jsonb,
             version = (lop.sealed->>'version')::bigint + 1
-        FROM lifecycle_op_person lop
+        FROM {lop_table} lop
         WHERE lop.op_id = $1 AND lop.role = $3 AND lop.status = $4
           AND p.team_id = $2 AND p.id = lop.person_id
         "#,
         person_table = tables.person,
+        lop_table = tables.lifecycle_op_person,
     );
     sqlx::query(&tombstone_sql)
         .bind(op.op_id)
@@ -1783,15 +1815,21 @@ async fn tombstone_sealed_sources(
 /// reaches Postgres through the writer's projection (single-writer
 /// rule). Only its mark clears — from here the merged person is
 /// claimable by other lifecycle ops.
-async fn clear_target_mark(tx: &mut Tx<'_>, op: &OpRow) -> Result<(), SagaError> {
-    sqlx::query!(
-        "UPDATE lifecycle_op_person SET status = $2 WHERE op_id = $1 AND role = $3",
-        op.op_id,
-        STATUS_CLEARED,
-        ROLE_TARGET,
-    )
-    .execute(&mut **tx)
-    .await?;
+async fn clear_target_mark(
+    tx: &mut Tx<'_>,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<(), SagaError> {
+    let sql = format!(
+        "UPDATE {} SET status = $2 WHERE op_id = $1 AND role = $3",
+        tables.lifecycle_op_person
+    );
+    sqlx::query(&sql)
+        .bind(op.op_id)
+        .bind(STATUS_CLEARED)
+        .bind(ROLE_TARGET)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }
 
@@ -1804,17 +1842,7 @@ impl MergeDriver {
     /// death document already exists; absorb the retry". Flipping first
     /// would make the first-ever release absorb and never produce.
     async fn complete(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
-        let sources = sqlx::query!(
-            r#"
-            SELECT person_id, person_uuid, sealed as "sealed!" FROM lifecycle_op_person
-            WHERE op_id = $1 AND role = $2 AND status = $3
-            "#,
-            op.op_id,
-            ROLE_SOURCE,
-            STATUS_SEALED,
-        )
-        .fetch_all(pool)
-        .await?;
+        let sources = sealed_sources(pool, &self.tables, op).await?;
 
         let release_calls: Vec<_> = sources
             .iter()
@@ -1864,21 +1892,24 @@ impl MergeDriver {
         }
 
         let mut tx = begin_timed(pool).await?;
-        sqlx::query!(
+        let settle_sql = format!(
             r#"
-            UPDATE lifecycle_op_person SET status = $2
+            UPDATE {} SET status = $2
             WHERE op_id = $1 AND role = $3 AND status = $4
             "#,
-            op.op_id,
-            STATUS_DELETED,
-            ROLE_SOURCE,
-            STATUS_SEALED,
-        )
-        .execute(&mut *tx)
-        .await?;
-        let outcome = build_outcome(&mut tx, op, None).await?;
+            self.tables.lifecycle_op_person
+        );
+        sqlx::query(&settle_sql)
+            .bind(op.op_id)
+            .bind(STATUS_DELETED)
+            .bind(ROLE_SOURCE)
+            .bind(STATUS_SEALED)
+            .execute(&mut *tx)
+            .await?;
+        let outcome = build_outcome(&mut tx, &self.tables, op, None).await?;
         if !complete_op_in_tx(
             &mut tx,
+            &self.tables,
             op.op_id,
             MergeStep::Flipped.as_str(),
             STEP_COMPLETED,
@@ -1896,15 +1927,21 @@ impl MergeDriver {
     }
 }
 
-async fn claim_record(tx: &mut Tx<'_>, op: &OpRow) -> Result<ClaimRecord, SagaError> {
-    let row = sqlx::query!(
-        r#"SELECT moved FROM lifecycle_op_person WHERE op_id = $1 AND role = $2"#,
-        op.op_id,
-        ROLE_TARGET,
-    )
-    .fetch_one(&mut **tx)
-    .await?;
-    let moved = row.moved.ok_or_else(|| {
+async fn claim_record(
+    tx: &mut Tx<'_>,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<ClaimRecord, SagaError> {
+    let sql = format!(
+        "SELECT moved FROM {} WHERE op_id = $1 AND role = $2",
+        tables.lifecycle_op_person
+    );
+    let moved: Option<Value> = sqlx::query_scalar(&sql)
+        .bind(op.op_id)
+        .bind(ROLE_TARGET)
+        .fetch_one(&mut **tx)
+        .await?;
+    let moved = moved.ok_or_else(|| {
         SagaError::CorruptState(format!("merge op {} has no claim record", op.op_id))
     })?;
     serde_json::from_value(moved).map_err(|e| {
@@ -1922,32 +1959,31 @@ async fn claim_record(tx: &mut Tx<'_>, op: &OpRow) -> Result<ClaimRecord, SagaEr
 /// `error`.
 async fn build_outcome(
     tx: &mut Tx<'_>,
+    tables: &IdentityTables,
     op: &OpRow,
     abort_outcome: Option<AbortOutcome>,
 ) -> Result<Value, SagaError> {
-    let record = claim_record(tx, op).await?;
-    let statuses: HashMap<i64, String> = sqlx::query!(
-        "SELECT person_id, status FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
-        op.op_id,
-        ROLE_SOURCE,
-    )
-    .fetch_all(&mut **tx)
-    .await?
-    .into_iter()
-    .map(|r| (r.person_id, r.status))
-    .collect();
+    let lop_table = &tables.lifecycle_op_person;
+    let record = claim_record(tx, tables, op).await?;
+    let statuses_sql =
+        format!("SELECT person_id, status FROM {lop_table} WHERE op_id = $1 AND role = $2");
+    let statuses: HashMap<i64, String> = sqlx::query_as::<_, (i64, String)>(&statuses_sql)
+        .bind(op.op_id)
+        .bind(ROLE_SOURCE)
+        .fetch_all(&mut **tx)
+        .await?
+        .into_iter()
+        .collect();
 
     let survivor = if abort_outcome.is_some() {
         None
     } else {
-        let row = sqlx::query!(
-            r#"SELECT sealed FROM lifecycle_op_person WHERE op_id = $1 AND role = $2"#,
-            op.op_id,
-            ROLE_TARGET,
-        )
-        .fetch_one(&mut **tx)
-        .await?;
-        row.sealed
+        let survivor_sql = format!("SELECT sealed FROM {lop_table} WHERE op_id = $1 AND role = $2");
+        sqlx::query_scalar::<_, Option<Value>>(&survivor_sql)
+            .bind(op.op_id)
+            .bind(ROLE_TARGET)
+            .fetch_one(&mut **tx)
+            .await?
     };
 
     outcome_from_dispositions(&record.dispositions, abort_outcome, survivor, &statuses)
