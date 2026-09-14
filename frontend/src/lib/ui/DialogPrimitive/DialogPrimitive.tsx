@@ -18,12 +18,15 @@ function DialogPrimitive({
     onOpenChange,
     className,
     disablePointerDismissal = false,
+    initialFocus,
 }: {
     children: React.ReactNode
     open: boolean
     onOpenChange: (open: boolean, eventDetails?: Dialog.Root.ChangeEventDetails) => void
     className?: string
     disablePointerDismissal?: boolean
+    /** Where focus goes when the dialog opens. Defaults to Base UI's first tabbable element. */
+    initialFocus?: React.ComponentProps<typeof Dialog.Popup>['initialFocus']
 }): JSX.Element {
     return (
         <Dialog.Root
@@ -35,6 +38,7 @@ function DialogPrimitive({
                 <Dialog.Portal>
                     <Dialog.Backdrop className="fixed inset-0 min-h-dvh min-w-dvw bg-black opacity-20 transition-all duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 dark:opacity-70 z-[var(--z-modal)]" />
                     <Dialog.Popup
+                        initialFocus={initialFocus}
                         // max-h pairs a vh baseline with a support-gated dvh override (Tailwind can't emit
                         // plain fallback declarations): dvh keeps the popup inside the visible viewport on
                         // mobile, while browsers without dvh keep the vh cap instead of losing it entirely.

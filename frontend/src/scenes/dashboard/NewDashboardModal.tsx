@@ -80,6 +80,9 @@ export function NewDashboardModal(): JSX.Element {
 
     return (
         <DialogPrimitive
+            // Base UI focuses the first tabbable element on open, which would be the filter input and
+            // would bring back the viewport panning that its autoFocus guard avoids on phones.
+            initialFocus={!isMobile()}
             open={newDashboardModalVisible}
             onOpenChange={(open) => !open && hideNewDashboardModal()}
             className={cn(
