@@ -215,6 +215,7 @@ export function systemPromptAppendText(
 export function buildCloudSessionSystemPrompt(
   cloudAppend: string,
   userPrompt: ClaudeCodeConfig["systemPrompt"],
+  interactionOrigin?: string | null,
 ): string | { append: string } {
   const prompt = [
     typeof userPrompt === "string" ? userPrompt : userPrompt?.append,
@@ -224,6 +225,7 @@ export function buildCloudSessionSystemPrompt(
     .join("\n\n");
   const combinedPrompt = appendRichOutputPrompt(
     prependProductEngineerPrompt(prompt),
+    interactionOrigin,
   );
 
   return typeof userPrompt === "string"
@@ -4240,6 +4242,7 @@ export class AgentServer {
     const sessionPrompt = buildCloudSessionSystemPrompt(
       cloudAppend,
       userPrompt,
+      this.isSlackReplyContext() ? "slack" : this.getCloudInteractionOrigin(),
     );
     return this.isSlackReplyContext()
       ? appendSte100Guidance(sessionPrompt)
