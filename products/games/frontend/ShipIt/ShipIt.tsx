@@ -235,7 +235,12 @@ export function ShipIt(): JSX.Element {
         boardRef.current?.focus()
     }, [])
 
-    const move = useCallback((delta: number): void => setState((current) => moveLane(current, delta)), [])
+    const move = useCallback((delta: number): void => {
+        setState((current) => moveLane(current, delta))
+        // The lane buttons sit outside the board, so without this a click leaves focus on the button
+        // and every later arrow key misses the board's handler.
+        boardRef.current?.focus()
+    }, [])
 
     useEffect(() => {
         if (!running) {

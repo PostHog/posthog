@@ -7,6 +7,7 @@ import {
     Item,
     ItemKind,
     LAST_LEVEL,
+    QUEUE_HOLD_MS,
     QUEUE_KICK_PROGRESS,
     REQUIRED_APPROVALS,
     STALENESS_LIMIT,
@@ -23,6 +24,9 @@ function stateWith(overrides: Partial<GameState>): GameState {
 function itemAt(kind: ItemKind, lane: number): Item {
     return { id: 1, kind, lane, x: 0.09 }
 }
+
+/** Long enough that an item from itemAt travels past the hit line in a single step. */
+const FRAME_MS = 100
 
 function run(state: GameState, steps: number, random: () => number = noHits): GameState {
     let current = state
@@ -63,6 +67,38 @@ describe('shipItGame', () => {
 
         expect(after.phase).toBe('coding')
         expect(after.progress).toBe(QUEUE_KICK_PROGRESS)
+    })
+
+    // The frame the hold completes on is the only one where the two outcomes compete, so it is the
+    // frame that pins the order: a hazard has to be collected before the timer is read.
+    it.each([
+        ['a hazard arrives on the completing frame', [itemAt('flake', 1)], 'coding'],
+        ['the lane is clear on the completing frame', [], 'merged'],
+    ])('%s', (_label, items, expectedPhase) => {
+        const state = stateWith({
+            phase: 'queued',
+            progress: 100,
+            lane: 1,
+            ciGreen: true,
+            approvals: REQUIRED_APPROVALS,
+            queueMs: QUEUE_HOLD_MS - FRAME_MS,
+            items,
+        })
+
+        expect(step(state, FRAME_MS, noHits).phase).toBe(expectedPhase)
+    })
+
+    it('stays queued on the frame before the hold completes', () => {
+        const state = stateWith({
+            phase: 'queued',
+            progress: 100,
+            lane: 1,
+            ciGreen: true,
+            approvals: REQUIRED_APPROVALS,
+            queueMs: QUEUE_HOLD_MS - FRAME_MS * 2,
+        })
+
+        expect(step(state, FRAME_MS, noHits).phase).toBe('queued')
     })
 
     it('ignores an item in another lane', () => {

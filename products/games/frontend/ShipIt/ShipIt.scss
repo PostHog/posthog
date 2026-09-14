@@ -41,17 +41,17 @@
         white-space: nowrap;
         border: 1px solid;
         border-radius: var(--radius);
-        transform: translateY(-50%);
+
+        // Both are centred on their own coordinate, so a tile reaches the pull request exactly when
+        // the rules collect it, at every board width rather than only at the widest one.
+        transform: translate(-50%, -50%);
     }
 
-    // Centred on the hit line the rules use, so a tile vanishing into the pull request reads as a
-    // collision at every board width rather than only at the widest one.
     &__pr {
         left: calc(var(--ship-it-hit) * 100%);
         color: var(--color-text-primary);
         background: var(--color-bg-fill-primary);
         border-color: var(--color-border-primary);
-        transform: translate(-50%, -50%);
     }
 
     // The pull request only advances while it is mergeable, so the player needs to see that state at a glance.
