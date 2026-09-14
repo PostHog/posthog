@@ -585,7 +585,7 @@ describe('LogsIngestionConsumer', () => {
             for (const message of produced) {
                 const [, codec, records] = await decodeLogRecords(message.value as Buffer)
                 expect(codec).toBe('zstandard')
-                const shouldParse = attributeKey !== '' && message.headers.team_id === String(team.id)
+                const shouldParse = attributeKey !== '' && message.headers?.team_id === String(team.id)
                 expect(records[0].attributes).toEqual({
                     attributes: originalAttribute,
                     ...(shouldParse

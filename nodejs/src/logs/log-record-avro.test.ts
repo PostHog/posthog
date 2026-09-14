@@ -453,7 +453,7 @@ describe('log-record-avro', () => {
             )
             const [, codec, decoded] = await decodeLogRecords(result.value!)
             expect(codec).toBe('zstandard')
-            expect(decoded[0]).toEqual({ ...record, attributes: { ...record.attributes, ...expected } })
+            expect(decoded[0]).toEqual({ ...record, attributes: { ...expected, ...record.attributes } })
             expect(onRecordsDecoded.mock.calls[0][0][0].attributes).toEqual(decoded[0].attributes)
             expect(result.pii.piiReplacements).toBe(0)
         })
