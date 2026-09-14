@@ -1,0 +1,65 @@
+{
+    "cutoffMs": 1789405200000,
+    "cases": [
+        {
+            "sessionId": "01a0a0dc-7e7f-7000-8000-000000000001",
+            "rawIdentifiers": false,
+            "storedSessionId": "17264deada34aa39185c119eacdc00e6",
+            "storedTeamId": "a725cc999d0421ba516777bc3c460c8d"
+        },
+        {
+            "sessionId": "01a0a0dc-7e80-7000-8000-000000000001",
+            "rawIdentifiers": true,
+            "storedSessionId": "01a0a0dc-7e80-7000-8000-000000000001",
+            "storedTeamId": "7"
+        },
+        {
+            "sessionId": "01a0a0dc-7e81-7000-8000-000000000001",
+            "rawIdentifiers": true,
+            "storedSessionId": "01a0a0dc-7e81-7000-8000-000000000001",
+            "storedTeamId": "7"
+        },
+        {
+            "sessionId": "01A0A0DC-7E80-7000-8000-000000000001",
+            "rawIdentifiers": true,
+            "storedSessionId": "01A0A0DC-7E80-7000-8000-000000000001",
+            "storedTeamId": "7"
+        },
+        {
+            "sessionId": "legacy-session",
+            "rawIdentifiers": false,
+            "storedSessionId": "0fb0a749493d697fa8ec9a23e2295d12",
+            "storedTeamId": "a725cc999d0421ba516777bc3c460c8d"
+        },
+        {
+            "sessionId": "01a0a0dc-7e80-4000-8000-000000000001",
+            "rawIdentifiers": false,
+            "storedSessionId": "c527016bdf82c1a85f3ed3d483960fc2",
+            "storedTeamId": "a725cc999d0421ba516777bc3c460c8d"
+        },
+        {
+            "sessionId": "01a0a0dc-7e80-7000-0000-000000000001",
+            "rawIdentifiers": false,
+            "storedSessionId": "9f33d9a2152beb3d57f39bb57613f036",
+            "storedTeamId": "a725cc999d0421ba516777bc3c460c8d"
+        },
+        {
+            "sessionId": "00000000-0000-7000-8000-000000000001",
+            "rawIdentifiers": false,
+            "storedSessionId": "7a7990c03b4abd6f26136d0ffb45cab9",
+            "storedTeamId": "a725cc999d0421ba516777bc3c460c8d"
+        },
+        {
+            "sessionId": "ffffffff-ffff-7000-8000-000000000007",
+            "rawIdentifiers": false,
+            "storedSessionId": "4f55f5e61c2120dca9aa8d3be6dead49",
+            "storedTeamId": "a725cc999d0421ba516777bc3c460c8d"
+        },
+        {
+            "sessionId": "e677d21f-dc00-7000-8000-000000000007",
+            "rawIdentifiers": false,
+            "storedSessionId": "bd06d56b33907c2971f5fdf25a5e396d",
+            "storedTeamId": "a725cc999d0421ba516777bc3c460c8d"
+        }
+    ]
+}

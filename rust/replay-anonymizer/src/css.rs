@@ -705,7 +705,7 @@ mod tests {
         let ctx = Ctx::with_image_collection(
             &allow,
             Some(ImageCollection {
-                pseudo_team: "0123456789abcdef0123456789abcdef".to_string(),
+                team_id: "0123456789abcdef0123456789abcdef".to_string(),
                 content_key: "fedcba9876543210fedcba9876543210".to_string(),
             }),
         );
@@ -732,11 +732,12 @@ mod tests {
         let ctx = Ctx::with_image_collection(
             &allow,
             Some(ImageCollection {
-                pseudo_team: "0123456789abcdef0123456789abcdef".to_string(),
+                team_id: "0123456789abcdef0123456789abcdef".to_string(),
                 content_key: "fedcba9876543210fedcba9876543210".to_string(),
             }),
         )
         .collecting_urls(Some(UrlCollection {
+            reference_namespace: None,
             url_key: "0123456789abcdef0123456789abcdef".to_string(),
         }));
         let original = png_data_uri(8, 8, [10, 20, 30, 255]);
@@ -765,6 +766,7 @@ mod tests {
     fn collected_remote_images_record_the_css_property() {
         let allow = AllowLists::default();
         let ctx = Ctx::new(&allow).collecting_urls(Some(UrlCollection {
+            reference_namespace: None,
             url_key: "0123456789abcdef0123456789abcdef".to_string(),
         }));
         let css = "mask-image:url('https://cdn.example.com/mask.png')";
@@ -787,7 +789,7 @@ mod tests {
         let ctx = Ctx::with_image_collection(
             &allow,
             Some(ImageCollection {
-                pseudo_team: "0123456789abcdef0123456789abcdef".to_string(),
+                team_id: "0123456789abcdef0123456789abcdef".to_string(),
                 content_key: "fedcba9876543210fedcba9876543210".to_string(),
             }),
         );

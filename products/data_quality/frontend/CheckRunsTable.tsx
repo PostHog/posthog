@@ -5,6 +5,7 @@ import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import type { DataQualitySubjectType } from './checksApi'
 import { CHECK_STATUS_TAG_TYPES, byStatusAttention, checkRunDisplayName } from './checksConstants'
 import type { DataQualityCheckRunApi } from './generated/api.schemas'
 
@@ -61,9 +62,12 @@ interface CheckRunsTableProps {
     runs: DataQualityCheckRunApi[]
     loading?: boolean
     showCheck?: boolean
+    subjectType?: DataQualitySubjectType
 }
 
-export function CheckRunsTable({ runs, loading, showCheck }: CheckRunsTableProps): JSX.Element {
+export function CheckRunsTable({ runs, loading, showCheck, subjectType }: CheckRunsTableProps): JSX.Element {
+    const outcomeColumns =
+        subjectType === 'metric' ? OUTCOME_COLUMNS.filter((column) => column.key !== 'observed_value') : OUTCOME_COLUMNS
     return (
         <LemonTable
             size="small"
@@ -71,7 +75,7 @@ export function CheckRunsTable({ runs, loading, showCheck }: CheckRunsTableProps
             loading={loading}
             nouns={['run', 'runs']}
             emptyState="No runs yet"
-            columns={showCheck ? [CHECK_COLUMN, ...OUTCOME_COLUMNS] : OUTCOME_COLUMNS}
+            columns={showCheck ? [CHECK_COLUMN, ...outcomeColumns] : outcomeColumns}
         />
     )
 }
