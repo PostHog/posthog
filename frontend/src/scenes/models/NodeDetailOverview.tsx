@@ -1,8 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonCard, Link, Tooltip } from '@posthog/lemon-ui'
-
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { DataModelingSyncInterval } from '~/types'
 
 import { ModelHealthSummary } from 'products/data_modeling/frontend/nodeDetail/ModelHealthSummary'
+import { ModelViewSummary } from 'products/data_modeling/frontend/nodeDetail/ModelViewSummary'
 import { SERVING_ENGINE } from 'products/data_modeling/frontend/suspension'
 
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
@@ -54,46 +52,7 @@ export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
                 </p>
             ) : null
         ) : (
-            <LemonCard
-                hoverEffect={false}
-                className="!p-4 w-fit max-w-full self-start"
-                data-attr="node-detail-view-summary"
-            >
-                <div className="flex flex-col gap-3">
-                    <div className="flex items-center gap-2">
-                        <span className="font-semibold">Runs on demand</span>
-                        <Tooltip title="Materialize to store results and refresh them on a schedule.">
-                            <span
-                                tabIndex={0}
-                                aria-label="About on-demand views"
-                                className="flex text-secondary cursor-help"
-                            >
-                                <IconInfo />
-                            </span>
-                        </Tooltip>
-                    </div>
-                    <dl className="flex flex-wrap gap-x-10 gap-y-3 mb-0 text-sm">
-                        <div>
-                            <dt className="text-secondary mb-1">
-                                <Tooltip title="Models that depend on this model's results. Open lineage to see how they are connected.">
-                                    <span className="border-b border-dashed border-secondary cursor-help">
-                                        Downstream
-                                    </span>
-                                </Tooltip>
-                            </dt>
-                            <dd className="mb-0">
-                                {node.downstream_count ? (
-                                    <Link to={urls.nodeDetail(id, 'lineage')}>
-                                        {node.downstream_count} {node.downstream_count === 1 ? 'model' : 'models'}
-                                    </Link>
-                                ) : (
-                                    'No dependent models'
-                                )}
-                            </dd>
-                        </div>
-                    </dl>
-                </div>
-            </LemonCard>
+            <ModelViewSummary downstreamCount={node.downstream_count} lineageUrl={urls.nodeDetail(id, 'lineage')} />
         )
     }
     // Only ClickHouse serves queries, so a marker on a shadow engine means the comparison
