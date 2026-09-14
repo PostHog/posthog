@@ -3066,3 +3066,78 @@ async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
         team.id
     );
 }
+
+#[tokio::test]
+async fn test_s3_served_definitions_repair_the_etag_and_restore_304s() {
+    use feature_flags::{
+        config::Config,
+        utils::test_utils::{static_s3_client, TestContext},
+    };
+    use reqwest;
+    use tokio::time::{sleep, Duration};
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // Redis holds neither the payload nor its etag, the state a team lands in once its
+    // entries reach expiry. S3 still serves the payload, so requests keep succeeding.
+    let payload =
+        serde_json::json!({"flags": [], "group_type_mapping": {}, "cohorts": {}}).to_string();
+    let expected_etag = common_hypercache::writer::compute_etag(&payload);
+    let server = common::ServerHandle::for_config_with_s3(
+        config.clone(),
+        Some(static_s3_client(payload.clone())),
+    )
+    .await;
+    let client = reqwest::Client::new();
+    let url = format!(
+        "http://{}/flags/definitions?token={}",
+        server.addr, team.api_token
+    );
+
+    let first = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status(), 200);
+
+    // The repair is detached, so poll for the etag it writes rather than racing it. A
+    // payload-only repair never produces one, and the team polls 200s forever.
+    let mut served_etag = None;
+    for _ in 0..40 {
+        let response = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {secret_token}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        if let Some(etag) = response.headers().get("etag") {
+            served_etag = Some(etag.to_str().unwrap().to_string());
+            break;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    let served_etag = served_etag.expect("an S3-served response should come to carry an ETag");
+    assert_eq!(served_etag, format!("W/\"{expected_etag}\""));
+
+    let revalidated = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", &served_etag)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        revalidated.status(),
+        304,
+        "a repaired entry must answer a conditional request with 304"
+    );
+}

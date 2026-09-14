@@ -231,20 +231,25 @@ pub async fn clear_flag_definitions_rebuild_requests(redis_url: &str) {
         .unwrap();
 }
 
-/// An S3 client that reports every key as NotFound. Lets integration tests force a
-/// genuine HyperCache `CacheMiss` (redis miss + S3 NotFound) without a real object
-/// store, so a `/flags/definitions` miss classifies as `cache_miss` rather than
-/// `s3_error`.
-pub struct AlwaysMissS3Client;
+/// An S3 client that answers every key with one fixed result. Lets integration tests drive
+/// the HyperCache S3 tier without a real object store: a `NotFound` forces a genuine
+/// `CacheMiss` (redis miss + S3 NotFound), and a payload drives an S3 hit and the read
+/// repair that follows it.
+pub struct FixedS3Client {
+    response: Result<String, common_hypercache::S3Error>,
+}
 
 #[async_trait]
-impl common_hypercache::S3Client for AlwaysMissS3Client {
+impl common_hypercache::S3Client for FixedS3Client {
     async fn get_string(
         &self,
         _bucket: &str,
         key: &str,
     ) -> Result<String, common_hypercache::S3Error> {
-        Err(common_hypercache::S3Error::NotFound(key.to_string()))
+        match &self.response {
+            Ok(payload) => Ok(payload.clone()),
+            Err(_) => Err(common_hypercache::S3Error::NotFound(key.to_string())),
+        }
     }
 
     async fn put_string(
@@ -263,7 +268,16 @@ impl common_hypercache::S3Client for AlwaysMissS3Client {
 
 /// A dummy S3 client (always NotFound) for injecting into the test server.
 pub fn dummy_s3_client() -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
-    Arc::new(AlwaysMissS3Client)
+    Arc::new(FixedS3Client {
+        response: Err(common_hypercache::S3Error::NotFound(String::new())),
+    })
+}
+
+/// An S3 client that serves `payload` for every key.
+pub fn static_s3_client(payload: String) -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
+    Arc::new(FixedS3Client {
+        response: Ok(payload),
+    })
 }
 
 /// Create a HyperCacheReader for tests using the provided Redis client.

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
-use crate::{HyperCacheConfig, HyperCacheError, KeyType, ETAG_KEY_SUFFIX, HYPER_CACHE_EMPTY_VALUE};
+use crate::{etag_key, HyperCacheConfig, HyperCacheError, KeyType, HYPER_CACHE_EMPTY_VALUE};
 
 const HYPERCACHE_OPERATION_COUNTER_NAME: &str = "posthog_hypercache_operation";
 /// HyperCache always writes Redis values in Pickle format for Django compatibility.
@@ -119,7 +119,7 @@ impl HyperCacheWriter {
         ttl_seconds: u64,
     ) -> Result<String, HyperCacheError> {
         let redis_key = self.config.get_redis_cache_key(key);
-        let etag_key = format!("{redis_key}{ETAG_KEY_SUFFIX}");
+        let etag_key = etag_key(&redis_key);
         let s3_key = self.config.get_s3_cache_key(key);
         let etag = compute_etag(json_data);
 
@@ -206,8 +206,7 @@ impl HyperCacheWriter {
     /// to prevent stale ETags from causing incorrect 304 responses if the flag was
     /// previously enabled. Matches Python's `_set_cache_value_redis()` behavior.
     async fn delete_etag(&self, redis_key: &str) -> Result<(), common_redis::CustomRedisError> {
-        let etag_key = format!("{redis_key}{ETAG_KEY_SUFFIX}");
-        self.redis_client.del(etag_key).await
+        self.redis_client.del(etag_key(redis_key)).await
     }
 
     /// Check Redis and S3 results, emit metrics, and return the first error (logging the
