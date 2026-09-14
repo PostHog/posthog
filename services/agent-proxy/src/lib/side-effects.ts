@@ -142,7 +142,7 @@ export function isAgentGenerationEvent(event: Record<string, unknown>): boolean 
 
 const CALLBACK_TIMEOUT_MS = 10_000
 const RETRY_DELAY_MS = 1000
-const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set(['awaiting_input'])
+const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set(['awaiting_input', 'turn_failed'])
 
 function fetchErrorCode(err: unknown): string | undefined {
     if (!(err instanceof Error)) {

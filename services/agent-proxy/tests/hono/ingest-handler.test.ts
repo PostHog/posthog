@@ -1374,6 +1374,7 @@ describe('ingest-handler', () => {
         })
 
         const turnComplete = { type: 'notification', notification: { method: '_posthog/turn_complete' } }
+        const piTurnError = { type: 'pi_event', event: { type: 'turn_completed', stopReason: 'error' } }
         const sessionUpdate = { type: 'notification', notification: { method: 'session/update', params: {} } }
         const networkFailure = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })
 
@@ -1381,6 +1382,8 @@ describe('ingest-handler', () => {
             ['awaiting_input', turnComplete, 'network failure', networkFailure, 2],
             ['awaiting_input', turnComplete, '503', new Response('', { status: 503 }), 2],
             ['awaiting_input', turnComplete, '400', new Response('', { status: 400 }), 1],
+            ['turn_failed', piTurnError, 'network failure', networkFailure, 2],
+            ['turn_failed', piTurnError, '503', new Response('', { status: 503 }), 2],
             ['heartbeat', sessionUpdate, 'network failure', networkFailure, 1],
             ['heartbeat', sessionUpdate, '503', new Response('', { status: 503 }), 1],
         ])(
