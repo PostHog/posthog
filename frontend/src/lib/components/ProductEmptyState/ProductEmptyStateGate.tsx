@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import type { ReactNode } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -87,7 +87,7 @@ export function ProductEmptyStateGate({ emptyState, params, children }: ProductE
     }
     if (emptyState.bypassFeatureFlag && !receivedFeatureFlags && !forcedMode) {
         return (
-            <ProductSceneFrame config={emptyState.config}>
+            <ProductSceneFrame config={emptyState.config} SceneNav={emptyState.SceneNav}>
                 <SpinnerOverlay sceneLevel />
             </ProductSceneFrame>
         )
@@ -119,7 +119,7 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
     // The whole point is to see the screen on a project that would never show it on its own.
     if (forcedMode) {
         return (
-            <ProductSceneFrame config={config}>
+            <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
                 <ProductEmptyState config={config} mode={forcedMode} preview />
             </ProductSceneFrame>
         )
@@ -161,14 +161,14 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
         // signal. Entity-count products have none, so for them the spinner is the normal path
         // on every entry, including every trip back from a detail page.
         return (
-            <ProductSceneFrame config={config}>
+            <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
                 <SpinnerOverlay sceneLevel />
             </ProductSceneFrame>
         )
     }
     if (!skipHonored && (status === 'needs-setup' || status === 'waiting-for-data')) {
         return (
-            <ProductSceneFrame config={config}>
+            <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
                 <ProductEmptyState config={config} mode={mode} />
             </ProductSceneFrame>
         )
@@ -182,9 +182,11 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
  */
 function ProductSceneFrame({
     config,
+    SceneNav,
     children,
 }: {
     config: ProductEmptyStateConfig
+    SceneNav?: ComponentType
     children: ReactNode
 }): JSX.Element {
     const { sceneConfig } = useValues(sceneLogic)
@@ -199,6 +201,7 @@ function ProductSceneFrame({
                         : { type: String(config.productKey), forceIcon: config.icon }
                 }
             />
+            {SceneNav ? <SceneNav /> : null}
             {children}
         </SceneContent>
     )
