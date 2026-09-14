@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
+import { PostHogApiError } from '@/lib/errors'
 import {
     type CreatedResources,
     TEST_ORG_ID,
@@ -12,6 +13,7 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
+import experimentGetByFlagKey from '@/tools/experiments/getByFlagKey'
 import getExperimentResultsTool from '@/tools/experiments/getResults'
 import { GENERATED_TOOLS } from '@/tools/generated/experiments'
 import type { Context } from '@/tools/types'
@@ -1464,6 +1466,68 @@ describe('Experiments', { concurrent: false }, () => {
             const holdouts = parseToolResponse(listResult)
             const found = holdouts.results.find((h: any) => h.id === holdout.id)
             expect(found).toBeFalsy()
+        })
+    })
+
+    describe('id ergonomics (aliases, by-flag-key, typed not-found)', () => {
+        const getByFlagKeyTool = experimentGetByFlagKey()
+
+        const createDraft = async (prefix: string): Promise<{ id: number; feature_flag_key: string }> => {
+            const flagKey = generateUniqueKey(prefix)
+            const result = await createTool.handler(context, {
+                name: `Id ergonomics ${prefix}`,
+                feature_flag_key: flagKey,
+                allow_unknown_events: true,
+            } as any)
+            const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
+            return { id: experiment.id, feature_flag_key: flagKey }
+        }
+
+        it('experiment-get accepts experimentId through its schema, against the live API', async () => {
+            const created = await createDraft('exp-alias')
+
+            const params = getTool.schema.parse({ experimentId: String(created.id) })
+            expect(params).toEqual({ id: created.id })
+
+            const experiment = parseToolResponse(await getTool.handler(context, params as any))
+            expect(experiment.id).toBe(created.id)
+            expect(experiment.feature_flag_key).toBe(created.feature_flag_key)
+        })
+
+        it('experiment-get-by-flag-key returns the full experiment for its flag key', async () => {
+            const created = await createDraft('exp-by-key')
+
+            const params = getByFlagKeyTool.schema.parse({ flagKey: created.feature_flag_key })
+            const result = parseToolResponse(await getByFlagKeyTool.handler(context, params))
+
+            expect(result.found).toBe(true)
+            expect(result.id).toBe(created.id)
+            expect(result.feature_flag_key).toBe(created.feature_flag_key)
+            expect(result.metrics).toBeTruthy()
+            expect(result._posthogUrl).toContain(`/experiments/${created.id}`)
+        })
+
+        it('experiment-get-by-flag-key returns found:false as data when no flag has the key', async () => {
+            const missingKey = generateUniqueKey('exp-by-key-missing')
+
+            const result = parseToolResponse(await getByFlagKeyTool.handler(context, { feature_flag_key: missingKey }))
+
+            expect(result.found).toBe(false)
+            expect(result.feature_flag_key).toBe(missingKey)
+            expect(result.message).toContain(missingKey)
+        })
+
+        it('experiment-get surfaces a guessed id as a typed 404 that keeps the recovery message', async () => {
+            const thrown = await getTool.handler(context, { id: 999999999 } as any).then(
+                () => undefined,
+                (error: unknown) => error
+            )
+
+            expect(thrown).toBeInstanceOf(PostHogApiError)
+            expect((thrown as PostHogApiError).status).toBe(404)
+            expect((thrown as PostHogApiError).message).toContain('Experiment 999999999 not found in this project')
+            expect((thrown as PostHogApiError).message).toContain('experiment-list')
         })
     })
 })
