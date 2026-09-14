@@ -86,6 +86,7 @@ from posthog.event_usage import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import (
+    EmailLookupHandler,
     EmailNormalizer,
     EmailValidationHelper,
     reject_plus_addressed_email,
@@ -415,9 +416,9 @@ class UserSerializer(serializers.ModelSerializer):
             value, exclude_user_id=self.instance.pk if self.instance else None
         ):
             raise serializers.ValidationError("There is already an account with this email address.", code="unique")
-        # That check reads active accounts, and `email` is unique across every account. Match what
-        # the index enforces, so the fold this returns cannot collide on a write.
-        holders = User.objects.filter(email=normalized)
+        # The alias check above reads active accounts, so a deactivated holder of the same folded
+        # address passes it. Resolve on the fold every lookup shares, across every account.
+        holders = EmailLookupHandler.users_matching_email(normalized, User.objects.all())
         if self.instance:
             holders = holders.exclude(pk=self.instance.pk)
         if holders.exists():
@@ -741,7 +742,7 @@ class UserSerializer(serializers.ModelSerializer):
                     code="sso_enforced_new_email",
                 )
             validated_data.pop("email", None)  # staged as pending_email below, not written to `email` directly
-            instance.pending_email = new_email
+            instance.pending_email = EmailNormalizer.normalize(new_email)
             instance.save(update_fields=["pending_email"])
             # The code is bound to the captured address, so a concurrent email change cannot
             # redirect this code: once a different address is staged, the code stops verifying.
@@ -925,14 +926,14 @@ class UserGithubLoginSerializer(serializers.Serializer):
     )
 
 
-def refuse_pending_email_promotion(user: User) -> NoReturn:
-    """Drop the staged address and refuse the change, because the address is no longer free.
+def refuse_pending_email_promotion() -> NoReturn:
+    """Refuse the change, because the address is no longer free.
 
-    The verification code is already spent, so a staged address left in place would keep mailing
-    codes for a change that can never complete.
+    The staged address stays. Clearing it would leave a verified account with nothing staged, which
+    is the state the replay shortcut in `verify_email` reads as a completed change, so the next
+    request would report success for a change that never happened. Keeping it staged also keeps
+    `cancel_email_change_request` available as the way out.
     """
-    user.pending_email = None
-    user.save(update_fields=["pending_email"])
     raise serializers.ValidationError(
         {"email": ["Another account now uses this email address. Start the change again with a different address."]},
         code="email_taken",
@@ -1162,20 +1163,23 @@ class UserViewSet(
             # `pending_email` holds whatever case the change was staged in.
             new_email = EmailNormalizer.normalize(user.pending_email)
             # Anyone can claim the address while the change waits for this code.
-            if EmailValidationHelper.user_exists_with_stripped_alias(new_email, exclude_user_id=user.pk):
-                refuse_pending_email_promotion(user)
+            taken = (
+                EmailValidationHelper.user_exists_with_stripped_alias(new_email, exclude_user_id=user.pk)
+                or EmailLookupHandler.users_matching_email(new_email, User.objects.all()).exclude(pk=user.pk).exists()
+            )
+            if taken:
+                refuse_pending_email_promotion()
             try:
                 with transaction.atomic():
-                    user.email = new_email
+                    user.email = EmailNormalizer.normalize(new_email)
                     user.pending_email = None
                     user.save(update_fields=["email", "pending_email"])
                     # Delete social auth so the old external identity can't keep logging in.
                     UserSocialAuth.objects.filter(user=user).delete()
             except IntegrityError:
-                # The check above reads active accounts, and `email` is unique across every account,
-                # so a deactivated holder of the address reaches this write.
+                # A row that appeared since the check above reaches this write.
                 user.refresh_from_db()
-                refuse_pending_email_promotion(user)
+                refuse_pending_email_promotion()
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
             revoke_other_sessions_for_request(request, user)
 

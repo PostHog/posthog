@@ -3364,7 +3364,14 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         self.assertEqual(response.json()["code"], "email_taken")
         self.user.refresh_from_db()
         assert self.user.email == account_email
-        assert self.user.pending_email is None
+        # The staged address stays, so a repeat request cannot read as a completed change.
+        assert self.user.pending_email == "new-address@posthog.com"
+
+        repeat = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+
+        self.assertEqual(repeat.status_code, status.HTTP_400_BAD_REQUEST)
+        self.user.refresh_from_db()
+        assert self.user.email == account_email
 
     def test_signup_code_does_not_authorize_an_email_change(self):
         code = self._request_code()
