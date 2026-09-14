@@ -163,6 +163,8 @@ export function buildImageFetchConsumerConfigs(
         autoCommit: true,
         autoOffsetStore: true,
         fetchBatchSize: config.SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE,
+        maxBackgroundTasks: 2,
+        backgroundTaskTimeoutMs: 300_000,
     }))
 }
 

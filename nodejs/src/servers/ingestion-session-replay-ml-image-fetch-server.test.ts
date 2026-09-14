@@ -16,6 +16,8 @@ describe('image fetch consumer wiring', () => {
         const consumerOverrides = buildImageFetchConsumerOverrides(serverConfig, consumerConfigs.length)
 
         expect(consumerConfigs).toHaveLength(expectedConsumers)
+        expect(consumerConfigs.every((config) => config.maxBackgroundTasks === 2)).toBe(true)
+        expect(consumerConfigs.every((config) => config.backgroundTaskTimeoutMs === 300_000)).toBe(true)
         expect(consumerConfigs.map((config) => config.groupId)).toEqual(
             Array(expectedConsumers).fill(serverConfig.SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID)
         )
