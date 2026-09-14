@@ -7,7 +7,7 @@ import base64
 import signal
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -24,6 +24,7 @@ from posthog.models import Team, User
 from posthog.redis import get_client
 
 from products.notebooks.backend.compute_pricing import get_default_compute_preset
+from products.notebooks.backend.kernel_sandbox_usage import record_sandbox_ended, record_sandbox_started
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.tasks.backend.facade.sandbox import (
     SandboxBase,
@@ -210,6 +211,8 @@ def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
         cpu_cores=default_preset.cpu_cores,
         memory_gb=default_preset.memory_gb,
         ttl_seconds=NOTEBOOK_KERNEL_TTL_SECONDS,
+        # Modal stores these tags on the sandbox, so a sandbox seen in Modal traces back to its team.
+        metadata={"team_id": str(notebook.team_id), "product": "notebooks"},
     )
     if notebook.kernel_cpu_cores:
         sandbox_config.cpu_cores = notebook.kernel_cpu_cores
@@ -630,13 +633,16 @@ class KernelRuntimeService:
 
     def _shutdown_handle(self, handle: _KernelHandle, *, status: str) -> None:
         if handle.backend in (KernelRuntime.Backend.MODAL, KernelRuntime.Backend.DOCKER):
+            destroyed = False
             if handle.sandbox_id:
                 try:
                     sandbox_class = self._get_sandbox_class(handle.backend)
                     sandbox_class.get_by_id(handle.sandbox_id).destroy()
+                    destroyed = True
                 except Exception:
                     logger.warning("notebook_kernel_sandbox_destroy_failed", kernel_runtime_id=str(handle.runtime.id))
             self._touch_runtime(handle, status_override=status)
+            record_sandbox_ended(handle.runtime, reason=status, sandbox_still_running=not destroyed)
             return
 
         self._touch_runtime(handle, status_override=status)
@@ -688,13 +694,18 @@ class KernelRuntimeService:
 
     def _discard_active_runtime(self, notebook: Notebook, user: User | None, backend: str) -> None:
         active_statuses = [KernelRuntime.Status.STARTING, KernelRuntime.Status.RUNNING]
-        KernelRuntime.objects.filter(
+        active_runtimes = KernelRuntime.objects.filter(
             team_id=notebook.team_id,
             notebook_short_id=notebook.short_id,
             user=user if isinstance(user, User) else None,
             status__in=active_statuses,
             backend=backend,
-        ).update(status=KernelRuntime.Status.DISCARDED, last_used_at=timezone.now())
+        )
+        discarded = list(active_runtimes)
+        active_runtimes.update(status=KernelRuntime.Status.DISCARDED, last_used_at=timezone.now())
+        # Discarding a row does not destroy its sandbox, so the sandbox keeps running until its TTL.
+        for runtime in discarded:
+            record_sandbox_ended(runtime, reason=KernelRuntime.Status.DISCARDED, sandbox_still_running=True)
 
     def _get_backend(self, *, require_credentials: bool = False) -> str | None:
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
@@ -727,14 +738,21 @@ class KernelRuntimeService:
             self._mark_runtime_error(runtime, f"Failed to provision sandbox: {detail}")
             raise
 
+        runtime.ttl_expires_at = timezone.now() + timedelta(seconds=sandbox_config.ttl_seconds)
+        runtime.save(update_fields=["ttl_expires_at"])
+        record_sandbox_started(runtime, sandbox_id=sandbox.id, ttl_seconds=sandbox_config.ttl_seconds)
+
         try:
             kernel_pid = self._start_kernel_process(sandbox, connection_file)
             self._wait_for_kernel_ready(sandbox, connection_file)
             self._bootstrap_kernel(sandbox, connection_file, notebook, user)
         except Exception as err:
             self._mark_runtime_error(runtime, "Failed to start kernel in sandbox")
+            destroyed = False
             with suppress(Exception):
                 sandbox.destroy()
+                destroyed = True
+            record_sandbox_ended(runtime, reason=KernelRuntime.Status.ERROR, sandbox_still_running=not destroyed)
             raise RuntimeError("Failed to start kernel in sandbox") from err
 
         runtime.kernel_id = kernel_id
@@ -1101,16 +1119,21 @@ class KernelRuntimeService:
             sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
         except Exception:
             self._mark_runtime_error(runtime, "Sandbox not found")
+            # The lookup can fail while the sandbox still runs, so count it as running until its TTL.
+            record_sandbox_ended(runtime, reason=KernelRuntime.Status.ERROR, sandbox_still_running=True)
             return None
 
         if sandbox.get_status() != SandboxStatus.RUNNING:
             self._mark_runtime_error(runtime, "Sandbox is not running")
+            record_sandbox_ended(runtime, reason=KernelRuntime.Status.ERROR, sandbox_still_running=False)
             return None
 
         try:
             self._wait_for_kernel_ready(sandbox, runtime.connection_file or "")
         except Exception:
             self._mark_runtime_error(runtime, "Kernel not ready in sandbox")
+            # The sandbox runs but its kernel does not answer. Nothing destroys it, so it runs until its TTL.
+            record_sandbox_ended(runtime, reason=KernelRuntime.Status.ERROR, sandbox_still_running=True)
             return None
 
         handle = _KernelHandle(

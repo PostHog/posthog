@@ -194,6 +194,12 @@ class KernelRuntime(UUIDTModel):
     # before this was captured.
     provisioned_cpu_cores = models.FloatField(null=True, blank=True)
     provisioned_memory_gb = models.FloatField(null=True, blank=True)
+    # When PostHog stopped tracking this sandbox: a stop, a failure, a discard, or the status poll
+    # finding it gone. A sandbox that nothing destroyed can keep running after this time.
+    ended_at = models.DateTimeField(null=True, blank=True)
+    # When the provider kills the sandbox at the latest. The notebook's lifetime setting can change
+    # after the sandbox starts, so the deadline is stored here and not derived from the notebook.
+    ttl_expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_kernelruntime"

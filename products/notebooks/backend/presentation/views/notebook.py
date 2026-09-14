@@ -88,6 +88,7 @@ from products.notebooks.backend.facade.widgets import (
     start_widget_generation,
 )
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
+from products.notebooks.backend.kernel_sandbox_usage import record_sandbox_ended
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.presentation.widget_serializers import (
     WidgetCancelRequestSerializer,
@@ -1258,6 +1259,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         cpu_cores = sandbox_config.cpu_cores
 
         status = runtime.status if runtime else KernelRuntime.Status.STOPPED
+        sandbox_still_running = False
         if (
             runtime
             and runtime.sandbox_id
@@ -1274,6 +1276,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     status = KernelRuntime.Status.STOPPED
             except Exception:
                 status = KernelRuntime.Status.STOPPED
+                # The provider did not answer, so the sandbox may still run until its TTL.
+                sandbox_still_running = True
 
         if runtime and status == KernelRuntime.Status.STOPPED:
             if (
@@ -1288,6 +1292,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             if runtime.status != status:
                 runtime.status = status
                 runtime.save(update_fields=["status"])
+            record_sandbox_ended(runtime, reason=status, sandbox_still_running=sandbox_still_running)
 
         # A running sandbox keeps the shape it started with, so price that rather than the
         # notebook's configuration. They differ between a resize and the restart that applies it.
