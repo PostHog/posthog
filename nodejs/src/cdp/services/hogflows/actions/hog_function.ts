@@ -272,13 +272,13 @@ export class HogFunctionHandler implements ActionHandler {
         if (resume?.key === awaiting.key) {
             delete currentAction.awaitingResume
             delete currentAction.resumeResult
+            counterAwaitedStepFinished.labels({ outcome: resume.status }).inc()
             const payload = capWorkflowStepResult(
                 { ...awaiting.dispatch, status: resume.status },
                 resume.result ?? {},
                 result.invocation.state.variables ?? {},
                 action.output_variable
             )
-            counterAwaitedStepFinished.labels({ outcome: resume.status }).inc()
             if (resume.status !== 'completed') {
                 const detail = typeof payload.error_message === 'string' ? `: ${payload.error_message}` : ''
                 const outcome = resume.status === 'cancelled' ? 'was cancelled' : 'failed'
