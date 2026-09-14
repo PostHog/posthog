@@ -21,4 +21,7 @@ type Story = StoryObj<typeof ModelDownstreamSummary>
 export const Default: Story = {}
 export const OneDependentModel: Story = { args: { downstreamCount: 1 } }
 export const NoDependentModels: Story = { args: { downstreamCount: 0 } }
-export const Loading: Story = { args: { loading: true } }
+export const Loading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    args: { loading: true },
+}

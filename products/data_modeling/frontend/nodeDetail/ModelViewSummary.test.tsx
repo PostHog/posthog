@@ -1,11 +1,12 @@
-import { render, screen } from '@testing-library/react'
+import { render } from '@testing-library/react'
 
 import { ModelViewSummary } from './ModelViewSummary'
 
 describe('ModelViewSummary', () => {
     it('updates the downstream count after a translation extension replaces its text nodes', () => {
-        const { rerender } = render(<ModelViewSummary downstreamCount={3} lineageUrl="#lineage" />)
-        const link = screen.getByRole('link', { name: '3 models' })
+        const { container, rerender } = render(<ModelViewSummary downstreamCount={3} lineageUrl="#lineage" />)
+        const link = container.querySelector('a')!
+        expect(link.textContent).toBe('3 models')
         const walker = document.createTreeWalker(link, NodeFilter.SHOW_TEXT)
         const textNodes: Node[] = []
         while (walker.nextNode()) {
@@ -19,6 +20,6 @@ describe('ModelViewSummary', () => {
 
         rerender(<ModelViewSummary downstreamCount={1} lineageUrl="#lineage" />)
 
-        expect(screen.getByRole('link', { name: '1 model' }).textContent).toBe('1 model')
+        expect(container.querySelector('a')!.textContent).toBe('1 model')
     })
 })

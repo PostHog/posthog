@@ -70,6 +70,7 @@ const meta: Meta<typeof NodeDetailScene> = {
         mswDecorator({}),
     ],
     parameters: {
+        layout: 'fullscreen',
         msw: {
             mocks: {
                 get: {
