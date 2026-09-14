@@ -168,24 +168,9 @@ def _validate_allowed_tool(tool: object) -> None:
         raise CommunitySkillPublishValidationError(f"'{tool}' can't be published as a tool name. {err}") from err
 
 
-def render_skill_md(
-    *,
-    name: str,
-    description: str,
-    body: str,
-    tags: list[str] | None = None,
-    allowed_tools: list[str] | None = None,
-    license: str = "",
-    compatibility: str = "",
-    author_handle: str = "",
-    metadata: dict[str, Any] | None = None,
-) -> str:
-    """Render an LLMSkill's fields into community-skills `SKILL.md` content (frontmatter + body).
-
-    Output parses cleanly under the repo's `build_registry.py` frontmatter regex and field rules:
-    `name` and `description` are required; `trust_tier` defaults to `community` (maintainers set
-    `official`/`verified` on review); optional fields are omitted when empty.
-    """
+def _validate_skill_markdown(
+    *, name: str, description: str, body: str, author_handle: str, allowed_tools: list[str] | None
+) -> None:
     if not name.strip():
         raise CommunitySkillPublishValidationError("Skill name is required to publish.")
     if len(name.strip()) > MAX_DISPLAY_NAME_LENGTH:
@@ -214,11 +199,17 @@ def render_skill_md(
     for tool in allowed_tools or []:
         _validate_allowed_tool(tool)
 
-    frontmatter: dict[str, Any] = {
-        "name": name.strip(),
-        "description": description.strip(),
-        "trust_tier": "community",
-    }
+
+def _optional_skill_frontmatter(
+    *,
+    tags: list[str] | None,
+    allowed_tools: list[str] | None,
+    license: str,
+    compatibility: str,
+    author_handle: str,
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
+    frontmatter: dict[str, Any] = {}
     if tags:
         frontmatter["tags"] = list(tags)
     if author_handle.strip():
@@ -243,6 +234,50 @@ def render_skill_md(
                 for variable in template_variables
             ]
         }
+    return frontmatter
+
+
+def render_skill_md(
+    *,
+    name: str,
+    description: str,
+    body: str,
+    tags: list[str] | None = None,
+    allowed_tools: list[str] | None = None,
+    license: str = "",
+    compatibility: str = "",
+    author_handle: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> str:
+    """Render an LLMSkill's fields into community-skills `SKILL.md` content (frontmatter + body).
+
+    Output parses cleanly under the repo's `build_registry.py` frontmatter regex and field rules:
+    `name` and `description` are required; `trust_tier` defaults to `community` (maintainers set
+    `official`/`verified` on review); optional fields are omitted when empty.
+    """
+    _validate_skill_markdown(
+        name=name,
+        description=description,
+        body=body,
+        author_handle=author_handle,
+        allowed_tools=allowed_tools,
+    )
+
+    frontmatter: dict[str, Any] = {
+        "name": name.strip(),
+        "description": description.strip(),
+        "trust_tier": "community",
+    }
+    frontmatter.update(
+        _optional_skill_frontmatter(
+            tags=tags,
+            allowed_tools=allowed_tools,
+            license=license,
+            compatibility=compatibility,
+            author_handle=author_handle,
+            metadata=metadata,
+        )
+    )
 
     # sort_keys=False keeps the human-friendly field order above; default_flow_style=False emits
     # block-style YAML (lists as `- item`) that the repo's yaml.safe_load round-trips.
