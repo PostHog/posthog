@@ -11,7 +11,7 @@ import * as star from '@posthog/brand/hoggies/png/star'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { RestrictionScope, useRestrictedAreaCheck } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -67,7 +67,12 @@ export function Billing(): JSX.Element {
     const { activeCoupons, couponsOverviewLoading } = useValues(couponLogic({}))
     const { memberCount } = useValues(membersLogic)
 
-    const restrictionReason = useRestrictedArea({
+    const {
+        restrictionReason,
+        isLoading: accessLoading,
+        revalidate: revalidateAccess,
+        isRevalidating: accessRevalidating,
+    } = useRestrictedAreaCheck({
         minimumAccessLevel: minimumBillingAccessLevel,
         scope: RestrictionScope.Organization,
     })
@@ -93,7 +98,7 @@ export function Billing(): JSX.Element {
         router.actions.push(urls.default())
     }
 
-    if ((!billing && billingLoading) || couponsOverviewLoading) {
+    if (accessLoading || (!billing && billingLoading) || couponsOverviewLoading) {
         return (
             <>
                 <SpinnerOverlay sceneLevel />
@@ -102,7 +107,9 @@ export function Billing(): JSX.Element {
     }
 
     if (restrictionReason) {
-        return <BillingNoAccess reason={restrictionReason} />
+        return (
+            <BillingNoAccess reason={restrictionReason} onRetry={revalidateAccess} retryLoading={accessRevalidating} />
+        )
     }
 
     if (!billing && !billingLoading) {

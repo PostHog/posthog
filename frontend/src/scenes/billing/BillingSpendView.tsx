@@ -7,10 +7,11 @@ import { LemonButton, LemonCheckbox, LemonMenu, LemonInput } from '@posthog/lemo
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { RestrictionScope, useRestrictedAreaCheck } from 'lib/components/RestrictedArea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
@@ -34,7 +35,12 @@ import type { BillingChartType } from './types'
 
 export function BillingSpendView(): JSX.Element {
     const { minimumUsageSpendReadAccessLevel } = useValues(billingLogic)
-    const restrictionReason = useRestrictedArea({
+    const {
+        restrictionReason,
+        isLoading: accessLoading,
+        revalidate: revalidateAccess,
+        isRevalidating: accessRevalidating,
+    } = useRestrictedAreaCheck({
         minimumAccessLevel: minimumUsageSpendReadAccessLevel,
         scope: RestrictionScope.Organization,
     })
@@ -73,8 +79,19 @@ export function BillingSpendView(): JSX.Element {
         resetFilters,
     } = useActions(logic)
 
+    if (accessLoading) {
+        return <SpinnerOverlay sceneLevel />
+    }
+
     if (restrictionReason) {
-        return <BillingNoAccess title="Spend" reason={restrictionReason} />
+        return (
+            <BillingNoAccess
+                title="Spend"
+                reason={restrictionReason}
+                onRetry={revalidateAccess}
+                retryLoading={accessRevalidating}
+            />
+        )
     }
 
     // Creating an export requires editor access to the export resource.
