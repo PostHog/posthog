@@ -100,18 +100,16 @@ export function resolveCardOverlaps(nodes: PathNodeData[], canvasHeight: number)
     const resolvedTops = new Map<number, number>()
     for (const group of byLayer.values()) {
         group.sort((a, b) => topByIndex.get(a.index)! - topByIndex.get(b.index)!)
+        const alwaysVisibleNodes = group.filter(isCardAlwaysVisible)
         let prevBottom = -Infinity
-        for (const node of group.filter(isCardAlwaysVisible)) {
+        for (const node of alwaysVisibleNodes) {
             const naturalTop = topByIndex.get(node.index)!
             const resolvedTop = Math.max(naturalTop, prevBottom + PATH_NODE_CARD_OVERLAP_GAP)
             resolvedTops.set(node.index, resolvedTop)
             prevBottom = resolvedTop + PATH_NODE_CARD_HEIGHT
         }
 
-        const occupiedTops = group
-            .filter(isCardAlwaysVisible)
-            .map((node) => resolvedTops.get(node.index)!)
-            .sort((a, b) => a - b)
+        const occupiedTops = alwaysVisibleNodes.map((node) => resolvedTops.get(node.index)!).sort((a, b) => a - b)
         for (const node of group.filter((node) => !isCardAlwaysVisible(node))) {
             let resolvedTop = topByIndex.get(node.index)!
             for (const occupiedTop of occupiedTops) {
