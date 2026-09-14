@@ -318,13 +318,6 @@ export interface accountsLogicActions {
         payload?: any
         relationshipDefinitions: AccountRelationshipDefinitionApi[]
     } // accountsColumnConfigLogic
-    moveColumn: (
-        oldIndex: number,
-        newIndex: number
-    ) => {
-        newIndex: number
-        oldIndex: number
-    } // accountsColumnConfigLogic
     resetColumns: () => {
         value: true
     } // accountsColumnConfigLogic
@@ -357,40 +350,11 @@ export interface accountsLogicActions {
         accountId: string
         tab: AccountExpansionTab
     } // accountsExpansionLogic
-    addTile: (
-        tile: Omit<AccountsOverviewTile, 'id'> & {
-            id?: string
-        }
-    ) => {
-        tile: Omit<AccountsOverviewTile, 'id'> & {
-            id?: string | undefined
-        }
-    } // accountsOverviewTilesLogic
-    moveTile: (
-        oldIndex: number,
-        newIndex: number
-    ) => {
-        newIndex: number
-        oldIndex: number
-    } // accountsOverviewTilesLogic
-    removeTile: (id: string) => {
-        id: string
-    } // accountsOverviewTilesLogic
-    resetTiles: () => {
-        value: true
-    } // accountsOverviewTilesLogic
     setTileFilter: (filter: TileFilter | null) => {
         filter: TileFilter | null
     } // accountsOverviewTilesLogic
     setTiles: (tiles: AccountsOverviewTile[]) => {
         tiles: AccountsOverviewTile[]
-    } // accountsOverviewTilesLogic
-    updateTile: (
-        id: string,
-        tile: Omit<AccountsOverviewTile, 'id'>
-    ) => {
-        id: string
-        tile: Omit<AccountsOverviewTile, 'id'>
     } // accountsOverviewTilesLogic
     setMineOnly: (mineOnly: boolean) => {
         mineOnly: boolean
@@ -767,14 +731,13 @@ export const accountsLogic = kea<accountsLogicType>([
                 'setSelectColumns',
                 'selectColumn',
                 'unselectColumn',
-                'moveColumn',
                 'resetColumns',
                 'restoreSelectColumns',
                 'setColumnDisplay',
                 'setColumnDisplayConfig',
             ],
             accountsOverviewTilesLogic,
-            ['addTile', 'moveTile', 'removeTile', 'resetTiles', 'setTileFilter', 'setTiles', 'updateTile'],
+            ['setTileFilter', 'setTiles'],
             accountsExpansionLogic,
             ['openAccountTab'],
             customerAnalyticsSceneLogic,
@@ -1325,16 +1288,22 @@ export const accountsLogic = kea<accountsLogicType>([
         setSortOrder: () => persistViewStateAndUrl(actions, cache.applyingViewState),
         restoreSelectColumns: () => persistViewStateAndUrl(actions, cache.applyingViewState),
         selectColumn: () => persistViewStateAndUrl(actions, cache.applyingViewState),
-        moveColumn: () => persistViewStateAndUrl(actions, cache.applyingViewState),
+        [accountsColumnConfigLogic.actionTypes.moveColumn]: () =>
+            persistViewStateAndUrl(actions, cache.applyingViewState),
         setColumnDisplay: () => persistViewStateAndUrl(actions, cache.applyingViewState),
         setColumnDisplayConfig: () => persistViewStateAndUrl(actions, cache.applyingViewState),
         setTileFilter: () => persistViewStateAndUrl(actions, cache.applyingViewState),
         setTiles: () => persistViewStateAndUrl(actions, cache.applyingViewState),
-        addTile: () => persistViewStateAndUrl(actions, cache.applyingViewState),
-        updateTile: () => persistViewStateAndUrl(actions, cache.applyingViewState),
-        removeTile: () => persistViewStateAndUrl(actions, cache.applyingViewState),
-        moveTile: () => persistViewStateAndUrl(actions, cache.applyingViewState),
-        resetTiles: () => persistViewStateAndUrl(actions, cache.applyingViewState),
+        [accountsOverviewTilesLogic.actionTypes.addTile]: () =>
+            persistViewStateAndUrl(actions, cache.applyingViewState),
+        [accountsOverviewTilesLogic.actionTypes.updateTile]: () =>
+            persistViewStateAndUrl(actions, cache.applyingViewState),
+        [accountsOverviewTilesLogic.actionTypes.removeTile]: () =>
+            persistViewStateAndUrl(actions, cache.applyingViewState),
+        [accountsOverviewTilesLogic.actionTypes.moveTile]: () =>
+            persistViewStateAndUrl(actions, cache.applyingViewState),
+        [accountsOverviewTilesLogic.actionTypes.resetTiles]: () =>
+            persistViewStateAndUrl(actions, cache.applyingViewState),
         listLoadData: ({ queryId }) => {
             if (cache.awaitingCustomPropertyRefresh) {
                 cache.awaitingCustomPropertyRefresh = false
