@@ -1337,7 +1337,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'business-knowledge-learn-from-support',
-                title: 'Learn from support',
+                title: 'Self-learning',
                 description:
                     'When on, PostHog learns reusable answers from public human replies on resolved support tickets.',
                 component: <LearnFromSupportSetting />,

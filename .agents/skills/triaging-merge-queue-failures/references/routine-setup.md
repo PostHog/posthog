@@ -103,7 +103,7 @@ The repo rule stands: agents do not enqueue PRs without explicit approval.
 For an unattended run, that approval is the operator's, granted once and explicitly:
 
 - Default: leave `MQ_TRIAGE_ALLOW_REQUEUE` unset. Every verdict is report-only; the sweep comments what to do but touches nothing.
-- Setting `MQ_TRIAGE_ALLOW_REQUEUE=1` in the routine's environment is a standing approval for exactly one action: a single `/trunk merge` comment on a mergeable, green, approved PR whose verdict is "one-off flake" or "non-deterministic", at most once per head OID. A failed requeue produces a new attempt on the same head, so the gate keys on the head alone; the skill escalates repeats instead of retrying. Enable it deliberately, and own what it can land.
+- Setting `MQ_TRIAGE_ALLOW_REQUEUE=1` in the routine's environment is a standing approval for exactly one action: a single `/trunk merge` comment on a mergeable, green, approved PR that the queue has already dropped, whose verdict is "one-off flake" or "non-deterministic", at most once per head OID. A PR the queue still holds is never resubmitted, however its last attempt ended. A failed requeue produces a new attempt on the same head, so the gate keys on the head alone; the skill escalates repeats instead of retrying. Enable it deliberately, and own what it can land.
 
 Keep the rest of the boundary least-privilege.
 The prohibitions in `SKILL.md` (never merge, approve, close, or push) are agent instructions; the boundary that actually holds is what the environment's GitHub identity is permitted to do, so grant it clone and PR-comment access and nothing more.

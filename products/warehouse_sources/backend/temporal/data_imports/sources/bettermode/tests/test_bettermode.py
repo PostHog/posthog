@@ -295,7 +295,7 @@ class TestBettermodeSourceResponse:
 
 
 class TestQueryDocuments:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @pytest.mark.parametrize("endpoint", [name for name in ENDPOINTS if not BETTERMODE_ENDPOINTS[name].is_list])
     def test_query_declares_every_variable_it_passes(self, endpoint):
         config = BETTERMODE_ENDPOINTS[endpoint]
         query = _build_query(config)
@@ -304,3 +304,109 @@ class TestQueryDocuments:
         for arg_name, gql_type in {"limit": "Int!", "after": "String", **config.extra_args}.items():
             assert f"${arg_name}: {gql_type}" in query
             assert f"{arg_name}: ${arg_name}" in query
+
+    @pytest.mark.parametrize("endpoint", [name for name in ENDPOINTS if not BETTERMODE_ENDPOINTS[name].is_list])
+    def test_query_passes_every_static_variable_it_declares(self, endpoint):
+        config = BETTERMODE_ENDPOINTS[endpoint]
+        assert set(config.base_variables) <= set(config.extra_args)
+
+
+class TestListEndpoints:
+    @pytest.mark.parametrize("endpoint", ["collections", "roles"])
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_single_request_yields_the_whole_list(self, mock_make_session, endpoint):
+        query_field = BETTERMODE_ENDPOINTS[endpoint].query_field
+        _, data_session = _mock_sessions(
+            mock_make_session, [_response({"data": {query_field: [{"id": "a"}, {"id": "b"}]}})]
+        )
+
+        manager = _make_manager()
+        batches = list(get_rows("us", "client", "secret", "net", endpoint, mock.MagicMock(), manager))
+
+        assert [row["id"] for batch in batches for row in batch] == ["a", "b"]
+        assert data_session.post.call_count == 1
+        # `collections` and `roles` reject limit/after — they return the whole list.
+        assert data_session.post.call_args.kwargs["json"]["variables"] == {}
+        assert "$limit" not in data_session.post.call_args.kwargs["json"]["query"]
+        manager.save_state.assert_not_called()
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_empty_list_yields_no_batches(self, mock_make_session):
+        _mock_sessions(mock_make_session, [_response({"data": {"roles": []}})])
+
+        assert list(get_rows("us", "client", "secret", "net", "roles", mock.MagicMock(), _make_manager())) == []
+
+
+class TestSpaceFanOut:
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_space_members_flattened_and_checkpointed_per_space(self, mock_make_session):
+        _, data_session = _mock_sessions(
+            mock_make_session,
+            [
+                _page("spaces", [{"id": "s1"}, {"id": "s2"}]),
+                _page(
+                    "spaceMembers",
+                    [{"member": {"id": "m1"}, "role": {"id": "r1", "name": "Admin", "type": "admin"}}],
+                    end_cursor="cur-1",
+                ),
+                _page(
+                    "spaceMembers", [{"member": {"id": "m2"}, "role": {"id": "r2", "name": "Member", "type": "member"}}]
+                ),
+                # A membership whose member is no longer readable carries no usable key.
+                _page("spaceMembers", [{"member": None, "role": None}, {"member": {"id": "m3"}, "role": {}}]),
+            ],
+        )
+
+        manager = _make_manager()
+        batches = list(get_rows("us", "client", "secret", "net", "space_members", mock.MagicMock(), manager))
+
+        assert [row for batch in batches for row in batch] == [
+            {"spaceId": "s1", "memberId": "m1", "roleId": "r1", "roleName": "Admin", "roleType": "admin"},
+            {"spaceId": "s1", "memberId": "m2", "roleId": "r2", "roleName": "Member", "roleType": "member"},
+            {"spaceId": "s2", "memberId": "m3", "roleId": None, "roleName": None, "roleType": None},
+        ]
+        member_calls = data_session.post.call_args_list[1:]
+        assert [call.kwargs["json"]["variables"]["spaceId"] for call in member_calls] == ["s1", "s1", "s2"]
+        assert member_calls[0].kwargs["json"]["variables"]["orderBy"] == "CREATED_AT"
+        # Mid-space page checkpoint, then a bookmark advancing to the next space.
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert [(state.after, state.space_id, state.post_id) for state in saved] == [
+            ("cur-1", "s1", None),
+            (None, "s2", None),
+        ]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_space_post_types_rows_pass_through_unmapped(self, mock_make_session):
+        _, data_session = _mock_sessions(
+            mock_make_session,
+            [
+                _page("spaces", [{"id": "s1"}]),
+                _page("spacePostTypes", [{"spaceId": "s1", "postTypeId": "pt1", "whoCanPost": ["r1"]}]),
+            ],
+        )
+
+        batches = list(get_rows("us", "client", "secret", "net", "space_post_types", mock.MagicMock(), _make_manager()))
+
+        assert [row for batch in batches for row in batch] == [
+            {"spaceId": "s1", "postTypeId": "pt1", "whoCanPost": ["r1"]}
+        ]
+        assert data_session.post.call_args.kwargs["json"]["variables"]["spaceId"] == "s1"
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_resumes_from_bookmarked_space(self, mock_make_session):
+        _, data_session = _mock_sessions(
+            mock_make_session,
+            [
+                _page("spaces", [{"id": "s1"}, {"id": "s2"}]),
+                _page("spaceMembers", [{"member": {"id": "m9"}, "role": {"id": "r1"}}]),
+            ],
+        )
+
+        manager = _make_manager(BettermodeResumeConfig(after="cur-mid", space_id="s2"))
+        list(get_rows("us", "client", "secret", "net", "space_members", mock.MagicMock(), manager))
+
+        member_calls = data_session.post.call_args_list[1:]
+        assert len(member_calls) == 1
+        variables = member_calls[0].kwargs["json"]["variables"]
+        assert variables["spaceId"] == "s2"
+        assert variables["after"] == "cur-mid"
