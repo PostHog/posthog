@@ -262,6 +262,8 @@ class TestBuildAndSendForOrg(_DigestTestBase):
         context = self.mock_email_class.call_args.kwargs["template_context"]
         assert [s["team"].id for s in context["project_sections"]] == [self.team.id]
         assert context["unavailable_project_names"] == ["Broken team"]
+        self.user.refresh_from_db()
+        assert "web_analytics_weekly_digest_project_enabled" not in (self.user.partial_notification_settings or {})
 
     def test_raises_when_no_team_section_can_be_built(self):
         self.mock_build_digest.side_effect = TimeoutError("Query timed out")

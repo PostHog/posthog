@@ -142,7 +142,8 @@ def _send_digest_for_user(
     if not accessible_team_data:
         return DigestOutcome.SKIPPED_NO_DATA
 
-    if weekly_digest.auto_select_project_for_user(user, accessible_team_data):
+    accessible_failed_teams = [team for team in failed_teams if has_access(team)]
+    if not accessible_failed_teams and weekly_digest.auto_select_project_for_user(user, accessible_team_data):
         user.refresh_from_db(fields=["partial_notification_settings"])
 
     user_team_sections = []
@@ -165,7 +166,7 @@ def _send_digest_for_user(
     if dry_run:
         return DigestOutcome.DRY_RUN
 
-    unavailable_team_names = [team.name for team in failed_teams if has_access(team) and is_enabled(team.id)]
+    unavailable_team_names = [team.name for team in accessible_failed_teams if is_enabled(team.id)]
 
     # When the recap experience is enabled for this user, the email CTA points at the recap page.
     recap_enabled = _is_user_recap_enabled(user, str(org.id))
