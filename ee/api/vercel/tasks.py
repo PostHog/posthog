@@ -83,6 +83,7 @@ def sync_vercel_connect_link(organization_integration_id: str) -> None:
     from ee.vercel.integration import VercelIntegration
 
     try:
+        # nosemgrep: idor-lookup-without-org (Celery task; the pk comes from the row the link endpoint just wrote)
         installation = OrganizationIntegration.objects.get(
             pk=organization_integration_id,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
