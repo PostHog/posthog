@@ -101,6 +101,17 @@ never gets.
   schema row there. A schema row's own `id` is the sync configuration, not the table; the table ID is
   nested under `table.id`.
 
+- **Catalog metric.** The metric check routes are REST only, and the `id` is the `metric_id` in the
+  path. This view lists live metrics only. A live name is unique in a project, so an exact-name
+  match returns at most one row. A metric takes checks only when its definition is a `HogQLQuery`,
+  so the second predicate doubles as the eligibility test.
+
+  ```sql
+  SELECT id
+  FROM system.information_schema.metrics
+  WHERE name = 'weekly_active_accounts' AND definition_kind = 'HogQLQuery'
+  ```
+
 `posthog:data-quality-check-types` is different: it takes a `saved_query_id`, but never the
 subject's. Its catalog is static, so pass any view's `id`; the returned schemas apply to tables too.
 A project with no view has nothing to pass, so that reader can skip the call: the same per-type
