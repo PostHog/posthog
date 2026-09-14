@@ -436,15 +436,3 @@ export type TaxonomicDefinitionTypes =
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
     | QuickFilterItem
-
-export const CATEGORY_DROPDOWN_VARIANTS = ['control', 'pill'] as const
-
-export type CategoryDropdownVariant = (typeof CATEGORY_DROPDOWN_VARIANTS)[number]
-
-export function isCategoryDropdownVariant(value: unknown): value is CategoryDropdownVariant {
-    return typeof value === 'string' && (CATEGORY_DROPDOWN_VARIANTS as readonly string[]).includes(value)
-}
-
-export function resolveCategoryDropdownVariant(flagValue: string | boolean | undefined): CategoryDropdownVariant {
-    return isCategoryDropdownVariant(flagValue) ? flagValue : 'control'
-}

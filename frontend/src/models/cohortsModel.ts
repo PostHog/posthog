@@ -25,7 +25,6 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
-import { personsLogic } from 'scenes/persons/personsLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -39,6 +38,8 @@ import {
     CohortType,
     FilterLogicalOperator,
 } from '~/types'
+
+import { personsLogic } from 'products/persons/frontend/logics/personsLogic'
 
 import type { TeamPublicType, TeamType } from '../types'
 
