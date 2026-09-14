@@ -14,6 +14,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.utils import safe_cache_delete
 
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -90,15 +91,21 @@ def enqueue_recompute_web_analytics_achievements_debounced(team_id: int, user_id
     scope = str(user_id) if user_id is not None else "team"
     debounce_key = f"wa_achievements_recompute:{team_id}:{scope}:{today.isoformat()}"
     try:
-        was_added = cache.add(debounce_key, "1", timeout=RECOMPUTE_DEBOUNCE_TTL_SECONDS)
+        claimed = cache.add(debounce_key, "1", timeout=RECOMPUTE_DEBOUNCE_TTL_SECONDS)
     except Exception as e:
         logger.warning("wa_achievements_debounce_cache_failure", team_id=team_id, exc_info=True)
         capture_exception(e)
-        was_added = True
-    if was_added:
+        claimed = False
+    else:
+        if not claimed:
+            return False
+    try:
         recompute_web_analytics_achievements.delay(team_id, user_id=user_id)
-        return True
-    return False
+    except Exception:
+        if claimed:
+            safe_cache_delete(debounce_key)
+        raise
+    return True
 
 
 def recompute_web_analytics_achievements_sync(

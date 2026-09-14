@@ -129,6 +129,7 @@ import {
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/components/SkillButtonActionMessage";
+import { useRecentlyChanged } from "@posthog/ui/hooks/useRecentlyChanged";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { track } from "@posthog/ui/shell/analytics";
@@ -660,6 +661,8 @@ function MessageContextMenu({
   );
 }
 
+const GROWING_TEXT_SETTLE_MS = 500;
+
 /**
  * Start-aligned assistant prose bubble. Streamed tokens arrive in bursts; `useSmoothedText` reveals
  * them at a steady character rate so the text reads as even typing (text present on mount shows
@@ -677,6 +680,7 @@ const AgentProse = memo(function AgentProse({
   isStreaming?: boolean;
 }) {
   const smoothed = useSmoothedText(text);
+  const growing = useRecentlyChanged(text, GROWING_TEXT_SETTLE_MS);
 
   return (
     <MessageContextMenu value={text}>
@@ -684,7 +688,7 @@ const AgentProse = memo(function AgentProse({
         <ChatMessageContent className="gap-1">
           <ChatBubble variant="ghost">
             <ChatBubbleContent>
-              {isStreaming ? (
+              {isStreaming || growing ? (
                 <ChatStreamingMarkdown content={smoothed} renderObjectTags />
               ) : (
                 <ChatMarkdown content={text} renderObjectTags />
