@@ -9,18 +9,29 @@ reviews:
     # Surface only the highest-signal feedback.
     profile: 'quiet'
 
-    # Keep the trial silent until PostHog is ready to begin the rollout.
+    # The review lands as comments only. These surfaces mirror Greptile's
+    # statusCheck and statusCommentsEnabled, both off, so neither bot adds a
+    # check the merge queue has to wait on.
     review_status: false
     review_progress: false
     commit_status: false
     poem: false
 
     auto_review:
-        enabled: false
+        enabled: true
+
+        # One review per pull request, as Greptile's triggerOnUpdates does.
+        # Re-review after a fix costs a run and repeats findings already handled.
         auto_incremental_review: false
 
-        # Draft PRs will be eligible when automatic reviews are enabled later.
+        # Most agent-authored pull requests open as drafts, which is where the
+        # findings are cheapest to act on.
         drafts: true
+
+        # Without this, only pull requests into the default branch are reviewed,
+        # so every layer of a stack above the first would be skipped.
+        base_branches:
+            - '.*'
 
     # Content rules shared with Greptile (.greptile/config.json "instructions"), so the two reviews can be compared.
     path_instructions:
