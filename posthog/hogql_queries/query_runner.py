@@ -167,7 +167,6 @@ from posthog.query_cache.failures import (
     QueryFailureRecord,
 )
 from posthog.query_cache.single_flight import (
-    FLIGHT_LOCK_TTL,
     FLIGHT_WAIT_SECONDS,
     QUERY_SINGLE_FLIGHT_COUNTER,
     QUERY_SINGLE_FLIGHT_FLAG,
@@ -2256,7 +2255,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
                     trigger: str | None = get_query_tag_value("trigger")
 
-                    CachedResponse: type[CR] = self.cached_response_type
                     cache_manager = QueryCache(
                         team_id=self.team.pk,
                         cache_key=cache_key,
@@ -2295,52 +2293,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             analytics_props=analytics_props,
                         )
                         if results:
-                            cache_tracking_props = {}
-                            if isinstance(results, CachedResponse):
-                                if (not trigger or not trigger.startswith("warming")) and results.query_metadata:
-                                    log_event_usage_from_query_metadata(
-                                        results.query_metadata,
-                                        team_id=self.team.id,
-                                        user_id=user.id if user else None,
-                                    )
-
-                                last_refresh = last_refresh_from_cached_result(results)
-                                cache_tracking_props = {
-                                    "is_cache_stale": self._is_stale_for_request(last_refresh=last_refresh),
-                                    "calculation_trigger": results.calculation_trigger,
-                                    "cache_age_seconds": round((datetime.now(UTC) - last_refresh).total_seconds(), 2)
-                                    if last_refresh
-                                    else None,
-                                    "last_refresh": last_refresh.isoformat() if last_refresh else None,
-                                }
-                                slo.tag(
-                                    execution_path="cache_hit",
-                                    cache_hit=True,
-                                    **cache_tracking_props,
-                                )
-                            else:
-                                slo.tag(execution_path="cache_miss", cache_hit=False)
-
-                            query_executed_props = {
-                                "insight_id": insight_id,
-                                "dashboard_id": dashboard_id,
-                                "execution_mode": execution_mode.value,
-                                "query_type": query_type,
-                                "cache_key": cache_key,
-                                "cache_hit": isinstance(results, CachedResponse),
-                                "cache_age_override": cache_age_seconds,
-                                "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
-                                **cache_tracking_props,
-                            }
-                            report_user_or_team_action(
-                                "query executed",
-                                query_executed_props,
+                            self._report_result_from_cache(
+                                results,
+                                cache_key=cache_key,
+                                execution_mode=execution_mode,
+                                insight_id=insight_id,
+                                dashboard_id=dashboard_id,
+                                trigger=trigger,
                                 user=user,
-                                team=self.team,
-                                organization=self.team.organization,
+                                start_time=start_time,
                                 analytics_props=analytics_props,
                             )
-
                             return results
 
                     # cache_hit is left unset on this path: either the caller passed
@@ -2413,6 +2376,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             else:
                 served = self._await_flight(flight, cache_manager, user=user, analytics_props=analytics_props)
                 if served is not None:
+                    self._report_result_from_cache(
+                        served,
+                        cache_key=cache_key,
+                        execution_mode=execution_mode,
+                        insight_id=insight_id,
+                        dashboard_id=dashboard_id,
+                        trigger=trigger,
+                        user=user,
+                        start_time=start_time,
+                        analytics_props=analytics_props,
+                        execution_path="single_flight_follower",
+                    )
                     return served
                 # The leader failed or vanished, so this run executes the query itself. The
                 # leader's failure may have just opened the breaker, hence the recheck.
@@ -2447,7 +2422,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User],
         analytics_props: Optional["AnalyticsProps"],
     ) -> Optional[CR]:
-        wait_started_at = datetime.now(UTC)
+        # Only an entry written during this flight can be the leader's. An entry that predates
+        # the wait means the leader failed or vanished, and the follower must run the query
+        # itself so that failure is not masked by earlier data, even data still fresh for this
+        # request.
+        before = cache_manager.freshness()
+        refreshed_before_wait = (
+            datetime.fromisoformat(before.last_refresh) if before is not None and before.last_refresh else None
+        )
         outcome = flight.wait(FLIGHT_WAIT_SECONDS)
         served = self.handle_cache_and_async_logic(
             execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -2455,18 +2437,69 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             user=user,
             analytics_props=analytics_props,
         )
-        # The leader stamps last_refresh when it starts, and it holds the lock for at most
-        # FLIGHT_LOCK_TTL, so its entry is at most that old when the wait began. An older entry
-        # means the leader failed or vanished, and the follower must run the query itself so that
-        # failure is not masked by earlier data, even data still fresh for this request.
         if isinstance(served, self.cached_response_type):
             last_refresh = last_refresh_from_cached_result(served)
-            if last_refresh is not None and last_refresh >= wait_started_at - timedelta(seconds=FLIGHT_LOCK_TTL):
-                tag_current_slo(execution_path="single_flight_follower", cache_hit=True)
+            if last_refresh is not None and (refreshed_before_wait is None or last_refresh > refreshed_before_wait):
                 QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_served_cache").inc()
                 return served
         QUERY_SINGLE_FLIGHT_COUNTER.labels(action=f"follower_fallback_{outcome}").inc()
         return None
+
+    def _report_result_from_cache(
+        self,
+        results: CR | CacheMissResponse,
+        *,
+        cache_key: str,
+        execution_mode: ExecutionMode,
+        insight_id: Optional[int],
+        dashboard_id: Optional[int],
+        trigger: Optional[str],
+        user: Optional[User],
+        start_time: float,
+        analytics_props: Optional["AnalyticsProps"],
+        execution_path: str = "cache_hit",
+    ) -> None:
+        cache_tracking_props: dict[str, Any] = {}
+        if isinstance(results, self.cached_response_type):
+            if (not trigger or not trigger.startswith("warming")) and results.query_metadata:
+                log_event_usage_from_query_metadata(
+                    results.query_metadata,
+                    team_id=self.team.id,
+                    user_id=user.id if user else None,
+                )
+
+            last_refresh = last_refresh_from_cached_result(results)
+            cache_tracking_props = {
+                "is_cache_stale": self._is_stale_for_request(last_refresh=last_refresh),
+                "calculation_trigger": results.calculation_trigger,
+                "cache_age_seconds": round((datetime.now(UTC) - last_refresh).total_seconds(), 2)
+                if last_refresh
+                else None,
+                "last_refresh": last_refresh.isoformat() if last_refresh else None,
+            }
+            tag_current_slo(execution_path=execution_path, cache_hit=True, **cache_tracking_props)
+        else:
+            tag_current_slo(execution_path="cache_miss", cache_hit=False)
+
+        query_executed_props = {
+            "insight_id": insight_id,
+            "dashboard_id": dashboard_id,
+            "execution_mode": execution_mode.value,
+            "query_type": getattr(self.query, "kind", "Other"),
+            "cache_key": cache_key,
+            "cache_hit": isinstance(results, self.cached_response_type),
+            "cache_age_override": self._cache_age_override,
+            "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
+            **cache_tracking_props,
+        }
+        report_user_or_team_action(
+            "query executed",
+            query_executed_props,
+            user=user,
+            team=self.team,
+            organization=self.team.organization,
+            analytics_props=analytics_props,
+        )
 
     def _calculate_and_cache_blocking(
         self,

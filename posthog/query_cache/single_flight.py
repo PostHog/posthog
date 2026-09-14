@@ -1,12 +1,11 @@
 import time
+import uuid
 from typing import Literal
-
-from django.core.cache import caches
 
 import structlog
 from prometheus_client import Counter, Histogram
 
-from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
+from posthog.query_cache import storage
 
 logger = structlog.get_logger(__name__)
 
@@ -31,6 +30,15 @@ FLIGHT_LOCK_TTL = 90
 FLIGHT_WAIT_SECONDS = 65
 FLIGHT_POLL_INTERVAL = 0.25
 
+# Deletes the lock only while this leader still owns it, so a leader that outlived
+# FLIGHT_LOCK_TTL cannot remove the lock of the leader that replaced it.
+_RELEASE_OWN_LOCK_SCRIPT = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+end
+return 0
+"""
+
 FlightWaitOutcome = Literal["released", "timeout"]
 
 
@@ -45,25 +53,27 @@ class QuerySingleFlight:
 
     def __init__(self, cache_key: str) -> None:
         self.lock_key = f"query_flight:{cache_key}"
+        self._token = uuid.uuid4().hex
 
     def acquire(self) -> bool:
         try:
-            return bool(caches[QUERY_CACHE_ALIAS].add(self.lock_key, "1", FLIGHT_LOCK_TTL))
+            client = storage.query_cache_raw_client()
+            return bool(client.set(self.lock_key, self._token, nx=True, ex=FLIGHT_LOCK_TTL))
         except Exception:
             logger.exception("query_single_flight_acquire_failed", key=self.lock_key)
             return True
 
     def release(self) -> None:
-        # The delete is unconditional: a leader that outlived FLIGHT_LOCK_TTL removes the lock of
-        # whichever leader replaced it, whose followers then fail open and run the query themselves.
         try:
-            caches[QUERY_CACHE_ALIAS].delete(self.lock_key)
+            client = storage.query_cache_raw_client()
+            # redis-py's stubs omit register_script on RedisCluster; the runtime supports it.
+            client.register_script(_RELEASE_OWN_LOCK_SCRIPT)(keys=[self.lock_key], args=[self._token])  # type: ignore[union-attr]
         except Exception:
             logger.exception("query_single_flight_release_failed", key=self.lock_key)
 
     def in_flight(self) -> bool:
         try:
-            return caches[QUERY_CACHE_ALIAS].get(self.lock_key) is not None
+            return bool(storage.query_cache_raw_client().exists(self.lock_key))
         except Exception:
             return False
 

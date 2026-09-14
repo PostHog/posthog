@@ -2020,31 +2020,40 @@ class TestQuerySingleFlightRunner(BaseTest):
 
     def test_follower_serves_the_entry_the_leader_wrote(self):
         runner_class = setup_test_query_runner_class()
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
+            runner_class(query={"some_attr": "bla"}, team=self.team).run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+            )  # an earlier entry, still fresh for this request
+
+            def leader_writes_while_we_wait(*args: Any, **kwargs: Any) -> str:
+                frozen.shift(timedelta(seconds=1))
+                with mock.patch("posthoganalytics.feature_enabled", return_value=False):
+                    runner_class(query={"some_attr": "bla"}, team=self.team).run(
+                        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                    )
+                return "released"
+
+            runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+            self._become_follower(leader_writes_while_we_wait)
+            with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+                with mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
+                    response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert response.is_cached is True
+        assert response.last_refresh == datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC)  # the leader's, not the earlier entry
+        assert report.call_args.args[0] == "query executed"
+        assert report.call_args.args[1]["cache_hit"] is True
+
+    def test_follower_refuses_an_entry_that_predates_the_flight(self):
+        runner_class = setup_test_query_runner_class()
         runner_class(query={"some_attr": "bla"}, team=self.team).run(
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
-        )  # the leader's write
+        )  # fresh for this request, but not written by the leader
 
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
         self._become_follower()
         with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
-            with mock.patch.object(runner_class, "_calculate", autospec=True) as mock_calculate:
-                response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        mock_calculate.assert_not_called()
-        assert response.is_cached is True
-
-    def test_follower_refuses_an_entry_that_predates_the_flight(self):
-        runner_class = setup_test_query_runner_class()
-        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
-            runner_class(query={"some_attr": "bla"}, team=self.team).run(
-                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
-            )
-            frozen.shift(timedelta(minutes=5))  # inside the harness's 10-minute staleness window, past the lock TTL
-
-            runner = runner_class(query={"some_attr": "bla"}, team=self.team)
-            self._become_follower()
-            with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
-                response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        assert response.is_cached is False
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert response.is_cached is False  # ran the query itself
 
     def test_flag_off_never_touches_the_flight(self):
         runner_class = setup_test_query_runner_class()
