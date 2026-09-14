@@ -187,81 +187,36 @@ _OBJECT_TAG_KINDS = frozenset(
         "sql",
     }
 )
-_RE_OBJECT_TAG_OPEN = re.compile(r"<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*\"[^\"]*\")*)\s*(/?)>")
-# One pattern per kind so the closing tag is found by a forward scan. Matching the open and
-# close in a single pattern needs a lazy body, which rescans to the end of the text for every
-# opener that never closes — quadratic on a reply that repeats an unclosed `<hogql>`.
-_RE_OBJECT_TAG_CLOSE = {kind: re.compile(rf"</{re.escape(kind)}\s*>") for kind in _OBJECT_TAG_KINDS}
-_RE_OBJECT_TAG_ATTR = re.compile(r"([a-z][\w-]*)\s*=\s*\"([^\"]*)\"")
-_XML_ATTR_ENTITIES = (("&quot;", '"'), ("&apos;", "'"), ("&amp;", "&"))
+_RE_OBJECT_TAG = re.compile(r"""<(\/?)([a-z][\w-]*)(?:\s+[a-z][\w-]*\s*=\s*(?:"[^"]*"|'[^']*'))*\s*(\/?)>""")
 
 
-def _unescape_xml_attr(value: str) -> str:
-    for entity, char in _XML_ATTR_ENTITIES:
-        value = value.replace(entity, char)
-    return value
-
-
-def _object_tag_label(kind: str, raw_attrs: str, body: str) -> str:
-    attrs = {name: _unescape_xml_attr(value) for name, value in _RE_OBJECT_TAG_ATTR.findall(raw_attrs)}
-    # A `hogql` body is the SQL itself, which is the chip's payload rather than something to
-    # read, so only its label survives. Every other kind carries its display text in the body.
-    label = attrs.get("title", "").strip() or (
-        (attrs.get("label", "").strip() or "SQL query") if kind in ("hogql", "sql") else body.strip()
-    )
-    return label.replace("<", "&lt;").replace(">", "&gt;")
-
-
-def _flatten_object_tags_segment(segment: str) -> str:
+def strip_object_tags(text: str) -> str:
     pieces: list[str] = []
     cursor = 0
-    # Closing tags found so far, per kind. Openers are visited left to right, and a search
-    # returns the first closing tag at or after where it started, so a cached one still ahead of
-    # the current opener is the one that opener would find too. Without the cache a reply
-    # repeating an unclosed `<hogql>` rescans the whole tail once per opener.
-    closers: dict[str, re.Match[str] | None] = {}
-    for opener in _RE_OBJECT_TAG_OPEN.finditer(segment):
-        if opener.start() < cursor:
-            # Inside a tag body already consumed, e.g. a nested tag.
-            continue
-        kind = opener.group(1)
+    active_kind: str | None = None
+    depth = 0
+    for tag in _RE_OBJECT_TAG.finditer(text):
+        closing, kind, self_closing = tag.groups()
         if kind not in _OBJECT_TAG_KINDS:
             continue
-        body = ""
-        end = opener.end()
-        if not opener.group(3):
-            closer = closers.get(kind)
-            if kind not in closers or (closer is not None and closer.start() < end):
-                closer = _RE_OBJECT_TAG_CLOSE[kind].search(segment, end)
-                closers[kind] = closer
-            # Without a closing tag this is a half-streamed tag, or prose that merely looks
-            # like one. Either way it stays literal.
-            if closer is None:
-                continue
-            body = segment[end : closer.start()]
-            end = closer.end()
-        pieces.append(segment[cursor : opener.start()])
-        # An empty label leaves nothing worth reading — a bare id, or a block chart's query —
-        # so the tag drops out entirely.
-        pieces.append(_object_tag_label(kind, opener.group(2), body))
-        cursor = end
-    pieces.append(segment[cursor:])
+        if active_kind is not None:
+            if kind == active_kind:
+                if closing:
+                    depth -= 1
+                elif not self_closing:
+                    depth += 1
+                if depth == 0:
+                    active_kind = None
+                    cursor = tag.end()
+            continue
+        pieces.append(text[cursor : tag.start()])
+        cursor = tag.end()
+        if not closing and not self_closing:
+            active_kind = kind
+            depth = 1
+    if active_kind is None:
+        pieces.append(text[cursor:])
     return "".join(pieces)
-
-
-def flatten_object_tags(text: str) -> str:
-    """Reduce PostHog object tags to the text a Slack reader can act on.
-
-    `<insight id="9pQx3">checkout funnel</insight>` becomes `checkout funnel`, and a tag with
-    no display text at all (`<replay id="…" display="block"/>`) drops out. Slack renders none
-    of these tags, so leaving them in place puts raw markup in front of the reader. The same
-    reply still renders as chips and charts in the desktop app, which reads the agent's
-    original text rather than this one.
-
-    A tag split across two streamed chunks is left alone: only a complete tag is flattened, so
-    half of one stays literal until both halves arrive in the same string.
-    """
-    return _flatten_object_tags_segment(text)
 
 
 def flatten_block_text(node: Any) -> list[str]:

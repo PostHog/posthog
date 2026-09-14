@@ -9,10 +9,13 @@ const meta: Meta<typeof MarkdownMessage> = {
     args: {
         id: 'example-desktop-message',
         content: [
-            'The <insight id="example">signup funnel</insight> changed after <flag id="1">new signup</flag>.',
+            'Summary before the embedded objects.',
+            '<insight id="example">Signup funnel</insight>',
             '<hogql display="block" title="Daily signups">SELECT 1</hogql>',
-            'Read <report id="example-report">the report</report> for details.',
-            'Code example: `<insight id="example">Signup funnel</insight>`.',
+            '<replay id="example-recording" display="block"/>',
+            '<report id="example-report">Report title</report>',
+            'Summary after the embedded objects.',
+            '```text\nKeep this code.\n<insight id="code-example">Code reference</insight>\n```',
         ].join('\n\n'),
     },
 }

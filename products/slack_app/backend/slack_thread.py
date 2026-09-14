@@ -15,7 +15,6 @@ from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     app_home_url,
     context_block,
-    flatten_object_tags,
     fork_menu_actions_block,
     fork_menu_element,
     normalize_labeled_mentions_to_bare,
@@ -23,6 +22,7 @@ from products.slack_app.backend.services.slack_messages import (
     post_slack_thread_reply,
     reply_footer_block,
     slack_message_exists,
+    strip_object_tags,
     turn_feedback_block,
     viewer_has_code_access,
 )
@@ -79,7 +79,8 @@ def _markdown_text_pieces(text: str) -> list[str]:
     Object tags go first because Slack renders none of them, then labeled mentions become
     bare ones so an echoed ping notifies, then the result is split to fit a chunk.
     """
-    return _split_markdown_text(flatten_object_tags(normalize_labeled_mentions_to_bare(text)))
+    text = normalize_labeled_mentions_to_bare(strip_object_tags(text))
+    return _split_markdown_text(text) if text.strip() else []
 
 
 def _task_update_chunk(
