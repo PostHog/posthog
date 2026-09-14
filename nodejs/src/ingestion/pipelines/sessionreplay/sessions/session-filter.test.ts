@@ -253,12 +253,12 @@ describe('SessionFilter', () => {
         })
 
         it('should fail open and return false on Redis error', async () => {
-            mockRedis.mget.mockRejectedValue(new Error('Redis error'))
+            mockRedis.mget.mockRejectedValue(new Error('Command timed out'))
 
             // Should not throw - fails open and returns false
             expect(await blocked(sessionFilter, 1, 'session-123')).toBe(false)
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedis)
-            expect(SessionBatchMetrics.incrementSessionFilterRedisErrors).toHaveBeenCalled()
+            expect(SessionBatchMetrics.incrementSessionFilterRedisErrors).toHaveBeenCalledWith('timeout')
         })
 
         it('should fail open and return false on Redis acquire error', async () => {

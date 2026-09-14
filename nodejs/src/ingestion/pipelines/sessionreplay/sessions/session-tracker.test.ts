@@ -94,12 +94,12 @@ describe('SessionTracker', () => {
         })
 
         it('fails hard by throwing on a Redis error so the caller retries instead of guessing', async () => {
-            mockRedisClient.mget = jest.fn().mockRejectedValue(new Error('Redis down'))
+            mockRedisClient.mget = jest.fn().mockRejectedValue(new Error('Command timed out'))
 
             // hasSeen drives the key generate-vs-get decision, so it must not guess "seen" (which would
             // record cleartext / switch keys). It throws for the step's retry wrapper to re-run.
-            await expect(sessionTracker.hasSeen(sessionSet([1, 'a']))).rejects.toThrow('Redis down')
-            expect(SessionBatchMetrics.incrementSessionTrackerRedisErrors).toHaveBeenCalled()
+            await expect(sessionTracker.hasSeen(sessionSet([1, 'a']))).rejects.toThrow('Command timed out')
+            expect(SessionBatchMetrics.incrementSessionTrackerRedisErrors).toHaveBeenCalledWith('timeout')
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedisClient)
         })
     })

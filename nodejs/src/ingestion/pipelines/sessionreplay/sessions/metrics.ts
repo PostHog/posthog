@@ -1,5 +1,6 @@
 import { Counter, Histogram } from 'prom-client'
 
+import { RedisErrorReason } from '~/common/utils/db/redis-error-reason'
 import {
     E2E_LAG_BOUNDARIES,
     recordBytesWritten,
@@ -117,7 +118,8 @@ export class SessionBatchMetrics {
 
     private static readonly sessionTrackerRedisErrors = new Counter({
         name: 'recording_blob_ingestion_v2_session_tracker_redis_errors_total',
-        help: 'Number of Redis errors in session tracker (failed open)',
+        help: 'Number of Redis errors in session tracker (hasSeen fails hard, markSeen fails open), by reason',
+        labelNames: ['reason'],
     })
 
     private static readonly sessionsBlocked = new Counter({
@@ -137,7 +139,8 @@ export class SessionBatchMetrics {
 
     private static readonly sessionFilterRedisErrors = new Counter({
         name: 'recording_blob_ingestion_v2_session_filter_redis_errors_total',
-        help: 'Number of Redis errors in session filter (failed open)',
+        help: 'Number of Redis errors in session filter (failed open), by reason',
+        labelNames: ['reason'],
     })
 
     private static readonly sessionTrackerRedisLatency = new Histogram({
@@ -248,8 +251,8 @@ export class SessionBatchMetrics {
         this.sessionTrackerCacheMiss.inc(count)
     }
 
-    public static incrementSessionTrackerRedisErrors(count: number = 1): void {
-        this.sessionTrackerRedisErrors.inc(count)
+    public static incrementSessionTrackerRedisErrors(reason: RedisErrorReason, count: number = 1): void {
+        this.sessionTrackerRedisErrors.inc({ reason }, count)
     }
 
     public static incrementSessionsBlocked(count: number = 1): void {
@@ -270,8 +273,8 @@ export class SessionBatchMetrics {
         this.sessionFilterCacheMiss.inc(count)
     }
 
-    public static incrementSessionFilterRedisErrors(count: number = 1): void {
-        this.sessionFilterRedisErrors.inc(count)
+    public static incrementSessionFilterRedisErrors(reason: RedisErrorReason, count: number = 1): void {
+        this.sessionFilterRedisErrors.inc({ reason }, count)
     }
 
     public static observeSessionTrackerRedisLatency(seconds: number): void {

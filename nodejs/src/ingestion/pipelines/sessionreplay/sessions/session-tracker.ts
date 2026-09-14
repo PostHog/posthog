@@ -1,5 +1,6 @@
 import { LRUCache } from 'lru-cache'
 
+import { redisErrorReason } from '~/common/utils/db/redis-error-reason'
 import { logger } from '~/common/utils/logger'
 import { SESSION_TRACKER_REDIS_TTL_SECONDS } from '~/ingestion/pipelines/sessionreplay/constants'
 import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
@@ -115,7 +116,7 @@ export class SessionTracker {
             // Hard-fail: rethrow so the step's retry re-runs rather than guessing "seen" and risking a
             // keyless (cleartext) recording or a mid-session key switch.
             logger.error('session_tracker_has_seen_redis_error', { error: String(error) })
-            SessionBatchMetrics.incrementSessionTrackerRedisErrors()
+            SessionBatchMetrics.incrementSessionTrackerRedisErrors(redisErrorReason(error))
             throw error
         } finally {
             if (client) {
@@ -155,7 +156,7 @@ export class SessionTracker {
             await pipeline.exec()
         } catch (error) {
             logger.error('session_tracker_mark_seen_redis_error', { error: String(error) })
-            SessionBatchMetrics.incrementSessionTrackerRedisErrors()
+            SessionBatchMetrics.incrementSessionTrackerRedisErrors(redisErrorReason(error))
         } finally {
             if (client) {
                 await this.redisPool.release(client)

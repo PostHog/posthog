@@ -1,5 +1,6 @@
 import { LRUCache } from 'lru-cache'
 
+import { redisErrorReason } from '~/common/utils/db/redis-error-reason'
 import { logger } from '~/common/utils/logger'
 import { Limiter } from '~/common/utils/token-bucket'
 import { SESSION_FILTER_REDIS_TTL_SECONDS } from '~/ingestion/pipelines/sessionreplay/constants'
@@ -112,7 +113,7 @@ export class SessionFilter {
                 count: sessions.size,
                 error: String(error),
             })
-            SessionBatchMetrics.incrementSessionFilterRedisErrors()
+            SessionBatchMetrics.incrementSessionFilterRedisErrors(redisErrorReason(error))
         } finally {
             if (client) {
                 await this.redisPool.release(client)
@@ -176,7 +177,7 @@ export class SessionFilter {
             // Fail open: if Redis is unavailable, treat the unknown sessions as not blocked by omitting
             // them from the set (their block state stays unknown rather than halting the pipeline).
             logger.error('session_filter_is_blocked_redis_error', { error: String(error) })
-            SessionBatchMetrics.incrementSessionFilterRedisErrors()
+            SessionBatchMetrics.incrementSessionFilterRedisErrors(redisErrorReason(error))
             return blocked
         } finally {
             if (client) {
