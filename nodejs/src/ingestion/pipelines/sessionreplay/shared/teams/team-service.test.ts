@@ -55,7 +55,7 @@ describe('TeamService', () => {
             await teamService.getTeamByToken('valid-token-2')
 
             // Advance time but not enough to trigger refresh
-            jest.advanceTimersByTime(4 * 60 * 1000) // 4 minutes (the shortest refresh period is 5 minutes)
+            jest.advanceTimersByTime(3 * 60 * 1000) // 3 minutes (the shortest refresh period is 4 minutes)
 
             await teamService.getTeamByToken('valid-token')
             await teamService.getTeamByToken('valid-token-2')
@@ -67,8 +67,8 @@ describe('TeamService', () => {
             await teamService.getTeamByToken('valid-token')
             expect(fetchSpy).toHaveBeenCalledTimes(1)
 
-            // Move time forward past the longest refresh period (5 minutes plus up to 5 minutes of jitter)
-            jest.advanceTimersByTime(10 * 60 * 1000 + 1)
+            // Move time forward past the longest refresh period (4 minutes plus up to 1 minute of jitter)
+            jest.advanceTimersByTime(5 * 60 * 1000 + 1)
 
             // This should trigger a refresh
             await teamService.getTeamByToken('valid-token')
@@ -84,7 +84,7 @@ describe('TeamService', () => {
             fetchSpy.mockRejectedValueOnce(new Error('Refresh failed'))
 
             // Advance time to trigger refresh
-            jest.advanceTimersByTime(10 * 60 * 1000 + 1)
+            jest.advanceTimersByTime(5 * 60 * 1000 + 1)
 
             // Should still return cached data
             const team = await teamService.getTeamByToken('valid-token')
@@ -110,7 +110,7 @@ describe('TeamService', () => {
             fetchSpy.mockReturnValue(mockFetchPromise)
 
             // Advance time to trigger refresh
-            jest.advanceTimersByTime(10 * 60 * 1000 + 1)
+            jest.advanceTimersByTime(5 * 60 * 1000 + 1)
 
             // Wait for the new value to appear using a spinlock, don't advance time though
             while ((await teamService.getTeamByToken('valid-token'))?.consoleLogIngestionEnabled !== false) {
@@ -136,7 +136,7 @@ describe('TeamService', () => {
             fetchSpy.mockReturnValue(mockFetchPromise)
 
             // Advance time to trigger refresh
-            jest.advanceTimersByTime(10 * 60 * 1000 + 1)
+            jest.advanceTimersByTime(5 * 60 * 1000 + 1)
 
             // Wait for the team to be removed using a spinlock, don't advance time though
             while ((await teamService.getTeamByToken('valid-token')) !== null) {
