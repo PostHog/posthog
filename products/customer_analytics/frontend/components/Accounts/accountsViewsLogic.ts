@@ -490,7 +490,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             lemonToast.error('Failed to save view')
         },
         patchViewPropertiesFailure: ({ error }) => {
-            // Silent background migration — no toast, just capture the exception.
+            // Background migration failures report the exception without a toast.
             posthog.captureException(error)
         },
         loadViewsSuccess: ({ views }) => {
@@ -503,8 +503,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 )
                 if (candidate) {
                     actions.patchViewProperties({ id: candidate.id, properties: { tiles: values.liveViewState.tiles } })
-                    // The async patch hasn't landed in `views` yet; restoring the stale row below
-                    // would make applyView reset the working tiles to defaults and lose the migration.
+                    // Use patched tiles because `views` still holds the stale row.
                     migratedView = { ...candidate, properties: { tiles: values.liveViewState.tiles } }
                 }
             }
