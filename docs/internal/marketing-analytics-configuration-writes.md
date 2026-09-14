@@ -37,3 +37,7 @@ With `new-marketing-analytics-dashboard` enabled, Marketing Analytics opens dire
 The bypass waits for feature flags before mounting setup detection. The explicit `?empty_state` preview still takes precedence.
 
 With `new-marketing-analytics-dashboard` enabled, Ad performance reuses the existing ad spend dashboard. Its conversion-goal switch appears only when goals are configured and defaults to on. Turning it off limits the summary and table queries to ad-platform metrics, including platform-reported conversions, and omits saved and draft PostHog conversion goals. This preference applies only to Ad performance; leaving the tab or disabling the dashboard flag restores the legacy queries and saved column choices. Ad performance keeps source status and reconnect controls visible when loading sources fails, without entering legacy onboarding.
+
+The new dashboard opens on Acquisition. Its section tiles show one section at a time while preserving the shared date and comparison filters. Retention, Conversion, and Revenue tiles follow their existing feature flags.
+
+Acquisition and Engagement reuse the Web Analytics stats table with a shared traffic breakdown selector. Acquisition shows visitors and pageviews; Engagement shows visitors and bounce rate. Changing sections preserves the selected breakdown, date range, and comparison.
