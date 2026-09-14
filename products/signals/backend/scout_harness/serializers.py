@@ -3023,7 +3023,53 @@ def _capture_auto_pause_reverted(
         )
 
 
-class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
+class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
+    """What a scout may use, declared once for the create and the update body.
+
+    Both paths write the same config columns, so a field that differed between them would let a
+    scout be created with a capability its settings form could not show or edit.
+    """
+
+    model = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=200,
+        help_text=_SCOUT_MODEL_HELP,
+    )
+    tags = _scout_tags_field()
+    structured_output_schema = StructuredOutputSchemaField(
+        required=False,
+        allow_null=True,
+        help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
+    )
+    mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
+    repositories = _scout_repositories_field()
+    write_scopes = _write_scopes_field()
+
+    def validate_run_cron_schedule(self, value: str | None) -> str | None:
+        return _validate_run_cron_schedule(value) if value is not None else None
+
+    def validate_tags(self, value: list[str]) -> list[str]:
+        return _validate_scout_tags(value)
+
+    def validate_model(self, value: str | None) -> str | None:
+        return _validate_scout_model(value, self.context, current=self.instance.model if self.instance else None)
+
+    def validate_structured_output_schema(self, value: dict | None) -> dict | None:
+        return _validate_structured_output_schema(value)
+
+    def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
+        return _normalize_mcp_gateway_server_ids(value)
+
+    def validate_repositories(self, value: list[str]) -> list[str]:
+        return _validate_scout_repositories(value, self.context)
+
+    def validate_write_scopes(self, value: list[str]) -> list[str]:
+        return _validate_write_scopes(value)
+
+
+class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, serializers.ModelSerializer):
     """Editable display name, schedule, enablement, and emit posture for one scout config."""
 
     enabled = serializers.BooleanField(
@@ -3079,46 +3125,9 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "`no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet."
         ),
     )
-    model = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        max_length=200,
-        help_text=_SCOUT_MODEL_HELP,
-    )
-    tags = _scout_tags_field()
-    structured_output_schema = StructuredOutputSchemaField(
-        required=False,
-        allow_null=True,
-        help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
-    )
-    mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
-    repositories = _scout_repositories_field()
-    write_scopes = _write_scopes_field()
-
-    def validate_run_cron_schedule(self, value: str | None) -> str | None:
-        return _validate_run_cron_schedule(value) if value is not None else None
 
     def validate_output_destinations(self, value: dict) -> dict:
         return _validate_output_destinations(value, self.context)
-
-    def validate_tags(self, value: list[str]) -> list[str]:
-        return _validate_scout_tags(value)
-
-    def validate_model(self, value: str | None) -> str | None:
-        return _validate_scout_model(value, self.context, current=self.instance.model if self.instance else None)
-
-    def validate_structured_output_schema(self, value: dict | None) -> dict | None:
-        return _validate_structured_output_schema(value)
-
-    def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
-        return _normalize_mcp_gateway_server_ids(value)
-
-    def validate_repositories(self, value: list[str]) -> list[str]:
-        return _validate_scout_repositories(value, self.context)
-
-    def validate_write_scopes(self, value: list[str]) -> list[str]:
-        return _validate_write_scopes(value)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
         output_destinations = validated_data.get("output_destinations")
@@ -3212,7 +3221,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         ]
 
 
-class SignalScoutConfigOptionsSerializer(serializers.Serializer):
+class SignalScoutConfigOptionsSerializer(_ScoutConfigCapabilityFieldsMixin, serializers.Serializer):
     """Schedule, enablement, and delivery options accepted while creating a scout."""
 
     enabled = serializers.BooleanField(
@@ -3264,32 +3273,6 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
             "Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
         ),
     )
-    model = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        max_length=200,
-        help_text=_SCOUT_MODEL_HELP,
-    )
-    tags = _scout_tags_field()
-    structured_output_schema = StructuredOutputSchemaField(
-        required=False,
-        allow_null=True,
-        help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
-    )
-
-    mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
-    repositories = _scout_repositories_field()
-    write_scopes = _write_scopes_field()
-
-    def validate_run_cron_schedule(self, value: str | None) -> str | None:
-        return _validate_run_cron_schedule(value) if value is not None else None
-
-    def validate_tags(self, value: list[str]) -> list[str]:
-        return _validate_scout_tags(value)
-
-    def validate_model(self, value: str | None) -> str | None:
-        return _validate_scout_model(value, self.context)
 
     def validate_output_destinations(self, value: dict) -> dict:
         context = self.context
@@ -3297,18 +3280,6 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
             team = context.get("team")
             context = {**context, "project_id": getattr(team, "project_id", None)}
         return _validate_output_destinations(value, context)
-
-    def validate_structured_output_schema(self, value: dict | None) -> dict | None:
-        return _validate_structured_output_schema(value)
-
-    def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
-        return _normalize_mcp_gateway_server_ids(value)
-
-    def validate_repositories(self, value: list[str]) -> list[str]:
-        return _validate_scout_repositories(value, self.context)
-
-    def validate_write_scopes(self, value: list[str]) -> list[str]:
-        return _validate_write_scopes(value)
 
 
 class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):

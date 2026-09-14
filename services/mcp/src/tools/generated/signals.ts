@@ -596,6 +596,24 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutConfigCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.structured_output_schema !== undefined) {
+            body['structured_output_schema'] = params.structured_output_schema
+        }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
+        }
+        if (params.repositories !== undefined) {
+            body['repositories'] = params.repositories
+        }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
+        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -616,24 +634,6 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         }
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
-        }
-        if (params.model !== undefined) {
-            body['model'] = params.model
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        if (params.structured_output_schema !== undefined) {
-            body['structured_output_schema'] = params.structured_output_schema
-        }
-        if (params.mcp_gateway_server_ids !== undefined) {
-            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
-        }
-        if (params.repositories !== undefined) {
-            body['repositories'] = params.repositories
-        }
-        if (params.write_scopes !== undefined) {
-            body['write_scopes'] = params.write_scopes
         }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
@@ -1394,6 +1394,24 @@ const signalsScoutConfigCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof SignalsScoutConfigCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.structured_output_schema !== undefined) {
+            body['structured_output_schema'] = params.structured_output_schema
+        }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
+        }
+        if (params.repositories !== undefined) {
+            body['repositories'] = params.repositories
+        }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
+        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -1414,24 +1432,6 @@ const signalsScoutConfigCreate = (): ToolBase<
         }
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
-        }
-        if (params.model !== undefined) {
-            body['model'] = params.model
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        if (params.structured_output_schema !== undefined) {
-            body['structured_output_schema'] = params.structured_output_schema
-        }
-        if (params.mcp_gateway_server_ids !== undefined) {
-            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
-        }
-        if (params.repositories !== undefined) {
-            body['repositories'] = params.repositories
-        }
-        if (params.write_scopes !== undefined) {
-            body['write_scopes'] = params.write_scopes
         }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
