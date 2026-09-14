@@ -60,8 +60,8 @@ tools:
             type (e.g. priority_judgment) reverts the report's canonical status to the previous version. `task_run`
             artefacts are an append-only work log and cannot be deleted, and neither can the types PostHog's own
             pipeline writes: `video_segment`, `title_change`, `summary_change`, `code_review`,
-            `implementation_decision`, `implementation_replacement`, and `implementation_handover`.
-            Deleting one of those returns 400 and names the type.
+            `implementation_decision`, `implementation_replacement`, and `implementation_handover`. Deleting one of
+            those returns 400 and names the type.
     inbox-report-artefacts-list:
         operation: signals_report_artefacts_list
         enabled: true
