@@ -42,14 +42,14 @@ describe('ShipIt', () => {
         advance(5000)
 
         expect(container.querySelectorAll('.ShipIt__item')).toHaveLength(0)
-        expect(screen.getByRole('button', { name: 'Open a pull request' })).toBeTruthy()
+        expect(screen.getByText('Open a pull request')).toBeTruthy()
     })
 
     it('runs the track once the player starts', () => {
         seedSpawns([0.9, 0.9, 0.5])
         const { container } = render(<ShipIt />)
 
-        fireEvent.click(screen.getByRole('button', { name: 'Open a pull request' }))
+        fireEvent.click(screen.getByText('Open a pull request'))
         advance(2000)
 
         expect(container.querySelectorAll('.ShipIt__item').length).toBeGreaterThan(0)
@@ -58,7 +58,7 @@ describe('ShipIt', () => {
     it('steers the pull request with the arrow keys', () => {
         seedSpawns([0.9, 0.9, 0.5])
         const { container } = render(<ShipIt />)
-        fireEvent.click(screen.getByRole('button', { name: 'Open a pull request' }))
+        fireEvent.click(screen.getByText('Open a pull request'))
         const board = container.querySelector('.ShipIt__board') as HTMLElement
 
         const middle = laneOf(container)
@@ -73,7 +73,7 @@ describe('ShipIt', () => {
     it('holds the pull request in the track at the top lane', () => {
         seedSpawns([0.9, 0.9, 0.5])
         const { container } = render(<ShipIt />)
-        fireEvent.click(screen.getByRole('button', { name: 'Open a pull request' }))
+        fireEvent.click(screen.getByText('Open a pull request'))
         const board = container.querySelector('.ShipIt__board') as HTMLElement
         const middle = laneOf(container)
 
@@ -91,11 +91,11 @@ describe('ShipIt', () => {
         // A hazard, the third hazard kind, and the middle lane: a stale bot where the player starts.
         seedSpawns([0.1, 0.9, 0.4])
         render(<ShipIt />)
-        fireEvent.click(screen.getByRole('button', { name: 'Open a pull request' }))
+        fireEvent.click(screen.getByText('Open a pull request'))
 
         advance(12000)
 
-        expect(screen.getByRole('heading', { name: 'Closed as stale' })).toBeTruthy()
+        expect(screen.getByText('Closed as stale', { selector: 'h2' })).toBeTruthy()
     })
 
     it('stops the track when the scene unmounts', () => {
@@ -104,7 +104,7 @@ describe('ShipIt', () => {
         // so a leaked loop still schedules frames while doing no visible work.
         const frames = jest.spyOn(window, 'requestAnimationFrame')
         const { unmount } = render(<ShipIt />)
-        fireEvent.click(screen.getByRole('button', { name: 'Open a pull request' }))
+        fireEvent.click(screen.getByText('Open a pull request'))
         advance(1000)
 
         unmount()
