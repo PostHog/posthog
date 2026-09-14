@@ -165,6 +165,28 @@ describe('ToolExecutor', () => {
             expect(text).not.toContain('feature-flag-get-all')
         })
 
+        function skillMissContext(skillName: string, body: string): ResolvedState['context'] {
+            return {
+                api: {
+                    request: vi.fn().mockRejectedValue(
+                        new PostHogApiError({
+                            status: 404,
+                            statusText: 'Not Found',
+                            body,
+                            url: `https://internal.example.com/api/projects/1/llm_skills/name/${skillName}/`,
+                            method: 'GET',
+                        })
+                    ),
+                },
+                cache: {},
+                env: {},
+                stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+                sessionManager: {},
+                getDistinctId: vi.fn(),
+                trackEvent: vi.fn(),
+            } as any
+        }
+
         // Cursor and ChatGPT get the per-tool roster, so they call the skill read
         // tools here rather than through exec. Left on the generic error shape, the
         // same miss reads as a service outage for them and as a plain answer for
@@ -183,27 +205,7 @@ describe('ToolExecutor', () => {
                 'No file "refs/guide.md" in the skill "real-skill".',
             ],
         ])('answers a %s miss with the plain message in tools mode', async (name, args, body, expected) => {
-            const state = makeState([{ name }], {
-                context: {
-                    api: {
-                        request: vi.fn().mockRejectedValue(
-                            new PostHogApiError({
-                                status: 404,
-                                statusText: 'Not Found',
-                                body,
-                                url: `https://internal.example.com/api/projects/1/llm_skills/name/${args.skill_name}/`,
-                                method: 'GET',
-                            })
-                        ),
-                    },
-                    cache: {},
-                    env: {},
-                    stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
-                    sessionManager: {},
-                    getDistinctId: vi.fn(),
-                    trackEvent: vi.fn(),
-                } as any,
-            })
+            const state = makeState([{ name }], { context: skillMissContext(args.skill_name, body) })
 
             const result = (await executor.handleToolCall({ name, arguments: args }, state)) as any
 
@@ -211,6 +213,54 @@ describe('ToolExecutor', () => {
             expect(result.content[0].text).toContain(expected)
             expect(result.content[0].text).not.toContain('Request failed')
         })
+
+        // The `learn` command is feature-flagged, so most connections cannot load a
+        // built-in skill at all. Sending them back to a store that never held one
+        // is what makes an agent drop the task, so the message says where the skill
+        // lives and whether this connection can reach it.
+        // Both modes are covered: single-exec dispatch is where nearly every skill
+        // read arrives, and the per-tool roster is the path Cursor and ChatGPT take.
+        it.each([
+            ['tools', false, 'this connection cannot load built-in skills.'],
+            ['tools', true, 'Run `learn posthog:scanning-experiments-with-replay-vision` to load it.'],
+            ['exec', false, 'this connection cannot load built-in skills.'],
+            ['exec', true, 'Run `learn posthog:scanning-experiments-with-replay-vision` to load it.'],
+        ])(
+            'names the built-in catalog on a store miss in %s mode, with learn enabled=%s',
+            async (mode, skillsEnabled, expected) => {
+                const skillName = 'scanning-experiments-with-replay-vision'
+                const skills = new SkillCatalog([
+                    {
+                        name: skillName,
+                        description: 'A built-in skill.',
+                        files: [makeSkillFile('SKILL.md', '# Built-in skill')],
+                    },
+                ])
+                const skillExecutor = new ToolExecutor(catalog, new InstructionsBuilder(''), {
+                    getCatalog: () => skills,
+                } as any)
+                const useExec = mode === 'exec'
+                // Exec dispatches through the real tool objects, so the roster has to
+                // carry the handler rather than only the name.
+                const tools = useExec
+                    ? catalog.getFilteredTools({ scopes: ['*'] }).filter((tool) => tool.name === 'skill-get')
+                    : [{ name: 'skill-get' }]
+                const state = makeState(tools as any, {
+                    useSingleExec: useExec,
+                    toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled },
+                    context: skillMissContext(skillName, `{"detail":"Skill with name '${skillName}' not found."}`),
+                })
+                const call = useExec
+                    ? { name: 'exec', arguments: { command: `call skill-get {"skill_name":"${skillName}"}` } }
+                    : { name: 'skill-get', arguments: { skill_name: skillName } }
+
+                const result = (await skillExecutor.handleToolCall(call, state)) as any
+
+                expect(result.isError).toBeFalsy()
+                expect(result.content[0].text).toContain(expected)
+                expect(result.content[0].text).not.toContain('call skill-list')
+            }
+        )
     })
 
     describe('handleToolsList', () => {
