@@ -329,6 +329,8 @@ impl Stack {
     pub fn spawn_leader(&mut self) -> Result<String> {
         let index = self.next_leader_index;
         self.next_leader_index += 1;
+        let (lifecycle_op, lifecycle_op_person) =
+            crate::seed::lifecycle_tables_for(&self.config.pg_target_table);
 
         let grpc_port = LEADER_GRPC_BASE_PORT + index as u16;
         // A real pod name: the leader derives its advertise address from
@@ -371,6 +373,8 @@ impl Stack {
                 // dirty index treats an unmarked person's PG row as
                 // current, which is only true of the writer's own table.
                 ("FALLBACK_TABLE", self.config.pg_target_table.clone()),
+                ("LIFECYCLE_OP_TABLE", lifecycle_op.to_string()),
+                ("LIFECYCLE_OP_PERSON_TABLE", lifecycle_op_person.to_string()),
                 (
                     "METRICS_PORT",
                     (LEADER_METRICS_BASE_PORT + index as u16).to_string(),

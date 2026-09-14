@@ -135,7 +135,7 @@ pub async fn rebuild_partition_fences(
     num_partitions: u32,
 ) -> Result<usize, sqlx::Error> {
     let start = std::time::Instant::now();
-    let tables = fallback.lifecycle_tables();
+    let tables = &fallback.lifecycle;
     let sql = format!(
         r#"
         SELECT lop.team_id, lop.person_id, lop.op_id, o.op_type
@@ -332,7 +332,7 @@ pub async fn mark_status(
     let sql = format!(
         "SELECT status FROM {} \
          WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role <> 'target'",
-        fallback.lifecycle_tables().op_person
+        fallback.lifecycle.op_person
     );
     sqlx::query_scalar(&sql)
         .bind(op_id)
@@ -361,7 +361,7 @@ pub async fn target_mark_status(
     let sql = format!(
         "SELECT status FROM {} \
          WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role = 'target'",
-        fallback.lifecycle_tables().op_person
+        fallback.lifecycle.op_person
     );
     sqlx::query_scalar(&sql)
         .bind(op_id)

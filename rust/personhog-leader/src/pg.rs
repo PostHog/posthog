@@ -16,35 +16,22 @@ use crate::cache::{approx_person_bytes, CachedPerson, PersonCacheKey};
 pub struct PgFallback {
     pub pool: PgPool,
     pub table: String,
+    pub lifecycle: LifecycleTables,
 }
 
-impl PgFallback {
-    pub fn lifecycle_tables(&self) -> LifecycleTables {
-        LifecycleTables::paired_with(&self.table)
-    }
-}
-
-/// The saga tables paired with a person table. Identity writes marks to
-/// the pair matching its person table, so the fence checks must read the
-/// same pair or every committed release fails closed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The saga tables the fence checks read. Must be the pair identity
+/// writes its marks to, or every committed release fails closed.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LifecycleTables {
-    pub op: &'static str,
-    pub op_person: &'static str,
+    pub op: String,
+    pub op_person: String,
 }
 
 impl LifecycleTables {
-    pub fn paired_with(person_table: &str) -> Self {
-        if person_table == "personhog_person_tmp" {
-            Self {
-                op: "lifecycle_op_tmp",
-                op_person: "lifecycle_op_person_tmp",
-            }
-        } else {
-            Self {
-                op: "lifecycle_op",
-                op_person: "lifecycle_op_person",
-            }
+    pub fn new(op: &str, op_person: &str) -> Self {
+        Self {
+            op: op.to_string(),
+            op_person: op_person.to_string(),
         }
     }
 }
