@@ -579,7 +579,7 @@ export function PropertiesTable({
                     className={className}
                     emptyState={
                         <>
-                            {hidePostHogPropertiesInTable || searchTerm ? (
+                            {searchTerm || (filterable && (hidePostHogPropertiesInTable || hideNullValues)) ? (
                                 <span className="flex gap-2">
                                     <span>No properties found</span>
                                     <LemonButton

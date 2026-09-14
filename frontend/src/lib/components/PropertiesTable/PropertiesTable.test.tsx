@@ -266,4 +266,29 @@ describe('PropertiesTable inline editor', () => {
             expect(container.querySelector('.ph-no-capture')).not.toBeNull()
         })
     })
+
+    describe('empty state', () => {
+        // "Hide null values" defaults on and persists. It can empty the table before the user
+        // touches a filter, so the empty state must still offer a way back.
+        it.each([
+            {
+                name: 'all values hidden by a filter',
+                properties: { only_null: null },
+                filterable: true,
+                expectClearFilters: true,
+            },
+            { name: 'no properties at all', properties: {}, filterable: false, expectClearFilters: false },
+        ])('$name offers "Clear filters": $expectClearFilters', ({ properties, filterable, expectClearFilters }) => {
+            render(
+                <Provider>
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Event}
+                        properties={properties}
+                        filterable={filterable}
+                    />
+                </Provider>
+            )
+            expect(!!screen.queryByText('Clear filters')).toBe(expectClearFilters)
+        })
+    })
 })
