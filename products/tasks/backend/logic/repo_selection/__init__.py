@@ -1,6 +1,12 @@
 from typing import TYPE_CHECKING
 
-from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
+from products.tasks.backend.logic.repo_selection.types import (
+    NO_REPO_CAUSE_NO_ELIGIBLE,
+    NO_REPO_CAUSE_NO_INTEGRATION,
+    NO_REPO_CAUSE_NO_MATCH,
+    NO_REPO_CAUSE_PICK_REJECTED,
+    RepoSelectionResult,
+)
 
 if TYPE_CHECKING:
     # Visible to type checkers (so re-exports keep their real types, e.g. the exception classes
@@ -17,6 +23,10 @@ if TYPE_CHECKING:
     from products.tasks.backend.logic.repo_selection.cascade import select_repository_for_message
 
 __all__ = [
+    "NO_REPO_CAUSE_NO_ELIGIBLE",
+    "NO_REPO_CAUSE_NO_INTEGRATION",
+    "NO_REPO_CAUSE_NO_MATCH",
+    "NO_REPO_CAUSE_PICK_REJECTED",
     "REPO_SELECTION_DUMMY_REPOSITORY",
     "RepoSelectionRejectedError",
     "RepoSelectionResult",

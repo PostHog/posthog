@@ -1009,8 +1009,8 @@ class MarkReportPendingInput:
     metrics: list[dict[str, Any]] | None = None
     # See MarkReportReadyInput.suggested_prompts — same transaction, same three states.
     suggested_prompts: list[str] | None = None
-    # Cause of the transition ("repo_selection_required_no_integration" /
-    # "repo_selection_required_no_match" / "agent_requested"), see ReportDecision.pending_reason.
+    # Cause of the transition ("agent_requested", or "repo_selection_required" suffixed with the
+    # result's no-repo cause), see ReportDecision.pending_reason.
     pending_reason: str | None = None
 
 

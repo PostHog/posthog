@@ -8,6 +8,10 @@ handle the typed outcomes.
 
 from products.tasks.backend.github_repository_access import inaccessible_repositories_via_integration
 from products.tasks.backend.logic.repo_selection import (
+    NO_REPO_CAUSE_NO_ELIGIBLE,
+    NO_REPO_CAUSE_NO_INTEGRATION,
+    NO_REPO_CAUSE_NO_MATCH,
+    NO_REPO_CAUSE_PICK_REJECTED,
     REPO_SELECTION_DUMMY_REPOSITORY,
     RepoSelectionRejectedError,
     RepoSelectionResult,
@@ -29,6 +33,10 @@ def resolve_team_github_integration_id(team_id: int) -> int | None:
 
 
 __all__ = [
+    "NO_REPO_CAUSE_NO_ELIGIBLE",
+    "NO_REPO_CAUSE_NO_INTEGRATION",
+    "NO_REPO_CAUSE_NO_MATCH",
+    "NO_REPO_CAUSE_PICK_REJECTED",
     "REPO_SELECTION_DUMMY_REPOSITORY",
     "RepoSelectionRejectedError",
     "RepoSelectionResult",

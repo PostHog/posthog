@@ -6,7 +6,8 @@ Renders `SignalData` to text and collapses both `RepoSelectionRejectedError`
 into `RepoSelectionResult(repository=None, ...)` — Signals has no picker
 fallback, so the shared module's operational-vs-semantic distinction has
 nowhere to land; `summary.py` treats `repository=None` as
-``REQUIRES_HUMAN_INPUT``.
+``REQUIRES_HUMAN_INPUT``. Each collapse stamps its own ``no_repo_cause`` so the
+distinction survives in telemetry even though the control flow does not.
 """
 
 from __future__ import annotations
@@ -21,6 +22,9 @@ from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.repo_corrections import wrong_repo_corrections_block
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection import (
+    NO_REPO_CAUSE_NO_ELIGIBLE,
+    NO_REPO_CAUSE_NO_INTEGRATION,
+    NO_REPO_CAUSE_PICK_REJECTED,
     REPO_SELECTION_DUMMY_REPOSITORY,
     RepoSelectionRejectedError,
     RepoSelectionResult,
@@ -39,6 +43,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "NO_REPO_CAUSE_NO_ELIGIBLE",
+    "NO_REPO_CAUSE_NO_INTEGRATION",
+    "NO_REPO_CAUSE_PICK_REJECTED",
     "REPO_SELECTION_DUMMY_REPOSITORY",
     "RepoSelectionRejectedError",
     "RepoSelectionResult",
@@ -123,11 +130,12 @@ async def select_repository_for_team(
                 f"Agent selected '{exc.returned_repository}' which is not in the candidate list. "
                 f"Original reason: '{exc.reason}'"
             ),
+            no_repo_cause=NO_REPO_CAUSE_PICK_REJECTED,
         )
     except RepoSelectionUnavailableError as exc:
         # No picker fallback — collapse operational failure into a null result.
         logger.warning("repo selection unavailable: %s", exc.reason)
-        return RepoSelectionResult(repository=None, reason=exc.reason)
+        return RepoSelectionResult(repository=None, reason=exc.reason, no_repo_cause=NO_REPO_CAUSE_NO_ELIGIBLE)
 
 
 async def select_repository_for_report(

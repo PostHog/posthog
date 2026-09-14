@@ -390,15 +390,26 @@ async def test_select_repository_activity_retries_transient_db_drop(monkeypatch,
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "sandbox_user_id,expected_cause,expected_result",
+    "sandbox_user_id,selection_cause,expected_cause,expected_result,expected_reason",
     [
-        (None, "no_integration", "no_repo_no_integration"),
-        (1, "no_match", "no_repo_no_match"),
+        # No sandbox user: the activity's own exit, decided before selection runs.
+        (None, None, "no_integration", "no_repo_no_integration", "repo_selection_required_no_integration"),
+        # Every other exit reports the cause the layer that produced it stamped. The activity must
+        # pass it through: relabelling them all `no_match` would put four setup and operational
+        # failures in the one bucket that measures selection quality.
+        (1, "no_match", "no_match", "no_repo_no_match", "repo_selection_required_no_match"),
+        (1, "no_integration", "no_integration", "no_repo_no_integration", "repo_selection_required_no_integration"),
+        (1, "no_eligible", "no_eligible", "no_repo_no_eligible", "repo_selection_required_no_eligible"),
+        (1, "pick_rejected", "pick_rejected", "no_repo_pick_rejected", "repo_selection_required_pick_rejected"),
+        # A result from before the cause existed (replayed payload) keeps the unsuffixed values.
+        (1, None, None, "no_repo", "repo_selection_required"),
     ],
 )
-async def test_select_repository_activity_no_repo(monkeypatch, ateam, sandbox_user_id, expected_cause, expected_result):
-    # Both exits end the report in `pending_input`, so the completion event and the pending reason
-    # must name which one ran — a shared value makes a move in either invisible.
+async def test_select_repository_activity_no_repo(
+    monkeypatch, ateam, sandbox_user_id, selection_cause, expected_cause, expected_result, expected_reason
+):
+    # Every exit ends the report in `pending_input`, so the completion event and the pending reason
+    # must name which one ran — a shared value makes a move in any of them invisible.
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
         lambda report_id: None,
@@ -409,7 +420,7 @@ async def test_select_repository_activity_no_repo(monkeypatch, ateam, sandbox_us
     )
 
     async def fake_select_repo(*args, **kwargs):
-        return RepoSelectionResult(repository=None, reason="No GitHub repositories connected to this team.")
+        return RepoSelectionResult(repository=None, reason="nothing to select", no_repo_cause=selection_cause)
 
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
@@ -426,7 +437,7 @@ async def test_select_repository_activity_no_repo(monkeypatch, ateam, sandbox_us
 
     assert result.repository is None
     assert result.no_repo_cause == expected_cause
-    assert repo_selection_pending_reason(result.no_repo_cause) == f"repo_selection_required_{expected_cause}"
+    assert repo_selection_pending_reason(result.no_repo_cause) == expected_reason
     completed = [
         call.kwargs["properties"]["result"]
         for call in mock_capture.call_args_list
