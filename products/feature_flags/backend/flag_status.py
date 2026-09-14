@@ -157,7 +157,7 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
     return queryset.filter(usage_based_stale) | config_based_queryset
 
 
-def filter_effectively_full_rollout_flags(queryset: QuerySet) -> QuerySet:
+def filter_effectively_full_rollout_flags(queryset: QuerySet, *, stale_threshold: datetime | None = None) -> QuerySet:
     """
     Narrow a FeatureFlag queryset to the flags whose configuration can only serve one result.
 
@@ -184,9 +184,14 @@ def filter_effectively_full_rollout_flags(queryset: QuerySet) -> QuerySet:
     although the checker calls them fully rolled out. `{"groups": []}` is the model default, so
     matching it would report every flag in a project that nobody has configured.
 
+    Pass `stale_threshold` to hold one detection run to one cutoff. Without it the function reads
+    the clock itself, and a caller that reads the clock again later can classify a flag on the
+    boundary against a different instant than the one that selected it.
+
     See `filter_stale_flags` for the `.extra(where=...)` composition trap, which applies here too.
     """
-    stale_threshold = stale_flag_threshold()
+    if stale_threshold is None:
+        stale_threshold = stale_flag_threshold()
     # A flag that is fully rolled out and cold is already a `filter_stale_flags` candidate, so
     # leave those rows to that query rather than fetch and discard them once per batch. Spelled
     # as a positive filter because `exclude(last_called_at__lt=...)` on a nullable column is a

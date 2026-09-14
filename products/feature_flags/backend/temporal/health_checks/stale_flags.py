@@ -137,6 +137,11 @@ class StaleFeatureFlagsCheck(HealthCheck):
             active=True,
         ).exclude(is_remote_configuration=True)
 
+        # One cutoff for the whole run. Reading the clock again after the query would let a flag
+        # whose last call sits on the boundary be selected as still called and then reported as
+        # not called recently.
+        stale_threshold = stale_flag_threshold()
+
         stale_candidates = list(filter_stale_flags(reportable_flags))
         stale_ids = {flag.id for flag in stale_candidates}
         # The prefilter returns a superset, so the checker settles each row. A flag the stale
@@ -144,7 +149,7 @@ class StaleFeatureFlagsCheck(HealthCheck):
         # `hash_keys=["flag_id"]` gives both rows the same issue identity.
         full_rollout_candidates = [
             flag
-            for flag in filter_effectively_full_rollout_flags(reportable_flags)
+            for flag in filter_effectively_full_rollout_flags(reportable_flags, stale_threshold=stale_threshold)
             if flag.id not in stale_ids
             and FeatureFlagStatusChecker(feature_flag=flag).get_rollout_summary(flag).effectively_full_rollout
         ]
@@ -156,9 +161,6 @@ class StaleFeatureFlagsCheck(HealthCheck):
         full_rollout_ids = {flag.id for flag in full_rollout_candidates}
 
         now = timezone.now()
-        # One cutoff for the whole batch. Reading the clock again per flag would classify a row
-        # sitting on the boundary against a later instant than the query that selected it.
-        stale_threshold = stale_flag_threshold()
         issues: dict[int, list[HealthCheckResult]] = {}
         for flag in candidates:
             if flag.id in excluded_ids:
