@@ -131,7 +131,8 @@ Summarize the surviving candidates for the user: key, why it's stale, when it wa
 
 The same flag often arrives twice: from an automated report, from a teammate, or from a second session.
 When you can read the repository, search for work already done on the key before you classify its rollout or read any call sites.
-This is the cheapest step in the workflow and the only one that prevents a duplicate cleanup:
+This is the cheapest step in the workflow and the only one that prevents a duplicate cleanup.
+Fetch first, because `git branch` and `git log` read only the refs this checkout already has:
 
 - branches naming the key: `git branch -a --list '*<key>*'`, and again with `-` and `_` swapped, because branch names rewrite the separator
 - commits that added or removed the key: `git log --all -S'<key>' --oneline -20`, which finds a cleanup commit whose message never names the flag
@@ -139,9 +140,9 @@ This is the cheapest step in the workflow and the only one that prevents a dupli
 
 Read what you find against the base branch:
 
-- **The key is gone from the base branch.** The cleanup landed already. What remains is deployment and archival, not code. Go to "After the cleanup is deployed".
-- **The key is still in the base branch, and a branch, commit, or PR removes it.** A cleanup is in flight. Report where it is and stop.
-- **Nothing found.** Continue.
+- **A branch, commit, or PR removes the key, and the key is gone from the base branch.** The cleanup landed already. What remains is deployment and archival, not code. Go to "After the cleanup is deployed".
+- **A branch, commit, or PR removes the key, and the key is still in the base branch.** A cleanup is in flight. Report where it is and stop.
+- **Nothing removes the key.** Continue. A key absent from the base branch with no commit that removed it was never checked here, which step 5 reports as a no-op rather than a finished cleanup.
 
 When you find existing work, report it: the branch, commit, or PR, when it was made, and whether the key still appears in the base branch.
 Then stop and let the user decide.
@@ -226,6 +227,9 @@ Removing a check leaves other code unused. Two kinds of code become unused, and 
 
 Ask of each symbol: would it still make sense if this flag had never existed? If yes, keep it.
 Dropping the last call of a general helper does leave its import unused in that file. Remove the import, keep the helper.
+One case resolves the other way: a helper private to a single module, which the repository's linting or compiler
+then reports as unused. That is dead by the repository's own rules, so remove it and name the removal in the report.
+The rule above protects helpers that other modules can still call, and no check flags those.
 Name every general helper this cleanup orphaned in your report and in the PR body, so the reader can delete it in a change of their own.
 Do not broaden the work into unrelated refactoring.
 
@@ -240,9 +244,9 @@ Do not broaden the work into unrelated refactoring.
 
 Finish this step with one of three outcomes, because step 8 gates on it:
 
-- **Passed**: the tests covering the retained behavior ran, and they are green.
-- **Failed**: a test covering the retained behavior is red. The cleanup is wrong until it is green.
-- **Could not run**: the repository's test command is unavailable in this session, for a reason you can name,
+- **Passed**: the tests, type checks, and linting ran over the retained behavior, and they are green.
+- **Failed**: one of them is red on code this cleanup changed. The cleanup is wrong until it is green.
+- **Could not run**: the repository's test and check commands are unavailable in this session, for a reason you can name,
   such as a missing runtime, uninstalled dependencies, no network, or no test command in the repository.
   Try before you conclude this, and record what stopped you. It is a fact about the session, not a shortcut past the step.
 
@@ -256,8 +260,9 @@ The outcome of step 7 decides whether you publish at all:
 
 - **Passed**: publish as normal.
 - **Failed**: do not open a PR. Fix the retained behavior, or stop and explain what is red.
-- **Could not run**: you may open the draft PR, and the first line of its body must say so.
-  Put it above the summary and above any template section, and name what was missing and what a reviewer has to run.
+- **Could not run**: validation does not block publishing, and the authorization below still applies.
+  The first line of the draft PR's body must say so, above the summary and above any template section,
+  naming what was missing and what a reviewer has to run.
   The reviewer reads the PR and not the session, so saying it in chat alone does not reach them.
 
   ```text
@@ -265,7 +270,7 @@ The outcome of step 7 decides whether you publish at all:
   Run the repository's tests before review.
   ```
 
-Say it in your reply to the user as well.
+Repeat that unvalidated notice in your reply to the user as well.
 
 When the host and user authorize publication:
 
