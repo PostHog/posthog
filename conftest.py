@@ -5,6 +5,8 @@ from collections.abc import Generator
 import pytest
 import time_machine
 
+from posthog.test.junit import set_junit_report_location
+
 # The default MIXED mode reads naive strings as local time, so a non-UTC machine would
 # freeze at a different instant than CI does.
 time_machine.naive_mode = time_machine.NaiveMode.UTC  # ty: ignore[invalid-assignment]
@@ -221,15 +223,10 @@ def pytest_collection_finish() -> None:
     _end_gc_boot_window()
 
 
-def _set_junit_report_location(item: pytest.Item, report: pytest.TestReport) -> None:
-    test_file = item.path.relative_to(item.config.rootpath).as_posix()
-    report.location = (test_file, report.location[1], report.location[2])
-
-
 @pytest.hookimpl(hookwrapper=True, tryfirst=True)
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> Generator[None]:
     outcome = yield
-    _set_junit_report_location(item, outcome.get_result())
+    set_junit_report_location(item, outcome.get_result())
 
 
 @pytest.hookimpl(tryfirst=True)

@@ -1,9 +1,10 @@
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
-from conftest import _set_junit_report_location
+from posthog.test.junit import set_junit_report_location
 
 
 def test_junit_report_uses_the_collected_test_file() -> None:
@@ -20,6 +21,6 @@ def test_junit_report_uses_the_collected_test_file() -> None:
         config=SimpleNamespace(rootpath=Path("/repo")),
     )
 
-    _set_junit_report_location(item, report)
+    set_junit_report_location(cast(pytest.Item, item), report)
 
     assert report.location == ("posthog/api/test/test_project.py", 1426, "test_delete_project")
