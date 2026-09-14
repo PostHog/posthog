@@ -58,6 +58,7 @@ import {
 import { floatToFront } from '../utils/floatToFront'
 import { hiddenEventMatchingSearch } from '../utils/hiddenEvents'
 import { promoteMatchingBy } from '../utils/promoteProperties'
+import { isSearchQueryTooLong } from '../utils/searchQueryLength'
 import { MenuFilterHeader } from './Header'
 import { MatchedValueBadge } from './MatchedValueBadge'
 import { PreviewPane } from './PreviewPane'
@@ -739,7 +740,7 @@ export function MenuFilterCombobox({
         const minLen = singleGroup?.minSearchQueryLength ?? 0
         const maxLen = singleGroup?.maxSearchQueryLength ?? 0
         const trimmedLen = searchQuery.trim().length
-        if (singleGroup && maxLen > 0 && trimmedLen > maxLen) {
+        if (singleGroup && isSearchQueryTooLong(searchQuery, maxLen)) {
             const description = singleGroup.searchDescription ?? singleGroup.name.toLowerCase()
             return {
                 title: 'Your search is too long',

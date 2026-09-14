@@ -661,9 +661,16 @@ describe('infiniteListLogic', () => {
         // The cohorts endpoint rejects a search over 200 characters with a 400, and a kea loader
         // failure raises a toast on every keystroke.
         it.each([
-            ['sends a search at the cap', 200, 1],
-            ['skips a search past the cap', 201, 0],
-        ])('%s', async (_name, queryLength, expectedRequests) => {
+            { name: 'sends a search at the cap', query: 'x'.repeat(200), expectedRequests: 1 },
+            { name: 'skips a search past the cap', query: 'x'.repeat(201), expectedRequests: 0 },
+            // The endpoint measures the raw parameter before it strips it, so the trailing space
+            // counts. A guard that trims first sends 201 characters and gets the 400 back.
+            {
+                name: 'skips a search the trailing space pushes past the cap',
+                query: `${'x'.repeat(200)} `,
+                expectedRequests: 0,
+            },
+        ])('$name', async ({ query, expectedRequests }) => {
             const searches: (string | null)[] = []
             useMocks({
                 get: {
@@ -684,7 +691,6 @@ describe('infiniteListLogic', () => {
             await expectLogic(cohortLogic).toFinishAllListeners()
             searches.length = 0
 
-            const query = 'x'.repeat(queryLength)
             await expectLogic(cohortLogic, () => {
                 cohortLogic.actions.setSearchQuery(query)
             })

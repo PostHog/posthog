@@ -35,6 +35,7 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { floatRecentAndPinnedToTop, groupItemKey } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
+import { isSearchQueryTooLong } from 'lib/components/TaxonomicFilter/utils/searchQueryLength'
 import { createFuse } from 'lib/utils/fuseSearch'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -207,8 +208,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     // Endpoints that search with trigrams reject a query past their cap with a 400, so a long
     // pasted string would fail the request on every keystroke. Skip the request and tell the
     // user in the dropdown instead.
-    const maxSearchQueryLength = group.maxSearchQueryLength ?? 0
-    const searchQueryTooLong = maxSearchQueryLength > 0 && trimmedSearch.length > maxSearchQueryLength
+    const searchQueryTooLong = isSearchQueryTooLong(searchQuery, group.maxSearchQueryLength ?? 0)
 
     const remoteEnabled = hasRemoteDataSource && !needsMoreSearchCharacters && !searchQueryTooLong
 

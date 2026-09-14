@@ -60,6 +60,7 @@ import {
 import { floatToFront } from 'lib/components/TaxonomicFilter/utils/floatToFront'
 import { hiddenEventMatchingSearch, withHiddenEventsExcluded } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
+import { isSearchQueryTooLong } from 'lib/components/TaxonomicFilter/utils/searchQueryLength'
 import {
     filterPinnedForContext,
     filterRecentsForContext,
@@ -1290,13 +1291,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         searchQueryTooLong: [
             (s) => [s.maxSearchQueryLength, s.searchQuery],
-            (maxSearchQueryLength: number, searchQuery: string) => {
-                if (maxSearchQueryLength <= 0) {
-                    return false
-                }
-
-                return searchQuery.trim().length > maxSearchQueryLength
-            },
+            (maxSearchQueryLength: number, searchQuery: string) =>
+                isSearchQueryTooLong(searchQuery, maxSearchQueryLength),
         ],
         excludedProperties: [(s) => [s.group], (group: TaxonomicFilterGroup | undefined) => group?.excludedProperties],
         propertyAllowList: [(s) => [s.group], (group: TaxonomicFilterGroup | undefined) => group?.propertyAllowList],
