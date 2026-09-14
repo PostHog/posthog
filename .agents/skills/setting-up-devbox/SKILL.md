@@ -19,7 +19,7 @@ Work out which one the user wants, and don't start the PostHog stack unless they
 Copy this checklist and track it:
 
 ```text
-- [ ] 1. hogli devbox:doctor: every access check is ok
+- [ ] 1. hogli devbox:doctor: the tailnet and control plane checks are ok
 - [ ] 2. hogli devbox:setup has run on this machine
 - [ ] 3. hogli devbox:start: the box is running
 - [ ] 4. The user is connected the way they asked for
@@ -29,7 +29,7 @@ Copy this checklist and track it:
 ### 1. Check access
 
 `hogli devbox:doctor` is read-only: it never prompts or changes host config.
-Every other devbox command runs the same reachability check first, so fix a failure here before anything else.
+Commands that reach a box run the same reachability check first, so fix a failure here before anything else.
 
 - The active tailnet must be `posthog.com`. Doctor prints it and names a wrong tailnet as the cause.
 - Every PostHog employee has the route to the Coder control plane through `group:employees` in the tailnet policy. Nobody needs a PR to get access.
@@ -94,14 +94,14 @@ Use this section only when the user wants the app, for example to QA a change or
 
 ### Start the stack
 
-- **New or stopped box:** `hogli devbox:start --start-app`. The flag stays set on the workspace, so every later start brings the stack up in the background until `hogli devbox:start --no-start-app` turns it off.
+- **New or stopped box:** `hogli devbox:start --start-app`. The flag stays set on the workspace, so every later start brings the stack up in the background until `hogli devbox:start --no-start-app` turns it off. Either flag takes effect only when the box is created or starts from stopped; on a running box hogli skips it and prints a note.
 - **Running box:** `hogli devbox:exec -- bash -lc 'cd ~/posthog && ./bin/hogli up -d -y'`.
 
 ### Wait for it
 
 The stack keeps booting after the start command returns.
 Poll in a bounded loop until this prints `200` or `302`.
-A `502` means the stack is still booting.
+A `000` or `502` means the stack is still booting.
 
 ```bash
 hogli devbox:exec -- bash -lc "curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:8010/"
@@ -146,13 +146,13 @@ Pass `--port 8011` when a local stack already uses 8010.
 
 ## Other tasks
 
-- **Tokens on the box:** store them as Coder user secrets, which reach every box the user owns. `hogli devbox:secret:set GH_TOKEN` reads the value from a hidden prompt or from `--file`. Never put a token on a command line or in the conversation. A secret reaches only boxes started after it is set, so run `hogli devbox:restart` on a running box. The template documents `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `OP_SERVICE_ACCOUNT_TOKEN`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY`. `devbox:secret:list` shows names only.
-- **A second box with the same state:** `hogli devbox:clone --as <label>` copies a running box's full disk into `devbox-<coder-user>-<label>`. Only the owner can clone a box.
+- **Tokens on the box:** store them as Coder user secrets, which reach every box the user owns. `hogli devbox:secret:set GH_TOKEN` reads the value from a hidden prompt or from `--file`. Never put a token on a command line or in the conversation. A secret reaches only boxes started after it is set, so run `hogli devbox:restart` on a running box. The template documents `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `OP_SERVICE_ACCOUNT_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `POSTHOG_GIT_SIGNING_KEY`, which `hogli devbox:setup --configure-git-signing` sets. `devbox:secret:list` shows names, env vars, and descriptions, never values.
+- **A second box with the same state:** `hogli devbox:clone --as <label>` copies a running box's full disk, including any secrets on it, into `devbox-<coder-user>-<label>` in the source box's region. Stop the stack on the source first for a consistent copy. It asks for confirmation, so pass `-y` only after the user agrees. Only the owner can clone a box.
 - **Template updates:** `hogli devbox:update` applies the latest template when the box is outdated.
-- **Disk full:** run the cleanup on the box with `hogli devbox:exec -- bash -lc 'cd ~/posthog && ./bin/hogli devbox:cleanup:disk'`, and add `-n <label>` after `devbox:exec` for a labeled box. Don't call `hogli devbox:cleanup:disk` from this machine: with no workspace it cleans this machine, and with `-n` it fails on the box because it runs `hogli` in a shell whose `PATH` doesn't include it. `--docker` also prunes stopped containers, and `--cargo` also removes Rust build output, which forces a full rebuild.
+- **Disk full:** `hogli devbox:cleanup:disk -n <label>` cleans a labeled box. With no workspace it cleans this machine instead, and the default box has no label, so clean the default box with `hogli devbox:exec -- bash -lc 'cd ~/posthog && ./bin/hogli devbox:cleanup:disk'`. `--docker` also prunes stopped containers, and `--cargo` also removes Rust build output, which forces a full rebuild.
 - **Pairing:** `hogli devbox:share --user <coder-user> --role use` grants access, and `devbox:users` lists usernames. `devbox:unshare` removes access only after `hogli devbox:restart`.
 - **Build and agent logs:** `hogli devbox:logs -f`.
-- **Personal setup:** the box works as shipped. Changes made on the box survive stops and updates. `hogli devbox:setup --configure-dotfiles` applies a dotfiles repo on every start and runs its executable `install.sh`. Neither is required, so don't push one over the other.
+- **Personal setup:** the box works as shipped. Changes made on the box survive stops and updates. `hogli devbox:setup --configure-dotfiles` saves a dotfiles repo that the box applies on start, running its executable `install.sh`. A new repo URL reaches a box when it next starts from stopped or runs `devbox:update`, not on `devbox:restart`. Neither is required, so don't push one over the other.
 
 ## Gotchas
 

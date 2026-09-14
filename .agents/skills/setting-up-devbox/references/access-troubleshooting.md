@@ -1,8 +1,8 @@
 # Devbox access troubleshooting
 
-Every `hogli devbox:*` command checks that the Coder control plane is reachable before it does anything.
-Two conditions must hold.
-Both fail the same way at that check, and re-running `devbox:setup` fixes neither.
+Commands that reach a box check that the Coder control plane is reachable before they do anything.
+Two conditions must hold, and re-running `devbox:setup` fixes neither.
+Doctor names a wrong tailnet as its own cause, and a missing grant usually shows as TCP blocked.
 
 ## 1. The `posthog.com` tailnet
 
@@ -24,9 +24,9 @@ Suspect this first on a new laptop, or when the user says it worked on another m
 
 ## 2. The ACL grant
 
-`tailnet-policy.hujson` in `PostHog/posthog-cloud-infra` grants `group:employees` the Coder control plane at `10.70.0.1:443`.
+`tailnet-policy.hujson` in `PostHog/posthog-cloud-infra` grants `group:employees` the remote-dev VPC (`10.70.0.0/16`), which hosts the Coder control plane.
 Every employee has access, so there is no group to join and no PR to open.
-If the tailnet is right and doctor still reports the control plane unreachable without a DNS cause, ask Team DevEx.
+If the tailnet is right and doctor still reports the control plane unreachable without a DNS cause, follow its `Next:` line, then ask Team DevEx.
 
 ## DNS failures
 
@@ -34,7 +34,7 @@ Doctor can show `[ok] Tailscale connected` and still fail reachability with a DN
 That means the name never reaches the internal resolver.
 Check in this order:
 
-1. **Wrong tailnet.** The other tailnets have no route to the internal zone and fail exactly like this.
+1. **Wrong tailnet.** Doctor checks the tailnet before DNS, so a DNS cause usually means the tailnet is right or unknown. Confirm the `Tailnet:` line anyway.
 2. **MagicDNS off.** "Use Tailscale DNS" in the client's DNS settings points the machine at the internal resolver. Without it, no internal name resolves.
 3. **Stale upstream resolver.** MagicDNS is on and `tailscale ping <internal-ip>` answers, but names still fail. The router or ISP resolver is the problem. Adding `8.8.8.8` or `1.1.1.1` to the host's DNS settings has fixed this.
 
