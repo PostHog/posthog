@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { PathCleaningControls } from 'lib/components/PathCleanFilters/PathCleaningControls'
-import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { EditorFilterProps } from '~/types'
+
+import { pathsDataLogic } from 'products/product_analytics/frontend/insights/paths/pathsDataLogic'
 
 export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Element {
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
