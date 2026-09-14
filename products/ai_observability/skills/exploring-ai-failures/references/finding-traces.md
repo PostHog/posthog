@@ -64,7 +64,7 @@ the traffic.
 
 ### 4. Read and name
 
-When nothing above discriminates, pull a stratified batch (below), read it, and name the use cases from
+When nothing above discriminates, pull a random sample (below), read it, and name the use cases from
 what the traces do. This is slower, and it always works.
 
 > **Reject a result that names nothing.** Three shapes all mean "this label does not split the traffic":
@@ -110,11 +110,24 @@ interesting ones with `query-llm-trace`.
 
 ## Manual review of a stratified batch
 
-Pull a mixed batch (slices and outcomes, not all errors) and read each candidate end to end:
+Pull a mixed batch (slices and outcomes, not all errors) and read each candidate end to end. The list
+returns the newest traces first, so ask for a random order. Otherwise a recent batch job, demo, or load
+test fills the batch, and you read one use case instead of a spread.
+
+When a label from Step 1 discriminates, run the request once per slice so each slice gets its own quota:
 
 ```json
 posthog:query-llm-traces-list
-{ "dateRange": { "date_from": "-7d" }, "filterTestAccounts": true }
+{ "dateRange": { "date_from": "-7d" }, "filterTestAccounts": true, "randomOrder": true, "limit": 10,
+  "properties": [{ "key": "$ai_span_name", "type": "event", "operator": "exact", "value": ["<slice>"] }] }
+```
+
+Run one more pass with `$ai_is_error` set to `"true"` so failed traces reach the batch, then drop the
+duplicate trace ids. When no label discriminates, take one random sample across all the traffic instead:
+
+```json
+posthog:query-llm-traces-list
+{ "dateRange": { "date_from": "-7d" }, "filterTestAccounts": true, "randomOrder": true, "limit": 30 }
 ```
 
 Then read each with `query-llm-trace`. Its one required argument is `traceId`, and the value to pass is
