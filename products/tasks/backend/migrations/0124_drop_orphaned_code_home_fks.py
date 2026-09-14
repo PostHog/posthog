@@ -17,6 +17,13 @@ class Migration(migrations.Migration):
     The tables stay, so dropping them remains a separate decision. Only the constraints go.
     """
 
+    # Not atomic: each DROP CONSTRAINT takes ACCESS EXCLUSIVE on the table it points at, and
+    # these point at different ones. In a single transaction a wait on the last parent would
+    # hold the locks the earlier statements already took, so a slow lock on a quiet table
+    # would stall a hot one. Separate transactions also make a partial run safe to repeat,
+    # because DropForeignKey reads the surviving constraints out of pg_constraint.
+    atomic = False
+
     dependencies = [
         ("tasks", "0123_alter_sandboxsnapshot_integration"),
     ]

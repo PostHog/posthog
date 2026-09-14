@@ -35,3 +35,10 @@ feature_flags.0015_clamp_rollout_percentages_over_100
 # Backfills one search row per canvas in batches, so a long run does not hold one transaction open.
 # Re-running is a no-op: bulk_create passes ignore_conflicts, and the unique key is (team, kind, source_key).
 tasks.0120_backfill_canvas_search_documents
+# Each DROP CONSTRAINT takes ACCESS EXCLUSIVE on the table it points at, and these point at
+# different ones. One transaction would hold every lock it had already taken while waiting for
+# the next, so a slow lock on a quiet table would stall a hot one. Re-running is a no-op:
+# DropForeignKey reads the surviving constraints out of pg_constraint, so a retry after a
+# partial failure drops only what is left.
+posthog.1353_drop_orphaned_ducklake_fks
+tasks.0124_drop_orphaned_code_home_fks
