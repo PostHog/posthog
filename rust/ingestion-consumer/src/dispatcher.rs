@@ -144,6 +144,14 @@ impl WorkerAssignments {
     }
 }
 
+/// The immediate result of assigning one submission while the scheduler lock
+/// is held. `retained` describes this submission, not mutable table state that
+/// a later task might observe after a purge or settlement.
+pub struct Submission<T> {
+    pub pending: Vec<T>,
+    pub retained: bool,
+}
+
 /// The selected scheduler. An enum rather than a trait object, so the
 /// pin-stash-only methods below stay off the [`Scheduler`] trait and the
 /// cleanup change deletes one arm.
@@ -157,18 +165,6 @@ impl SchedulerImpl {
         match kind {
             SchedulerKind::PinStash => SchedulerImpl::PinStash(PinStashScheduler::new(router)),
             SchedulerKind::KeyTable => SchedulerImpl::KeyTable(KeyTableScheduler::new(router)),
-        }
-    }
-
-    /// Whether the scheduler still holds work it will release later. The
-    /// pin-stash tracks it per batch; the key table is batch-blind, so it
-    /// answers for its whole table.
-    fn retains_work(&self, batch_id: &str) -> bool {
-        match self {
-            SchedulerImpl::PinStash(scheduler) => scheduler.has_batch(batch_id),
-            SchedulerImpl::KeyTable(scheduler) => {
-                scheduler.table().queued_messages() > 0 || scheduler.table().outstanding_keys() > 0
-            }
         }
     }
 
@@ -513,12 +509,21 @@ impl Dispatcher {
         assignment_epoch: u64,
         groups: Vec<Group>,
         send: impl FnMut(SubBatch) -> T,
-    ) -> Vec<T> {
+    ) -> Submission<T> {
+        let has_groups = !groups.is_empty();
         let mut inner = self.inner.lock().unwrap();
-        self.assign_groups(&mut inner, batch_id, assignment_epoch, groups)
+        let pending = self
+            .assign_groups(&mut inner, batch_id, assignment_epoch, groups)
             .into_iter()
             .map(send)
-            .collect()
+            .collect();
+        let retained = match &inner.scheduler {
+            SchedulerImpl::PinStash(scheduler) => scheduler.has_batch(batch_id),
+            // Every non-empty key-table submission is synchronously enqueued
+            // before assignment returns, even when no worker is routable.
+            SchedulerImpl::KeyTable(_) => has_groups,
+        };
+        Submission { pending, retained }
     }
 
     fn assign_groups(
@@ -636,13 +641,6 @@ impl Dispatcher {
     /// after assignment.
     pub fn batch_has_flush_activity(&self, batch_id: &str) -> bool {
         self.inner.lock().unwrap().scheduler.has_batch(batch_id)
-    }
-
-    /// Whether the scheduler still holds work it will release later. A poll
-    /// whose keys are all outstanding dispatches nothing by design; this is
-    /// how the scatter tells that from "nothing was routable at all".
-    pub fn retains_work(&self, batch_id: &str) -> bool {
-        self.inner.lock().unwrap().scheduler.retains_work(batch_id)
     }
 
     /// Whether the worker has any in-flight (sent, unresolved) messages. The
@@ -1820,9 +1818,10 @@ mod tests {
 
         let sub_batches = dispatcher.assign("b1", make_msgs(&["t:user-1"]));
         assert!(sub_batches.is_empty(), "nothing routable yet");
-        assert!(
-            dispatcher.retains_work("b1"),
-            "the key table keeps the messages"
+        assert_eq!(
+            dispatcher.key_work(),
+            Some((1, 0)),
+            "the key table keeps the parked message"
         );
 
         // Still nothing healthy: the key stays parked for the next tick.
@@ -2228,7 +2227,11 @@ mod tests {
                 sub_batch
             },
         );
-        assert_eq!(sent.len(), 1, "batch-2 was admitted and handed to send");
+        assert_eq!(
+            sent.pending.len(),
+            1,
+            "batch-2 was admitted and handed to send"
+        );
         race.take().expect("send ran").join().expect("defer_failed");
 
         // The stash landed after the enqueue, so newer work for the key now

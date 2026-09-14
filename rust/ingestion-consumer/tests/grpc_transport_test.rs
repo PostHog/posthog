@@ -11,9 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-
 use common_kafka_consumer::Partition;
-use lifecycle::{ComponentOptions, Manager};
 use ingestion_consumer::batcher::Batcher;
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
@@ -29,6 +27,7 @@ use ingestion_worker_proto::ingestion::worker::v1::{
     ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
     StreamReady, SubBatch, SubBatchAck, SubBatchStatus,
 };
+use lifecycle::{ComponentOptions, Manager};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
@@ -857,7 +856,10 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
     let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
     let first_addr = start_controlled_busy_worker(0, attempts_tx.clone()).await;
     let second_addr = start_controlled_busy_worker(1, attempts_tx).await;
-    let worker_urls = vec![format!("http://{first_addr}"), format!("http://{second_addr}")];
+    let worker_urls = vec![
+        format!("http://{first_addr}"),
+        format!("http://{second_addr}"),
+    ];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
     let dispatcher = Arc::new(Dispatcher::with_scheduler(
         registry,
@@ -928,7 +930,6 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
             }
         }
     });
-
     let error = tokio::time::timeout(Duration::from_secs(3), outputs.errors.recv())
         .await
         .expect("watchdog must bound retries that make no acceptance progress")
@@ -1001,5 +1002,61 @@ async fn key_table_parked_retry_can_recover_before_the_watchdog_deadline() {
     assert!(
         outputs.errors.try_recv().is_err(),
         "accepted retry resets the watchdog and idle work stays healthy"
+    );
+}
+
+#[tokio::test]
+async fn key_table_watchdog_allows_in_flight_success_after_the_deadline() {
+    let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
+    let addr = start_controlled_busy_worker(0, attempts_tx).await;
+    let worker_urls = vec![format!("http://{addr}")];
+    let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
+    let dispatcher = Arc::new(Dispatcher::with_scheduler(
+        registry,
+        RoutingStrategy::BinPack,
+        SchedulerKind::KeyTable,
+    ));
+    let transport = Arc::new(GrpcTransport::new(
+        GrpcPort::OffsetFromHttp(0),
+        1,
+        Duration::from_secs(30),
+    ));
+    let mut manager = Manager::builder("key-table-late-success-test")
+        .with_trap_signals(false)
+        .build();
+    let handle = manager.register("batcher", ComponentOptions::new());
+    let _monitor = manager.monitor_background();
+    let (batcher, mut outputs) = Batcher::new(
+        dispatcher,
+        transport,
+        handle,
+        Duration::from_millis(100),
+        Duration::from_millis(20),
+    );
+
+    let mut accumulator = Accumulator::default();
+    accumulator.push(Partition(0), msg("a", 1).into());
+    batcher.submit(accumulator);
+
+    let attempt = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
+        .await
+        .expect("send reaches the worker")
+        .expect("attempt channel stays open");
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(
+        outputs.errors.try_recv().is_err(),
+        "the watchdog must wait for an in-flight send after its deadline"
+    );
+    assert!(attempt.reply.send(ControlledReply::Ok).is_ok());
+    let completion = tokio::time::timeout(Duration::from_secs(1), outputs.completions.recv())
+        .await
+        .expect("late successful send completes")
+        .expect("completion channel stays open");
+    assert_eq!(completion.accepted, 1);
+
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(
+        outputs.errors.try_recv().is_err(),
+        "late acceptance resets the watchdog and idle work stays healthy"
     );
 }
