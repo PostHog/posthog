@@ -76,7 +76,7 @@ from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
 from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
-    vapi_webhook,
+    vapi_webhook as user_interviews_vapi_webhook,
 )
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.workflows.backend.api import hog_flow, hog_flow_template
@@ -154,7 +154,7 @@ urlpatterns = [
     path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path(
         "api/user_interviews/vapi_webhook/",
-        csrf_exempt(vapi_webhook),
+        user_interviews_vapi_webhook,
         name="user_interviews_vapi_webhook",
     ),
     path(
