@@ -20,6 +20,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCommandRequestSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
+    TaskRunUpdateSerializer,
     TaskWriteSerializer,
 )
 
@@ -93,6 +94,12 @@ class TestTaskRunLivingArtifactCreateRequestSerializer(SimpleTestCase):
 
 
 class TestTaskRunCreateRequestSerializer(SimpleTestCase):
+    @parameterized.expand([([],), ([["run_source", "manual"]],), (None,), ("manual",), (1,), (False,)])
+    def test_rejects_non_object_run_state(self, state):
+        serializer = TaskRunUpdateSerializer(data={"state": state})
+        assert not serializer.is_valid()
+        assert "state" in serializer.errors
+
     @parameterized.expand(
         [
             (TaskRunCreateRequestSerializer, True),

@@ -70457,6 +70457,11 @@ export namespace Schemas {
     }
 
     /**
+     * State of the run
+     */
+    export type PatchedTaskRunUpdateState = { [key: string]: unknown };
+
+    /**
      * State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.
      */
     export type PatchedTaskRunUpdateStateAppend = { [key: string]: unknown };
@@ -70484,7 +70489,7 @@ export namespace Schemas {
       /** Output from the run */
       output?: unknown;
       /** State of the run */
-      state?: unknown;
+      state?: PatchedTaskRunUpdateState;
       /** State keys to remove atomically before applying any state updates. */
       state_remove_keys?: string[];
       /** State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race. */
@@ -88767,6 +88772,70 @@ export namespace Schemas {
       status: string;
       /** Relay workflow ID when accepted */
       relay_id?: string;
+    }
+
+    /**
+     * @nullable
+     */
+    export type TaskRunResponseJsonSchema = { [key: string]: unknown } | null;
+
+    /**
+     * Detail response for a task.
+     *
+     * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+     * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+     * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+     */
+    export interface TaskRunResponse {
+      id: string;
+      /** @nullable */
+      task_number: number | null;
+      slug: string;
+      title: string;
+      title_manually_set: boolean;
+      description: string;
+      origin_product: string;
+      /** Agent protocol and harness used for this task's runs.
+       *
+       * * `acp` - ACP
+       * * `pi` - Pi */
+      runtime: TaskRuntimeEnum;
+      /** @nullable */
+      repository: string | null;
+      repositories: string[];
+      /** @nullable */
+      github_integration: number | null;
+      /** @nullable */
+      github_user_integration: string | null;
+      /** @nullable */
+      signal_report: string | null;
+      /** @nullable */
+      json_schema: TaskRunResponseJsonSchema;
+      internal: boolean;
+      archived: boolean;
+      /** @nullable */
+      archived_at: string | null;
+      /** Latest run details for this task */
+      latest_run?: TaskRunDetailDTO | null;
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+      /** @nullable */
+      last_activity_at?: string | null;
+      created_by?: TaskUserBasicInfo | null;
+      /** @nullable */
+      ci_prompt: string | null;
+      /** @nullable */
+      channel?: string | null;
+      readonly slack_thread_references: readonly SlackThreadReferenceDTO[];
+      /**
+         * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+         * @nullable
+         */
+      origin_key?: string | null;
+      /** Error returned when the run could not start. */
+      run_error?: string;
     }
 
     export interface TaskRunStartRequest {

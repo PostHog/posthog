@@ -76,7 +76,11 @@ from products.tasks.backend.facade.access import (
     usage_limit_response,
 )
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
-from products.tasks.backend.facade.client_provenance import get_task_client_provenance, is_sandbox_oauth_request
+from products.tasks.backend.facade.client_provenance import (
+    get_task_client_provenance,
+    is_sandbox_oauth_request,
+    is_sandbox_origin_request,
+)
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.facade.contracts import TaskAnalysisError, TaskRunLogAppendUnserialized
 from products.tasks.backend.facade.metrics import (
@@ -713,7 +717,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         origin_product = validated_data.get("origin_product", tasks_facade.TaskOriginProduct.USER_CREATED)
         relationship = serializer.validated_data.get("signal_report_task_relationship")
 
-        if start_run and (not self._agent_run_enabled(request) or is_sandbox_oauth_request(request)):
+        if start_run and (not self._agent_run_enabled(request) or is_sandbox_origin_request(request)):
             return _agent_run_disabled_response()
 
         if (
@@ -731,7 +735,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # exempt Inbox shapes are not among them, matching how the warm endpoint gates.
         # `origin_product` is optional on the wire; `create_task` defaults it the same way.
         can_activate_warm_run = "branch" in validated_data and origin_product in WARMABLE_ORIGIN_PRODUCTS
-        if can_activate_warm_run and is_sandbox_oauth_request(request):
+        if can_activate_warm_run and is_sandbox_origin_request(request):
             return _agent_run_disabled_response()
         if start_run or can_activate_warm_run:
             is_code_access_exempt = (
@@ -781,6 +785,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     client_provenance=get_task_client_provenance(request),
                     code_access_allowed=code_access_allowed,
                 )
+                if create_result.error is not None:
+                    return self._task_error_response(create_result.error)
                 assert create_result.task is not None
                 task = create_result.task
                 run_error = create_result.run_error
@@ -1283,7 +1289,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             previous_source = tasks_facade.get_task_run_source(resume_id, pk, self.team_id)
             if previous_source == RunSource.AGENT:
                 run_source = previous_source
-        if is_sandbox_oauth_request(request) or (
+        if is_sandbox_origin_request(request) or (
             run_source == RunSource.AGENT and not self._agent_run_enabled(request)
         ):
             return _agent_run_disabled_response()
@@ -1400,7 +1406,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["post"], url_path="warm", required_scopes=["task:write"])
     def warm(self, request, **kwargs):
-        if is_sandbox_oauth_request(request):
+        if is_sandbox_origin_request(request):
             return _agent_run_disabled_response()
         origin_product = request.validated_data["origin_product"]
         if not self._warm_enabled(origin_product):
@@ -1472,7 +1478,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"], url_path="warm", url_name="warm-resume", required_scopes=["task:write"])
     def warm_resume(self, request, pk=None, **kwargs):
-        if is_sandbox_oauth_request(request):
+        if is_sandbox_origin_request(request):
             return _agent_run_disabled_response()
         gate = tasks_facade.task_control_runtime_and_origin(pk, self.team_id, self._user_id())
         if gate is None:
@@ -1747,7 +1753,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         # Gate cloud runs before the run row is created; local runs aren't limited.
         if environment == tasks_facade.TaskRunEnvironment.CLOUD:
-            if is_sandbox_oauth_request(request):
+            if is_sandbox_origin_request(request):
                 return _agent_run_disabled_response()
             if tasks_facade.task_runtime(
                 task_id, self.team_id, self._user_id(), for_control=True
@@ -1796,7 +1802,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         startable, run_source = tasks_facade.check_task_run_startable(pk, task_id, self.team_id)
         if startable == "not_found":
             raise NotFound()
-        if is_sandbox_oauth_request(request) or (
+        if is_sandbox_origin_request(request) or (
             run_source == RunSource.AGENT and not _agent_run_enabled(request, self.team)
         ):
             return _agent_run_disabled_response()
@@ -3443,7 +3449,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         required_scopes=["task:write"],
     )
     def resume_in_cloud(self, request, pk=None, **kwargs):
-        if is_sandbox_oauth_request(request):
+        if is_sandbox_origin_request(request):
             return _agent_run_disabled_response()
         task_id = self._ensure_task_accessible()
         if tasks_facade.get_task_run_detail(pk, task_id, self.team_id) is None:

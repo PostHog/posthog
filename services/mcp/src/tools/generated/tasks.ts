@@ -868,14 +868,14 @@ const tasksRetrieve = (): ToolBase<ReturnType<typeof TasksRetrieveSchema>, WithP
 
 const TasksRunCreateSchema = () => TaskAgentRunCreateSchema
 
-const tasksRunCreate = (): ToolBase<ReturnType<typeof TasksRunCreateSchema>, Schemas.TaskCreateResponseDTO> => ({
+const tasksRunCreate = (): ToolBase<ReturnType<typeof TasksRunCreateSchema>, Schemas.TaskRunResponse> => ({
     name: 'tasks-run-create',
     schema: TasksRunCreateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof TasksRunCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const parsedParams = TasksRunCreateSchema().parse(params)
         const { id, ...body } = parsedParams
-        const result = await context.api.request<Schemas.TaskCreateResponseDTO>({
+        const result = await context.api.request<Schemas.TaskRunResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(id))}/run/`,
             body,

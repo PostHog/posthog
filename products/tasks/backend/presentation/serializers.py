@@ -291,7 +291,7 @@ class TaskRunUpdateSerializer(serializers.Serializer):
         required=False, allow_null=True, help_text="Current stage of the run (e.g. research, plan, build)"
     )
     output = serializers.JSONField(required=False, allow_null=True, help_text="Output from the run")
-    state = serializers.JSONField(required=False, help_text="State of the run")
+    state = serializers.DictField(required=False, help_text="State of the run")
     state_remove_keys = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -626,6 +626,7 @@ class TaskCreateResponseSerializer(TaskSerializer):
         fields = [*TaskSerializer.Meta.fields, "run_error"]
 
 
+@extend_schema_serializer(component_name="TaskRunResponse")
 class TaskRunResponseSerializer(TaskCreateResponseSerializer):
     run_error = serializers.CharField(required=False, help_text="Error returned when the run could not start.")
 

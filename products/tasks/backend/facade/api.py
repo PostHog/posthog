@@ -2787,6 +2787,8 @@ def update_task_run(
         return None
 
     validated_data = dict(validated_data)
+    if "state" in validated_data and not isinstance(validated_data["state"], dict):
+        raise ValueError("Run state must be an object.")
     if (
         "status" in validated_data
         and not caller_is_agent
@@ -5921,6 +5923,29 @@ def create_task_and_run(
 ) -> contracts.TaskRunResult:
     from products.signals.backend.facade.api import ReportTaskCapExceeded
 
+    if custom_image_id := run_data.get("custom_image_id"):
+        custom_image = SandboxCustomImage.get_accessible_for_task(
+            image_id=custom_image_id, team_id=team_id, task_created_by_id=user_id
+        )
+        if custom_image is None:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(kind="detail", detail="Invalid custom_image_id")
+            )
+        if not custom_image.is_ready:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(
+                    kind="detail", detail=f"Custom image is not ready (status: {custom_image.status})"
+                )
+            )
+    if sandbox_environment_id := run_data.get("sandbox_environment_id"):
+        sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+            environment_id=sandbox_environment_id, team_id=team_id, task_created_by_id=user_id
+        )
+        if sandbox_environment is None:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(kind="detail", detail="Invalid sandbox_environment_id")
+            )
+
     create_data = dict(validated_data)
     create_data.pop("branch", None)
     task = create_task(
@@ -7827,12 +7852,11 @@ def run_task(
     else:
         run_error = _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
 
-    if run_error is None:
-        task_run.refresh_from_db(fields=["status", "error_message"])
-        if task_run.status == TaskRun.Status.FAILED:
-            run_error = task_run.error_message or "Failed to start task workflow."
-
     try:
+        if run_error is None:
+            task_run.refresh_from_db(fields=["status", "error_message"])
+            if task_run.status == TaskRun.Status.FAILED:
+                run_error = task_run.error_message or "Failed to start task workflow."
         task_detail = get_task_detail(task.id, team_id, user_id)
     except Exception:
         logger.exception("Failed to hydrate task %s after starting run %s", task.id, task_run.id)

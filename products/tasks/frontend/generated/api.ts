@@ -124,6 +124,7 @@ import type {
     TaskRunPostHogReferencesResponseApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
+    TaskRunResponseApi,
     TaskRunStartRequestApi,
     TaskSearchResultApi,
     TaskSessionResponseApi,
@@ -1568,8 +1569,8 @@ export const tasksRunCreate = async (
     id: string,
     taskRunCreateRequestSchemaApi?: TaskRunCreateRequestSchemaApi,
     options?: RequestInit
-): Promise<TaskCreateResponseDTOApi> => {
-    return apiMutator<TaskCreateResponseDTOApi>(getTasksRunCreateUrl(projectId, id), {
+): Promise<TaskRunResponseApi> => {
+    return apiMutator<TaskRunResponseApi>(getTasksRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
