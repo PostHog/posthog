@@ -567,6 +567,8 @@ def _task_run_scope_team_ids(payload: dict) -> list[int]:
     )
 
     return sorted(team_ids)
+
+
 def _close_superseded_signal_report_prs(task_run: TaskRun, pr_url: str) -> None:
     """Close the earlier implementation PRs of any signal report this run's task belongs to.
 
@@ -601,5 +603,3 @@ def _close_superseded_signal_report_prs(task_run: TaskRun, pr_url: str) -> None:
             pr_url=pr_url,
             exc_info=True,
         )
-
-

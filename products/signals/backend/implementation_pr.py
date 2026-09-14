@@ -491,9 +491,12 @@ def close_implementation_pr_for_report(
         for pr in fetch_implementation_prs_for_reports([str(report_id)], team_id=team_id).get(str(report_id), []):
             if pr_url is not None and pr.url != pr_url:
                 continue
-            closed = _close_implementation_pr(
-                team_id, report_id, reason=reason, pr=pr, replacement_pr_url=replacement_pr_url
-            ) or closed
+            closed = (
+                _close_implementation_pr(
+                    team_id, report_id, reason=reason, pr=pr, replacement_pr_url=replacement_pr_url
+                )
+                or closed
+            )
         return closed
     except Exception:
         logger.exception("close_implementation_pr_lookup_failed", report_id=str(report_id))

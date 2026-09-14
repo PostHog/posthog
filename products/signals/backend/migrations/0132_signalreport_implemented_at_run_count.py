@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("signals", "0114_signalscoutnote_reviewer_correction_origin")]
+    dependencies = [("signals", "0131_report_work_pull_request_indexes")]
 
     operations = [
         migrations.AddField(

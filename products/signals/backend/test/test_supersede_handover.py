@@ -8,12 +8,13 @@ from posthog.models import Organization, Team
 from products.signals.backend.implementation_pr import (
     close_superseded_implementation_prs,
     fetch_implementation_pr_state_for_reports,
+    fetch_implementation_prs_for_reports,
     fetch_implementation_task_pr_url,
     report_has_newer_implementation_task,
 )
 from products.signals.backend.models import SignalReport, SignalReportTask
+from products.signals.backend.report_assignments import update_assignments_for_pull_request
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_DISCUSSION, TASK_RUN_TYPE_IMPLEMENTATION
-from products.tasks.backend.webhooks import _transition_signal_reports_for_pr
 
 _OLD_PR = "https://github.com/PostHog/posthog/pull/1"
 _NEW_PR = "https://github.com/PostHog/posthog/pull/2"
@@ -55,27 +56,27 @@ def _github(state="open", merged=False):
 
 
 @pytest.mark.django_db
-def test_report_surfaces_the_newest_implementation_pr(team, report):
+def test_report_surfaces_the_replacement_after_the_old_pr_closes(team, report):
     _link_task(team, report, pr_url=_OLD_PR)
     _link_task(team, report, pr_url=_NEW_PR)
 
-    surfaced = fetch_implementation_pr_state_for_reports([str(report.id)])
+    update_assignments_for_pull_request(
+        team_ids=[team.id], repository="posthog/posthog", pr_number=1, pr_state="closed"
+    )
 
-    # Ordering matters only once a report can have two implementation tasks. Surfacing the older one
-    # would point the inbox at a PR that is about to close.
+    surfaced = fetch_implementation_pr_state_for_reports([str(report.id)], team_id=team.id)
+
     assert surfaced[str(report.id)].url == _NEW_PR
 
 
 @pytest.mark.django_db
-def test_discussion_pr_still_loses_to_an_implementation_pr(team, report):
+def test_report_retains_discussion_and_implementation_prs(team, report):
     _link_task(team, report, pr_url=_OLD_PR)
     _link_task(team, report, pr_url=_NEW_PR, relationship=TASK_RUN_TYPE_DISCUSSION)
 
-    surfaced = fetch_implementation_pr_state_for_reports([str(report.id)])
+    surfaced = fetch_implementation_prs_for_reports([str(report.id)], team_id=team.id)
 
-    # Newest-first applies within a group, not across them: a later "Discuss" PR must not displace
-    # the implementation PR.
-    assert surfaced[str(report.id)].url == _OLD_PR
+    assert {pr.url for pr in surfaced[str(report.id)]} == {_OLD_PR, _NEW_PR}
 
 
 @pytest.mark.django_db
@@ -118,8 +119,8 @@ def test_closing_a_superseded_pr_does_not_archive_the_report(team, report):
     # report surfaces — the window where the close looks like an abandonment.
     _link_task(team, report, pr_url=None)
 
-    _transition_signal_reports_for_pr(
-        _OLD_PR, SignalReport.Status.SUPPRESSED, "archived", [team.id], skip_superseded=True
+    update_assignments_for_pull_request(
+        team_ids=[team.id], repository="posthog/posthog", pr_number=1, pr_state="closed"
     )
 
     report.refresh_from_db()
@@ -130,8 +131,8 @@ def test_closing_a_superseded_pr_does_not_archive_the_report(team, report):
 def test_closing_the_newest_pr_still_archives_the_report(team, report):
     _link_task(team, report, pr_url=_OLD_PR)
 
-    _transition_signal_reports_for_pr(
-        _OLD_PR, SignalReport.Status.SUPPRESSED, "archived", [team.id], skip_superseded=True
+    update_assignments_for_pull_request(
+        team_ids=[team.id], repository="posthog/posthog", pr_number=1, pr_state="closed"
     )
 
     report.refresh_from_db()

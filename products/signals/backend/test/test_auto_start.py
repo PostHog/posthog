@@ -1399,4 +1399,3 @@ async def test_only_the_current_passs_implementation_decision_is_read(written_du
 
     passed_decision = mock_autostart.call_args.kwargs["implementation_decision"]
     assert (passed_decision is not None) is written_during_current_pass
-

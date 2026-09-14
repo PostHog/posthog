@@ -537,7 +537,19 @@ _REPLACEMENT_PR_URL = "https://github.com/PostHog/posthog/pull/456"
 
 
 class TestSupersededPrClose(BaseTest):
-    """Superseding closes the PR the caller names, not the one the report currently surfaces."""
+    def setUp(self) -> None:
+        super().setUp()
+        self.report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="Test report", summary="Test summary"
+        )
+        for pr_url in (_PR_URL, _REPLACEMENT_PR_URL):
+            task = Task.objects.create(
+                team=self.team, title="Implementation", origin_product=Task.OriginProduct.SIGNAL_REPORT
+            )
+            SignalReportTask.objects.create(
+                team=self.team, report=self.report, task=task, relationship="implementation"
+            )
+            TaskRun.objects.create(team=self.team, task=task, output={"pr_url": pr_url})
 
     def _github(self) -> MagicMock:
         github = MagicMock()
@@ -548,28 +560,19 @@ class TestSupersededPrClose(BaseTest):
 
     def test_closes_the_named_pr_and_points_at_its_replacement(self):
         github = self._github()
-        with (
-            patch(
-                "products.signals.backend.implementation_pr.fetch_implementation_pr_urls_for_reports",
-                return_value={"report-1": _REPLACEMENT_PR_URL},
-            ) as mock_fetch,
-            patch(
-                "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
-                return_value=github,
-            ),
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+            return_value=github,
         ):
             closed = close_implementation_pr_for_report(
                 self.team.id,
-                "report-1",
+                str(self.report.id),
                 reason="superseded",
                 pr_url=_PR_URL,
                 replacement_pr_url=_REPLACEMENT_PR_URL,
             )
 
         assert closed is True
-        # Resolving the report's PR here would close the replacement: by this point it is the PR the
-        # report surfaces. Passing the URL is what keeps the handover pointed at the old one.
-        mock_fetch.assert_not_called()
         github.close_pull_request.assert_called_once_with("PostHog/posthog", 123)
         comment_body = github.comment_on_pull_request.call_args.args[2]
         assert _REPLACEMENT_PR_URL in comment_body
@@ -587,7 +590,7 @@ class TestSupersededPrClose(BaseTest):
                 return_value=github,
             ),
         ):
-            close_implementation_pr_for_report(self.team.id, "report-1", reason="superseded", pr_url=_PR_URL)
+            close_implementation_pr_for_report(self.team.id, str(self.report.id), reason="superseded", pr_url=_PR_URL)
 
         comment_body = github.comment_on_pull_request.call_args.args[2]
         assert "a new PR replaces this one" in comment_body

@@ -581,11 +581,11 @@ async def _persist_agentic_report_artefacts(
     # `maybe_autostart_implementation_activity` in temporal/summary.py.
 
 
-def _fetch_own_pr_url(report_id: str) -> str | None:
+def _fetch_own_pr_url(team_id: int, report_id: str) -> str | None:
     """The report's current implementation PR, or None. Never raises: a lookup failure must not
     cost the report its research run, only the supersede decision it would have enabled."""
     try:
-        return fetch_implementation_pr_urls_for_reports([str(report_id)]).get(str(report_id))
+        return fetch_implementation_pr_urls_for_reports([str(report_id)], team_id=team_id).get(str(report_id))
     except Exception:
         logger.exception("signals research own-PR lookup failed", report_id=report_id)
         return None
@@ -749,7 +749,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             # The report's current PR, when it has one. It keeps the in-flight check from reading
             # the report's own draft as somebody else's work, and it is what the supersede turn asks
             # about. Best-effort: research must not fail over a PR lookup.
-            own_pr_url = await database_sync_to_async(_fetch_own_pr_url, thread_sensitive=False)(input.report_id)
+            own_pr_url = await database_sync_to_async(_fetch_own_pr_url, thread_sensitive=False)(
+                input.team_id, input.report_id
+            )
             result = await run_multi_turn_research(
                 input.signals,
                 context,
