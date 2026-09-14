@@ -361,6 +361,108 @@ function useReRankedGroupedItems(
     return result
 }
 
+// A browser fires `click` only when the press and the release land on the same element.
+// The result list re-renders while the server search categories resolve, so the item under
+// the cursor can move or unmount between the two, and no click reaches it — the selection
+// then disappears with no navigation and no telemetry. Drive activation from the pointer
+// sequence instead: remember the item the user pressed, and activate that item on release.
+const MAX_POINTER_DRIFT_PX = 8
+
+interface ItemPointerPress {
+    pointerId: number
+    item: SearchItem
+    element: HTMLElement
+    x: number
+    y: number
+}
+
+interface PointerActivation {
+    onItemPointerDown: (event: React.PointerEvent<HTMLElement>, item: SearchItem) => void
+    /** Activates the item unless the pointer sequence already did, so one gesture selects once. */
+    onItemClick: (event: React.MouseEvent, item: SearchItem, openInNewTab?: boolean) => void
+}
+
+function usePointerActivation(activate: (item: SearchItem, openInNewTab: boolean) => void): PointerActivation {
+    const pressRef = useRef<ItemPointerPress | null>(null)
+    const activatedIdRef = useRef<string | null>(null)
+
+    useEffect(() => {
+        const release = (event: PointerEvent): void => {
+            const press = pressRef.current
+            if (!press || press.pointerId !== event.pointerId) {
+                return
+            }
+            pressRef.current = null
+            const target = event.target instanceof Node ? event.target : null
+            const releasedOnItem = target !== null && press.element.contains(target)
+            const drift = Math.hypot(event.clientX - press.x, event.clientY - press.y)
+            // A pointer that stayed still means the list moved, not that the user dragged
+            // off the item to cancel the press.
+            if (!releasedOnItem && drift > MAX_POINTER_DRIFT_PX) {
+                return
+            }
+            activatedIdRef.current = press.item.id
+            activate(press.item, event.metaKey || event.ctrlKey)
+        }
+        // The press must not survive anything that ends the gesture without a release. A native
+        // link drag suppresses the pointer stream, a focus loss can drop both release events, and
+        // a later press is a gesture of its own.
+        const cancel = (): void => {
+            pressRef.current = null
+        }
+        // Capture, so a press on a result cancels the previous one before the result records its own.
+        window.addEventListener('pointerdown', cancel, true)
+        window.addEventListener('pointerup', release, true)
+        window.addEventListener('pointercancel', cancel, true)
+        window.addEventListener('dragstart', cancel, true)
+        // `blur` does not bubble, so a non-capturing listener hears the window and not the elements
+        // inside it. A capturing one would cancel the press on every focus move within the page.
+        window.addEventListener('blur', cancel)
+        return () => {
+            window.removeEventListener('pointerdown', cancel, true)
+            window.removeEventListener('pointerup', release, true)
+            window.removeEventListener('pointercancel', cancel, true)
+            window.removeEventListener('dragstart', cancel, true)
+            window.removeEventListener('blur', cancel)
+        }
+    }, [activate])
+
+    const onItemPointerDown = useCallback((event: React.PointerEvent<HTMLElement>, item: SearchItem): void => {
+        activatedIdRef.current = null
+        // A result is also a context menu trigger, which opens on a motionless touch or pen press
+        // and sends no pointercancel. A press recorded here would then activate the result behind
+        // the open menu, so touch and pen keep the click path and only a mouse activates on release.
+        if (event.button !== 0 || event.pointerType !== 'mouse') {
+            return
+        }
+        pressRef.current = {
+            pointerId: event.pointerId,
+            item,
+            element: event.currentTarget,
+            x: event.clientX,
+            y: event.clientY,
+        }
+    }, [])
+
+    const onItemClick = useCallback(
+        (event: React.MouseEvent, item: SearchItem, openInNewTab: boolean = false): void => {
+            const pressed = activatedIdRef.current === item.id
+            // The marker outlives the gesture when the list move swallows the click, so drop it
+            // on any activation of this item, not only on the one that consumes it.
+            activatedIdRef.current = null
+            // A click a pointer made carries a click count. Base UI runs a keyboard Enter as
+            // `listItem.click()`, which reports none, so that Enter is never the press's own click.
+            if (pressed && event.detail > 0) {
+                return
+            }
+            activate(item, openInNewTab)
+        },
+        [activate]
+    )
+
+    return { onItemPointerDown, onItemClick }
+}
+
 // ============================================================================
 // Search.Root
 // ============================================================================
@@ -853,6 +955,7 @@ function SearchResults({
     groupLabelClassName?: string
 }): JSX.Element {
     const { groupedItems, handleItemClick, highlightedItemRef, isSearching, searchValue } = useSearchContext()
+    const { onItemPointerDown, onItemClick } = usePointerActivation(handleItemClick)
 
     // Don't show "no results" while any category is still loading
     const isAnyLoading = groupedItems.some((g) => g.isLoading)
@@ -922,8 +1025,9 @@ function SearchResults({
                                                                 // Plain clicks only. LinkPrimitive returns early on
                                                                 // metaKey/ctrlKey, so modifier clicks never get here and
                                                                 // are handled in the capture phase below instead.
+                                                                // Keyboard Enter also arrives here, without a press.
                                                                 e.preventDefault()
-                                                                handleItemClick(item)
+                                                                onItemClick(e, item)
                                                             }}
                                                             render={(props) => {
                                                                 const isHighlighted =
@@ -936,6 +1040,9 @@ function SearchResults({
                                                                 return (
                                                                     <div
                                                                         className="px-2"
+                                                                        onPointerDown={(e) =>
+                                                                            onItemPointerDown(e, item)
+                                                                        }
                                                                         onClickCapture={(e) => {
                                                                             // LinkPrimitive swallows modifier clicks
                                                                             // (stopPropagation, then return) before its
@@ -948,7 +1055,7 @@ function SearchResults({
                                                                             // action items stay inert.
                                                                             if (e.metaKey || e.ctrlKey) {
                                                                                 e.preventDefault()
-                                                                                handleItemClick(item, true)
+                                                                                onItemClick(e, item, true)
                                                                             }
                                                                         }}
                                                                     >
