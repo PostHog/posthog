@@ -13,7 +13,9 @@ from posthog.utils import get_safe_cache, safe_cache_set
 
 T = TypeVar("T")
 
-_TIMEOUT_SECONDS = 60 * 60 * 24
+# Short, because entries live in the shared cache. CI runs read the same blob many times within an
+# hour, so a short entry keeps almost every hit.
+_TIMEOUT_SECONDS = 60 * 60
 
 
 def load_by_hash(kind: str, content_hash: str, load: Callable[[], T | None]) -> T | None:

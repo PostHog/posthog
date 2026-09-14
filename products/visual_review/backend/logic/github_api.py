@@ -218,7 +218,7 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
 
 # A larger baseline file is parsed without caching, so one repository cannot fill the shared cache
 # with large parsed files.
-_MAX_CACHED_BASELINE_BYTES = 4 * 1024 * 1024
+_MAX_CACHED_BASELINE_BYTES = 2 * 1024 * 1024
 
 
 def _parse_baseline_file(text: str) -> dict[str, dict]:
