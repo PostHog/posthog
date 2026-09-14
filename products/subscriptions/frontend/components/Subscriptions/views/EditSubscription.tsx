@@ -453,6 +453,7 @@ function EditSubscriptionForm({
                                 <AiPromptSubscriptionIntroduction />
                                 <AiPromptFields
                                     prompt={subscription.prompt}
+                                    targetType={subscription.target_type}
                                     windowMode={subscription.ai_prompt_config?.window?.mode}
                                     consentBanner={
                                         aiGate.showAiFormConsentBanner ? <AiConsentGateMessage /> : undefined

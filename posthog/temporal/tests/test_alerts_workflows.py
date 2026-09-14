@@ -12,6 +12,7 @@ from django.conf import settings
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -32,7 +33,12 @@ from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert, record_failed_evaluation
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_schedule
-from posthog.temporal.alerts.types import AlertInfo, CheckAlertWorkflowInputs, SkipReason
+from posthog.temporal.alerts.types import (
+    AlertInfo,
+    CheckAlertWorkflowInputs,
+    ScheduleDueAlertChecksWorkflowInputs,
+    SkipReason,
+)
 from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAlertChecksWorkflow
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.tests.test_alerts_activities import _email_delivery
@@ -49,7 +55,43 @@ CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [
 
 
 @pytest.mark.asyncio
-async def test_schedule_due_alert_checks_adds_shared_slo_context() -> None:
+async def test_schedule_due_alert_checks_passes_configured_limit_to_retrieval() -> None:
+    execute_activity = AsyncMock(return_value=[])
+    inputs = ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=17)
+
+    with patch(
+        "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
+        new=execute_activity,
+    ):
+        await ScheduleDueAlertChecksWorkflow().run(inputs)
+
+    assert execute_activity.await_args is not None
+    assert execute_activity.await_args.args[1] == inputs
+
+
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_defaults_to_three_hundred_alerts() -> None:
+    create_schedule = AsyncMock()
+
+    with (
+        patch(
+            "posthog.temporal.alerts.schedule.a_schedule_exists",
+            new=AsyncMock(return_value=False),
+        ),
+        patch(
+            "posthog.temporal.alerts.schedule.a_create_schedule",
+            new=create_schedule,
+        ),
+    ):
+        await create_schedule_due_alert_checks_schedule(MagicMock())
+
+    assert create_schedule.await_args is not None
+    schedule = create_schedule.await_args.args[2]
+    assert schedule.action.args == [ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=300)]
+
+
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_starts_child_with_shared_slo_context() -> None:
     alert = AlertInfo(
         alert_id="alert-1",
         team_id=42,
@@ -64,12 +106,14 @@ async def test_schedule_due_alert_checks_adds_shared_slo_context() -> None:
             new=AsyncMock(return_value=[alert]),
         ),
         patch(
-            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_child_workflow", new=AsyncMock()
-        ) as execute_child,
+            "posthog.temporal.alerts.workflows.temporalio.workflow.start_child_workflow", new=AsyncMock()
+        ) as start_child,
     ):
         await ScheduleDueAlertChecksWorkflow().run()
 
-    inputs = execute_child.call_args.args[1]
+    start_child.assert_awaited_once()
+    assert start_child.await_args is not None
+    inputs = start_child.await_args.args[1]
     assert isinstance(inputs, CheckAlertWorkflowInputs)
     assert inputs.slo is not None
     assert inputs.slo.operation == SloOperation.ALERT_CHECK
@@ -86,6 +130,62 @@ async def test_schedule_due_alert_checks_adds_shared_slo_context() -> None:
 
     inputs.slo.completion_properties["alert_state"] = AlertState.FIRING
     assert "alert_state" not in inputs.slo.start_properties
+
+
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_skips_already_running_children() -> None:
+    alert = AlertInfo(
+        alert_id="alert-1",
+        team_id=42,
+        distinct_id="user-1",
+        calculation_interval=AlertCalculationInterval.DAILY.value,
+        insight_id=123,
+    )
+
+    with (
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
+            new=AsyncMock(return_value=[alert]),
+        ),
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.start_child_workflow",
+            new=AsyncMock(side_effect=WorkflowAlreadyStartedError("check-alert-alert-1", "check-alert")),
+        ) as start_child,
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.logger", new=MagicMock()),
+    ):
+        await ScheduleDueAlertChecksWorkflow().run()
+
+    start_child.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_attempts_remaining_children_before_reporting_start_failures() -> None:
+    alerts = [
+        AlertInfo(
+            alert_id=f"alert-{index}",
+            team_id=42,
+            distinct_id=f"user-{index}",
+            calculation_interval=AlertCalculationInterval.DAILY.value,
+            insight_id=123,
+        )
+        for index in range(2)
+    ]
+
+    with (
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
+            new=AsyncMock(return_value=alerts),
+        ),
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.start_child_workflow",
+            new=AsyncMock(side_effect=[RuntimeError("start failed"), None]),
+        ) as start_child,
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.logger", new=MagicMock()),
+    ):
+        with pytest.raises(ApplicationError, match="alert-0"):
+            await ScheduleDueAlertChecksWorkflow().run()
+
+    assert start_child.await_count == 2
 
 
 def test_schedule_is_registered_in_init_schedules():

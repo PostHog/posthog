@@ -1,9 +1,14 @@
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.utils import timezone
+
+from posthog.models import PersonalAPIKey
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.mcp_registry.backend.models import MCPMeasuredStats, MCPRegistryServer, MCPRegistryTool
 from products.mcp_registry.backend.ranking import compute_ranking_run
@@ -258,6 +263,56 @@ class TestMCPRegistryAPI(APIBaseTest):
 
         assert [row["team_id"] for row in rows] == [self.team.id + 1, self.team.id]
         assert [row["calls"] for row in rows] == [999_999, 50_000]
+
+    def _staff_bearer_headers(self, kind: str) -> dict[str, str]:
+        self.user.is_staff = True
+        self.user.save()
+        if kind == "personal_api_key":
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="staff key", user=self.user, secure_value=hash_key_value(key), scopes=["mcp_registry:read"]
+            )
+            return {"authorization": f"Bearer {key}"}
+        application = OAuthApplication.objects.create(
+            name="agent",
+            client_id="agent_client_id",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+        )
+        OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_staff_token",
+            scope="mcp_registry:read",
+            expires=timezone.now() + timedelta(hours=1),
+        )
+        return {"authorization": "Bearer pha_staff_token"}
+
+    def test_fleet_tier_refuses_oauth_tokens_even_for_staff(self) -> None:
+        # A self-registered OAuth client that consents a staff user must not inherit the
+        # cross-project view: the fleet tier stays with session and personal API keys.
+        servers = self._seed_index()
+        self._seed_another_projects_stats(servers["measured"])
+
+        headers = self._staff_bearer_headers("oauth")
+
+        assert self.client.get(self._url("measured_projects/"), headers=headers).status_code == 403
+        detail = self.client.get(self._url(f"{servers['measured'].id}/"), headers=headers).json()
+        assert [row["calls"] for row in detail["measured_stats"]] == [50_000]
+
+    def test_fleet_tier_accepts_staff_personal_api_keys(self) -> None:
+        # Personal API keys are minted by the user themselves, so staff keep the fleet view.
+        servers = self._seed_index()
+        self._seed_another_projects_stats(servers["measured"])
+
+        headers = self._staff_bearer_headers("personal_api_key")
+
+        rows = self.client.get(self._url("measured_projects/"), headers=headers).json()
+        assert [row["team_id"] for row in rows] == [self.team.id + 1, self.team.id]
+        detail = self.client.get(self._url(f"{servers['measured'].id}/"), headers=headers).json()
+        assert sorted(row["calls"] for row in detail["measured_stats"]) == [50_000, 999_999]
 
     def _reassign_measurements_to_another_project(self, server: MCPRegistryServer) -> None:
         MCPMeasuredStats.objects.unscoped().filter(server=server).update(team_id=self.team.id + 1)

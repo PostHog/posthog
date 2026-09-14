@@ -75,6 +75,21 @@ function capToolPayload(value: unknown): unknown {
     : { _truncated: true, preview, originalSize: text.length };
 }
 
+function stripMcpResultMeta(value: unknown): unknown {
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    "_meta" in value &&
+    ("content" in value || "structuredContent" in value)
+  ) {
+    // ACP keeps app data for widgets, but a rebuilt transcript becomes model input.
+    // Strip metadata before capping so UI data cannot consume the resume budget either.
+    const { _meta, ...modelResult } = value;
+    return modelResult;
+  }
+  return value;
+}
+
 function isEmptyRecord(value: unknown): boolean {
   return (
     typeof value === "object" &&
@@ -224,7 +239,7 @@ export function rebuildConversation(
           }
           const result = update.rawOutput ?? meta?.toolResponse;
           if (result !== undefined) {
-            toolCall.result = capToolPayload(result);
+            toolCall.result = capToolPayload(stripMcpResultMeta(result));
           }
           break;
         }
@@ -238,7 +253,7 @@ export function rebuildConversation(
             );
             const result = update.rawOutput ?? meta?.toolResponse;
             if (toolCall && result !== undefined) {
-              toolCall.result = capToolPayload(result);
+              toolCall.result = capToolPayload(stripMcpResultMeta(result));
             }
           }
           break;

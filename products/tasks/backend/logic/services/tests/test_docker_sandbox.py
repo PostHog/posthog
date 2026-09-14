@@ -1,4 +1,6 @@
 import shlex
+import subprocess
+from pathlib import Path
 
 import pytest
 from unittest.mock import patch
@@ -20,6 +22,31 @@ def sandbox() -> DockerSandbox:
 
 def _log_result() -> ExecutionResult:
     return ExecutionResult(stdout="agent-server log", stderr="", exit_code=0)
+
+
+@pytest.mark.parametrize(
+    ("capabilities", "expected"),
+    [
+        ("", False),
+        ("prewarmedResumeIdle", False),
+        ("prewarmedResumeIdle prewarmedResumeMessageDriven", True),
+    ],
+)
+def test_prewarmed_resume_requires_message_driven_agent(
+    sandbox: DockerSandbox, tmp_path: Path, capabilities: str, expected: bool
+) -> None:
+    binary = tmp_path / "agent-server"
+    binary.write_text(capabilities)
+
+    def execute_probe(command: str, *, timeout_seconds: int) -> ExecutionResult:
+        args = shlex.split(command)
+        assert args[-1] == "/scripts/node_modules/.bin/agent-server"
+        args[-1] = str(binary)
+        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout_seconds)
+        return ExecutionResult(stdout=result.stdout, stderr=result.stderr, exit_code=result.returncode)
+
+    with patch.object(sandbox, "execute", side_effect=execute_probe):
+        assert sandbox.agent_server_supports_prewarmed_resume_message_driven() is expected
 
 
 def test_wait_for_agent_server_ready_timeout_is_retryable_and_not_captured(sandbox: DockerSandbox):
@@ -127,4 +154,5 @@ def test_write_file_creates_the_temp_file_before_moving_it(_name: str, payload: 
 
     assert result.exit_code == 0
     assert any("EOF_SANDBOX_WRITE" in command for command in commands), "temp file was never written"
-    assert commands[-1].startswith("mv ")
+    assert commands[-1].startswith("umask 077 && rm -f /tmp/creds.env.tmp-* && ")
+    assert " && mv /tmp/creds.env.tmp-" in commands[-1]

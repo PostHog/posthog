@@ -49,22 +49,21 @@ test.describe("Smoke Tests", () => {
     expect(isValidBootState).toBe(true);
   });
 
-  test("window has correct minimum dimensions", async ({ window }) => {
-    // The main process maximizes the window on ready-to-show, which can land
-    // after domcontentloaded. Poll so the assertion sees the final size, not
-    // the 600px outer frame the window opens with.
-    const bounds = () =>
-      window.evaluate(() => ({
-        width: window.innerWidth,
-        height: window.innerHeight,
-      }));
+  test("window has correct minimum dimensions", async ({
+    electronApp,
+    window,
+  }) => {
+    const browserWindow = await electronApp.browserWindow(window);
+    const { bounds, minimumSize } = await browserWindow.evaluate(
+      (nativeWindow) => ({
+        bounds: nativeWindow.getBounds(),
+        minimumSize: nativeWindow.getMinimumSize(),
+      }),
+    );
 
-    await expect
-      .poll(async () => (await bounds()).width, { timeout: 10000 })
-      .toBeGreaterThanOrEqual(900);
-    await expect
-      .poll(async () => (await bounds()).height, { timeout: 10000 })
-      .toBeGreaterThanOrEqual(600);
+    expect(minimumSize).toEqual([800, 600]);
+    expect(bounds.width).toBeGreaterThanOrEqual(minimumSize[0]);
+    expect(bounds.height).toBeGreaterThanOrEqual(minimumSize[1]);
   });
 
   test("app does not crash within 10 seconds of boot", async ({

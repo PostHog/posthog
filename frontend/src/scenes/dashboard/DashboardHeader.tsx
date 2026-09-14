@@ -26,7 +26,7 @@ export function insightIsAddedToDashboard(input: Record<string, unknown> | null,
 }
 
 export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX.Element | null {
-    const { dashboard, dashboardLoading, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
+    const { dashboard, dashboardLoading, dashboardMode, dashboardEditing, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
 
@@ -51,15 +51,12 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
 
     let actions: JSX.Element | undefined
     if (dashboard) {
-        switch (dashboardMode) {
-            case DashboardMode.Edit:
-                actions = <EditModeActions />
-                break
-            case DashboardMode.Fullscreen:
-                actions = <FullscreenModeActions />
-                break
-            default:
-                actions = <ViewModeActions />
+        if (dashboardEditing) {
+            actions = <EditModeActions />
+        } else if (dashboardMode === DashboardMode.Fullscreen) {
+            actions = <FullscreenModeActions />
+        } else {
+            actions = <ViewModeActions />
         }
     }
 

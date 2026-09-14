@@ -3,7 +3,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -132,7 +132,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with pytest.raises(ValueError, match="UsageMetricsQuery must have either group_key or person_id"):
             UsageMetricsQueryRunner(team=self.team, query=query)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_person_metric(self):
         metric = GroupUsageMetric.objects.create(
@@ -198,7 +198,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[1]["id"], str(another_metric.id))
         self.assertEqual(results[1]["value"], 5.0)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_complex_event_filter(self):
         metric = GroupUsageMetric.objects.create(
@@ -239,7 +239,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["id"], str(metric.id))
         self.assertEqual(results[0]["value"], 3.0)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_metric_interval(self):
         metric = GroupUsageMetric.objects.create(
@@ -255,7 +255,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        with freeze_time(timezone.now() - timedelta(days=8)):
+        with time_machine.travel(timezone.now() - timedelta(days=8), tick=False):
             # These should not count in `value`, but should count in `previous`
             for _ in range(3):
                 _create_event(
@@ -265,7 +265,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     distinct_id=self.person_distinct_id,
                 )
 
-        with freeze_time(timezone.now() - timedelta(days=7)):
+        with time_machine.travel(timezone.now() - timedelta(days=7), tick=False):
             # These should count in `value` only, as date_from check is gte and `previous` check is lt
             for _ in range(2):
                 _create_event(
@@ -275,7 +275,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     distinct_id=self.person_distinct_id,
                 )
 
-        with freeze_time(timezone.now()):
+        with time_machine.travel(timezone.now(), tick=False):
             # These should count, as date_to check is lte
             for _ in range(2):
                 _create_event(
@@ -296,7 +296,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["previous"], 3.0)
         self.assertEqual(results[0]["change_from_previous_pct"], 33.33333333333333)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_handles_failed_metric_gracefully(self):
         GroupUsageMetric.objects.create(
@@ -325,7 +325,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = query_result["results"]
         self.assertEqual(len(results), 0)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_no_metrics(self):
         for _ in range(3):
@@ -342,7 +342,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = query_result["results"]
         self.assertEqual(len(results), 0)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_group_metric(self):
         group_key = "test_group"
@@ -407,7 +407,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[1]["id"], str(another_metric.id))
         self.assertEqual(results[1]["value"], 5.0)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_sum_math_aggregation(self):
         GroupUsageMetric.objects.create(
@@ -452,7 +452,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["name"], "Revenue")
         self.assertEqual(results[0]["value"], 350.5)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     def test_sum_math_with_missing_property_returns_zero(self):
         GroupUsageMetric.objects.create(
             id=self.test_metric_id,
@@ -481,7 +481,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["value"], 0.0)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     def test_sum_math_with_null_math_property_returns_zero(self):
         GroupUsageMetric.objects.create(
             id=self.test_metric_id,
@@ -509,7 +509,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = query_result["results"]
         self.assertEqual(len(results), 0)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     def test_sum_math_previous_period_comparison(self):
         GroupUsageMetric.objects.create(
             id=self.test_metric_id,
@@ -524,7 +524,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             math_property="amount",
         )
 
-        with freeze_time(timezone.now() - timedelta(days=8)):
+        with time_machine.travel(timezone.now() - timedelta(days=8), tick=False):
             _create_event(
                 event="purchase",
                 team=self.team,
@@ -533,7 +533,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 properties={"amount": 200},
             )
 
-        with freeze_time(timezone.now()):
+        with time_machine.travel(timezone.now(), tick=False):
             _create_event(
                 event="purchase",
                 team=self.team,
@@ -552,7 +552,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["previous"], 200.0)
         self.assertEqual(results[0]["change_from_previous_pct"], 50.0)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     def test_count_and_sum_metrics_together(self):
         GroupUsageMetric.objects.create(
             id=self.test_metric_id,
@@ -600,7 +600,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results_by_name["Revenue"]["value"], 300.0)
         self.assertEqual(results_by_name["Purchases"]["value"], 2.0)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     def test_cache_invalidates_when_metric_created(self):
         _create_event(
             event="metric_event",
@@ -642,7 +642,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response2.results[0].name, "Test metric")
         self.assertEqual(response2.results[0].value, 1.0)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     def test_cache_invalidates_when_metric_deleted(self):
         _create_event(
             event="metric_event",
@@ -684,7 +684,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(response2.is_cached)
         self.assertEqual(len(response2.results), 0)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     def test_usage_metrics_fetched_once_per_runner(self):
         GroupUsageMetric.objects.create(
             id=self.test_metric_id,
@@ -708,7 +708,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(filter_spy.call_count, 1)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     def test_datetime_now_shared_between_query_build_and_post_process(self):
         GroupUsageMetric.objects.create(
             id=self.test_metric_id,
@@ -720,18 +720,27 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             display=GroupUsageMetric.Display.NUMBER,
             filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
         )
+        # Inside the 7-day window measured from 12:11, but on the day that drops out of the
+        # window if `now` is read a second time later in the same run.
         _create_event(
             event="metric_event",
             team=self.team,
             person_id=str(self.person.uuid),
             distinct_id=self.person_distinct_id,
+            timestamp=datetime(2025, 10, 2, 13, 0, 0, tzinfo=ZoneInfo("UTC")),
         )
         flush_persons_and_events()
 
         fake_now = datetime(2025, 10, 9, 12, 11, 0, tzinfo=ZoneInfo("UTC"))
         call_log: list[datetime] = []
 
-        class TimeDriftingDatetime(datetime):
+        class DriftingDatetimeMeta(type):
+            # The runner asks isinstance(row_value, datetime) to normalize ClickHouse rows.
+            # This stand-in replaces that name, so it has to answer for real datetimes too.
+            def __instancecheck__(cls, obj: object) -> bool:
+                return isinstance(obj, datetime)
+
+        class TimeDriftingDatetime(datetime, metaclass=DriftingDatetimeMeta):
             @classmethod
             def now(cls, tz=None):
                 # Each call advances by 12 hours to simulate worst-case drift across the day boundary
@@ -749,12 +758,11 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
             query_result = runner.calculate().model_dump()
 
-        self.assertEqual(len(call_log), 1)
         results = query_result["results"]
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["value"], 1.0)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     def test_sparkline_returns_timeseries(self):
         GroupUsageMetric.objects.create(
             id=self.test_metric_id,
@@ -766,14 +774,14 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             display=GroupUsageMetric.Display.SPARKLINE,
             filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
         )
-        with freeze_time(timezone.now() - timedelta(days=2)):
+        with time_machine.travel(timezone.now() - timedelta(days=2), tick=False):
             _create_event(
                 event="metric_event",
                 team=self.team,
                 person_id=str(self.person.uuid),
                 distinct_id=self.person_distinct_id,
             )
-        with freeze_time(timezone.now()):
+        with time_machine.travel(timezone.now(), tick=False):
             for _ in range(3):
                 _create_event(
                     event="metric_event",
@@ -795,7 +803,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(result["timeseries"]), len(result["timeseries_labels"]))
         self.assertEqual(sum(result["timeseries"]), 4.0)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     def test_number_metric_no_timeseries(self):
         GroupUsageMetric.objects.create(
             id=self.test_metric_id,
@@ -822,7 +830,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNone(results[0]["timeseries"])
         self.assertIsNone(results[0]["timeseries_labels"])
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     def test_sparkline_gap_filling(self):
         GroupUsageMetric.objects.create(
             id=self.test_metric_id,
@@ -834,14 +842,14 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             display=GroupUsageMetric.Display.SPARKLINE,
             filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
         )
-        with freeze_time(timezone.now() - timedelta(days=5)):
+        with time_machine.travel(timezone.now() - timedelta(days=5), tick=False):
             _create_event(
                 event="metric_event",
                 team=self.team,
                 person_id=str(self.person.uuid),
                 distinct_id=self.person_distinct_id,
             )
-        with freeze_time(timezone.now() - timedelta(days=1)):
+        with time_machine.travel(timezone.now() - timedelta(days=1), tick=False):
             _create_event(
                 event="metric_event",
                 team=self.team,
@@ -860,7 +868,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         zero_count = sum(1 for v in timeseries if v == 0.0)
         self.assertEqual(zero_count, len(timeseries) - 2)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     def test_sparkline_sum_aggregation(self):
         GroupUsageMetric.objects.create(
             id=self.test_metric_id,
@@ -899,7 +907,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(result["timeseries"])
         self.assertEqual(sum(result["timeseries"]), 350.5)
 
-    @freeze_time("2025-10-09T12:11:00")
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     def test_mixed_display_types(self):
         GroupUsageMetric.objects.create(
             id=self.test_metric_id,
@@ -1018,7 +1026,7 @@ class TestUsageMetricsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest)
             math=GroupUsageMetric.Math.COUNT,
         )
 
-        with freeze_time("2025-10-09T12:11:00"):
+        with time_machine.travel("2025-10-09T12:11:00", tick=False):
             results = self._calculate(group_key=self.group_key)["results"]
 
         assert len(results) == 1
@@ -1047,7 +1055,7 @@ class TestUsageMetricsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest)
             math_property="amount",
         )
 
-        with freeze_time("2025-10-09T12:11:00"):
+        with time_machine.travel("2025-10-09T12:11:00", tick=False):
             results = self._calculate(group_key=self.group_key)["results"]
 
         assert len(results) == 1
@@ -1073,7 +1081,7 @@ class TestUsageMetricsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest)
             },
         )
 
-        with freeze_time("2025-10-09T12:11:00"):
+        with time_machine.travel("2025-10-09T12:11:00", tick=False):
             results = self._calculate(group_key="nobody")["results"]
 
         assert len(results) == 1
@@ -1109,7 +1117,7 @@ class TestUsageMetricsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest)
                 "key_field": "customer_id",
             },
         )
-        with freeze_time("2025-10-09T12:11:00"):
+        with time_machine.travel("2025-10-09T12:11:00", tick=False):
             for _ in range(2):
                 _create_event(
                     event="metric_event",
@@ -1145,7 +1153,7 @@ class TestUsageMetricsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest)
             },
         )
 
-        with freeze_time("2025-10-09T12:11:00"):
+        with time_machine.travel("2025-10-09T12:11:00", tick=False):
             results = self._calculate(person_id=str(person.uuid))["results"]
 
         assert results == []

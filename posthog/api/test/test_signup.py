@@ -22,6 +22,7 @@ from rest_framework import status
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
+from posthog.helpers.oauth_pending_connection import PENDING_OAUTH_CONNECTION_COOKIE, PendingOAuthConnection
 from posthog.models import Organization, Team, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.instance_setting import override_instance_config
@@ -1537,6 +1538,29 @@ class TestSignupAPI(APIBaseTest):
         )
         mock_email_verifier.assert_called_once_with(user)
 
+    @patch("posthoganalytics.capture")
+    def test_api_sign_up_reports_the_pending_oauth_connection(self, mock_capture):
+        self.client.cookies[PENDING_OAUTH_CONNECTION_COOKIE] = PendingOAuthConnection(
+            client_name="Claude", client_id="https://claude.example.com/.well-known/oauth-client"
+        ).to_cookie_value()
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Jane",
+                "email": "oauth-signup@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "role_at_organization": "product",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
+        properties = signup_calls[0].kwargs["properties"]
+        self.assertEqual(properties["signup_oauth_client_name"], "Claude")
+        self.assertEqual(properties["signup_oauth_client_id"], "https://claude.example.com/.well-known/oauth-client")
+        self.assertEqual(properties["$set"]["signup_oauth_client_name"], "Claude")
+
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
     def test_signup_rate_limit_by_ip(self, mock_get_ip):
@@ -2247,6 +2271,24 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
     # Signup (using invite)
+
+    def test_api_invite_sign_up_preserves_next_param(self):
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+next@posthog.com", organization=self.organization
+        )
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {
+                "first_name": "Alice",
+                "password": VALID_TEST_PASSWORD,
+                "role_at_organization": "Engineering",
+                "next_url": "/oauth/authorize?client_id=test123",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["redirect_url"], "/oauth/authorize?client_id=test123")
 
     @patch("posthoganalytics.capture")
     def test_api_invite_sign_up(self, mock_capture):

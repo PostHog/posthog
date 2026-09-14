@@ -12,6 +12,7 @@ import type {
     AccountApi,
     AccountNotebookApi,
     AccountNotesListParams,
+    AccountPresenceViewerApi,
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
     AccountRelationshipDefinitionsListParams,
@@ -34,6 +35,7 @@ import type {
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
+    CalendarSyncBackfillApi,
     CalendarSyncStatusApi,
     CalendarSyncTriggerApi,
     CalendarSyncTriggerResponseApi,
@@ -48,6 +50,7 @@ import type {
     CustomPropertyValueApi,
     CustomPropertyValueSuggestionsResponseApi,
     CustomPropertyValueWriteApi,
+    CustomerAnalyticsExternalAccountRetrieveParams,
     CustomerAnalyticsExternalAccountsRetrieveParams,
     CustomerJourneyApi,
     CustomerJourneysListParams,
@@ -63,6 +66,7 @@ import type {
     EventStreamApi,
     EventStreamMemberWriteApi,
     EventStreamTestMessageApi,
+    ExternalAccountApi,
     ExternalAccountListPageApi,
     FeatureRequestAddAccountApi,
     FeatureRequestApi,
@@ -130,6 +134,38 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getCustomerAnalyticsExternalAccountRetrieveUrl = (
+    params: CustomerAnalyticsExternalAccountRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/customer_analytics/external/account?${stringifiedParams}`
+        : `/api/customer_analytics/external/account`
+}
+
+/**
+ * Fetch one account by external ID with its properties, tags, active relationship assignments and custom property values. Accepts the team secret API token or a project secret API key with the `account:read` scope.
+ * @summary Get an external customer analytics account
+ */
+export const customerAnalyticsExternalAccountRetrieve = async (
+    params: CustomerAnalyticsExternalAccountRetrieveParams,
+    options?: RequestInit
+): Promise<ExternalAccountApi> => {
+    return apiMutator<ExternalAccountApi>(getCustomerAnalyticsExternalAccountRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getCustomerAnalyticsExternalAccountsRetrieveUrl = (
     params?: CustomerAnalyticsExternalAccountsRetrieveParams
@@ -797,6 +833,21 @@ export const accountsMeetingsList = async (
     })
 }
 
+export const getAccountsPresenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${id}/presence/`
+}
+
+export const accountsPresenceCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AccountPresenceViewerApi[]> => {
+    return apiMutator<AccountPresenceViewerApi[]>(getAccountsPresenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getAccountsSummariesListUrl = (projectId: string, id: string, params?: AccountsSummariesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -988,6 +1039,27 @@ export const calendarSyncList = async (projectId: string, options?: RequestInit)
     return apiMutator<CalendarSyncStatusApi[]>(getCalendarSyncListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCalendarSyncBackfillCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/calendar_sync/backfill/`
+}
+
+/**
+ * Start an admin-only Gmail and Google Calendar backfill for an inclusive UTC date range.
+ * @summary Backfill a connected Google account
+ */
+export const calendarSyncBackfillCreate = async (
+    projectId: string,
+    calendarSyncBackfillApi: CalendarSyncBackfillApi,
+    options?: RequestInit
+): Promise<CalendarSyncTriggerResponseApi> => {
+    return apiMutator<CalendarSyncTriggerResponseApi>(getCalendarSyncBackfillCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(calendarSyncBackfillApi),
     })
 }
 

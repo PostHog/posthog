@@ -31,6 +31,7 @@ import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayou
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
 
+import { ReplayComments } from 'products/replay/frontend/comments/ReplayComments'
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
@@ -204,6 +205,8 @@ function MainPanel(): JSX.Element {
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />
+            ) : tab === ReplayTabs.Comments ? (
+                <ReplayComments />
             ) : tab === ReplayTabs.Templates ? (
                 <SessionRecordingTemplates />
             ) : null}
@@ -224,6 +227,12 @@ const ReplayPageTabs: ReplayTab[] = [
         key: ReplayTabs.Playlists,
         tooltip: 'View & create collections',
         'data-attr': 'session-recordings-collections-tab',
+    },
+    {
+        label: 'Comments',
+        key: ReplayTabs.Comments,
+        tooltip: 'Comments you added to recordings',
+        'data-attr': 'session-recordings-comments-tab',
     },
     {
         label: 'Filter templates',

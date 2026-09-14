@@ -6,7 +6,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
@@ -1002,7 +1002,7 @@ async def test_stamp_activity_advances_dispatched_configs_to_their_slot_anchor(a
         ateam, "signals-scout-foo", enabled=True, run_interval_minutes=1440, last_run_at=old
     )
 
-    with freeze_time(_DISPATCHED_AT):
+    with time_machine.travel(_DISPATCHED_AT, tick=False):
         env = ActivityEnvironment()
         await env.run(
             stamp_dispatched_signals_scout_runs_activity,
@@ -1037,7 +1037,7 @@ async def test_stamp_activity_keeps_the_wall_clock_for_cron_and_probed_configs(a
         ateam, "signals-scout-foo", run_interval_minutes=1440, **config_kwargs
     )
 
-    with freeze_time(_DISPATCHED_AT):
+    with time_machine.travel(_DISPATCHED_AT, tick=False):
         env = ActivityEnvironment()
         await env.run(
             stamp_dispatched_signals_scout_runs_activity,
@@ -1062,7 +1062,7 @@ async def test_stamp_activity_falls_back_to_the_wall_clock_when_slot_alignment_i
     )
     payload = {**_allowlist_payload(), "slot_aligned_dispatch": False}
 
-    with freeze_time(_DISPATCHED_AT), patch(_PAYLOAD_PATH, side_effect=lambda *a, **k: payload):
+    with time_machine.travel(_DISPATCHED_AT, tick=False), patch(_PAYLOAD_PATH, side_effect=lambda *a, **k: payload):
         env = ActivityEnvironment()
         await env.run(
             stamp_dispatched_signals_scout_runs_activity,

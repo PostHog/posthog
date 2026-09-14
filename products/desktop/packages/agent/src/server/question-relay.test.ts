@@ -18,7 +18,11 @@ import {
 } from "../test/fixtures/api";
 import { createPostHogHandlers } from "../test/mocks/msw-handlers";
 import type { Task, TaskRun } from "../types";
-import { AgentServer, UPSTREAM_PROVIDER_FAILURE_MESSAGE } from "./agent-server";
+import {
+  AgentServer,
+  type PreparedInitialTaskMessage,
+  UPSTREAM_PROVIDER_FAILURE_MESSAGE,
+} from "./agent-server";
 
 interface TestableAgentServer {
   posthogAPI: PostHogAPIClient;
@@ -41,10 +45,26 @@ interface TestableAgentServer {
     messageId?: string,
     traceId?: string | null,
   ) => Promise<void>;
-  sendInitialTaskMessage: (
+  prepareInitialTaskMessage: (
     payload: Record<string, unknown>,
     prefetchedRun?: TaskRun | null,
+  ) => Promise<PreparedInitialTaskMessage>;
+  sendInitialTaskMessage: (
+    payload: Record<string, unknown>,
+    prepared: PreparedInitialTaskMessage,
   ) => Promise<void>;
+}
+
+async function startInitialTaskMessage(
+  server: TestableAgentServer,
+  payload: Record<string, unknown>,
+  prefetchedRun?: TaskRun | null,
+): Promise<void> {
+  const prepared = await server.prepareInitialTaskMessage(
+    payload,
+    prefetchedRun,
+  );
+  await server.sendInitialTaskMessage(payload, prepared);
 }
 
 const TEST_PAYLOAD = {
@@ -689,7 +709,7 @@ describe("Question relay", () => {
         },
       };
 
-      await server.sendInitialTaskMessage(TEST_PAYLOAD);
+      await startInitialTaskMessage(server, TEST_PAYLOAD);
 
       expect(promptSpy).toHaveBeenCalledWith({
         sessionId: "acp-session",
@@ -734,7 +754,7 @@ describe("Question relay", () => {
         },
       };
 
-      await server.sendInitialTaskMessage(TEST_PAYLOAD);
+      await startInitialTaskMessage(server, TEST_PAYLOAD);
 
       expect(promptSpy).toHaveBeenCalledWith({
         sessionId: "acp-session",
@@ -769,7 +789,7 @@ describe("Question relay", () => {
         },
       };
 
-      await server.sendInitialTaskMessage(TEST_PAYLOAD);
+      await startInitialTaskMessage(server, TEST_PAYLOAD);
 
       expect(promptSpy).toHaveBeenCalledWith({
         sessionId: "acp-session",
@@ -804,7 +824,7 @@ describe("Question relay", () => {
         },
       };
 
-      await server.sendInitialTaskMessage(TEST_PAYLOAD);
+      await startInitialTaskMessage(server, TEST_PAYLOAD);
 
       expect(promptSpy).not.toHaveBeenCalled();
     });
@@ -834,7 +854,8 @@ describe("Question relay", () => {
         },
       };
 
-      await server.sendInitialTaskMessage(
+      await startInitialTaskMessage(
+        server,
         TEST_PAYLOAD,
         createTaskRun({
           id: "test-run-id",
@@ -869,7 +890,8 @@ describe("Question relay", () => {
           },
         };
 
-        const sendPromise = server.sendInitialTaskMessage(
+        const sendPromise = startInitialTaskMessage(
+          server,
           TEST_PAYLOAD,
           createTaskRun({
             id: "test-run-id",
@@ -924,7 +946,7 @@ describe("Question relay", () => {
 
       vi.useFakeTimers();
       try {
-        const sendPromise = server.sendInitialTaskMessage(TEST_PAYLOAD);
+        const sendPromise = startInitialTaskMessage(server, TEST_PAYLOAD);
         await vi.advanceTimersByTimeAsync(5_000);
         await sendPromise;
       } finally {
@@ -976,7 +998,7 @@ describe("Question relay", () => {
 
       vi.useFakeTimers();
       try {
-        const sendPromise = server.sendInitialTaskMessage(TEST_PAYLOAD);
+        const sendPromise = startInitialTaskMessage(server, TEST_PAYLOAD);
         await vi.advanceTimersByTimeAsync(5_000);
         await sendPromise;
       } finally {
@@ -1025,7 +1047,7 @@ describe("Question relay", () => {
 
       vi.useFakeTimers();
       try {
-        const sendPromise = server.sendInitialTaskMessage(TEST_PAYLOAD);
+        const sendPromise = startInitialTaskMessage(server, TEST_PAYLOAD);
         await vi.advanceTimersByTimeAsync(10_000);
         await sendPromise;
       } finally {

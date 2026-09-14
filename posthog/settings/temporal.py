@@ -265,6 +265,9 @@ TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
+# Keep the two noop fleets separate in local development as well as deployed environments.
+ALERTS_PRODUCT_EVALUATION_TASK_QUEUE = "alerts-product-evaluation-task-queue"
+ALERTS_PRODUCT_DELIVERY_TASK_QUEUE = "alerts-product-delivery-task-queue"
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
 # The XGBoost-based session surfacing scoring sweep runs on the session-replay
@@ -276,6 +279,12 @@ SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
+# Units one evaluation backfill dispatches per tick, one tick per BACKFILL_TICK_INTERVAL.
+# evaluation_backfill.py clamps this to 1..1000 where it reads the setting, because the candidate
+# page crosses a Temporal activity boundary as one payload, capped at about 2 MiB.
+# A tick costs one candidate query whatever it dispatches, so a larger batch means fewer ticks and
+# less ClickHouse work for the same backfill.
+LLMA_EVAL_BACKFILL_BATCH_SIZE: int = get_from_env("LLMA_EVAL_BACKFILL_BATCH_SIZE", 500, type_cast=int)
 # Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
 # "mcp-analytics-task-queue" to route MCP analytics clustering to a dedicated, separately-scalable
 # worker once one is deployed.

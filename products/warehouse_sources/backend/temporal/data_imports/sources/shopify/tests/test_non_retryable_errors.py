@@ -49,6 +49,22 @@ def test_transient_graphql_errors_stay_retryable(error_message):
 @pytest.mark.parametrize(
     "status_code,reason",
     [
+        (404, "Not Found"),
+    ],
+)
+def test_admin_api_store_not_found_is_non_retryable(status_code, reason):
+    # No live store answers at the configured address, so every retry re-reads the same 404 and
+    # the raw message hands the user back their own store URL instead of the fix.
+    error_message = _http_error_message(status_code, reason)
+    patterns = ShopifySource().get_non_retryable_errors()
+    assert any(pattern in error_message for pattern in patterns), (
+        f"store-not-found error '{error_message}' should match a non-retryable pattern"
+    )
+
+
+@pytest.mark.parametrize(
+    "status_code,reason",
+    [
         (429, "Too Many Requests"),
         (500, "Internal Server Error"),
         (502, "Bad Gateway"),

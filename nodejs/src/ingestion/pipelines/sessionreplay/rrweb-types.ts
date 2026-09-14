@@ -118,7 +118,12 @@ export function isMouseActivity(inputEvent: SnapshotEvent): boolean {
 }
 
 export function hrefFrom(inputEvent: SnapshotEvent): string | undefined {
-    const event = inputEvent as { type?: number; data?: { href?: string; payload?: { href?: string } } } | undefined
+    const event = inputEvent as
+        | { type?: number; data?: { tag?: string; href?: string; payload?: { href?: string } } }
+        | undefined
+    if (event?.type === RRWebEventType.Custom && event.data?.tag === '$json_ld') {
+        return undefined
+    }
     const metaHref = event?.data?.href?.trim?.()
     const customHref = event?.data?.payload?.href?.trim?.()
     return metaHref || customHref || undefined

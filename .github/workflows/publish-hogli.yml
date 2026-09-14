@@ -35,9 +35,9 @@ jobs:
               with:
                   python-version: '3.13.13'
 
-            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+            - uses: ./.github/actions/setup-uv
               with:
-                  version: '0.11.28'
+                  enable-cache: false
 
             - name: Verify tag matches package version
               shell: bash
