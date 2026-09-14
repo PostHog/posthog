@@ -62,6 +62,7 @@ describe('RasterizationError', () => {
                 'Error',
             ],
             ['a wording only the error name catches', 'Page closed!', 'TargetCloseError'],
+            ['a target that died during the player navigation', 'Navigating frame was detached', 'Error'],
         ])('classifies %s as a retryable TARGET_CLOSED', (_label, message, name) => {
             const raw = new Error(message)
             raw.name = name
