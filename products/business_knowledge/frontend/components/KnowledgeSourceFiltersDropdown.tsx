@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconFilter } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonDropdown, LemonLabel } from '@posthog/lemon-ui'
 
+import { FilterCheckboxList } from 'lib/components/FilterCheckboxList'
+
 import { businessKnowledgeLogic } from '../scenes/businessKnowledgeLogic'
 import { SOURCE_TYPE_FILTER_OPTIONS } from '../scenes/filterKnowledgeSources'
 
@@ -57,38 +59,6 @@ function KnowledgeSourceFiltersOverlay(): JSX.Element {
                     Support tickets
                 </LemonButton>
             </div>
-        </div>
-    )
-}
-
-function FilterCheckboxList<T extends string>({
-    options,
-    value,
-    onChange,
-}: {
-    options: readonly { key: T; label: string }[]
-    value: T[]
-    onChange: (value: T[]) => void
-}): JSX.Element {
-    return (
-        <div className="flex flex-col gap-px">
-            {options.map((option) => {
-                const checked = value.includes(option.key)
-                return (
-                    <LemonButton
-                        key={option.key}
-                        type="tertiary"
-                        size="small"
-                        fullWidth
-                        icon={<LemonCheckbox checked={checked} className="pointer-events-none" decorative />}
-                        onClick={() =>
-                            onChange(checked ? value.filter((item) => item !== option.key) : [...value, option.key])
-                        }
-                    >
-                        {option.label}
-                    </LemonButton>
-                )
-            })}
         </div>
     )
 }

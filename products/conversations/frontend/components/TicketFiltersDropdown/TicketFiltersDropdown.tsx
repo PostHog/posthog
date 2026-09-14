@@ -4,13 +4,14 @@ import { IconFilter } from '@posthog/icons'
 import {
     LemonBadge,
     LemonButton,
-    LemonCheckbox,
     LemonDropdown,
     LemonInputSelect,
     LemonLabel,
     LemonSegmentedButton,
     LemonSelect,
 } from '@posthog/lemon-ui'
+
+import { FilterCheckboxList } from 'lib/components/FilterCheckboxList'
 
 import { tagsModel } from '~/models/tagsModel'
 
@@ -167,38 +168,6 @@ function TicketFiltersDropdownOverlay(): JSX.Element {
                 <LemonLabel>Assignee</LemonLabel>
                 <AssigneeMultiSelect value={assigneeFilterEntries} onChange={setAssigneeFilter} />
             </div>
-        </div>
-    )
-}
-
-function FilterCheckboxList<T extends string>({
-    options,
-    value,
-    onChange,
-}: {
-    options: readonly { key: T; label: string }[]
-    value: T[]
-    onChange: (value: T[]) => void
-}): JSX.Element {
-    return (
-        <div className="flex flex-col gap-px">
-            {options.map((option) => {
-                const checked = value.includes(option.key)
-                return (
-                    <LemonButton
-                        key={option.key}
-                        type="tertiary"
-                        size="small"
-                        fullWidth
-                        icon={<LemonCheckbox checked={checked} className="pointer-events-none" />}
-                        onClick={() =>
-                            onChange(checked ? value.filter((item) => item !== option.key) : [...value, option.key])
-                        }
-                    >
-                        {option.label}
-                    </LemonButton>
-                )
-            })}
         </div>
     )
 }
