@@ -56,15 +56,16 @@ def _active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[E
 
 
 def _failed_sync_message(table_name: str, source_type: str, last_synced_at: datetime | None, now: datetime) -> str:
-    message = f"Last sync of `{table_name}` (from {source_type}) failed."
-    if last_synced_at:
-        message += f" Results reflect data from {humanize.naturaltime(now - _ensure_utc(last_synced_at))}."
-    else:
-        message += " No successful sync has completed yet — the table may be empty or incomplete."
-    return message + " Check the data warehouse source for details."
+    sync_detail = (
+        f" Results reflect data from {humanize.naturaltime(now - _ensure_utc(last_synced_at))}."
+        if last_synced_at
+        else " No successful sync has completed yet — the table may be empty or incomplete."
+    )
+    return f"Last sync of `{table_name}` (from {source_type}) failed.{sync_detail} Check the data warehouse source for details."
 
 
-def _paused_sync_message(table_name: str, schema: ExternalDataSchema, source_type: str, now: datetime) -> str:
+def _paused_sync_message(table_name: str, schema: ExternalDataSchema, now: datetime) -> str:
+    source_type = schema.source.source_type if schema.source_id else "unknown"
     if schema.last_synced_at is None:
         return (
             f"Sync of `{table_name}` (from {source_type}) is paused and hasn't completed a sync yet "
@@ -137,7 +138,7 @@ def _build_warning_for_schema(
     if schema_status == ExternalDataSchemaStatus.PAUSED or not schema.should_sync:
         return build(
             status=ExternalDataSchemaStatus.PAUSED,
-            message=_paused_sync_message(table_name, schema, source_type, now),
+            message=_paused_sync_message(table_name, schema, now),
         )
 
     # Enabled and healthy: warn only once data is actually stale (covers RUNNING and idle COMPLETED).
