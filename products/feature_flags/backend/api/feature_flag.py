@@ -394,17 +394,18 @@ def assert_feature_flag_write_scope(
         )
 
 
-def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
+def _is_realtime_cohort_flag_targeting_enabled(request, *, team: Team) -> bool:
     """Check whether the realtime cohort flag targeting feature is enabled for this request."""
     try:
         user = getattr(request, "user", None)
         if user is None or user.is_anonymous:
             return False
+        organization_id = str(team.organization_id)
         return feature_enabled_or_false(
             REALTIME_COHORT_FLAG_TARGETING_FLAG,
             user.distinct_id,
-            groups={"organization": str(user.organization.id)},
-            group_properties={"organization": {"id": str(user.organization.id)}},
+            groups={"organization": organization_id, "project": str(team.uuid)},
+            group_properties={"organization": {"id": organization_id}, "project": {"id": team.id}},
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
@@ -1582,7 +1583,9 @@ class FeatureFlagSerializer(
         This avoids a potentially expensive feature_enabled() call for flags that don't
         reference any cohort properties.
         """
-        return _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
+        get_team = self.context.get("get_team")
+        team = get_team() if get_team else Team.objects.get(pk=self.context["team_id"])
+        return _is_realtime_cohort_flag_targeting_enabled(self.context["request"], team=team)
 
     def validate_filters(self, filters):
         # Metrics wrapper: one increment per rejected write. `rejected` means a switch-gated
