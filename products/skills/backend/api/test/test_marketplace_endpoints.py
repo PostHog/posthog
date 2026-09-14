@@ -168,7 +168,7 @@ class TestSkillZipExport(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body = response.json()
         assert body["problems"]
-        assert "Description is 1025 characters; the spec maximum is 1024" in body["detail"]
+        assert "The description is 1025 characters. Shorten it to 1024 characters or fewer" in body["detail"]
 
 
 SANDBOX_FLAG = "posthog.permissions.posthoganalytics.feature_enabled"
@@ -639,23 +639,38 @@ class TestSkillFilePathValidation:
 
 
 class TestMarketplaceResilience(APIBaseTest):
-    def test_skill_with_uncloneable_paths_is_skipped_not_fatal(self):
-        # A skill with two files colliding only by case would synthesize a tree that aborts
-        # `git clone` on a case-insensitive filesystem — it must be skipped, not break the whole
-        # team's marketplace.
+    @parameterized.expand(
+        [
+            ("case_collision", "bad", "d", ["a.md", "A.md"]),
+            ("not_canonical", "bad", "d", ["refs\\guide.md"]),
+            ("malformed_name", "Bad/Name", "d", []),
+            ("overlong_description", "bad", "x" * 1025, []),
+        ]
+    )
+    def test_unpackageable_skill_is_skipped_not_fatal(self, _label: str, name: str, description: str, paths: list[str]):
+        # The marketplace applies the same rules as the skills bundle. A skill that breaks one of
+        # them is skipped on its own — it must not break the whole team's clone. Rows here bypass
+        # the serializer validation, so they look like ones that predate it.
         good = LLMSkill.objects.create(
             team=self.team, name="good", description="d", body="b", version=1, is_latest=True, created_by=self.user
         )
         LLMSkillFile.objects.create(skill=good, path="scripts/run.py", content="x", content_type="text/x-python")
         bad = LLMSkill.objects.create(
-            team=self.team, name="bad", description="d", body="b", version=1, is_latest=True, created_by=self.user
+            team=self.team,
+            name=name,
+            description=description,
+            body="b",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
         )
-        LLMSkillFile.objects.create(skill=bad, path="a.md", content="x", content_type="text/markdown")
-        LLMSkillFile.objects.create(skill=bad, path="A.md", content="y", content_type="text/markdown")
+        for path in paths:
+            LLMSkillFile.objects.create(skill=bad, path=path, content="x", content_type="text/markdown")
 
         tree = build_team_marketplace_tree(self.team)
-        assert "plugins/posthog-skill-store/skills/good/SKILL.md" in tree
-        assert "plugins/posthog-skill-store/skills/bad/SKILL.md" not in tree
+        assert [key for key in tree if key.endswith("/SKILL.md")] == [
+            "plugins/posthog-skill-store/skills/good/SKILL.md"
+        ]
 
 
 class TestMarketplaceVersion(APIBaseTest):
