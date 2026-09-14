@@ -177,6 +177,12 @@ class _ValidatedGeneratedDocumentInput:
     content: str
 
 
+@frozen
+class _LearnedSourceCreateStatus:
+    status: SourceStatus
+    error_message: str
+
+
 class EmptyContentError(Exception):
     """Remote returned nothing usable after parsing."""
 
@@ -629,14 +635,14 @@ def can_publish_learned_source(*, team_id: int, source_id: UUID) -> bool:
         return _count_learned_sources(canonical_team_id) < MAX_LEARNED_SOURCES_PER_TEAM
 
 
-def _learned_source_status_for_create(team_id: int) -> tuple[str, str]:
+def _learned_source_status_for_create(team_id: int) -> _LearnedSourceCreateStatus:
     if KnowledgeSource.objects.filter(
         team_id=team_id,
         is_generated=True,
         error_message=GENERATED_SOURCE_DISABLED_MESSAGE,
     ).exists():
-        return SourceStatus.ERROR, GENERATED_SOURCE_DISABLED_MESSAGE
-    return SourceStatus.READY, ""
+        return _LearnedSourceCreateStatus(status=SourceStatus.ERROR, error_message=GENERATED_SOURCE_DISABLED_MESSAGE)
+    return _LearnedSourceCreateStatus(status=SourceStatus.READY, error_message="")
 
 
 def set_generated_knowledge_source_ready(team_id: int, *, ready: bool) -> bool:
@@ -693,7 +699,7 @@ def _create_generated_knowledge_document(
     if source is None:
         if _count_learned_sources(team_id) >= MAX_LEARNED_SOURCES_PER_TEAM:
             raise LearnedSourceCapReached(f"Team already has {MAX_LEARNED_SOURCES_PER_TEAM} learned sources.")
-        status, error_message = _learned_source_status_for_create(team_id)
+        create_status = _learned_source_status_for_create(team_id)
         source = KnowledgeSource.objects.create(
             id=source_id,
             team_id=team_id,
@@ -701,8 +707,8 @@ def _create_generated_knowledge_document(
             name=validated_input.title,
             source_type=SourceType.TEXT,
             is_generated=True,
-            status=status,
-            error_message=error_message,
+            status=create_status.status,
+            error_message=create_status.error_message,
         )
     elif not source.is_generated or source.source_type != SourceType.TEXT:
         raise InvalidGeneratedKnowledgeDocument("generated source identity is already in use")
