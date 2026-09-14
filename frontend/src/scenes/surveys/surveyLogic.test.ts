@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import type { ValidationErrorType } from 'kea-forms'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
@@ -304,7 +305,10 @@ describe('translation validation', () => {
             ],
         })
 
-        expect(logic.values.surveyValidationErrors.questions?.[0]?.link).toBe(
+        const linkFormError = (): ValidationErrorType =>
+            (logic.values.surveyValidationErrors.questions?.[0] as { link?: ValidationErrorType } | undefined)?.link
+
+        expect(linkFormError()).toBe(
             'Use an https:// link, or an app URL scheme this project allows for mobile deep links.'
         )
 
@@ -316,7 +320,7 @@ describe('translation validation', () => {
         }).toMatchValues({ translationValidationErrors: [] })
 
         // The save gate reads the same setting, so an untouched form must clear its link error too.
-        expect(logic.values.surveyValidationErrors.questions?.[0]?.link).toBeFalsy()
+        expect(linkFormError()).toBeFalsy()
     })
 
     it('does not validate survey root description translations', async () => {
