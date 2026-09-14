@@ -1668,6 +1668,36 @@ describe('exec tool', () => {
 
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
+
+        it('caps the hidden matches a broad query returns, and says how many there are', async () => {
+            const manyGated = Array.from({ length: 30 }, (_, index) => ({
+                name: `cohorts-create-${index}`,
+                title: 'Create cohort',
+                description: 'Create a cohort',
+            }))
+            const exec = createExec([makeMockTool({ name: 'cohorts-list', title: 'List all cohorts' })], undefined, {
+                readOnlyGatedTools: manyGated,
+            })
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search cohort' })) as string)
+
+            expect(result.read_only_matches).toHaveLength(25)
+            expect(result.read_only_match_count).toBe(30)
+            expect(result.hint).toContain('Showing 25 of 30 hidden matches')
+        })
+
+        it('keeps the truncation marker on the visible page when a hidden tool also matched', async () => {
+            const manyVisible = Array.from({ length: 30 }, (_, index) =>
+                makeMockTool({ name: `cohorts-list-${index}`, title: 'List all cohorts' })
+            )
+            const exec = createExec(manyVisible, undefined, { readOnlyGatedTools })
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search cohort' })) as string)
+
+            expect(result.matches).toHaveLength(25)
+            expect(result.truncated).toBe(true)
+            expect(result.hint).toContain('top 25 of 30 matches')
+        })
     })
 
     describe('deprecated tool redirects', () => {

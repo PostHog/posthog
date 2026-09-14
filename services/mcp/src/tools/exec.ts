@@ -54,6 +54,9 @@ async function resolveConnectedSummary(
  *  "create"; cap the returned names so a vague query can't dump the catalog. */
 const MAX_RANKED_SEARCH_RESULTS = 25
 
+const rankedTruncationHint = (total: number): string =>
+    `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${total} matches, ranked by relevance. Use a more specific query to narrow the results.`
+
 const DATA_DOMAIN_TOOL_PREFIXES = ['billing-', 'web-analytics-', 'usage-metrics-', 'query-', 'marketing-']
 
 function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], matches: string[]): string | undefined {
@@ -1477,6 +1480,13 @@ export function createExecTool(
                     if (gatedMatches.length > 0 || readOnlyMatches.length > 0) {
                         const payload: Record<string, unknown> = { matches }
                         const hints: string[] = []
+                        // The page and its marker are reported here too, because a hidden
+                        // match is common on a read-only connection and this branch would
+                        // otherwise return a capped list that reads as the whole result.
+                        if (truncatedFrom > 0) {
+                            payload.truncated = true
+                            hints.push(rankedTruncationHint(truncatedFrom))
+                        }
                         if (gatedMatches.length > 0) {
                             const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
                             payload.scope_gated_matches = gatedMatches.map((t) => ({
@@ -1489,11 +1499,21 @@ export function createExecTool(
                             )
                         }
                         if (readOnlyMatches.length > 0) {
-                            payload.read_only_matches = readOnlyMatches
+                            // A common token matches most of the hidden write catalog, so this
+                            // list takes the same cap the visible page takes.
+                            const shownReadOnly = readOnlyMatches.slice(0, MAX_RANKED_SEARCH_RESULTS)
+                            const omittedReadOnly = readOnlyMatches.length - shownReadOnly.length
+                            payload.read_only_matches = shownReadOnly
+                            if (omittedReadOnly > 0) {
+                                payload.read_only_match_count = readOnlyMatches.length
+                            }
                             hints.push(
                                 `These tools also match but are hidden because this MCP connection is read-only. ` +
                                     `They exist and the capability was not removed. The user needs to reconnect the PostHog MCP ` +
-                                    `without read-only mode to use them.`
+                                    `without read-only mode to use them.` +
+                                    (omittedReadOnly > 0
+                                        ? ` Showing ${shownReadOnly.length} of ${readOnlyMatches.length} hidden matches, so narrow the query to see the rest.`
+                                        : '')
                             )
                         }
                         payload.hint = hints.join(' ')
@@ -1510,12 +1530,7 @@ export function createExecTool(
                         return JSON.stringify({
                             matches,
                             truncated: true,
-                            hint: [
-                                catalogHint,
-                                `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
-                            ]
-                                .filter(Boolean)
-                                .join(' '),
+                            hint: [catalogHint, rankedTruncationHint(truncatedFrom)].filter(Boolean).join(' '),
                         })
                     }
                     const catalogHint = catalogDiscoveryHint(allTools, matches)
