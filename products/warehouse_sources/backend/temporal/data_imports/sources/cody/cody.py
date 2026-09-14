@@ -1,4 +1,3 @@
-import io
 import re
 import csv
 import dataclasses
@@ -17,7 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cody.setti
     REPORTS_PATH,
     CodyEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    response_text_stream,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -161,10 +163,8 @@ def _rows_from_response(response: requests.Response, logger: FilteringBoundLogge
         return
 
     # Stream-parse the CSV instead of materializing `response.text`, so an arbitrarily large
-    # report can't exhaust worker memory. `.raw` bypasses requests' content decoding, so turn
-    # it back on for gzipped responses; newline="" lets the csv module handle quoted newlines.
-    response.raw.decode_content = True
-    yield from _parse_csv_rows(io.TextIOWrapper(response.raw, encoding="utf-8", newline=""), logger)
+    # report can't exhaust worker memory.
+    yield from _parse_csv_rows(response_text_stream(response), logger)
 
 
 def validate_credentials(access_token: str, instance_url: str) -> bool:

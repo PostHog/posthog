@@ -5,7 +5,7 @@ import json
 import time
 import hashlib
 import dataclasses
-from collections.abc import Buffer, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
@@ -14,7 +14,10 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    response_text_stream,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import (
@@ -28,8 +31,6 @@ REQUEST_TIMEOUT_SECONDS = 300
 MAX_RETRY_ATTEMPTS = 5
 # Yield JSONL rows in chunks so big files don't build one giant list.
 CHUNK_SIZE = 5000
-# Pull the report CSV off the wire in 64 KiB reads.
-REPORT_CHUNK_BYTES = 1 << 16
 # Gladly caps report CSVs (100k rows for most reports) and truncates silently,
 # so a window this full is likely missing rows.
 REPORT_ROW_WARNING_THRESHOLD = 90_000
@@ -67,36 +68,6 @@ class GladlyReportUnavailableError(Exception):
 
 def _header_is_an_error_line(fieldnames: Sequence[str]) -> bool:
     return len(fieldnames) == 1
-
-
-class _ResponseByteStream(io.RawIOBase):
-    """Read a streaming response body through ``iter_content`` as a binary file.
-
-    Wrapping ``response.raw`` directly crashes on an empty report body: urllib3
-    closes the connection the moment it reads EOF, and a ``TextIOWrapper`` over
-    the now-closed raw stream raises ``ValueError: I/O operation on closed file``.
-    ``iter_content`` yields nothing for an empty body and turns a dropped
-    connection into a retryable ``requests`` error mid-stream.
-    """
-
-    def __init__(self, response: requests.Response, chunk_size: int) -> None:
-        self._chunks = response.iter_content(chunk_size=chunk_size)
-        self._buffer = b""
-
-    def readable(self) -> bool:
-        return True
-
-    def readinto(self, target: Buffer) -> int:
-        while not self._buffer:
-            try:
-                self._buffer = next(self._chunks)
-            except StopIteration:
-                return 0
-        view = memoryview(target).cast("B")
-        take = min(len(view), len(self._buffer))
-        view[:take] = self._buffer[:take]
-        self._buffer = self._buffer[take:]
-        return take
 
 
 @dataclasses.dataclass
@@ -436,11 +407,7 @@ def _report_rows(
     def open_report(payload: dict[str, str], window_start: date, window_end: date) -> "csv.DictReader[str]":
         response = generate_report(payload)
 
-        # Wrap the byte stream rather than iterating lines: CSV values can contain
-        # newlines inside quoted fields, which line-splitting would tear apart.
-        text_stream = io.TextIOWrapper(
-            io.BufferedReader(_ResponseByteStream(response, REPORT_CHUNK_BYTES)), encoding="utf-8-sig", newline=""
-        )
+        text_stream = response_text_stream(response, encoding="utf-8-sig")
         reader = csv.DictReader(_report_csv_lines(text_stream))
         columns = {name: _normalize_report_column(name) for name in reader.fieldnames or []}
         present = sorted({column for column in columns.values() if column})

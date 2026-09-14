@@ -8,7 +8,6 @@ import pytest
 import time_machine
 from unittest import mock
 
-import urllib3
 import requests
 from parameterized import parameterized
 from tenacity import wait_none
@@ -25,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cody.cody 
     normalize_instance_url,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.raw_stream import ClosingRawStream
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CSV_BODY = "User Email,Chats,Completion Acceptance Rate (CAR%)\na@b.com,12,0.5\nc@d.com,3,0.25\n"
@@ -51,9 +51,12 @@ def _response(
     response.text = text
     response.headers = {"Content-Type": content_type}
     response.json.return_value = json_data
-    # The CSV path stream-parses `response.raw`; a real urllib3 response over the body keeps
-    # the `decode_content` + TextIOWrapper plumbing honest.
-    response.raw = urllib3.response.HTTPResponse(body=io.BytesIO(text.encode("utf-8")), preload_content=False)
+    # The CSV path streams the body through requests' own `iter_content`, over a raw stream
+    # that closes at EOF the way urllib3's does.
+    streaming = requests.Response()
+    streaming.raw = ClosingRawStream(text.encode("utf-8"))
+    response.raw = streaming.raw
+    response.iter_content = streaming.iter_content
     typed = cast(requests.Response, response)
     if status_code >= 400:
         response.raise_for_status.side_effect = requests.HTTPError(
@@ -144,6 +147,10 @@ class TestCodyTransport:
             ("application/json; charset=utf-8", None, {"buckets": [{"id": "b1"}]}, [{"id": "b1"}]),
             ("application/json", None, {"id": "b1"}, [{"id": "b1"}]),
             ("text/csv", "id,amount\nb1,10\n", None, [{"id": "b1", "amount": "10"}]),
+            # A report with no rows is normal, and the reader still has to look past the
+            # end of the body to find that out.
+            ("text/csv", "id,amount", None, []),
+            ("text/csv", "", None, []),
         ]
     )
     def test_rows_from_response_sniffs_json_and_csv(self, content_type, text, json_data, expected):

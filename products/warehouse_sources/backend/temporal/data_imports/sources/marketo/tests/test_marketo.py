@@ -1,4 +1,3 @@
-import io
 import json
 from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
@@ -12,6 +11,7 @@ from requests import Response
 from requests.structures import CaseInsensitiveDict
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.raw_stream import ClosingRawStream
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.marketo import (
     BULK_CHUNK_ROWS,
     MarketoAPIError,
@@ -42,12 +42,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.se
 SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.marketo.marketo.make_tracked_session"
 
 MUNCHKIN = "123-ABC-456"
-
-
-class _RawStream(io.BytesIO):
-    """BytesIO that tolerates the ``decode_content`` flag urllib3 raw streams carry."""
-
-    decode_content = False
 
 
 class FakeResumeManager(ResumableSourceManager[MarketoResumeConfig]):
@@ -81,7 +75,7 @@ def _csv_response(text: str) -> Response:
     response = Response()
     response.status_code = 200
     response.headers = CaseInsensitiveDict({"Content-Type": "text/csv;charset=UTF-8"})
-    response.raw = _RawStream(text.encode())
+    response.raw = ClosingRawStream(text.encode())
     return response
 
 
@@ -480,6 +474,41 @@ class TestMarketo:
         # Marketo rejects polling faster than once a minute, so every poll waits first.
         assert sleep.call_count == 2
         assert [state.window_start for state in manager.saved] == ["2024-01-10T00:00:00Z"]
+
+    @pytest.mark.parametrize(
+        "csv_text",
+        [
+            pytest.param("marketoGUID,leadId\n", id="header with trailing newline"),
+            pytest.param("marketoGUID,leadId", id="header without trailing newline"),
+            pytest.param("", id="no body at all"),
+        ],
+    )
+    def test_bulk_export_with_no_rows_yields_nothing(self, csv_text: str) -> None:
+        # A window with no activity is routine, and the reader still has to look past the
+        # end of the body to find that out.
+        session = _session(
+            responses=[
+                _response({"success": True, "result": [{"exportId": "exp-1", "status": "Created"}]}),
+                _response({"success": True, "result": [{"exportId": "exp-1", "status": "Queued"}]}),
+                _response({"success": True, "result": [{"exportId": "exp-1", "status": "Completed"}]}),
+                _csv_response(csv_text),
+            ]
+        )
+        client = _make_client(session)
+
+        with mock.patch("time.sleep"):
+            rows = _drain(
+                _bulk_rows(
+                    client,
+                    MARKETO_ENDPOINTS["activities"],
+                    datetime(2024, 1, 1, tzinfo=UTC),
+                    datetime(2024, 1, 10, tzinfo=UTC),
+                    FakeResumeManager(),
+                    mock.MagicMock(),
+                )
+            )
+
+        assert rows == []
 
     def test_bulk_export_filters_on_the_window_boundaries(self) -> None:
         session = _session(
