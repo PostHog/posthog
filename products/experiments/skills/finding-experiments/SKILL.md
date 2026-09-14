@@ -22,7 +22,9 @@ experiment matching the user's reference:
 - **By name**: scan the `name` field for matches
 - **By recency**: results are ordered newest first by default
 - **By status**: match the `status` field (draft, running, paused, exposure_frozen, stopped)
-- **By flag key**: match the `feature_flag_key` field
+- **By flag key**: skip the list and call `experiment-get-by-flag-key` with the key. It returns the
+  full experiment, or `found: false` when no flag or no linked experiment exists, so it is also the
+  existence check to run before `experiment-create`.
 
 ## After finding matches
 

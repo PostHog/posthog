@@ -518,8 +518,9 @@ tools:
         enrich_url: '{id}'
         title: Get experiment details
         description: >
-            Get a single experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            Get a single experiment by ID. If you have the experiment's feature flag key instead of its ID, call
+            experiment-get-by-flag-key. If you have neither, load the finding-experiments skill to resolve the user's
+            reference first.
 
 
             Returns the full experiment object including: status (draft/running/paused/exposure_frozen/stopped —
@@ -729,7 +730,8 @@ tools:
         title: Get all experiments
         description: >
             List experiments in the current project. This is the primary tool for resolving experiment references — load
-            the finding-experiments skill for guidance on searching by name, status, recency, or description.
+            the finding-experiments skill for guidance on searching by name, status, recency, or description. When the
+            reference is a feature flag key, call experiment-get-by-flag-key instead of listing.
 
 
             Supports filtering by status ("draft", "running", "paused", "exposure_frozen", "stopped", "complete" which
