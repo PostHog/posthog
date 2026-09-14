@@ -348,6 +348,23 @@ class TestCanarySampling(BaseTest):
         targets = sample_canary_targets_sync(ExperimentPrecomputeCanaryInputs())
         assert [t.metric_type for t in targets] == ["retention"]
 
+    def test_group_aggregated_experiments_are_not_sampled(self):
+        self._enable_precompute()
+        experiment = self._experiment([_inline_metric("funnel")])
+        experiment.feature_flag.filters = {**experiment.feature_flag.filters, "aggregation_group_type_index": 0}
+        experiment.feature_flag.save()
+        assert sample_canary_targets_sync(ExperimentPrecomputeCanaryInputs()) == []
+
+    def test_data_warehouse_metrics_are_not_sampled(self):
+        self._enable_precompute()
+        dw_mean = {
+            **_inline_metric("mean"),
+            "source": {"kind": "ExperimentDataWarehouseNode", "table_name": "stripe_charge"},
+        }
+        self._experiment([dw_mean, _inline_metric("funnel")])
+        targets = sample_canary_targets_sync(ExperimentPrecomputeCanaryInputs())
+        assert [t.metric_type for t in targets] == ["funnel"]
+
     def test_quotas_and_per_experiment_cap(self):
         self._enable_precompute()
         experiment = self._experiment([_inline_metric("funnel") for _ in range(10)])
@@ -460,6 +477,20 @@ class TestRunMetricCanary(BaseTest):
         modes = [call.args[2].value for call in mock_run.call_args_list]
         assert modes == ["precomputed", "precomputed", "direct"]
         assert len(result.runs) == 3
+
+    def test_flipped_first_run_short_circuits(self):
+        metric = _funnel_metric()
+        experiment = self._experiment([metric])
+        # side_effect has one snapshot: a second query would raise StopIteration and fail the test.
+        with patch(
+            "products.experiments.backend.temporal.canary_logic._execute_canary_run",
+            side_effect=[_snapshot("a", _BASE, is_precomputed=False)],
+        ) as mock_run:
+            result = run_metric_canary_sync(self._target(experiment, metric["uuid"]))
+
+        assert result.outcome == OUTCOME_PATH_FLIP
+        assert mock_run.call_count == 1
+        assert len(result.runs) == 1
 
     def test_run_tags_team_id_alongside_client_query_id(self):
         metric = _funnel_metric()
