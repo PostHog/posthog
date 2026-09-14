@@ -717,8 +717,8 @@ class WorkflowJobAggregateSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "failure_rate": {
-                "help_text": "Decisive failures ('failure', 'timed_out') over completed instances (0-1). Null if "
-                "none completed.",
+                "help_text": "Decisive failures over job instances with a pass-or-fail verdict (0-1). Skipped, "
+                "cancelled, neutral, and action-required instances are excluded. Null if none reached a verdict.",
                 "allow_null": True,
             },
             "retry_job_count": {"help_text": "Job instances that ran on a 2nd+ run attempt - retry pressure."},
