@@ -508,7 +508,7 @@ function MinBaselineInput({
         <div>
             <Label
                 text="Minimum volume"
-                tooltip="Skip the check when the metric's typical value is below this. On a few events per interval, one extra event is a large relative move, so the comparison is not reliable. Use 0 to always check."
+                tooltip="Skip the check when the metric's typical value is below this. On a few events per interval, one extra event is a large relative move, so the comparison is not reliable. This applies to whole numbers only, so a metric with fractional values, like a rate or an average, is never skipped. Use 0 to always check."
             />
             <LemonInput
                 data-attr="alertForm-detector-min-baseline"
