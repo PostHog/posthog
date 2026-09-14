@@ -43,8 +43,6 @@ beforeEach(() => {
 })
 
 async function loadAnalytics(): Promise<typeof import('@/ui-apps/analytics/posthog')> {
-    // The analytics token is a build-time constant; the unit tests run without
-    // it, so stub it to reach the initialization path at all.
     vi.stubGlobal('__POSTHOG_UI_APPS_TOKEN__', 'phc_test_token')
     return await import('@/ui-apps/analytics/posthog')
 }
@@ -73,8 +71,6 @@ describe('ui-apps posthog analytics', () => {
         analyticsMockState.registerThrows = true
         const { initPostHog, captureAppConnected } = await loadAnalytics()
 
-        // A failed register loses only the two register properties. The client
-        // still works, so the app keeps its events.
         expect(() => initPostHog('app', '1.0.0')).not.toThrow()
         expect(() => captureAppConnected()).not.toThrow()
         expect(analyticsMockState.instances).toHaveLength(1)
