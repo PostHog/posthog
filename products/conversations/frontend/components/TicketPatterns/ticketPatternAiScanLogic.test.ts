@@ -72,22 +72,36 @@ describe('ticketPatternAiScanLogic', () => {
         expect(logic.values.reportsFailed).toEqual(false)
     })
 
-    it('releases the switch and tells the person when enabling fails', async () => {
-        const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
-        useMocks({
-            post: {
-                '/api/projects/:team_id/conversations/pattern_ai_scan/': () => [
-                    403,
-                    { detail: 'AI data processing is not approved for this organization.' },
-                ],
-            },
-        })
+    it.each([
+        {
+            failure: 'the server refused and created nothing',
+            code: 403,
+            body: { detail: 'AI data processing is not approved for this organization.' },
+            toasted: 'AI data processing is not approved for this organization.',
+            statusAfter: OFF,
+        },
+        {
+            failure: 'the scout was created and the answer was lost',
+            code: 504,
+            body: {},
+            toasted: "Couldn't turn on the AI scan. Try again.",
+            statusAfter: ON,
+        },
+    ])(
+        'releases the switch and shows the state the server has when $failure',
+        async ({ code, body, toasted, statusAfter }) => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
+            useMocks({
+                get: { '/api/projects/:team_id/conversations/pattern_ai_scan/status/': () => [200, statusAfter] },
+                post: { '/api/projects/:team_id/conversations/pattern_ai_scan/': () => [code, body] },
+            })
 
-        logic.actions.enableScan()
-        await expectLogic(logic).toFinishAllListeners()
+            logic.actions.enableScan()
+            await expectLogic(logic).toDispatchActions(['loadStatusSuccess'])
 
-        expect(logic.values.status).toEqual(OFF)
-        expect(logic.values.toggling).toEqual(false)
-        expect(toast).toHaveBeenCalledWith('AI data processing is not approved for this organization.')
-    })
+            expect(logic.values.status).toEqual(statusAfter)
+            expect(logic.values.toggling).toEqual(false)
+            expect(toast).toHaveBeenCalledWith(toasted)
+        }
+    )
 })

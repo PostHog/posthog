@@ -109,6 +109,10 @@ export const ticketPatternAiScanLogic = kea<ticketPatternAiScanLogicType>([
                 actions.loadStatusSuccess(status)
             } catch (error: any) {
                 lemonToast.error(error?.detail ?? "Couldn't turn on the AI scan. Try again.")
+                // The scout can exist already, because the server commits before it answers and the
+                // answer can be lost. Read the real state back, so the switch cannot say off while the
+                // scout runs every hour and spends credits.
+                actions.loadStatus()
             } finally {
                 actions.setToggling(false)
             }
