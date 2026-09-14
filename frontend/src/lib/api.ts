@@ -3505,7 +3505,7 @@ const api = {
                 credentials: 'include',
                 openWhenHidden: true,
                 onopen: async (response) => {
-                    apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
+                    apiStatusLogic.findMounted()?.actions.onApiResponse(responseForApiStatus(response))
 
                     if (!response.ok) {
                         const error = await ApiError.fromResponse(response, apiErrorFallback(response, 'GET', url))
@@ -7453,6 +7453,20 @@ function captureClientRequestFailure(properties: {
     }
 }
 
+/**
+ * `clone()` throws when the body is already disturbed or locked, which happens when something else on
+ * the page reads the response first, such as an extension or a wrapper around `fetch`. Connection
+ * status only needs the status, so degrade to a body-less stand-in. This call reports only, so it
+ * must not fail the request that the caller waits for.
+ */
+function responseForApiStatus(response: Response): Response {
+    try {
+        return response.clone()
+    } catch {
+        return new Response(null, { status: response.status, statusText: response.statusText })
+    }
+}
+
 async function handleFetch(
     url: string,
     method: string,
@@ -7469,7 +7483,7 @@ async function handleFetch(
         error = e
     }
 
-    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
+    apiStatusLogic.findMounted()?.actions.onApiResponse(response && responseForApiStatus(response), error)
 
     if (error || !response) {
         if (error && (error as any).name === 'AbortError') {
