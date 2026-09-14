@@ -9,6 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 from temporalio import activity
 from temporalio.common import MetricMeter
+from temporalio.exceptions import ApplicationError
 
 from posthog.api.embedding_worker import generate_embedding
 from posthog.models.organization import OrganizationMembership
@@ -87,9 +88,19 @@ Use the provided structured output schema."""
 
 
 class LearningAnalysisError(RuntimeError):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, non_retryable: bool = False) -> None:
         super().__init__(code)
         self.code = code
+        self.non_retryable = non_retryable
+
+    @property
+    def cause_type(self) -> str | None:
+        return type(self.__cause__).__name__ if self.__cause__ is not None else None
+
+    @property
+    def description(self) -> str:
+        cause_type = self.cause_type
+        return f"{self.code}: {cause_type}" if cause_type else self.code
 
 
 def _metric_meter() -> MetricMeter:
@@ -119,7 +130,7 @@ def _resolve_learning_user(team: Team) -> User:
         .first()
     )
     if membership is None:
-        raise LearningAnalysisError("active_organization_user_missing")
+        raise LearningAnalysisError("active_organization_user_missing", non_retryable=True)
     return membership.user
 
 
@@ -168,8 +179,8 @@ def _invoke_structured_model(
                 HumanMessage(content=json.dumps(payload, ensure_ascii=False)),
             ]
         )
-    except Exception:
-        raise LearningAnalysisError(f"{stage}_model_failed") from None
+    except Exception as error:
+        raise LearningAnalysisError(f"{stage}_model_failed") from error
     if not isinstance(result, output_model):
         raise LearningAnalysisError(f"invalid_{stage}_output") from None
     return result
@@ -299,14 +310,14 @@ def _get_run(input: AnalyzeLearningEvidenceInput) -> KnowledgeLearningRun:
     canonical_team_id = resolve_effective_team_id(input.team_id)
     try:
         run_id = UUID(input.run_id)
-    except ValueError:
-        raise LearningAnalysisError("invalid_run_id") from None
+    except ValueError as error:
+        raise LearningAnalysisError("invalid_run_id", non_retryable=True) from error
     try:
         run = (
             KnowledgeLearningRun.objects.for_team(canonical_team_id).select_related("team__organization").get(id=run_id)
         )
-    except KnowledgeLearningRun.DoesNotExist:
-        raise LearningAnalysisError("run_not_found") from None
+    except KnowledgeLearningRun.DoesNotExist as error:
+        raise LearningAnalysisError("run_not_found", non_retryable=True) from error
     if (
         run.team_id != canonical_team_id
         or run.provider != input.evidence.provider
@@ -314,7 +325,7 @@ def _get_run(input: AnalyzeLearningEvidenceInput) -> KnowledgeLearningRun:
         or run.source_team_id != input.evidence.source_team_id
         or run.analysis_version != ANALYSIS_VERSION
     ):
-        raise LearningAnalysisError("run_input_mismatch")
+        raise LearningAnalysisError("run_input_mismatch", non_retryable=True)
     return run
 
 
@@ -324,7 +335,7 @@ def _completed_output(run: KnowledgeLearningRun) -> AnalyzeLearningEvidenceOutpu
         LearningRunResult.NO_KNOWLEDGE,
         LearningRunResult.INELIGIBLE,
     }:
-        raise LearningAnalysisError("completed_run_result_missing")
+        raise LearningAnalysisError("completed_run_result_missing", non_retryable=True)
     return AnalyzeLearningEvidenceOutput(
         result=cast(LearningResult, run.result),
         knowledge_document_id=str(run.knowledge_document_id) if run.knowledge_document_id else None,
@@ -353,16 +364,20 @@ def _mark_completed(
     run.save(update_fields=["status", "result", "knowledge_document_id", "error", "updated_at"])
 
 
+def _describe_failure(error: Exception) -> str:
+    return error.description if isinstance(error, LearningAnalysisError) else type(error).__name__
+
+
 def _mark_failed(run: KnowledgeLearningRun, error: Exception) -> None:
-    error_code = error.code if isinstance(error, LearningAnalysisError) else type(error).__name__
     run.status = LearningRunStatus.FAILED
     run.result = ""
     run.knowledge_document_id = None
-    run.error = error_code[:LEARNING_MAX_ERROR_CHARS]
+    run.error = _describe_failure(error)[:LEARNING_MAX_ERROR_CHARS]
     run.save(update_fields=["status", "result", "knowledge_document_id", "error", "updated_at"])
 
 
 def _log_analysis_failure(run: KnowledgeLearningRun, error: Exception) -> None:
+    bounded = error if isinstance(error, LearningAnalysisError) else None
     logger.error(
         "business_knowledge.learning.analysis_failed",
         team_id=run.team_id,
@@ -370,6 +385,8 @@ def _log_analysis_failure(run: KnowledgeLearningRun, error: Exception) -> None:
         provider=run.provider,
         evidence_key=run.evidence_key,
         error_type=type(error).__name__,
+        error_code=bounded.code if bounded else None,
+        cause_type=bounded.cause_type if bounded else None,
     )
 
 
@@ -434,8 +451,8 @@ def _publish_candidate(
             )
     except logic.LearnedSourceCapReached:
         return _finish_without_knowledge(run, rejection_code="learned_cap_reached")
-    except Exception:
-        raise LearningAnalysisError("knowledge_publication_failed") from None
+    except Exception as error:
+        raise LearningAnalysisError("knowledge_publication_failed") from error
     _increment_counter("published")
     logger.info(
         "business_knowledge.learning.analysis_completed",
@@ -476,11 +493,11 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
 
     provider = get_learning_provider(input.evidence.provider)
     if provider is None:
-        raise LearningAnalysisError("learning_provider_missing")
+        raise LearningAnalysisError("learning_provider_missing", non_retryable=True)
     try:
         bundle = provider.load(input.evidence)
-    except Exception:
-        raise LearningAnalysisError("evidence_load_failed") from None
+    except Exception as error:
+        raise LearningAnalysisError("evidence_load_failed") from error
     if bundle is None or not bundle.replies or any(not reply.strip() for reply in bundle.replies):
         return _finish_without_knowledge(
             run,
@@ -500,8 +517,10 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
 
     try:
         results = _search_existing_knowledge(run.team, generated_text)
-    except Exception:
-        raise LearningAnalysisError("knowledge_search_failed") from None
+    except LearningAnalysisError:
+        raise
+    except Exception as error:
+        raise LearningAnalysisError("knowledge_search_failed") from error
     decision = _promotion_decision(run.team, user, bundle, extracted, results)
     rejection_code = _promotion_rejection(decision)
     candidate = LearningCandidate(
@@ -527,7 +546,7 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
         and candidate.pii_free
         and candidate.missing_from_business_knowledge
     ):
-        raise LearningAnalysisError("candidate_gate_inconsistent")
+        raise LearningAnalysisError("candidate_gate_inconsistent", non_retryable=True)
     return _publish_candidate(run, input.evidence, candidate)
 
 
@@ -554,4 +573,15 @@ def analyze_learning_evidence_activity(
     input: AnalyzeLearningEvidenceInput,
 ) -> AnalyzeLearningEvidenceOutput:
     with HeartbeaterSync(logger=logger):
-        return analyze_learning_evidence(input)
+        try:
+            return analyze_learning_evidence(input)
+        except LearningAnalysisError as error:
+            if not error.non_retryable:
+                raise
+            # Temporal picks retries by exception type, and every bounded failure here shares one
+            # type, so a permanent failure stops re-running only when it says so per instance.
+            raise ApplicationError(
+                error.description,
+                type=type(error).__name__,
+                non_retryable=True,
+            ) from error
