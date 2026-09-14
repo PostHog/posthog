@@ -6,11 +6,12 @@ import { IconX } from '@posthog/icons'
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
 import { IconFunnelVertical } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelsQuery, PathsQuery } from '~/queries/schema/schema-general'
 import { EditorFilterProps, FunnelPathType } from '~/types'
+
+import { pathsDataLogic } from 'products/product_analytics/frontend/insights/paths/pathsDataLogic'
 
 export function PathsTargetStart(props: EditorFilterProps): JSX.Element {
     return <PathsTarget position="start" {...props} />
