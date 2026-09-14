@@ -201,9 +201,12 @@ export function clampSyncFrequency(requested: DataWarehouseSyncInterval): DataWa
     return allowed.includes(requested) ? requested : allowed[0]
 }
 
-// A completed sync that wrote no rows registers no warehouse table, so the schema has nothing to query.
-export const schemaHasNoTableYet = (schema: Pick<ExternalDataSourceSchema, 'status' | 'table'>): boolean =>
-    !schema.table && schema.status === ExternalDataSchemaStatus.Completed
+// A completed sync that wrote no rows registers no warehouse table, so the schema has nothing to
+// query. Schema discovery also completes a vanished schema and turns its sync off, and that one
+// will never gain a table, so only an enabled schema gets told to sync again.
+export const schemaHasNoTableYet = (
+    schema: Pick<ExternalDataSourceSchema, 'status' | 'table' | 'should_sync'>
+): boolean => !schema.table && schema.should_sync && schema.status === ExternalDataSchemaStatus.Completed
 
 export const StatusTagSetting: Record<ExternalDataJobStatus | ExternalDataSchemaStatus, LemonTagType> = {
     [ExternalDataJobStatus.Running]: 'primary',

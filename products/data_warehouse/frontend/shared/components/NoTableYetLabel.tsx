@@ -3,7 +3,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 export function NoTableYetLabel(): JSX.Element {
     return (
-        <Tooltip title="The last sync returned no rows, so there is no table to query yet. PostHog creates the table on the first sync that returns rows. If you expect data, check this source's settings, then sync again.">
+        <Tooltip title="This schema has no PostHog table to query. A sync that returns no rows does not create one. If you expect data here, check this source's settings, then sync again.">
             <span className="text-muted inline-flex items-center gap-1">
                 No table yet
                 <IconInfo className="text-muted-alt text-base" />

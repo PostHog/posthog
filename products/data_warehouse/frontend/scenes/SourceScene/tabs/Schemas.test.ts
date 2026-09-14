@@ -63,14 +63,16 @@ describe('Schemas', () => {
     })
 
     it.each([
-        ['a completed sync that registered no table', ExternalDataSchemaStatus.Completed, false, true],
-        ['a completed sync with a table', ExternalDataSchemaStatus.Completed, true, false],
-        ['a sync still running', ExternalDataSchemaStatus.Running, false, false],
-        ['a failed sync', ExternalDataSchemaStatus.Failed, false, false],
-    ])('detects no table yet for %s', (_label, status, hasTable, expected) => {
+        ['a completed sync that registered no table', ExternalDataSchemaStatus.Completed, false, true, true],
+        ['a completed sync with a table', ExternalDataSchemaStatus.Completed, true, true, false],
+        ['a sync still running', ExternalDataSchemaStatus.Running, false, true, false],
+        ['a failed sync', ExternalDataSchemaStatus.Failed, false, true, false],
+        ['a schema discovery turned off', ExternalDataSchemaStatus.Completed, false, false, false],
+    ])('detects no table yet for %s', (_label, status, hasTable, shouldSync, expected) => {
         const schema = {
             ...makeSchema('events'),
             status,
+            should_sync: shouldSync,
             table: hasTable ? ({ id: 'table-1' } as ExternalDataSourceSchema['table']) : undefined,
         }
         expect(schemaHasNoTableYet(schema)).toBe(expected)
