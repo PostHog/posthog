@@ -1,11 +1,12 @@
 from collections.abc import Callable
-from typing import Optional
+from typing import Any, Optional
 
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import InterfaceError, OperationalError
+from django.db.models import QuerySet
 from django.test import override_settings
 from django.utils import timezone
 
@@ -1405,6 +1406,58 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertTrue(cohort.is_calculating)
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertIsNone(cohort.last_error_at)
+
+    @staticmethod
+    def _version_update_dropping_connection(failures: int) -> Callable[..., int]:
+        # Only the version bump fails, so the ClickHouse recalculation and every other write stand.
+        real_update = QuerySet.update
+        remaining = failures
+
+        def flaky_update(queryset: QuerySet, **kwargs: Any) -> int:
+            nonlocal remaining
+            if "version" in kwargs and remaining:
+                remaining -= 1
+                raise OperationalError("server closed the connection unexpectedly")
+            return real_update(queryset, **kwargs)
+
+        return flaky_update
+
+    def test_calculate_cohort_ch_lands_the_version_bump_after_a_dropped_connection(self) -> None:
+        # A recalculation long enough to outlive its Postgres connection has already paid for a
+        # full ClickHouse pass. Reconnecting and replaying the version bump is what stops that work
+        # being thrown away, and stops the cohort serving its old membership to flag targeting.
+        cohort = Cohort.objects.create(team=self.team, name="test_cohort", is_calculating=True, pending_version=1)
+
+        with (
+            patch("products.cohorts.backend.models.util.connections"),
+            patch("products.cohorts.backend.models.util.recalculate_cohortpeople", return_value=7),
+            patch.object(QuerySet, "update", autospec=True, side_effect=self._version_update_dropping_connection(1)),
+        ):
+            self._run_calculate_cohort_ch(cohort.id)
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.version, 1)
+        self.assertEqual(cohort.count, 7)
+        self.assertIsNotNone(cohort.last_calculation)
+        self.assertFalse(cohort.is_calculating)
+
+    def test_calculate_cohort_ch_retries_when_the_version_bump_cannot_be_recorded(self) -> None:
+        # The reconnect failed too, so the new rows sit in ClickHouse under a version Postgres
+        # never recorded. Reporting the run as done would leave the cohort silently stale; the
+        # error has to reach the task so it runs the recalculation again.
+        cohort = Cohort.objects.create(team=self.team, name="test_cohort", is_calculating=True, pending_version=1)
+
+        with (
+            patch("products.cohorts.backend.models.util.connections"),
+            patch("products.cohorts.backend.models.util.recalculate_cohortpeople", return_value=7),
+            patch.object(QuerySet, "update", autospec=True, side_effect=self._version_update_dropping_connection(2)),
+            self.assertRaises(Retry),
+        ):
+            self._run_calculate_cohort_ch(cohort.id)
+
+        cohort.refresh_from_db()
+        self.assertIsNone(cohort.version)
+        self.assertTrue(cohort.is_calculating)
 
     def test_calculate_cohort_ch_skips_an_obsolete_pending_version(self) -> None:
         # A newer save superseded this task's version. Without the guard both tasks would run a
