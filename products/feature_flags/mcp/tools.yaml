@@ -297,34 +297,33 @@ tools:
         enrich_url: '{id}'
         title: Roll feature flag out to everyone
         description: >
-            Serve a feature flag to every user. Requires the flag's numeric ID; use
-            `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or
-            name.
+            Serve a feature flag to every user. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key`
+            to get it from a key, or `feature-flag-get-all` to search by key or name.
 
 
             Adds a release condition with no property filters at 100% and keeps the existing conditions below it. This
-            tool never accepts or replaces the `filters` object, so payloads, the holdout and the set of variants
-            cannot change. On a boolean flag, removing the new condition puts the previous targeting back. On a
-            multivariate flag the variant distribution is rewritten as well, so removing the condition restores the
-            audience but not the old split. A flag that already leads with such a condition gains no second one.
+            tool never accepts or replaces the `filters` object, so payloads, the holdout and the set of variants cannot
+            change. On a boolean flag, removing the new condition puts the previous targeting back. On a multivariate
+            flag the variant distribution is rewritten as well, so removing the condition restores the audience but not
+            the old split. A flag that already leads with such a condition gains no second one.
 
 
-            This tool changes targeting only. A disabled flag still serves nobody, so check `active` in the response
-            and use `feature-flag-enable` if it is false. A holdout is evaluated before release conditions, so users in
-            one keep getting the holdout variant instead of the rollout.
+            This tool changes targeting only. A disabled flag still serves nobody, so check `active` in the response and
+            use `feature-flag-enable` if it is false. A holdout is evaluated before release conditions, so users in one
+            keep getting the holdout variant instead of the rollout.
 
 
             A multivariate flag needs `variant_key`, and every other flag rejects it. A release condition decides who
             the flag serves and not which variant they get, so this also gives the named variant 100% of the variant
             distribution and every other variant 0%. When the user says "roll it out to everyone" about a multivariate
-            flag, ask which variant they mean rather than guessing. To serve everyone and keep the current split
-            between variants, use `update-feature-flag`.
+            flag, ask which variant they mean rather than guessing. To serve everyone and keep the current split between
+            variants, use `update-feature-flag`.
 
 
             Read the flag first and send the `version` that read returned. Returns 409 when anyone changed the flag
             after that version, and writes nothing. Read the flag again, check what changed, and decide the rollout
-            against the current definition. Do not retry with the same version: after a call succeeds that version is
-            no longer current, so a blind retry is the same 409.
+            against the current definition. Do not retry with the same version: after a call succeeds that version is no
+            longer current, so a blind retry is the same 409.
 
 
             Returns 400 when the flag is multivariate and `variant_key` is missing, when the flag defines no such
@@ -359,22 +358,22 @@ tools:
             search by key or name.
 
 
-            Changes `rollout_percentage` on the release condition at `condition_index` and nothing else. This tool
-            never accepts or replaces the `filters` object, so the condition's property filters, the other conditions,
-            the variants and the payloads cannot change.
+            Changes `rollout_percentage` on the release condition at `condition_index` and nothing else. This tool never
+            accepts or replaces the `filters` object, so the condition's property filters, the other conditions, the
+            variants and the payloads cannot change.
 
 
             Read the flag first. `condition_index` counts the conditions in `filters.groups` from 0, and only the
             definition you read says which condition is which, so never guess an index on a flag with more than one
             condition. Send the `version` that same read returned. Returns 409 when anyone changed the flag after that
-            version, and writes nothing. Read the flag again, check the conditions still mean what you thought, and
-            call again with the new version. Do not retry with the same version: after a call succeeds that version is
-            no longer current, so a blind retry is the same 409.
+            version, and writes nothing. Read the flag again, check the conditions still mean what you thought, and call
+            again with the new version. Do not retry with the same version: after a call succeeds that version is no
+            longer current, so a blind retry is the same 409.
 
 
-            On a multivariate flag this sets how many of the matching users get a variant at all. It does not change
-            how the variants are split between them. When the user asks for a bare percentage on a multivariate flag,
-            ask which of the two they mean. Use `update-feature-flag` to change the split between variants.
+            On a multivariate flag this sets how many of the matching users get a variant at all. It does not change how
+            the variants are split between them. When the user asks for a bare percentage on a multivariate flag, ask
+            which of the two they mean. Use `update-feature-flag` to change the split between variants.
 
 
             Returns 400 when the flag has no release condition at that index, or when the percentage is outside 0
@@ -794,8 +793,8 @@ tools:
         title: Update feature flag
         description: >
             Update a feature flag by numeric ID (partial update: only the fields you include are changed). Use this for
-            edits that have no dedicated tool, such as property filters, adding and removing release conditions,
-            variant definitions, payloads, tags and the description.
+            edits that have no dedicated tool, such as property filters, adding and removing release conditions, variant
+            definitions, payloads, tags and the description.
 
 
             Prefer a dedicated tool whenever the request matches one. `feature-flag-enable`, `feature-flag-disable`,
@@ -808,9 +807,9 @@ tools:
             `feature-flag-set-release-condition-rollout` changes one release condition's percentage and
             `feature-flag-roll-out-to-everyone` serves the flag to every user. Both send no `filters` and both refuse
             the write when the flag changed after the version you read, so a concurrent edit cannot be lost. This tool
-            has no such check on the agent path: it replaces the whole `filters` object with your copy of it. Use it
-            for a rollout change only when those two tools cannot express it, such as changing the split between
-            variants while leaving the audience alone.
+            has no such check on the agent path: it replaces the whole `filters` object with your copy of it. Use it for
+            a rollout change only when those two tools cannot express it, such as changing the split between variants
+            while leaving the audience alone.
 
 
             Rollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters`
