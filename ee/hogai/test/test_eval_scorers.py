@@ -35,6 +35,13 @@ class TestBuildJudgeJsonSchema(SimpleTestCase):
 
 
 class TestToolRelevance(SimpleTestCase):
+    def test_returns_zero_when_the_assistant_makes_no_tool_calls(self) -> None:
+        expected = AssistantToolCall(id="expected", name="create_insight", args={"query": "pageviews"})
+
+        score = ToolRelevance(semantic_similarity_args=set())._run_eval_sync(AssistantMessage(content=""), expected)
+
+        self.assertEqual(score.score, 0.0)
+
     def test_uses_the_best_matching_tool_call(self) -> None:
         expected = AssistantToolCall(id="expected", name="create_insight", args={"query": "pageviews"})
         output = AssistantMessage(

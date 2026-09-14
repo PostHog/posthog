@@ -44,7 +44,7 @@ class ToolRelevance(ScorerWithPartial):
         if not isinstance(output, AssistantMessage):
             raise TypeError(f"Eval case output must be an AssistantMessage, not {type(output)}")
 
-        score = max((self._score_tool_call(tool_call, expected) for tool_call in output.tool_calls), default=0.0)
+        score = max((self._score_tool_call(tool_call, expected) for tool_call in output.tool_calls or []), default=0.0)
         return Score(name=self._name(), score=score)
 
     def _score_tool_call(self, tool_call: AssistantToolCall, expected: AssistantToolCall) -> float:
