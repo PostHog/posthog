@@ -243,7 +243,8 @@ def _rejection_response(
         method=request.method,
         team_id=team_id,
         # app_id is client-supplied, so bound it to keep a hostile value from bloating the log line.
-        app_id=app_id[:128] if isinstance(app_id, str) else app_id,
+        # A non-string (a large array or object) is dropped rather than serialized whole.
+        app_id=app_id[:128] if isinstance(app_id, str) else None,
         detail=detail,
         sdk_name=sdk.name,
         sdk_version=sdk.version,
