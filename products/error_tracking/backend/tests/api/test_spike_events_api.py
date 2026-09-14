@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from django.http import QueryDict
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -23,6 +24,25 @@ class TestSpikeEventsListQuerySerializer(SimpleTestCase):
         serializer = SpikeEventsListQuerySerializer(data={"issue_ids": raw})
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data.get("issue_ids", []) == expected
+
+    @parameterized.expand(
+        [
+            ("issue_ids", "issue_ids="),
+            ("date_from", "date_from="),
+            ("date_to", "date_to="),
+            ("order_by", "order_by="),
+            ("every_param", "issue_ids=&date_from=&date_to=&order_by="),
+        ]
+    )
+    def test_empty_params_are_ignored(self, _name, query_string):
+        # The view validates `request.query_params`, a QueryDict that DRF reads as HTML input, so
+        # empty values are dropped instead of validated. A client that always sends every param
+        # must keep getting a 200, not a 400 on the blank ones.
+        serializer = SpikeEventsListQuerySerializer(data=QueryDict(query_string))
+        assert serializer.is_valid(), serializer.errors
+        assert not any(
+            serializer.validated_data.get(field) for field in ("issue_ids", "date_from", "date_to", "order_by")
+        )
 
     def test_malformed_uuid_rejected(self):
         serializer = SpikeEventsListQuerySerializer(data={"issue_ids": "not-a-uuid"})
