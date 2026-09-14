@@ -46,6 +46,7 @@ logger = structlog.get_logger(__name__)
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
+SLACK_APP_GRANULAR_REGION_ROUTING_FLAG = "slack-app-granular-region-routing"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -129,6 +130,21 @@ def is_slack_app_assistant_enabled(integration: Integration) -> bool:
     calls — ``im:history`` in particular, without which the assistant would answer
     once and then go deaf to follow-ups."""
     return has_scopes(integration, ASSISTANT_REQUIRED_SCOPES)
+
+
+def is_slack_app_granular_region_routing_enabled(integration: Integration) -> bool:
+    """Gate for routing inbound events at (workspace, user, thread) granularity instead of
+    workspace granularity, so a dual-region workspace can keep each user's events in the
+    region that holds their default project.
+
+    Keyed on the Slack workspace: the routing decision must come out the same for every
+    event of a workspace, whichever project or user it involves, or two surfaces of one
+    conversation could land in different regions."""
+    return _workspace_flag_enabled(
+        SLACK_APP_GRANULAR_REGION_ROUTING_FLAG,
+        integration,
+        failure_log_key="slack_app_granular_region_routing_flag_check_failed",
+    )
 
 
 def is_slack_app_forking_enabled(integration: Integration) -> bool:
