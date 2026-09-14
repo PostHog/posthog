@@ -650,6 +650,9 @@ importers:
       '@posthog/products-ai-observability':
         specifier: workspace:*
         version: link:../products/ai_observability
+      '@posthog/products-ai-training':
+        specifier: workspace:*
+        version: link:../products/ai_training
       '@posthog/products-alerts':
         specifier: workspace:*
         version: link:../products/alerts
@@ -1748,8 +1751,8 @@ importers:
         specifier: 2.0.9
         version: 2.0.9
       undici:
-        specifier: ^7.24.0
-        version: 7.24.8
+        specifier: ^8.10.1
+        version: 8.10.1
       undici-types:
         specifier: 7.3.0
         version: 7.3.0
@@ -2455,6 +2458,8 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+
+  products/ai_training: {}
 
   products/alerts:
     dependencies:
@@ -3431,9 +3436,6 @@ importers:
       clsx:
         specifier: '*'
         version: 1.2.1
-      fuse.js:
-        specifier: '*'
-        version: 6.6.2
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
@@ -3446,9 +3448,6 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
-      ts-pattern:
-        specifier: 'catalog:'
-        version: 4.3.0
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
@@ -4051,6 +4050,9 @@ importers:
       '@testing-library/react':
         specifier: ^14.3.1
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@testing-library/user-event':
+        specifier: ^14.6.1
+        version: 14.6.1(@testing-library/dom@10.4.0)
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -22744,6 +22746,10 @@ packages:
   undici@7.24.8:
     resolution: {integrity: sha512-6KQ/+QxK49Z/p3HO6E5ZCZWNnCasyZLa5ExaVYyvPxUwKtbCPMKELJOqh7EqOle0t9cH/7d2TaaTRRa6Nhs4YQ==}
     engines: {node: '>=20.18.1'}
+
+  undici@8.10.1:
+    resolution: {integrity: sha512-YQ3WlbqjYMmNpdvDH64jAgLjxuAR9+649calDWhbshYaeQGO2bR4nI94ORJmwI3J9YhoKQnpyGOK+0zlWS5N5Q==}
+    engines: {node: '>=22.19.0'}
 
   unenv@2.0.0-rc.24:
     resolution: {integrity: sha512-i7qRCmY42zmCwnYlh9H2SvLEypEFGye5iRmEMKjcGi7zk9UquigRjFtTLz0TYqr0ZGLZhaMHl/foy1bZR+Cwlw==}
@@ -45538,6 +45544,8 @@ snapshots:
   undici@6.25.0: {}
 
   undici@7.24.8: {}
+
+  undici@8.10.1: {}
 
   unenv@2.0.0-rc.24:
     dependencies:

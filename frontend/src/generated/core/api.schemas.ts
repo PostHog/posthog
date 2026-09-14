@@ -1807,6 +1807,18 @@ export interface TeamWorkflowsConfigApi {
      * * `opt_out` - Opt Out
      * * `opt_in` - Opt In */
     email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
+    /**
+     * How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.
+     * @minimum 0
+     * @nullable
+     */
+    workflow_task_rate_limit_per_day?: number | null
+    /**
+     * How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.
+     * @minimum 0
+     * @nullable
+     */
+    workflow_task_team_rate_limit_per_day?: number | null
 }
 
 export interface TeamFeatureFlagPolicyConfigApi {
