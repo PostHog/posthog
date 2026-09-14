@@ -215,6 +215,34 @@ class TestStaleFlagsDetect(BaseTest):
                 None,
                 False,
             ),
+            # A holdout is resolved before the release conditions, so part of the population never
+            # reaches the 100% group the prefilter matched. The checker never reads the key.
+            (
+                "constant_and_called_behind_holdout",
+                {
+                    **constant_and_called(),
+                    "filters": {**FULL_ROLLOUT_FILTERS, "holdout": {"id": 1, "exclusion_percentage": 10}},
+                },
+                None,
+                False,
+            ),
+            # `early_exit` returns false on a failed rollout check instead of falling through to the
+            # blanket group, so the configuration can serve two results.
+            (
+                "constant_and_called_with_early_exit",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "groups": [
+                            {"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 50},
+                            {"properties": [], "rollout_percentage": 100},
+                        ],
+                        "early_exit": True,
+                    },
+                },
+                None,
+                False,
+            ),
         ]
     )
     def test_detect_inclusion_and_exclusion(

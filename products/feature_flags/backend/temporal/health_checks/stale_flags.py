@@ -151,6 +151,7 @@ class StaleFeatureFlagsCheck(HealthCheck):
             flag
             for flag in filter_effectively_full_rollout_flags(reportable_flags, stale_threshold=stale_threshold)
             if flag.id not in stale_ids
+            and not _evaluates_outside_release_conditions(flag)
             and FeatureFlagStatusChecker(feature_flag=flag).get_rollout_summary(flag).effectively_full_rollout
         ]
         candidates = stale_candidates + full_rollout_candidates
@@ -188,6 +189,24 @@ class StaleFeatureFlagsCheck(HealthCheck):
                 full_rollout_candidate_count=len(full_rollout_ids - excluded_ids),
             )
         return issues
+
+
+def _evaluates_outside_release_conditions(flag: FeatureFlag) -> bool:
+    """Whether the matcher can return a result that the release conditions do not describe.
+
+    A holdout is resolved before the release conditions and returns `holdout-<id>` to its share,
+    legacy super groups short-circuit the same way, and `early_exit` returns false on a failed
+    rollout check instead of falling through to a later blanket condition. `FeatureFlagStatusChecker`
+    reads `groups` and `multivariate` only, so it sees none of them, and this class reports the
+    configuration itself as the evidence. `group_cohort_restriction_blocker` in
+    `products/feature_flags/backend/facade/filters.py` and `is_unconditionally_fully_rolled_out` in
+    `products/feature_flags/backend/persisted_flags.py` keep the same list for the same reason.
+
+    The other candidate source is left alone. Its evidence is that PostHog stopped receiving calls,
+    which a holdout does not contradict.
+    """
+    filters = flag.filters or {}
+    return any(filters.get(key) for key in ("holdout", "holdout_groups", "super_groups", "early_exit"))
 
 
 def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
