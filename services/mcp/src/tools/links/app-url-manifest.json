@@ -284,6 +284,11 @@
         "params": ["channelId"],
         "scope": "project"
     },
+    "codeLoopLink": {
+        "template": "/code/loop/{loopId}",
+        "params": ["loopId"],
+        "scope": "project"
+    },
     "codeReview": {
         "template": "/code-review",
         "params": [],
