@@ -89,7 +89,7 @@ const counterAwaitedStepStaleResume = new Counter({
 
 const counterAwaitedStepFinished = new Counter({
     name: 'cdp_hogflow_awaited_step_finished',
-    help: 'A parked step stopped waiting, by how: the job completed, failed or was cancelled, or the wait timed out.',
+    help: 'A parked step stopped waiting, grouped by outcome: the job completed, failed, was cancelled, or timed out.',
     labelNames: ['outcome'],
 })
 
