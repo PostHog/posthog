@@ -28,6 +28,18 @@ _TIMESTAMPDIFF_UNITS = {
     "year": "YEAR",
 }
 
+# MySQL has no date_trunc; each unit expands into native date functions. `week` and
+# `isoyear` need more than one substitution, so MySQLPrinter renders those itself.
+_MYSQL_START_OF_TEMPLATES: dict[str, str] = {
+    "second": "DATE_ADD(DATE({arg}), INTERVAL (HOUR({arg}) * 3600 + MINUTE({arg}) * 60 + SECOND({arg})) SECOND)",
+    "minute": "DATE_ADD(DATE({arg}), INTERVAL (HOUR({arg}) * 60 + MINUTE({arg})) MINUTE)",
+    "hour": "DATE_ADD(DATE({arg}), INTERVAL HOUR({arg}) HOUR)",
+    "day": "CAST(DATE({arg}) AS DATETIME)",
+    "month": "DATE_SUB(DATE({arg}), INTERVAL (DAYOFMONTH({arg}) - 1) DAY)",
+    "quarter": "DATE_ADD(MAKEDATE(YEAR({arg}), 1), INTERVAL (QUARTER({arg}) - 1) QUARTER)",
+    "year": "MAKEDATE(YEAR({arg}), 1)",
+}
+
 # CAST target mapping: HogQL/ClickHouse/Postgres-flavored type names → MySQL CAST types.
 # MySQL CAST only accepts a small set of target types (SIGNED, UNSIGNED, CHAR, DOUBLE, ...).
 _MYSQL_CAST_TYPES: dict[str, str] = {
@@ -247,31 +259,20 @@ class MySQLPrinter(PostgresPrinter):
     # --- date truncation ---------------------------------------------------------------
 
     def _render_start_of(self, unit: str, arg: str, week_mode: int = 3) -> str:
-        # MySQL has no date_trunc; expand each unit into native date functions.
-        if unit == "second":
-            return f"DATE_ADD(DATE({arg}), INTERVAL (HOUR({arg}) * 3600 + MINUTE({arg}) * 60 + SECOND({arg})) SECOND)"
-        if unit == "minute":
-            return f"DATE_ADD(DATE({arg}), INTERVAL (HOUR({arg}) * 60 + MINUTE({arg})) MINUTE)"
-        if unit == "hour":
-            return f"DATE_ADD(DATE({arg}), INTERVAL HOUR({arg}) HOUR)"
-        if unit == "day":
-            return f"CAST(DATE({arg}) AS DATETIME)"
         if unit == "week":
-            if week_mode in {1, 3}:
+            if week_mode in {1, 3}:  # ISO / Monday-start
                 return f"DATE_SUB(DATE({arg}), INTERVAL WEEKDAY({arg}) DAY)"
-            if week_mode == 0:
+            if week_mode == 0:  # Sunday-start
                 return f"DATE_SUB(DATE({arg}), INTERVAL (DAYOFWEEK({arg}) - 1) DAY)"
             raise QueryError(f"Unsupported toStartOfWeek mode `{week_mode}` in the MySQL dialect")
-        if unit == "month":
-            return f"DATE_SUB(DATE({arg}), INTERVAL (DAYOFMONTH({arg}) - 1) DAY)"
-        if unit == "quarter":
-            return f"DATE_ADD(MAKEDATE(YEAR({arg}), 1), INTERVAL (QUARTER({arg}) - 1) QUARTER)"
-        if unit == "year":
-            return f"MAKEDATE(YEAR({arg}), 1)"
         if unit == "isoyear":
+            # Jan 4 is always in ISO week 1; the Monday of its week is the ISO year start.
             jan4 = f"MAKEDATE(FLOOR(YEARWEEK({arg}, 3) / 100), 4)"
             return f"DATE_SUB({jan4}, INTERVAL WEEKDAY({jan4}) DAY)"
-        raise ImpossibleASTError(f"Unknown date truncation unit: {unit}")
+        template = _MYSQL_START_OF_TEMPLATES.get(unit)
+        if template is None:
+            raise ImpossibleASTError(f"Unknown date truncation unit: {unit}")
+        return template.format(arg=arg)
 
     def _render_minute_bucket(self, arg: str, bucket_size: int) -> str:
         return (
