@@ -524,6 +524,9 @@ class TestGithubSource:
             (None, ["PostHog/posthog", "posthog/posthog", " Other/Repo "], ["posthog/posthog", "other/repo"]),
             # A non-empty `repositories` is the authoritative set; `repository` only marks bare naming.
             ("posthog/posthog", ["a/b"], ["a/b"]),
+            # A repo pasted as a GitHub URL must route to the same storage as `owner/repo`, or the
+            # same repository would sync into two tables depending on how it was entered.
+            (None, ["https://github.com/PostHog/posthog.git", "posthog/posthog"], ["posthog/posthog"]),
         ],
     )
     def test_effective_repositories(self, repository, repositories, expected):
