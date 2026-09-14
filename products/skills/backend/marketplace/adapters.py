@@ -12,20 +12,16 @@ from django.db.models import F, Func, IntegerField, Max, Q, QuerySet, TextField
 from django.db.models.functions import Cast
 
 import structlog
-from rest_framework import serializers
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from ..api.skill_serializers import validate_skill_file_path
-from ..api.skill_services import normalize_skill_file_path, skill_name_is_well_formed, skill_names_owned_by
+from ..api.skill_services import compute_spec_problems, skill_names_owned_by
 from ..models.skills import LLMSkill, LLMSkillFile
 from .git_smart_http import FileTree, SynthesizedRepo, synthesize_repo
 from .packaging import (
-    CODEX_METADATA_PATH,
     DEFAULT_BUNDLE_SKILLS,
     MAX_BUNDLE_SKILLS,
-    SPEC_DESCRIPTION_MAX_LENGTH,
     SkillExport,
     SkillStub,
     archive_entry_bytes,
@@ -35,7 +31,6 @@ from .packaging import (
     build_skills_bundle_zip,
     compute_plugin_version,
     file_tree_bytes,
-    validate_for_export,
 )
 
 logger = structlog.get_logger(__name__)
@@ -125,19 +120,20 @@ def build_team_marketplace_tree(team: Team, version: str | None = None) -> FileT
 
     files_by_skill = _files_by_skill_id(skills)
 
-    # Drop any skill whose bundled-file paths would synthesize a corrupt/uncloneable git tree
-    # (e.g. legacy rows that predate the stricter path validation, or case-only collisions). One
-    # bad skill is skipped rather than 500-ing the whole team's marketplace clone. We also cap the
-    # cumulative content size: past the ceiling, remaining skills are skipped so a pathological team
-    # can't OOM the clone.
+    # Drop any skill that would synthesize a corrupt/uncloneable git tree (e.g. legacy rows that
+    # predate the stricter path validation, or case-only collisions). One bad skill is skipped
+    # rather than 500-ing the whole team's marketplace clone, and `spec_problems` on the skill tells
+    # its author why. We also cap the cumulative content size: past the ceiling, remaining skills are
+    # skipped so a pathological team can't OOM the clone.
     exports: list[SkillExport] = []
-    skipped_unsafe: list[str] = []
+    skipped_unsafe_count = 0
+    skipped_unsafe_sample: list[str] = []
     skipped_oversize: list[str] = []
     total_bytes = 0
     for skill in skills:
         files = files_by_skill.get(skill.id, [])
-        if not _skill_files_are_tree_safe(files):
-            skipped_unsafe.append(skill.name)
+        if compute_spec_problems(skill.name, skill.description, [f.path for f in files]):
+            skipped_unsafe_count = _record_skip(skipped_unsafe_count, skipped_unsafe_sample, skill.name)
             continue
         skill_bytes = len((skill.body or "").encode("utf-8")) + sum(
             len((f.content or "").encode("utf-8")) for f in files
@@ -149,8 +145,13 @@ def build_team_marketplace_tree(team: Team, version: str | None = None) -> FileT
             continue
         total_bytes += skill_bytes
         exports.append(skill.to_export(files))
-    if skipped_unsafe:
-        logger.warning("skills_marketplace_skipped_unsafe_skills", team_id=team.id, skills=skipped_unsafe)
+    if skipped_unsafe_count:
+        logger.warning(
+            "skills_marketplace_skipped_unsafe_skills",
+            team_id=team.id,
+            skipped_count=skipped_unsafe_count,
+            skills_sample=skipped_unsafe_sample,
+        )
     if skipped_oversize:
         logger.warning(
             "skills_marketplace_skipped_oversize",
@@ -167,22 +168,6 @@ def build_team_marketplace_tree(team: Team, version: str | None = None) -> FileT
         marketplace_name=MARKETPLACE_NAME,
         skills=exports,
     )
-
-
-def _skill_files_are_tree_safe(files: list[LLMSkillFile]) -> bool:
-    """True if every file path is valid and no two collide case-insensitively — i.e. the set
-    synthesizes a tree real git can clone on any filesystem."""
-    seen_lower: set[str] = set()
-    for skill_file in files:
-        try:
-            validate_skill_file_path(skill_file.path)
-        except serializers.ValidationError:
-            return False
-        lowered = skill_file.path.lower()
-        if lowered in seen_lower:
-            return False
-        seen_lower.add(lowered)
-    return True
 
 
 def _files_by_skill_id(skills: list[LLMSkill]) -> dict[Any, list[LLMSkillFile]]:
@@ -391,51 +376,12 @@ def _walk_stubs(candidates: QuerySet[LLMSkill], limit: int) -> _StubWalk:
                 skipped_sample=skipped_sample,
             )
         name = row["name"]
-        if not _name_and_description_are_valid(name, row["description"]):
+        # A stub bundle writes only the generated SKILL.md, so a bundled-file path cannot break it.
+        if compute_spec_problems(name, row["description"], []):
             skipped_count = _record_skip(skipped_count, skipped_sample, name)
             continue
         stubs.append(SkillStub(name=name, description=row["description"], version=row["version"]))
     return _StubWalk(stubs=stubs, dropped_count=0, skipped_count=skipped_count, skipped_sample=skipped_sample)
-
-
-def _name_and_description_are_valid(name: str, description: str) -> bool:
-    return (
-        skill_name_is_well_formed(name)
-        and bool(description.strip())
-        and len(description) <= SPEC_DESCRIPTION_MAX_LENGTH
-    )
-
-
-_GENERATED_ENTRIES = ("SKILL.md", CODEX_METADATA_PATH)
-
-
-def bundle_paths_are_safe(paths: list[str]) -> bool:
-    """True when a skill's archive entries unpack cleanly into a home directory on any filesystem.
-
-    Every stored path must already be canonical (a legacy ``refs\\guide.md`` would be archived
-    verbatim and land as one flat file, or collide with ``refs/guide.md``), no two entries may
-    collide case-insensitively, and no entry may name a directory another entry needs
-    (``assets`` next to ``assets/logo.png``), counting the generated SKILL.md and Codex sidecar.
-    """
-    seen = {entry.lower() for entry in _GENERATED_ENTRIES}
-    for path in paths:
-        try:
-            canonical = normalize_skill_file_path(path)
-        except ValueError:
-            return False
-        if canonical != path:
-            return False
-        lowered = path.lower()
-        # Only the exact sidecar path replaces the generated one (see build_skill_tree); a case
-        # variant like `Agents/OpenAI.yaml` keys a second tree entry and would collide instead.
-        if lowered in seen and path != CODEX_METADATA_PATH:
-            return False
-        seen.add(lowered)
-    for lowered in seen:
-        parts = lowered.split("/")
-        if any("/".join(parts[:depth]) in seen for depth in range(1, len(parts))):
-            return False
-    return True
 
 
 def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
@@ -460,9 +406,9 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
         if len(trees) >= limit:
             capped = True
             break
-        # Skips are decided before the cap so an invalid skill never caps the bundle. Validity is
-        # cheap: the name and description are in the row, and the paths are a small query.
-        if not _name_and_description_are_valid(name, candidate["description"]):
+        # Skips are decided before the cap so an invalid skill never caps the bundle. The row-level
+        # rules run first, off the columns already in hand, so a skill they reject costs no query.
+        if compute_spec_problems(name, candidate["description"], []):
             skipped_count = _record_skip(skipped_count, skipped_sample, name)
             continue
         sized_files = list(
@@ -470,7 +416,7 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
             .annotate(content_bytes=_octet_length(F("content")))
             .values_list("path", "content_bytes")
         )
-        if not bundle_paths_are_safe([path for path, _ in sized_files]):
+        if compute_spec_problems(name, candidate["description"], [path for path, _ in sized_files]):
             skipped_count = _record_skip(skipped_count, skipped_sample, name)
             continue
         # The stored bytes are a floor for the rendered tree, so a skill that fails here would fail
@@ -487,11 +433,7 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
             # it either, so it is neither included, skipped nor dropped.
             continue
         files = list(LLMSkillFile.objects.filter(skill=skill).order_by("path"))
-        export = skill.to_export(files)
-        if validate_for_export(export):
-            skipped_count = _record_skip(skipped_count, skipped_sample, name)
-            continue
-        tree = build_skill_tree(export)
+        tree = build_skill_tree(skill.to_export(files))
         tree_bytes = file_tree_bytes(tree, prefix=f"{name}/")
         if total_bytes + tree_bytes > MAX_BUNDLE_BYTES:
             capped = True

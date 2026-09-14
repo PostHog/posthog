@@ -902,6 +902,63 @@ describe('exec tool', () => {
             )
         })
 
+        // Built-in PostHog skills are a catalog the store never held, so a tool
+        // description that says "load the `<name>` skill" sends an agent here and
+        // the store answers 404. The message above points at `skill-list`, which
+        // confirms the wrong conclusion — that the skill does not exist.
+        const BUILT_IN_SKILL = 'scanning-experiments-with-replay-vision'
+
+        it.each([
+            [
+                'points a connection that can run `learn` at the built-in catalog',
+                BUILT_IN_SKILL,
+                '',
+                true,
+                `Run \`learn posthog:${BUILT_IN_SKILL}\` to load it.`,
+            ],
+            [
+                'tells a connection without `learn` that it cannot load the skill',
+                BUILT_IN_SKILL,
+                '',
+                false,
+                'this connection cannot load built-in skills.',
+            ],
+            [
+                'keeps the store message for a name the built-in catalog does not know',
+                'missing-skill',
+                '',
+                false,
+                'No skill named "missing-skill"',
+            ],
+            [
+                'keeps the version message when a built-in name pins a version',
+                BUILT_IN_SKILL,
+                ',"version":7',
+                false,
+                `No version 7 of the skill "${BUILT_IN_SKILL}"`,
+            ],
+        ])('%s', async (_label, skillName, pinnedVersion, learnAvailable, expected) => {
+            const exec = createExec(
+                [makeSkillTool('skill-get', `{"detail":"Skill with name '${skillName}' not found."}`)],
+                undefined,
+                {
+                    builtInSkillHint: {
+                        isBuiltIn: (name) => name === BUILT_IN_SKILL,
+                        learnAvailable,
+                    },
+                }
+            )
+
+            const result = (await exec.handler(mockContext, {
+                command: `call skill-get {"skill_name":"${skillName}"${pinnedVersion}}`,
+            })) as string
+
+            expect(result).toContain(expected)
+            // A pinned version proves the caller already holds a store skill, so
+            // only the bare name lookup may be answered with the built-in catalog.
+            expect(result.includes('built-in PostHog skill')).toBe(skillName === BUILT_IN_SKILL && !pinnedVersion)
+        })
+
         // A file belongs to one version row, and a publish replaces the whole set,
         // so an unpinned recovery command sends an agent working from an older
         // version to a manifest whose paths it cannot fetch.
@@ -1011,6 +1068,35 @@ describe('exec tool', () => {
             await expect(
                 exec.handler(mockContext, { command: 'call skill-get {"skill_name":"real-skill"}' })
             ).rejects.toThrow(/Request failed/)
+        })
+    })
+
+    describe('governed metric run canonicality', () => {
+        function metricRunExec(envelope: Record<string, unknown>): Tool<any> {
+            return createExec([makeMockTool({ name: 'data-catalog-metric-run', handler: async () => envelope })])
+        }
+
+        it.each([
+            ['proposed', { status: 'proposed', is_drifted: false }],
+            ['drifted approved', { status: 'approved', is_drifted: true }],
+            ['deprecated', { status: 'deprecated', is_drifted: false }],
+        ])('marks a %s metric result noncanonical', async (_label, envelope) => {
+            const exec = metricRunExec({ ...envelope, results: [[42]] })
+            const result = await exec.handler(mockContext, { command: 'call data-catalog-metric-run' })
+            expect(result).toContain('NONCANONICAL')
+            expect(result).toContain('Do not present this as the answer')
+        })
+
+        it('leaves an approved, non-drifted result unmarked', async () => {
+            const exec = metricRunExec({ status: 'approved', is_drifted: false, results: [[42]] })
+            const result = await exec.handler(mockContext, { command: 'call data-catalog-metric-run' })
+            expect(result).not.toContain('NONCANONICAL')
+        })
+
+        it('leaves other tools alone', async () => {
+            const exec = createExec([makeMockTool({ handler: async () => ({ status: 'proposed' }) })])
+            const result = await exec.handler(mockContext, { command: 'call mock-tool' })
+            expect(result).not.toContain('NONCANONICAL')
         })
     })
 

@@ -33,7 +33,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 def _metric() -> dict[str, Any]:
-    return {"kind": "ExperimentMetric", "uuid": str(uuid.uuid4())}
+    return {"kind": "ExperimentMetric", "metric_type": "mean", "uuid": str(uuid.uuid4())}
 
 
 def _stats(**overrides: Any) -> TeamDirectScanStats:
