@@ -567,6 +567,15 @@ class UserAccessControl:
         return self._organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
 
     @cached_property
+    def is_access_control_enforced(self) -> bool:
+        return (
+            EE_AVAILABLE
+            and self._team is not None
+            and not self.is_organization_admin
+            and self.access_controls_supported
+        )
+
+    @cached_property
     def _is_most_specific_access_control_enabled(self) -> bool:
         """True when this organization resolves access most-specific-first (RFC 557)."""
         return bool(self._organization and self._organization.uses_most_specific_access_resolution)
@@ -1277,11 +1286,7 @@ class UserAccessControl:
         the query cache fingerprint. Empty for org admins (they bypass object AC) and when there is
         no team / EE / entitlement.
         """
-        if not EE_AVAILABLE or not self._team or self.is_organization_admin:
-            return {}
-
-        if not self.access_controls_supported:
-            # Without the entitlement, stale rules in the DB must be ignored, not enforced
+        if not self.is_access_control_enforced:
             return {}
 
         object_rows_by_resource: dict[APIScopeObject, list[_AccessControl]] = defaultdict(list)
@@ -1309,11 +1314,7 @@ class UserAccessControl:
         Empty for org admins and when there is no team / EE / entitlement, matching
         `blocked_resource_ids_by_scope`.
         """
-        if not EE_AVAILABLE or not self._team or self.is_organization_admin or not self.is_organization_active:
-            return {}
-
-        if not self.access_controls_supported:
-            # Without the entitlement, stale rules in the DB must be ignored, not enforced
+        if not self.is_access_control_enforced:
             return {}
 
         object_rows_by_resource: dict[APIScopeObject, list[_AccessControl]] = defaultdict(list)
