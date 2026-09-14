@@ -184,17 +184,6 @@ class BatchExportRun(UUIDTModel):
                 name="run_has_exactly_one_parent_batch_export_or_batch_export_on_demand",
             )
         ]
-        indexes = [
-            # `status` and `records_completed` are deliberately absent although
-            # `afetch_last_run_records_completed` filters on both. Postgres blocks HOT updates
-            # when an UPDATE writes an indexed column, predicate columns included, and every run
-            # transition writes both. Indexing either would push those updates into every index
-            # on this table.
-            models.Index(
-                fields=["batch_export", "-data_interval_end"],
-                name="be_run_export_interval_idx",
-            ),
-        ]
 
     class Status(models.TextChoices):
         """Possible states of the BatchExportRun."""
