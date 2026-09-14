@@ -187,6 +187,17 @@ describe('editor sync', () => {
 
 describe('translation validation', () => {
     let logic: ReturnType<typeof surveyLogic.build>
+    let cssSupports: typeof CSS.supports
+
+    beforeAll(() => {
+        // The form validator sanitizes appearance colors, and jsdom has no CSS.supports.
+        cssSupports = CSS.supports
+        CSS.supports = () => false
+    })
+
+    afterAll(() => {
+        CSS.supports = cssSupports
+    })
 
     beforeEach(() => {
         initKeaTests()
@@ -293,12 +304,19 @@ describe('translation validation', () => {
             ],
         })
 
+        expect(logic.values.surveyValidationErrors.questions?.[0]?.link).toBe(
+            'Use an https:// link, or an app URL scheme this project allows for mobile deep links.'
+        )
+
         await expectLogic(logic, () => {
             teamLogic.actions.loadCurrentTeamSuccess({
                 ...MOCK_DEFAULT_TEAM,
                 survey_config: { allowed_link_schemes: ['example-mobile'] },
             })
         }).toMatchValues({ translationValidationErrors: [] })
+
+        // The save gate reads the same setting, so an untouched form must clear its link error too.
+        expect(logic.values.surveyValidationErrors.questions?.[0]?.link).toBeFalsy()
     })
 
     it('does not validate survey root description translations', async () => {
