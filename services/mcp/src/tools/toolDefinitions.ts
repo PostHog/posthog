@@ -1,6 +1,6 @@
 import z from 'zod'
 
-import { hasScope, hasScopes } from '@/lib/api'
+import { hasScope, hasScopes, isServerMintOnlyScope } from '@/lib/api'
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth-scopes.generated'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { isStaffOnlyTool } from '@/lib/staff-only-tools'
@@ -360,12 +360,18 @@ export interface FlagGatedTool {
  *
  * Staff-only tools are left out for the same reason {@link getScopeGatedTools}
  * leaves them out: the hint would advertise a staff surface to a customer.
+ *
+ * The read-only gate is neutralized here, because the flag gate has precedence:
+ * the dispatcher reports a flag-hidden tool before it reports the connection's
+ * mode, and {@link getReadOnlyGatedTools} defers a flag-hidden tool to this list.
+ * Without this, a flag-hidden write tool would be in neither list on a read-only
+ * connection, and the dispatcher would report the name as unknown.
  */
 export function getFlagGatedTools(options?: ToolFilterOptions): FlagGatedTool[] {
     const excluded = new Set(options?.excludeTools ?? [])
     const gated: FlagGatedTool[] = []
 
-    for (const [name, definition] of filterToolEntries(options, false)) {
+    for (const [name, definition] of filterToolEntries({ ...options, readOnly: false }, false)) {
         if (excluded.has(name) || toolPassesFlagGate(definition, options?.featureFlags)) {
             continue
         }
@@ -422,6 +428,50 @@ export function getScopeGatedTools(scopes: string[], options?: ToolFilterOptions
             description: definition.description,
             missingScopes: required.filter((scope) => !hasScope(scopes, scope)),
         })
+    }
+
+    return gated
+}
+
+export interface ReadOnlyGatedTool {
+    name: string
+    title: string
+    description: string
+}
+
+/**
+ * Tools a read-only connection hides, while every other filter kept them. The
+ * exec dispatcher reads this so an agent on such a connection learns the tool
+ * exists and the connection cannot call it. Without the hint the agent reads the
+ * absence as a capability PostHog never shipped, and reports it as missing.
+ *
+ * `scopes` are the current key's scopes, read only to drop tools no reconnect
+ * can unlock. An ordinary missing scope does not drop a tool here, because
+ * read-only is the outer cause and the exec dispatcher reports it first.
+ */
+export function getReadOnlyGatedTools(scopes: string[], options?: ToolFilterOptions): ReadOnlyGatedTool[] {
+    if (!options?.readOnly) {
+        return []
+    }
+    const excluded = new Set(options.excludeTools ?? [])
+    const gated: ReadOnlyGatedTool[] = []
+
+    for (const [name, definition] of filterToolEntries({ ...options, readOnly: false }, true)) {
+        if (excluded.has(name) || definition.annotations.readOnlyHint === true) {
+            continue
+        }
+        const required = definition.required_scopes ?? []
+        // Never hint at staff-only tools, for the reason {@link getScopeGatedTools} gives.
+        if (isStaffOnlyTool(required)) {
+            continue
+        }
+        // A tool behind a scope only the server mints stays out too. The hint tells the
+        // agent to reconnect without read-only mode, and after that reconnect the same
+        // tool fails the scope gate, so the hint would name a second dead end.
+        if (required.some((scope) => isServerMintOnlyScope(scope) && !hasScope(scopes, scope))) {
+            continue
+        }
+        gated.push({ name, title: definition.title, description: definition.description })
     }
 
     return gated

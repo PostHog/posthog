@@ -30,62 +30,11 @@ vi.mock('@/lib/posthog', async () => {
 })
 
 import { InstructionsBuilder } from '@/hono/instructions'
-import type { ResolvedState } from '@/hono/request-state-resolver'
+import { makeResolvedState as makeState } from './helpers/resolved-state'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { getPostHogClient } from '@/lib/posthog'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH } from '@/tools/toolDefinitions'
-
-function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
-    return {
-        reqCtx: {
-            cache: { get: vi.fn(), set: vi.fn() },
-            safelyGetAnalyticsContext: vi.fn().mockResolvedValue(undefined),
-            trackEvent: vi.fn(),
-            getSessionUuid: vi.fn().mockResolvedValue(undefined),
-            getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
-        } as any,
-        context: {
-            api: {},
-            cache: {},
-            env: {},
-            stateManager: {},
-            sessionManager: {},
-            getDistinctId: vi.fn(),
-            trackEvent: vi.fn(),
-        } as any,
-        useSingleExec: false,
-        toolFeatureFlags: undefined,
-        apiKeyScopes: [],
-        oauthClientId: undefined,
-        clientProfile: {
-            capabilities: { supportsInstructions: true },
-            isCliModeEnabled: vi.fn(() => false),
-            isClaudeUiHost: vi.fn(() => false),
-            isInlineExecUiHost: vi.fn(() => false),
-            isClaudeChatHost: vi.fn(() => false),
-        } as any,
-        requestContext: {
-            authMethod: 'personal_api_key',
-            sessionId: 'sess-1',
-            mcpClientName: 'test',
-            mcpClientVersion: '1.0',
-            mcpProtocolVersion: '2025-03-26',
-            transport: 'streamable-http',
-        },
-        sessionContext: null,
-        allTools: tools as any,
-        scopeGatedTools: [],
-        flagGatedTools: [],
-        gatewayToolsEnabled: false,
-        distinctId: 'test-distinct-id',
-        renderUiEnabled: false,
-        metadata: undefined,
-        metadataCompact: undefined,
-        groupTypes: undefined,
-        ...overrides,
-    }
-}
 
 describe('ToolExecutor analytics capture', () => {
     let catalog: ToolCatalog

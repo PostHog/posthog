@@ -8,6 +8,7 @@ import { getToolsFromContext } from '@/tools'
 import {
     getAdvertisedOAuthScopes,
     getFlagGatedTools,
+    getReadOnlyGatedTools,
     getToolDefinitions,
     getRequiredFeatureFlags,
     getToolsForFeatures,
@@ -1157,6 +1158,16 @@ describe('getFlagGatedTools', () => {
         expect(entry?.supersededBy).toEqual([])
     })
 
+    // The flag gate has precedence over the read-only gate, and the read-only reporter
+    // defers a flag-hidden tool to this list, so this list has to hold it. Otherwise a
+    // read-only connection finds the tool in neither list and reports it as unknown.
+    it('reports a retired write tool on a read-only connection, which defers it here', () => {
+        const options = { readOnly: true, featureFlags: { 'revamped-py-notebooks': true } }
+
+        expect(getFlagGatedTools(options).map((tool) => tool.name)).toContain('notebooks-create')
+        expect(getReadOnlyGatedTools(['*'], options).map((tool) => tool.name)).not.toContain('notebooks-create')
+    })
+
     // The successor lives on the definition next to the gate that retires the tool.
     // Without it, a call to the retired name reads to an agent as a removed capability.
     it('every retired tool declares a successor or says why it has none', () => {
@@ -1245,5 +1256,45 @@ describe('Tool Filtering - Entitlements (access control family)', () => {
         for (const tool of [...memberAndDefaultTools, ...roleTools]) {
             expect(unknown).toContain(tool)
         }
+    })
+})
+
+describe('getReadOnlyGatedTools', () => {
+    it('reports a write tool a read-only connection hides, so a caller learns it exists', () => {
+        const gated = getReadOnlyGatedTools(['*'], { readOnly: true }).map((tool) => tool.name)
+
+        expect(gated).toContain('cohorts-create')
+        expect(gated).not.toContain('cohorts-list')
+    })
+
+    it('reports nothing when the connection serves write tools', () => {
+        expect(getReadOnlyGatedTools(['*'], {})).toEqual([])
+        expect(getReadOnlyGatedTools(['*'], { readOnly: false })).toEqual([])
+    })
+
+    it('leaves out a tool another filter already hid, so the hint stays reachable', () => {
+        const gated = getReadOnlyGatedTools(['*'], {
+            readOnly: true,
+            features: ['cohorts'],
+            excludeTools: ['cohorts-partial-update'],
+        }).map((tool) => tool.name)
+
+        expect(gated).toContain('cohorts-create')
+        expect(gated).not.toContain('cohorts-partial-update')
+        expect(gated).not.toContain('experiment-create')
+    })
+
+    it('leaves out a tool a server-minted scope gates, which no reconnect unlocks', () => {
+        const userKey = getReadOnlyGatedTools(['*'], { readOnly: true, features: ['signals'] }).map((tool) => tool.name)
+
+        expect(userKey).toContain('scout-create')
+        expect(userKey).not.toContain('scout-emit-report')
+
+        const serverKey = getReadOnlyGatedTools(['*', 'signal_scout_report:write'], {
+            readOnly: true,
+            features: ['signals'],
+        }).map((tool) => tool.name)
+
+        expect(serverKey).toContain('scout-emit-report')
     })
 })

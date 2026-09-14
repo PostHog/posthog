@@ -149,6 +149,7 @@ export type ExecCommandErrorReason =
     | 'deprecated_tool'
     | 'gated_tool'
     | 'missing_scope'
+    | 'read_only_tool'
     | 'invalid_json'
     | 'usage'
     | 'invalid_regex'

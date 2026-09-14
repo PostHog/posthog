@@ -41,6 +41,8 @@ import { z } from 'zod'
 import { trackToolCall } from '@/hono/analytics'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
+
+import { makeResolvedState as makeState } from './helpers/resolved-state'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import {
@@ -59,58 +61,6 @@ const mockTrackToolCall = vi.mocked(trackToolCall)
 function trackToolCallExtras(tool: string): Record<string, unknown> | undefined {
     const call = mockTrackToolCall.mock.calls.find((c) => c[0] === tool)
     return call?.[4]
-}
-
-function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
-    return {
-        reqCtx: {
-            cache: { get: vi.fn(), set: vi.fn() },
-            safelyGetAnalyticsContext: vi.fn().mockResolvedValue(undefined),
-            trackEvent: vi.fn(),
-            trackContextSwitchEvent: vi.fn(),
-            getSessionUuid: vi.fn().mockResolvedValue(undefined),
-            getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
-        } as any,
-        context: {
-            api: {},
-            cache: {},
-            env: {},
-            stateManager: {},
-            sessionManager: {},
-            getDistinctId: vi.fn(),
-            trackEvent: vi.fn(),
-        } as any,
-        useSingleExec: false,
-        toolFeatureFlags: undefined,
-        apiKeyScopes: [],
-        oauthClientId: undefined,
-        clientProfile: {
-            capabilities: { supportsInstructions: true },
-            isCliModeEnabled: vi.fn(() => false),
-            isClaudeUiHost: vi.fn(() => false),
-            isInlineExecUiHost: vi.fn(() => false),
-            isClaudeChatHost: vi.fn(() => false),
-        } as any,
-        requestContext: {
-            authMethod: 'personal_api_key',
-            sessionId: 'sess-1',
-            mcpClientName: 'test',
-            mcpClientVersion: '1.0',
-            mcpProtocolVersion: '2025-03-26',
-            transport: 'streamable-http',
-        },
-        sessionContext: null,
-        allTools: tools as any,
-        scopeGatedTools: [],
-        flagGatedTools: [],
-        gatewayToolsEnabled: false,
-        distinctId: 'test-distinct-id',
-        renderUiEnabled: false,
-        metadata: undefined,
-        metadataCompact: undefined,
-        groupTypes: undefined,
-        ...overrides,
-    }
 }
 
 type FakeToolBase = { schema: z.ZodObject<Record<string, never>>; handler: ReturnType<typeof vi.fn>; _meta: undefined }
@@ -592,17 +542,45 @@ describe('ToolExecutor metrics', () => {
             })
         })
 
-        it('classifies a scope-gated tool as permission, not validation', async () => {
-            // The agent can't fix this by sending different input — the connection has
-            // to be reauthorized, which is what the permission-rate alert watches for.
+        // The agent can't fix either of these by sending different input — the connection
+        // has to be reauthorized or reconnected without read-only mode, which is what the
+        // permission-rate alert watches for.
+        it.each([
+            [
+                'a scope-gated tool',
+                (state: ResolvedState) => {
+                    state.scopeGatedTools = [
+                        {
+                            name: 'gated-tool',
+                            title: 'Gated tool',
+                            description: 'A gated tool',
+                            missingScopes: ['insight:read'],
+                        },
+                    ]
+                },
+                'missing_scope',
+            ],
+            [
+                'a read-only-gated tool',
+                (state: ResolvedState) => {
+                    state.readOnlyGatedTools = [
+                        { name: 'gated-tool', title: 'Gated tool', description: 'A gated tool' },
+                    ]
+                },
+                'read_only_tool',
+            ],
+        ])('classifies %s as permission, not validation', async (_label, gate, reason) => {
             const state = execState()
-            state.scopeGatedTools = [{ name: 'gated-tool', missingScopes: ['insight:read'] }] as any
+            gate(state)
 
             await executor.handleToolCall({ name: 'exec', arguments: { command: 'info gated-tool' } }, state)
 
             expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'permission' }])
+            expect(callsFor(mockToolCallsInc, 'exec')).toEqual([{ tool: 'exec', status: 'error' }])
             expect(trackToolCallExtras('exec')).toMatchObject({
-                $mcp_error_message: 'Exec command rejected: missing_scope',
+                $mcp_error_type: 'permission',
+                $mcp_error_code: reason,
+                $mcp_error_message: `Exec command rejected: ${reason}`,
             })
         })
 

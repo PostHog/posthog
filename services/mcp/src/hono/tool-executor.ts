@@ -640,6 +640,7 @@ export class ToolExecutor {
                     this.skillCatalogService?.getCatalog()
                 ),
                 flagGatedTools: state.flagGatedTools,
+                readOnlyGatedTools: state.readOnlyGatedTools,
                 skillsSession: this.instructionsBuilder.execSkillsEnabled(state)
                     ? buildSkillsSessionState(state.reqCtx, state.requestContext.mcpSessionId)
                     : undefined,
@@ -756,11 +757,14 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         }
     }
     // Agent-recoverable command mistakes, so keep them out of the `internal` rate
-    // ops alerts on. `missing_scope` is the exception: no input the agent sends
-    // fixes it, the connection has to be reauthorized.
+    // ops alerts on. `missing_scope` and `read_only_tool` are the exceptions: no
+    // input the agent sends fixes either one, because the connection has to be
+    // reauthorized or reconnected without read-only mode. `errorCode` keeps the
+    // two apart inside the bucket.
     if (error instanceof ExecCommandError) {
+        const connectionGated = error.reason === 'missing_scope' || error.reason === 'read_only_tool'
         return {
-            errorType: error.reason === 'missing_scope' ? 'permission' : 'validation',
+            errorType: connectionGated ? 'permission' : 'validation',
             errorCode: error.reason,
         }
     }
@@ -939,7 +943,8 @@ function execCommandAnalyticsProperties(execArgs: unknown, state: ResolvedState)
         (name) =>
             state.allTools.some((t) => t.name === name) ||
             state.scopeGatedTools.some((t) => t.name === name) ||
-            state.flagGatedTools.some((t) => t.name === name)
+            state.flagGatedTools.some((t) => t.name === name) ||
+            state.readOnlyGatedTools.some((t) => t.name === name)
     )
     return {
         ...(verb !== undefined ? { $mcp_exec_verb: verb } : {}),

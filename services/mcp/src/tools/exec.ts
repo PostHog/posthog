@@ -19,7 +19,7 @@ import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from 
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { formatSkillLookupMiss } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
-import { getToolDefinitions, type FlagGatedTool, type ScopeGatedTool } from './toolDefinitions'
+import { getToolDefinitions, type FlagGatedTool, type ReadOnlyGatedTool, type ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_INFORMATIONAL_RESPONSE_KEY,
@@ -53,6 +53,9 @@ async function resolveConnectedSummary(
 /** Ranked (plain-word) search can match loosely on a common token like
  *  "create"; cap the returned names so a vague query can't dump the catalog. */
 const MAX_RANKED_SEARCH_RESULTS = 25
+
+const rankedTruncationHint = (total: number): string =>
+    `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${total} matches, ranked by relevance. Use a more specific query to narrow the results.`
 
 const DATA_DOMAIN_TOOL_PREFIXES = ['billing-', 'web-analytics-', 'usage-metrics-', 'query-', 'marketing-']
 
@@ -127,6 +130,14 @@ export interface ExecCommandMeta {
     exec_search_match_count?: number
     /** How many of those matches came from a connected third-party server. */
     exec_search_gateway_match_count?: number
+    /**
+     * How many tools matched but are hidden because the connection is read-only. A
+     * search that matched only these carries `exec_search_match_count: 0`, which the
+     * field above reads as a capability PostHog does not have. Only a read-only
+     * connection can hide a match, so the field is absent from every other search
+     * rather than reporting a constant zero.
+     */
+    exec_search_read_only_match_count?: number
 }
 
 export type ExecCommandTracker = (meta: ExecCommandMeta) => void
@@ -172,6 +183,11 @@ export interface ExecToolOptions {
      * a retired name name its successor instead of reading as an unknown tool.
      */
     flagGatedTools?: FlagGatedTool[]
+    /**
+     * Tools this connection hides because it is read-only. Lets a call to a write
+     * tool report the connection's mode instead of reading as an unknown tool.
+     */
+    readOnlyGatedTools?: ReadOnlyGatedTool[]
 }
 
 const CALL_USAGE = 'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
@@ -1288,10 +1304,16 @@ function flagGatedToolMessage(gated: FlagGatedTool, tools: Tool<ZodObjectAny>[])
     return `Tool "${gated.name}" is retired on this PostHog connection. Use ${successors} instead.${hint}`
 }
 
+const READ_ONLY_GATED_MESSAGE = (name: string): string =>
+    `Tool "${name}" exists, but this MCP connection is read-only, so it serves only the tools that read data. ` +
+    `The capability was not removed. To use it, reconnect the PostHog MCP without read-only mode: drop the ` +
+    `"readonly" parameter from the server URL, or the "x-posthog-read-only" header.`
+
 function findTool(
     tools: Tool<ZodObjectAny>[],
     scopeGatedTools: ScopeGatedTool[],
     flagGatedTools: FlagGatedTool[],
+    readOnlyGatedTools: ReadOnlyGatedTool[],
     name: string
 ): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
@@ -1303,6 +1325,11 @@ function findTool(
         const flagGatedTool = flagGatedTools.find((candidate) => candidate.name === name)
         if (flagGatedTool) {
             throw new ExecCommandError(flagGatedToolMessage(flagGatedTool, tools), 'gated_tool')
+        }
+        // Read-only is reported before a missing scope: the connection's mode is the
+        // outer cause, and it is what the user has to change first.
+        if (readOnlyGatedTools.some((candidate) => candidate.name === name)) {
+            throw new ExecCommandError(READ_ONLY_GATED_MESSAGE(name), 'read_only_tool')
         }
         const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
         if (scopeGatedTool) {
@@ -1331,6 +1358,7 @@ export function createExecTool(
 ): Tool<ExecSchema> {
     const ExecSchema = makeExecSchema(commandReference)
     const flagGatedTools = options.flagGatedTools ?? []
+    const readOnlyGatedTools = options.readOnlyGatedTools ?? []
 
     return {
         name: 'exec',
@@ -1425,12 +1453,14 @@ export function createExecTool(
                     let matchedNames: string[]
                     let matches: string[]
                     let gatedMatches: ScopeGatedTool[]
+                    let readOnlyMatches: string[]
                     let truncatedFrom = 0
                     if (isRegexPattern(rest)) {
                         try {
                             matchedNames = searchToolsRegex(searchableTools, rest).map((t) => t.name)
                             matches = matchedNames
                             gatedMatches = searchToolsRegex(scopeGatedTools, rest)
+                            readOnlyMatches = searchToolsRegex(readOnlyGatedTools, rest).map((t) => t.name)
                         } catch {
                             throw new ExecCommandError(`Invalid regex pattern: "${rest}"`, 'invalid_regex')
                         }
@@ -1445,6 +1475,7 @@ export function createExecTool(
                         gatedMatches = searchToolsRanked(scopeGatedTools, rest)
                             .map((r) => gatedByName.get(r.name))
                             .filter((t): t is ScopeGatedTool => t !== undefined)
+                        readOnlyMatches = searchToolsRanked(readOnlyGatedTools, rest).map((r) => r.name)
                     }
 
                     options.trackCommand?.({
@@ -1452,20 +1483,52 @@ export function createExecTool(
                         exec_search_query: rest,
                         exec_search_match_count: matchedNames.length,
                         exec_search_gateway_match_count: matchedNames.filter(isGatewayToolName).length,
+                        ...(readOnlyMatches.length > 0
+                            ? { exec_search_read_only_match_count: readOnlyMatches.length }
+                            : {}),
                     })
 
-                    if (gatedMatches.length > 0) {
-                        const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
-                        return JSON.stringify({
-                            matches,
-                            scope_gated_matches: gatedMatches.map((t) => ({
+                    if (gatedMatches.length > 0 || readOnlyMatches.length > 0) {
+                        const payload: Record<string, unknown> = { matches }
+                        const hints: string[] = []
+                        // The page and its marker are reported here too, because a hidden
+                        // match is common on a read-only connection and this branch would
+                        // otherwise return a capped list that reads as the whole result.
+                        if (truncatedFrom > 0) {
+                            payload.truncated = true
+                            hints.push(rankedTruncationHint(truncatedFrom))
+                        }
+                        if (gatedMatches.length > 0) {
+                            const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
+                            payload.scope_gated_matches = gatedMatches.map((t) => ({
                                 name: t.name,
                                 missing_scopes: t.missingScopes,
-                            })),
-                            hint:
+                            }))
+                            hints.push(
                                 `These tools also match but are hidden because the API key is missing the ` +
-                                `required scope(s): ${requiredScopes.join(', ')}. The user needs to re-authenticate the MCP or connector, if the harness supports OAuth, or add the scopes to the personal API key to use these tools.`,
-                        })
+                                    `required scope(s): ${requiredScopes.join(', ')}. The user needs to re-authenticate the MCP or connector, if the harness supports OAuth, or add the scopes to the personal API key to use these tools.`
+                            )
+                        }
+                        if (readOnlyMatches.length > 0) {
+                            // A common token matches most of the hidden write catalog, so this
+                            // list takes the same cap the visible page takes.
+                            const shownReadOnly = readOnlyMatches.slice(0, MAX_RANKED_SEARCH_RESULTS)
+                            const omittedReadOnly = readOnlyMatches.length - shownReadOnly.length
+                            payload.read_only_matches = shownReadOnly
+                            if (omittedReadOnly > 0) {
+                                payload.read_only_match_count = readOnlyMatches.length
+                            }
+                            hints.push(
+                                `These tools also match but are hidden because this MCP connection is read-only. ` +
+                                    `They exist and the capability was not removed. The user needs to reconnect the PostHog MCP ` +
+                                    `without read-only mode to use them.` +
+                                    (omittedReadOnly > 0
+                                        ? ` Showing ${shownReadOnly.length} of ${readOnlyMatches.length} hidden matches, so narrow the query to see the rest.`
+                                        : '')
+                            )
+                        }
+                        payload.hint = hints.join(' ')
+                        return JSON.stringify(payload)
                     }
                     if (matches.length === 0) {
                         return JSON.stringify({
@@ -1478,12 +1541,7 @@ export function createExecTool(
                         return JSON.stringify({
                             matches,
                             truncated: true,
-                            hint: [
-                                catalogHint,
-                                `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
-                            ]
-                                .filter(Boolean)
-                                .join(' '),
+                            hint: [catalogHint, rankedTruncationHint(truncatedFrom)].filter(Boolean).join(' '),
                         })
                     }
                     const catalogHint = catalogDiscoveryHint(allTools, matches)
@@ -1502,7 +1560,13 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
                     }
-                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, infoArgs)
+                    const tool = findTool(
+                        await resolveTools(),
+                        scopeGatedTools,
+                        flagGatedTools,
+                        readOnlyGatedTools,
+                        infoArgs
+                    )
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
                     // are optional and auto-filled. The default `io: 'output'` would list them as
@@ -1547,7 +1611,13 @@ export function createExecTool(
                         throw new ExecCommandError('Usage: schema <tool_name> [field_path]', 'usage')
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
-                    const schemaTool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, schemaToolName)
+                    const schemaTool = findTool(
+                        await resolveTools(),
+                        scopeGatedTools,
+                        flagGatedTools,
+                        readOnlyGatedTools,
+                        schemaToolName
+                    )
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
                     const fullJsonSchema =
@@ -1604,7 +1674,13 @@ export function createExecTool(
                         throw new ExecCommandError(CALL_USAGE, 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
-                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName)
+                    const tool = findTool(
+                        await resolveTools(),
+                        scopeGatedTools,
+                        flagGatedTools,
+                        readOnlyGatedTools,
+                        toolName
+                    )
                     const gateMessage = await resolveSkillsGate(options.skillsSession, noSkills)
                     if (gateMessage) {
                         throw new ExecCommandError(gateMessage, 'skills_gate')

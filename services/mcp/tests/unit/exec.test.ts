@@ -16,6 +16,7 @@ import {
     describeApiValidationError,
     describeExecCommand,
     describeValidationError,
+    type ExecCommandMeta,
     type ExecInnerCallProperties,
     type ExecToolOptions,
     formatInputValidationError,
@@ -1594,6 +1595,129 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command: 'call not-a-posthog-tool {}' })).rejects.toThrow(
                 /Unknown tool[\s\S]*search not-a-posthog-tool/
             )
+        })
+    })
+
+    describe('read-only gated tools', () => {
+        const readOnlyGatedTools = [
+            {
+                name: 'cohorts-create',
+                title: 'Create cohort',
+                description: 'Create a cohort (a saved group of persons)',
+            },
+        ]
+
+        it('reports a write tool as existing but unreachable, not as unknown', async () => {
+            const exec = createExec([makeMockTool({ name: 'cohorts-list' })], undefined, { readOnlyGatedTools })
+
+            for (const command of ['call cohorts-create {}', 'info cohorts-create', 'schema cohorts-create name']) {
+                const message = await exec.handler(mockContext, { command }).then(
+                    () => '',
+                    (error: Error) => error.message
+                )
+                expect(message).toContain('this MCP connection is read-only')
+                expect(message).not.toContain('Unknown tool')
+            }
+        })
+
+        // Read-only is the outer cause and the one the user fixes first, so it wins
+        // over the scope hint when a write tool is behind both.
+        it('reports read-only ahead of a missing scope', async () => {
+            const exec = createExecTool(
+                [makeMockTool({ name: 'cohorts-list' })],
+                mockContext,
+                'desc',
+                'cmd',
+                undefined,
+                undefined,
+                [
+                    {
+                        name: 'cohorts-create',
+                        title: 'Create cohort',
+                        description: 'Create a cohort',
+                        missingScopes: ['cohort:write'],
+                    },
+                ],
+                { readOnlyGatedTools }
+            )
+
+            await expect(exec.handler(mockContext, { command: 'info cohorts-create' })).rejects.toThrow(/read-only/)
+        })
+
+        it('surfaces the hidden write tools a search matched', async () => {
+            const exec = createExec([makeMockTool({ name: 'cohorts-list', title: 'List all cohorts' })], undefined, {
+                readOnlyGatedTools,
+            })
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search cohort' })) as string)
+
+            expect(result.matches).toEqual(['cohorts-list'])
+            expect(result.read_only_matches).toEqual(['cohorts-create'])
+            expect(result.hint).toContain('read-only')
+        })
+
+        it('stays silent about write tools a search did not match', async () => {
+            const exec = createExec(
+                [makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })],
+                undefined,
+                {
+                    readOnlyGatedTools,
+                }
+            )
+
+            const result = await exec.handler(mockContext, { command: 'search feature-flag' })
+
+            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+        })
+
+        // `exec_search_match_count` is 0 for these searches, and a 0 there is read as a
+        // capability PostHog does not have. Without this count, every search for a tool
+        // the connection hides would be filed as an unmet capability.
+        it('counts the hidden matches a search found', async () => {
+            const tracked: ExecCommandMeta[] = []
+            const exec = createExec(
+                [makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })],
+                undefined,
+                { readOnlyGatedTools, trackCommand: (meta) => tracked.push(meta) }
+            )
+
+            await exec.handler(mockContext, { command: 'search cohort' })
+
+            expect(tracked.at(-1)).toMatchObject({
+                exec_search_query: 'cohort',
+                exec_search_match_count: 0,
+                exec_search_read_only_match_count: 1,
+            })
+        })
+
+        it('caps the hidden matches a broad query returns, and says how many there are', async () => {
+            const manyGated = Array.from({ length: 30 }, (_, index) => ({
+                name: `cohorts-create-${index}`,
+                title: 'Create cohort',
+                description: 'Create a cohort',
+            }))
+            const exec = createExec([makeMockTool({ name: 'cohorts-list', title: 'List all cohorts' })], undefined, {
+                readOnlyGatedTools: manyGated,
+            })
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search cohort' })) as string)
+
+            expect(result.read_only_matches).toHaveLength(25)
+            expect(result.read_only_match_count).toBe(30)
+            expect(result.hint).toContain('Showing 25 of 30 hidden matches')
+        })
+
+        it('keeps the truncation marker on the visible page when a hidden tool also matched', async () => {
+            const manyVisible = Array.from({ length: 30 }, (_, index) =>
+                makeMockTool({ name: `cohorts-list-${index}`, title: 'List all cohorts' })
+            )
+            const exec = createExec(manyVisible, undefined, { readOnlyGatedTools })
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search cohort' })) as string)
+
+            expect(result.matches).toHaveLength(25)
+            expect(result.truncated).toBe(true)
+            expect(result.hint).toContain('top 25 of 30 matches')
         })
     })
 
