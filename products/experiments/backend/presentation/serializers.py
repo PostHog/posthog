@@ -2001,11 +2001,13 @@ class ExperimentWatchVariantSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="The variant key.")
     persons = serializers.IntegerField(
         help_text=(
-            "Exposed people the comparison covered for this variant: the most recently exposed people, each "
-            "read from their first session after being exposed. People rather than sessions because a variant "
-            "can change how often the flag is evaluated again later, which moves a variant's session count "
-            "without anyone behaving differently. One session each, from the moment of exposure on, so every "
-            "variant gets the same amount of behavior per person."
+            "Exposed people the comparison read for this variant: the most recently exposed people, each "
+            "read from their first session after being exposed. Someone selected who had no session in that "
+            "horizon is not counted here, so this sits at or below the variant's enrollment between date_from "
+            "and date_to. People rather than sessions because a variant can change how often the flag is "
+            "evaluated again later, which moves a variant's session count without anyone behaving differently. "
+            "One session each, from the moment of exposure on, so every variant gets the same amount of "
+            "behavior per person."
         )
     )
     sessions = serializers.IntegerField(
@@ -2080,12 +2082,14 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     )
     date_to = serializers.DateTimeField(
         help_text=(
-            "One minute past the newest compared person's first exposure. Every exposed person between "
-            "date_from and date_to was compared, so the pair is safe to describe as the enrollment the "
-            "comparison covered. While an experiment runs this sits about an hour before now, because the "
-            "newest hour of enrollment is held back until those people's first sessions have finished rather "
-            f"than read half-way through. Sessions reach past it, up to {FIRST_SESSION_HORIZON_HOURS} hours "
-            "after each person's own exposure, so this is not the end of the events that were read."
+            "One minute past the newest compared person's first exposure. Nobody first exposed between "
+            "date_from and date_to was passed over, so the pair is a stretch of enrollment rather than a hull "
+            "around scattered people. It bounds who was selected, not who was read: variants[].persons counts "
+            "only those who then had a session. While an experiment runs this sits about an hour before now, "
+            "because the newest hour of enrollment is held back until those people's first sessions have "
+            "finished rather than read half-way through. Sessions reach past it, up to "
+            f"{FIRST_SESSION_HORIZON_HOURS} hours after each person's own exposure, so this is not the end of "
+            "the events that were read."
         )
     )
     filter_test_accounts = serializers.BooleanField(
