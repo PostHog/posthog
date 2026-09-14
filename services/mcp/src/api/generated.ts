@@ -37845,6 +37845,11 @@ export namespace Schemas {
       apply_sync_defaults?: boolean;
     }
 
+    export interface ExternalDataSourceBulkUpdateSchemas {
+      /** Schema updates to apply in a single batch. */
+      schemas: ExternalDataSourceBulkUpdateSchema[];
+    }
+
     export interface ExternalDataSourceConnectionOption {
       readonly id: string;
       /** @nullable */
@@ -65769,11 +65774,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
-    }
-
-    export interface PatchedExternalDataSourceBulkUpdateSchemas {
-      /** Schema updates to apply in a single batch. */
-      schemas?: ExternalDataSourceBulkUpdateSchema[];
     }
 
     export type PatchedExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
@@ -98863,21 +98863,6 @@ export namespace Schemas {
     };
 
     export type ExternalDataSourcesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
     /**
      * Number of results to return per page.
      */
