@@ -13,8 +13,8 @@
          argMaxMerge(ev.function_state) AS function,
          argMaxMerge(ev.source_state) AS source,
          sum(ev.occ) AS occurrences,
-         uniqMerge(ev.sessions_state) AS sessions,
-         uniqMerge(ev.users_state) AS users,
+         least(uniqMerge(ev.sessions_state), sum(ev.occ)) AS sessions,
+         least(uniqMerge(ev.users_state), sum(ev.occ)) AS users,
          sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
@@ -78,8 +78,8 @@
          argMaxMerge(ev.function_state) AS function,
          argMaxMerge(ev.source_state) AS source,
          sum(ev.occ) AS occurrences,
-         uniqMerge(ev.sessions_state) AS sessions,
-         uniqMerge(ev.users_state) AS users,
+         least(uniqMerge(ev.sessions_state), sum(ev.occ)) AS sessions,
+         least(uniqMerge(ev.users_state), sum(ev.occ)) AS users,
          sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
@@ -614,8 +614,8 @@
          argMaxMerge(ev.function_state) AS function,
          argMaxMerge(ev.source_state) AS source,
          sum(ev.occ) AS occurrences,
-         uniqMerge(ev.sessions_state) AS sessions,
-         uniqMerge(ev.users_state) AS users,
+         least(uniqMerge(ev.sessions_state), sum(ev.occ)) AS sessions,
+         least(uniqMerge(ev.users_state), sum(ev.occ)) AS users,
          sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
@@ -844,8 +844,8 @@
          argMaxMerge(ev.function_state) AS function,
          argMaxMerge(ev.source_state) AS source,
          sum(ev.occ) AS occurrences,
-         uniqMerge(ev.sessions_state) AS sessions,
-         uniqMerge(ev.users_state) AS users,
+         least(uniqMerge(ev.sessions_state), sum(ev.occ)) AS sessions,
+         least(uniqMerge(ev.users_state), sum(ev.occ)) AS users,
          sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
@@ -1026,8 +1026,8 @@
          argMaxMerge(ev.function_state) AS function,
          argMaxMerge(ev.source_state) AS source,
          sum(ev.occ) AS occurrences,
-         uniqMerge(ev.sessions_state) AS sessions,
-         uniqMerge(ev.users_state) AS users,
+         least(uniqMerge(ev.sessions_state), sum(ev.occ)) AS sessions,
+         least(uniqMerge(ev.users_state), sum(ev.occ)) AS users,
          sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
@@ -1091,8 +1091,8 @@
          argMaxMerge(ev.function_state) AS function,
          argMaxMerge(ev.source_state) AS source,
          sum(ev.occ) AS occurrences,
-         uniqMerge(ev.sessions_state) AS sessions,
-         uniqMerge(ev.users_state) AS users,
+         least(uniqMerge(ev.sessions_state), sum(ev.occ)) AS sessions,
+         least(uniqMerge(ev.users_state), sum(ev.occ)) AS users,
          sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
@@ -1156,8 +1156,8 @@
          argMaxMerge(ev.function_state) AS function,
          argMaxMerge(ev.source_state) AS source,
          sum(ev.occ) AS occurrences,
-         uniqMerge(ev.sessions_state) AS sessions,
-         uniqMerge(ev.users_state) AS users,
+         least(uniqMerge(ev.sessions_state), sum(ev.occ)) AS sessions,
+         least(uniqMerge(ev.users_state), sum(ev.occ)) AS users,
          sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 4))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
@@ -1221,8 +1221,8 @@
          argMaxMerge(ev.function_state) AS function,
          argMaxMerge(ev.source_state) AS source,
          sum(ev.occ) AS occurrences,
-         uniqMerge(ev.sessions_state) AS sessions,
-         uniqMerge(ev.users_state) AS users,
+         least(uniqMerge(ev.sessions_state), sum(ev.occ)) AS sessions,
+         least(uniqMerge(ev.users_state), sum(ev.occ)) AS users,
          sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
                                             and isNull(i)), ev.occ, toUInt64(0)), range(0, 3))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
