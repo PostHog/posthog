@@ -90721,6 +90721,26 @@ export namespace Schemas {
       achievements_opt_out: boolean;
     }
 
+    /**
+     * Webhook inputs to store, keyed by the source type's webhook field names (e.g. Stripe's 'signing_secret'). Keys the source type does not define are rejected, and a required field cannot be set to an empty value.
+     */
+    export type WebhookInputsUpdateInputs = {[key: string]: string};
+
+    export interface WebhookInputsUpdate {
+      /** Webhook inputs to store, keyed by the source type's webhook field names (e.g. Stripe's 'signing_secret'). Keys the source type does not define are rejected, and a required field cannot be set to an empty value. */
+      inputs: WebhookInputsUpdateInputs;
+    }
+
+    export interface WebhookInputsUpdateResponse {
+      /** Whether the inputs were stored and accepted by the external source. */
+      success: boolean;
+      /**
+         * Why the external source rejected the updated inputs.
+         * @nullable
+         */
+      error?: string | null;
+    }
+
     export interface WebhookUrl {
       /** URL to register in Customer.io so it posts subscription changes to PostHog. */
       url: string;

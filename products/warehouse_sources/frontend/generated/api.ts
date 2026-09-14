@@ -51,8 +51,11 @@ import type {
     SourcePreviewResponseApi,
     SourceSetupApi,
     SourceSetupResponseApi,
+    SourceSetupWebhookApi,
     WarehouseColumnStatisticsApi,
     WarehouseColumnStatisticsListParams,
+    WebhookInputsUpdateApi,
+    WebhookInputsUpdateResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -703,14 +706,11 @@ export const getExternalDataSourcesCreateWebhookCreateUrl = (projectId: string, 
 export const externalDataSourcesCreateWebhookCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
+): Promise<SourceSetupWebhookApi> => {
+    return apiMutator<SourceSetupWebhookApi>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -1008,15 +1008,18 @@ export const getExternalDataSourcesUpdateWebhookInputsCreateUrl = (projectId: st
 export const externalDataSourcesUpdateWebhookInputsCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    webhookInputsUpdateApi: WebhookInputsUpdateApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesUpdateWebhookInputsCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
+): Promise<WebhookInputsUpdateResponseApi> => {
+    return apiMutator<WebhookInputsUpdateResponseApi>(
+        getExternalDataSourcesUpdateWebhookInputsCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(webhookInputsUpdateApi),
+        }
+    )
 }
 
 export const getExternalDataSourcesWebhookInfoRetrieveUrl = (projectId: string, id: string) => {

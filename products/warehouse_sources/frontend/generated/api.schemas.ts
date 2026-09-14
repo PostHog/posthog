@@ -4920,12 +4920,49 @@ export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
     schemas?: ExternalDataSourceBulkUpdateSchemaApi[]
 }
 
+export interface SourceSetupWebhookApi {
+    /** Whether the webhook was registered with the external service. When true, webhook-capable tables (including webhook-only ones) sync via real-time webhooks; when false, tables fall back to the polling sync defaults and webhook-only tables stay disabled. */
+    success: boolean
+    /**
+     * The PostHog endpoint the external service delivers events to.
+     * @nullable
+     */
+    webhook_url: string | null
+    /**
+     * Why webhook registration failed (e.g. the credentials lack webhook permissions).
+     * @nullable
+     */
+    error: string | null
+    /** Webhook input names the user still needs to provide (e.g. a signing secret the external API did not return on create). Submit them via the update_webhook_inputs endpoint. */
+    pending_inputs: string[]
+}
+
 /**
  * Response shape for a source's destination set.
  */
 export interface SourceDestinationsApi {
     /** Destinations every table on this source syncs to. */
     destination_ids: string[]
+}
+
+/**
+ * Webhook inputs to store, keyed by the source type's webhook field names (e.g. Stripe's 'signing_secret'). Keys the source type does not define are rejected, and a required field cannot be set to an empty value.
+ */
+export type WebhookInputsUpdateApiInputs = { [key: string]: string }
+
+export interface WebhookInputsUpdateApi {
+    /** Webhook inputs to store, keyed by the source type's webhook field names (e.g. Stripe's 'signing_secret'). Keys the source type does not define are rejected, and a required field cannot be set to an empty value. */
+    inputs: WebhookInputsUpdateApiInputs
+}
+
+export interface WebhookInputsUpdateResponseApi {
+    /** Whether the inputs were stored and accepted by the external source. */
+    success: boolean
+    /**
+     * Why the external source rejected the updated inputs.
+     * @nullable
+     */
+    error?: string | null
 }
 
 /**
@@ -11858,23 +11895,6 @@ export interface SourceSetupApi {
     description?: string | null
     /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
-}
-
-export interface SourceSetupWebhookApi {
-    /** Whether the webhook was registered with the external service. When true, webhook-capable tables (including webhook-only ones) sync via real-time webhooks; when false, tables fall back to the polling sync defaults and webhook-only tables stay disabled. */
-    success: boolean
-    /**
-     * The PostHog endpoint the external service delivers events to.
-     * @nullable
-     */
-    webhook_url: string | null
-    /**
-     * Why webhook registration failed (e.g. the credentials lack webhook permissions).
-     * @nullable
-     */
-    error: string | null
-    /** Webhook input names the user still needs to provide (e.g. a signing secret the external API did not return on create). Submit them via the update_webhook_inputs endpoint. */
-    pending_inputs: string[]
 }
 
 export interface SourceSetupResponseApi {

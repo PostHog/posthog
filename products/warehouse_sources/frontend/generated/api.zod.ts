@@ -547,13 +547,6 @@ export const ExternalDataSourcesCheckCdcPrerequisitesForSourceCreateBody = /* @_
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
 export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
@@ -640,9 +633,13 @@ export const ExternalDataSourcesUpdateCdcSettingsCreateBody = /* @__PURE__ */ zo
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ zod.object({
+    inputs: zod
+        .record(zod.string(), zod.string())
+        .describe(
+            "Webhook inputs to store, keyed by the source type's webhook field names (e.g. Stripe's 'signing_secret'). Keys the source type does not define are rejected, and a required field cannot be set to an empty value."
+        ),
+})
 
 /**
  * Create, Read, Update and Delete External data Sources.
