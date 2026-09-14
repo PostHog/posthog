@@ -1,14 +1,3 @@
-//! The commit sentinel: an always-on observer that turns the consumer's
-//! commit guarantee into alertable metrics.
-//!
-//! **Commit order**: for every topic-partition, offsets must be committed
-//! contiguously and monotonically — each span's first offset must equal the
-//! previously committed offset (no skips), and the committed offset must
-//! never move backwards (no out-of-order commits). Violations increment
-//! `ingestion_consumer_commit_violations_total{kind}` and log the offending
-//! offsets. `ingestion_consumer_commits_checked_total` is the denominator: the
-//! guarantee holds while it grows and the violation counter stays flat.
-//!
 //! **Commit confirmation**: librdkafka never reports the result of a manual
 //! async commit (see the note on [`crate::order_sentinel::SentinelContext`]),
 //! so the commit monitor fetches the group's broker-committed offsets and
@@ -16,17 +5,6 @@
 //! `ingestion_consumer_broker_committed_offset` and
 //! `ingestion_consumer_commit_confirmation_lag` gauges and stamps
 //! `ingestion_consumer_last_successful_commit_timestamp_seconds` on progress.
-//!
-//! Rebalances reset the baselines, where Kafka legitimately re-deals
-//! partitions and the invariant must re-baseline instead of firing false
-//! positives.
-//!
-//! The sentinel wraps the [`CommitPacer`] the consumer hands its frontiers
-//! to: every frontier passes through it on the way in, where its span is
-//! checked, and every take passes through it on the way out, where what goes
-//! out is recorded as attempted. A frontier the pacer still holds is not an
-//! attempted commit, so the confirmation lag measures commits the client was
-//! asked to make. It is a pure observer: it never changes what is committed.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -40,16 +18,10 @@ use tracing::warn;
 use crate::commit_pacer::CommitPacer;
 use crate::order_sentinel::OffsetSpan;
 
-/// How a commit violated the contiguous-monotonic invariant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommitViolationKind {
-    /// The batch starts past the previously committed offset — the offsets in
-    /// between were never part of a committed batch (skipped messages).
     Gap,
-    /// The whole batch lies at or behind the committed offset — the commit
-    /// moves the partition backwards.
     OutOfOrder,
-    /// The batch partially re-covers already-committed offsets.
     Overlap,
 }
 
@@ -63,46 +35,32 @@ impl CommitViolationKind {
     }
 }
 
-/// One detected commit-order violation, returned for tests and logged.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommitViolation {
     pub kind: CommitViolationKind,
     pub topic: String,
     pub partition: i32,
-    /// The partition's committed offset (Kafka "next to read") before this batch.
-    pub prev_committed: i64,
+    /// One past the previous checked span's last offset, not a committed offset.
+    pub previous_checked_end: i64,
     pub span: OffsetSpan,
 }
 
-/// Per-partition commit tracking: where the next frontier must start, what
-/// this process asked Kafka to commit (attempted), and what the broker has
-/// confirmed as the group's committed offset (observed by the commit monitor
-/// via OffsetFetch).
 #[derive(Default, Clone, Copy)]
 struct PartitionCommits {
-    /// One past the last span handed over (Kafka "next to read"). The next
-    /// span must start here.
+    /// One past the last checked poll span. The next checked span must start here.
     next_expected: Option<i64>,
-    /// The offset value last handed out for commit (Kafka "next to read").
+    /// Last frontier released by the pacer, before the consumer calls Kafka.
     attempted: Option<i64>,
     /// The broker-confirmed committed offset from the last monitor poll.
     confirmed: Option<i64>,
 }
 
-/// Tracks the last committed offset per topic-partition and checks each new
-/// commit for contiguity and monotonicity. The first commit after a partition
-/// is (re)assigned establishes a baseline and is never a violation — earlier
-/// offsets may have been committed by another consumer in the group.
-///
 /// Caveat: legitimate offset gaps exist on topics with transactional producers
 /// (control records consume offsets). The ingestion topics are produced by
-/// capture without transactions, so a gap here is a real skip.
+/// capture without transactions, so a gap in checked spans is unexpected.
 pub struct CommitSentinel {
     partitions: Mutex<HashMap<(String, i32), PartitionCommits>>,
-    /// Kill switch (`CONSUMER_ORDER_SENTINEL_ENABLED`). When off, checks
-    /// no-op and no state accumulates.
     enabled: AtomicBool,
-    /// The pacer being observed.
     inner: CommitPacer,
 }
 
@@ -119,10 +77,6 @@ impl CommitSentinel {
         self.enabled.store(enabled, Ordering::Relaxed);
     }
 
-    /// Check the span the poll delivered for the partition against the
-    /// previous commit as the frontier is handed over, so a violation is
-    /// attributed to the poll that caused it, then pass the frontier on.
-    /// Returns the violations for tests.
     pub fn advance_frontier(
         &self,
         topic_partition: &TopicPartition,
@@ -134,10 +88,11 @@ impl CommitSentinel {
         violations
     }
 
-    /// Pass a frontier on without a span check. At `group` granularity a
-    /// take no longer maps to one poll's slice, so there is no delivered span
-    /// to hold against the previous commit; the ledger's gap counter covers
-    /// a skip in what Kafka delivered.
+    /// Pass a group frontier on without a span check: it need not map to one
+    /// poll's slice. `kafka_consumer_ledger_gap_offsets_total` only counts
+    /// undelivered filler drained from a ledger window. It neither preserves
+    /// the checked-span baseline across ledger resets nor replaces the
+    /// poll-span overlap and out-of-order checks.
     pub fn advance_frontier_unchecked(
         &self,
         topic_partition: &TopicPartition,
@@ -153,14 +108,12 @@ impl CommitSentinel {
         self.inner.forget_partitions(topic_partitions);
     }
 
-    /// What the pacer hands out at `now`, recorded as attempted.
     pub fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
         let offsets = self.inner.take_due(now)?;
         self.record_attempted(&offsets);
         Some(offsets)
     }
 
-    /// Everything the pacer holds, recorded as attempted.
     pub fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
         let offsets = self.inner.take_all()?;
         self.record_attempted(&offsets);
@@ -188,9 +141,6 @@ impl CommitSentinel {
         }
     }
 
-    /// Check a batch's offset spans against the previous span per partition,
-    /// then advance where the next span must start to `span.last + 1`. Emits
-    /// metrics and logs; returns the violations for tests.
     pub fn check_commit<'a>(
         &self,
         spans: impl IntoIterator<Item = (&'a TopicPartition, &'a OffsetSpan)>,
@@ -228,16 +178,16 @@ impl CommitSentinel {
                         kind = kind.as_str(),
                         topic = %topic,
                         partition = *partition,
-                        prev_committed = prev,
+                        previous_checked_end = prev,
                         batch_first = span.first,
                         batch_last = span.last,
-                        "Commit order violation"
+                        "Poll span order violation"
                     );
                     violations.push(CommitViolation {
                         kind,
                         topic: topic.clone(),
                         partition: *partition,
-                        prev_committed: prev,
+                        previous_checked_end: prev,
                         span: *span,
                     });
                 }
@@ -249,20 +199,10 @@ impl CommitSentinel {
         violations
     }
 
-    /// Feed broker-confirmed committed offsets (from an OffsetFetch of the
-    /// group's assigned partitions) and compare against what this process
-    /// attempted. Emits per-partition gauges:
-    ///
-    /// - `ingestion_consumer_broker_committed_offset` — the group's committed
-    ///   offset as the broker reports it;
-    /// - `ingestion_consumer_commit_confirmation_lag` — attempted minus
-    ///   confirmed. Transiently positive while async commits are in flight;
-    ///   persistently positive means commits are being submitted but not
-    ///   landing (e.g. a stuck coordinator).
-    ///
-    /// Returns true when commits verifiably progressed since the last
-    /// observation — the broker offset advanced, or everything attempted is
-    /// confirmed — so the caller can stamp the last-successful-commit gauge.
+    /// Returns true when a broker offset advances from a previous observation,
+    /// or all released attempts are covered by observed broker offsets. The
+    /// latter keeps the last-successful-commit gauge fresh even while idle;
+    /// it is not evidence that a new submission succeeded on each observation.
     pub fn observe_broker_committed(
         &self,
         observed: impl IntoIterator<Item = (String, i32, i64)>,
@@ -320,9 +260,9 @@ impl CommitSentinel {
         progressed
     }
 
-    /// Drop the baselines for departing partitions so the next commit after a
-    /// re-assignment baselines instead of reporting a false gap/overlap
-    /// (another group member may have committed in between).
+    /// Drop observations for departing partitions so the next checked span
+    /// after reassignment baselines instead of reporting a false gap/overlap
+    /// (another group member may have processed offsets in between).
     fn forget_baselines(&self, topic_partitions: &[TopicPartition]) {
         let mut partitions = self.partitions.lock().unwrap();
         for topic_partition in topic_partitions {
@@ -373,8 +313,6 @@ mod tests {
     fn a_delivered_span_is_checked_as_the_frontier_is_handed_over() {
         let sentinel = sentinel();
         let span = |first, last| OffsetSpan { first, last };
-        // The first poll baselines. The second delivered 10..=14 and the
-        // frontier reached 15, so it starts where the last commit left off.
         assert!(sentinel
             .advance_frontier(&tp(0), span(0, 9), taken(0, 10))
             .is_empty());
@@ -382,12 +320,12 @@ mod tests {
             .advance_frontier(&tp(0), span(10, 14), taken(10, 15))
             .is_empty());
 
-        // A poll that delivered past the last commit skipped offsets, even
-        // though the ledger walked the gap and its take chains.
+        // A poll starts past the previous checked end, even though the ledger
+        // walked the gap and its take chains.
         let violations = sentinel.advance_frontier(&tp(0), span(17, 19), taken(15, 20));
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].kind, CommitViolationKind::Gap);
-        assert_eq!(violations[0].prev_committed, 15);
+        assert_eq!(violations[0].previous_checked_end, 15);
     }
 
     fn spans(entries: &[(&str, i32, i64, i64)]) -> HashMap<TopicPartition, OffsetSpan> {
@@ -408,33 +346,32 @@ mod tests {
     // ---- CommitSentinel ----
 
     #[test]
-    fn contiguous_commits_pass() {
+    fn contiguous_poll_spans_pass() {
         let sentinel = sentinel();
         assert!(
             sentinel.check_commit(&spans(&[("t", 0, 0, 99)])).is_empty(),
-            "first commit baselines"
+            "first checked span baselines"
         );
         assert!(
             sentinel
                 .check_commit(&spans(&[("t", 0, 100, 149)]))
                 .is_empty(),
-            "next batch starts exactly at the committed offset"
+            "next span starts exactly at the previous checked end"
         );
     }
 
     #[test]
-    fn commit_gap_is_detected() {
+    fn poll_span_gap_is_detected() {
         let sentinel = sentinel();
         sentinel.check_commit(&spans(&[("t", 0, 0, 99)]));
-        // Offsets 100..=104 were never committed — the batch skipped them.
         let violations = sentinel.check_commit(&spans(&[("t", 0, 105, 150)]));
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].kind, CommitViolationKind::Gap);
-        assert_eq!(violations[0].prev_committed, 100);
+        assert_eq!(violations[0].previous_checked_end, 100);
     }
 
     #[test]
-    fn commit_regression_is_out_of_order() {
+    fn poll_span_regression_is_out_of_order() {
         let sentinel = sentinel();
         sentinel.check_commit(&spans(&[("t", 0, 0, 99)]));
         let violations = sentinel.check_commit(&spans(&[("t", 0, 10, 50)]));
@@ -443,7 +380,7 @@ mod tests {
     }
 
     #[test]
-    fn partial_recommit_is_overlap() {
+    fn partially_recovered_poll_span_is_overlap() {
         let sentinel = sentinel();
         sentinel.check_commit(&spans(&[("t", 0, 0, 99)]));
         let violations = sentinel.check_commit(&spans(&[("t", 0, 90, 150)]));
@@ -516,8 +453,6 @@ mod tests {
         let sentinel = sentinel();
         sentinel.check_commit(&spans(&[("t", 0, 0, 99)]));
         sentinel.forget_partitions(&[TopicPartition::new("t", 0)]);
-        // After revoke + re-assign another consumer may have committed past us;
-        // a non-contiguous first commit must baseline, not fire.
         assert!(sentinel
             .check_commit(&spans(&[("t", 0, 500, 599)]))
             .is_empty());

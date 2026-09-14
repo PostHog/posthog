@@ -1,13 +1,3 @@
-//! Commit pacing for the ingestion consumer. The consumer hands over each
-//! partition's frontier as it takes it from the ledger, then asks the pacer
-//! what is due and commits that in one call. The pacer holds no I/O.
-//!
-//! With no interval, every frontier handed over is due on the next take, so a
-//! consumer that asks right after settling a poll commits once per poll. With
-//! an interval, the pacer keeps the latest frontier per partition and hands
-//! them out at most once per interval, so frontiers that arrive per group
-//! completion coalesce into one commit.
-
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -16,11 +6,7 @@ use common_kafka_consumer::{Offset, TakenFrontier, TopicPartition};
 
 use crate::config::CompletionGranularity;
 
-/// Holds the latest frontier per partition and says when they go out. The
-/// commit sentinel wraps it to check what passes through.
 pub struct CommitPacer {
-    /// The least time between two takes that hand something out. Zero makes
-    /// every take hand out what is pending.
     interval: Duration,
     pending: Mutex<Pending>,
 }
@@ -30,17 +16,14 @@ struct Pending {
     /// The next-to-read offset each partition is ready to commit. Frontiers
     /// only move forward, so the latest one covers every earlier one.
     frontiers: HashMap<TopicPartition, Offset>,
-    /// When the last take handed something out; `None` before the first.
     last_take: Option<Instant>,
 }
 
 impl CommitPacer {
-    /// Every frontier is due on the next take.
     pub fn immediate() -> Self {
         Self::every(Duration::ZERO)
     }
 
-    /// Frontiers are due at most once per `interval`.
     pub fn every(interval: Duration) -> Self {
         Self {
             interval,
@@ -48,9 +31,6 @@ impl CommitPacer {
         }
     }
 
-    /// The pacer a completion granularity commits through. A poll commits as
-    /// it completes; groups complete one send at a time, so their frontiers
-    /// coalesce on `interval`.
     pub fn for_granularity(granularity: CompletionGranularity, interval: Duration) -> Self {
         match granularity {
             CompletionGranularity::Poll => Self::immediate(),
@@ -58,7 +38,6 @@ impl CommitPacer {
         }
     }
 
-    /// Replace the partition's pending offset; frontiers only move forward.
     pub fn advance_frontier(&self, topic_partition: &TopicPartition, taken: TakenFrontier) {
         self.pending
             .lock()
@@ -67,10 +46,9 @@ impl CommitPacer {
             .insert(topic_partition.clone(), taken.offset);
     }
 
-    /// Partitions leaving the assignment: drop whatever is held for them. A
-    /// commit issued for a partition another member now owns could move the
-    /// group's offset back behind that member's progress, so the frontier
-    /// goes with the partition.
+    /// Drop pending frontiers for departing partitions rather than flush them.
+    /// A later submission could move the group's offset behind another owner's
+    /// progress. This cannot retract offsets already released to the caller.
     pub fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
         let mut pending = self.pending.lock().unwrap();
         for topic_partition in topic_partitions {
@@ -78,10 +56,6 @@ impl CommitPacer {
         }
     }
 
-    /// The offsets due for commit at `now`: everything pending once the
-    /// interval since the last take has passed, else `None`. A take with
-    /// nothing pending leaves the interval where it was, so the first
-    /// frontier after a quiet spell goes out at once.
     pub fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
         let mut pending = self.pending.lock().unwrap();
         if pending.frontiers.is_empty() {
@@ -97,8 +71,6 @@ impl CommitPacer {
         Some(std::mem::take(&mut pending.frontiers))
     }
 
-    /// Everything pending, whatever the interval. For the way out: accepted
-    /// work still held here would replay after a restart.
     pub fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
         let mut pending = self.pending.lock().unwrap();
         if pending.frontiers.is_empty() {

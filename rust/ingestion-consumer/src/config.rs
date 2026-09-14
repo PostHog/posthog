@@ -9,7 +9,7 @@ use crate::discovery::DiscoveryMode;
 use crate::routing::RoutingStrategy;
 use common_kafka_consumer::config::ConsumerConfigBuilder;
 
-/// The unit that completes and commits.
+/// The unit that settles accepted offsets against the ledger.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum CompletionGranularity {
     /// A poll completes as a whole, oldest first.
@@ -190,22 +190,14 @@ pub struct Config {
     #[envconfig(default = "60000")]
     pub consumer_deferred_flush_timeout_ms: u64,
 
-    /// Maximum Kafka batches to process concurrently. Matches the Node.js
-    /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
+    /// Maximum admitted Kafka polls; slots retire oldest first when a whole
+    /// poll is covered. Does not bound accepted offsets pending async commit.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
 
-    /// The unit that completes and commits. `poll` completes a whole poll at a
-    /// time, oldest first. `group` completes each send's groups on their own,
-    /// so a stalled key holds only its own partition.
     #[envconfig(from = "CONSUMER_COMPLETION_GRANULARITY", default = "poll")]
     pub consumer_completion_granularity: CompletionGranularity,
 
-    /// At `group` granularity, the least time between two commits
-    /// (milliseconds). Groups complete one send at a time, so without it each
-    /// resolved send would be a commit. Accepted work waits at most this plus
-    /// one collection before it is committed. Unused at `poll` granularity,
-    /// where each poll commits as it completes.
     #[envconfig(from = "CONSUMER_COMMIT_INTERVAL_MS", default = "500")]
     pub consumer_commit_interval_ms: u64,
 
@@ -227,7 +219,7 @@ pub struct Config {
     pub debug_api_secret: String,
 
     // ---- Ordering sentinels ----
-    /// Kill switch for the ordering sentinels (per-partition commit
+    /// Kill switch for the ordering sentinels (poll-only partition-span
     /// contiguity/monotonicity checks and per-key send-order checks). They are
     /// pure observers with per-batch lock/state overhead bounded by in-flight
     /// work; disable only if that overhead is ever implicated. The commit-result
