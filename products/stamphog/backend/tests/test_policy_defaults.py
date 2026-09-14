@@ -1,4 +1,5 @@
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -14,12 +15,19 @@ sys.path.insert(0, str(_ENGINE_DIR))
 import gates  # noqa: E402
 import policy  # noqa: E402
 
-from products.stamphog.backend.temporal.activities import _effective_policy_files, _inject_policy_files  # noqa: E402
+from products.stamphog.backend.temporal.activities import (  # noqa: E402
+    _blame_paths,
+    _clone_pr,
+    _effective_policy_files,
+    _inject_policy_files,
+    _prefetch_blame_blobs,
+)
 from products.stamphog.backend.temporal.constants import (  # noqa: E402
     STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_REVIEW_GUIDANCE_PATH,
     STAMPHOG_STEERING_PATH,
 )
+from products.stamphog.backend.tests.fakes import FakeExecResult  # noqa: E402
 
 _DEFAULT_POLICY = Path(__file__).resolve().parents[1] / "logic" / "policy_defaults" / "policy.yml"
 
@@ -116,3 +124,51 @@ def test_inject_policy_files_wipes_optional_paths_from_pr_head() -> None:
     wipes = [cmd for cmd in executed if cmd.startswith("rm -f")]
     assert any(".stamphog/steering.md" in cmd for cmd in wipes)
     assert any(".stamphog/policy.yml" in cmd for cmd in wipes)
+
+
+def test_clone_is_blobless_and_blame_blobs_are_prefetched_in_one_fetch() -> None:
+    """The clone must stay filtered and the blame blobs must arrive in one batched fetch.
+
+    Regression: an unfiltered clone pulled every blob of every commit and ran past the step
+    timeout, failing the run with no verdict. Dropping the prefetch is the subtler revert — blame
+    still works, but fetches the same history one object at a time over hundreds of round trips.
+    """
+    executed: list[str] = []
+
+    class _RecordingSandbox:
+        def execute(self, command: str, timeout_seconds: int | None = None) -> FakeExecResult:
+            executed.append(command)
+            return FakeExecResult(stdout="", stderr="", exit_code=0)
+
+    deadline = time.monotonic() + 600
+    sandbox = _RecordingSandbox()
+    _clone_pr(sandbox, "acme/widgets", "basesha", "headsha", 7, "tok", deadline)  # type: ignore[arg-type]
+    _prefetch_blame_blobs(sandbox, "basesha", "headsha", "tok", ["src/old_name.py"], deadline)  # type: ignore[arg-type]
+
+    clone = next(cmd for cmd in executed if " clone " in cmd)
+    assert "--filter=blob:none" in clone
+    assert "--depth" not in clone
+
+    prefetch = next(cmd for cmd in executed if "rev-list" in cmd)
+    assert "--missing=print" in prefetch
+    assert "src/old_name.py" in prefetch
+    # One fetch for the whole set, driven by the enumerated object ids.
+    assert "fetch origin" in prefetch and "--stdin" in prefetch
+    # The enumeration must not fetch the objects it is listing as missing.
+    assert "GIT_NO_LAZY_FETCH=1" in prefetch
+
+
+def test_blame_paths_uses_the_base_side_path_and_skips_binaries() -> None:
+    """Blame reads the OLD path, and a binary's history is the one not worth fetching.
+
+    Regression: naming the new path of a rename prefetches nothing blame will read, and naming a
+    binary pulls its every historical revision — on a monorepo that is the large-image history.
+    """
+    paths = _blame_paths(
+        [
+            {"filename": "src/new_name.py", "previous_filename": "src/old_name.py", "patch": "@@ -1 +1 @@"},
+            {"filename": "src/plain.py", "patch": "@@ -1 +1 @@"},
+            {"filename": "static/logo.png"},
+        ]
+    )
+    assert paths == ["src/old_name.py", "src/plain.py"]

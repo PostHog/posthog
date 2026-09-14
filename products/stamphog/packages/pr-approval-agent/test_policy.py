@@ -715,6 +715,7 @@ def test_review_body_leads_with_reasoning_and_folds_mechanics() -> None:
         files_prev_count=1,
         files_total=1,
         capped=False,
+        blame_incomplete_files=0,
         top_prior_authors=(),
     )
     body = _body_pipeline(fam)._render_review_body()

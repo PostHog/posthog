@@ -310,9 +310,9 @@ def _familiarity_offline(
 
     blame_sha = _merge_base(base_sha, head_sha, REPO_ROOT)
     if blame_sha is not None:
-        owned, total, top_authors = _blame_overlap(considered, blame_sha, author_prs, REPO_ROOT)
+        owned, total, blame_incomplete_files, top_authors = _blame_overlap(considered, blame_sha, author_prs, REPO_ROOT)
     else:
-        owned, total, top_authors = 0, 0, ()
+        owned, total, blame_incomplete_files, top_authors = 0, 0, 0, ()
     blame_overlap_pct = (100.0 * owned / total) if total else 0.0
 
     prior_prs, days_since = _prior_prs_in_paths(considered_paths, author_prs, REPO_ROOT, now)
@@ -329,6 +329,7 @@ def _familiarity_offline(
         files_prev_count=files_prev_count,
         files_total=files_total,
         capped=capped,
+        blame_incomplete_files=blame_incomplete_files,
         top_prior_authors=top_authors,
     )
 
