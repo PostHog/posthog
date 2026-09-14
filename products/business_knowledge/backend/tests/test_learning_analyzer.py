@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from asgiref.sync import sync_to_async
 from temporalio.common import MetricMeter
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.api.embedding_worker import EmbeddingResponse
@@ -230,6 +231,31 @@ class TestLearningAnalyzerActivity:
         ]
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+class TestLearningAnalyzerRetries:
+    async def test_permanent_failure_stops_the_activity_retrying(self, team: Team) -> None:
+        run, input = await _setup(team)
+        await sync_to_async(run.delete)()
+
+        with pytest.raises(ApplicationError) as raised:
+            await ActivityEnvironment().run(analyze_learning_evidence_activity, input)
+
+        assert raised.value.non_retryable is True
+        assert "run_not_found" in str(raised.value)
+
+    async def test_transient_failure_keeps_the_activity_retryable(self, team: Team) -> None:
+        run, input = await _setup(team)
+        provider = _Provider(EvidenceBundle(replies=("Refunds are available within 30 days.",)))
+
+        with (
+            patch(f"{_MODULE}.get_learning_provider", return_value=provider),
+            patch(f"{_MODULE}._build_model", side_effect=RuntimeError("overloaded")),
+            pytest.raises(LearningAnalysisError, match="extraction_model_failed"),
+        ):
+            await ActivityEnvironment().run(analyze_learning_evidence_activity, input)
+
+
 @pytest.mark.django_db
 class TestLearningAnalyzer:
     @pytest.mark.parametrize(
@@ -407,7 +433,7 @@ class TestLearningAnalyzer:
 
         run.refresh_from_db()
         assert run.status == "failed"
-        assert run.error == "knowledge_search_failed"
+        assert run.error == "knowledge_search_failed: RuntimeError"
         assert invoke.call_count == 2
         search.assert_not_called()
         publish.assert_not_called()
@@ -518,3 +544,22 @@ class TestLearningAnalyzer:
 
         with pytest.raises(LearningAnalysisError, match="run_not_found"):
             analyze_learning_evidence(input)
+
+    def test_model_failure_keeps_the_provider_error(self, team: Team) -> None:
+        run, input = _setup_sync(team)
+        provider = _Provider(EvidenceBundle(replies=("Refunds are available within 30 days.",)))
+
+        class _RateLimited(Exception):
+            pass
+
+        with (
+            patch(f"{_MODULE}.get_learning_provider", return_value=provider),
+            patch(f"{_MODULE}._build_model", side_effect=_RateLimited("slow down")),
+            pytest.raises(LearningAnalysisError, match="extraction_model_failed") as raised,
+        ):
+            analyze_learning_evidence(input)
+
+        run.refresh_from_db()
+        assert isinstance(raised.value.__cause__, _RateLimited)
+        assert raised.value.code == "extraction_model_failed"
+        assert run.error == "extraction_model_failed: _RateLimited"
