@@ -85,6 +85,7 @@ jobs:
                       js:
                         - 'frontend/**'
                         - 'nodejs/**'
+                        - 'packages/**'
                         - 'services/agent-proxy/**'
                         - 'services/integration-service/**'
                         - 'services/mcp/**'
@@ -106,6 +107,7 @@ jobs:
                         - '!frontend/**'
                         - '!livestream/**'
                         - '!nodejs/**'
+                        - '!packages/**'
                         - '!posthog/**'
                         - '!products/**'
                         - '!rust/**'
@@ -293,6 +295,7 @@ jobs:
                       --config p/trailofbits
                       --include /frontend
                       --include /nodejs
+                      --include /packages
                       --include /services/agent-proxy
                       --include /services/integration-service
                       --include /services/mcp
@@ -378,6 +381,7 @@ jobs:
                       --exclude /frontend
                       --exclude /livestream
                       --exclude /nodejs
+                      --exclude /packages
                       --exclude /posthog
                       --exclude /products
                       --exclude /rust

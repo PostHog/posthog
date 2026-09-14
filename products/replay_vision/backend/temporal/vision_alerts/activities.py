@@ -58,12 +58,14 @@ from products.replay_vision.backend.models.vision_alert import (
     VisionAlertMatch,
     VisionAlertMetric,
 )
-from products.replay_vision.backend.observation_formatting import describe_output
+from products.replay_vision.backend.observation_formatting import describe_output, explanation_text, plain_snippet
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.vision_alerts.constants import (
     CLEANUP_BATCH_SIZE,
     MATCH_DESCRIPTOR_MAX_CHARS,
+    MATCH_EXPLANATION_MAX_CHARS,
     MATCH_SUMMARY_LINES,
+    MATCH_SUMMARY_MAX_CHARS,
     MAX_ALERTS_PER_BATCH,
     MAX_ALERTS_PER_TICK,
     MAX_DRAIN_ALERTS_PER_TICK,
@@ -724,24 +726,42 @@ def _emit_match_event(
     ).values_list("id", "scanner_result", "completed_at")
     by_id = {str(row_id): (scanner_result, completed_at) for row_id, scanner_result, completed_at in summary_rows}
     lines: list[str] = []
+    budget = MATCH_SUMMARY_MAX_CHARS
     for observation_id in observation_ids[:MATCH_SUMMARY_LINES]:
         scanner_result, completed_at = by_id.get(observation_id, (None, None))
         model_output = (scanner_result or {}).get("model_output") or {}
-        descriptor = escape_slack_mrkdwn((describe_output(model_output) or "observation")[:MATCH_DESCRIPTOR_MAX_CHARS])
+        # Without the scanner's own prose the line carries only a verdict or a score. Both halves can hold
+        # model free text, such as a summarizer title in the descriptor and the reasoning in the prose.
+        # Each is folded to one citation-free line, so recording-derived text cannot forge a Slack list row.
+        descriptor = (
+            plain_snippet(describe_output(model_output) or "", limit=MATCH_DESCRIPTOR_MAX_CHARS) or "observation"
+        )
+        explanation = explanation_text(model_output)[:MATCH_EXPLANATION_MAX_CHARS]
         stamp = f"({completed_at:%Y-%m-%d %H:%M} UTC) " if completed_at else ""
-        lines.append(f"- {stamp}{descriptor}")
-    if len(observation_ids) > MATCH_SUMMARY_LINES:
-        lines.append(f"- and {len(observation_ids) - MATCH_SUMMARY_LINES} more")
+        body = f"{descriptor}: {explanation}" if explanation else descriptor
+        line = f"- {stamp}{body}"
+        # The Slack copy is what has to fit the block, so the budget measures the escaped length.
+        cost = len(escape_slack_mrkdwn(line)) + 1
+        if cost > budget:
+            break
+        lines.append(line)
+        budget -= cost
+    remaining = len(observation_ids) - len(lines)
+    if remaining > 0:
+        lines.append(f"- and {remaining} more")
 
     # Deterministic uuid over the drained row set: an identical-batch retry (crash
     # after ack, before the stamp, with no new rows) dedupes at ingestion.
     event_uuid = uuid5(NAMESPACE_URL, f"vision-alert-match:{alert.id}:{','.join(sorted(str(m) for m, _ in rows))}")
 
+    summary = "\n".join(lines)
     properties = {
         **_base_properties(alert, now),
         "matched_count": len(rows),
         "observation_ids": observation_ids,
-        "summary": "\n".join(lines),
+        "summary": escape_slack_mrkdwn(summary),
+        # Webhook consumers parse JSON, so they get the same text without the mrkdwn entities.
+        "summary_text": summary,
     }
     return produce_alert_internal_event(
         team_id=alert.team_id,

@@ -1,7 +1,7 @@
 import datetime
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
 
@@ -35,7 +35,7 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 FROZEN_TIME = dateutil.parser.parse("2024-06-02T08:55:00.000Z")
 
 
-@freeze_time(FROZEN_TIME)
+@time_machine.travel(FROZEN_TIME, tick=False)
 @patch(
     "posthog.tasks.alerts.utils.send_notifications_for_errors",
     return_value=[AlertDelivery(channel="email", target="alerts@example.com", at="2024-06-02T08:55:00+00:00")],
@@ -178,7 +178,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         insight = self.create_time_series_trend_insight()
         alert = self.create_alert(insight, series_index=0, upper=1)
 
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -227,7 +227,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         )
         alert = self.create_alert(insight, series_index=0, upper=1)
 
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1), tick=False):
             _create_event(team=self.team, event="signed_up", distinct_id="1")
             _create_event(team=self.team, event="signed_up", distinct_id="2")
             flush_persons_and_events()
@@ -246,7 +246,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             insight, series_index=0, lower=0, upper=2, calculation_interval=AlertCalculationInterval.MONTHLY
         )
 
-        with freeze_time(FROZEN_TIME):
+        with time_machine.travel(FROZEN_TIME, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -279,7 +279,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             insight, series_index=0, lower=0, upper=2, calculation_interval=AlertCalculationInterval.WEEKLY
         )
 
-        with freeze_time(FROZEN_TIME):
+        with time_machine.travel(FROZEN_TIME, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -311,7 +311,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         insight = self.create_time_series_trend_insight(BreakdownFilter(breakdowns=[Breakdown(property="$browser")]))
         alert = self.create_alert(insight, series_index=0, upper=1)
 
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -359,7 +359,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         insight = self.create_time_series_trend_insight(BreakdownFilter(breakdowns=[Breakdown(property="$browser")]))
         alert = self.create_alert(insight, series_index=0, lower=2)
 
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -407,7 +407,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         insight = self.create_time_series_trend_insight(BreakdownFilter(breakdowns=[Breakdown(property="$browser")]))
         alert = self.create_alert(insight, series_index=0, lower=1)
 
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -451,7 +451,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         insight = self.create_aggregate_trend_insight()
         alert = self.create_alert(insight, series_index=0, upper=1)
 
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=4)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=4), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -499,7 +499,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         insight = self.create_aggregate_trend_insight(BreakdownFilter(breakdowns=[Breakdown(property="$browser")]))
         alert = self.create_alert(insight, series_index=0, upper=1)
 
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=4)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=4), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -548,7 +548,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         alert = self.create_alert(insight, series_index=0, upper=1, check_ongoing_interval=True)
 
         # around 8 AM on same day as check
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=1), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -591,7 +591,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         alert = self.create_alert(insight, series_index=0, upper=1, check_ongoing_interval=True)
 
         # current day doesn't breach
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=1), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -601,7 +601,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             flush_persons_and_events()
 
         # prev day breaches
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=26)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=26), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -639,8 +639,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         alert = self.create_alert(insight, series_index=0, upper=1)
 
         # day before yesterday
-        with freeze_time(
-            FROZEN_TIME - dateutil.relativedelta.relativedelta(days=2) - dateutil.relativedelta.relativedelta(hours=2)
+        with time_machine.travel(
+            FROZEN_TIME - dateutil.relativedelta.relativedelta(days=2) - dateutil.relativedelta.relativedelta(hours=2),
+            tick=False,
         ):
             _create_event(
                 team=self.team,
@@ -678,7 +679,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         alert = self.create_alert(insight, series_index=0, lower=2)
 
         # around 8 AM on same day as check
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=1), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -726,14 +727,14 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         )
 
         # Create 3 events for 07:00-07:59 (will be checked at 08:05)
-        with freeze_time(dateutil.parser.parse("2024-06-02T07:30:00.000Z")):
+        with time_machine.travel(dateutil.parser.parse("2024-06-02T07:30:00.000Z"), tick=False):
             _create_event(team=self.team, event="signed_up", distinct_id="1")
             _create_event(team=self.team, event="signed_up", distinct_id="2")
             _create_event(team=self.team, event="signed_up", distinct_id="3")
             flush_persons_and_events()
 
         # Check at 08:05 - checks previous hour (07:00-07:59), should fire (3 events > upper threshold of 1)
-        with freeze_time(dateutil.parser.parse("2024-06-02T08:05:00.000Z")):
+        with time_machine.travel(dateutil.parser.parse("2024-06-02T08:05:00.000Z"), tick=False):
             run_alert_check(alert["id"])
 
             # Verify execution mode is CALCULATE_BLOCKING_ALWAYS
@@ -755,7 +756,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         mock_send_breaches.reset_mock()
 
         # Second check at 09:05 - checks previous hour (08:00-08:59), should not fire (0 events)
-        with freeze_time(dateutil.parser.parse("2024-06-02T09:05:00.000Z")):
+        with time_machine.travel(dateutil.parser.parse("2024-06-02T09:05:00.000Z"), tick=False):
             run_alert_check(alert["id"])
 
             # Verify execution mode is still CALCULATE_BLOCKING_ALWAYS

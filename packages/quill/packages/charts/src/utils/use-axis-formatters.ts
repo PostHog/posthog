@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 
 import { DEFAULT_Y_AXIS_ID, type TooltipConfig, type YAxis } from '../core/types'
-import { createTooltipDateFormatter, createXAxisTickCallback, type TimeInterval } from './dates'
+import { createTooltipDateFormatter, createXAxisTickCallback, inferTimeInterval, type TimeInterval } from './dates'
 import { buildYTickFormatter, type YFormatterConfig } from './y-formatters'
 
 export interface XAxisConfig {
@@ -13,9 +13,9 @@ export interface XAxisConfig {
     hide?: boolean
     /** Timezone used when interpreting date labels for the auto date formatter. */
     timezone?: string
-    /** Bucket size for the auto date formatter. */
+    /** Bucket size for the auto date formatter. Inferred from `allDays` or chart labels when omitted. */
     interval?: TimeInterval
-    /** Source dates for the auto date formatter. Falls back to `labels` when omitted. */
+    /** Source dates for the auto date formatter. Falls back to chart labels when omitted. */
     allDays?: string[]
 }
 
@@ -59,7 +59,7 @@ export function useXTickFormatter(
         if (xAxis?.tickFormatter) {
             return xAxis.tickFormatter
         }
-        if (xAxis?.timezone && xAxis?.interval) {
+        if (xAxis?.timezone) {
             return createXAxisTickCallback({
                 timezone: xAxis.timezone,
                 interval: xAxis.interval,
@@ -71,22 +71,32 @@ export function useXTickFormatter(
 }
 
 /** Tooltip config with the header label defaulted to a full formatted date when the x-axis is
- *  date-driven (`timezone` + `interval` set) — the axis ticks are already auto-formatted then, so
- *  a raw ISO header would be the odd one out. An explicit `labelFormatter` wins. */
+ *  date-driven. The axis and tooltip infer the same interval, so a raw ISO header does not remain
+ *  after the axis ticks are formatted. An explicit `labelFormatter` wins. */
 export function useTimeSeriesTooltipConfig(
     tooltip: TooltipConfig | undefined,
-    xAxis: XAxisConfig | undefined
+    xAxis: XAxisConfig | undefined,
+    labels: string[]
 ): TooltipConfig | undefined {
     const { timezone, interval } = xAxis ?? {}
+    const effectiveAllDays = xAxis?.allDays ?? labels
     return useMemo(() => {
-        if (tooltip?.labelFormatter || !timezone || !interval) {
+        if (tooltip?.labelFormatter || !timezone) {
+            return tooltip
+        }
+        const resolvedInterval = interval ?? inferTimeInterval(effectiveAllDays, timezone)
+        if (!resolvedInterval) {
             return tooltip
         }
         return {
             ...tooltip,
-            labelFormatter: createTooltipDateFormatter({ interval, timezone, allDays: xAxis?.allDays }),
+            labelFormatter: createTooltipDateFormatter({
+                interval: resolvedInterval,
+                timezone,
+                allDays: effectiveAllDays,
+            }),
         }
-    }, [tooltip, timezone, interval, xAxis?.allDays])
+    }, [tooltip, timezone, interval, effectiveAllDays])
 }
 
 /** Non-hook resolution of a {@link YAxisConfig} into a tick formatter. An explicit `tickFormatter`

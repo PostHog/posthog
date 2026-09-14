@@ -150,7 +150,7 @@ Full implementation plan: `docs/plans/2026-07-14-hcl-recreate.md`.
 ## Deployment
 
 1. local and schema changes to base are done in PostHog/posthog, this is also what all tests run against
-2. a PR in PostHog/posthog triggers a compose check in posthog-cloud-infra validating the changes still compose under the prod overrides — the `cloud-compose-gate` job in `ci-clickhouse-hcl-schema.yml` dispatches cloud-infra's `ci-clickhouse-hcl-compose-gate.yaml` against the PR head; it asserts composability, not cloud goldens
+2. a PR in PostHog/posthog triggers a compose check in posthog-cloud-infra validating the changes still compose under the prod overrides — the `cloud-compose-gate` job in `ci-clickhouse-hcl-schema.yml` dispatches cloud-infra's `ci-clickhouse-hcl-compose-gate.yaml` against the PR's merge commit; it asserts composability, not cloud goldens
 3. the cloud schema is composed as base + customizations in posthog-cloud-infra
 4. when a PR is merged in PostHog/posthog, a base-ref bump PR in posthog-cloud-infra advances the pinned base sha, regenerates the cloud goldens, and generates the full ordered list of SQL queries that will be executed as part of migration (creation of that PR is to be automated)
 5. after approval, the PR is merged and a migrator executes a migration

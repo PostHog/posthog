@@ -5,7 +5,7 @@ import typing as t
 from datetime import date, timedelta
 from typing import Any, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
@@ -64,6 +64,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_source 
     DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE,
     INVALID_CREDENTIALS_FALLBACK_MESSAGE,
     ExternalDataSourceViewSet,
+    _classify_refresh_schemas_error,
     get_declared_field_names,
     get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
@@ -78,6 +79,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     FieldType,
     VersionDeprecation,
     WebhookCreationResult,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    HostNotAllowedError,
+    TemporaryHostResolutionError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
@@ -5762,9 +5768,9 @@ class TestExternalDataSource(APIBaseTest):
             ("2024-07-01T18:00:00.000Z", ExternalDataJob.Status.COMPLETED),
             ("2024-07-02T06:00:00.000Z", ExternalDataJob.Status.FAILED),
         ]:
-            with freeze_time(created_at):
+            with time_machine.travel(created_at, tick=False):
                 ExternalDataJob.objects.create(team=self.team, pipeline=source, schema=schema, status=job_status)
-        with freeze_time("2024-07-02T06:00:00.000Z"):
+        with time_machine.travel("2024-07-02T06:00:00.000Z", tick=False):
             ExternalDataJob.objects.create(
                 team=self.team, pipeline=never_completed, status=ExternalDataJob.Status.RUNNING
             )
@@ -5833,7 +5839,7 @@ class TestExternalDataSource(APIBaseTest):
     def test_source_jobs_pagination(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
-        with freeze_time("2024-07-01T12:00:00.000Z"):
+        with time_machine.travel("2024-07-01T12:00:00.000Z", tick=False):
             job1 = ExternalDataJob.objects.create(
                 team=self.team,
                 pipeline=source,
@@ -5855,7 +5861,7 @@ class TestExternalDataSource(APIBaseTest):
             assert data[0]["id"] == str(job1.pk)
 
         # Query newer jobs
-        with freeze_time("2024-07-01T18:00:00.000Z"):
+        with time_machine.travel("2024-07-01T18:00:00.000Z", tick=False):
             job2 = ExternalDataJob.objects.create(
                 team=self.team,
                 pipeline=source,
@@ -5877,7 +5883,7 @@ class TestExternalDataSource(APIBaseTest):
             assert data[0]["id"] == str(job2.pk)
 
         # Query older jobs
-        with freeze_time("2024-07-01T09:00:00.000Z"):
+        with time_machine.travel("2024-07-01T09:00:00.000Z", tick=False):
             job3 = ExternalDataJob.objects.create(
                 team=self.team,
                 pipeline=source,
@@ -10439,6 +10445,9 @@ class TestCheckCDCPrerequisitesWizard(APIBaseTest):
             ),
             ("ssh_tunnel_error", BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")),
             ("ssl_required_error", SSLRequiredError("SSL/TLS is required but not supported by the server")),
+            # The host policy's own lookup answered "try again" while probing the source. Nothing is
+            # wrong with the source and a fresh attempt recovers, so it must not be captured either.
+            ("temporary_host_resolution_error", TemporaryHostResolutionError("db.example.com")),
         ]
     )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
@@ -11025,6 +11034,37 @@ class TestDisableCDC(APIBaseTest):
         non_cdc_schema.refresh_from_db()
         assert non_cdc_schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
         assert non_cdc_schema.should_sync is True
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    def test_disable_cdc_clears_an_earlier_auto_disable(self, _cleanup) -> None:
+        # PostHog can halt a CDC schema before the user gives up on CDC. The halt must not
+        # survive their disable, or the failure digest keeps emailing them about a sync
+        # they switched off themselves.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+
+        halted_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        )
+        ExternalDataSchema.objects.filter(pk=halted_schema.pk).update(
+            should_sync=False,
+            status=ExternalDataSchema.Status.FAILED,
+            auto_disabled_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+
+        halted_schema.refresh_from_db()
+        assert halted_schema.auto_disabled_at is None
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.purge_buffer_prefix")
     def test_disable_cdc_requires_editor_on_every_table(self, mock_purge) -> None:
@@ -14019,3 +14059,13 @@ class TestFanoutParentCreation(APIBaseTest):
 
         assert response.status_code == 201, response.json()
         assert ExternalDataSchema.objects.get(team_id=self.team.pk, name="issue_events").should_sync is True
+
+
+class TestRefreshSchemasErrorClassification(SimpleTestCase):
+    def test_a_rejected_host_returns_the_guidance_without_a_source_registry(self) -> None:
+        message, is_expected = _classify_refresh_schemas_error(
+            None, HostNotAllowedError("Database host not allowed: resolves to a private address")
+        )
+
+        assert message == DATABASE_HOST_NOT_ALLOWED_GUIDANCE
+        assert is_expected is True

@@ -1,45 +1,25 @@
-import { expectLogic } from 'kea-test-utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { FALLBACK_MODEL_CHOICES } from '../utils/composerModels'
+import { MODELS } from 'products/tasks/frontend/modelCatalog.generated'
+
 import { modelCatalogueLogic } from './modelCatalogueLogic'
 
 describe('modelCatalogueLogic', () => {
-    const MODELS = [
-        {
-            runtime_adapter: 'claude' as const,
-            model: 'claude-opus-4-8',
-            display_name: 'Claude Opus 4.8',
-            supported_efforts: ['low' as const, 'high' as const],
-        },
-        {
-            runtime_adapter: 'codex' as const,
-            model: 'gpt-5.6-luna',
-            display_name: 'GPT-5.6 Luna',
-            supported_efforts: ['low' as const, 'high' as const],
-        },
-    ]
-
     let logic: ReturnType<typeof modelCatalogueLogic.build>
 
-    function useCatalogueMocks(models: typeof MODELS | 'error'): void {
-        useMocks({
-            get: {
-                '/api/projects/:team_id/tasks/models/': () =>
-                    models === 'error' ? [500, { detail: 'gateway down' }] : [200, { models }],
-            },
-        })
-    }
+    const GATED = MODELS.filter((model) => model.accessFlag)
+    const UNGATED = MODELS.filter((model) => !model.accessFlag)
 
-    function mount(): void {
+    function mountWithFlags(flags: string[]): void {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
         logic = modelCatalogueLogic()
         logic.mount()
     }
 
     beforeEach(() => {
-        localStorage.clear()
         initKeaTests()
     })
 
@@ -47,40 +27,45 @@ describe('modelCatalogueLogic', () => {
         logic?.unmount()
     })
 
-    it('serves the fetched catalogue and keeps it for the next mount', async () => {
-        useCatalogueMocks(MODELS)
-        mount()
-        await expectLogic(logic).toDispatchActions(['loadCatalogueSuccess']).toMatchValues({ catalogue: MODELS })
+    it('offers every catalog model under the name the catalog gives it', () => {
+        mountWithFlags(GATED.map((model) => model.accessFlag as string))
 
-        // Remounting renders the stored catalogue right away rather than the built-in stand-in, so the
-        // picker doesn't briefly lose the models it was showing a moment ago.
-        logic.unmount()
-        useCatalogueMocks('error')
-        mount()
-        expect(logic.values.catalogue).toEqual(MODELS)
+        expect(logic.values.catalogue.map((choice) => [choice.model, choice.display_name])).toEqual(
+            MODELS.map((model) => [model.id, model.label])
+        )
     })
 
-    // A failed revalidation must not cost the models we already had — the built-in list is only a
-    // stand-in for having nothing at all.
-    it.each([['error' as const], [[] as typeof MODELS]])(
-        'keeps the stored catalogue when the refetch answers with %s',
-        async (response) => {
-            useCatalogueMocks(MODELS)
-            mount()
-            await expectLogic(logic).toDispatchActions(['loadCatalogueSuccess'])
-            logic.unmount()
+    // A staged model is a picker offering the run API would reject, so it stays hidden until
+    // the person holds its flag. The API is still the gate — this only stops us offering it.
+    it('hides a model whose access flag the person does not hold', () => {
+        expect(GATED.length).toBeGreaterThan(0)
+        mountWithFlags([])
 
-            useCatalogueMocks(response)
-            mount()
-            await expectLogic(logic).toDispatchActions(['loadCatalogueSuccess']).toMatchValues({ catalogue: MODELS })
+        const offered = logic.values.catalogue.map((choice) => choice.model)
+        expect(offered).toEqual(UNGATED.map((model) => model.id))
+    })
+
+    it('reveals only the gated model whose flag is on', () => {
+        const [first] = GATED
+        mountWithFlags([first.accessFlag as string])
+
+        const offered = logic.values.catalogue.map((choice) => choice.model)
+        expect(offered).toContain(first.id)
+        for (const model of GATED.filter((candidate) => candidate.id !== first.id)) {
+            expect(offered).not.toContain(model.id)
         }
-    )
+    })
 
-    it('falls back to the built-in list when nothing has ever been fetched', async () => {
-        useCatalogueMocks('error')
-        mount()
-        await expectLogic(logic)
-            .toDispatchActions(['loadCatalogueSuccess'])
-            .toMatchValues({ catalogue: FALLBACK_MODEL_CHOICES })
+    // An empty effort list is an answer, not missing metadata: the picker renders such a model with no
+    // effort dropdown, and a run must not send an effort for it. Filling the gap with a default would
+    // offer efforts the backend rejects.
+    it('keeps the effort list empty for a model with no effort control', () => {
+        const withoutEfforts = MODELS.filter((model) => model.reasoningEfforts.length === 0)
+        expect(withoutEfforts.length).toBeGreaterThan(0)
+        mountWithFlags(GATED.map((model) => model.accessFlag as string))
+
+        for (const model of withoutEfforts) {
+            expect(logic.values.catalogue.find((choice) => choice.model === model.id)?.supported_efforts).toEqual([])
+        }
     })
 })

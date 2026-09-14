@@ -253,6 +253,7 @@ export type MinimalAppMetric = {
         | 'email_bounce_prevented'
         | 'email_suppressed'
         | 'email_suspended'
+        | 'email_paused'
         | 'email_blocked'
         | 'email_unsubscribed'
         | 'email_untracked'
@@ -564,6 +565,7 @@ export type HogFunctionTypeType =
     | 'source_webhook'
     | 'warehouse_source_webhook'
     | 'site_destination'
+    | 'legacy_destination'
 
 // Function types a cyclotron worker actually executes, so a rerun can safely re-enqueue
 // the stored invocation onto the cyclotron hog queue and have it run. Every other type

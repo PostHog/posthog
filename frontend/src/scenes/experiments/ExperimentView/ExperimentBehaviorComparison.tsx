@@ -480,8 +480,8 @@ function EmptyShelf({
     onAction: (action: ExperimentWatchEmptyAction) => void
 }): JSX.Element {
     if (reason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures) {
-        // Dated, because only the window was checked: an experiment that once captured exposure
-        // from the browser and no longer does reads the same as one that never did.
+        // Dated, because only the window was checked: an experiment whose people had sessions
+        // before the window reads the same as one whose people never had any.
         const covered = coveredWindow(deltas)
         return (
             <LemonBanner
@@ -493,9 +493,9 @@ function EmptyShelf({
                     onClick: () => onAction('exposure_docs'),
                 }}
             >
-                Nothing to watch here. Between {covered.from} and {covered.to}, people were exposed but no exposure
-                carried a session, so there was nothing to compare. Exposures captured from a client-side SDK carry a
-                session, and exposures captured from a backend SDK don't.
+                Nothing to watch here. Between {covered.from} and {covered.to}, the people exposed have no sessions we
+                can see, so there was nothing to compare. Sessions only exist where a browser or mobile SDK captured
+                events.
             </LemonBanner>
         )
     }
@@ -699,7 +699,7 @@ function ShelfCaption({
 }): JSX.Element {
     const covered = coveredWindow(deltas)
     const details = [
-        'Each variant is compared against the others on which events people did, counting each person once, in the first session they were exposed in. Cards only appear where the difference is too big to be chance, and only with recordings that actually exist.',
+        'Each variant is compared against the others on which events people did, counting each person once, in their first session at or after they were exposed. Cards only appear where the difference is too big to be chance, and only with recordings that actually exist.',
         'Page views, autocaptures and the exposure event are never compared, since their names describe a mechanism rather than something a person did.',
         deltas.metric_events.length > 0
             ? `The events this experiment measures (${deltas.metric_events.join(', ')}) can get cards too, but a card never says how a metric moved: the Results tab states that.`
@@ -709,9 +709,6 @@ function ShelfCaption({
             ? `${pluralize(deltas.multiple_variant_persons, 'person', 'people')} saw more than one variant and ${
                   deltas.multiple_variant_persons === 1 ? 'is' : 'are'
               } left out.`
-            : null,
-        deltas.used_exposure_fallback
-            ? 'Sessions are matched on the feature flag being active, since no exposure event can be matched to a recording here.'
             : null,
         deltas.sessions_truncated
             ? 'The experiment has more exposed sessions than one comparison covers, so the window is the most recent stretch that fits, not the whole run.'

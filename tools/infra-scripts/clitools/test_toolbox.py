@@ -1026,11 +1026,41 @@ class TestToolbox(unittest.TestCase):
             toolbox_script.POOLS["flags-cache-jumphost"],
             {
                 "default_namespace": "posthog",
-                "namespace_by_environment": {"dev": "flags-cache-jumphost"},
+                "namespace_by_environment": {
+                    "dev": "flags-cache-jumphost",
+                    "prod-eu": "flags-cache-jumphost",
+                },
                 "app_label": "flags-cache-jumphost",
                 "claimed_label_key": "flags-jumphost-claimed",
             },
         )
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_resolve_namespace_uses_golden_namespace_for_migrated_environments(self):
+        """dev and prod-eu run the jumphost on the golden chart, in its own namespace."""
+        os.environ.pop("KUBE_NAMESPACE", None)
+        pool = toolbox_script.POOLS["flags-cache-jumphost"]
+
+        for context in ("dev-eks", "dev-admin", "prod-eu-eks", "prod-eu-admin", "prod-eu", "dev"):
+            with self.subTest(context=context):
+                self.assertEqual(toolbox_script.resolve_namespace(pool, context), "flags-cache-jumphost")
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_resolve_namespace_keeps_unmigrated_environments_on_default(self):
+        """prod-us still runs the posthog-rust release, so it stays in `posthog`."""
+        os.environ.pop("KUBE_NAMESPACE", None)
+        pool = toolbox_script.POOLS["flags-cache-jumphost"]
+
+        for context in ("prod-us-eks", "prod-us-admin", None):
+            with self.subTest(context=context):
+                self.assertEqual(toolbox_script.resolve_namespace(pool, context), "posthog")
+
+    @patch.dict(os.environ, {"KUBE_NAMESPACE": "posthog"})
+    def test_resolve_namespace_honours_kube_namespace_override(self):
+        """KUBE_NAMESPACE wins over the per-environment mapping, which is the rollback path."""
+        pool = toolbox_script.POOLS["flags-cache-jumphost"]
+
+        self.assertEqual(toolbox_script.resolve_namespace(pool, "prod-eu-eks"), "posthog")
 
     def test_exit_for_signal_raises_systemexit_for_sigterm(self):
         """SIGTERM handler routes through sys.exit so atexit-registered cleanup fires."""

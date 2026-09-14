@@ -43,6 +43,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
     DEV_STACK_CPU_REQUEST_CORES,
+    DEV_STACK_MEMORY_GB,
     SANDBOX_TTL_SECONDS,
     VM_SANDBOX_CPU_CORES,
 )
@@ -205,6 +206,12 @@ class SandboxConfig(BaseModel):
             return self.dev_stack_present
         return self.custom_image_name == DEV_STACK_IMAGE_NAME
 
+    @model_validator(mode="after")
+    def _enforce_dev_stack_memory_floor(self) -> Self:
+        if self.is_dev_stack_image:
+            self.memory_gb = max(self.memory_gb, DEV_STACK_MEMORY_GB)
+        return self
+
     @property
     def effective_cpu_request_cores(self) -> float:
         """CPU floor the provider actually reserves when burstable: the configured request,
@@ -286,6 +293,7 @@ def build_agent_runtime_env_prefix(
     provider: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    service_tier: str | None = None,
     context_window: str | None = None,
     fast_mode: bool | None = None,
     initial_permission_mode: str | None = None,
@@ -306,6 +314,9 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+        # OpenAI service tier for codex runs ("default" | "priority" | "flex"); ignored by the
+        # claude adapter. Codex itself drops a tier the model catalogue doesn't advertise.
+        "POSTHOG_CODE_SERVICE_TIER": service_tier,
         "POSTHOG_CODE_CONTEXT_WINDOW": context_window,
         # Explicit false pins fast mode off even if a stale env value survives in a resumed sandbox.
         "POSTHOG_CODE_FAST_MODE": None if fast_mode is None else ("true" if fast_mode else "false"),
@@ -584,6 +595,7 @@ class SandboxBase(ABC):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         context_window: str | None = None,
         fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,

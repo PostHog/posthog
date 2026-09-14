@@ -79,22 +79,22 @@ describe('ReportContextMenu', () => {
         {
             name: 'a ready actionable report offers every action',
             report: makeReport(),
-            expected: ['Create PR', 'Resolve', 'Dismiss', 'Reviewers'],
+            expected: ['Select', 'Create PR', 'Resolve', 'Dismiss', 'Reviewers'],
         },
         {
             name: 'a report with a PR does not offer creating another',
             report: makeReport({ implementation_pr_url: 'https://github.com/posthog/posthog/pull/1' }),
-            expected: ['Resolve', 'Dismiss', 'Reviewers'],
+            expected: ['Select', 'Resolve', 'Dismiss', 'Reviewers'],
         },
         {
             name: 'an in-progress report cannot be resolved yet',
             report: makeReport({ status: SignalReportStatus.IN_PROGRESS, actionability: null }),
-            expected: ['Dismiss', 'Reviewers'],
+            expected: ['Select', 'Dismiss', 'Reviewers'],
         },
         {
             name: 'a dismissed report only offers restore',
             report: makeReport({ status: SignalReportStatus.SUPPRESSED }),
-            expected: ['Restore'],
+            expected: ['Select', 'Restore'],
         },
     ])('$name', ({ report, expected }) => {
         openMenu(report)
