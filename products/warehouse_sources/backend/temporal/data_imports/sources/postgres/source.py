@@ -500,6 +500,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "through PAM (for example against the system password database or LDAP), and it "
                 "rejected the username or password. Check your credentials, then re-enable the sync."
             ),
+            # Postgres's host-based access control (pg_hba.conf) rejects the connecting host/user/
+            # database combination outright, before password auth is even attempted: "FATAL: no
+            # pg_hba.conf entry for host <host>, user <user>, database <database>, SSL encryption"
+            # (and its "no encryption" sibling, when sslmode=prefer retries without TLS after the
+            # SSL attempt is rejected the same way). This is the server administrator's own access
+            # rule, not a transient condition — every retry reaches the same rule until the customer
+            # adds a matching pg_hba.conf entry. Match the stable prefix and exclude the volatile
+            # host/user/database.
+            "no pg_hba.conf entry for host": (
+                "Your PostgreSQL server's pg_hba.conf doesn't have a rule allowing this connection "
+                '("no pg_hba.conf entry for host"). Add an entry that permits the connecting host, '
+                "user, and database (over SSL or otherwise), then re-enable the sync."
+            ),
             "could not translate host name": _DNS_RESOLUTION_ERROR,
             "timeout expired connection to server at": None,
             "password authentication failed for user": _INVALID_CREDENTIALS_ERROR,

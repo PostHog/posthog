@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconOpenSidebar, IconShare } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
@@ -13,8 +14,9 @@ import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
 import { DebugLogsMenu } from 'products/posthog_ai/frontend/api/primitives'
 import { EmbeddedRunner } from 'products/posthog_ai/frontend/api/runner'
 
+import { aiSceneView } from '../aiSceneView'
 import { Intro } from '../Intro'
-import { maxGlobalLogic } from '../maxGlobalLogic'
+import { PhaiViewMode, maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
 import { phaiAiComposerSeedLogic } from '../phaiAiComposerSeedLogic'
@@ -31,6 +33,8 @@ export function ChatHeader({
     children,
     hideBorder,
     isSandboxRuntime,
+    hideViewToggle,
+    onViewChange,
 }: {
     conversationId: string | null
     tabId?: string
@@ -38,6 +42,9 @@ export function ChatHeader({
     hideBorder?: boolean
     /** Debug rows only exist on the sandbox runtime, so the staff menu that reveals them is hidden elsewhere. */
     isSandboxRuntime?: boolean
+    /** For a surface the URL pinned, where the saved view the toggle reads does not match what is shown. */
+    hideViewToggle?: boolean
+    onViewChange?: (mode: PhaiViewMode) => void
 }): JSX.Element {
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { chatTitle } = useValues(maxLogic)
@@ -62,7 +69,7 @@ export function ChatHeader({
             </div>
             <div className="flex items-center gap-2">
                 {isSandboxRuntime && <DebugLogsMenu variant="lemon" />}
-                <PhaiViewToggle variant="lemon" />
+                {!hideViewToggle && <PhaiViewToggle variant="lemon" onChange={onViewChange} />}
                 {conversationId ? (
                     <LemonButton
                         size="small"
@@ -97,26 +104,27 @@ export function ChatHeader({
 
 interface AiFirstMaxInstanceProps {
     tabId: string
+    taskId?: string
+    /** The legacy conversation the URL names. It pins the legacy chat, as `taskId` pins the runner. */
+    chatId?: string
 }
 
-export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Element {
+export function AiFirstMaxInstance({ tabId, taskId, chatId }: AiFirstMaxInstanceProps): JSX.Element {
     const { threadVisible, threadLogicKey, conversation, conversationId } = useValues(maxLogic({ panelId: tabId }))
     const { startNewConversation } = useActions(maxLogic({ panelId: tabId }))
     const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
 
-    // On `/ai` the new view is the full TaskTracker product (tasks list + composer + run detail); a thin
-    // bar keeps the toggle reachable so the user can drop back to the legacy chat.
-    if (effectivePhaiView === 'new') {
+    if (aiSceneView({ taskId, chatId, effectivePhaiView }) === 'runner') {
         return (
             <div className="flex flex-col grow overflow-hidden h-full">
                 <div className="flex w-full items-center justify-end gap-2 py-2 px-2 border-b border-primary">
                     {/* The new view is the runner, which is always the sandbox runtime — no runtime check needed. */}
                     <DebugLogsMenu variant="lemon" />
-                    <PhaiViewToggle variant="lemon" />
+                    {!taskId && <PhaiViewToggle variant="lemon" />}
                 </div>
                 <div className="flex flex-col flex-1 min-h-0">
                     <BindLogic logic={phaiAiComposerSeedLogic} props={{}}>
-                        <EmbeddedRunner />
+                        <EmbeddedRunner taskId={taskId} />
                     </BindLogic>
                 </div>
             </div>
@@ -138,6 +146,16 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
                             conversationId={conversationId}
                             tabId={tabId}
                             isSandboxRuntime={conversation?.agent_runtime === 'sandbox'}
+                            // A chat link opened the legacy chat over the saved new view: the toggle would
+                            // offer "legacy" for what is already shown. "New chat" leads back to the runner.
+                            hideViewToggle={!!chatId && effectivePhaiView === 'new'}
+                            // Legacy Max keeps `?chat=` in the URL once a conversation starts, and that param
+                            // pins this chat, so switching to the new view has to leave the conversation too.
+                            onViewChange={(mode) => {
+                                if (mode === 'new' && chatId) {
+                                    router.actions.push(urls.ai())
+                                }
+                            }}
                         />
                         {isMaxAvailable ? (
                             <ChatArea
