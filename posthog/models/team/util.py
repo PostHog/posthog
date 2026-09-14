@@ -352,6 +352,7 @@ def delete_team_records(team_ids: list[int]) -> None:
     from posthog.models.team import Team
 
     with transaction.atomic():
+        # nosemgrep: hot-parent-row-select-for-update -- Team deletion must block concurrent child inserts.
         teams = list(Team.objects.select_for_update().filter(id__in=team_ids))
         for team in teams:
             queue_training_deletion(team.pk, "team")
