@@ -31,6 +31,7 @@ use tonic::Status;
 use uuid::Uuid;
 
 use personhog_common::grpc::semantic_refusal;
+use personhog_identity::config::IdentityTables;
 use personhog_identity::leader::{LifecycleLeader, PropertyWriter};
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
@@ -120,7 +121,7 @@ fn fenced_status(fence: &Fence) -> Status {
 
 pub struct SimLeader {
     pool: PgPool,
-    person_table: String,
+    tables: IdentityTables,
     calls: Mutex<Vec<LeaderCall>>,
     fences: Mutex<HashMap<i64, Fence>>,
     deaths: Mutex<HashMap<i64, DeathDocument>>,
@@ -135,10 +136,10 @@ pub struct SimLeader {
 }
 
 impl SimLeader {
-    pub fn new(pool: PgPool, person_table: String) -> Self {
+    pub fn new(pool: PgPool, tables: IdentityTables) -> Self {
         Self {
             pool,
-            person_table,
+            tables,
             calls: Mutex::new(Vec::new()),
             fences: Mutex::new(HashMap::new()),
             deaths: Mutex::new(HashMap::new()),
@@ -229,7 +230,7 @@ impl SimLeader {
             FROM {person_table}
             WHERE team_id = $1 AND id = $2 AND is_deleted = false
             "#,
-            person_table = self.person_table,
+            person_table = self.tables.person,
         );
         let row: Option<(Uuid, i64, chrono::DateTime<Utc>, bool, serde_json::Value)> =
             sqlx::query_as(&live_sql)
@@ -256,10 +257,11 @@ impl SimLeader {
     /// The mark row the real leader consults before producing a death
     /// document (personhog-leader/src/fence.rs `mark_status`).
     async fn mark_status(&self, op_id: Uuid, team_id: i64, person_id: i64) -> Option<String> {
-        sqlx::query_scalar(
-            "SELECT status FROM lifecycle_op_person \
+        sqlx::query_scalar(&format!(
+            "SELECT status FROM {} \
              WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role <> 'target'",
-        )
+            self.tables.lifecycle_op_person
+        ))
         .bind(op_id)
         .bind(team_id as i32)
         .bind(person_id)
@@ -275,10 +277,11 @@ impl SimLeader {
         team_id: i64,
         person_id: i64,
     ) -> Option<String> {
-        sqlx::query_scalar(
-            "SELECT status FROM lifecycle_op_person \
+        sqlx::query_scalar(&format!(
+            "SELECT status FROM {} \
              WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role = 'target'",
-        )
+            self.tables.lifecycle_op_person
+        ))
         .bind(op_id)
         .bind(team_id as i32)
         .bind(person_id)
@@ -594,7 +597,7 @@ impl PropertyWriter for SimLeader {
         let update_sql = format!(
             "UPDATE {person_table} SET properties = $3::jsonb, is_identified = is_identified OR $4 \
              WHERE team_id = $1 AND id = $2",
-            person_table = self.person_table,
+            person_table = self.tables.person,
         );
         sqlx::query(&update_sql)
             .bind(request.team_id as i32)
