@@ -21,6 +21,7 @@ import type {
     _MetricAnomalyRequestApi,
     _MetricAttributeKeysResponseApi,
     _MetricAttributeValuesResponseApi,
+    _MetricCatalogValuesParamsApi,
     _MetricErrorSpikesResponseApi,
     _MetricExplainRequestApi,
     _MetricExplainResponseApi,
@@ -342,5 +343,25 @@ export const metricsValuesRetrieve = async (
     return apiMutator<_MetricNamesResponseApi>(getMetricsValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMetricsValuesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/values/`
+}
+
+/**
+ * Distinct metric names for the team. Backs the catalog UI.
+ */
+export const metricsValuesCreate = async (
+    projectId: string,
+    _metricCatalogValuesParamsApi: _MetricCatalogValuesParamsApi,
+    options?: RequestInit
+): Promise<_MetricNamesResponseApi> => {
+    return apiMutator<_MetricNamesResponseApi>(getMetricsValuesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricCatalogValuesParamsApi),
     })
 }

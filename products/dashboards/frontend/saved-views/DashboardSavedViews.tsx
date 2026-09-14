@@ -116,7 +116,6 @@ export function DashboardSavedViews(): JSX.Element | null {
     const { currentTeamId } = useValues(teamLogic)
     const savedViewsLogic = dashboardSavedViewsLogic({ teamId: currentTeamId })
     const {
-        dashboardSavedViewsEnabled,
         savedViews,
         savedViewsNextCursors,
         loadMoreSavedViewsLoading,
@@ -383,7 +382,7 @@ export function DashboardSavedViews(): JSX.Element | null {
         }
     }
 
-    if (!dashboardSavedViewsEnabled || currentTab !== DashboardsTab.All) {
+    if (currentTab !== DashboardsTab.All) {
         return null
     }
 
