@@ -1155,6 +1155,7 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 201, response.content)
         saved_query_1_response = response.json()
+        initial_updated_at = saved_query_1_response["updated_at"]
         saved_query_1_response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/" + saved_query_1_response["id"],
             {
@@ -1169,6 +1170,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(saved_query_1_response.status_code, 200, saved_query_1_response.content)
         view_1 = saved_query_1_response.json()
         self.assertEqual(view_1["name"], "event_view")
+        self.assertGreater(view_1["updated_at"], initial_updated_at)
         self.assertEqual(
             view_1["columns"],
             [
