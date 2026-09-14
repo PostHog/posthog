@@ -14,7 +14,7 @@ import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
 
-from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner
+from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner, Query
 from posthog.dags.common.staged_dictionary import create_on_every_cluster
 from posthog.dags.deletes import (
     _DELETE_PREDICATE,
@@ -1034,7 +1034,7 @@ def test_marking_is_refused_when_a_count_survives_or_cannot_complete(unswept: di
 def test_the_survivor_count_retries_before_reporting_unknown(failing_attempts: int, expected: int | None):
     calls = {"count": 0}
 
-    def runner(query) -> list:
+    def runner(query: Query) -> list:
         calls["count"] += 1
         if calls["count"] <= failing_attempts:
             raise TimeoutError("count exceeded max_execution_time")
@@ -1056,7 +1056,7 @@ def test_the_deletes_guard_yields_to_an_executing_deletes_or_squash_run(blocking
     assert "ensure_no_concurrent_deletes_run" in deletes_job.graph.node_names()
 
     @dagster.job(name=deletes_job.name)
-    def guard_only_job():
+    def guard_only_job() -> None:
         ensure_no_concurrent_deletes_run()
 
     instance = dagster.DagsterInstance.ephemeral()
