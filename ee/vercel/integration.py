@@ -48,8 +48,9 @@ VercelItemType = Literal["flag", "experiment"]
 # original contract for already-installed users.
 CLIENT_ENV_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_")
 
-# Vercel takes many experimentation items in one request, so a link sends batches instead of one request per flag.
-BULK_FLAG_SYNC_BATCH_SIZE = 100
+# Vercel's create experimentation items endpoint rejects a request that carries more than 50 items,
+# so a link sends batches of that size instead of one request per flag.
+BULK_FLAG_SYNC_BATCH_SIZE = 50
 
 
 class VercelSSOError(Exception):

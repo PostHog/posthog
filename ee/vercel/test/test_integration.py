@@ -942,13 +942,19 @@ class TestVercelIntegration(TestCase):
         VercelIntegration.sync_feature_flag_to_vercel(feature_flag, created=True)
         assert mock_sync.call_count >= 1
 
+    @parameterized.expand(
+        [
+            ("one_request", 3, [3]),
+            ("split_at_vercel_limit", 51, [50, 1]),
+        ]
+    )
     @patch("ee.vercel.integration.VercelIntegration._setup_vercel_client_for_team")
-    def test_bulk_sync_feature_flags_sends_one_batched_request(self, mock_setup):
+    def test_bulk_sync_feature_flags_batches_requests(self, _, flag_count, expected_batch_sizes, mock_setup):
         team, _ = self.make_team_with_vercel(self.organization, self.user)
         mock_client = Mock()
         mock_client.create_experimentation_items.return_value = Mock(success=True)
         mock_setup.return_value = Mock(client=mock_client, integration_config_id="config_id", resource_id="resource_id")
-        for index in range(3):
+        for index in range(flag_count):
             self.make_feature_flag(team, f"flag_{index}", f"Flag {index}", False)
         self.make_feature_flag(team, "deleted_flag", "Deleted Flag", True)
         mock_setup.reset_mock()
@@ -957,9 +963,10 @@ class TestVercelIntegration(TestCase):
         VercelIntegration.bulk_sync_feature_flags_to_vercel(team)
 
         mock_setup.assert_called_once_with(team)
-        mock_client.create_experimentation_items.assert_called_once()
-        items = mock_client.create_experimentation_items.call_args[1]["items"]
-        assert [item["slug"] for item in items] == ["flag_0", "flag_1", "flag_2"]
+        batches = [call[1]["items"] for call in mock_client.create_experimentation_items.call_args_list]
+        assert [len(batch) for batch in batches] == expected_batch_sizes
+        sent_slugs = sorted(item["slug"] for batch in batches for item in batch)
+        assert sent_slugs == sorted(f"flag_{index}" for index in range(flag_count))
 
     @patch("ee.vercel.integration.VercelIntegration._delete_item_from_vercel")
     def test_delete_feature_flag_from_vercel(self, mock_delete):
