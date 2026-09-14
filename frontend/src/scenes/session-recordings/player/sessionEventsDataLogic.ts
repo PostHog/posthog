@@ -27,6 +27,7 @@ import { getEventsWithPrimaryProperty } from 'lib/utils/events'
 import { TimeTree } from 'lib/utils/time-tree'
 
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
+import type { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { HogQLQueryString, hogql } from '~/queries/utils'
 import { RecordingEventType } from '~/types'
 
@@ -217,8 +218,9 @@ AND properties.$lib != 'web'`
                         hogql`\nORDER BY timestamp ASC\nLIMIT 1000000`) as HogQLQueryString
 
                     const tags = { scene: 'ReplaySingle', productKey: 'session_replay' }
+                    let eventResponses: any[]
                     try {
-                        const [sessionEvents, relatedEvents]: any[] = await Promise.all([
+                        eventResponses = await Promise.all([
                             // make one query for all events that are part of the session
                             api.queryHogQL(sessionEventsQuery, tags),
                             // make a second for all events from that person,
@@ -230,61 +232,58 @@ AND properties.$lib != 'web'`
                             // take advantage of lib being materialized and further filter
                             api.queryHogQL(relatedEventsQuery, tags),
                         ])
-
-                        breakpoint()
-
-                        return [...sessionEvents.results, ...relatedEvents.results].map(
-                            (event: any): RecordingEventType => {
-                                const currentUrl = event[5]
-                                // We use the pathname to simplify the UI - we build it here instead of fetching it to keep data usage small
-                                let pathname: string | undefined
-                                try {
-                                    pathname = event[5] ? new URL(event[5]).pathname : undefined
-                                } catch {
-                                    pathname = undefined
-                                }
-
-                                const viewportWidth = event.length > 7 ? event[7] : undefined
-                                const viewportHeight = event.length > 8 ? event[8] : undefined
-
-                                return {
-                                    id: event[0],
-                                    event: event[1],
-                                    timestamp: event[2],
-                                    elements: chainToElements(event[3]),
-                                    properties: {
-                                        $window_id: event[4],
-                                        $current_url: currentUrl,
-                                        $event_type: event[6],
-                                        $pathname: pathname,
-                                        $viewport_width: viewportWidth,
-                                        $viewport_height: viewportHeight,
-                                        $screen_name: event.length > 9 ? event[9] : undefined,
-                                    },
-                                    playerTime: +dayjs(event[2]) - +start,
-                                    fullyLoaded: false,
-                                    distinct_id: event[event.length - 1] || values.sessionPlayerMetaData?.distinct_id,
-                                }
-                            }
-                        )
                     } catch (e: any) {
                         if (isBreakpoint(e)) {
                             throw e
                         }
-                        // Bail if a newer load has superseded this one, so a late failure cannot
-                        // replace the newer result.
+                        // A late failure must not replace the result from a newer load.
                         breakpoint()
-                        // The player still works without the events list, so degrade to no events
-                        // instead of failing the loader. Catching here skips the gate `initKea`
-                        // applies to loader failures, so reapply it: a transient gateway failure is
-                        // expected, but a backend fault or a bug in the mapping above must still
-                        // reach error tracking.
+                        // The player works without the events list. Reapply the global reporting
+                        // gate because this fallback converts the loader failure into a success.
                         console.warn('Failed to load session events for recording', e)
                         if (shouldReportApiFailure(e)) {
                             posthog.captureException(e)
                         }
                         return null
                     }
+
+                    breakpoint()
+
+                    const [sessionEvents, relatedEvents] = eventResponses
+                    return [...sessionEvents.results, ...relatedEvents.results].map(
+                        (event: any): RecordingEventType => {
+                            const currentUrl = event[5]
+                            // We use the pathname to simplify the UI - we build it here instead of fetching it to keep data usage small
+                            let pathname: string | undefined
+                            try {
+                                pathname = event[5] ? new URL(event[5]).pathname : undefined
+                            } catch {
+                                pathname = undefined
+                            }
+
+                            const viewportWidth = event.length > 7 ? event[7] : undefined
+                            const viewportHeight = event.length > 8 ? event[8] : undefined
+
+                            return {
+                                id: event[0],
+                                event: event[1],
+                                timestamp: event[2],
+                                elements: chainToElements(event[3]),
+                                properties: {
+                                    $window_id: event[4],
+                                    $current_url: currentUrl,
+                                    $event_type: event[6],
+                                    $pathname: pathname,
+                                    $viewport_width: viewportWidth,
+                                    $viewport_height: viewportHeight,
+                                    $screen_name: event.length > 9 ? event[9] : undefined,
+                                },
+                                playerTime: +dayjs(event[2]) - +start,
+                                fullyLoaded: false,
+                                distinct_id: event[event.length - 1] || values.sessionPlayerMetaData?.distinct_id,
+                            }
+                        }
+                    )
                 },
 
                 loadFullEventData: async ({ event }, breakpoint) => {
@@ -314,20 +313,21 @@ AND properties.$lib != 'web'`
                     const earliestTimestamp = timestamps.reduce((a, b) => Math.min(a, b))
                     const latestTimestamp = timestamps.reduce((a, b) => Math.max(a, b))
 
-                    try {
-                        const query = hogql`
-                            SELECT properties, uuid
-                            FROM events
-                            -- the timestamp range here is only to avoid querying too much of the events table
-                            -- we don't really care about the absolute value,
-                            -- but we do care about whether timezones have an odd impact
-                            -- so, we extend the range by a day on each side so that timezones don't cause issues
-                            WHERE timestamp > ${dayjs(earliestTimestamp).subtract(1, 'day')}
-                            AND timestamp < ${dayjs(latestTimestamp).add(1, 'day')}
-                            AND event in ${eventNames}
-                            AND uuid in ${eventIds}`
+                    const query = hogql`
+                        SELECT properties, uuid
+                        FROM events
+                        -- the timestamp range here is only to avoid querying too much of the events table
+                        -- we don't really care about the absolute value,
+                        -- but we do care about whether timezones have an odd impact
+                        -- so, we extend the range by a day on each side so that timezones don't cause issues
+                        WHERE timestamp > ${dayjs(earliestTimestamp).subtract(1, 'day')}
+                        AND timestamp < ${dayjs(latestTimestamp).add(1, 'day')}
+                        AND event in ${eventNames}
+                        AND uuid in ${eventIds}`
 
-                        const response = await api.queryHogQL(query, {
+                    let response: HogQLQueryResponse | null = null
+                    try {
+                        response = await api.queryHogQL(query, {
                             scene: 'ReplaySingle',
                             productKey: 'session_replay',
                         })
@@ -335,7 +335,23 @@ AND properties.$lib != 'web'`
                         if (response.error) {
                             throw new Error(response.error)
                         }
+                    } catch (e: any) {
+                        if (isBreakpoint(e)) {
+                            throw e
+                        }
+                        // A late failure must not mark an event from a newer load as loaded.
+                        breakpoint()
+                        // Property expansion is best-effort. Reapply the global reporting gate
+                        // because this fallback converts the loader failure into a success.
+                        existingEvents.forEach((e) => (e.fullyLoaded = true))
+                        console.warn('Failed to load full event data for recording events', e)
+                        if (shouldReportApiFailure(e)) {
+                            posthog.captureException(e)
+                        }
+                        response = null
+                    }
 
+                    if (response) {
                         for (const event of existingEvents) {
                             const result = response.results.find((x: any) => {
                                 return x[1] === event.id
@@ -345,23 +361,6 @@ AND properties.$lib != 'web'`
                                 event.properties = JSON.parse(result[0])
                                 event.fullyLoaded = true
                             }
-                        }
-                    } catch (e: any) {
-                        if (isBreakpoint(e)) {
-                            throw e
-                        }
-                        // Bail if a newer load has superseded this one, so a late failure cannot
-                        // mark a stale event loaded.
-                        breakpoint()
-                        // The property expansion is best-effort, because the player keeps working
-                        // with properties left unexpanded. Mark the events loaded and move on.
-                        // Catching here skips the gate `initKea` applies to loader failures, so
-                        // reapply it: a transient gateway failure is expected, but a backend fault
-                        // or a malformed property payload must still reach error tracking.
-                        existingEvents.forEach((e) => (e.fullyLoaded = true))
-                        console.warn('Failed to load full event data for recording events', e)
-                        if (shouldReportApiFailure(e)) {
-                            posthog.captureException(e)
                         }
                     }
 

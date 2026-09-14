@@ -100,9 +100,6 @@ describe('sessionEventsDataLogic', () => {
         expect(logic.values.sessionEventsData?.find((e) => e.id === 'event-1')?.fullyLoaded).toBe(true)
     })
 
-    // A failure after the response arrives, such as a property payload that is not JSON, is a
-    // defect of ours rather than a handled server condition. The catch degrades the same way, but
-    // the failure must still reach error tracking rather than be swallowed by the fallback.
     it('reports a malformed property payload after the query succeeds', async () => {
         const event = makeEvent('event-1')
         logic.actions.loadEventsSuccess([event])
@@ -111,10 +108,28 @@ describe('sessionEventsDataLogic', () => {
 
         logic.actions.loadFullEventData(event)
 
-        await expectLogic(logic).toDispatchActions(['loadFullEventDataSuccess'])
+        await expectLogic(logic).toDispatchActions(['loadFullEventDataFailure'])
 
         expect(posthog.captureException).toHaveBeenCalledTimes(1)
-        expect(logic.values.sessionEventsData?.find((e) => e.id === 'event-1')?.fullyLoaded).toBe(true)
+        expect(logic.values.sessionEventsData?.find((e) => e.id === 'event-1')?.fullyLoaded).toBe(false)
+    })
+
+    it('reports a malformed session event after the queries succeed', async () => {
+        jest.spyOn(api, 'queryHogQL')
+            .mockResolvedValueOnce({ results: [null] } as any)
+            .mockResolvedValueOnce({ results: [] } as any)
+
+        sessionRecordingMetaLogic({ sessionRecordingId: 'test-session' }).actions.loadRecordingMetaSuccess({
+            id: 'test-session',
+            start_time: '2024-01-01T00:00:00Z',
+            end_time: '2024-01-01T00:01:00Z',
+            person: { uuid: 'person-uuid' },
+        } as any)
+
+        await expectLogic(logic).toDispatchActions(['loadEventsFailure'])
+
+        expect(posthog.captureException).toHaveBeenCalledTimes(1)
+        expect(logic.values.sessionEventsData).toBeNull()
     })
 
     // A failed loadEvents degrades to no events, which writes the same value a successful load
