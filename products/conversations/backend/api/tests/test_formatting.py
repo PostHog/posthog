@@ -26,6 +26,8 @@ def _list_item(*content: dict) -> dict:
     return {"type": "listItem", "content": list(content)}
 
 
+_IMAGE_TOKEN = "![probe](/api/users/@me/)"
+
 _IMAGE_ONLY_CONTEXT_BLOCK = {
     "type": "context",
     "elements": [{"type": "image", "image_url": "https://example.com/i.png", "alt_text": "logo"}],
@@ -265,6 +267,102 @@ class TestSlackFormatting(SimpleTestCase):
         content, _ = slack_to_content_and_rich_content("short notification summary", blocks)
 
         assert content == "short notification summary"
+
+    @parameterized.expand(
+        [
+            ("block_kit_section", [{"type": "section", "text": {"type": "mrkdwn", "text": _IMAGE_TOKEN}}], ""),
+            ("text_fallback", None, _IMAGE_TOKEN),
+            # A link URL is serialized into the markdown raw, so a URL holding `) ` closes the
+            # link early and drops the rest into prose as its own token.
+            (
+                "rich_text_link_url_beside_a_block",
+                [
+                    {"type": "section", "text": {"type": "mrkdwn", "text": "hi"}},
+                    {
+                        "type": "rich_text",
+                        "elements": [
+                            {
+                                "type": "rich_text_section",
+                                "elements": [{"type": "link", "url": "/x) ![probe](/api/users/@me/", "text": "click"}],
+                            }
+                        ],
+                    },
+                ],
+                "",
+            ),
+            (
+                "rich_text_code_fence_beside_a_block",
+                [
+                    {"type": "section", "text": {"type": "mrkdwn", "text": "hi"}},
+                    {
+                        "type": "rich_text",
+                        "elements": [
+                            {
+                                "type": "rich_text_preformatted",
+                                "elements": [{"type": "text", "text": "x\n```\n![probe](/api/users/@me/)"}],
+                            }
+                        ],
+                    },
+                ],
+                "",
+            ),
+            (
+                "rich_text_only_link_url",
+                [
+                    {
+                        "type": "rich_text",
+                        "elements": [
+                            {
+                                "type": "rich_text_section",
+                                "elements": [{"type": "link", "url": "/x) ![probe](/api/users/@me/", "text": "click"}],
+                            }
+                        ],
+                    }
+                ],
+                "",
+            ),
+        ]
+    )
+    def test_markdown_image_tokens_are_neutralized(self, _name: str, blocks: list[dict] | None, text: str) -> None:
+        content, _ = slack_to_content_and_rich_content(text, blocks)
+
+        # Slack mrkdwn has no image syntax, so the token is literal text to its author. Left
+        # as markdown it renders as an image, and a same-origin URL loads in the reader's
+        # browser with their session.
+        assert "![" not in content
+        assert "probe" in content
+
+    @parameterized.expand(
+        [
+            ("fenced_underscores", "```\nslack_mrkdwn_to_content\n```", "slack_mrkdwn_to_content"),
+            ("fenced_emphasis", "```\n*literal* text\n```", "*literal* text"),
+            # Slack's wire encoding still decodes inside code, matching how the rich_text path
+            # resolves a mention inside a code block.
+            ("fenced_mention", "```\nping <@U123ABC> here\n```", "ping @Alice here"),
+            ("fenced_link", "```\nsee <https://posthog.com|docs>\n```", "see [docs](https://posthog.com)"),
+            ("inline_underscores", "call `some_helper_name` now", "`some_helper_name`"),
+            # Slack reads one emphasis run here, so the pair has to survive the code span
+            # sitting between its two characters.
+            ("emphasis_straddling_a_span", "*run `migrate` first*", "**run `migrate` first**"),
+            ("strike_straddling_a_span", "~drop `users` table~", "~~drop `users` table~~"),
+            # Slack tags an emoji element structurally in rich_text, but here `:x:` is a guess
+            # against text that may be code, so a dict key keeps its quotes and colons.
+            ("fenced_emoji_shortcode", '```\nlabels[":x:"]\n```', 'labels[":x:"]'),
+        ]
+    )
+    def test_code_spans_are_preserved_verbatim(self, _name: str, mrkdwn: str, expected_fragment: str) -> None:
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": mrkdwn}}]
+
+        content, _ = slack_to_content_and_rich_content("summary", blocks, user_names={"U123ABC": "Alice"})
+
+        assert expected_fragment in content
+
+    def test_code_fence_lines_keep_no_trailing_line_break_spaces(self) -> None:
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "```\nline one\nline two\n```"}}]
+
+        content, _ = slack_to_content_and_rich_content("summary", blocks)
+
+        assert content == "```\nline one\nline two\n```"
 
     def test_section_block_mention_resolves_to_a_display_name(self) -> None:
         blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "ping <@U123ABC> please"}}]

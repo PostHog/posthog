@@ -36,6 +36,9 @@ _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
 _RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
 _RE_MRKDWN_BLOCKQUOTE_UNESCAPE = re.compile(r"^&gt;", re.MULTILINE)
 _RE_MD_FENCED_CODE = re.compile(r"(^```[^\n]*\n.*?^```)", re.MULTILINE | re.DOTALL)
+# Fenced and inline code in Slack mrkdwn. Slack shows the characters inside these spans
+# literally, so the mrkdwn conversions must not reach them.
+_RE_SLACK_CODE_SPAN = re.compile(r"(```.*?```|`[^`\n]+`)", re.DOTALL)
 _RE_MD_TRAILING_LINE_SPACES = re.compile(r"[ \t]+\n")
 _RE_BLANK_LINE_RUN = re.compile(r"\n{2,}")
 
@@ -323,6 +326,25 @@ def content_to_slack_mrkdwn(
     return text
 
 
+def _outside_slack_code_spans(text: str, convert: Callable[[str], str]) -> str:
+    """Apply a conversion with the code spans masked, so they come back verbatim.
+
+    Masking rather than converting each piece between spans, because Slack reads a pair of
+    emphasis characters as one run even when a code span sits between them. Converting the
+    pieces separately leaves `*run `migrate` first*` with no pair in either piece.
+    """
+    spans: list[str] = []
+
+    def capture_span(match: re.Match) -> str:
+        spans.append(match.group())
+        return f"\x00CODE{len(spans) - 1}\x00"
+
+    converted = convert(_RE_SLACK_CODE_SPAN.sub(capture_span, text))
+    for index, span in enumerate(spans):
+        converted = converted.replace(f"\x00CODE{index}\x00", span)
+    return converted
+
+
 def slack_mrkdwn_to_content(text: str, user_names: dict[str, str] | None = None) -> str:
     """Convert Slack mrkdwn text to markdown content."""
     if not text:
@@ -334,26 +356,49 @@ def slack_mrkdwn_to_content(text: str, user_names: dict[str, str] | None = None)
             return f"@{user_names[uid]}"
         return ""
 
+    def _format(prose: str) -> str:
+        # Convert Slack formatting to markdown
+        prose = _RE_SLACK_BOLD_ITALIC.sub(r"***\1***", prose)
+        prose = _RE_SLACK_BOLD.sub(r"**\1**", prose)
+        prose = _RE_SLACK_ITALIC.sub(r"*\1*", prose)
+        return _RE_SLACK_STRIKE.sub(r"~~\1~~", prose)
+
+    # Slack escapes an author's own `<` to `&lt;`, so a `<…>` token on the wire is always Slack's
+    # own encoding for a mention or a link rather than something the author typed. Decode those
+    # inside code spans too, the way the rich_text path resolves them inside a code block.
     text = _RE_SLACK_USER_MENTION.sub(_replace_user_mention, text)
     # Convert emoji shortcodes before formatting (prevents italic regex mangling underscored names)
-    text = _RE_SLACK_EMOJI.sub(lambda m: _slack_emoji_name_to_char(m.group(1)) or m.group(0), text)
+    text = _outside_slack_code_spans(
+        text, lambda prose: _RE_SLACK_EMOJI.sub(lambda m: _slack_emoji_name_to_char(m.group(1)) or m.group(0), prose)
+    )
     # Convert labeled links <url|label> to [label](url)
     text = _RE_SLACK_LINK_WITH_LABEL.sub(r"[\2](\1)", text)
     # Convert bare links <url> to just url
     text = _RE_SLACK_LINK_BARE.sub(r"\1", text)
-    # Convert Slack formatting to markdown
-    text = _RE_SLACK_BOLD_ITALIC.sub(r"***\1***", text)
-    text = _RE_SLACK_BOLD.sub(r"**\1**", text)
-    text = _RE_SLACK_ITALIC.sub(r"*\1*", text)
-    text = _RE_SLACK_STRIKE.sub(r"~~\1~~", text)
+    # The author's own emphasis characters are literal inside code, so those stay out.
+    return _outside_slack_code_spans(text, _format)
 
-    return text
+
+def _neutralize_markdown_images(text: str) -> str:
+    """Defuse a markdown image token in text Slack rendered literally.
+
+    Slack mrkdwn has no image syntax, so escaping loses nothing the author wrote. Left alone
+    the token renders as an image, and the reader's browser loads a same-origin URL with
+    their session attached.
+
+    This runs over the whole string, code spans included, which costs a visible backslash in
+    code that contains the token. Skipping code spans would make safety depend on our splitter
+    agreeing with the renderer's own code parsing, and a token inside a span only one of them
+    recognizes would render as an image again.
+    """
+    return text.replace("![", "!\\[")
 
 
 def _normalize_single_newlines_to_markdown(text: str) -> str:
     if not text:
         return ""
-    return _RE_SINGLE_NEWLINE.sub("  \n", text)
+    # A newline inside fenced code is content, so the two-space line break must stay out of it.
+    return _outside_slack_code_spans(text, lambda prose: _RE_SINGLE_NEWLINE.sub("  \n", prose))
 
 
 def _escape_markdown(text: str) -> str:
@@ -895,6 +940,50 @@ def _slack_blocks_to_markdown(blocks: list[JSON] | None, user_names: dict[str, s
     return "\n\n".join(parts), block_kit_text_rendered
 
 
+def slack_blocks_to_text(blocks: list[JSON] | None) -> str:
+    """The message body a Slack block list renders to, for a caller that has to weigh it.
+
+    Display names are unresolved here, so a mention renders as its raw token or as nothing.
+    Callers that need the resolved body use `slack_to_content_and_rich_content` instead.
+    """
+    if not blocks:
+        return ""
+    markdown, _ = _slack_blocks_to_markdown(blocks, None)
+    return markdown
+
+
+def slack_blocks_have_text(blocks: list[JSON] | None, *, ignore_mentions: bool = False) -> bool:
+    """Whether a Slack block list holds text that a comment would render.
+
+    Slack makes the top-level `text` field optional once a message carries blocks, so an empty
+    `text` does not mean an empty message. Ingestion guards ask this before dropping one.
+
+    Set `ignore_mentions` where a mention is the trigger rather than the message, as it is for
+    a bot mention. That guard asks whether the author wrote anything besides summoning us, so
+    a block holding only the mention has to read as empty.
+
+    A mention reaches this function in two shapes, and both need handling. A guard runs before
+    ingestion resolves display names, so a mrkdwn mention converts to nothing while a rich_text
+    mention renders as its raw token. Ingestion resolves the name either way, so a mention does
+    carry a message everywhere else.
+    """
+    if not blocks:
+        return False
+
+    markdown = slack_blocks_to_text(blocks)
+    if ignore_mentions:
+        return bool(strip_slack_user_mentions(markdown).strip())
+    if markdown.strip():
+        return True
+    return any(
+        _RE_SLACK_USER_MENTION.search(text_object["text"])
+        for block in blocks
+        if block.get("type") in _SLACK_TEXT_CARRYING_BLOCK_TYPES
+        for text_object in _slack_block_text_objects(block)
+        if _is_slack_mrkdwn_text_object(text_object)
+    )
+
+
 def slack_to_content_and_rich_content(
     text: str, blocks: list[JSON] | None = None, user_names: dict[str, str] | None = None
 ) -> tuple[str, JSON | None]:
@@ -905,20 +994,24 @@ def slack_to_content_and_rich_content(
     1. Slack rich_text blocks (for style fidelity including underline and nested marks)
     2. Block Kit text blocks, rendered as markdown
     3. text/mrkdwn fallback
+
+    Every branch neutralizes image tokens on the way out. A link URL and a code span are both
+    serialized into the markdown raw, so a hostile one closes its own construct early and drops
+    an image token into prose. Escaping at each return covers that wherever it is built.
     """
     # A mixed message goes through the markdown walk whole. rich_content cannot hold the Block
     # Kit part, so a reader that prefers rich_content would hide everything except the rich_text.
     if any(block.get("type") in _SLACK_TEXT_CARRYING_BLOCK_TYPES for block in blocks or []):
         block_markdown, block_kit_text_rendered = _slack_blocks_to_markdown(blocks, user_names)
         if block_kit_text_rendered:
-            return block_markdown, None
+            return _neutralize_markdown_images(block_markdown), None
 
     parsed_rich_content = slack_blocks_to_rich_content(blocks, user_names)
     if parsed_rich_content:
-        markdown_content = rich_content_to_markdown(parsed_rich_content)
+        markdown_content = _neutralize_markdown_images(rich_content_to_markdown(parsed_rich_content))
         return markdown_content, parsed_rich_content
 
-    markdown_content = slack_mrkdwn_to_content(text, user_names)
+    markdown_content = _neutralize_markdown_images(slack_mrkdwn_to_content(text, user_names))
     return _normalize_single_newlines_to_markdown(markdown_content), None
 
 
