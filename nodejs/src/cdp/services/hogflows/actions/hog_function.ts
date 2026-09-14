@@ -27,6 +27,14 @@ import { observeMissingVariableReferences } from '../hogflow-variable-usage'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
+type HogFlowActionBillingType = 'fetch' | 'email' | 'push' | 'sms'
+
+const WORKFLOW_USAGE_KEYS = {
+    fetch: 'workflow_billable_invocations',
+    email: 'workflow_emails_sent',
+    push: 'workflow_push_sent',
+    sms: 'workflow_sms_sent',
+} as const
 
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
@@ -79,13 +87,19 @@ const counterAwaitedStepStaleResume = new Counter({
     help: 'A parked step received a wake keyed to an earlier visit of the same step and kept waiting.',
 })
 
+const counterAwaitedStepFinished = new Counter({
+    name: 'cdp_hogflow_awaited_step_finished',
+    help: 'A parked step stopped waiting, by how: the job completed, failed or was cancelled, or the wait timed out.',
+    labelNames: ['outcome'],
+})
+
 export class HogFunctionHandler implements ActionHandler {
     constructor(
         private hogFlowFunctionsService: HogFlowFunctionsService,
         private recipientPreferencesService: RecipientPreferencesService,
         private emailValidationService: EmailValidationService,
-        private hogFlowActionBillingType: 'fetch' | 'email' | 'push',
-        private usageReporter?: CdpUsageReporterService,
+        private hogFlowActionBillingType: HogFlowActionBillingType,
+        private usageReporter?: Pick<CdpUsageReporterService, 'reportBillableInvocation'>,
         private options: { awaitedStepsEnabled?: boolean } = {}
     ) {}
 
@@ -166,6 +180,7 @@ export class HogFunctionHandler implements ActionHandler {
             // actionStepCount holds across a retry of this step but changes on a loop revisit.
             this.usageReporter?.reportBillableInvocation({
                 teamId: invocation.teamId,
+                usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
                 recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
             })
 
@@ -257,6 +272,7 @@ export class HogFunctionHandler implements ActionHandler {
         if (resume?.key === awaiting.key) {
             delete currentAction.awaitingResume
             delete currentAction.resumeResult
+            counterAwaitedStepFinished.labels({ outcome: resume.status }).inc()
             const payload = capWorkflowStepResult(
                 { ...awaiting.dispatch, status: resume.status },
                 resume.result ?? {},
@@ -297,6 +313,7 @@ export class HogFunctionHandler implements ActionHandler {
         }
         const deadline = DateTime.fromISO(awaiting.deadlineAt)
         if (DateTime.now() >= deadline) {
+            counterAwaitedStepFinished.labels({ outcome: 'timed_out' }).inc()
             throw new Error(`Timed out waiting for the ${label} to finish`)
         }
         // Woken early with nothing (clock skew): park again.
