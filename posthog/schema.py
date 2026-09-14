@@ -9075,9 +9075,8 @@ class ZScoreDetectorConfig(BaseModel):
     min_baseline: float | None = Field(
         default=None,
         description=(
-            "Minimum typical count the series must reach before a flag counts. Guards"
-            " small count series, where one extra event is a large relative move. 0"
-            " turns the floor off (default: 5)"
+            "Typical count the series must reach before a relative-deviation flag"
+            " counts. 0 turns the floor off (default: 5)"
         ),
     )
     preprocessing: PreprocessingConfig | None = Field(
@@ -10885,9 +10884,8 @@ class COPODDetectorConfig(BaseModel):
     min_baseline: float | None = Field(
         default=None,
         description=(
-            "Minimum typical count the series must reach before a flag counts. Guards"
-            " small count series, where one extra event is a large relative move. 0"
-            " turns the floor off (default: 5)"
+            "Typical count the series must reach before a relative-deviation flag"
+            " counts. 0 turns the floor off (default: 5)"
         ),
     )
     preprocessing: PreprocessingConfig | None = Field(
@@ -16779,9 +16777,8 @@ class ECODDetectorConfig(BaseModel):
     min_baseline: float | None = Field(
         default=None,
         description=(
-            "Minimum typical count the series must reach before a flag counts. Guards"
-            " small count series, where one extra event is a large relative move. 0"
-            " turns the floor off (default: 5)"
+            "Typical count the series must reach before a relative-deviation flag"
+            " counts. 0 turns the floor off (default: 5)"
         ),
     )
     preprocessing: PreprocessingConfig | None = Field(
@@ -17568,9 +17565,8 @@ class HBOSDetectorConfig(BaseModel):
     min_baseline: float | None = Field(
         default=None,
         description=(
-            "Minimum typical count the series must reach before a flag counts. Guards"
-            " small count series, where one extra event is a large relative move. 0"
-            " turns the floor off (default: 5)"
+            "Typical count the series must reach before a relative-deviation flag"
+            " counts. 0 turns the floor off (default: 5)"
         ),
     )
     n_bins: int | None = Field(default=None, description="Number of histogram bins (default: 10)")
@@ -17664,9 +17660,8 @@ class IQRDetectorConfig(BaseModel):
     min_baseline: float | None = Field(
         default=None,
         description=(
-            "Minimum typical count the series must reach before a flag counts. Guards"
-            " small count series, where one extra event is a large relative move. 0"
-            " turns the floor off (default: 5)"
+            "Typical count the series must reach before a relative-deviation flag"
+            " counts. 0 turns the floor off (default: 5)"
         ),
     )
     multiplier: float | None = Field(
@@ -17706,9 +17701,8 @@ class IsolationForestDetectorConfig(BaseModel):
     min_baseline: float | None = Field(
         default=None,
         description=(
-            "Minimum typical count the series must reach before a flag counts. Guards"
-            " small count series, where one extra event is a large relative move. 0"
-            " turns the floor off (default: 5)"
+            "Typical count the series must reach before a relative-deviation flag"
+            " counts. 0 turns the floor off (default: 5)"
         ),
     )
     n_estimators: int | None = Field(default=None, description="Number of trees in the forest (default: 100)")
@@ -17736,9 +17730,8 @@ class KNNDetectorConfig(BaseModel):
     min_baseline: float | None = Field(
         default=None,
         description=(
-            "Minimum typical count the series must reach before a flag counts. Guards"
-            " small count series, where one extra event is a large relative move. 0"
-            " turns the floor off (default: 5)"
+            "Typical count the series must reach before a relative-deviation flag"
+            " counts. 0 turns the floor off (default: 5)"
         ),
     )
     n_neighbors: int | None = Field(default=None, description="Number of neighbors to consider (default: 5)")
@@ -17762,9 +17755,8 @@ class LOFDetectorConfig(BaseModel):
     min_baseline: float | None = Field(
         default=None,
         description=(
-            "Minimum typical count the series must reach before a flag counts. Guards"
-            " small count series, where one extra event is a large relative move. 0"
-            " turns the floor off (default: 5)"
+            "Typical count the series must reach before a relative-deviation flag"
+            " counts. 0 turns the floor off (default: 5)"
         ),
     )
     n_neighbors: int | None = Field(default=None, description="Number of neighbors for LOF (default: 20)")
@@ -17982,9 +17974,8 @@ class MADDetectorConfig(BaseModel):
     min_baseline: float | None = Field(
         default=None,
         description=(
-            "Minimum typical count the series must reach before a flag counts. Guards"
-            " small count series, where one extra event is a large relative move. 0"
-            " turns the floor off (default: 5)"
+            "Typical count the series must reach before a relative-deviation flag"
+            " counts. 0 turns the floor off (default: 5)"
         ),
     )
     preprocessing: PreprocessingConfig | None = Field(
@@ -19271,9 +19262,8 @@ class OCSVMDetectorConfig(BaseModel):
     min_baseline: float | None = Field(
         default=None,
         description=(
-            "Minimum typical count the series must reach before a flag counts. Guards"
-            " small count series, where one extra event is a large relative move. 0"
-            " turns the floor off (default: 5)"
+            "Typical count the series must reach before a relative-deviation flag"
+            " counts. 0 turns the floor off (default: 5)"
         ),
     )
     nu: float | None = Field(
@@ -19300,9 +19290,8 @@ class PCADetectorConfig(BaseModel):
     min_baseline: float | None = Field(
         default=None,
         description=(
-            "Minimum typical count the series must reach before a flag counts. Guards"
-            " small count series, where one extra event is a large relative move. 0"
-            " turns the floor off (default: 5)"
+            "Typical count the series must reach before a relative-deviation flag"
+            " counts. 0 turns the floor off (default: 5)"
         ),
     )
     preprocessing: PreprocessingConfig | None = Field(

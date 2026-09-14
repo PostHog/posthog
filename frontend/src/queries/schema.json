@@ -6474,7 +6474,7 @@
             "additionalProperties": false,
             "properties": {
                 "min_baseline": {
-                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "description": "Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)",
                     "type": "number"
                 },
                 "preprocessing": {
@@ -20972,7 +20972,7 @@
             "additionalProperties": false,
             "properties": {
                 "min_baseline": {
-                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "description": "Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)",
                     "type": "number"
                 },
                 "preprocessing": {
@@ -29193,7 +29193,7 @@
             "additionalProperties": false,
             "properties": {
                 "min_baseline": {
-                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "description": "Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)",
                     "type": "number"
                 },
                 "n_bins": {
@@ -30055,7 +30055,7 @@
             "additionalProperties": false,
             "properties": {
                 "min_baseline": {
-                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "description": "Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)",
                     "type": "number"
                 },
                 "multiplier": {
@@ -31031,7 +31031,7 @@
             "additionalProperties": false,
             "properties": {
                 "min_baseline": {
-                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "description": "Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)",
                     "type": "number"
                 },
                 "n_estimators": {
@@ -31067,7 +31067,7 @@
                     "type": "string"
                 },
                 "min_baseline": {
-                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "description": "Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)",
                     "type": "number"
                 },
                 "n_neighbors": {
@@ -31266,7 +31266,7 @@
             "additionalProperties": false,
             "properties": {
                 "min_baseline": {
-                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "description": "Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)",
                     "type": "number"
                 },
                 "n_neighbors": {
@@ -32325,7 +32325,7 @@
             "additionalProperties": false,
             "properties": {
                 "min_baseline": {
-                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "description": "Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)",
                     "type": "number"
                 },
                 "preprocessing": {
@@ -38786,7 +38786,7 @@
                     "type": "string"
                 },
                 "min_baseline": {
-                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "description": "Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)",
                     "type": "number"
                 },
                 "nu": {
@@ -38817,7 +38817,7 @@
             "additionalProperties": false,
             "properties": {
                 "min_baseline": {
-                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "description": "Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)",
                     "type": "number"
                 },
                 "preprocessing": {
@@ -58277,7 +58277,7 @@
             "additionalProperties": false,
             "properties": {
                 "min_baseline": {
-                    "description": "Minimum typical count the series must reach before a flag counts. Guards small count series, where one extra event is a large relative move. 0 turns the floor off (default: 5)",
+                    "description": "Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)",
                     "type": "number"
                 },
                 "preprocessing": {
