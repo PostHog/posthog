@@ -440,6 +440,11 @@ async function expectStoryToMatchSnapshot(
     await page.evaluate((layout: string) => {
         // Stop all animations for consistent snapshots, and adjust other styles
         document.body.classList.add('storybook-test-runner')
+        document.body.classList.remove(
+            'storybook-test-runner--fullscreen',
+            'storybook-test-runner--padded',
+            'storybook-test-runner--centered'
+        )
         document.body.classList.add(`storybook-test-runner--${layout}`)
 
         // Force all content-visibility:auto elements to render fully for deterministic snapshots.

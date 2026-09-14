@@ -26,3 +26,6 @@ The combined chart row shows a call-weighted error rate and omits sessions, sinc
 For visual checks, use the dashboard and narrow dashboard stories, plus the harness and model card stories.
 Check light and dark themes, laptop windows, and a 520px scene.
 Verify that labels stay readable, the two breakdown surfaces match, tiny bars respond to hover, and the model dialog supports pagination and closing.
+
+Run the full scene stories after the narrow story when checking snapshots.
+The snapshot runner clears the previous layout class before each capture, so padded component styles cannot shrink later fullscreen scenes.
