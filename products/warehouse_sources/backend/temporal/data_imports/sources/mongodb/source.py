@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
+    get_connection_metadata as get_mongo_connection_metadata,
     get_leading_index_keys,
     get_schemas as get_mongo_schemas,
     mongo_client,
@@ -347,6 +348,13 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             return False, _MONGO_CONNECT_FAILED_MESSAGE
 
         return True, None
+
+    def get_connection_metadata(
+        self, config: MongoDBSourceConfig, team_id: int, require_ssl: bool = False
+    ) -> dict[str, object]:
+        # `require_ssl` keeps signature parity with Postgres and MySQL. MongoDB's transport comes
+        # from the connection string together with the TLS settings `mongo_client` applies.
+        return get_mongo_connection_metadata(config.connection_string, team_id)
 
     def source_for_pipeline(self, config: MongoDBSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return mongo_source(

@@ -293,6 +293,37 @@ def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
         client.close()
 
 
+def get_connection_metadata(connection_string: str, team_id: int) -> dict[str, Any]:
+    """Probe the cluster for the MongoDB version it reports, and for its wire version.
+
+    The driver refuses any server below its own wire-version floor, and that floor rises across
+    pymongo releases, so whether a source survives a driver upgrade is a property of the source
+    and not of our code. Nothing else records it, which makes the question unanswerable before an
+    upgrade ships. AWS DocumentDB and Azure Cosmos DB's Mongo API report the MongoDB version they
+    emulate, and that emulated version is what the driver gates on.
+    """
+    with mongo_client(connection_string, team_id) as client:
+        # buildInfo is answered by every server version we accept and by the DocumentDB and Cosmos
+        # DB Mongo APIs, whereas `hello` was added in MongoDB 5.0 and is missing from the older
+        # emulation levels this probe most needs to identify. Asking for it also completes the
+        # handshake that fills in the wire versions read below, so they cost no extra round trip.
+        server_version = str(client.server_info().get("version") or "")
+        # A node pymongo has not handshaked with reports wire version 0, which would read as older
+        # than any real server and hide the true floor.
+        node_wire_versions = [
+            description.max_wire_version
+            for description in client.topology_description.server_descriptions().values()
+            if description.is_server_type_known
+        ]
+
+    metadata: dict[str, Any] = {"engine": "mongodb", "server_version": server_version}
+    # pymongo rejects a whole topology when any single node sits below its floor, so the weakest
+    # node is what decides whether an upgrade cuts this source off.
+    if node_wire_versions:
+        metadata["wire_version"] = min(node_wire_versions)
+    return metadata
+
+
 def _get_partition_settings(
     collection: Collection, collection_name: str, partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
 ) -> PartitionSettings | None:

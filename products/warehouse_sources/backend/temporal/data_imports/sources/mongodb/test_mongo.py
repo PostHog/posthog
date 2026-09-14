@@ -13,6 +13,7 @@ from bson import Binary, DatetimeMS, ObjectId
 from bson.binary import UUID_SUBTYPE
 from parameterized import parameterized
 from pymongo.errors import CursorNotFound, OperationFailure, ServerSelectionTimeoutError
+from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
@@ -28,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _make_safe_server_selector,
     _process_doc_with_field_logging,
     _process_nested_value,
+    get_connection_metadata,
     get_leading_index_keys,
     mongo_source,
 )
@@ -876,3 +878,56 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
             self._run_get_rows(collection)
 
         assert len(collection.find_calls) == 2
+
+
+class TestGetConnectionMetadata(SimpleTestCase):
+    @staticmethod
+    def _server(host: str, max_wire_version: int | None) -> ServerDescription:
+        # A ServerDescription built without a hello response is the state pymongo holds for a node
+        # it has not handshaked with, which is what the probe has to leave out.
+        if max_wire_version is None:
+            return ServerDescription((host, 27017))
+        return ServerDescription(
+            (host, 27017),
+            Hello({"ok": 1, "isWritablePrimary": True, "minWireVersion": 0, "maxWireVersion": max_wire_version}),
+        )
+
+    @contextlib.contextmanager
+    def _patched_client(self, server_version: str, servers: list[ServerDescription]) -> Iterable[None]:
+        client = MagicMock()
+        client.server_info.return_value = {"version": server_version}
+        client.topology_description.server_descriptions.return_value = {server.address: server for server in servers}
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo.mongo_client"
+        ) as client_factory:
+            client_factory.return_value.__enter__.return_value = client
+            yield
+
+    @parameterized.expand(
+        [
+            ("single_node", "7.0.14", [("a.example.com", 21)], 21),
+            # The driver refuses the whole topology over one node below its floor, so reporting
+            # anything but the weakest node would mark this source safe to upgrade when it is not.
+            ("replica_set_reports_weakest_node", "4.0.28", [("a.example.com", 21), ("b.example.com", 7)], 7),
+            ("unhandshaked_node_is_ignored", "6.0.1", [("a.example.com", 13), ("b.example.com", None)], 13),
+            ("no_handshaked_node_reports_no_wire_version", "", [("a.example.com", None)], None),
+        ]
+    )
+    def test_wire_version_comes_from_the_weakest_handshaked_node(
+        self,
+        _name: str,
+        server_version: str,
+        nodes: list[tuple[str, int | None]],
+        expected_wire_version: int | None,
+    ) -> None:
+        servers = [self._server(host, max_wire_version) for host, max_wire_version in nodes]
+
+        with self._patched_client(server_version, servers):
+            metadata = get_connection_metadata("mongodb://user:pass@a.example.com/db", team_id=1)
+
+        assert metadata["engine"] == "mongodb"
+        assert metadata["server_version"] == server_version
+        if expected_wire_version is None:
+            assert "wire_version" not in metadata
+        else:
+            assert metadata["wire_version"] == expected_wire_version
