@@ -54,6 +54,19 @@ describe('getChartDisplayOptions', () => {
             "This type isn't available, because it doesn't support formulas."
         )
         expect(optionsByDisplay.get(ChartDisplayType.ActionsLineGraph)?.disabledReason).toBeUndefined()
+
+        const listBreakdownOptions = getChartDisplayOptions({
+            isTrends: true,
+            hasSingleSeriesOutput: true,
+            hasTrendsFormula: false,
+            breakdowns: [{ property: '$geoip_country_code', type: 'event' }],
+            boxPlotMissingProperty: false,
+            hasMetricInsight: false,
+        })
+        expect(
+            listBreakdownOptions.flatMap((group) => group.options).find((o) => o.display === ChartDisplayType.WorldMap)
+                ?.disabledReason
+        ).toBeUndefined()
     })
 
     it.each([
@@ -69,7 +82,9 @@ describe('getChartDisplayOptions', () => {
         },
         {
             name: 'puts the world map first for a country breakdown and skips breakdown-dropping types',
-            query: makeTrendsQuery({ breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' } }),
+            query: makeTrendsQuery({
+                breakdownFilter: { breakdowns: [{ property: '$geoip_country_code', type: 'event' }] },
+            }),
             expected: [
                 ChartDisplayType.WorldMap,
                 ChartDisplayType.ActionsUnstackedBar,
@@ -161,6 +176,14 @@ describe('getChartDisplayOptions', () => {
                 })
             )?.title
         ).toBe('This chart type changes the breakdown to Country code')
+        expect(
+            getChartDisplayChangeWarning(
+                ChartDisplayType.WorldMap,
+                makeTrendsQuery({
+                    breakdownFilter: { breakdowns: [{ property: '$geoip_country_code', type: 'event' }] },
+                })
+            )
+        ).toBeNull()
         expect(
             getChartDisplayChangeWarning(
                 ChartDisplayType.BoldNumber,
