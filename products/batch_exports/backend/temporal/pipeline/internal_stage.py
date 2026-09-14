@@ -274,7 +274,7 @@ class InternalStageResult:
     error: BatchExportError | None = None
 
 
-@dataclass
+@frozen
 class BatchExportInsertIntoInternalStageInputs:
     """Base dataclass for batch export insert inputs containing common fields."""
 
