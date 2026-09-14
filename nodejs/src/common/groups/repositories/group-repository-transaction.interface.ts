@@ -1,7 +1,15 @@
 import { DateTime } from 'luxon'
 
 import { Properties } from '~/plugin-scaffold'
-import { Group, GroupTypeIndex, ProjectId, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '~/types'
+import {
+    Group,
+    GroupTypeIndex,
+    GroupTypeMappingRow,
+    ProjectId,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    TeamId,
+} from '~/types'
 
 import { GroupKey } from './group-repository.interface'
 
@@ -45,9 +53,7 @@ export interface GroupRepositoryTransaction {
 
     // Group Type Methods
 
-    fetchGroupTypesByProjectIds(
-        projectIds: ProjectId[]
-    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
+    fetchGroupTypesByProjectIds(projectIds: ProjectId[]): Promise<Record<string, GroupTypeMappingRow[]>>
 
     fetchGroupTypesByTeamIds(
         teamIds: TeamId[]

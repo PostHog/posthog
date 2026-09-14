@@ -2,7 +2,15 @@ import { DateTime } from 'luxon'
 
 import { TransactionClient } from '~/common/utils/db/postgres'
 import { Properties } from '~/plugin-scaffold'
-import { Group, GroupTypeIndex, ProjectId, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '~/types'
+import {
+    Group,
+    GroupTypeIndex,
+    GroupTypeMappingRow,
+    ProjectId,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    TeamId,
+} from '~/types'
 
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
 import { GroupKey } from './group-repository.interface'
@@ -78,9 +86,7 @@ export class PostgresGroupRepositoryTransaction implements GroupRepositoryTransa
         )
     }
 
-    async fetchGroupTypesByProjectIds(
-        projectIds: ProjectId[]
-    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+    async fetchGroupTypesByProjectIds(projectIds: ProjectId[]): Promise<Record<string, GroupTypeMappingRow[]>> {
         return await this.repository.fetchGroupTypesByProjectIds(projectIds, undefined, this.tx)
     }
 

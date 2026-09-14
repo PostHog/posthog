@@ -11,7 +11,7 @@ import {
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { Group, GroupTypeIndex, ProjectId, TeamId } from '~/types'
 
-import { PersonHogClient } from './client'
+import { PersonHogClient, epochMsToDateTime } from './client'
 import { PersonHogGroupRepository } from './personhog-group-repository'
 
 jest.mock('~/common/utils/logger')
@@ -68,7 +68,10 @@ function makeProtoGroup(
     })
 }
 
-function makeGroupTypeMappingsProto(key: number | bigint, mappings: { groupType: string; groupTypeIndex: number }[]) {
+function makeGroupTypeMappingsProto(
+    key: number | bigint,
+    mappings: { groupType: string; groupTypeIndex: number; createdAt?: bigint }[]
+) {
     return create(GroupTypeMappingsByKeySchema, {
         key: BigInt(key),
         mappings: mappings.map((m) => create(GroupTypeMappingSchema, m)),
@@ -91,6 +94,26 @@ const GROUP_TYPE_MAPPINGS_PROTO = {
     ],
 }
 
+// The by-project fetch also reports the created_at floor, which the ingestion path needs to
+// decide whether a historical event has to lower it.
+const GROUP_TYPE_FLOOR_MS = 1577836800000n
+
+const GROUP_TYPE_MAPPINGS_BY_PROJECT = {
+    [TEAM_ID.toString()]: GROUP_TYPE_MAPPINGS[TEAM_ID.toString()].map((m) => ({
+        ...m,
+        created_at: epochMsToDateTime(GROUP_TYPE_FLOOR_MS),
+    })),
+}
+
+const GROUP_TYPE_MAPPINGS_BY_PROJECT_PROTO = {
+    results: [
+        makeGroupTypeMappingsProto(TEAM_ID, [
+            { groupType: 'organization', groupTypeIndex: 0, createdAt: GROUP_TYPE_FLOOR_MS },
+            { groupType: 'project', groupTypeIndex: 1, createdAt: GROUP_TYPE_FLOOR_MS },
+        ]),
+    ],
+}
+
 function createMockPostgres(): jest.Mocked<GroupRepository> {
     return {
         fetchGroup: jest.fn(),
@@ -103,6 +126,7 @@ function createMockPostgres(): jest.Mocked<GroupRepository> {
         updateGroup: jest.fn(),
         updateGroupOptimistically: jest.fn(),
         insertGroupType: jest.fn(),
+        lowerGroupTypeCreatedAt: jest.fn(),
         inTransaction: jest.fn(),
     }
 }
@@ -279,13 +303,13 @@ describe('PersonHogGroupRepository', () => {
 
         describe('fetchGroupTypesByProjectIds', () => {
             it('returns group type mappings', async () => {
-                mockPostgres.fetchGroupTypesByProjectIds.mockResolvedValue(GROUP_TYPE_MAPPINGS)
-                handlers.getGroupTypeMappingsByProjectIds.mockReturnValue(GROUP_TYPE_MAPPINGS_PROTO)
+                mockPostgres.fetchGroupTypesByProjectIds.mockResolvedValue(GROUP_TYPE_MAPPINGS_BY_PROJECT)
+                handlers.getGroupTypeMappingsByProjectIds.mockReturnValue(GROUP_TYPE_MAPPINGS_BY_PROJECT_PROTO)
 
                 const repo = createRepo(rolloutPercentage)
                 const result = await repo.fetchGroupTypesByProjectIds([PROJECT_ID])
 
-                expect(result).toEqual(GROUP_TYPE_MAPPINGS)
+                expect(result).toEqual(GROUP_TYPE_MAPPINGS_BY_PROJECT)
                 if (expectGrpc) {
                     expect(handlers.getGroupTypeMappingsByProjectIds).toHaveBeenCalled()
                     expect(mockPostgres.fetchGroupTypesByProjectIds).not.toHaveBeenCalled()
@@ -464,10 +488,10 @@ describe('PersonHogGroupRepository', () => {
                     h.getGroupTypeMappingsByProjectIds.mockImplementation(() => {
                         throw new ConnectError('unavailable', Code.Unavailable)
                     })
-                    pg.fetchGroupTypesByProjectIds.mockResolvedValue(GROUP_TYPE_MAPPINGS)
+                    pg.fetchGroupTypesByProjectIds.mockResolvedValue(GROUP_TYPE_MAPPINGS_BY_PROJECT)
                     return {
                         call: (repo: PersonHogGroupRepository) => repo.fetchGroupTypesByProjectIds([PROJECT_ID]),
-                        expected: GROUP_TYPE_MAPPINGS,
+                        expected: GROUP_TYPE_MAPPINGS_BY_PROJECT,
                     }
                 },
             ],
@@ -610,6 +634,15 @@ describe('PersonHogGroupRepository', () => {
 
             expect(result).toEqual([0, true])
             expect(mockPostgres.insertGroupType).toHaveBeenCalledWith(TEAM_ID, PROJECT_ID, 'organization', 0, createdAt)
+        })
+
+        it('lowerGroupTypeCreatedAt', async () => {
+            mockPostgres.lowerGroupTypeCreatedAt.mockResolvedValue(true)
+            const repo = createRepo(100)
+            const createdAt = DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' })
+
+            await expect(repo.lowerGroupTypeCreatedAt(PROJECT_ID, 'organization', createdAt)).resolves.toBe(true)
+            expect(mockPostgres.lowerGroupTypeCreatedAt).toHaveBeenCalledWith(PROJECT_ID, 'organization', createdAt)
         })
 
         it('inTransaction', async () => {

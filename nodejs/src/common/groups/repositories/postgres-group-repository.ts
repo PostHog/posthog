@@ -8,6 +8,7 @@ import { Properties } from '~/plugin-scaffold'
 import {
     Group,
     GroupTypeIndex,
+    GroupTypeMappingRow,
     ProjectId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
@@ -361,19 +362,19 @@ export class PostgresGroupRepository
         projectIds: ProjectId[],
         callerTag?: string,
         tx?: TransactionClient
-    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+    ): Promise<Record<string, GroupTypeMappingRow[]>> {
         if (projectIds.length === 0) {
             return {}
         }
 
         const { rows } = await this.postgres.query(
             tx ?? PostgresUse.PERSONS_READ,
-            `SELECT project_id, group_type, group_type_index FROM posthog_grouptypemapping WHERE project_id = ANY($1)`,
+            `SELECT project_id, group_type, group_type_index, created_at FROM posthog_grouptypemapping WHERE project_id = ANY($1)`,
             [projectIds],
             queryTag('fetchGroupTypesByProjectIds', callerTag)
         )
 
-        const response: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
+        const response: Record<string, GroupTypeMappingRow[]> = {}
 
         // Initialize empty arrays for all requested project IDs
         for (const projectId of projectIds) {
@@ -396,6 +397,7 @@ export class PostgresGroupRepository
             response[projectIdStr].push({
                 group_type: row.group_type,
                 group_type_index: row.group_type_index as GroupTypeIndex,
+                created_at: row.created_at ? DateTime.fromISO(row.created_at, { zone: 'utc' }) : null,
             })
         }
 
@@ -459,6 +461,9 @@ export class PostgresGroupRepository
 
         // created_at is stamped from the triggering event's timestamp so historical imports don't get a
         // wall-clock date that postdates their events — HogQL masks $group_N for events older than this.
+        // DO NOTHING also absorbs the (team_id, group_type_index) collision that drives the index + 1
+        // retry below, so this cannot become a targeted DO UPDATE: that raises on the collision instead.
+        // Lowering an existing mapping's floor is lowerGroupTypeCreatedAt's job.
         const insertGroupTypeResult = await this.postgres.query(
             tx ?? PostgresUse.PERSONS_WRITE,
             `
@@ -482,6 +487,25 @@ export class PostgresGroupRepository
 
         const { group_type_index, is_insert } = insertGroupTypeResult.rows[0]
         return [group_type_index, is_insert === 1]
+    }
+
+    async lowerGroupTypeCreatedAt(projectId: ProjectId, groupType: string, createdAt: DateTime): Promise<boolean> {
+        // The `created_at >` predicate does the whole policy. It can only ever lower the floor, so a
+        // concurrent or out-of-order import cannot push it forward; and it never matches a null floor,
+        // which masks nothing and would start masking a project that was never affected.
+        const { rows } = await this.postgres.query(
+            PostgresUse.PERSONS_WRITE,
+            `
+            UPDATE posthog_grouptypemapping
+            SET created_at = $3::timestamptz
+            WHERE project_id = $1 AND group_type = $2 AND created_at > $3::timestamptz
+            RETURNING group_type_index
+            `,
+            [projectId, groupType, createdAt.toISO()],
+            'lowerGroupTypeCreatedAt'
+        )
+
+        return rows.length > 0
     }
 
     async inTransaction<T>(

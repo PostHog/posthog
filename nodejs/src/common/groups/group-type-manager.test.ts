@@ -28,6 +28,7 @@ describe('GroupTypeManager()', () => {
 
         jest.spyOn(hub.postgres, 'query')
         jest.spyOn(hub.groupRepository, 'insertGroupType')
+        jest.spyOn(hub.groupRepository, 'lowerGroupTypeCreatedAt')
     })
     afterEach(async () => {
         await closeHub(hub)
@@ -156,6 +157,16 @@ describe('GroupTypeManager()', () => {
     })
 
     describe('fetchGroupTypeIndex()', () => {
+        const readCreatedAt = async (groupType: string): Promise<DateTime | null> => {
+            const { rows } = await hub.postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT created_at FROM posthog_grouptypemapping WHERE project_id = $1 AND group_type = $2',
+                [projectId, groupType],
+                'readGroupTypeCreatedAt'
+            )
+            return rows[0].created_at ? DateTime.fromISO(rows[0].created_at, { zone: 'utc' }) : null
+        }
+
         it('fetches an already existing value', async () => {
             await hub.groupRepository.insertGroupType(teamId, projectId, 'foo', 0, TEST_TIMESTAMP)
             await hub.groupRepository.insertGroupType(teamId, projectId, 'bar', 1, TEST_TIMESTAMP)
@@ -269,13 +280,29 @@ describe('GroupTypeManager()', () => {
 
             expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'foo', eventTimestamp)).toEqual(0)
 
-            const { rows } = await hub.postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                "SELECT created_at FROM posthog_grouptypemapping WHERE project_id = $1 AND group_type = 'foo'",
-                [projectId],
-                'fetchCreatedAt'
+            expect(await readCreatedAt('foo')).toEqual(eventTimestamp)
+        })
+
+        it('lowers created_at when a historical event predates the mapping', async () => {
+            const trialImport = DateTime.fromISO('2026-07-01T00:00:00.000Z', { zone: 'utc' })
+            const backfill = DateTime.fromISO('2025-01-01T09:30:00.000Z', { zone: 'utc' })
+
+            // A small trial import already registered the group type at its own wall-clock date.
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'organization', 0, trialImport)
+
+            // The real backfill carries older events, so the floor has to follow them down —
+            // otherwise HogQL reads every one of those events as ungrouped. It lands on the day
+            // start, which is what keeps a newest-first import from rewriting it per event.
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'organization', backfill)).toEqual(0)
+            expect(await readCreatedAt('organization')).toEqual(backfill.startOf('day'))
+
+            // Later events must not push the floor back up, and must not write at all.
+            jest.mocked(hub.groupRepository.lowerGroupTypeCreatedAt).mockClear()
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'organization', trialImport)).toEqual(
+                0
             )
-            expect(DateTime.fromISO(rows[0].created_at).toMillis()).toEqual(eventTimestamp.toMillis())
+            expect(await readCreatedAt('organization')).toEqual(backfill.startOf('day'))
+            expect(hub.groupRepository.lowerGroupTypeCreatedAt).not.toHaveBeenCalled()
         })
 
         it('uses next available index after a group type is deleted', async () => {

@@ -1,5 +1,5 @@
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
-import { GroupTypeIndex, ProjectId, TeamId } from '~/types'
+import { GroupTypeIndex, GroupTypeMappingRow, ProjectId, TeamId } from '~/types'
 
 import { PersonHogClient } from './client'
 import { withRetry } from './grpc-retry'
@@ -58,7 +58,7 @@ export class PersonHogGroupReadRepository implements GroupReadRepository {
     async fetchGroupTypesByProjectIds(
         projectIds: ProjectId[],
         callerTag?: string
-    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+    ): Promise<Record<string, GroupTypeMappingRow[]>> {
         const method = 'fetchGroupTypesByProjectIds'
         return withRetry(
             () =>

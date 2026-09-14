@@ -11,7 +11,7 @@ import {
     GetGroupsBatchRequestSchema,
 } from '~/common/generated/personhog/personhog/types/v1/group_pb'
 import type { Group as ProtoGroup } from '~/common/generated/personhog/personhog/types/v1/group_pb'
-import { Group as DomainGroup, GroupTypeIndex } from '~/types'
+import { Group as DomainGroup, GroupTypeIndex, GroupTypeMappingRow } from '~/types'
 
 import { epochMsToDateTime, eventualReadOptions, parseJsonBytes } from './client'
 
@@ -153,7 +153,7 @@ export class PersonHogGroupOperations {
     async fetchGroupTypesByProjectIds(
         projectIds: number[],
         callerTag?: string
-    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+    ): Promise<Record<string, GroupTypeMappingRow[]>> {
         if (projectIds.length === 0) {
             return {}
         }
@@ -166,11 +166,12 @@ export class PersonHogGroupOperations {
             callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
         )
 
-        const result: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
+        const result: Record<string, GroupTypeMappingRow[]> = {}
         for (const entry of response.results) {
             result[entry.key.toString()] = entry.mappings.map((m) => ({
                 group_type: m.groupType,
                 group_type_index: toGroupTypeIndex(m.groupTypeIndex),
+                created_at: m.createdAt === undefined ? null : epochMsToDateTime(m.createdAt),
             }))
         }
         return result

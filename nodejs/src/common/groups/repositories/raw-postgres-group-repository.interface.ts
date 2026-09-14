@@ -2,7 +2,15 @@ import { DateTime } from 'luxon'
 
 import { TransactionClient } from '~/common/utils/db/postgres'
 import { Properties } from '~/plugin-scaffold'
-import { Group, GroupTypeIndex, ProjectId, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '~/types'
+import {
+    Group,
+    GroupTypeIndex,
+    GroupTypeMappingRow,
+    ProjectId,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    TeamId,
+} from '~/types'
 
 import { GroupKey } from './group-repository.interface'
 
@@ -68,7 +76,7 @@ export interface RawPostgresGroupRepository {
         projectIds: ProjectId[],
         callerTag?: string,
         tx?: TransactionClient
-    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
+    ): Promise<Record<string, GroupTypeMappingRow[]>>
 
     fetchGroupTypesByTeamIds(
         teamIds: TeamId[],
@@ -84,6 +92,8 @@ export interface RawPostgresGroupRepository {
         createdAt: DateTime,
         tx?: TransactionClient
     ): Promise<[GroupTypeIndex | null, boolean]>
+
+    lowerGroupTypeCreatedAt(projectId: ProjectId, groupType: string, createdAt: DateTime): Promise<boolean>
 
     // Transaction Methods
 

@@ -1,7 +1,15 @@
 import { DateTime } from 'luxon'
 
 import { Properties } from '~/plugin-scaffold'
-import { Group, GroupTypeIndex, ProjectId, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '~/types'
+import {
+    Group,
+    GroupTypeIndex,
+    GroupTypeMappingRow,
+    ProjectId,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    TeamId,
+} from '~/types'
 
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
 
@@ -34,7 +42,7 @@ export interface GroupReadRepository {
     fetchGroupTypesByProjectIds(
         projectIds: ProjectId[],
         callerTag?: string
-    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
+    ): Promise<Record<string, GroupTypeMappingRow[]>>
 }
 
 /** Identity of a single group row: (team_id, group_type_index, group_key). */
@@ -153,7 +161,7 @@ export interface GroupRepository {
     fetchGroupTypesByProjectIds(
         projectIds: ProjectId[],
         callerTag?: string
-    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
+    ): Promise<Record<string, GroupTypeMappingRow[]>>
 
     fetchGroupTypesByTeamIds(
         teamIds: TeamId[],
@@ -167,6 +175,12 @@ export interface GroupRepository {
         index: number,
         createdAt: DateTime
     ): Promise<[GroupTypeIndex | null, boolean]>
+
+    /**
+     * Lower an existing mapping's `created_at` floor, so a historical import stops HogQL masking
+     * `$group_N` on its own events. Returns true when a row moved.
+     */
+    lowerGroupTypeCreatedAt(projectId: ProjectId, groupType: string, createdAt: DateTime): Promise<boolean>
 
     // Transaction Methods
 

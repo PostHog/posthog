@@ -528,26 +528,39 @@ describe('PersonHogClient', () => {
         })
 
         describe('fetchGroupTypesByProjectIds', () => {
-            it('converts proto mappings to domain format keyed by project ID', async () => {
-                const client = createMockClient({
-                    getGroupTypeMappingsByProjectIds: () => ({
-                        results: [
-                            create(GroupTypeMappingsByKeySchema, {
-                                key: 100n,
-                                mappings: [
-                                    create(GroupTypeMappingSchema, { groupType: 'workspace', groupTypeIndex: 0 }),
-                                ],
-                            }),
-                        ],
-                    }),
-                })
+            // The created_at floor has to survive the gRPC hop: the ingestion path can only lower a
+            // mapping it knows the floor of, so dropping it here silently stops historical imports
+            // from unmasking their own events.
+            it.each([
+                ['a recorded floor', 1577836800000n, DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' })],
+                ['no floor', undefined, null],
+            ])(
+                'converts proto mappings with %s to domain format keyed by project ID',
+                async (_name, createdAt, expectedCreatedAt) => {
+                    const client = createMockClient({
+                        getGroupTypeMappingsByProjectIds: () => ({
+                            results: [
+                                create(GroupTypeMappingsByKeySchema, {
+                                    key: 100n,
+                                    mappings: [
+                                        create(GroupTypeMappingSchema, {
+                                            groupType: 'workspace',
+                                            groupTypeIndex: 0,
+                                            createdAt,
+                                        }),
+                                    ],
+                                }),
+                            ],
+                        }),
+                    })
 
-                const result = await client.groups.fetchGroupTypesByProjectIds([100])
+                    const result = await client.groups.fetchGroupTypesByProjectIds([100])
 
-                expect(result).toEqual({
-                    '100': [{ group_type: 'workspace', group_type_index: 0 }],
-                })
-            })
+                    expect(result).toEqual({
+                        '100': [{ group_type: 'workspace', group_type_index: 0, created_at: expectedCreatedAt }],
+                    })
+                }
+            )
 
             it('returns empty object for empty input without calling gRPC', async () => {
                 const handler = jest.fn()
@@ -604,7 +617,7 @@ describe('PersonHogClient', () => {
                 const result = await client.groups.fetchGroupTypesByProjectIds([100, 200])
 
                 expect(result).toEqual({
-                    '100': [{ group_type: 'workspace', group_type_index: 0 }],
+                    '100': [{ group_type: 'workspace', group_type_index: 0, created_at: null }],
                 })
                 expect(result['200']).toBeUndefined()
             })

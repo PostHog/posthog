@@ -842,6 +842,16 @@ export interface EventPropertyType {
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex>
 
+/**
+ * One row of posthog_grouptypemapping. `created_at` is the floor HogQL masks `$group_N`
+ * against, so an event older than it reads as ungrouped; null masks nothing.
+ */
+export interface GroupTypeMappingRow {
+    group_type: string
+    group_type_index: GroupTypeIndex
+    created_at: DateTime | null
+}
+
 export enum PropertyUpdateOperation {
     Set = 'set',
     SetOnce = 'set_once',

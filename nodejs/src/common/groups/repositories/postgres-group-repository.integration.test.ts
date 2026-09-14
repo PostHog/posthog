@@ -1735,6 +1735,58 @@ describe('PostgresGroupRepository Integration', () => {
         })
     })
 
+    describe('lowerGroupTypeCreatedAt', () => {
+        const readCreatedAt = async (): Promise<string | null> => {
+            const { rows } = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT created_at FROM posthog_grouptypemapping WHERE project_id = $1 AND group_type = $2',
+                [teamId, 'company'],
+                'test-read-group-type-created-at'
+            )
+            return rows[0].created_at
+        }
+
+        beforeEach(async () => {
+            await insertTestTeam(teamId)
+            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0, TEST_TIMESTAMP)
+        })
+
+        it('lowers the floor to an earlier timestamp', async () => {
+            const earlier = TEST_TIMESTAMP.minus({ years: 1 })
+
+            await expect(repository.lowerGroupTypeCreatedAt(teamId as ProjectId, 'company', earlier)).resolves.toBe(
+                true
+            )
+
+            expect(await readCreatedAt()).toEqual(earlier.toISO())
+        })
+
+        it('never raises the floor', async () => {
+            const later = TEST_TIMESTAMP.plus({ years: 1 })
+
+            await expect(repository.lowerGroupTypeCreatedAt(teamId as ProjectId, 'company', later)).resolves.toBe(false)
+
+            expect(await readCreatedAt()).toEqual(TEST_TIMESTAMP.toISO())
+        })
+
+        it('leaves a null floor null', async () => {
+            // A mapping from before created_at was recorded. HogQL masks nothing for it, so setting a
+            // timestamp would start hiding the history of a project that was never affected.
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'UPDATE posthog_grouptypemapping SET created_at = NULL WHERE project_id = $1',
+                [teamId],
+                'test-clear-group-type-created-at'
+            )
+
+            await expect(
+                repository.lowerGroupTypeCreatedAt(teamId as ProjectId, 'company', TEST_TIMESTAMP)
+            ).resolves.toBe(false)
+
+            expect(await readCreatedAt()).toBeNull()
+        })
+    })
+
     describe('fetchGroupTypesByProjectIds', () => {
         it('should return empty object for empty project IDs array', async () => {
             const result = await repository.fetchGroupTypesByProjectIds([])
@@ -1768,8 +1820,8 @@ describe('PostgresGroupRepository Integration', () => {
 
             expect(result).toEqual({
                 [teamId]: [
-                    { group_type: 'company', group_type_index: 0 },
-                    { group_type: 'organization', group_type_index: 1 },
+                    { group_type: 'company', group_type_index: 0, created_at: TEST_TIMESTAMP },
+                    { group_type: 'organization', group_type_index: 1, created_at: TEST_TIMESTAMP },
                 ],
             })
         })
@@ -1794,10 +1846,10 @@ describe('PostgresGroupRepository Integration', () => {
 
             expect(result).toEqual({
                 [localTeamId1]: [
-                    { group_type: 'company', group_type_index: 0 },
-                    { group_type: 'team', group_type_index: 1 },
+                    { group_type: 'company', group_type_index: 0, created_at: TEST_TIMESTAMP },
+                    { group_type: 'team', group_type_index: 1, created_at: TEST_TIMESTAMP },
                 ],
-                [localTeamId2]: [{ group_type: 'organization', group_type_index: 0 }],
+                [localTeamId2]: [{ group_type: 'organization', group_type_index: 0, created_at: TEST_TIMESTAMP }],
             })
         })
 
@@ -1816,7 +1868,7 @@ describe('PostgresGroupRepository Integration', () => {
             ])
 
             expect(result).toEqual({
-                [localTeamId1]: [{ group_type: 'company', group_type_index: 0 }],
+                [localTeamId1]: [{ group_type: 'company', group_type_index: 0, created_at: TEST_TIMESTAMP }],
                 [localTeamId2]: [],
             })
         })

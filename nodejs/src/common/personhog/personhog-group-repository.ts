@@ -10,7 +10,15 @@ import {
 } from '~/common/groups/repositories/group-repository.interface'
 import { logger } from '~/common/utils/logger'
 import { Properties } from '~/plugin-scaffold'
-import { Group, GroupTypeIndex, ProjectId, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '~/types'
+import {
+    Group,
+    GroupTypeIndex,
+    GroupTypeMappingRow,
+    ProjectId,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    TeamId,
+} from '~/types'
 
 import { PersonHogClient, shouldUseGrpc, shouldUseGrpcForTeam, shouldUseGrpcForTeams } from './client'
 import { timedGrpc, timedPostgres } from './metrics'
@@ -126,7 +134,7 @@ export class PersonHogGroupRepository implements GroupRepository {
     async fetchGroupTypesByProjectIds(
         projectIds: ProjectId[],
         callerTag?: string
-    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+    ): Promise<Record<string, GroupTypeMappingRow[]>> {
         if (!shouldUseGrpc(this.grpcPercentage)) {
             return timedPostgres(this.clientLabel, 'fetchGroupTypesByProjectIds', () =>
                 this.postgres.fetchGroupTypesByProjectIds(projectIds, callerTag)
@@ -230,6 +238,10 @@ export class PersonHogGroupRepository implements GroupRepository {
         createdAt: DateTime
     ): Promise<[GroupTypeIndex | null, boolean]> {
         return this.postgres.insertGroupType(teamId, projectId, groupType, index, createdAt)
+    }
+
+    lowerGroupTypeCreatedAt(projectId: ProjectId, groupType: string, createdAt: DateTime): Promise<boolean> {
+        return this.postgres.lowerGroupTypeCreatedAt(projectId, groupType, createdAt)
     }
 
     inTransaction<T>(description: string, transaction: (tx: GroupRepositoryTransaction) => Promise<T>): Promise<T> {
