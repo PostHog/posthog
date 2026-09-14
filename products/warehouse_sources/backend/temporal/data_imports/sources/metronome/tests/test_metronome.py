@@ -164,6 +164,20 @@ class TestMetronomeResources:
         assert resource["endpoint"]["params"] == {}
         assert isinstance(resource["endpoint"]["paginator"], MetronomeCursorPaginator)
 
+    @parameterized.expand([("usage",), ("usage_daily",), ("usage_hourly",)])
+    def test_usage_value_is_typed_as_a_float(self, endpoint) -> None:
+        # A batch of whole numbers infers an integer column, and the first fractional usage amount
+        # after that no longer fits it, which fails the sync and turns the schema off.
+        resource = cast(
+            dict[str, Any],
+            get_resource(endpoint, should_use_incremental_field=False, window_starting_on=EPOCH_RFC_3339),
+        )
+        data_map = resource["data_map"]
+
+        assert isinstance(data_map({"value": 7})["value"], float)
+        # No usage matched the period, which is not the same as none of it costing anything.
+        assert data_map({"value": None})["value"] is None
+
     @parameterized.expand([("invoices",), ("contracts",)])
     def test_get_resource_rejects_fanout_endpoints(self, endpoint) -> None:
         with pytest.raises(ValueError, match="Fan-out endpoint"):

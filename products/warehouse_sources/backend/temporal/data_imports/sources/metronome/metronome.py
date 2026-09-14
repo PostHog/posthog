@@ -300,6 +300,21 @@ def _list_params(config: MetronomeEndpointConfig) -> dict[str, Any]:
     return params
 
 
+def _float_usage_value(row: dict[str, Any]) -> dict[str, Any]:
+    """Give the usage amount a floating point type before the column is inferred from it.
+
+    Metronome returns `value` as a bare JSON number, so an account whose first batch holds whole
+    numbers infers an integer column, and the first fractional amount after that no longer fits
+    the stored type. That failure is not retryable and turns the schema off.
+
+    A null means no usage matched the period, which is not the same as zero, so it stays null.
+    """
+    value = row.get("value")
+    if isinstance(value, int) and not isinstance(value, bool):
+        row["value"] = float(value)
+    return row
+
+
 def get_resource(
     endpoint: str,
     should_use_incremental_field: bool,
@@ -352,13 +367,16 @@ def get_resource(
     # follows the endpoint declaring a cursor field rather than the injected param.
     syncs_incrementally = should_use_incremental_field and bool(config.incremental_fields)
 
-    return {
+    resource: EndpointResource = {
         "name": config.name,
         "table_name": config.name,
         "write_disposition": {"disposition": "merge", "strategy": "upsert"} if syncs_incrementally else "replace",
         "endpoint": endpoint_config,
         "table_format": "delta",
     }
+    if config.window_size is not None:
+        resource["data_map"] = _float_usage_value
+    return resource
 
 
 def _body_fanout_pages(client: RESTClient, config: MetronomeEndpointConfig) -> Iterator[list[dict[str, Any]]]:
