@@ -16,11 +16,6 @@ def get_repo(repo_id: UUID, team_id: int) -> Repo:
         raise errors.RepoNotFoundError(f"Repo {repo_id} not found") from e
 
 
-def find_repo(repo_id: UUID) -> Repo | None:
-    """The repo with this id in the current team scope, or None."""
-    return Repo.objects.filter(id=repo_id).first()
-
-
 def list_repos_for_team(team_id: int) -> list[Repo]:
     return list(Repo.objects.filter(team_id=team_id).order_by("-created_at"))
 

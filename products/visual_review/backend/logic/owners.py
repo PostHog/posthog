@@ -1,6 +1,6 @@
 """The team that owns each snapshot, read from the story index and the repository's ownership files."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 import structlog
 
@@ -8,14 +8,16 @@ from products.engineering_analytics.backend.facade.api import resolve_path_owner
 from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
 
 from ..facade.enums import RunType
-from ..models import Repo
-from . import run_queries, story_index
+from ..models import Repo, Run
+from . import story_index
 from .run_queries import SnapshotKey
 
 logger = structlog.get_logger(__name__)
 
 
-def owner_teams(repo: Repo, keys: Iterable[SnapshotKey]) -> dict[SnapshotKey, str]:
+def owner_teams(
+    repo: Repo, keys: Iterable[SnapshotKey], newest_run_by_type: Mapping[str, Run]
+) -> dict[SnapshotKey, str]:
     """The owning team of each Storybook snapshot whose story file is known.
 
     A key is left out when there is no team to name: the run type has no story index, the newest
@@ -26,7 +28,6 @@ def owner_teams(repo: Repo, keys: Iterable[SnapshotKey]) -> dict[SnapshotKey, st
     if not storybook_keys:
         return {}
 
-    newest_run_by_type = run_queries.newest_run_by_run_type(run_queries.latest_default_branch_runs(repo.id))
     index = story_index.latest_story_index(repo, newest_run_by_type)
     if isinstance(index, str):
         return {}

@@ -36,10 +36,9 @@ class TestOwnerTeams:
             team_by_path={"frontend/src/scenes/Button.stories.tsx": "team-replay"}, registry={}, resolved=resolved
         )
         with (
-            patch("products.visual_review.backend.logic.run_queries.latest_default_branch_runs", return_value=[]),
             patch("products.visual_review.backend.logic.story_index.latest_story_index", return_value=_INDEX),
             patch("products.visual_review.backend.logic.owners.resolve_path_owners", return_value=ownership),
         ):
-            result = owners.owner_teams(MagicMock(repo_full_name="org/repo"), [_BUTTON, _CARD, _GONE, _PLAYWRIGHT])
+            result = owners.owner_teams(MagicMock(repo_full_name="org/repo"), [_BUTTON, _CARD, _GONE, _PLAYWRIGHT], {})
 
         assert result == expected

@@ -349,12 +349,16 @@ async function runCreate(options: RunCreateOptions): Promise<string> {
 
 // The map only attributes snapshots to teams, so a map that cannot be read or sent must not fail the
 // upload of the snapshots themselves.
-function readStoryIndex(options: RunUploadOptions, runId: string): StoryIndexMap | undefined {
-    if (!options.storybookIndex) {
+function readStoryIndex(
+    indexPath: string | undefined,
+    storybookRoot: string | undefined,
+    runId: string
+): StoryIndexMap | undefined {
+    if (!indexPath || !storybookRoot) {
         return undefined
     }
     try {
-        const map = buildStoryIndex(readFileSync(options.storybookIndex, 'utf-8'), options.storybookRoot ?? '.')
+        const map = buildStoryIndex(readFileSync(indexPath, 'utf-8'), storybookRoot)
         log(`[run:${runId}] Story index: ${map.storyCount} stories, ${map.hash.slice(0, 12)}`)
         return map
     } catch (error) {
@@ -393,7 +397,7 @@ async function runUpload(options: RunUploadOptions): Promise<void> {
 
     log(`[run:${runId}] Sending ${snapshots.length} snapshots to backend`)
 
-    const storyIndex = readStoryIndex(options, runId)
+    const storyIndex = readStoryIndex(options.storybookIndex, options.storybookRoot, runId)
     const addResult = await client.addSnapshots(runId, {
         snapshots: snapshots.map((s) => ({
             identifier: s.identifier,

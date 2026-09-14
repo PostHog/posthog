@@ -95,8 +95,6 @@ _PRODUCER: Producer = "visual_review"
 # delivery path to keep working.
 _PRODUCT_PATH = "products/visual_review/"
 
-# Said of a run type whose items have no default-branch run to attribute against.
-_NO_BASELINE_RUN_DETAIL = "there is no default branch run to read"
 
 _MAX_LINE_CHARS = MAX_SECTION_CHARS // 2
 # The full identifier still goes into the URL, so a cut display costs the reader nothing.
@@ -399,9 +397,7 @@ def _attribution_sources(
 
 def _attribution(sources: Mapping[str, story_index.StoryIndex | str], run_type: str, identifier: str) -> Attribution:
     """Where one snapshot's story lives, or why the index cannot say."""
-    source = sources.get(run_type)
-    if source is None:
-        return Attribution(kind=AttributionKind.UNAVAILABLE, detail=_NO_BASELINE_RUN_DETAIL)
+    source = sources[run_type]
     if isinstance(source, str):
         return Attribution(kind=AttributionKind.UNAVAILABLE, detail=source)
     path = story_index.story_path(source, identifier)

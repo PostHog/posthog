@@ -108,7 +108,6 @@ function bucketize(values: string[], labelOf: (value: string) => string = (value
 // them on every keystroke. Exported so kea-typegen can resolve the shape.
 export type DecoratedEntry = FlakinessEntryApi & {
     _area: string
-    _team: string | null
     _typeKey: string
 }
 
@@ -133,7 +132,11 @@ function applyFilters(
         if (exclude !== 'areas' && filters.areas.length && !filters.areas.includes(entry._area)) {
             return false
         }
-        if (exclude !== 'teams' && filters.teams.length && !(entry._team && filters.teams.includes(entry._team))) {
+        if (
+            exclude !== 'teams' &&
+            filters.teams.length &&
+            !(entry.owner_team && filters.teams.includes(entry.owner_team))
+        ) {
             return false
         }
         if (exclude !== 'search' && search && !entry.identifier.toLowerCase().includes(search)) {
@@ -418,7 +421,6 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 entries.map((entry) => ({
                     ...entry,
                     _area: parseArea(entry.identifier),
-                    _team: entry.owner_team ?? null,
                     _typeKey: typeKeyOf(entry),
                 })),
         ],
@@ -450,7 +452,9 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 area: bucketize(applyFilters(entries, filters, 'areas').map((entry) => entry._area)),
                 stability: [],
                 team: bucketize(
-                    applyFilters(entries, filters, 'teams').flatMap((entry) => (entry._team ? [entry._team] : [])),
+                    applyFilters(entries, filters, 'teams').flatMap((entry) =>
+                        entry.owner_team ? [entry.owner_team] : []
+                    ),
                     teamLabelOf
                 ),
             }),

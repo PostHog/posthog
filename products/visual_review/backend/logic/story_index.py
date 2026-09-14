@@ -128,24 +128,22 @@ def register_story_index(run_id: UUID, team_id: int, story_index_hash: str) -> S
 
 def _read_paths(repo: Repo, story_index_hash: str) -> dict[str, str] | None:
     """Story id to repository path, from the stored map. None when the map cannot be trusted."""
+    log = logger.bind(repo_id=str(repo.id), story_index_hash=story_index_hash)
     raw = StoryIndexStorage(str(repo.id)).read(story_index_hash)
     if raw is None:
-        logger.info("visual_review.story_index_missing", repo_id=str(repo.id), story_index_hash=story_index_hash)
+        log.info("visual_review.story_index_missing")
         return None
     # The CLI uploads through a presigned post, so the bytes count only once they hash to their name.
     if hashlib.sha256(raw).hexdigest() != story_index_hash:
-        logger.warning(
-            "visual_review.story_index_hash_mismatch", repo_id=str(repo.id), story_index_hash=story_index_hash
-        )
+        log.warning("visual_review.story_index_hash_mismatch")
         return None
     try:
         document = json.loads(raw)
     except ValueError:
-        logger.warning("visual_review.story_index_invalid", repo_id=str(repo.id), story_index_hash=story_index_hash)
-        return None
+        document = None
     paths = document.get("paths") if isinstance(document, dict) and document.get("version") == _MAP_VERSION else None
     if not isinstance(paths, dict):
-        logger.warning("visual_review.story_index_invalid", repo_id=str(repo.id), story_index_hash=story_index_hash)
+        log.warning("visual_review.story_index_invalid")
         return None
     return {story_id: path for story_id, path in paths.items() if isinstance(story_id, str) and isinstance(path, str)}
 

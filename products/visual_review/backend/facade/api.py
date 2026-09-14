@@ -367,16 +367,15 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
     )
 
 
-def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
+def get_flakiness_overview(repo_id: UUID, team_id: int) -> contracts.FlakinessOverview:
     """Snapshot identities carrying rendering instability or an open quarantine.
 
     Backs the flakiness page. See `flakiness.get_flakiness_overview` for the
     scoping rule and query shape.
     """
     raw = flakiness.get_flakiness_overview(repo_id)
-    repo = repos.find_repo(repo_id)
-    owner_team_by_key = (
-        owners.owner_teams(repo, [flakiness.snapshot_key(row) for row in raw.rows]) if repo is not None else {}
+    owner_team_by_key = owners.owner_teams(
+        repos.get_repo(repo_id, team_id), [flakiness.snapshot_key(row) for row in raw.rows], raw.newest_run_by_type
     )
 
     quarantine_user_ids = {
