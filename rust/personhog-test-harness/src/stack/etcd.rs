@@ -30,13 +30,13 @@ pub async fn reset(store: &PersonhogStore, partitions: u32) -> Result<()> {
 /// immediately instead of waiting out the lease TTL — the "fast" half of a
 /// kill.
 pub async fn revoke_pod_lease(store: &PersonhogStore, pod_name: &str) -> Result<()> {
-    revoke_registration_lease(store, &format!("pods/{pod_name}")).await
+    revoke_lease_on_key(store, &store.pod_registration_key(pod_name)).await
 }
 
 /// Revoke the lease attached to a router's registration, so the coordinator
 /// stops counting the dead router toward freeze-ack quorums immediately.
 pub async fn revoke_router_lease(store: &PersonhogStore, router_name: &str) -> Result<()> {
-    revoke_registration_lease(store, &format!("routers/{router_name}")).await
+    revoke_lease_on_key(store, &store.router_registration_key(router_name)).await
 }
 
 /// If `holder` currently holds the coordinator election, revoke the
@@ -95,15 +95,12 @@ pub async fn wait_for_leader(
     }
 }
 
-async fn revoke_registration_lease(store: &PersonhogStore, key_suffix: &str) -> Result<()> {
-    let prefix = store.inner().prefix();
-    let key = format!("{prefix}{key_suffix}");
-
+async fn revoke_lease_on_key(store: &PersonhogStore, key: &str) -> Result<()> {
     let resp = store
         .inner()
         .client()
         .clone()
-        .get(key.clone(), None)
+        .get(key, None)
         .await
         .context("reading registration key from etcd")?;
 
