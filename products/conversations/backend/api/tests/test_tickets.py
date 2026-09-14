@@ -2346,6 +2346,61 @@ class TestComposeTicketAPI(APIBaseTest):
         assert first.json()["id"] != second.json()["id"]
         assert Ticket.objects.filter(team=self.team).count() == 2
 
+    def test_compose_same_content_with_different_tags_is_not_deduplicated(self, mock_on_commit):
+        # Tags are part of the request identity: a second request that differs only by tags must
+        # open its own ticket, or its tags are silently dropped in favor of the first request's.
+        base = {
+            "recipient_email": "pitch@test.com",
+            "email_config_id": str(self.email_config.id),
+            "message": "Great idea, we logged it.",
+        }
+
+        first = self._compose({**base, "tags": ["roadmap_pitch"]})
+        second = self._compose({**base, "tags": ["bug_report"]})
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_201_CREATED
+        assert first.json()["id"] != second.json()["id"]
+        assert Ticket.objects.filter(team=self.team).count() == 2
+
+        first_detail = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{first.json()['id']}/")
+        second_detail = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{second.json()['id']}/")
+        assert first_detail.json()["tags"] == ["roadmap_pitch"]
+        assert second_detail.json()["tags"] == ["bug_report"]
+
+    def test_compose_recovers_the_existing_ticket_past_newer_unrelated_tickets(self, mock_on_commit):
+        # find_persisted_match must not let a burst of newer, unrelated tickets to the same email
+        # channel crowd out the real match: it has to keep looking rather than give up after an
+        # arbitrary number of non-matching candidates.
+        payload = {
+            "recipient_email": "pitch@test.com",
+            "email_config_id": str(self.email_config.id),
+            "email_subject": "Thanks for your pitch",
+            "message": "Great idea, we logged it.",
+        }
+
+        first = self._compose(payload)
+        assert first.status_code == status.HTTP_201_CREATED
+        get_client().flushall()
+
+        for i in range(20):
+            noise = self._compose(
+                {
+                    "recipient_email": "pitch@test.com",
+                    "email_config_id": str(self.email_config.id),
+                    "email_subject": f"Unrelated subject {i}",
+                    "message": "Unrelated content",
+                }
+            )
+            assert noise.status_code == status.HTTP_201_CREATED
+        get_client().flushall()
+
+        second = self._compose(payload)
+
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json() == first.json()
+        assert Ticket.objects.filter(team=self.team).count() == 21
+
     def test_compose_conflicts_while_an_identical_request_is_in_flight(self, mock_on_commit):
         payload = {
             "recipient_email": "pitch@test.com",

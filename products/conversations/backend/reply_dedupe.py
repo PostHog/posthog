@@ -19,16 +19,18 @@ replica and report a conflict for a reservation that already resolved. This clie
 import json
 import uuid
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Protocol
 
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
 
+from posthog.api.tagged_item import current_tag_names
 from posthog.models.comment import Comment
 from posthog.redis import get_client
 
@@ -379,7 +381,7 @@ def _classify_held_value(key: str, held: Any, token: str) -> Reservation:
 
 # Compose opens a brand-new outbound ticket, so it hashes into its own keyspace — a compose retry
 # must never collapse onto a reply, or vice versa. Bump the version when the contents below change.
-_COMPOSE_KEY_PREFIX = "conversations:compose_dedupe:v3:"
+_COMPOSE_KEY_PREFIX = "conversations:compose_dedupe:v4:"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -404,6 +406,10 @@ class ComposeFingerprint:
     # send identical content to the same recipient are two distinct tickets, so they must not
     # collapse — only a genuine retry from the same author does.
     creator_id: int | None
+    # The tags the create applies to the ticket. Two composes that differ only by tags are distinct
+    # requests — otherwise the second request's tags are silently dropped when it replays the first
+    # request's ticket instead of creating its own.
+    tags: frozenset[str]
 
     @classmethod
     def build(
@@ -417,6 +423,7 @@ class ComposeFingerprint:
         rich_content: Any,
         distinct_id: Any,
         creator_id: int | None,
+        tags: Iterable[str] = (),
     ) -> "ComposeFingerprint | None":
         if not email_config_id or not recipient_email or not isinstance(message, str) or not message:
             return None
@@ -429,6 +436,7 @@ class ComposeFingerprint:
             rich_content=rich_content,
             distinct_id=str(distinct_id or ""),
             creator_id=creator_id,
+            tags=frozenset(tags),
         )
 
     @property
@@ -443,6 +451,7 @@ class ComposeFingerprint:
                 "rich_content": self.rich_content,
                 "distinct_id": self.distinct_id,
                 "creator_id": self.creator_id,
+                "tags": sorted(self.tags),
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -475,6 +484,10 @@ class ComposeFingerprint:
         # a distinct ticket even when everything else matches.
         if first.created_by_id != self.creator_id:
             return False
+        # Tags are part of the request's identity: a retry that adds or drops a tag must not
+        # replay a ticket that was created with a different tag set.
+        if current_tag_names(ticket) != self.tags:
+            return False
         return True
 
     def find_persisted_match(self, *, created_after: datetime) -> Ticket | None:
@@ -483,13 +496,26 @@ class ComposeFingerprint:
         This closes the window where a create commits but its publication never lands: the
         reservation is gone, so only the database can tell the retry that its ticket exists.
         """
+        # Every column matches() checks except the opening comment's body, author, and this
+        # request's tags is filtered here too. Unlike the old team/channel/config/email_from-only
+        # filter, no arbitrary limit can now cut off the real match: anything left after this is
+        # already the small, genuine-retry set the 120-second window was meant to capture.
+        # email_subject is nullable and matches() treats NULL the same as "", so an empty subject
+        # must also accept a NULL column here.
+        subject_filter = (
+            Q(email_subject__isnull=True) | Q(email_subject="")
+            if not self.email_subject
+            else Q(email_subject=self.email_subject)
+        )
         candidates = Ticket.objects.filter(
+            subject_filter,
             team_id=self.team_id,
             channel_source=Channel.EMAIL,
             email_config_id=self.email_config_id,
             email_from=self.recipient_email,
+            distinct_id=self.distinct_id,
             created_at__gte=created_after,
-        ).order_by("-created_at")[:20]
+        ).order_by("-created_at")
         return next((ticket for ticket in candidates if self.matches(ticket)), None)
 
     def load_replay_target(self, ticket_id: str | None) -> Ticket | None:
