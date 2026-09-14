@@ -559,5 +559,22 @@ describe('CanvasReplayerPlugin', () => {
             expect(call.target.width).toBe(500)
             expect(call.target.height).toBe(400)
         })
+
+        it('skips the mutation when the mirror node is not a canvas', async () => {
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+
+            const event = makeCanvasEvent(77, 314, 559)
+            const onError = jest.fn()
+            const plugin = CanvasReplayerPlugin([event], onError)
+            const replayer = {
+                getMirror: () => ({ getNode: (id: number) => (id === 77 ? svg : null) }),
+            }
+
+            plugin.handler!(event, false, { replayer } as any)
+            await new Promise((resolve) => setTimeout(resolve, 10))
+
+            expect(canvasMutation).not.toHaveBeenCalled()
+            expect(onError).not.toHaveBeenCalled()
+        })
     })
 })
