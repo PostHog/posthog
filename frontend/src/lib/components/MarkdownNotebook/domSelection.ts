@@ -110,9 +110,9 @@ export function getTextOffset(root: HTMLElement, container: Node, offset: number
     return range.toString().length
 }
 
-export function restoreSelection(element: HTMLElement, start: number, end: number): void {
+export function restoreSelection(element: HTMLElement, start: number, end: number, focusOptions?: FocusOptions): void {
     if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
-        element.focus()
+        element.focus(focusOptions)
         element.setSelectionRange(start, end)
         return
     }

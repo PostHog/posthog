@@ -1129,7 +1129,7 @@ function MarkdownNotebookEditor({
                             : listItemRefs.current[getListItemRefKey(request.nodeId, request.listItemIndex)]))
             if (element) {
                 element.focus({ preventScroll: request.preserveViewport })
-                restoreSelection(element, request.start, request.end)
+                restoreSelection(element, request.start, request.end, { preventScroll: request.preserveViewport })
                 if (!request.preserveViewport) {
                     scrollNotebookElementIntoView(element)
                 }
