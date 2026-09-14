@@ -37,6 +37,7 @@ import {
     SyncMethodForm,
     SyncMethodFormHandle,
 } from 'products/data_warehouse/frontend/shared/components/forms/SyncMethodForm'
+import { NoTableYetLabel } from 'products/data_warehouse/frontend/shared/components/NoTableYetLabel'
 import {
     SchemaEditorAction,
     useSchemaEditorAccess,
@@ -47,6 +48,7 @@ import {
     SyncTypeLabelMap,
     allowedSyncFrequencies,
     defaultQuery,
+    schemaHasNoTableYet,
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
 
@@ -298,6 +300,8 @@ function DetailsSection({
                         >
                             <code>{syncedTableName}</code>
                         </Link>
+                    ) : schemaHasNoTableYet(schema) ? (
+                        <NoTableYetLabel />
                     ) : (
                         <span className="text-muted">Not yet synced</span>
                     )}

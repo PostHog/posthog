@@ -9,6 +9,7 @@ import {
     DataWarehouseSyncInterval,
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
+    ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
     HogFunctionTemplateType,
 } from '~/types'
@@ -199,6 +200,10 @@ export function clampSyncFrequency(requested: DataWarehouseSyncInterval): DataWa
     const allowed = allowedSyncFrequencies()
     return allowed.includes(requested) ? requested : allowed[0]
 }
+
+// A completed sync that wrote no rows registers no warehouse table, so the schema has nothing to query.
+export const schemaHasNoTableYet = (schema: Pick<ExternalDataSourceSchema, 'status' | 'table'>): boolean =>
+    !schema.table && schema.status === ExternalDataSchemaStatus.Completed
 
 export const StatusTagSetting: Record<ExternalDataJobStatus | ExternalDataSchemaStatus, LemonTagType> = {
     [ExternalDataJobStatus.Running]: 'primary',
