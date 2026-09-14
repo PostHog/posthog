@@ -681,6 +681,7 @@ describe('infiniteListLogic', () => {
                 },
             })
             initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
             const cohortLogic = infiniteListLogic({
                 taxonomicFilterLogicKey: 'cohortList',
                 listGroupType: TaxonomicFilterGroupType.Cohorts,
@@ -702,6 +703,10 @@ describe('infiniteListLogic', () => {
                 })
 
             expect(searches.filter((search) => search === query)).toHaveLength(expectedRequests)
+            // A skipped search never asked the backend anything, so recording it as a dead end
+            // would report a no-match the backend never returned.
+            const emptyResultCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter empty result')
+            expect(emptyResultCalls).toHaveLength(expectedRequests)
         })
     })
 
