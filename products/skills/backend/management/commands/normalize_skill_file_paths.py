@@ -1,3 +1,4 @@
+from collections import defaultdict
 from collections.abc import Iterator
 from itertools import groupby
 from uuid import UUID
@@ -30,9 +31,11 @@ class SkillFileRows:
 def plan_skill_paths(rows: list[tuple[UUID, str]]) -> SkillPathPlan:
     """Decide what to do with one skill's file rows, given `(row id, stored path)` pairs.
 
-    A path that already normalizes to itself stays untouched. A path whose canonical form collides
-    case-insensitively with another path of the same skill is reported, not rewritten: the two rows
-    hold different content, so choosing a winner would silently drop one.
+    A path that already normalizes to itself stays untouched. Rows are grouped by the destination
+    they want rather than walked in arrival order, so the plan is a function of the row set alone:
+    `_rows_by_skill` orders by skill id only, which leaves two rows of one skill free to arrive
+    either way round. Every row of a group that two rows want is reported, and none of them is
+    rewritten — the rows hold different content, so choosing a winner would silently drop one.
 
     The rewrites are then kept only if the whole resulting path set passes the same gate the bundle
     uses. A rewrite turns one flat name into a directory, so `assets\\logo.png` beside a file named
@@ -40,24 +43,29 @@ def plan_skill_paths(rows: list[tuple[UUID, str]]) -> SkillPathPlan:
     generated SKILL.md and Codex sidecar and rejects those ancestor conflicts, so a skill it turns
     down keeps every stored path and is reported for manual repair.
     """
-    rewrites: list[tuple[UUID, str, str]] = []
-    collisions: list[tuple[str, str]] = []
     unfixable: list[tuple[str, str]] = []
-    # Seeded with every stored path, so the plan does not depend on the order the rows arrive in.
-    taken = {path.lower() for _, path in rows}
+    claimants: dict[str, list[tuple[UUID, str, str]]] = defaultdict(list)
     for row_id, path in rows:
         try:
             canonical = normalize_skill_file_path(path)
         except ValueError as error:
             unfixable.append((path, str(error)))
             continue
-        if canonical == path:
+        claimants[canonical.lower()].append((row_id, path, canonical))
+
+    rewrites: list[tuple[UUID, str, str]] = []
+    collisions: list[tuple[str, str]] = []
+    for group in claimants.values():
+        if len(group) > 1:
+            collisions.extend((path, canonical) for _, path, canonical in group if canonical != path)
             continue
-        if canonical.lower() in taken:
-            collisions.append((path, canonical))
-            continue
-        taken.add(canonical.lower())
-        rewrites.append((row_id, path, canonical))
+        row_id, path, canonical = group[0]
+        if canonical != path:
+            rewrites.append((row_id, path, canonical))
+
+    rewrites.sort(key=lambda rewrite: rewrite[1])
+    collisions.sort()
+    unfixable.sort()
     rewritten = {path: canonical for _, path, canonical in rewrites}
     if rewrites and not bundle_paths_are_safe([rewritten.get(path, path) for _, path in rows]):
         return SkillPathPlan(rewrites=[], collisions=collisions, unfixable=unfixable, unsafe=True)

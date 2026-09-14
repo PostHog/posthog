@@ -34,9 +34,9 @@ class TestPlanSkillPaths(SimpleTestCase):
                 "collision_between_rewrites",
                 [(ROW_A, "refs\\guide.md"), (ROW_B, "Refs\\Guide.md")],
                 [],
-                [("Refs\\Guide.md", "Refs/Guide.md")],
+                [("Refs\\Guide.md", "Refs/Guide.md"), ("refs\\guide.md", "refs/guide.md")],
                 [],
-                True,
+                False,
             ),
             ("trailing_slash", [(ROW_A, "refs/")], [], [], ["refs/"], False),
             ("absolute", [(ROW_A, "/refs/guide.md")], [], [], ["/refs/guide.md"], False),
@@ -58,6 +58,11 @@ class TestPlanSkillPaths(SimpleTestCase):
         assert plan.collisions == collisions
         assert [path for path, _ in plan.unfixable] == unfixable
         assert plan.unsafe == unsafe
+
+    def test_plan_does_not_depend_on_row_order(self) -> None:
+        rows = [(ROW_A, "refs\\guide.md"), (ROW_B, "Refs\\Guide.md")]
+
+        assert plan_skill_paths(rows) == plan_skill_paths(list(reversed(rows)))
 
 
 class TestNormalizeSkillFilePathsCommand(BaseTest):
