@@ -39942,6 +39942,7 @@
                 "error_tracking_issue_sorting",
                 "error_tracking_docs_viewed",
                 "error_tracking_issue_explained",
+                "error_tracking_scan_with_vision",
                 "llm_analytics_viewed",
                 "llm_analytics_trace_viewed",
                 "llm_analytics_docs_viewed",

@@ -47,6 +47,7 @@ export function ChecksTable({ columns, ...props }: ChecksTableProps): JSX.Elemen
                     <div className="flex flex-col gap-2 py-2">
                         {check.description && <p className="mb-0 text-secondary">{check.description}</p>}
                         <CheckRunsTable
+                            subjectType={props.subjectType}
                             runs={checkRunsByCheckId[check.id] ?? []}
                             loading={pendingCheckActions.loadingRuns[check.id]}
                         />
