@@ -521,6 +521,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.CodeCanvasLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.CodeChannelLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.CodeTaskLink]: { allowUnauthenticated: true, layout: 'app-raw' },
+    [Scene.CodeLoopLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.WebAnalyticsPageReports]: {
         projectBased: true,
@@ -871,6 +872,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.codeChannelLink(':channelId')]: [Scene.CodeChannelLink, 'codeChannelLink'],
     [urls.codeChannelLink(':channelId', ':taskId')]: [Scene.CodeChannelLink, 'codeChannelThreadLink'],
     [urls.codeTaskLink(':taskId')]: [Scene.CodeTaskLink, 'codeTaskLink'],
+    [urls.codeLoopLink(':loopId')]: [Scene.CodeLoopLink, 'codeLoopLink'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
     [urls.integration(':slug')]: [Scene.IntegrationsLanding, 'integrationsLanding'],
     [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],

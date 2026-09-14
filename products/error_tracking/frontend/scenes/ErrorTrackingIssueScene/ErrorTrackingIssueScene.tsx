@@ -2,10 +2,11 @@ import '../ErrorTrackingIssueScene/ErrorTrackingIssueScene.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
-import { IconRewindPlay, IconX } from '@posthog/icons'
+import { IconChevronDown, IconRewindPlay, IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -14,16 +15,26 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { Button, ButtonGroup } from 'lib/ui/quill'
+import {
+    Button,
+    ButtonGroup,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from 'lib/ui/quill'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ReplayTabs } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { markScannerHandoffIntent } from 'products/replay_vision/frontend/replay_scanners/scannerHandoffIntent'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
@@ -41,7 +52,7 @@ import { IssueStatusSelect } from '../../components/IssueStatusSelect'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
-import { getIssueReplayDateRange, getIssueReplayFilterGroup } from '../../utils'
+import { getIssueReplayDateRange, getIssueReplayFilterGroup, issueVisionScannerHandoff } from '../../utils'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { IssueEventsPanel } from './IssueEventsPanel'
 import { LinkedReports } from './LinkedReports'
@@ -64,6 +75,50 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const isMobile = isWindowLessThan('md')
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const visionCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_ERROR_TRACKING')
+
+    // Jump to the session replay list filtered to this issue. Captured so we can measure how often
+    // people watch recordings themselves, the baseline the Replay vision cross-sell is weighed against.
+    // Named to match the sibling 'viewed recordings from experiment' / 'from feature flag' events, so
+    // all three cross-product entry points compare in one breakdown.
+    const openRecordings = useCallback(
+        (source: 'header' | 'menubar'): void => {
+            posthog.capture('viewed recordings from error tracking', { issue_id: issueId, source })
+            newInternalTab(
+                urls.replay(ReplayTabs.Home, {
+                    ...getIssueReplayDateRange(
+                        issue?.first_seen,
+                        lastSeen,
+                        selectedEvent?.timestamp ?? initialEventTimestamp
+                    ),
+                    filter_group: getIssueReplayFilterGroup(issueId),
+                })
+            )
+        },
+        [issueId, issue?.first_seen, lastSeen, selectedEvent?.timestamp, initialEventTimestamp]
+    )
+
+    // Prefill a Replay vision scanner scoped to this issue and open the wizard on its review-and-create
+    // overview. The overview blocks creation when no recordings match, so a sessionless issue can't
+    // launch a scanner that never runs.
+    const setUpVisionScanner = useCallback((): void => {
+        if (!issue?.name) {
+            return
+        }
+        markScannerHandoffIntent(
+            issueVisionScannerHandoff(
+                issueId,
+                issue.name,
+                getIssueReplayDateRange(issue.first_seen, lastSeen, selectedEvent?.timestamp ?? initialEventTimestamp)
+            )
+        )
+        void addProductIntentForCrossSell({
+            from: ProductKey.ERROR_TRACKING,
+            to: ProductKey.REPLAY_VISION,
+            intent_context: ProductIntentContext.ERROR_TRACKING_SCAN_WITH_VISION,
+        })
+        router.actions.push(urls.replayVisionScannerOverview('new'))
+    }, [issueId, issue?.name, issue?.first_seen, lastSeen, selectedEvent?.timestamp, initialEventTimestamp])
 
     useAttachedContext(
         issueIdValid ? [{ type: 'error_tracking_issue', key: issueId, label: issue?.name ?? undefined }] : null
@@ -111,22 +166,21 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                         </SceneMenuBarMenu>
                                         <SceneMenuBarMenu label="View" dataAttr="issue-menubar-view">
                                             <SceneMenuBarItem
-                                                onClick={() => {
-                                                    const url = urls.replay(ReplayTabs.Home, {
-                                                        ...getIssueReplayDateRange(
-                                                            issue.first_seen,
-                                                            lastSeen,
-                                                            selectedEvent?.timestamp ?? initialEventTimestamp
-                                                        ),
-                                                        filter_group: getIssueReplayFilterGroup(issue.id),
-                                                    })
-                                                    newInternalTab(url)
-                                                }}
+                                                onClick={() => openRecordings('menubar')}
                                                 data-attr="issue-menubar-view-recordings"
                                             >
                                                 <IconRewindPlay />
                                                 View recordings
                                             </SceneMenuBarItem>
+                                            {visionCrossSellEnabled && (
+                                                <SceneMenuBarItem
+                                                    onClick={setUpVisionScanner}
+                                                    data-attr="issue-menubar-scan-with-vision"
+                                                >
+                                                    <IconSparkles className="text-ai" />
+                                                    Set up a scanner to watch these
+                                                </SceneMenuBarItem>
+                                            )}
                                         </SceneMenuBarMenu>
                                     </SceneMenuBar>
                                 )}
@@ -163,24 +217,52 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         disabled={issue.status != 'active'}
                                                     />
                                                 </ButtonGroup>
-                                                <Button
-                                                    variant="outline"
-                                                    onClick={() => {
-                                                        const url = urls.replay(ReplayTabs.Home, {
-                                                            ...getIssueReplayDateRange(
-                                                                issue.first_seen,
-                                                                lastSeen,
-                                                                selectedEvent?.timestamp ?? initialEventTimestamp
-                                                            ),
-                                                            filter_group: getIssueReplayFilterGroup(issue.id),
-                                                        })
-                                                        newInternalTab(url)
-                                                    }}
-                                                    data-attr="error-tracking-issue-view-recordings"
-                                                >
-                                                    View recordings
-                                                    <IconRewindPlay />
-                                                </Button>
+                                                {visionCrossSellEnabled ? (
+                                                    <ButtonGroup>
+                                                        <Button
+                                                            variant="outline"
+                                                            onClick={() => openRecordings('header')}
+                                                            data-attr="error-tracking-issue-view-recordings"
+                                                        >
+                                                            View recordings
+                                                            <IconRewindPlay />
+                                                        </Button>
+                                                        <DropdownMenu>
+                                                            <DropdownMenuTrigger
+                                                                render={
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="icon"
+                                                                        aria-label="More recording options"
+                                                                    />
+                                                                }
+                                                            >
+                                                                <IconChevronDown />
+                                                            </DropdownMenuTrigger>
+                                                            <DropdownMenuContent
+                                                                align="end"
+                                                                className="w-auto min-w-56"
+                                                            >
+                                                                <DropdownMenuItem
+                                                                    onClick={setUpVisionScanner}
+                                                                    data-attr="error-tracking-scan-with-vision"
+                                                                >
+                                                                    <IconSparkles className="text-ai" />
+                                                                    Set up a scanner to watch these
+                                                                </DropdownMenuItem>
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    </ButtonGroup>
+                                                ) : (
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={() => openRecordings('header')}
+                                                        data-attr="error-tracking-issue-view-recordings"
+                                                    >
+                                                        View recordings
+                                                        <IconRewindPlay />
+                                                    </Button>
+                                                )}
                                                 <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                             </div>
                                         )
