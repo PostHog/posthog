@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from django.utils import timezone
 
@@ -96,6 +97,22 @@ def record_sandbox_ended(runtime: KernelRuntime, *, reason: str, sandbox_still_r
             raise
     except Exception:
         logger.exception("notebook_kernel_sandbox_ended_report_failed", kernel_runtime_id=str(runtime.id))
+
+
+def record_sandbox_ended_by_id(kernel_runtime_id: UUID, *, reason: str, sandbox_still_running: bool) -> None:
+    """Record the end of a sandbox for a caller that holds only the runtime id.
+
+    The facade accepts ids and not model rows, so the kernel status endpoint uses this function. The
+    lookup skips a row that has already ended, so a status poll on an ended runtime costs one query.
+    Never raises.
+    """
+    try:
+        runtime = KernelRuntime.objects.filter(pk=kernel_runtime_id, ended_at__isnull=True).first()
+    except Exception:
+        logger.exception("notebook_kernel_sandbox_ended_report_failed", kernel_runtime_id=str(kernel_runtime_id))
+        return
+    if runtime is not None:
+        record_sandbox_ended(runtime, reason=reason, sandbox_still_running=sandbox_still_running)
 
 
 def _ended_properties(

@@ -71,7 +71,7 @@ from products.notebooks.backend.facade.compute_pricing import (
     get_compute_rates,
 )
 from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
-from products.notebooks.backend.facade.kernel_sandbox_usage import record_sandbox_ended
+from products.notebooks.backend.facade.kernel_sandbox_usage import record_sandbox_ended_by_id
 from products.notebooks.backend.facade.sql_v2 import acquire_run_slots, release_run_slots
 from products.notebooks.backend.facade.widgets import (
     WidgetConflictError,
@@ -1291,7 +1291,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             if runtime.status != status:
                 runtime.status = status
                 runtime.save(update_fields=["status"])
-            record_sandbox_ended(runtime, reason=status, sandbox_still_running=sandbox_still_running)
+            record_sandbox_ended_by_id(runtime.id, reason=status, sandbox_still_running=sandbox_still_running)
 
         # A running sandbox keeps the shape it started with, so price that rather than the
         # notebook's configuration. They differ between a resize and the restart that applies it.
