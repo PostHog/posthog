@@ -1,7 +1,11 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import (
+    BRAZE_DATA_SERIES_ENDPOINTS,
+    DATA_SERIES_LOOKBACK_SECONDS,
+    ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.source import BrazeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braze import BrazeSourceConfig
 
@@ -45,8 +49,19 @@ class TestBrazeSource:
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Only templates/content blocks expose Braze's server-side `modified_after` filter.
-        assert incremental == {"email_templates", "content_blocks"}
+        # Templates/content blocks expose Braze's server-side `modified_after` filter; every data
+        # series is bounded by its own `ending_at`/`length` window.
+        assert incremental == {"email_templates", "content_blocks", *BRAZE_DATA_SERIES_ENDPOINTS}
+
+    def test_data_series_schemas_re_read_a_trailing_window_and_never_append(self):
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        for name in BRAZE_DATA_SERIES_ENDPOINTS:
+            # Braze restates recent days, so appending them would duplicate rather than correct.
+            assert schemas[name].supports_append is False
+            assert schemas[name].default_incremental_lookback_seconds == DATA_SERIES_LOOKBACK_SECONDS
+        assert schemas["email_templates"].supports_append is True
+        assert schemas["email_templates"].default_incremental_lookback_seconds is None
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
@@ -65,19 +80,32 @@ class TestBrazeSource:
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with(self.config.api_key, self.config.url, "/campaigns/list", self.team_id)
+        mock_validate.assert_called_once_with(
+            self.config.api_key, self.config.url, "/campaigns/list?page=0", self.team_id
+        )
 
+    @pytest.mark.parametrize(
+        "schema_name, expected_probe",
+        [
+            ("email_templates", "/templates/email/list?page=0"),
+            # A workspace series can be probed directly; `length` is all Braze requires.
+            ("kpi_dau", "/kpi/dau/data_series?length=1"),
+            # A fan-out series needs a parent id we do not have yet, so it probes the list
+            # endpoint its fan-out walks — a permission the sync needs either way.
+            ("campaign_analytics", "/campaigns/list?page=0"),
+            ("canvas_analytics", "/canvas/list?page=0"),
+            ("event_analytics", "/events/list?page=0"),
+        ],
+    )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.braze.source.validate_braze_credentials"
     )
-    def test_validate_credentials_probes_schema_specific_path(self, mock_validate):
+    def test_validate_credentials_probes_schema_specific_path(self, mock_validate, schema_name, expected_probe):
         mock_validate.return_value = (True, None)
 
-        self.source.validate_credentials(self.config, self.team_id, schema_name="email_templates")
+        self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
 
-        mock_validate.assert_called_once_with(
-            self.config.api_key, self.config.url, "/templates/email/list", self.team_id
-        )
+        mock_validate.assert_called_once_with(self.config.api_key, self.config.url, expected_probe, self.team_id)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.braze.source.validate_braze_credentials"

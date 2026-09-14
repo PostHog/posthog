@@ -94,6 +94,204 @@ def rename_parent_fields(parent_name: str, renames: dict[str, str]) -> Callable[
     return _mapper
 
 
+def _format_path(path: str, path_format_values: Mapping[str, str]) -> str:
+    for key, value in path_format_values.items():
+        path = path.replace(f"{{{key}}}", value)
+    return path
+
+
+def _build_parent_resource(
+    *,
+    fanout: DependentEndpointConfig,
+    parent_config: FanoutEndpointLike,
+    path_format_values: Mapping[str, str],
+    page_size_param: str | None,
+    parent_endpoint_extra: Endpoint | None,
+    parent_data_map: Callable[[dict[str, Any]], dict[str, Any]] | None,
+) -> EndpointResource:
+    # page_size_param=None is for APIs whose list endpoints take no page-size param at all
+    # (unpaginated, full-collection responses) — sending one would be an undocumented param.
+    params: dict[str, Any] = {} if page_size_param is None else {page_size_param: parent_config.page_size}
+    params.update(fanout.parent_params)
+
+    endpoint: Endpoint = {
+        "path": _format_path(parent_config.path, path_format_values),
+        "params": params,
+    }
+    if parent_endpoint_extra:
+        if "params" in parent_endpoint_extra:
+            raise ValueError(
+                "Do not pass 'params' in parent_endpoint_extra. Use fanout.parent_params or page_size_param instead."
+            )
+        endpoint.update(parent_endpoint_extra)
+
+    parent_resource: EndpointResource = {
+        "name": fanout.parent_name,
+        "table_name": fanout.parent_name,
+        "write_disposition": "replace",
+        "endpoint": endpoint,
+        "table_format": "delta",
+    }
+    if parent_data_map is not None:
+        # Parent transforms run before the child transformer reads the page, so a resolve_field
+        # the parent rows do not carry can be derived here. `process_parent_data_item` binds the
+        # path with `str.format`, which applies no escaping, so a vendor whose ids can contain
+        # `/` must percent-encode them through this hook.
+        parent_resource["data_map"] = parent_data_map
+    return parent_resource
+
+
+def _attach_warehouse_parent(
+    parent_resource: EndpointResource,
+    *,
+    fanout: DependentEndpointConfig,
+    page_size: int,
+    team_id: int,
+    source_id: str | None,
+    child_endpoint: str,
+) -> bool:
+    """Point the parent resource at the parent's Delta table. False means stay on the API."""
+    if not source_id:
+        raise ValueError("source_id is required when a fan-out reads its parent from the warehouse")
+    # noqa reason: keeps deltalake/pyarrow off the import path of every source module —
+    # the reader stack loads only when a warehouse-parent fan-out actually runs.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
+        iter_parent_pages_from_warehouse,
+        try_resolve_parent_table,
+    )
+
+    # Resolve the parent's table now, while we're in sync source-build context — the
+    # iterator itself runs later on executor threads where ad-hoc ORM reads are fragile.
+    # This also pins the Delta version the whole fan-out reads, and validates the columns
+    # while a fallback is still possible.
+    parent_columns = list(dict.fromkeys([fanout.resolve_field, *fanout.include_from_parent]))
+    parent_table = try_resolve_parent_table(
+        team_id=team_id,
+        source_id=source_id,
+        parent_name=fanout.parent_name,
+        required_columns=parent_columns,
+        schema_name=child_endpoint,
+        row_filter=fanout.parent_row_filter,
+    )
+    if parent_table is None:
+        # Drop back to the API parent entirely, including the child's snapshot-only 404
+        # handling, so the child syncs exactly the way it does without this feature.
+        return False
+
+    parent_resource["parent_source"] = "warehouse"
+    parent_resource["data_iterator"] = lambda: iter_parent_pages_from_warehouse(
+        table=parent_table,
+        parent_name=fanout.parent_name,
+        columns=parent_columns,
+        page_size=page_size,
+        schema_name=child_endpoint,
+        row_filter=fanout.parent_row_filter,
+    )
+    return True
+
+
+def _build_child_endpoint(
+    *,
+    fanout: DependentEndpointConfig,
+    child_config: FanoutEndpointLike,
+    path_format_values: Mapping[str, str],
+    page_size_param: str | None,
+    child_params_extra: dict[str, Any] | None,
+    child_endpoint_extra: Endpoint | None,
+    warehouse_parent: bool,
+) -> Endpoint:
+    params: dict[str, Any] = {
+        fanout.resolve_param: {
+            "type": "resolve",
+            "resource": fanout.parent_name,
+            "field": fanout.resolve_field,
+        },
+    }
+    if page_size_param is not None:
+        params[page_size_param] = child_config.page_size
+    # The resolve param binds child requests to their parent row. A config that reuses that key
+    # would clobber the binding, so reject it loudly rather than silently dropping the value.
+    if fanout.resolve_param in fanout.child_params:
+        raise ValueError(
+            f"child_params must not include the resolve param '{fanout.resolve_param}'; "
+            "it is managed by build_dependent_resource."
+        )
+    params.update(fanout.child_params)
+    if child_params_extra:
+        params.update(child_params_extra)
+
+    endpoint: Endpoint = {
+        "path": _format_path(child_config.path, path_format_values),
+        "params": params,
+    }
+    if fanout.child_response_actions:
+        endpoint["response_actions"] = fanout.child_response_actions
+    if child_endpoint_extra:
+        if "params" in child_endpoint_extra:
+            raise ValueError(
+                "Do not pass 'params' in child_endpoint_extra. "
+                "The child resolve/page-size params are managed by build_dependent_resource."
+            )
+        endpoint.update(child_endpoint_extra)
+
+    if warehouse_parent and "response_actions" not in endpoint:
+        # The warehouse snapshot can contain parents deleted upstream since the parent's
+        # last sync (incremental parents accumulate); their child fetch 404s. A fresh API
+        # parent pull would simply not list them, so treat 404 as an empty child.
+        endpoint["response_actions"] = [{"status_code": 404, "action": "ignore"}]
+    return endpoint
+
+
+def _build_child_resource(
+    *,
+    child_endpoint: str,
+    child_config: FanoutEndpointLike,
+    child_endpoint_config: Endpoint,
+    fanout: DependentEndpointConfig,
+    should_use_incremental_field: bool,
+    incremental_field: str | None,
+    incremental_config_factory: Callable[[str], IncrementalConfig | None] | None,
+) -> EndpointResource:
+    use_merge = should_use_incremental_field and bool(child_config.incremental_fields)
+    if use_merge:
+        if incremental_config_factory is None:
+            raise ValueError("incremental_config_factory is required for incremental fan-out resources")
+        incremental = incremental_config_factory(incremental_field or child_config.default_incremental_field or "id")
+        # A factory returns None for a child endpoint that has no server-side time filter to bind
+        # the cursor to. Such a child still merges on its primary key, which is what lets a caller
+        # bound the request set through the fan-out parent instead of through a request window.
+        if incremental is not None:
+            child_endpoint_config["incremental"] = incremental
+
+    return {
+        "name": child_endpoint,
+        "table_name": child_endpoint,
+        "write_disposition": ({"disposition": "merge", "strategy": "upsert"} if use_merge else "replace"),
+        "include_from_parent": fanout.include_from_parent,
+        "endpoint": child_endpoint_config,
+        "table_format": "delta",
+    }
+
+
+def _cap_at_parent_snapshot(
+    child: Any,
+    *,
+    child_endpoint: str,
+    child_config: FanoutEndpointLike,
+    incremental_field: str | None,
+    parent_snapshot_at: datetime,
+) -> Any:
+    # `getattr` because a source that never merges can omit the field entirely, and the read
+    # has to stay off the path those sources take.
+    cursor_field = incremental_field or getattr(child_config, "default_incremental_field", None)
+    if not cursor_field:
+        raise ValueError(
+            f"'{child_endpoint}' asks for a parent snapshot cap but declares no incremental field to "
+            "cap on; capping nothing would let its watermark run past the snapshot"
+        )
+    return child.add_filter(_not_newer_than(cursor_field, parent_snapshot_at))
+
+
 def build_dependent_resource(
     *,
     endpoint_configs: Mapping[str, FanoutEndpointLike],
@@ -121,143 +319,44 @@ def build_dependent_resource(
     parent_config = endpoint_configs[fanout.parent_name]
     child_config = endpoint_configs[child_endpoint]
 
+    parent_resource = _build_parent_resource(
+        fanout=fanout,
+        parent_config=parent_config,
+        path_format_values=path_format_values,
+        page_size_param=page_size_param,
+        parent_endpoint_extra=parent_endpoint_extra,
+        parent_data_map=parent_data_map,
+    )
+
     warehouse_parent = fanout.parent_source == "warehouse" and use_warehouse_parent
-
-    # page_size_param=None is for APIs whose list endpoints take no page-size param at all
-    # (unpaginated, full-collection responses) — sending one would be an undocumented param.
-    parent_params: dict[str, Any] = {} if page_size_param is None else {page_size_param: parent_config.page_size}
-    parent_params.update(fanout.parent_params)
-
-    parent_path = parent_config.path
-    for key, value in path_format_values.items():
-        parent_path = parent_path.replace(f"{{{key}}}", value)
-
-    parent_endpoint_config: Endpoint = {
-        "path": parent_path,
-        "params": parent_params,
-    }
-    if parent_endpoint_extra:
-        if "params" in parent_endpoint_extra:
-            raise ValueError(
-                "Do not pass 'params' in parent_endpoint_extra. Use fanout.parent_params or page_size_param instead."
-            )
-        parent_endpoint_config.update(parent_endpoint_extra)
-
-    parent_resource: EndpointResource = {
-        "name": fanout.parent_name,
-        "table_name": fanout.parent_name,
-        "write_disposition": "replace",
-        "endpoint": parent_endpoint_config,
-        "table_format": "delta",
-    }
-
-    if parent_data_map is not None:
-        # Parent transforms run before the child transformer reads the page, so a resolve_field
-        # the parent rows do not carry can be derived here. `process_parent_data_item` binds the
-        # path with `str.format`, which applies no escaping, so a vendor whose ids can contain
-        # `/` must percent-encode them through this hook.
-        parent_resource["data_map"] = parent_data_map
-
     if warehouse_parent:
-        if not source_id:
-            raise ValueError("source_id is required when a fan-out reads its parent from the warehouse")
-        # noqa reason: keeps deltalake/pyarrow off the import path of every source module —
-        # the reader stack loads only when a warehouse-parent fan-out actually runs.
-        from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
-            iter_parent_pages_from_warehouse,
-            try_resolve_parent_table,
-        )
-
-        # Resolve the parent's table now, while we're in sync source-build context — the
-        # iterator itself runs later on executor threads where ad-hoc ORM reads are fragile.
-        # This also pins the Delta version the whole fan-out reads, and validates the columns
-        # while a fallback is still possible.
-        parent_columns = list(dict.fromkeys([fanout.resolve_field, *fanout.include_from_parent]))
-        parent_table = try_resolve_parent_table(
+        warehouse_parent = _attach_warehouse_parent(
+            parent_resource,
+            fanout=fanout,
+            page_size=parent_config.page_size,
             team_id=team_id,
             source_id=source_id,
-            parent_name=fanout.parent_name,
-            required_columns=parent_columns,
-            schema_name=child_endpoint,
-            row_filter=fanout.parent_row_filter,
+            child_endpoint=child_endpoint,
         )
-        if parent_table is None:
-            # Drop back to the API parent entirely, including the snapshot-only 404 handling
-            # below, so the child syncs exactly the way it does without this feature.
-            warehouse_parent = False
-        else:
-            parent_resource["parent_source"] = "warehouse"
-            parent_resource["data_iterator"] = lambda: iter_parent_pages_from_warehouse(
-                table=parent_table,
-                parent_name=fanout.parent_name,
-                columns=parent_columns,
-                page_size=parent_config.page_size,
-                schema_name=child_endpoint,
-                row_filter=fanout.parent_row_filter,
-            )
 
-    child_path = child_config.path
-    for key, value in path_format_values.items():
-        child_path = child_path.replace(f"{{{key}}}", value)
-
-    child_params: dict[str, Any] = {
-        fanout.resolve_param: {
-            "type": "resolve",
-            "resource": fanout.parent_name,
-            "field": fanout.resolve_field,
-        },
-    }
-    if page_size_param is not None:
-        child_params[page_size_param] = child_config.page_size
-    # The resolve param binds child requests to their parent row. A config that reuses that key
-    # would clobber the binding, so reject it loudly rather than silently dropping the value.
-    if fanout.resolve_param in fanout.child_params:
-        raise ValueError(
-            f"child_params must not include the resolve param '{fanout.resolve_param}'; "
-            "it is managed by build_dependent_resource."
-        )
-    child_params.update(fanout.child_params)
-    if child_params_extra:
-        child_params.update(child_params_extra)
-    child_endpoint_config: Endpoint = {
-        "path": child_path,
-        "params": child_params,
-    }
-    if fanout.child_response_actions:
-        child_endpoint_config["response_actions"] = fanout.child_response_actions
-    if child_endpoint_extra:
-        if "params" in child_endpoint_extra:
-            raise ValueError(
-                "Do not pass 'params' in child_endpoint_extra. "
-                "The child resolve/page-size params are managed by build_dependent_resource."
-            )
-        child_endpoint_config.update(child_endpoint_extra)
-
-    if warehouse_parent and "response_actions" not in child_endpoint_config:
-        # The warehouse snapshot can contain parents deleted upstream since the parent's
-        # last sync (incremental parents accumulate); their child fetch 404s. A fresh API
-        # parent pull would simply not list them, so treat 404 as an empty child.
-        child_endpoint_config["response_actions"] = [{"status_code": 404, "action": "ignore"}]
-
-    use_merge = should_use_incremental_field and bool(child_config.incremental_fields)
-    if use_merge:
-        if incremental_config_factory is None:
-            raise ValueError("incremental_config_factory is required for incremental fan-out resources")
-        incremental = incremental_config_factory(incremental_field or child_config.default_incremental_field or "id")
-        # A factory returns None for a child endpoint that has no server-side time filter to bind
-        # the cursor to. Such a child still merges on its primary key, which is what lets a caller
-        # bound the request set through the fan-out parent instead of through a request window.
-        if incremental is not None:
-            child_endpoint_config["incremental"] = incremental
-
-    child_resource: EndpointResource = {
-        "name": child_endpoint,
-        "table_name": child_endpoint,
-        "write_disposition": ({"disposition": "merge", "strategy": "upsert"} if use_merge else "replace"),
-        "include_from_parent": fanout.include_from_parent,
-        "endpoint": child_endpoint_config,
-        "table_format": "delta",
-    }
+    child_endpoint_config = _build_child_endpoint(
+        fanout=fanout,
+        child_config=child_config,
+        path_format_values=path_format_values,
+        page_size_param=page_size_param,
+        child_params_extra=child_params_extra,
+        child_endpoint_extra=child_endpoint_extra,
+        warehouse_parent=warehouse_parent,
+    )
+    child_resource = _build_child_resource(
+        child_endpoint=child_endpoint,
+        child_config=child_config,
+        child_endpoint_config=child_endpoint_config,
+        fanout=fanout,
+        should_use_incremental_field=should_use_incremental_field,
+        incremental_field=incremental_field,
+        incremental_config_factory=incremental_config_factory,
+    )
 
     config: RESTAPIConfig = {
         "client": client_config,
@@ -281,15 +380,13 @@ def build_dependent_resource(
     # to be unresolvable, and a caller reading its own config would still see "warehouse" and cap a
     # live API response, dropping rows that path had no reason to hold back.
     if warehouse_parent and parent_snapshot_at is not None:
-        # `getattr` because a source that never merges can omit the field entirely, and the read
-        # has to stay off the path those sources take.
-        cursor_field = incremental_field or getattr(child_config, "default_incremental_field", None)
-        if not cursor_field:
-            raise ValueError(
-                f"'{child_endpoint}' asks for a parent snapshot cap but declares no incremental field to "
-                "cap on; capping nothing would let its watermark run past the snapshot"
-            )
-        child = child.add_filter(_not_newer_than(cursor_field, parent_snapshot_at))
+        child = _cap_at_parent_snapshot(
+            child,
+            child_endpoint=child_endpoint,
+            child_config=child_config,
+            incremental_field=incremental_field,
+            parent_snapshot_at=parent_snapshot_at,
+        )
     return child
 
 

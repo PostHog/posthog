@@ -156,6 +156,11 @@ To show brand icons on a self-hosted instance, create a logo.dev account, genera
 - **OAuth without DCR** ("shared creds"): an operator registers one OAuth app with the vendor and pastes `client_id`/`client_secret` into Django admin (stored encrypted per template). The sync pre-fills `oauth_metadata` from discovery; installs then share the client while each user gets their own tokens. Redirect URI: `{SITE_URL}/api/mcp_store/oauth_redirect/`.
 - **API key**: users supply their own key at install; nothing on the template.
 
+When an OAuth token refresh returns `invalid_grant` or `invalid_client`, or there is no refresh token to send, the installation is marked `needs_reauth`.
+It drops out of agent runs, and the UI asks the user to reconnect.
+Transient failures, including throttling, timeouts, connection errors, and other provider errors, leave the installation alone.
+A later successful refresh clears the flag.
+
 OAuth catalog entries can set `oauth_scope_allowlist` to limit registration and authorization to reviewed scopes. Without an allowlist, the client requests every scope advertised by the server. Shared clients derive their token endpoint authentication method from discovered metadata unless `oauth_credentials.token_endpoint_auth_method` overrides it.
 
 Slack uses the existing `SLACK_APP_CLIENT_ID` and `SLACK_APP_CLIENT_SECRET` instance settings. Its catalog entry remains suspended until the production Slack app supports MCP and its regional callbacks are live. After the suspension is removed, catalog sync activates Slack only when both settings exist and the shared-client probe passes. Each Desktop user still completes a separate OAuth grant for the catalog's reviewed MCP scopes.

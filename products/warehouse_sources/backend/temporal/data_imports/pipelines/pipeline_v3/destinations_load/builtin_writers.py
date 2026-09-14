@@ -1,6 +1,6 @@
 """Registering the writers that ship with warehouse sources.
 
-Postgres, Redshift, Snowflake and Databricks ship here. The other destination types have writers built on batch exports'
+Postgres, Redshift, Snowflake, Databricks, S3 and BigQuery ship here. The other destination types have writers built on batch exports'
 clients, parked on `tom/dwh-destination-writers-parked`, and each one lands in its own change
 once it has been run against that warehouse. Registering a type whose writer has never
 executed is how a customer discovers it does not work.
@@ -22,6 +22,8 @@ SUPPORTED_DESTINATION_TYPES: list[str] = [
     str(ExternalDataDestination.Type.REDSHIFT),
     str(ExternalDataDestination.Type.SNOWFLAKE),
     str(ExternalDataDestination.Type.DATABRICKS),
+    str(ExternalDataDestination.Type.S3),
+    str(ExternalDataDestination.Type.BIGQUERY),
 ]
 
 
@@ -38,6 +40,9 @@ def ensure_builtin_destination_writers_registered() -> None:
 
 
 def register_builtin_destination_writers() -> None:
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.bigquery import (  # noqa: PLC0415
+        BigQueryDestinationWriter,
+    )
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.databricks import (  # noqa: PLC0415
         DatabricksDestinationWriter,
     )
@@ -47,14 +52,19 @@ def register_builtin_destination_writers() -> None:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.redshift import (  # noqa: PLC0415
         RedshiftDestinationWriter,
     )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.s3 import (  # noqa: PLC0415
+        S3DestinationWriter,
+    )
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.snowflake import (  # noqa: PLC0415
         SnowflakeDestinationWriter,
     )
 
     register_destination_writer(ExternalDataDestination.Type.POSTGRES, PostgresDestinationWriter)
     register_destination_writer(ExternalDataDestination.Type.DATABRICKS, DatabricksDestinationWriter)
+    register_destination_writer(ExternalDataDestination.Type.BIGQUERY, BigQueryDestinationWriter)
     register_destination_writer(ExternalDataDestination.Type.REDSHIFT, RedshiftDestinationWriter)
     register_destination_writer(ExternalDataDestination.Type.SNOWFLAKE, SnowflakeDestinationWriter)
+    register_destination_writer(ExternalDataDestination.Type.S3, S3DestinationWriter)
 
 
 def builtin_destination_types() -> list[str]:
