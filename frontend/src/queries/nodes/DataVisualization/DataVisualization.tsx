@@ -217,9 +217,9 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     )
     const alertThresholdLines = insight?.id ? alertsToThresholdGoalLines(alerts) : []
 
-    const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+    const { toggleChartSettingsPanel, loadData } = useActions(dataVisualizationLogic)
 
-    const { queryId, pollResponse } = useValues(dataNodeLogic)
+    const { queryId, pollResponse, responseErrorObject } = useValues(dataNodeLogic)
 
     const setQuerySource = useCallback(
         (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
@@ -235,7 +235,13 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             <div className="rounded bg-surface-primary relative flex flex-1 flex-col p-2">
                 <InsightErrorState
                     query={props.query}
-                    excludeDetail
+                    queryId={responseErrorObject?.queryId ?? queryId}
+                    titleStatus={responseErrorObject?.status}
+                    // A cancel is the user's own action: no apology or bug-report guidance
+                    excludeDetail={queryCancelled}
+                    // A retry has no running query to poll, so dataNodeLogic downgrades force_async
+                    // to force_blocking anyway. Ask for what actually happens.
+                    onRetry={() => loadData('force_blocking')}
                     title={
                         queryCancelled
                             ? 'The query was cancelled'
