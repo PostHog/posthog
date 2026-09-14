@@ -42,7 +42,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict
+from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict, is_scheduled_metric
 from products.experiments.backend.temporal.models import (
     CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
     MAX_METRIC_ATTEMPTS,
@@ -134,15 +134,17 @@ def discover_experiment_metrics(experiment: Experiment) -> list[ExperimentMetric
     # Inline metrics carry their uuid directly on the dict; the metric_type is the source list.
     for source, metric_type in [(experiment.metrics, "primary"), (experiment.metrics_secondary, "secondary")]:
         for metric in source or []:
-            _add(metric.get("uuid"), metric_type)
+            if is_scheduled_metric(metric):
+                _add(metric.get("uuid"), metric_type)
 
     # Saved (shared) metrics live in the M2M through-model: uuid is on saved_metric.query["uuid"], and
     # primary/secondary is recorded on the link's metadata["type"] (default "primary").
     for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
         saved_query = link.saved_metric.query
-        metric_uuid = saved_query.get("uuid") if saved_query else None
+        if not is_scheduled_metric(saved_query):
+            continue
         metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
-        _add(metric_uuid, metric_type)
+        _add(saved_query.get("uuid"), metric_type)
 
     return metrics_to_recalculate
 

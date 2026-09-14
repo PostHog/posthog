@@ -666,7 +666,7 @@ class TestBedrockCountTokensViaProvider:
         mock_count_tokens.return_value = 42
 
         response = authenticated_client.post(
-            "/wizard/v1/messages/count_tokens",
+            "/ci/v1/messages/count_tokens",
             json=valid_request_body,
             headers=valid_request_headers,
         )

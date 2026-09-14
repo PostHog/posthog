@@ -53,6 +53,9 @@ tools:
     metrics-has-metrics-retrieve:
         operation: metrics_has_metrics_retrieve
         enabled: false
+    metrics-names-retrieve:
+        operation: metrics_names_retrieve
+        enabled: false
     metrics-overview-retrieve:
         operation: metrics_overview_retrieve
         enabled: false

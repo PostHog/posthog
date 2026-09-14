@@ -785,10 +785,15 @@ class TestDataHealthIssuesReadsTheNewestRun(APIBaseTest):
 
         assert "orders" not in self._reported()
 
-    def test_a_duckgres_shadow_success_does_not_stand_in_for_the_serving_run(self):
+    def test_a_managed_warehouse_shadow_success_does_not_stand_in_for_the_serving_run(self):
         view = self._view("orders")
         self._run(view, DataModelingJob.Status.FAILED, error="Serving run failed", minutes_ago=10)
-        self._run(view, DataModelingJob.Status.COMPLETED, engine=DataModelingJobEngine.DUCKGRES, minutes_ago=1)
+        self._run(
+            view,
+            DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            minutes_ago=1,
+        )
 
         reported = self._reported()
 

@@ -755,6 +755,26 @@ def test_non_retryable_errors_match_egress_denied_token_uri_endpoint(observed_er
 @pytest.mark.parametrize(
     "observed_error",
     [
+        # No permission to open a Storage Read API session on the project the read bills to.
+        "PermissionDenied: 403 request failed: the user does not have "
+        "'bigquery.readsessions.create' permission for 'projects/example-project'",
+        # Same gRPC wording, different missing permission and resource.
+        "PermissionDenied: 403 request failed: the user does not have "
+        "'bigquery.tables.getData' permission for table 'example-project:example_dataset.example_table'",
+    ],
+)
+def test_bigquery_storage_read_denial_is_non_retryable_with_guidance(observed_error):
+    """The Storage Read API denies access in gRPC wording rather than BigQuery's "Access Denied:"
+    prefix, so it has to match a key of its own or it retries forever with no guidance."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Storage Read API permission denial should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] for key in matching)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
         # Corrupted/truncated private key body in the uploaded service account JSON.
         "Unable to load PEM file. See https://cryptography.io/en/latest/faq/#why-can-t-i-import-my-pem-file for more details. InvalidData(InvalidPadding)",
         "ValueError: Unable to load PEM file. InvalidData(InvalidByte(1, 45))",
