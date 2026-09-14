@@ -519,24 +519,19 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                 if login:
                     return str(login)
 
-        # Team-level GitHub integration: connecting_user_github_login from install / configuration.
         prefetched_integrations = getattr(self, "_prefetched_github_integrations", None)
-        if prefetched_integrations is not None:
-            for integration in prefetched_integrations:
-                login = (integration.config or {}).get("connecting_user_github_login")
+        team_github_integrations = (
+            prefetched_integrations
+            if prefetched_integrations is not None
+            else self.integration_set.filter(kind="github")
+            .exclude(config__connecting_user_github_login=None)
+            .only("config")[:1]
+        )
+        for integration in team_github_integrations:
+            if isinstance(integration.config, dict):
+                login = integration.config.get("connecting_user_github_login")
                 if login:
                     return str(login)
-        else:
-            team_github_integration = (
-                self.integration_set.filter(kind="github")
-                .exclude(config__connecting_user_github_login=None)
-                .only("config")
-                .first()
-            )
-            if team_github_integration and isinstance(team_github_integration.config, dict):
-                login_val = team_github_integration.config.get("connecting_user_github_login")
-                if login_val:
-                    return str(login_val)
 
         return None
 
