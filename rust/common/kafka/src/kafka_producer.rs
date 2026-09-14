@@ -213,7 +213,13 @@ where
     let deadline = Instant::now() + connect_retry_budget;
     let mut backoff = CONNECT_RETRY_BASE;
     loop {
-        let error = match ping_brokers(&api) {
+        // The metadata fetch blocks its thread until the brokers answer or the
+        // timeout expires. Keep it off the runtime's worker threads: a caller
+        // with a single worker has to keep serving its probes while this loop
+        // waits out the outage.
+        let ping = api.clone();
+        let ping = tokio::task::spawn_blocking(move || ping_brokers(&ping));
+        let error = match ping.await.expect("broker ping task panicked") {
             Ok(()) => return Ok(api),
             Err(error) => error,
         };
