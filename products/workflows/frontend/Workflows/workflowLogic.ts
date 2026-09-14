@@ -4138,6 +4138,11 @@ export const workflowLogic = kea<workflowLogicType>([
                 // in flight (the live email editor writes on every pause) must survive the reset and
                 // stay dirty, or it vanishes from the form and the canvas reloads the stale version.
                 actions.setWorkflowValues(editsDuringSave)
+                // That write bumps the version without a user edit. Count it for the saves still
+                // queued, so their responses only re-apply real edits and do not queue one more save.
+                for (const queued of (cache.saveContexts as SaveContext[] | undefined) ?? []) {
+                    queued.editVersion += 1
+                }
                 actions.autoSaveWorkflow()
             }
             actions.replayDeferredResourceEdited()
