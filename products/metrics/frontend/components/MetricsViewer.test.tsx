@@ -18,7 +18,7 @@ import {
 import {
     metricsAttributesRetrieve,
     metricsQueryCreate,
-    metricsValuesRetrieve,
+    metricsNamesRetrieve,
 } from 'products/metrics/frontend/generated/api'
 
 import { MetricsViewer } from './MetricsViewer'
@@ -26,7 +26,7 @@ import { metricsViewerLogic } from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
-    metricsValuesRetrieve: jest.fn(),
+    metricsNamesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
     metricsSamplesCreate: jest.fn(),
     metricsAttributesRetrieve: jest.fn(),
@@ -56,7 +56,7 @@ describe('MetricsViewer', () => {
         } as AppContext
         useMocks({ get: { '/api/environments/:team_id/dashboards/': { count: 0, results: [] } } })
         initKeaTests()
-        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: [] })
+        jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: [] })
         jest.mocked(metricsQueryCreate).mockResolvedValue({ results: [] })
         jest.mocked(metricsAttributesRetrieve).mockResolvedValue({ results: [], count: 0 })
         jest.mocked(insightsApi.create).mockResolvedValue(SAVED_INSIGHT as QueryBasedInsightModel)
