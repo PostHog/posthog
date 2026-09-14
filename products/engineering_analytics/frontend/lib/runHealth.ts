@@ -29,8 +29,7 @@ export interface CostableJob {
 
 export type WorkflowState = 'healthy' | 'degraded' | 'failing' | 'unknown'
 
-/** What the workflow tiles read, from either the server's window-wide figures or a fold over a page
- *  of runs. Every field is answerable from both, so neither source has to invent one. */
+/** Every field must be answerable from both the server's window figures and a page of runs. */
 export interface HealthSummary {
     state: WorkflowState
     totalRuns: number
@@ -117,12 +116,7 @@ export function percentileSorted(sortedAsc: number[], q: number): number | null 
     return sortedAsc[Math.min(sortedAsc.length - 1, Math.max(0, Math.ceil(q * sortedAsc.length) - 1))]
 }
 
-/**
- * Verdict + headline stats for one workflow's runs. Durations use successful runs. Rates use
- * conclusive runs, so an unsettled or non-verdict run is never counted as a failure.
- */
-/** The workflow verdict, from counts either side can supply, so the client-side summary over a page
- *  of runs and the server's window-wide figures can never disagree on the badge. */
+/** Shared by both summaries so a page of runs and the server's figures never disagree on the verdict. */
 function workflowState(counts: {
     hasCompleted: boolean
     latestConclusion: string | null
@@ -141,13 +135,6 @@ function workflowState(counts: {
     return 'healthy'
 }
 
-/** The window-wide figures for one workflow, as the server computed them.
- *
- * The tiles read this rather than folding the run table, which only holds the newest page: on a busy
- * workflow that page is a few hours of a 30-day window, so a client-side pass rate answered a
- * different question than the Workflows table's, and cost-per-run divided a window-wide total by the
- * page size.
- */
 export function workflowHealthSummary(item: {
     run_count: number
     successful_run_count: number
@@ -180,6 +167,10 @@ export function workflowHealthSummary(item: {
     }
 }
 
+/**
+ * Verdict + headline stats for one workflow's runs. Durations use successful runs. Rates use
+ * conclusive runs, so an unsettled or non-verdict run is never counted as a failure.
+ */
 export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
     const completed = runs.filter((run) => run.conclusion !== null)
     const successful = completed.filter((run) => run.conclusion === 'success')

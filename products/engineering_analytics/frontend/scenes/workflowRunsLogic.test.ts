@@ -75,8 +75,6 @@ describe('workflowRunsLogic', () => {
             'loadJobAggregatesSuccess',
         ])
 
-        // The tiles read workflow health rather than folding the capped run table, so it carries the
-        // same workflow, window and run scope as the rest of the page.
         const windowedReads = [mockRuns, mockWorkflowHealth, mockRunActivity, mockRunnerCosts, mockJobAggregates]
         for (const read of windowedReads) {
             expect(read).toHaveBeenLastCalledWith(
@@ -108,9 +106,6 @@ describe('workflowRunsLogic', () => {
     })
 
     it('reads the tiles from the window-wide figures, not the capped run table', async () => {
-        // 3800 of 3900 conclusive runs passed across the window; the run table only ever holds a page
-        // of that, so folding the tiles off the table answered a narrower question than the Workflows
-        // table did for the same workflow and window.
         mockWorkflowHealth.mockResolvedValue([
             {
                 repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },

@@ -162,7 +162,7 @@ def branch_filter_clause(
 def workflow_name_filter_clause(
     workflow_name: str | None, placeholders: dict[str, ast.Expr], *, column: str = "r.workflow_name"
 ) -> str:
-    """Blank means no filter. The name binds unmodified so it matches the other workflow endpoints."""
+    """The name binds unmodified so it matches the other workflow endpoints."""
     if not workflow_name or not workflow_name.strip():
         return ""
     placeholders["workflow_name"] = ast.Constant(value=workflow_name)

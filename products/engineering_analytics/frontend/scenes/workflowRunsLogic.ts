@@ -286,9 +286,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     }),
             },
         ],
-        // This workflow's window-wide figures, computed server-side. The run table below is capped at
-        // RUN_LIST_LIMIT, so the tiles cannot be folded from it without answering a narrower question
-        // than the Workflows table does for the same workflow and window.
+        // The run table is capped at RUN_LIST_LIMIT, so the tiles read the window-wide figures from here.
         workflowHealth: [
             null as WorkflowHealthItemApi | null,
             {
@@ -434,8 +432,6 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
             (s) => [s.runActivity],
             (runActivity: WorkflowRunActivityApi): boolean => runActivity.truncated,
         ],
-        // Server figures when they have arrived; the capped run table only stands in while they load
-        // or when the workflow has no rows in the window.
         healthSummary: [
             (s) => [s.workflowHealth, s.runRows],
             (workflowHealth: WorkflowHealthItemApi | null, runRows: WorkflowRunRow[]): HealthSummary =>
