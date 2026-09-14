@@ -85,6 +85,7 @@
         "@posthog/products-actions": "workspace:*",
         "@posthog/products-ai-gateway": "workspace:*",
         "@posthog/products-ai-observability": "workspace:*",
+        "@posthog/products-ai-training": "workspace:*",
         "@posthog/products-alerts": "workspace:*",
         "@posthog/products-annotations": "workspace:*",
         "@posthog/products-apm": "workspace:*",
