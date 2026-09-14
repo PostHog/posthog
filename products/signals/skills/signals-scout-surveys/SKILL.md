@@ -33,7 +33,7 @@ When in doubt, write a memory entry instead of filing a report. Surveys are pers
 
 ## Quick close-out: are surveys even active?
 
-If `surveys-get-all` (with `archived: false`) returns an empty list **and** `surveys-global-stats` shows zero events in the last 30 days, surveys aren't active on this project. Write one scratchpad entry:
+Read `recent_surveys` off `scout-project-profile-get`. It carries `total_count`, `active_count`, and the 5 most recently updated surveys. If `active_count` is 0 **and** `surveys-global-stats` shows zero events in the last 30 days, surveys aren't active on this project. Write one scratchpad entry:
 
 - key: `not-in-use:surveys:team{team_id}`
 - content: brief note ("checked at {timestamp}, no active surveys, no survey events")
@@ -51,32 +51,36 @@ Four cheap reads cold-start a run:
 - `scout-scratchpad-search` (`text=survey` or `text=nps`) — durable team steering. Entries with `pattern:`, `noise:`, `addressed:`, `dedupe:`, `report:`, or `reviewer:` key prefixes, plus the team's known active survey IDs, primary NPS / CSAT survey, healthy response baselines, known themes already raised, which report covers a theme, and who owns it.
 - `scout-runs-list` (last 7d) — what prior surveys runs found and ruled out.
 - `inbox-reports-list` (filter by `search`=survey name/theme, `source_product`, `ordering=-updated_at`) — the reports already in the inbox. A theme or regression you've reported before is an **edit**, not a fresh report; pull the closest matches with `inbox-reports-retrieve` before authoring.
-- `scout-project-profile-get` — `top_events` for `survey shown` / `survey dismissed` / `survey sent` reach (the survey product isn't yet surfaced in the profile inventory; see "When you hit a gap" below).
+- `scout-project-profile-get` — `recent_surveys` is the survey inventory: `total_count`, `active_count`, and the 5 most recently updated surveys, each with `id`, `name`, `type` (`popover` / `widget` / `external_survey` / `api`), `status` (running / draft / stopped / archived), and `updated_at`. `top_events` adds `survey shown` / `survey dismissed` / `survey sent` reach.
 
-Then orient on surveys specifically. Order matters — busy projects can have 100+ active surveys, and `surveys-get-all` is **never the right cold-start move** there. Each survey object is 30–50 KB (questions, internal targeting flag, appearance theme, creator metadata) and even `limit: 5` returns ~30 KB. Listing the lot blows the token budget before you've made a single decision.
+Then orient on surveys specifically. The profile already gave you the roster, so `surveys-get-all` is **never the right cold-start move**. Busy projects can have 100+ active surveys, each object is 30–50 KB (questions, internal targeting flag, appearance theme, creator metadata), and even `limit: 5` returns ~30 KB. Listing the lot blows the token budget before you've made a single decision.
 
 Right order:
 
-1. `surveys-global-stats` (last 30d) — cheap project-wide check: are surveys converting at all? If `survey sent` total is zero, close out empty.
-2. **Rank candidates by recent activity, not by config.** Use `execute-sql` to find the top survey ids by `survey sent` volume in the last 30d:
+1. `recent_surveys` from the profile you already read — your cold-start inventory. It says whether anything is running, and gives you ids to query directly. Two limits: it is capped at 5 and ordered by `updated_at`, so it ranks recent edits and not activity; and it is a cached snapshot, so a survey created minutes ago can be missing. Steps 2–5 supply activity, ranking and configuration.
+2. `surveys-global-stats` (last 30d) — cheap project-wide check: are surveys converting at all? It returns a `total_count` for each of `survey shown` / `survey dismissed` / `survey sent`, so read all three. Close out empty only when all three are zero. Impressions with zero completions is not an empty project — it is the response-rate cratering lane at full severity, so keep going and rank on `survey shown` in step 3 instead. Zero completions is legitimate for an `api` survey whose integrator never fires `survey sent`, and for a survey nobody has shared; when that is the steady state, write a `noise:` entry so later runs skip it instead of re-deriving it.
+3. **Rank candidates by recent activity, not by config.** Use `execute-sql` to find the top survey ids by submission volume in the last 30d. Count submissions, not rows: a survey with partial responses on emits one `survey sent` row per answered question, so a bare `count()` ranks a quiet multi-question survey above a busy single-question one.
 
    ```sql
    SELECT
        JSONExtractString(properties, '$survey_id') AS survey_id,
-       count() AS sent_count,
+       count(DISTINCT coalesce(
+           nullIf(JSONExtractString(properties, '$survey_submission_id'), ''),
+           toString(uuid)
+       )) AS submissions,
        max(timestamp) AS last_sent
    FROM events
    WHERE event = 'survey sent'
      AND timestamp > now() - INTERVAL 30 DAY
    GROUP BY survey_id
-   ORDER BY sent_count DESC
+   ORDER BY submissions DESC
    LIMIT 20
    ```
 
-3. `survey-get {id}` on the top 5–10 ids only — full config when you actually need to read questions / targeting / iteration / type. Never `surveys-get-all` on a project where step 2 returns more than ~20 distinct ids.
-4. `survey-stats {id}` per candidate for `shown` / `dismissed` / `sent` counts.
+4. `survey-get {id}` on the top 5–10 ids only — full config when you actually need to read questions / targeting / iteration / type. Never `surveys-get-all` on a project where step 3 returns more than ~20 distinct ids.
+5. `survey-stats {id}` per candidate for `shown` / `dismissed` / `sent` counts.
 
-Use `surveys-get-all {"limit": 5}` only as a last resort when discovering a survey by name, and prefer `surveys-get-all {"search": "..."}` over a blind page walk.
+Use `surveys-get-all {"limit": 5}` only as a last resort when the profile and a memory entry both fail to resolve a survey by name, and prefer `surveys-get-all {"search": "..."}` over a blind page walk.
 
 ### Profile shape — what's loud today?
 
@@ -116,10 +120,11 @@ Disqualifier: a survey at the end of its scheduled window naturally tails off. C
 
 #### Abandonment spike (dismissed / shown ratio)
 
-`survey shown` events are impressions; `survey dismissed` are explicit close-outs; `survey sent` are completions. Their meaning **depends on the survey's `type`**, and the scout has to read `type` from `survey-get` before interpreting any ratio:
+`survey shown` events are impressions; `survey dismissed` are explicit close-outs; `survey sent` are completions. Their meaning **depends on the survey's `type`**, and the scout has to read `type` (from the profile's `recent_surveys`, or from `survey-get`) before interpreting any ratio:
 
 - **`popover`** — `survey shown` fires when the popover auto-renders. A high dismiss rate is genuine signal: users are seeing it and immediately killing it.
 - **`widget`** — `survey shown` only fires when the user clicks the widget trigger. A high dismiss rate means users opened the widget and changed their mind, not that the team is spamming them. Baseline dismiss rates are naturally higher (50–70% is common; the Logs Feedback widget on PostHog itself runs at 64% with healthy NPS) and shouldn't be flagged as fatigue.
+- **`external_survey`** — the hosted survey page renders no close control, so this type never emits `survey dismissed`. A 0% dismiss rate on it measures nothing. Read `survey sent` / `survey shown` conversion instead, and remember respondents arrive through a shared link, so they self-select the same way widget respondents do.
 - **`api`** — `survey shown` fires from SDK calls. Semantics depend on the integrating product; check `survey-get` to see how it's wired before interpreting trends.
 
 If the dismiss rate jumps sharply on a `popover` survey (e.g. baseline 30%, recent 70%), users are seeing it and immediately killing it. Common causes: the survey now appears at a worse moment in the user journey, or fatigue from displaying too often.
@@ -252,7 +257,8 @@ Direct calls (read-only):
 - `surveys-global-stats` — project-wide aggregate. **Start here** every cold start; cheap sanity check on overall survey health before any per-survey work.
 - `survey-stats` — per-survey response statistics: `shown` / `dismissed` / `sent` counts, unique respondents, conversion rates, timing. Date-filterable.
 - `survey-get` — full survey config for a candidate: questions (with ids and types), `type` (popover / widget / api — affects how `survey shown` semantics read), targeting (`linked_flag_id` / `targeting_flag_id` / `linked_insight_id` / `conditions`), schedule (`start_date`, `end_date`), iteration config, `updated_at`. Read this before drawing conclusions about score changes — question wording changes invalidate trend comparisons.
-- `surveys-get-all` — last-resort discovery. Each survey object is 30–50 KB and busy projects have 100+ active surveys; calling this with `limit > 5` will blow your token budget. Prefer `surveys-global-stats` + an `execute-sql` ranking query (see "Get oriented" above) to find the candidate set, then `survey-get` per id. Use `surveys-get-all {"search": "..."}` if you need to resolve a name from a memory entry.
+- `surveys-get-all` — last-resort discovery. Each survey object is 30–50 KB and busy projects have 100+ active surveys; calling this with `limit > 5` will blow your token budget. Prefer the profile's `recent_surveys` for the roster, then `surveys-global-stats` + an `execute-sql` ranking query (see "Get oriented" above) to find the candidate set, then `survey-get` per id. Use `surveys-get-all {"search": "..."}` if you need to resolve a name from a memory entry.
+- `surveys-summarize-responses-create` — PostHog's own cached LLM summary of a survey's responses. Pass `question_id` for a per-question theme summary, omit it for the survey-wide headline, `force_refresh: true` to bypass the cache. Use it as a cheap first read of what a candidate's responses are about. It does not apply this skill's theme bar (internal-test stripping, ≥ 3 distinct respondents), so confirm a theme against the response SQL before you report it. Cloud only, and it returns 403 when the organization has not approved AI data processing.
 - `execute-sql` against `events` — for raw response analysis (rating trends, theme aggregation). The property reference, the dual response-key coalesce, and the `$survey_submission_id` dedupe SQL are all in [`references/response-querying.md`](references/response-querying.md).
 - `read-data-schema event_property_values` — sample response values to confirm property keys exist and have the shape you expect before running heavy aggregations.
 - `query-trends` — confirm `survey shown` / `survey sent` volume trends with weekly comparisons. Cheaper than a full SQL aggregation when you just need the shape.
@@ -263,17 +269,14 @@ Direct calls (read-only):
 
 Harness-level:
 
-- `scout-project-profile-get` / `scout-scratchpad-search` / `scout-runs-list` / `scout-runs-retrieve` — orientation + dedupe.
+- `scout-project-profile-get` / `scout-scratchpad-search` / `scout-runs-list` / `scout-runs-retrieve` — orientation + dedupe. `recent_surveys` is the cheapest survey inventory you have; read it before any surveys tool.
 - `scout-emit-report` / `scout-edit-report` / `scout-scratchpad-remember` — author a report / edit an existing one / remember.
 
 ### When you hit a gap
 
-Two MCP gaps are known and may be worth flagging in a separate PR rather than working around in-skill:
+No MCP gap is known for this scout.
 
-- **Project profile doesn't include surveys.** Cold-start orientation has to call `surveys-get-all` directly. Adding a `_surveys` builder to `products/signals/backend/scout_harness/profile/builders.py` (a few rows: active count, top surveys by recent volume, primary NPS / CSAT survey if any) would let every scout — not just this one — see surveys at orientation time. Worth a P3.
-- **Survey summarization isn't MCP-callable.** The product has a summarization pipeline at `products/surveys/backend/summarization/` but it's not exposed as an MCP tool. If it were, this scout could lean on cached summaries instead of re-aggregating themes from scratch each run. Worth a P2 for accuracy and cost.
-
-If you notice a third gap during a run that would meaningfully unlock this scout, write a scratchpad entry with key `mcp-gap:surveys:<short-name>` so the gap surfaces in the next review via `text=mcp-gap`.
+If you notice one during a run that would meaningfully unlock this scout, write a scratchpad entry with key `mcp-gap:surveys:<short-name>` so the gap surfaces in the next review via `text=mcp-gap`. It may be worth flagging in a separate PR rather than working around in-skill.
 
 ## When to stop
 

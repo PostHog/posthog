@@ -984,6 +984,25 @@ class TestBuildInventory(BaseTest):
         profile = compute_project_profile(team=self.team)
         Inventory.model_validate(profile.payload["inventory"])
 
+    def test_persisted_payload_carries_the_survey_inventory(self) -> None:
+        # The surveys scout cold-starts from `recent_surveys` instead of listing surveys, which
+        # costs ~30 KB per call. Dropping the active count or a survey identity from the stored
+        # payload sends it back to that fallback, so guard the fields it reads.
+        Survey.objects.create(
+            team=self.team,
+            name="nps",
+            type="popover",
+            start_date=timezone.now() - timedelta(days=1),
+        )
+        profile = compute_project_profile(team=self.team)
+        surveys = profile.payload["inventory"]["recent_surveys"]
+        assert surveys["total_count"] == 1
+        assert surveys["active_count"] == 1
+        assert [(row["name"], row["type"], row["status"]) for row in surveys["recent"]] == [
+            ("nps", "popover", "running")
+        ]
+        assert surveys["recent"][0]["id"]
+
 
 class TestComputeProjectProfile(BaseTest):
     def test_persists_a_new_row_with_inventory_payload(self) -> None:
