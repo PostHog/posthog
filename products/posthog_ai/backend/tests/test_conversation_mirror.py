@@ -5,6 +5,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
@@ -23,6 +25,7 @@ from products.posthog_ai.backend.temporal.activities import (
     MirrorConversationInputs,
     mirror_conversation_to_task_activity,
 )
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Task, TaskRun
 
 from ee.hogai.api.serializers import (
@@ -296,6 +299,45 @@ class TestMirrorConversation(APIBaseTest):
         assert result.appended_frames == 4
         assert len(self._log_methods()) == 4
         assert TaskRun.objects.get(id=result.run_id).state[MESSAGES_COPIED_KEY] == 2
+
+    def test_a_turn_still_in_progress_waits_for_the_next_copy(self) -> None:
+        self.state_messages = [
+            HumanMessage(content="hello", id="h1"),
+            AssistantMessage(content="hi", id="a1"),
+            HumanMessage(content="chart it", id="h2"),
+            AssistantMessage(
+                content="",
+                id="a2",
+                tool_calls=[AssistantToolCall(id="c1", name="create_insight", args={})],
+            ),
+        ]
+        first = self._mirror()
+        assert first.appended_frames == 4
+        assert TaskRun.objects.get(id=first.run_id).state[MESSAGES_COPIED_KEY] == 2
+
+        self.state_messages = [
+            *self.state_messages,
+            AssistantToolCallMessage(content="done", id="t1", tool_call_id="c1"),
+            AssistantMessage(content="here it is", id="a3"),
+        ]
+        second = self._mirror()
+        assert second.run_id == first.run_id
+        assert TaskRun.objects.get(id=first.run_id).state[MESSAGES_COPIED_KEY] == 6
+        assert self._log_methods().count("session/update:user_message_chunk") == 2
+
+    def test_concurrent_first_touches_share_one_import_run(self) -> None:
+        self.state_messages = [HumanMessage(content="hello", id="h1"), AssistantMessage(content="hi", id="a1")]
+        first = self._mirror()
+        assert first.task_id is not None
+        duplicate = tasks_facade.create_imported_task_run(
+            first.task_id,
+            self.team.id,
+            state={"imported_from": "conversation"},
+            created_at=self.conversation.created_at or timezone.now(),
+            completed_at=timezone.now(),
+        )
+        assert duplicate.id == first.run_id
+        assert TaskRun.objects.filter(task_id=first.task_id, state__has_key="imported_from").count() == 1
 
     def test_moved_conversation_renders_no_checkpoint_history(self):
         # Once the history is in the task's import run, the checkpoint must not render as well.

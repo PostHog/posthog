@@ -154,6 +154,10 @@ class ChatAgentWorkflow(AgentBaseWorkflow):
             ),
             heartbeat_timeout=timedelta(seconds=CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT),
         )
+        if not inputs.use_checkpointer:
+            # A subagent run shares the conversation but writes no turn of its own; only the main
+            # turn has something to copy.
+            return
         # The turn is persisted and streamed by now. The copy into the task runs as a detached child
         # so this workflow closes at once: its id is fixed per conversation, and a follow-up sent
         # while it is still open would join it and lose its message.

@@ -3095,19 +3095,28 @@ def create_imported_task_run(
 
     The run is backdated to the source's timestamps so the task sorts and reads as old as the
     conversation it came from. Nothing dispatches a workflow for it; a later real run chains to it
-    through ``resume_from_run_id`` like any earlier run.
+    through ``resume_from_run_id`` like any earlier run. A task holds one import run: the create
+    runs under the task's row lock and returns the existing run when a concurrent import won.
     """
-    task = Task.objects.get(id=task_id, team_id=team_id)
-    run = TaskRun.objects.create(
-        task=task,
-        team_id=team_id,
-        status=TaskRun.Status.COMPLETED,
-        environment=TaskRun.Environment.CLOUD,
-        state=state,
-        completed_at=completed_at,
-    )
-    # created_at is auto_now_add, so the backdate has to go through update().
-    TaskRun.objects.filter(id=run.id).update(created_at=created_at)
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
+        existing = (
+            TaskRun.objects.filter(task=task, team_id=team_id, state__has_key="imported_from")
+            .order_by("created_at", "id")
+            .first()
+        )
+        if existing is not None:
+            return _task_run_detail_to_dto(existing)
+        run = TaskRun.objects.create(
+            task=task,
+            team_id=team_id,
+            status=TaskRun.Status.COMPLETED,
+            environment=TaskRun.Environment.CLOUD,
+            state=state,
+            completed_at=completed_at,
+        )
+        # created_at is auto_now_add, so the backdate has to go through update().
+        TaskRun.objects.filter(id=run.id).update(created_at=created_at)
     run.refresh_from_db()
     return _task_run_detail_to_dto(run)
 

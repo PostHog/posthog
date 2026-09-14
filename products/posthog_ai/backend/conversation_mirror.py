@@ -239,7 +239,22 @@ async def _aload_messages(conversation: Conversation, team: Team, user: User) ->
     if state_result.state is None:
         return []
     enriched = await ArtifactManager(team, user).aenrich_messages(list(state_result.state.messages))
-    return [message.model_dump() for message in enriched if should_output_assistant_message(message)]
+    messages = [message.model_dump() for message in enriched if should_output_assistant_message(message)]
+    return _completed_turns(messages)
+
+
+def _completed_turns(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop a trailing turn that is still in progress.
+
+    A turn is complete once the assistant gave its final answer or failed. A trailing tool call
+    without its result, or an approval the user has not answered yet, is copied by the next run,
+    after the turn has ended.
+    """
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.get("type") == "ai/failure" or (message.get("type") == "ai" and not message.get("tool_calls")):
+            return messages[: index + 1]
+    return []
 
 
 def _read_copy_progress(run_state: dict[str, Any]) -> CopyProgress:
