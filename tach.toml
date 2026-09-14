@@ -925,62 +925,6 @@ depends_on = [
 ]
 layer = "modules"
 
-# Canvas's public surface: routes + presentation for the API layer, tasks for
-# the Celery registrations posthog/tasks/scheduled.py imports.
-[[interfaces]]
-expose = [
-    "backend\\.routes.*",
-]
-from = [
-    "products.canvas",
-]
-
-# Canvas is still a legacy product, so notebooks use a narrow product-owned
-# integration instead of exposing its whole facade and claiming strict isolation.
-[[interfaces]]
-expose = [
-    "backend\\.notebook_integration.*",
-]
-from = [
-    "products.canvas",
-]
-
-[[interfaces]]
-expose = [
-    "backend\\.teaching.*",
-    "backend\\.artifacts.*",
-    "backend\\.tasks.*",
-    # Temporal wiring the worker registers (start_temporal_worker.py) — the
-    # canvas analog of the backend.tasks Celery registration above. Canvas is
-    # not isolated yet, so this stays a legacy leak rather than a facade expose.
-    "backend\\.temporal\\.registry.*",
-    # tasks' tests build canvases that point at a generation task.
-    "backend\\.models\\.Canvas",
-]
-from = [
-    "products.canvas",
-]
-
-# Generic Comments delegates Canvas ownership checks to this narrow,
-# product-owned boundary; Canvas never imports Comments or Tasks here.
-[[interfaces]]
-expose = [
-    "backend\\.comment_access.*",
-]
-from = [
-    "products.canvas",
-]
-
-# The shared activity log delegates personal-canvas visibility to this narrow,
-# product-owned boundary, mirroring how loops do it for tasks.
-[[interfaces]]
-expose = [
-    "backend\\.activity_visibility.*",
-]
-from = [
-    "products.canvas",
-]
-
 [[modules]]
 path = "products.tracing"
 depends_on = [
@@ -1057,7 +1001,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(autoresearch|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(autoresearch|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface

@@ -331,7 +331,7 @@ def pin_task_names(text: str, module_path: str) -> tuple[str, list[str]]:
         if args is None:
             replacement = f'@shared_task(name="{pinned_name}")'
         else:
-            inner = args[1:-1].strip()
+            inner = args[1:-1].strip().rstrip(",").rstrip()
             joined = f'{inner}, name="{pinned_name}"' if inner else f'name="{pinned_name}"'
             replacement = f"@shared_task({joined})"
         text = text[: dec.start()] + replacement + text[args_end:]

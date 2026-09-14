@@ -20,6 +20,7 @@ from posthog.redis import get_client
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.canvas.backend.facade import testing as canvas_testing
 from products.conversations.backend.models import EmailOutboxMessage, Ticket
 from products.conversations.backend.models.constants import Channel, Status
 from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
@@ -541,28 +542,17 @@ class TestComments(APIBaseTest, QueryMatchingTest):
     def test_canvas_comments_use_the_relational_canvas_owner(self) -> None:
         task = self._task_artifact_target()
         channel = task.channel
-        canvas_model = apps.get_model("canvas", "Canvas")
-        canvas = canvas_model.objects.unscoped().create(
-            team=self.team,
-            channel=channel,
-            name="Launch canvas",
-            created_by=self.user,
+        canvas_id = canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=channel.id, name="Launch canvas", created_by_id=self.user.id
         )
-        canvas_version_model = apps.get_model("canvas", "CanvasSourceVersion")
-        canvas_version_model.objects.unscoped().create(
-            team=self.team,
-            canvas=canvas,
-            source_hash="a" * 64,
-            source_object_key="canvases/test/source.json",
-            source_size=2,
-            task_id=task.id,
-            created_by=self.user,
+        canvas_testing.create_canvas_source_version(
+            team_id=self.team.id, canvas_id=canvas_id, task_id=task.id, created_by_id=self.user.id
         )
         mentioned = User.objects.create_and_join(self.organization, "canvas-mentioned@posthog.com", "password")
         payload: dict[str, Any] = {
             "content": "Review this canvas",
             "scope": "desktop_canvas",
-            "item_id": str(canvas.id),
+            "item_id": str(canvas_id),
             "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
             "mentions": [mentioned.id],
         }
@@ -571,7 +561,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert created.status_code == status.HTTP_201_CREATED
         with_task = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas_id}&task_id={task.id}"
         )
         assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
         task_activity_model = apps.get_model("tasks", "TaskCommentActivity")
@@ -600,24 +590,23 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             channel_type="personal",
             created_by=other,
         )
-        canvas_model = apps.get_model("canvas", "Canvas")
-        canvas = canvas_model.objects.unscoped().create(
-            team=self.team,
-            channel=channel,
+        canvas_id = canvas_testing.create_canvas(
+            team_id=self.team.id,
+            channel_id=channel.id,
             name="Private canvas",
-            created_by=other,
+            created_by_id=other.id,
             generation_task_id=task.id,
         )
         payload = {
             "content": "Should not land",
             "scope": "desktop_canvas",
-            "item_id": str(canvas.id),
+            "item_id": str(canvas_id),
             "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
         }
 
         assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
         response = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas_id}&task_id={task.id}"
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []

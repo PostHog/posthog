@@ -22,7 +22,8 @@
 # Counts may only go down, and a line that disappears must be deleted here too.
 #
 # Regenerate after a removal: bin/hogli product:crossings --all --write-baseline
-# That command refuses to write when the scan holds a line this file does not. A coupling that
+# That command refuses to write when the scan holds a line this file does not, or a count that
+# went up. A coupling that
 # must stand is a hand-edited line here, together with the amendment in products/architecture.md
 # § Wiring couplings that permits it, because a reviewer can see both.
 access_control.Role approvals.ApprovalPolicy.bypass_roles reverse-accessor(bypass_policies) 1
@@ -32,7 +33,6 @@ actions.Action posthog.TaggedItem.action reverse-accessor(tagged_items) 1
 actions.Action surveys.Survey.actions reverse-accessor(survey_set) 1
 approvals.ChangeRequest feature_flags.ScheduledChange.change_request reverse-accessor(scheduled_changes) 1
 batch_exports.BatchExport cdp.HogFunction.batch_export reverse-accessor(hogfunction_set) 1
-canvas.Canvas products.tasks.backend.logic.services.loop_runs get_model 1
 cohorts.Cohort experiments.Experiment.exposure_cohort reverse-accessor(experiment_set) 1
 conversations.Ticket posthog.TaggedItem.ticket reverse-accessor(tagged_items) 1
 customer_analytics.Account notebooks.ResourceNotebook.account reverse-accessor(notebooks) 1

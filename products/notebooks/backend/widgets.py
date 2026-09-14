@@ -487,8 +487,8 @@ def _display_name(prompt: str) -> str:
 
 
 def _ensure_widget_instance(*, notebook: Notebook, node_id: str, prompt: str, user_id: int) -> NotebookWidgetInstance:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
+        notebooks as canvas_facade,
     )
     from products.tasks.backend.facade import (  # noqa: PLC0415 — keeps Tasks imports off notebook startup
         api as tasks_facade,
@@ -942,8 +942,8 @@ def heartbeat_widget_generation_job(job_id: UUID, team_id: int) -> None:
 
 
 def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas and object storage off worker registration
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 — keeps Canvas and object storage off worker registration
+        notebooks as canvas_facade,
     )
     from products.notebooks.backend.widget_generation import (  # noqa: PLC0415 — keeps the model client off Django startup
         WidgetSecurityReviewError,
@@ -1282,8 +1282,8 @@ def _latest_job(instance: NotebookWidgetInstance) -> GeneratedWidgetGenerationJo
 
 
 def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
+        notebooks as canvas_facade,
     )
 
     assert_widget_node_exists(notebook, node_id)
@@ -1427,8 +1427,8 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
 
 
 def list_widget_versions(*, notebook: Notebook, node_id: str, offset: int = 0, limit: int = 25) -> WidgetVersionPage:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
+        notebooks as canvas_facade,
     )
 
     assert_widget_node_exists(notebook, node_id)
@@ -1505,8 +1505,8 @@ def _get_instance_and_version(
 
 
 def read_widget_source(*, notebook: Notebook, node_id: str, version_id: UUID | None = None) -> str:
-    from products.canvas.backend import (  # noqa: PLC0415 - keeps Canvas storage imports off notebook startup
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 - keeps Canvas storage imports off notebook startup
+        notebooks as canvas_facade,
     )
 
     instance, version = _get_instance_and_version(notebook, node_id, version_id)
@@ -1528,8 +1528,8 @@ def revert_widget_version(
     expected_current_version_id: UUID,
     user_id: int,
 ) -> WidgetStatus:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas storage imports off notebook startup
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 — keeps Canvas storage imports off notebook startup
+        notebooks as canvas_facade,
     )
 
     instance, target = _get_instance_and_version(notebook, node_id, version_id)

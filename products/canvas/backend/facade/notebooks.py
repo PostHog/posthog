@@ -7,6 +7,10 @@ from posthog.storage.object_storage import ObjectStorageError
 
 from products.canvas.backend import build_service
 from products.canvas.backend.artifacts import create_canvas_artifact_url
+from products.canvas.backend.facade.contracts import (
+    CanvasGenerationState as CanvasGenerationState,
+    NotebookCanvasVersion as NotebookCanvasVersion,
+)
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import has_errors, synthetic_source_project, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
@@ -14,23 +18,6 @@ from products.tasks.backend.facade import api as tasks_facade
 _NETWORK_DIAGNOSTICS = {"network_fetch", "network_xhr"}
 _LEGACY_FRAME_BRIDGE_START = "/* __POSTHOG_NOTEBOOK_BRIDGE_START__ */"
 _LEGACY_FRAME_BRIDGE_END = "/* __POSTHOG_NOTEBOOK_BRIDGE_END__ */"
-
-
-@frozen
-class CanvasGenerationState:
-    current_source_version_id: UUID | None
-    artifact_url: str | None
-    build_status: str | None
-    build_error: str | None
-    build_hash: str | None = None
-
-
-@frozen
-class NotebookCanvasVersion:
-    id: UUID
-    build_status: str | None
-    artifact_url: str | None
-    build_hash: str | None = None
 
 
 @frozen
