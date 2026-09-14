@@ -643,12 +643,12 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.queryFilters).toEqual([{ key: 'env', op: 'eq', value: 'prod' }])
     })
 
-    // The group-by picker shipped with `options={[]}` and never fetched, so it offered no
-    // attribute keys. Typing must query the attributes endpoint (scoped by search) and map
-    // `{ name }` rows into `{ key, label }` options.
-    it('group-by search fetches attribute keys and maps them into options', async () => {
+    it('group-by search keeps the series counts and order from the API', async () => {
         jest.mocked(metricsAttributesRetrieve).mockResolvedValue({
-            results: [{ name: 'env' }, { name: 'service_name' }],
+            results: [
+                { name: 'service_name', series_count: 20 },
+                { name: 'env', series_count: 2 },
+            ],
             count: 2,
         })
         await expectLogic(logic, () => {
@@ -659,8 +659,8 @@ describe('metricsViewerLogic', () => {
             expect.objectContaining({ search: 'e' })
         )
         expect(logic.values.attributeKeyOptions).toEqual([
-            { key: 'env', label: 'env' },
-            { key: 'service_name', label: 'service_name' },
+            { key: 'service_name', label: 'service_name', seriesCount: 20 },
+            { key: 'env', label: 'env', seriesCount: 2 },
         ])
     })
 

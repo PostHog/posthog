@@ -1,10 +1,8 @@
 """Attribute key/value autocomplete for the metrics filter bar.
 
-Queries the `metric_attributes` aggregate table (fed by MVs on the metrics
-ingest stream) rather than the raw data point table, mirroring the logs product's
-`LogAttributesQueryRunner`/`LogValuesQueryRunner` pair. Keys are searched
-across both datapoint ('metric') and resource attributes in one pass — the
-viewer filters with scope 'auto', so the split is invisible to users.
+Keys count distinct series with data in the selected window.
+Values use the `metric_attributes` aggregate table.
+Both queries merge metric attributes and resource attributes.
 """
 
 import datetime as dt
@@ -58,8 +56,7 @@ def _validate_limit(limit: int) -> int:
 
 
 class MetricAttributeKeysQueryRunner:
-    """Distinct attribute keys seen on the team's metrics in a window, most
-    frequent first, exact search matches floated to the top."""
+    """Attribute keys ordered by distinct series count in the selected window."""
 
     def __init__(
         self,
@@ -73,30 +70,34 @@ class MetricAttributeKeysQueryRunner:
         self.team = team
         self.search = search.strip()
         self.date_from, self.date_to = _resolve_window(date_from, date_to)
+        self.date_from += _TIME_BUCKET_INTERVAL
         self.limit = _validate_limit(limit)
 
     def run(self) -> list[dict[str, Any]]:
         query = parse_select(
             """
                 SELECT
-                    attribute_key AS name,
-                    sum(attribute_count) AS total_count
-                FROM posthog.metric_attributes
-                WHERE time_bucket >= {date_from}
-                  AND time_bucket < {date_to}
-                  AND attribute_key ILIKE {search_pattern}
+                    arrayJoin(arrayDistinct(arrayConcat(
+                        mapKeys(attributes), mapKeys(resource_attributes), ['service_name']
+                    ))) AS attribute_key,
+                    uniqExact(series_fingerprint) AS series_count
+                FROM posthog.metric_series
+                WHERE last_seen >= {date_from}
+                  AND series_fingerprint IN (
+                      SELECT series_fingerprint
+                      FROM posthog.metrics
+                      WHERE timestamp >= {date_from} AND timestamp < {date_to}
+                  )
+                  AND (attribute_key ILIKE {search_pattern}
+                       OR (attribute_key = 'service_name' AND 'service.name' ILIKE {search_pattern}))
                 GROUP BY attribute_key
-                ORDER BY
-                    lower(attribute_key) = lower({exact}) DESC,
-                    sum(attribute_count) DESC,
-                    attribute_key ASC
+                ORDER BY series_count DESC, attribute_key ASC
                 LIMIT {limit}
             """,
             placeholders={
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
                 "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
-                "exact": ast.Constant(value=self.search),
                 "limit": ast.Constant(value=self.limit),
             },
         )
@@ -110,13 +111,11 @@ class MetricAttributeKeysQueryRunner:
             settings=_QUERY_SETTINGS,
         )
 
-        keys = [row[0] for row in response.results]
-        # service_name lives in its own column, so it never appears as an attribute
-        # row; surface it whenever it matches the search (mirrors anomaly key discovery).
+        results = [{"name": row[0], "series_count": int(row[1])} for row in response.results]
         search_lower = self.search.lower()
-        if (search_lower in "service_name" or search_lower in "service.name") and "service_name" not in keys:
-            keys.insert(0, "service_name")
-        return [{"name": key} for key in keys[: self.limit]]
+        if not results and (search_lower in "service_name" or search_lower in "service.name"):
+            results.append({"name": "service_name", "series_count": 0})
+        return results
 
 
 class MetricAttributeValuesQueryRunner:
