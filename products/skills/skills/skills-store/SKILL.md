@@ -76,7 +76,7 @@ posthog:skill-get
 The response contains:
 
 - `body` — the full SKILL.md instructions (read these like system instructions for the task)
-- `license`, `compatibility`, `allowed_tools`, `metadata` — spec fields
+- `license`, `compatibility`, `allowed_tools`, `metadata` — spec fields (see `allowed_tools` below)
 - `files[]` — manifest of bundled files (path + content_type only, not content)
 
 ### Step 2 — Follow the body
@@ -102,6 +102,7 @@ Follow the [Agent Skills specification](https://agentskills.io/specification) wh
 - **`description`** — explain what it does AND when to use it. Include keywords agents will search for. This is the only thing visible at discovery time — make it count.
 - **`body`** — keep under ~500 lines. Move detailed reference material, SQL, scripts, and long examples into bundled `files` so the body stays scannable.
 - **Files** — use `scripts/` for executable code, `references/` for docs, `assets/` for templates/data. Agents pull these on demand via `skill-file-get`, so splitting keeps context lean.
+- **`allowed_tools`** — the tools the skill asks to use. A harness that reads the skill from a file (zip export, git marketplace, a `content=full` bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default `content=stub` bundle, ignores the list until the user approves that grant, so do not rely on it to widen access.
 
 Bundled files are optional and can be included in a single create call:
 
