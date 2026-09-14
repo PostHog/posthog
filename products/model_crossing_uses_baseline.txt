@@ -1002,6 +1002,6 @@ web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.ap
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight_metadata drives(TrendsQuery) 5
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight_query drives(TrendsQuery) 4
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_paths_v2 drives(TrendsQuery) 1
-web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.test_insight_write_validation drives(TrendsQuery) 6
+web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.test_insight_write_validation drives(TrendsQuery) 4
 web_analytics:backend/hogql_queries/ products.signals.backend.test.test_scout_report_api drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.tasks.backend.tests.test_api drives(TrendsQuery) 3
