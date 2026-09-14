@@ -7,6 +7,7 @@ export interface SettingsSearchEntry {
   category: SettingsCategory;
   label: string;
   keywords?: string[];
+  requiresBackupFiles?: boolean;
 }
 
 // Hand-curated index of the settings each page holds. When a page gains or
@@ -278,6 +279,7 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   {
     category: "advanced",
     label: "Back up settings and sounds",
+    requiresBackupFiles: true,
     keywords: [
       "backup",
       "export",
@@ -346,7 +348,7 @@ export function searchSettings(
   return SETTINGS_SEARCH_INDEX.filter(
     (entry) =>
       !hiddenCategories.has(entry.category) &&
-      (backupAvailable || entry.label !== "Back up settings and sounds"),
+      (backupAvailable || !entry.requiresBackupFiles),
   )
     .map((entry) => {
       let score = 0;

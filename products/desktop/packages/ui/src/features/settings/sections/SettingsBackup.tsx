@@ -3,6 +3,7 @@ import {
   type BackupScope,
   SETTINGS_BACKUP_SERVICE,
   type SettingsBackupService,
+  SOUND_SETTINGS,
 } from "@posthog/core/settings/settingsBackup";
 import { useService, useServiceOptional } from "@posthog/di/react";
 import { SETTINGS_BACKUP_FILES } from "@posthog/platform/settings-backup-files";
@@ -59,13 +60,7 @@ export function SettingsBackupView({
     review !== null &&
     (review.sounds.length > 0 ||
       Object.keys(review.settings).some(
-        (key) =>
-          scope === "all" ||
-          [
-            "completionSound",
-            "completionVolume",
-            "scaleSoundWithTaskLength",
-          ].includes(key),
+        (key) => scope === "all" || SOUND_SETTINGS.has(key),
       ));
   return (
     <SettingsSection

@@ -41,7 +41,7 @@ export interface BackupReview {
   currentVersion: string;
 }
 
-const SOUND_SETTINGS = new Set([
+export const SOUND_SETTINGS: ReadonlySet<string> = new Set([
   "completionSound",
   "completionVolume",
   "scaleSoundWithTaskLength",
