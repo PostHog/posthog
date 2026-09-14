@@ -18,6 +18,7 @@ from dataclasses import field as dataclass_field
 from typing import Literal
 
 from django.db.models import F, Q
+from django.utils import timezone
 
 from prometheus_client import Counter
 from rest_framework import serializers, status
@@ -32,11 +33,14 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.rate_limit import WIDGET_POLL_THROTTLES, WIDGET_WRITE_THROTTLES
 
 from products.conversations.backend.api.serializers import (
     WIDGET_TICKETS_DEFAULT_LIMIT,
+    WidgetAuthSerializer,
+    WidgetCloseTicketSerializer,
     WidgetMarkReadSerializer,
     WidgetMessageSerializer,
     WidgetMessagesQuerySerializer,
@@ -54,8 +58,9 @@ from products.conversations.backend.cache import (
     set_cached_messages,
     set_cached_tickets,
 )
+from products.conversations.backend.events import capture_ticket_status_changed
 from products.conversations.backend.models import SigningSecret, Ticket
-from products.conversations.backend.models.constants import ChannelDetail
+from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.services.identity import (
     canonicalize_claim_value,
     identity_claim_has_expired,
@@ -275,6 +280,125 @@ def _identity_tickets_cache_key(cache_namespace: str, verified_distinct_id: str,
     return f"{base_key}:email:{email_digest}"
 
 
+@frozen
+class _WidgetTicketAccess:
+    """Proof that a widget request owns a ticket, plus how to refresh its cached ticket list."""
+
+    cache_invalidation_keys: tuple[str, ...]
+    rotate_identity_cache: bool
+
+    def invalidate_ticket_lists(self, team_id: int) -> None:
+        if self.rotate_identity_cache:
+            invalidate_identity_tickets_cache(team_id)
+        for cache_invalidation_key in self.cache_invalidation_keys:
+            invalidate_tickets_cache(team_id, cache_invalidation_key)
+
+
+def _authorize_ticket_write(data: dict, team: Team, ticket: Ticket) -> _WidgetTicketAccess | None:
+    """Check the request owns this ticket. None means the caller must answer Forbidden.
+
+    Identity mode matches the verified distinct ID (or a signed email claim); legacy mode
+    matches the widget_session_id. Every denial returns None, because the widget API is
+    reachable by anyone holding the public token and must not say which check failed.
+    """
+    try:
+        identity_secrets = _request_identity_secrets(data, team)
+        verified_distinct_id = _verify_identity(data, team, identity_secrets)
+    except IdentityVerificationFailed:
+        return None
+
+    if verified_distinct_id is not None:
+        verified_email = _verify_identity_claim(data, team, verified_distinct_id, secrets=identity_secrets)
+        if _viewer_ticket_match(team, verified_distinct_id, ticket, verified_email) is None:
+            return None
+        cache_namespace = get_identity_tickets_cache_namespace(team.id)
+        if not cache_namespace:
+            return _WidgetTicketAccess(cache_invalidation_keys=(), rotate_identity_cache=True)
+        cache_invalidation_keys = [_identity_tickets_cache_key(cache_namespace, verified_distinct_id, verified_email)]
+        if verified_email:
+            cache_invalidation_keys.append(_identity_tickets_cache_key(cache_namespace, verified_distinct_id, None))
+        return _WidgetTicketAccess(cache_invalidation_keys=tuple(cache_invalidation_keys), rotate_identity_cache=False)
+
+    if "widget_session_id" in data:
+        widget_session_id = str(data["widget_session_id"])
+        if ticket.widget_session_id != widget_session_id:
+            return None
+        return _WidgetTicketAccess(cache_invalidation_keys=(widget_session_id,), rotate_identity_cache=False)
+
+    return None
+
+
+@frozen
+class _WidgetTicketRequest:
+    """A widget write to one ticket, past authentication, validation and the ownership check."""
+
+    team: Team
+    ticket: Ticket
+    access: _WidgetTicketAccess
+
+
+def _resolve_ticket_request(
+    request: Request, ticket_id: str, serializer_class: type[WidgetAuthSerializer]
+) -> _WidgetTicketRequest | Response:
+    """Run the preamble every widget ticket write shares.
+
+    Returns the resolved request, or the error Response the view has to return as is.
+    """
+    team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+    if not team:
+        return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
+
+    # Validate ticket_id (URL parameter)
+    try:
+        validated_ticket_id = str(serializers.UUIDField().to_internal_value(ticket_id))
+    except ValidationError:
+        return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Validate request body
+    body_serializer = serializer_class(data=request.data)
+    if not body_serializer.is_valid():
+        return Response(
+            {"error": "Invalid request data", "details": body_serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        ticket = Ticket.objects.get(id=validated_ticket_id, team=team)
+    except Ticket.DoesNotExist:
+        return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    # Verify ownership: identity mode uses distinct_id, legacy uses widget_session_id
+    access = _authorize_ticket_write(body_serializer.validated_data, team, ticket)
+    if access is None:
+        return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+    return _WidgetTicketRequest(team=team, ticket=ticket, access=access)
+
+
+def _log_customer_status_change(ticket: Ticket, old_status: str, new_status: str) -> None:
+    """Record a status change the customer made, with no staff user to attribute it to."""
+    try:
+        capture_ticket_status_changed(ticket, old_status, new_status, actor_type="customer")
+    except Exception as e:
+        capture_exception(e, {"ticket_id": str(ticket.id)})
+
+    try:
+        log_activity(
+            organization_id=ticket.team.organization_id,
+            team_id=ticket.team_id,
+            user=None,  # the requester, not a staff member
+            was_impersonated=False,
+            item_id=str(ticket.id),
+            scope="Ticket",
+            activity="updated",
+            detail=Detail(
+                name=f"Ticket #{ticket.ticket_number}",
+                changes=[Change(type="Ticket", field="status", before=old_status, after=new_status, action="changed")],
+            ),
+        )
+    except Exception as e:
+        capture_exception(e, {"ticket_id": str(ticket.id)})
+
+
 class WidgetMessageView(APIView):
     """
     POST /api/conversations/v1/widget/message
@@ -406,6 +530,13 @@ class WidgetMessageView(APIView):
                 if ownership_match == "distinct_id":
                     ticket.identity_verified = True
 
+                # A withdrawn ticket the customer writes to again needs a human after all,
+                # so put it back in the queue. A ticket the team resolved stays resolved.
+                withdrawn_status = ticket.status if ticket.withdrawn_at else None
+                if withdrawn_status is not None:
+                    ticket.status = Status.OPEN
+                    ticket.withdrawn_at = None
+
                 # Increment unread count for team (customer sent a message)
                 ticket.unread_team_count = F("unread_team_count") + 1
                 ticket.save(
@@ -416,10 +547,15 @@ class WidgetMessageView(APIView):
                         "session_context",
                         "unread_team_count",
                         "identity_verified",
+                        "status",
+                        "withdrawn_at",
                         "updated_at",
                     ]
                 )
                 ticket.refresh_from_db()
+
+                if withdrawn_status is not None:
+                    _log_customer_status_change(ticket, withdrawn_status, Status.OPEN)
 
             except Ticket.DoesNotExist:
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -729,71 +865,56 @@ class WidgetMarkReadView(APIView):
     def post(self, request: Request, ticket_id: str) -> Response:
         """Mark ticket messages as read by customer."""
 
-        team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-        if not team:
-            return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
-
-        # Validate ticket_id (URL parameter)
-        try:
-            ticket_id = str(serializers.UUIDField().to_internal_value(ticket_id))
-        except ValidationError:
-            return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Validate request body
-        body_serializer = WidgetMarkReadSerializer(data=request.data)
-        if not body_serializer.is_valid():
-            return Response(
-                {"error": "Invalid request data", "details": body_serializer.errors}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Get ticket
-        try:
-            ticket = Ticket.objects.get(id=ticket_id, team=team)
-        except Ticket.DoesNotExist:
-            return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        # Verify ownership: identity mode uses distinct_id, legacy uses widget_session_id
-        try:
-            identity_secrets = _request_identity_secrets(body_serializer.validated_data, team)
-            verified_distinct_id = _verify_identity(body_serializer.validated_data, team, identity_secrets)
-        except IdentityVerificationFailed as e:
-            return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
-
-        if verified_distinct_id is not None:
-            verified_email = _verify_identity_claim(
-                body_serializer.validated_data, team, verified_distinct_id, secrets=identity_secrets
-            )
-            if _viewer_ticket_match(team, verified_distinct_id, ticket, verified_email) is None:
-                return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
-            cache_namespace = get_identity_tickets_cache_namespace(team.id)
-            if cache_namespace:
-                cache_invalidation_keys = [
-                    _identity_tickets_cache_key(cache_namespace, verified_distinct_id, verified_email)
-                ]
-                if verified_email:
-                    cache_invalidation_keys.append(
-                        _identity_tickets_cache_key(cache_namespace, verified_distinct_id, None)
-                    )
-                rotate_identity_cache = False
-            else:
-                cache_invalidation_keys = []
-                rotate_identity_cache = True
-        elif "widget_session_id" in body_serializer.validated_data:
-            widget_session_id = str(body_serializer.validated_data["widget_session_id"])
-            if ticket.widget_session_id != widget_session_id:
-                return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
-            cache_invalidation_keys = [widget_session_id]
-            rotate_identity_cache = False
-        else:
-            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        resolved = _resolve_ticket_request(request, ticket_id, WidgetMarkReadSerializer)
+        if isinstance(resolved, Response):
+            return resolved
+        ticket = resolved.ticket
 
         # Reset unread count for customer
         if ticket.unread_customer_count > 0:
             ticket.unread_customer_count = 0
             ticket.save(update_fields=["unread_customer_count", "updated_at"])
-            if rotate_identity_cache:
-                invalidate_identity_tickets_cache(team.id)
-            for cache_invalidation_key in cache_invalidation_keys:
-                invalidate_tickets_cache(team.id, cache_invalidation_key)
+            resolved.access.invalidate_ticket_lists(resolved.team.id)
 
         return Response({"success": True, "unread_count": 0})
+
+
+class WidgetCloseTicketView(APIView):
+    """
+    POST /api/conversations/v1/widget/tickets/<ticket_id>/close
+    Withdraw a widget ticket, so a customer who no longer needs help can take it back.
+
+    Resolves the ticket and clears the team's unread count, which removes it from the
+    support queue. It is not a delete: the thread and its messages stay readable, and a
+    later message from the customer reopens it.
+    """
+
+    authentication_classes = [WidgetAuthentication]
+    permission_classes = [AllowAny]
+    throttle_classes = WIDGET_WRITE_THROTTLES
+
+    def post(self, request: Request, ticket_id: str) -> Response:
+        """Withdraw a ticket on behalf of its requester."""
+
+        resolved = _resolve_ticket_request(request, ticket_id, WidgetCloseTicketSerializer)
+        if isinstance(resolved, Response):
+            return resolved
+        team = resolved.team
+        ticket = resolved.ticket
+
+        # Identity mode also lists the requester's Slack, email and GitHub tickets. Those
+        # threads live on the other platform too, where withdrawing here would be invisible.
+        if ticket.channel_source != Channel.WIDGET:
+            return Response({"error": "Only widget tickets can be withdrawn"}, status=status.HTTP_400_BAD_REQUEST)
+
+        old_status = ticket.status
+        if old_status != Status.RESOLVED:
+            ticket.status = Status.RESOLVED
+            ticket.withdrawn_at = timezone.now()
+            ticket.unread_team_count = 0
+            ticket.save(update_fields=["status", "withdrawn_at", "unread_team_count", "updated_at"])
+            invalidate_unread_count_cache(team.id)
+            resolved.access.invalidate_ticket_lists(team.id)
+            _log_customer_status_change(ticket, old_status, Status.RESOLVED)
+
+        return Response({"success": True, "status": ticket.status})

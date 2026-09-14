@@ -548,6 +548,127 @@ class TestWidgetAPI(BaseTest):
         ticket.refresh_from_db()
         self.assertEqual(ticket.unread_customer_count, 5)
 
+    def _withdraw(self, ticket, body=None):
+        return self.client.post(
+            f"/api/conversations/v1/widget/tickets/{ticket.id}/close",
+            body if body is not None else {"widget_session_id": self.widget_session_id},
+            **self._get_headers(),
+        )
+
+    def test_withdraw_ticket_resolves_it_and_takes_it_out_of_the_queue(self):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+            unread_team_count=2,
+        )
+
+        response = self._withdraw(ticket)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], Status.RESOLVED)
+
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, Status.RESOLVED)
+        self.assertEqual(ticket.unread_team_count, 0)
+        self.assertIsNotNone(ticket.withdrawn_at)
+
+        # A retried or double-clicked withdrawal must not fail or move the timestamp.
+        withdrawn_at = ticket.withdrawn_at
+        repeat_response = self._withdraw(ticket)
+        self.assertEqual(repeat_response.status_code, status.HTTP_200_OK)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.withdrawn_at, withdrawn_at)
+
+    def test_withdraw_ticket_wrong_widget_session_forbidden(self):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="other-user",
+            channel_source="widget",
+        )
+
+        response = self._withdraw(ticket)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, Status.NEW)
+        self.assertIsNone(ticket.withdrawn_at)
+
+    @parameterized.expand([(Channel.EMAIL,), (Channel.SLACK,), (Channel.GITHUB,)])
+    def test_withdraw_rejects_ticket_owned_by_another_channel(self, channel_source):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source=channel_source,
+        )
+
+        response = self._withdraw(ticket)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, Status.NEW)
+
+    def test_withdraw_ticket_not_found(self):
+        response = self.client.post(
+            f"/api/conversations/v1/widget/tickets/{uuid.uuid4()}/close",
+            {"widget_session_id": self.widget_session_id},
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_message_on_withdrawn_ticket_reopens_it(self):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        self.assertEqual(self._withdraw(ticket).status_code, status.HTTP_200_OK)
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Actually I still need help",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "ticket_id": str(ticket.id),
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["ticket_status"], Status.OPEN)
+
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, Status.OPEN)
+        self.assertIsNone(ticket.withdrawn_at)
+        self.assertEqual(ticket.unread_team_count, 1)
+
+    def test_message_on_team_resolved_ticket_does_not_reopen_it(self):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+            status=Status.RESOLVED,
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Thanks!",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "ticket_id": str(ticket.id),
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, Status.RESOLVED)
+
     def test_honeypot_rejects_bot(self):
         response = self.client.post(
             "/api/conversations/v1/widget/message",
@@ -1398,6 +1519,45 @@ class TestWidgetIdentityVerification(BaseTest):
             **self._get_headers(),
         )
         self.assertEqual(updated_response.json()["results"][0]["unread_count"], 0)
+
+    def test_withdraw_ticket_with_identity(self):
+        ticket = self._create_ticket()
+        identity = {
+            "identity_distinct_id": self.distinct_id,
+            "identity_hash": self.identity_hash,
+        }
+
+        cached_response = self.client.get("/api/conversations/v1/widget/tickets", identity, **self._get_headers())
+        self.assertEqual(cached_response.json()["results"][0]["status"], Status.NEW)
+
+        response = self.client.post(
+            f"/api/conversations/v1/widget/tickets/{ticket.id}/close",
+            identity,
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, Status.RESOLVED)
+
+        updated_response = self.client.get("/api/conversations/v1/widget/tickets", identity, **self._get_headers())
+        self.assertEqual(updated_response.json()["results"][0]["status"], Status.RESOLVED)
+
+    def test_withdraw_ticket_wrong_distinct_id_returns_forbidden(self):
+        ticket = self._create_ticket(distinct_id="user_123")
+        other_id = "user_456"
+
+        response = self.client.post(
+            f"/api/conversations/v1/widget/tickets/{ticket.id}/close",
+            {
+                "identity_distinct_id": other_id,
+                "identity_hash": compute_identity_hash(other_id, self.secret),
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, Status.NEW)
 
     def test_mark_read_invalid_hash_no_session_returns_forbidden(self):
         ticket = self._create_ticket()
