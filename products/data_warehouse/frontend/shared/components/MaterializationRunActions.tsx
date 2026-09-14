@@ -105,6 +105,11 @@ export function MaterializationRunActions({
             ownerReason ||
             refreshReason ||
             (deletingView ? 'Deleting view' : undefined) ||
+            // The saved query and the runs load independently, so the saved query can arrive first and
+            // `running` then reads false because the run list is still empty, not because nothing runs.
+            // Deleting through that window leaves a run writing to a view that is gone. A failed request
+            // re-enables the item rather than stranding the user, since nothing else retries it on mount.
+            (!dataModelingJobs && !dataModelingJobsError ? 'Checking for a running refresh' : undefined) ||
             (running || startingMaterialization ? 'Materialization is currently running' : undefined) ||
             (updatingDataWarehouseSavedQuery || materializationActionLoading ? 'Updating materialization' : undefined),
         onClick: () =>

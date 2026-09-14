@@ -210,6 +210,34 @@ describe('materializationJobsLogic', () => {
         expect(buttonByAttr('node-detail-delete-view').getAttribute('aria-disabled')).toBe('true')
     })
 
+    // Regression: the run check reads the loaded run list, which is empty both when nothing runs and
+    // when the runs have not arrived. The saved query can arrive first, and deleting through that
+    // window leaves a run writing to a view that is gone.
+    it('blocks deletion until the run state is known and re-enables it when runs cannot load', async () => {
+        let fail = false
+        const mocks = apiMocks({ isMaterialized: true })
+        let releaseJobs!: () => void
+        const held = new Promise<void>((resolve) => {
+            releaseJobs = resolve
+        })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = async () => {
+            await held
+            return fail ? [500, { detail: 'Unavailable' }] : [200, { results: [], count: 0 }]
+        }
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess'])
+        render(createElement(MaterializationRunActions, { viewId: 'view-1' }))
+        fireEvent.click(buttonByAttr('node-detail-materialization-actions'))
+        expect(buttonByAttr('node-detail-delete-view').getAttribute('aria-disabled')).toBe('true')
+
+        fail = true
+        releaseJobs()
+        await expectLogic(logic).toDispatchActions(['loadDataModelingJobsFailure']).toFinishAllListeners()
+        expect(buttonByAttr('node-detail-delete-view').getAttribute('aria-disabled')).not.toBe('true')
+    })
+
     // Regression: the saved query reloads on every jobs poll. Without the once-per-mount guard the
     // eligibility check fires on each poll, hammering a parse-heavy endpoint. And without the key
     // default, enabling incremental starts from an empty picker.
