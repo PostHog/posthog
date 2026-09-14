@@ -11,7 +11,12 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.models import Organization, Team, User
 from posthog.permissions import APIScopePermission
 from posthog.user_permissions import UserPermissions
@@ -229,7 +234,15 @@ class ReminderViewSet(viewsets.ModelViewSet):
     scope_object = "user"
     serializer_class = ReminderSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
-    authentication_classes = [PersonalAPIKeyAuthentication, SessionAuthentication]
+    # Root-level viewset, so TeamAndOrgViewSetMixin adds no authenticators and every accepted
+    # class must be listed here. PersonalAPIKeyAuthentication returns None for a `pha_` OAuth
+    # token, so without OAuthAccessTokenAuthentication an OAuth call gets a 401.
+    authentication_classes = [
+        IDJagAccessTokenAuthentication,
+        SessionAuthentication,
+        OAuthAccessTokenAuthentication,
+        PersonalAPIKeyAuthentication,
+    ]
     queryset = Reminder.objects.none()
 
     def get_queryset(self) -> QuerySet[Reminder]:
