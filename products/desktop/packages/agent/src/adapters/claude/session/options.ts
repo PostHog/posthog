@@ -392,7 +392,12 @@ function buildHooks(
   }
 
   const preToolUseHooks = [
-    createPreToolUseHook(settingsManager, logger, posthogExecPermissionRegex),
+    createPreToolUseHook(
+      settingsManager,
+      logger,
+      posthogExecPermissionRegex,
+      cloudMode,
+    ),
     createSubagentRewriteHook(logger, registeredAgents, getCurrentModelId),
   ];
   if (cloudMode) {

@@ -127,6 +127,17 @@ describe("canUseTool MCP approval enforcement", () => {
     expect(result.behavior).toBe("allow");
   });
 
+  it("keeps local MCP cancellations as tool aborts even when they carry a message", async () => {
+    setMcpToolApprovalStates({ mcp__server__write: "needs_approval" });
+    const context = createContext("mcp__server__write", {
+      client: createClient({
+        outcome: { outcome: "cancelled" },
+        _meta: { message: "Local cancellation" },
+      }),
+    });
+    await expect(canUseTool(context)).rejects.toThrow("Tool use aborted");
+  });
+
   it("falls through for MCP tools with no approval state", async () => {
     const context = createContext("mcp__server__unknown_tool");
     const result = await canUseTool(context);

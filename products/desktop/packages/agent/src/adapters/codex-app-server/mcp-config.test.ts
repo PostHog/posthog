@@ -96,15 +96,44 @@ describe("toCodexMcpServers", () => {
     });
   });
 
-  it("suffixes colliding sanitized names instead of dropping a server", () => {
+  it("suffixes colliding sanitized names and applies each server's own tool policies", () => {
     const servers = [
       { type: "http", name: "Notion (A)", url: "https://a.example/mcp" },
       { type: "http", name: "Notion [A]", url: "https://b.example/mcp" },
     ] as unknown as McpServer[];
 
-    expect(toCodexMcpServers(servers)).toEqual({
-      Notion__A_: { url: "https://a.example/mcp" },
-      Notion__A__2: { url: "https://b.example/mcp" },
+    expect(
+      toCodexMcpServers(servers, {
+        policies: [
+          {
+            serverName: "Notion (A)",
+            toolName: "search",
+            installationId: "installation-a",
+            approvalState: "needs_approval",
+          },
+          {
+            serverName: "Notion [A]",
+            toolName: "search",
+            installationId: "installation-b",
+            approvalState: "do_not_use",
+          },
+          {
+            serverName: "Notion [A]",
+            toolName: "read",
+            installationId: "installation-b",
+            approvalState: "approved",
+          },
+        ],
+      }),
+    ).toEqual({
+      Notion__A_: {
+        url: "https://a.example/mcp",
+        tools: { search: { approval_mode: "prompt" } },
+      },
+      Notion__A__2: {
+        url: "https://b.example/mcp",
+        disabled_tools: ["search"],
+      },
     });
   });
 

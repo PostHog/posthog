@@ -280,6 +280,7 @@ export class PostHogAPIClient {
 
   async getMcpRuntimeConfiguration(
     servers: McpServerConnection[],
+    options?: { useServerCredentials?: boolean },
   ): Promise<{ servers: McpServerConnection[]; policies: McpToolPolicy[] }> {
     const resolved = await Promise.all(
       servers.map(async (server) => {
@@ -289,7 +290,10 @@ export class PostHogAPIClient {
         }
 
         try {
-          const response = await this.apiRequest<{
+          const client = options?.useServerCredentials
+            ? this.mcpServerApiClient(server)
+            : this;
+          const response = await client.apiRequest<{
             results?: Array<{
               tool_name: string;
               approval_state?: McpToolApprovalState;
@@ -329,14 +333,35 @@ export class PostHogAPIClient {
   async approveMcpTool(
     installationId: string,
     toolName: string,
+    server?: McpServerConnection,
   ): Promise<void> {
-    await this.apiRequest(
+    if (server && this.mcpInstallationId(server.url) !== installationId) {
+      throw new Error(
+        "MCP approval connection does not match the installation",
+      );
+    }
+    const client = server ? this.mcpServerApiClient(server) : this;
+    await client.apiRequest(
       `/api/environments/${this.getTeamId()}/mcp_server_installations/${installationId}/tools/${encodeURIComponent(toolName)}/`,
       {
         method: "PATCH",
         body: JSON.stringify({ approval_state: "approved" }),
       },
     );
+  }
+
+  private mcpServerApiClient(server: McpServerConnection): PostHogAPIClient {
+    const authorization = server.headers?.find(
+      (header) => header.name.toLowerCase() === "authorization",
+    )?.value;
+    const token = authorization?.match(/^Bearer\s+(\S+)$/i)?.[1];
+    if (!token) throw new Error("MCP connection has no bearer credential");
+    // Cloud refresh binds connections to the new actor; the startup API key stays unchanged.
+    return new PostHogAPIClient({
+      ...this.config,
+      getApiKey: () => token,
+      refreshApiKey: undefined,
+    });
   }
 
   private mcpInstallationId(url: string): string | null {

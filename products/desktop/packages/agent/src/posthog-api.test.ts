@@ -1,3 +1,4 @@
+import type { McpServerConnection } from "@posthog/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PostHogAPIClient } from "./posthog-api";
 
@@ -122,55 +123,132 @@ describe("PostHogAPIClient", () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
-  it("loads policies for managed MCP servers and keeps unmanaged servers", async () => {
-    const client = new PostHogAPIClient({
-      apiUrl: "https://app.posthog.com",
-      getApiKey: vi.fn().mockResolvedValue("token"),
-      projectId: 7,
-    });
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: vi.fn().mockResolvedValue({
-        results: [
+  it.each([false, true])(
+    "loads MCP policies with connection credentials: %s",
+    async (useServerCredentials) => {
+      const client = new PostHogAPIClient({
+        apiUrl: "https://app.posthog.com",
+        getApiKey: vi.fn().mockResolvedValue("token"),
+        projectId: 7,
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          results: [
+            {
+              tool_name: "search",
+              approval_state: "needs_approval",
+              description: "Search resources",
+            },
+          ],
+        }),
+      });
+
+      await expect(
+        client.getMcpRuntimeConfiguration(
+          [
+            {
+              type: "http",
+              name: "Cloudflare",
+              url: "https://app.posthog.com/api/environments/7/mcp_server_installations/installation-1/proxy/",
+              headers: [{ name: "Authorization", value: "Bearer actor-token" }],
+            },
+            {
+              type: "http",
+              name: "custom",
+              url: "https://mcp.example.com/mcp",
+              headers: [],
+            },
+          ],
+          { useServerCredentials },
+        ),
+      ).resolves.toEqual({
+        servers: [
+          expect.objectContaining({ name: "Cloudflare" }),
+          expect.objectContaining({ name: "custom" }),
+        ],
+        policies: [
           {
-            tool_name: "search",
-            approval_state: "needs_approval",
+            serverName: "Cloudflare",
+            toolName: "search",
+            installationId: "installation-1",
+            approvalState: "needs_approval",
             description: "Search resources",
           },
         ],
-      }),
-    });
+      });
+      expect(mockFetch.mock.calls[0][1].headers.get("Authorization")).toBe(
+        useServerCredentials ? "Bearer actor-token" : "Bearer token",
+      );
+    },
+  );
 
-    await expect(
-      client.getMcpRuntimeConfiguration([
-        {
-          type: "http",
-          name: "Cloudflare",
-          url: "https://app.posthog.com/api/environments/7/mcp_server_installations/installation-1/proxy/",
-          headers: [],
-        },
-        {
-          type: "http",
-          name: "custom",
-          url: "https://mcp.example.com/mcp",
-          headers: [],
-        },
-      ]),
-    ).resolves.toEqual({
-      servers: [
-        expect.objectContaining({ name: "Cloudflare" }),
-        expect.objectContaining({ name: "custom" }),
-      ],
-      policies: [
-        {
-          serverName: "Cloudflare",
-          toolName: "search",
-          installationId: "installation-1",
-          approvalState: "needs_approval",
-          description: "Search resources",
-        },
-      ],
+  it("uses refreshed actor credentials for policy reads and approval saves", async () => {
+    const refreshApiKey = vi.fn().mockResolvedValue("startup-refresh-token");
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: () => "startup-token",
+      refreshApiKey,
+      projectId: 7,
     });
+    mockFetch.mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({
+        results: [{ tool_name: "write", approval_state: "needs_approval" }],
+      }),
+    }));
+    for (const token of ["actor-one-token", "actor-two-token"]) {
+      const server: McpServerConnection = {
+        name: "Test connection",
+        type: "http",
+        url: "https://app.posthog.com/api/environments/7/mcp_server_installations/installation-1/proxy/",
+        headers: [{ name: "Authorization", value: `Bearer ${token}` }],
+      };
+      await client.getMcpRuntimeConfiguration([server], {
+        useServerCredentials: true,
+      });
+      await client.approveMcpTool("installation-1", "write", server);
+    }
+    expect(
+      mockFetch.mock.calls.map(([, options]) =>
+        options.headers.get("Authorization"),
+      ),
+    ).toEqual([
+      "Bearer actor-one-token",
+      "Bearer actor-one-token",
+      "Bearer actor-two-token",
+      "Bearer actor-two-token",
+    ]);
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      json: async () => ({}),
+    });
+    const configuration = await client.getMcpRuntimeConfiguration(
+      [
+        {
+          name: "Test connection",
+          type: "http",
+          url: "https://app.posthog.com/api/environments/7/mcp_server_installations/installation-1/proxy/",
+          headers: [
+            { name: "Authorization", value: "Bearer expired-actor-token" },
+          ],
+        },
+      ],
+      { useServerCredentials: true },
+    );
+    expect(configuration).toEqual({ servers: [], policies: [] });
+    expect(refreshApiKey).not.toHaveBeenCalled();
+    expect(
+      mockFetch.mock.calls
+        .slice(4)
+        .every(
+          ([, options]) =>
+            options.headers.get("Authorization") ===
+            "Bearer expired-actor-token",
+        ),
+    ).toBe(true);
   });
 
   it("omits a managed MCP server when its policies cannot be loaded", async () => {

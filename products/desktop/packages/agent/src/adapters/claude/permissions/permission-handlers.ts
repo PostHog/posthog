@@ -8,6 +8,7 @@ import type {
   PermissionRuleValue,
   PermissionUpdate,
 } from "@anthropic-ai/claude-agent-sdk";
+import { posthogToolMeta } from "@posthog/shared";
 import {
   extractPostHogSubTool,
   isPostHogExecTool,
@@ -18,10 +19,12 @@ import type { Logger } from "../../../utils/logger";
 import { qualifiedLocalToolName } from "../../local-tools";
 import { SHOW_ACTIONS_TOOL_NAME } from "../../local-tools/tools/show-actions";
 import { SPEAK_TOOL_NAME } from "../../local-tools/tools/speak";
+import { permissionDenialReason } from "../../mcp-tool-policy";
 import { toolInfoFromToolUse } from "../conversion/tool-use-to-acp";
 import {
   getMcpToolApprovalState,
   getMcpToolMetadata,
+  sanitizeMcpServerName,
 } from "../mcp/tool-metadata";
 import {
   getClaudePlansDir,
@@ -178,6 +181,18 @@ async function buildDenialResult(
     : "User refused permission to run tool";
   await emitToolDenial(context, message);
   return { behavior: "deny", message, interrupt: !feedback };
+}
+
+async function policyDenialResult(
+  context: ToolHandlerContext,
+  response: RequestPermissionResponse,
+): Promise<ToolPermissionResult | undefined> {
+  if (!context.session.cloudMode) return undefined;
+  if (context.signal?.aborted) throw new Error("Tool use aborted");
+  const message = permissionDenialReason(response);
+  if (!message) return undefined;
+  await emitToolDenial(context, message);
+  return { behavior: "deny", message, interrupt: false };
 }
 
 function extractPlanText(input: Record<string, unknown>): string | undefined {
@@ -526,6 +541,8 @@ async function handleDefaultPermissionFlow(
     },
   });
 
+  const denial = await policyDenialResult(context, response);
+  if (denial) return denial;
   if (context.signal?.aborted || response.outcome?.outcome === "cancelled") {
     throw new Error("Tool use aborted");
   }
@@ -576,7 +593,19 @@ async function handleMcpApprovalFlow(
 ): Promise<ToolPermissionResult> {
   const { toolName, toolInput, toolUseID, sessionId } = context;
 
-  const { serverName, tool: displayTool } = parseMcpToolName(toolName);
+  const policy = context.session.cloudMode
+    ? context.session.mcpToolPolicies?.find(
+        (policy) =>
+          `mcp__${sanitizeMcpServerName(policy.serverName)}__${policy.toolName}` ===
+          toolName,
+      )
+    : undefined;
+  const { serverName, tool: displayTool } = policy
+    ? {
+        serverName: sanitizeMcpServerName(policy.serverName),
+        tool: policy.toolName,
+      }
+    : parseMcpToolName(toolName);
   const metadata = getMcpToolMetadata(toolName);
   const description = metadata?.description
     ? `\n\n${metadata.description}`
@@ -606,9 +635,21 @@ async function handleMcpApprovalFlow(
         ? [{ type: "content" as const, content: text(description) }]
         : [],
       rawInput: { ...(toolInput as Record<string, unknown>), toolName },
+      ...(context.session.cloudMode &&
+      metadata?.approvalState === "needs_approval"
+        ? {
+            _meta: posthogToolMeta({
+              toolName,
+              mcp: { server: serverName, tool: displayTool },
+              approvalReason: "mcp_tool_policy",
+            }),
+          }
+        : {}),
     },
   });
 
+  const denial = await policyDenialResult(context, response);
+  if (denial) return denial;
   if (context.signal?.aborted || response.outcome?.outcome === "cancelled") {
     throw new Error("Tool use aborted");
   }

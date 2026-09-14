@@ -44,6 +44,11 @@ export class McpManager {
   private readonly byId = new Map<string, McpCall>();
   private latest?: McpCall;
 
+  clear(): void {
+    this.byId.clear();
+    this.latest = undefined;
+  }
+
   /** Record an `mcpToolCall` item from an item/started notification. */
   capture(params: unknown): void {
     const item = readMcpItem(params);
@@ -75,7 +80,13 @@ export class McpManager {
   }
 
   /** The in-flight MCP call for an elicitation's server (elicitations carry no item id). */
-  byServer(serverName: string): McpCall | undefined {
+  byServer(serverName: string, requireUnique = false): McpCall | undefined {
+    if (requireUnique) {
+      const calls = [...this.byId.values()].filter(
+        (call) => call.server === serverName,
+      );
+      return calls.length === 1 ? calls[0] : undefined;
+    }
     return this.latest?.server === serverName ? this.latest : undefined;
   }
 }

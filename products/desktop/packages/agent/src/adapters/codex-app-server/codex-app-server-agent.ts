@@ -24,6 +24,7 @@ import type {
 import { RequestError } from "@agentclientprotocol/sdk";
 import {
   classifyGatewayLimitError,
+  type McpToolPolicy,
   mcpToolKey,
   posthogToolMeta,
   serializeError,
@@ -67,6 +68,11 @@ import {
 } from "../error-classification";
 import { isLocalSkillCommandChunk } from "../local-skill";
 import { LOCAL_TOOLS_MCP_NAME } from "../local-tools";
+import {
+  BLOCKED_MCP_TOOL_DENIAL,
+  permissionDenialReason,
+  UNRESOLVED_MCP_TOOL_DENIAL,
+} from "../mcp-tool-policy";
 import { visiblePromptBlocks } from "../prompt-blocks";
 import { resolveSpokenNarration } from "../session-meta";
 import {
@@ -89,7 +95,11 @@ import {
   mapAppServerNotification,
   mapHistoryItem,
 } from "./mapping";
-import { toCodexMcpServers } from "./mcp-config";
+import {
+  type CodexMcpServerConfig,
+  mapCodexMcpToolPolicies,
+  toCodexMcpServers,
+} from "./mcp-config";
 import { McpManager } from "./mcp-manager";
 import {
   APP_SERVER_METHODS,
@@ -137,6 +147,7 @@ function describeFatalError(upstream: string): string {
 
 type ApprovalRequestDetail = {
   itemId?: string;
+  serverName?: string;
   command?: string;
   changes?: AppServerItem["changes"];
   availableDecisions?: unknown[];
@@ -193,6 +204,7 @@ type AppServerSessionMeta = {
   taskOriginProduct?: string;
   endRunWhenDone?: boolean;
   posthogExecPermissionRegex?: string;
+  mcpToolPolicies?: McpToolPolicy[];
   nativeGoal?: NativeGoalState;
 };
 
@@ -325,6 +337,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private taskRunId?: string;
   /** Deployment environment; on "cloud" a non-danger sandbox would panic, so we skip the override. */
   private environment?: "local" | "cloud";
+  private mcpToolPolicies = new Map<string, McpToolPolicy>();
   /** Gates PostHog exec sub-tools; set per session, defaults to the destructive-verbs regex. */
   private posthogExecPermissionRegex =
     resolvePostHogExecPermissionRegex(undefined);
@@ -546,11 +559,37 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       );
     }
 
-    await this.refreshThreadMcpServers(params.mcpServers as McpServer[]);
+    await this.refreshThreadMcpServers(
+      params.mcpServers as McpServer[],
+      (params.mcpToolPolicies ?? []) as McpToolPolicy[],
+    );
     return { refreshed: true };
   }
 
-  private async refreshThreadMcpServers(servers: McpServer[]): Promise<void> {
+  private configureMcpServers(
+    servers: McpServer[],
+    policies: McpToolPolicy[],
+  ): Record<string, CodexMcpServerConfig> | undefined {
+    const cloudPolicies = this.environment === "cloud" ? policies : [];
+    if (this.environment === "cloud") this.mcp.clear();
+    this.mcpToolPolicies = new Map(
+      mapCodexMcpToolPolicies(servers, cloudPolicies).map((policy) => [
+        mcpToolKey({ server: policy.serverName, tool: policy.toolName }),
+        policy,
+      ]),
+    );
+    return (
+      toCodexMcpServers(servers, {
+        gatePosthogExec: true,
+        policies: cloudPolicies,
+      }) ?? (this.environment === "cloud" ? {} : undefined)
+    );
+  }
+
+  private async refreshThreadMcpServers(
+    servers: McpServer[],
+    policies: McpToolPolicy[],
+  ): Promise<void> {
     const cwd = this.workspaceDirectory;
     let localTools: ReturnType<typeof buildLocalToolsServer> = null;
     try {
@@ -564,9 +603,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         { error: String(err) },
       );
     }
-    const mcpServers = toCodexMcpServers(
+    const mcpServers = this.configureMcpServers(
       [...servers, ...(localTools ? [localTools] : [])],
-      { gatePosthogExec: true },
+      policies,
     );
     const config = buildThreadConfig(mcpServers, this.additionalDirectories);
     const developerInstructions = this.threadSetup?.developerInstructions;
@@ -705,9 +744,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           { message },
         ),
     );
-    const mcpServers = toCodexMcpServers(
+    const mcpServers = this.configureMcpServers(
       [...(params.mcpServers ?? []), ...(localTools ? [localTools] : [])],
-      { gatePosthogExec: true },
+      params.meta?.mcpToolPolicies ?? [],
     );
     const config = buildThreadConfig(mcpServers, params.additionalDirectories);
 
@@ -2332,6 +2371,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     tool: string;
     args: unknown;
   }): boolean {
+    const policy = this.mcpToolPolicies.get(mcpToolKey(mcp));
+    if (policy && policy.approvalState !== "approved") return false;
+    if (!policy && this.isPolicyControlledMcpServer(mcp.server)) return false;
     const isHandsOffMode =
       this.config.mode === "auto" || this.config.mode === "full-access";
     const isRepositoryTool =
@@ -2341,6 +2383,57 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       (isHandsOffMode && isRepositoryTool) ||
       this.shouldAutoAcceptPostHogExec(mcp)
     );
+  }
+
+  private isPolicyControlledMcpServer(server: string): boolean {
+    return [...this.mcpToolPolicies.values()].some(
+      (policy) => policy.serverName === server,
+    );
+  }
+
+  private mcpPolicyDenial(mcp: {
+    server: string;
+    tool: string;
+  }): string | undefined {
+    const policy = this.mcpToolPolicies.get(mcpToolKey(mcp));
+    if (policy?.approvalState === "do_not_use") return BLOCKED_MCP_TOOL_DENIAL;
+    if (!policy && this.isPolicyControlledMcpServer(mcp.server))
+      return UNRESOLVED_MCP_TOOL_DENIAL;
+    return undefined;
+  }
+
+  private async reportApprovalDenial(
+    toolCallId: string,
+    message: string,
+  ): Promise<void> {
+    await this.client.sessionUpdate({
+      sessionId: this.sessionId,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId,
+        status: "failed",
+        content: [
+          { type: "content", content: { type: "text", text: message } },
+        ],
+      },
+    });
+    this.steerRejectionFeedback(message);
+  }
+
+  private steerRejectionFeedback(message: string): void {
+    const activeTurnId = this.turns.activeTurnId;
+    if (!activeTurnId) return;
+    void this.rpc
+      .request<{ turnId?: string }>(APP_SERVER_METHODS.TURN_STEER, {
+        threadId: this.threadId,
+        input: toCodexInput([{ type: "text", text: message }]),
+        expectedTurnId: activeTurnId,
+      })
+      // Codex rotates turn IDs after steering; subsequent input must use the new ID.
+      .then((res) => this.turns.onSteered(res?.turnId))
+      .catch((err) =>
+        this.logger.warn("turn/steer (reject feedback) failed", err),
+      );
   }
 
   /**
@@ -2355,7 +2448,19 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     const richer = await handleServerRequest(method, params, this.client, {
       sessionId: this.sessionId,
       logger: this.logger,
-      resolveMcpToolCall: (serverName) => this.mcp.byServer(serverName),
+      resolveMcpToolCall: (serverName) =>
+        this.mcp.byServer(
+          serverName,
+          this.isPolicyControlledMcpServer(serverName),
+        ),
+      isPolicyControlledMcpServer: (serverName) =>
+        this.isPolicyControlledMcpServer(serverName),
+      getMcpToolPolicy: (mcp) => this.mcpToolPolicies.get(mcpToolKey(mcp)),
+      onDenial:
+        this.environment === "cloud"
+          ? (toolCallId, message) =>
+              this.reportApprovalDenial(toolCallId, message)
+          : undefined,
       shouldAutoAcceptMcpToolCall: (mcp) =>
         this.shouldAutoAcceptMcpToolCall(mcp),
     });
@@ -2403,6 +2508,20 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     // Codex has no MCP-specific approval; a known MCP call surfaces the real server/tool/args
     // so the host renders the proper MCP permission (incl. PostHog `exec` unwrapping).
     const mcp = this.mcp.byItemId(detail.itemId);
+    const policy = mcp ? this.mcpToolPolicies.get(mcpToolKey(mcp)) : undefined;
+    const denial = mcp
+      ? this.mcpPolicyDenial(mcp)
+      : !isFileChange &&
+          this.mcpToolPolicies.size > 0 &&
+          (!detail.command ||
+            (detail.serverName &&
+              this.isPolicyControlledMcpServer(detail.serverName)))
+        ? UNRESOLVED_MCP_TOOL_DENIAL
+        : undefined;
+    if (denial) {
+      await this.reportApprovalDenial(toolCallId, denial);
+      return { decision: "decline" };
+    }
     if (
       shouldAutoAcceptLocalApproval({
         environment: this.environment,
@@ -2428,6 +2547,12 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           _meta: posthogToolMeta({
             toolName: mcpToolKey({ server: mcp.server, tool: mcp.tool }),
             mcp: { server: mcp.server, tool: mcp.tool },
+            ...(policy?.approvalState === "needs_approval"
+              ? {
+                  approvalReason: "mcp_tool_policy",
+                  mcpInstallationId: policy.installationId,
+                }
+              : {}),
           }),
         }
       : isFileChange
@@ -2476,6 +2601,14 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           },
         ],
       });
+      const denialReason =
+        this.environment === "cloud"
+          ? permissionDenialReason(response)
+          : undefined;
+      if (denialReason) {
+        await this.reportApprovalDenial(toolCallId, denialReason);
+        return { decision: "decline" };
+      }
       if (response.outcome.outcome === "selected") {
         const selectedOptionId = response.outcome.optionId;
         const networkOption = networkOptions.find(
@@ -2496,20 +2629,8 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           // into the running turn (as its TUI does: Denied + a follow-up message).
           const feedback = (response as { _meta?: { customInput?: unknown } })
             ._meta?.customInput;
-          const activeTurnId = this.turns.activeTurnId;
-          if (typeof feedback === "string" && feedback.trim() && activeTurnId) {
-            void this.rpc
-              .request<{ turnId?: string }>(APP_SERVER_METHODS.TURN_STEER, {
-                threadId: this.threadId,
-                input: toCodexInput([{ type: "text", text: feedback.trim() }]),
-                expectedTurnId: activeTurnId,
-              })
-              // codex rotates the turn id on steer; adopt it or later
-              // interrupts/steers target a dead turn.
-              .then((res) => this.turns.onSteered(res?.turnId))
-              .catch((err) =>
-                this.logger.warn("turn/steer (reject feedback) failed", err),
-              );
+          if (typeof feedback === "string" && feedback.trim()) {
+            this.steerRejectionFeedback(feedback.trim());
           }
           return { decision: "decline" };
         }

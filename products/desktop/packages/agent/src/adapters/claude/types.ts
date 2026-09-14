@@ -10,7 +10,7 @@ import type {
   Query,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { BedrockGatewayVariant } from "@posthog/shared";
+import type { BedrockGatewayVariant, McpToolPolicy } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 import type { SteerDeclineCause } from "../../acp-extensions";
 import type { PostHogProductId } from "../../posthog-products";
@@ -99,6 +99,7 @@ export type Session = BaseSession & {
   permissionMode: CodeExecutionMode;
   /** Whether permission decisions are delegated to the cloud AgentServer. */
   cloudMode: boolean;
+  mcpToolPolicies?: McpToolPolicy[];
   posthogExecPermissionRegex?: RegExp;
   modeBeforePlan?: CodeExecutionMode;
   modelId?: string;
@@ -275,6 +276,7 @@ export type NewSessionMeta = {
   bedrockGatewayVariant?: BedrockGatewayVariant;
   jsonSchema?: Record<string, unknown> | null;
   mcpToolApprovals?: McpToolApprovals;
+  mcpToolPolicies?: McpToolPolicy[];
   posthogExecPermissionRegex?: string;
   claudeCode?: {
     options?: Options;
