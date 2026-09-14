@@ -25,7 +25,7 @@ Keep consumer names stable when moving code: names are part of the cache key.
 
 ## PR analytics
 
-`pull_requests.capture_pr_event` emits `pr_created`, `pr_closed`, `pr_merged`, and `pr_reviewed`.
+`posthog/github/pull_request_events.py`'s `capture_pr_event` emits `pr_created`, `pr_closed`, `pr_merged`, and `pr_reviewed`.
 It accepts a `PullRequestAttribution` value, independent of Task models.
 The value carries the source product, team, default actor, groups, and product-specific properties.
 A product can supply its own run identifier without creating a Task or implementing another emitter.

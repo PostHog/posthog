@@ -1,1 +1,1 @@
-"""GitHub App webhook transport and shared pull request analytics."""
+"""GitHub App webhook transport."""

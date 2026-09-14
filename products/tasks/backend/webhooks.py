@@ -4,11 +4,10 @@ from django.http import HttpResponse
 
 import structlog
 
-from posthog.api.github_webhooks.contracts import PullRequestAttribution
-from posthog.api.github_webhooks.integrations import _SCOPE_DB_ALIAS, _installation_id, _installation_team_ids
-from posthog.api.github_webhooks.metrics import GitHubWebhookAnalyticsEvent, observe_github_webhook_pr_event_dropped
-from posthog.api.github_webhooks.pull_requests import capture_pr_event, pr_state_for_action
 from posthog.event_usage import groups
+from posthog.github.installations import SCOPE_DB_ALIAS, installation_id, installation_team_ids
+from posthog.github.metrics import GitHubWebhookAnalyticsEvent, observe_github_webhook_pr_event_dropped
+from posthog.github.pull_request_events import PullRequestAttribution, capture_pr_event, pr_state_for_action
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
@@ -531,26 +530,24 @@ def _task_run_scope_team_ids(payload: dict) -> list[int]:
     a delivery for a run they created that way stops matching. Anything with no installation
     id, or an installation nothing is linked to, falls back to the unscoped lookup.
     """
-    external_id = _installation_id(payload)
+    external_id = installation_id(payload)
     if external_id is None:
         return []
 
-    team_ids = set(_installation_team_ids(payload))
+    team_ids = set(installation_team_ids(payload))
 
     # Left lazy on purpose: Django inlines these as subqueries, so the whole widening is one
     # indexed round-trip rather than three.
     user_ids = (
-        UserIntegration.objects.using(_SCOPE_DB_ALIAS)
+        UserIntegration.objects.using(SCOPE_DB_ALIAS)
         .filter(kind="github", integration_id=external_id)
         .values_list("user_id", flat=True)
     )
     org_ids = (
-        OrganizationMembership.objects.using(_SCOPE_DB_ALIAS)
+        OrganizationMembership.objects.using(SCOPE_DB_ALIAS)
         .filter(user_id__in=user_ids)
         .values_list("organization_id", flat=True)
     )
-    team_ids.update(
-        Team.objects.using(_SCOPE_DB_ALIAS).filter(organization_id__in=org_ids).values_list("id", flat=True)
-    )
+    team_ids.update(Team.objects.using(SCOPE_DB_ALIAS).filter(organization_id__in=org_ids).values_list("id", flat=True))
 
     return sorted(team_ids)

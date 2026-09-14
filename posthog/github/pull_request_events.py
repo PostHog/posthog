@@ -1,17 +1,32 @@
 """Canonical PR analytics for product-owned and external pull requests."""
 
 import uuid
+from collections.abc import Mapping
+from dataclasses import field
 
 import structlog
 import posthoganalytics
 
-from posthog.api.github_webhooks.attribution import _merged_by_attribution, _resolve_github_login_distinct_id
-from posthog.api.github_webhooks.contracts import PullRequestAttribution
-from posthog.api.github_webhooks.integrations import _resolve_external_team
-from posthog.api.github_webhooks.metrics import GitHubWebhookAnalyticsEvent, observe_github_webhook_pr_event_dropped
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.github.attribution import _merged_by_attribution, _resolve_github_login_distinct_id
+from posthog.github.installations import _resolve_external_team
+from posthog.github.metrics import GitHubWebhookAnalyticsEvent, observe_github_webhook_pr_event_dropped
 
 logger = structlog.get_logger(__name__)
+
+type AnalyticsProperty = str | int | float | bool | None | list[AnalyticsProperty] | dict[str, AnalyticsProperty]
+
+
+@frozen
+class PullRequestAttribution:
+    source: str
+    team_id: int
+    distinct_id: str
+    groups: Mapping[str, str]
+    properties: Mapping[str, AnalyticsProperty] = field(default_factory=dict)
+    include_content: bool = False
+    send_feature_flags: bool = False
 
 
 # Nulled on external PRs so their schema matches task-originated PR events.
