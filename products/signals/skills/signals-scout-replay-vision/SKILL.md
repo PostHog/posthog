@@ -88,7 +88,7 @@ SELECT properties.scanner_id AS scanner_id,
        countIf(timestamp >= now() - INTERVAL 7 DAY)  AS obs_7d,
        countIf(timestamp >= now() - INTERVAL 14 DAY AND timestamp < now() - INTERVAL 7 DAY) AS obs_prior_7d,
        uniqIf(properties.session_id, timestamp >= now() - INTERVAL 7 DAY) AS sessions_7d,
-       round(avgIf(toFloat64OrNull(properties.scanner_output_confidence), timestamp >= now() - INTERVAL 7 DAY), 2) AS conf_7d
+       round(avgIf(toFloatOrNull(properties.scanner_output_confidence), timestamp >= now() - INTERVAL 7 DAY), 2) AS conf_7d
 FROM events
 WHERE event = '$recording_observed'
   AND timestamp >= now() - INTERVAL 30 DAY
@@ -137,7 +137,7 @@ SELECT toStartOfDay(timestamp) AS day,
        -- monitor: share of 'yes'
        round(countIf(properties.scanner_output_verdict = 'yes') / count(), 3) AS yes_rate,
        -- scorer: mean score
-       round(avg(toFloat64OrNull(properties.scanner_output_score)), 2) AS mean_score
+       round(avg(toFloatOrNull(properties.scanner_output_score)), 2) AS mean_score
 FROM events
 WHERE event = '$recording_observed'
   AND properties.scanner_id = '<scanner_id>'

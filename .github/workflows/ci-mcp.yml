@@ -84,6 +84,8 @@ jobs:
                         - 'products/*/mcp/**'
                         # Bundled into the MCP server (parser recipe tools)
                         - 'packages/llm-normalizer/**'
+                        # Inlined into the MCP prompts by services/mcp/scripts/copy-instructions.ts
+                        - 'products/posthog_ai/skills/querying-posthog-data/references/guidelines.md'
                         # MCP integration tests exercise the full PostHog backend
                         - 'posthog/**/*.py'
                         - 'ee/**/*.py'
