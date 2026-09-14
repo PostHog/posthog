@@ -38,8 +38,13 @@ interface PendingWrite {
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface WriteTransaction {
+  bufferedValue?: string;
+}
+
 const pendingWrites = new Map<string, PendingWrite>();
 const inFlightWrites = new Map<string, Promise<void>>();
+const writeTransactions = new Map<string, WriteTransaction>();
 
 async function writeThroughStorage(key: string, value: string): Promise<void> {
   const previous = inFlightWrites.get(key) ?? Promise.resolve();
@@ -170,6 +175,11 @@ export const stateStorage: StateStorage = {
     if (pendingFirstReads.has(key)) {
       return;
     }
+    const transaction = writeTransactions.get(key);
+    if (transaction) {
+      transaction.bufferedValue = value;
+      return;
+    }
     queuePendingWrite(key, value);
   },
   removeItem: async (key) => {
@@ -200,5 +210,60 @@ export async function persistRendererStateNow(
     if (pending && !pendingWrites.has(key))
       queuePendingWrite(key, pending.value);
     throw error;
+  }
+}
+
+/** Keep ordinary store snapshots behind an explicit persist-and-publish update. */
+export async function transactRendererStateWrite(
+  key: string,
+  action: (persist: (value: string) => Promise<void>) => Promise<void>,
+): Promise<void> {
+  if (writeTransactions.has(key)) {
+    throw new Error(
+      `A renderer state write transaction is already active for ${key}`,
+    );
+  }
+
+  const pending = takePendingWrite(key);
+  const transaction: WriteTransaction = {};
+  writeTransactions.set(key, transaction);
+
+  const previous = inFlightWrites.get(key) ?? Promise.resolve();
+  let persistedValue: string | undefined;
+  let retryValue: string | undefined;
+  const write = previous
+    .catch(() => {})
+    .then(async () => {
+      const storage = await resolveHostStorage();
+      await action(async (value) => {
+        await storage.setItem(key, value);
+        persistedValue = value;
+      });
+
+      const bufferedValue = transaction.bufferedValue;
+      transaction.bufferedValue = undefined;
+      if (bufferedValue !== undefined && bufferedValue !== persistedValue) {
+        try {
+          await storage.setItem(key, bufferedValue);
+          persistedValue = bufferedValue;
+        } catch {
+          // The explicit value is already durable. Retry the newer ordinary
+          // snapshot through its normal persistence path.
+          retryValue = bufferedValue;
+        }
+      }
+    });
+  inFlightWrites.set(key, write);
+
+  try {
+    await write;
+  } catch (error) {
+    retryValue = transaction.bufferedValue ?? pending?.value;
+    throw error;
+  } finally {
+    if (inFlightWrites.get(key) === write) inFlightWrites.delete(key);
+    writeTransactions.delete(key);
+    const latestValue = transaction.bufferedValue ?? retryValue;
+    if (latestValue !== undefined) queuePendingWrite(key, latestValue);
   }
 }

@@ -6,6 +6,7 @@ import {
 
 export const SETTINGS_BACKUP_FORMAT_VERSION = 1;
 export const MAX_SETTINGS_BACKUP_BYTES = 64 * 1024 * 1024;
+export const MAX_SETTINGS_BACKUP_ENTRIES = 1_000;
 export const MAX_CUSTOM_SOUND_BYTES = 1_000_000;
 export const MAX_CUSTOM_SOUND_DURATION_MS = 5_000;
 export const DURATION_TOLERANCE_MS = 300;
@@ -161,8 +162,12 @@ export const settingsBackupSchema = z.object({
   formatVersion: z.number().int().positive(),
   appVersion: z.string().min(1).max(100),
   exportedAt: z.iso.datetime(),
-  settings: z.record(z.string(), z.unknown()),
-  sounds: z.array(z.unknown()),
+  settings: z
+    .record(z.string(), z.unknown())
+    .refine(
+      (settings) => Object.keys(settings).length <= MAX_SETTINGS_BACKUP_ENTRIES,
+    ),
+  sounds: z.array(z.unknown()).max(MAX_SETTINGS_BACKUP_ENTRIES),
 });
 export type SettingsBackup = z.infer<typeof settingsBackupSchema>;
 

@@ -232,9 +232,32 @@ describe("SettingsBackupService", () => {
     expect(target.read().sounds).toEqual([clip()]);
   });
 
-  it.each(["not JSON", "[]", JSON.stringify(backup({ formatVersion: 2 }))])(
+  it.each([
+    ["invalid JSON", "not JSON"],
+    ["invalid shape", "[]"],
+    ["future format", JSON.stringify(backup({ formatVersion: 2 }))],
+    [
+      "too many sounds",
+      JSON.stringify(
+        backup({ sounds: Array.from({ length: 1001 }, () => null) }),
+      ),
+    ],
+    [
+      "too many settings",
+      JSON.stringify(
+        backup({
+          settings: Object.fromEntries(
+            Array.from({ length: 1001 }, (_, index) => [
+              `unknown-${index}`,
+              true,
+            ]),
+          ),
+        }),
+      ),
+    ],
+  ])(
     "rejects invalid or future formats without writes: %s",
-    (contents) => {
+    (_name, contents) => {
       const target = setup();
       expect(() => target.service.inspect(contents, "2.0.0")).toThrow();
       expect(target.apply).not.toHaveBeenCalled();
@@ -272,5 +295,18 @@ describe("SettingsBackupService", () => {
     );
     finish();
     await importing;
+  });
+
+  it("rejects a sound library that exceeds the import limit before saving", async () => {
+    const target = setup({
+      settings: {},
+      sounds: Array.from({ length: 1001 }, (_, index) =>
+        clip({ id: `clip-${index}` }),
+      ),
+    });
+    await expect(target.service.exportBackup("sounds")).rejects.toThrow(
+      "1,000",
+    );
+    expect(target.saved()).toBe("");
   });
 });

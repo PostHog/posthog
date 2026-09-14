@@ -7,6 +7,7 @@ import {
   type CustomSound,
   customSoundSchema,
   MAX_SETTINGS_BACKUP_BYTES,
+  MAX_SETTINGS_BACKUP_ENTRIES,
   type PortableSettings,
   portableSettingsSchema,
   SETTINGS_BACKUP_FORMAT_VERSION,
@@ -46,6 +47,36 @@ const SOUND_SETTINGS = new Set([
   "scaleSoundWithTaskLength",
 ]);
 
+export interface SettingsBackupSoundMerge {
+  sounds: CustomSound[];
+  remappedIds: Map<string, string>;
+}
+
+export function mergeSettingsBackupSounds(
+  currentSounds: CustomSound[],
+  importedSounds: CustomSound[],
+): SettingsBackupSoundMerge {
+  const sounds = [...currentSounds];
+  const remappedIds = new Map<string, string>();
+  for (const sound of importedSounds) {
+    const existing = sounds.find(
+      (candidate) =>
+        candidate.dataUrl === sound.dataUrl && candidate.name === sound.name,
+    );
+    if (existing) {
+      remappedIds.set(sound.id, existing.id);
+      continue;
+    }
+    let id = sound.id;
+    let suffix = 1;
+    while (sounds.some((candidate) => candidate.id === id))
+      id = `${sound.id.slice(0, 220)}-import-${suffix++}`;
+    sounds.push({ ...sound, id });
+    remappedIds.set(sound.id, id);
+  }
+  return { sounds, remappedIds };
+}
+
 @injectable()
 export class SettingsBackupService {
   private busy = false;
@@ -71,6 +102,10 @@ export class SettingsBackupService {
   async exportBackup(scope: BackupScope): Promise<boolean> {
     return this.exclusively(async () => {
       const snapshot = this.state.read();
+      if (snapshot.sounds.length > MAX_SETTINGS_BACKUP_ENTRIES)
+        throw new Error(
+          "This backup has more than 1,000 sounds. Remove unused clips and try again.",
+        );
       const settings = portableSettingsSchema.safeParse(
         Object.fromEntries(
           Object.entries(snapshot.settings).filter(
@@ -198,25 +233,10 @@ export class SettingsBackupService {
         review.currentVersion,
       );
       const current = this.state.read();
-      const sounds = [...current.sounds];
-      const remappedIds = new Map<string, string>();
-      for (const sound of validated.sounds) {
-        const existing = sounds.find(
-          (candidate) =>
-            candidate.dataUrl === sound.dataUrl &&
-            candidate.name === sound.name,
-        );
-        if (existing) {
-          remappedIds.set(sound.id, existing.id);
-          continue;
-        }
-        let id = sound.id;
-        let suffix = 1;
-        while (sounds.some((candidate) => candidate.id === id))
-          id = `${sound.id.slice(0, 220)}-import-${suffix++}`;
-        sounds.push({ ...sound, id });
-        remappedIds.set(sound.id, id);
-      }
+      const { sounds, remappedIds } = mergeSettingsBackupSounds(
+        current.sounds,
+        validated.sounds,
+      );
       const settings = portableSettingsSchema.parse(
         Object.fromEntries(
           Object.entries(validated.settings).filter(

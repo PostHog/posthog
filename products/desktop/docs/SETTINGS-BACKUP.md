@@ -23,6 +23,7 @@ Import warns when the app versions differ, skips unavailable settings or unsuppo
 A missing or invalid selected clip leaves the destination's current sound selection unchanged.
 A newer file format requires an app update before import.
 Backups are limited to 64 MB; each custom sound retains the existing 1 MB and 5-second capture limits, with the same allowance for encoder rounding.
+A backup can contain at most 1,000 sound entries and 1,000 settings entries, so malformed files cannot produce an unbounded review list.
 
 ## Maintaining the format
 
@@ -34,4 +35,5 @@ Keep app version metadata independent of the file format version.
 
 The core service owns validation and merging, the UI supplies a store adapter, and Electron supplies native file dialogs and bounded file reads.
 Exports write to a temporary sibling file before replacing the destination.
-Imports persist settings and audio before publishing them to the live settings store, and serialize that write after any pending storage write.
+Imports persist settings and audio before publishing them to the live settings store, and serialize the complete update after any pending storage write.
+The import preserves edits to unrelated preferences and additions or removals in the sound library while saving.

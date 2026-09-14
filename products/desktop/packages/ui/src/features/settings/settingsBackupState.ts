@@ -2,7 +2,8 @@ import type {
   SettingsBackupSnapshot,
   SettingsBackupState,
 } from "@posthog/core/settings/settingsBackup";
-import { persistRendererStateNow } from "@posthog/ui/shell/rendererStorage";
+import { mergeSettingsBackupSounds } from "@posthog/core/settings/settingsBackup";
+import { transactRendererStateWrite } from "@posthog/ui/shell/rendererStorage";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useSettingsStore } from "./settingsStore";
 
@@ -18,15 +19,59 @@ export const settingsBackupState: SettingsBackupState = {
   },
   async apply({ settings, sounds }: SettingsBackupSnapshot): Promise<void> {
     const { theme, ...preferences } = settings;
-    const current = useSettingsStore.getState();
-    const next = { ...current, ...preferences, customSounds: sounds };
-    const options = useSettingsStore.persist.getOptions();
-    const value = JSON.stringify({
-      state: options.partialize?.(next),
-      version: options.version,
+    const soundsBeforeImport = new Set(
+      useSettingsStore.getState().customSounds.map((sound) => sound.id),
+    );
+    const importedSounds = sounds.filter(
+      (sound) => !soundsBeforeImport.has(sound.id),
+    );
+
+    await transactRendererStateWrite("settings-storage", async (persist) => {
+      const buildPersistedState = () => {
+        const current = useSettingsStore.getState();
+        const rebased = mergeSettingsBackupSounds(
+          current.customSounds,
+          importedSounds,
+        );
+        const rebasedPreferences = { ...preferences };
+        if (rebasedPreferences.completionSound?.startsWith("custom:")) {
+          const selectedId = rebasedPreferences.completionSound.slice(7);
+          const remappedId = rebased.remappedIds.get(selectedId);
+          if (remappedId) {
+            rebasedPreferences.completionSound = `custom:${remappedId}`;
+          } else if (!rebased.sounds.some((sound) => sound.id === selectedId)) {
+            delete rebasedPreferences.completionSound;
+          }
+        }
+        const next = {
+          ...current,
+          ...rebasedPreferences,
+          customSounds: rebased.sounds,
+        };
+        const options = useSettingsStore.persist.getOptions();
+        return {
+          patch: {
+            ...rebasedPreferences,
+            customSounds: rebased.sounds,
+          },
+          value: JSON.stringify({
+            state: options.partialize?.(next),
+            version: options.version,
+          }),
+        };
+      };
+
+      let next = buildPersistedState();
+      while (true) {
+        await persist(next.value);
+        const latest = buildPersistedState();
+        if (latest.value === next.value) {
+          useSettingsStore.setState(latest.patch);
+          break;
+        }
+        next = latest;
+      }
     });
-    await persistRendererStateNow("settings-storage", value);
-    useSettingsStore.setState({ ...preferences, customSounds: sounds });
     if (theme !== undefined) useThemeStore.getState().setTheme(theme);
   },
 };
