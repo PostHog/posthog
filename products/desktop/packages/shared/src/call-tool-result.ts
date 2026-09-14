@@ -29,3 +29,73 @@ export function omitNullCallToolResultFields<T>(result: T): T {
   }
   return stripped as T;
 }
+
+/**
+ * Largest serialized MCP tool result a host persists for UI-app rendering
+ * (session transcript, tool-call `rawOutput`, cloud events).
+ */
+export const MAX_PERSISTED_MCP_RESULT_BYTES = 1_000_000;
+
+const TRUNCATED_RESULT_MARKER =
+  "[MCP tool result dropped: it was too large to store. " +
+  "Narrow the query or arguments to get the full result.]";
+
+function serializedLength(value: unknown): number {
+  try {
+    return JSON.stringify(value)?.length ?? 0;
+  } catch {
+    // A value JSON cannot serialize cannot be persisted either, so treat it
+    // as oversized and drop the payload.
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+/**
+ * The `_meta` keys a host needs to route a tool result to its UI app. An
+ * oversized `_meta` keeps only these; when even the routing subset is too
+ * large, it is dropped and the call renders as text.
+ */
+function uiRoutingMeta(
+  meta: unknown,
+  maxBytes: number,
+): Record<string, unknown> | undefined {
+  if (meta == null || typeof meta !== "object") return undefined;
+  const record = meta as Record<string, unknown>;
+  const routing: Record<string, unknown> = {};
+  if (record.ui !== undefined) routing.ui = record.ui;
+  if (record["ui/resourceUri"] !== undefined) {
+    routing["ui/resourceUri"] = record["ui/resourceUri"];
+  }
+  if (Object.keys(routing).length === 0) return undefined;
+  return serializedLength(routing) <= maxBytes ? routing : undefined;
+}
+
+/**
+ * Bound an MCP tool result before a host persists it. Every field is
+ * server-controlled, and servers can be third-party, so an oversized payload
+ * must not reach the session transcript or the API: it would grow storage
+ * and memory without limit. A result within the limit passes through
+ * unchanged. A result above the limit is replaced with an explicit truncation
+ * marker plus the `_meta` routing keys, so a UI app still renders instead of
+ * waiting forever on a result that never arrives.
+ */
+export function boundPersistedMcpResult<T extends object>(
+  result: T,
+  maxBytes: number = MAX_PERSISTED_MCP_RESULT_BYTES,
+): T {
+  const stripped = omitNullCallToolResultFields(result);
+  if (serializedLength(stripped) <= maxBytes) return stripped;
+
+  const bounded: Record<string, unknown> = {
+    content: [{ type: "text", text: TRUNCATED_RESULT_MARKER }],
+  };
+  const routing = uiRoutingMeta(
+    (stripped as Record<string, unknown>)._meta,
+    maxBytes,
+  );
+  if (routing) bounded._meta = routing;
+  if (typeof (stripped as Record<string, unknown>).isError === "boolean") {
+    bounded.isError = (stripped as Record<string, unknown>).isError;
+  }
+  return bounded as T;
+}

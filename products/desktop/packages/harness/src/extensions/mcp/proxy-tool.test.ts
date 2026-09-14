@@ -186,6 +186,59 @@ describe("mcp proxy tool", () => {
     await mock.close();
   });
 
+  it("drops an oversized result's structured fields from details, keeping only the UI routing metadata (regression)", async () => {
+    const UI_TOOL = {
+      name: "exec",
+      description: "Run a PostHog tool",
+      inputSchema: {
+        type: "object",
+        properties: { command: { type: "string" } },
+      },
+      handler: () => ({
+        content: [
+          { type: "text", text: "Full result is in structuredContent." },
+        ],
+        structuredContent: { rows: "x".repeat(1_100_000) },
+        _meta: { ui: { resourceUri: "ui://posthog/analytics" } },
+      }),
+    };
+    const mock = createMockMcpServer([UI_TOOL]);
+    const { manager, tool } = await setup({
+      servers: { demo: { command: "unused" } },
+      mock,
+      cacheDir,
+    });
+    await manager.startServer("demo", "/workspace");
+
+    const result = await tool.execute(
+      "id-1",
+      {
+        tool: "mcp_demo_exec",
+        args: '{"command":"tools"}',
+      } as never,
+      undefined,
+      undefined as never,
+      undefined as never,
+    );
+
+    expect(result.details).toEqual({
+      kind: "call",
+      server: "demo",
+      tool: "exec",
+      piName: "mcp_demo_exec",
+      posthog: {
+        mcp: {
+          server: "demo",
+          tool: "exec",
+          result: {
+            _meta: { ui: { resourceUri: "ui://posthog/analytics" } },
+          },
+        },
+      },
+    });
+    await mock.close();
+  });
+
   it("finds already-connected tools by keyword", async () => {
     const mock = createMockMcpServer([ECHO_TOOL]);
     const { manager, tool } = await setup({
