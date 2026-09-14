@@ -840,6 +840,30 @@ S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, Integration.IntegrationKind] = {
 }
 
 
+def _connection_owned_fields_in_config(
+    integration: Integration,
+    config: collections.abc.Mapping[str, typing.Any],
+    existing_config: collections.abc.Mapping[str, typing.Any],
+) -> list[str]:
+    """Return the fields a Postgres or Redshift request changes that its Integration supersedes.
+
+    The activities read these from the Integration once one is linked, so a value left in `config`
+    is never used. An AWS Redshift Integration stores no host, so those exports keep their own.
+    """
+    fields = ["user", "password"]
+    if "host" in integration.config:
+        fields += ["host", "port"]
+
+    # `BatchExportDestination.config` is an `EncryptedJSONField`, which stringifies scalar leaves on
+    # the decrypt round trip, so values are compared as strings. Re-sending a value unchanged is not
+    # an attempt to change it: the UI reloads whatever a migrated export still carries in `config`.
+    return [
+        field
+        for field in fields
+        if field in config and config[field] is not None and str(config[field]) != str(existing_config.get(field))
+    ]
+
+
 def _coerce_integration_id(value: typing.Any) -> int | None:
     """Return the integration id encoded in a Redshift COPY credential value, if any.
 
@@ -1611,6 +1635,27 @@ class BatchExportSerializer(serializers.ModelSerializer):
             BatchExportDestination.Destination.POSTGRES,
             BatchExportDestination.Destination.REDSHIFT,
         ):
+            # A PATCH may send config alone, which keeps the export's existing integration.
+            if "integration" in destination_attrs:
+                linked_integration = destination_attrs["integration"]
+            elif instance is not None:
+                linked_integration = instance.destination.integration
+            else:
+                linked_integration = None
+
+            if linked_integration is not None:
+                # Without this the request succeeds and changes nothing the export runs with, so a
+                # password rotation reports success while the export keeps the old credentials.
+                owned_fields = _connection_owned_fields_in_config(linked_integration, config, existing_config)
+                if owned_fields:
+                    field_list = ", ".join(f"'{field}'" for field in owned_fields)
+                    raise serializers.ValidationError(
+                        f"This batch export reads {field_list} from its connection, so a value sent here is "
+                        "ignored and the export keeps the credentials it has. To rotate them, send the new "
+                        "credentials to the integrations API: a connection with the same host, port and user "
+                        "updates the one this export uses. To use another connection, send its `integration_id`."
+                    )
+
             # PostgreSQL-server integrations (Postgres, plain Redshift) keep the host in the
             # linked Integration; AWS Redshift integrations and inline configs keep it in
             # `config`. Prefer the Integration's host when it has one so we don't skip
