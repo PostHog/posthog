@@ -33,8 +33,6 @@ import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
-import { Paths } from 'scenes/paths/Paths'
-import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -58,6 +56,8 @@ import { FunnelStepsTable } from 'products/product_analytics/frontend/insights/f
 import { FunnelTimeToConvertTable } from 'products/product_analytics/frontend/insights/funnels/FunnelTimeToConvertTable/FunnelTimeToConvertTable'
 import { FunnelTrendsTable } from 'products/product_analytics/frontend/insights/funnels/FunnelTrendsTable/FunnelTrendsTable'
 import { Journeys } from 'products/product_analytics/frontend/insights/journeys/Journeys'
+import { Paths } from 'products/product_analytics/frontend/insights/paths/Paths'
+import { PathCanvasLabel } from 'products/product_analytics/frontend/insights/paths/PathsLabel'
 import { RetentionContainer } from 'products/product_analytics/frontend/insights/retention/RetentionContainer'
 import { TrendInsight } from 'products/product_analytics/frontend/insights/trends/Trends'
 
