@@ -119,7 +119,7 @@ function Track({ state }: { state: GameState }): JSX.Element {
                 data-mergeable={isMergeable(state)}
                 style={{ top: `${(state.lane + 0.5) * (100 / LANE_COUNT)}%` }}
             >
-                #100001
+                #99999
             </div>
             {state.items.map((item) => (
                 <div
