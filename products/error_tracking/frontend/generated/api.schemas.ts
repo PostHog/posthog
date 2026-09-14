@@ -2406,17 +2406,22 @@ export type ErrorTrackingSpikeEventsListParams = {
     offset?: number
     /**
      * Field to order results by. Defaults to newest first (-detected_at).
-     *
-     * * `detected_at` - detected_at
-     * * `-detected_at` - -detected_at
-     * * `computed_baseline` - computed_baseline
-     * * `-computed_baseline` - -computed_baseline
-     * * `current_bucket_value` - current_bucket_value
-     * * `-current_bucket_value` - -current_bucket_value
      * @minLength 1
      */
-    order_by?: string
+    order_by?: ErrorTrackingSpikeEventsListOrderBy
 }
+
+export type ErrorTrackingSpikeEventsListOrderBy =
+    (typeof ErrorTrackingSpikeEventsListOrderBy)[keyof typeof ErrorTrackingSpikeEventsListOrderBy]
+
+export const ErrorTrackingSpikeEventsListOrderBy = {
+    DETECTED_AT: 'detected_at',
+    DETECTED_AT_DESC: '-detected_at',
+    COMPUTED_BASELINE: 'computed_baseline',
+    COMPUTED_BASELINE_DESC: '-computed_baseline',
+    CURRENT_BUCKET_VALUE: 'current_bucket_value',
+    CURRENT_BUCKET_VALUE_DESC: '-current_bucket_value',
+} as const
 
 export type ErrorTrackingStackFramesListParams = {
     /**

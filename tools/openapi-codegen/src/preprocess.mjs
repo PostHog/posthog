@@ -74,7 +74,7 @@ export function inlineSchemaRefs(obj) {
 }
 
 /**
- * Remove enum arrays where both "x" and "-x" appear (colliding PascalCase keys).
+ * Remove enum arrays where both "x" and "-x" appear unless the schema provides unique enum names.
  * Applied in-place recursively.
  */
 export function stripCollidingInlineEnums(obj) {
@@ -87,7 +87,13 @@ export function stripCollidingInlineEnums(obj) {
     }
     if (obj.type === 'string' && Array.isArray(obj.enum)) {
         const positives = new Set(obj.enum.filter((v) => !v.startsWith('-')))
-        if (obj.enum.some((v) => v.startsWith('-') && positives.has(v.slice(1)))) {
+        const enumNames = obj['x-enumNames'] ?? obj['x-enumnames'] ?? obj['x-enum-varnames']
+        const hasUniqueEnumNames =
+            Array.isArray(enumNames) &&
+            enumNames.length === obj.enum.length &&
+            enumNames.every((name) => typeof name === 'string') &&
+            new Set(enumNames).size === enumNames.length
+        if (!hasUniqueEnumNames && obj.enum.some((v) => v.startsWith('-') && positives.has(v.slice(1)))) {
             delete obj.enum
         }
     }

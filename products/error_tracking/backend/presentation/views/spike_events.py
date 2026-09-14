@@ -1,6 +1,8 @@
 from uuid import UUID
 
-from drf_spectacular.utils import extend_schema
+from django.db import models
+
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -12,17 +14,26 @@ from products.error_tracking.backend.facade import (
 )
 from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
-# Kept in sync with `logic.SPIKE_EVENT_ORDER_FIELDS`; duplicated here to respect the product's
-# facade boundary (the presentation layer must not import from `logic`). An unlisted value is
-# ignored by the facade, so drift only widens what the API rejects, never causes a 500.
-SPIKE_EVENT_ORDER_FIELDS = (
-    "detected_at",
-    "-detected_at",
-    "computed_baseline",
-    "-computed_baseline",
-    "current_bucket_value",
-    "-current_bucket_value",
+
+# This enum mirrors logic.SPIKE_EVENT_ORDER_FIELDS because the presentation layer must not import logic.
+class SpikeEventOrderBy(models.TextChoices):
+    DETECTED_AT = "detected_at", "detected_at"
+    DETECTED_AT_DESC = "-detected_at", "-detected_at"
+    COMPUTED_BASELINE = "computed_baseline", "computed_baseline"
+    COMPUTED_BASELINE_DESC = "-computed_baseline", "-computed_baseline"
+    CURRENT_BUCKET_VALUE = "current_bucket_value", "current_bucket_value"
+    CURRENT_BUCKET_VALUE_DESC = "-current_bucket_value", "-current_bucket_value"
+
+
+@extend_schema_field(
+    {
+        "type": "string",
+        "enum": SpikeEventOrderBy.values,
+        "x-enum-varnames": SpikeEventOrderBy.names,
+    }
 )
+class SpikeEventOrderByField(serializers.ChoiceField):
+    pass
 
 
 class ErrorTrackingSpikeEventSerializer(DataclassSerializer):
@@ -44,8 +55,8 @@ class SpikeEventsListQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Only return spike events detected at or before this ISO 8601 timestamp.",
     )
-    order_by = serializers.ChoiceField(
-        choices=SPIKE_EVENT_ORDER_FIELDS,
+    order_by = SpikeEventOrderByField(
+        choices=SpikeEventOrderBy.choices,
         required=False,
         help_text="Field to order results by. Defaults to newest first (-detected_at).",
     )
