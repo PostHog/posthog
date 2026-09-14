@@ -85,6 +85,43 @@ describe("ElectronSettingsBackupFiles", () => {
     expect(await readFile(filePath, "utf8")).toBe("new backup");
   });
 
+  it("restores the existing backup if the Windows retry also fails", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "posthog-backup-test-"));
+    directories.push(directory);
+    const filePath = join(directory, "settings.json");
+    await writeFile(filePath, "old backup");
+    dialogs.showSaveDialog.mockResolvedValue({ canceled: false, filePath });
+    const rename = vi.mocked(fsPromises.rename);
+    const { rename: realRename } =
+      await vi.importActual<typeof import("node:fs/promises")>(
+        "node:fs/promises",
+      );
+    let attemptsOntoDestination = 0;
+    rename.mockImplementation(async (from, to, ...rest) => {
+      // Moving the existing backup aside, and restoring it, are real; only
+      // the rename of the new temp file onto the destination is faked, for
+      // both the initial attempt and the retry.
+      if (typeof from !== "string" || !from.endsWith(".tmp"))
+        return realRename(from, to, ...rest);
+      attemptsOntoDestination++;
+      throw Object.assign(new Error(`attempt ${attemptsOntoDestination}`), {
+        code: attemptsOntoDestination === 1 ? "EPERM" : "EBUSY",
+      });
+    });
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      const files = new ElectronSettingsBackupFiles();
+      await expect(
+        files.save({ contents: "new backup", defaultName: "backup.json" }),
+      ).rejects.toThrow("attempt 2");
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform });
+      rename.mockImplementation(realRename);
+    }
+    expect(await readFile(filePath, "utf8")).toBe("old backup");
+  });
+
   it("leaves an existing backup untouched when the save dialog is canceled", async () => {
     const directory = await mkdtemp(join(tmpdir(), "posthog-backup-test-"));
     directories.push(directory);

@@ -86,12 +86,14 @@ export class ElectronSettingsBackupFiles implements ISettingsBackupFiles {
   /**
    * Windows can refuse to rename onto an existing file (EPERM/EEXIST) even
    * though the save dialog already confirmed the overwrite; POSIX rename
-   * replaces the destination outright. Remove the destination first and
-   * retry so a re-export over an existing backup does not fail.
+   * replaces the destination outright. Move the existing destination aside
+   * rather than deleting it outright, so a retry that also fails still has
+   * something to restore instead of losing both the old and new backups.
    */
   private async replace(temporary: string, destination: string): Promise<void> {
     try {
       await rename(temporary, destination);
+      return;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (
@@ -99,8 +101,15 @@ export class ElectronSettingsBackupFiles implements ISettingsBackupFiles {
         (code !== "EPERM" && code !== "EEXIST")
       )
         throw error;
-      await unlink(destination).catch(() => {});
-      await rename(temporary, destination);
     }
+    const recovery = `${destination}.${randomUUID()}.bak`;
+    await rename(destination, recovery);
+    try {
+      await rename(temporary, destination);
+    } catch (error) {
+      await rename(recovery, destination).catch(() => {});
+      throw error;
+    }
+    await unlink(recovery).catch(() => {});
   }
 }
