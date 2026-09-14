@@ -137,5 +137,16 @@ describe('workflowRunsLogic', () => {
         expect(logic.values.healthSummary.totalRuns).toBe(4000)
         expect(logic.values.healthSummary.passRate).toBe(0.974)
         expect(logic.values.healthSummary.state).toBe('healthy')
+
+        // A failed reload must not keep showing the previous window's 4000 runs under the fallback banner.
+        mockWorkflowHealth.mockRejectedValue(new Error('network down'))
+        const filters = engineeringAnalyticsFiltersLogic()
+        unmountFilters = filters.mount()
+        filters.actions.setDateRange('-7d', null)
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthFailure'])
+
+        expect(logic.values.workflowHealthFailed).toBe(true)
+        expect(logic.values.healthSummary.totalRuns).toBe(0)
+        expect(logic.values.healthSummary.state).toBe('unknown')
     })
 })

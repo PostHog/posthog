@@ -384,7 +384,7 @@ export function WorkflowRunsScene(): JSX.Element {
                         }
                         value={costSummary?.estimatedCostUsd != null ? compactUsd(costSummary.estimatedCostUsd) : '—'}
                         sub={costSummary?.estimatedCostUsd != null ? undefined : 'Job-level source not synced'}
-                        loading={runnerCostsLoading}
+                        loading={runnerCostsLoading || workflowHealthLoading}
                     />
                 </div>
                 <Section id="health" title="Health" busy={healthBusy}>

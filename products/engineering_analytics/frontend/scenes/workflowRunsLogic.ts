@@ -367,8 +367,10 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                 loadRunsFailure: () => true,
             },
         ],
-        // Without this, a failed health fetch is indistinguishable from a quiet window: the tiles fall
-        // back to the capped run table and present a narrower answer as if it were the window's.
+        // kea-loaders keeps the last value on failure, which would show the previous window's figures.
+        workflowHealth: {
+            loadWorkflowHealthFailure: () => null,
+        },
         workflowHealthFailed: [
             false,
             {
