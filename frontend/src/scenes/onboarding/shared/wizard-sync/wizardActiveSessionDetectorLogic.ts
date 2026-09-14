@@ -159,6 +159,9 @@ export interface wizardActiveSessionDetectorLogicActions {
     markResolutionUnavailable: () => {
         value: true
     }
+    markRouteUnavailable: () => {
+        value: true
+    }
     pollFailed: () => {
         value: true
     }
@@ -234,6 +237,10 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
         // endpoint (401/403 access denial). Set once and we stop polling for the
         // rest of the session lifetime.
         markPermanentlyDisabled: true,
+        // The route we poll is unserved and has used up its retries. Stops the poll like an access
+        // denial, but says nothing about any run: a stream already reporting one keeps its widget,
+        // and reports the run terminal itself when it ends.
+        markRouteUnavailable: true,
         // Enough polls failed that we can't keep consumers waiting for a verdict. Unlike
         // markInactive this is not a claim about any run, so it leaves activeWorkflowId alone —
         // it only unblocks the surfaces gated on hasResolvedSessionState.
@@ -279,8 +286,9 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 markInactive: () => true,
                 scheduleMarkInactive: () => true,
                 // Access denial means there will never be a verdict; "resolved, not running" is the
-                // only answer consumers can act on.
+                // only answer consumers can act on. An unserved route strands them the same way.
                 markPermanentlyDisabled: () => true,
+                markRouteUnavailable: () => true,
                 markResolutionUnavailable: () => true,
                 // A verdict about the previous project says nothing about the new one.
                 resetSessionState: () => false,
@@ -309,6 +317,7 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             false,
             {
                 markPermanentlyDisabled: () => true,
+                markRouteUnavailable: () => true,
             },
         ],
     }),
@@ -389,13 +398,16 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 const matched = errors.filter(matches)
                 return matched.length > 0 && matched.length === results.length ? (matched[0] as ApiError) : null
             }
-            const disablePolling = (error: ApiError): void => {
+            // The caller picks which disable it is, because the two write different state: an
+            // access denial or a dead scope drops the session with the poll, an unserved route
+            // leaves it to the stream.
+            const disablePolling = (error: ApiError, markDisabled: () => void): void => {
                 posthog.captureException(error, {
                     tags: { feature: 'wizard-active-session-detector', reason: 'permanently_disabled' },
                     extra: { status: error.status },
                 })
                 actions.setLastError(`wizard latest-session endpoint returned ${error.status} — disabling detector`)
-                actions.markPermanentlyDisabled()
+                markDisabled()
                 cache.disposables.dispose('rest-poll')
             }
 
@@ -403,7 +415,7 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             // rather than burning load on a URL we know is wrong.
             const denial = sharedFailure((err) => err instanceof ApiError && (err.status === 401 || err.status === 403))
             if (denial) {
-                disablePolling(denial)
+                disablePolling(denial, actions.markPermanentlyDisabled)
                 return
             }
 
@@ -411,17 +423,20 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             // answers the same way and repeating the request can never succeed.
             const deadScope = sharedFailure(isScopeNotFoundError)
             if (deadScope) {
-                disablePolling(deadScope)
+                disablePolling(deadScope, actions.markPermanentlyDisabled)
                 return
             }
 
             // The route itself is unserved (404/405), which is also what a rolling deploy looks like
-            // from an old bundle. Retry, but only up to the ceiling.
+            // from an old bundle. Retry, but only up to the ceiling. An unserved poll route says
+            // nothing about a run the stream is already reporting, so the session survives the
+            // shutdown — otherwise a user installing through the window the retries exist to ride
+            // out would lose the widget for that run until they reload the page.
             const unavailable = sharedFailure(isUnavailableEndpointError)
             if (unavailable) {
                 cache.unavailablePolls = (cache.unavailablePolls ?? 0) + 1
                 if (cache.unavailablePolls >= MAX_CONSECUTIVE_UNAVAILABLE_POLLS) {
-                    disablePolling(unavailable)
+                    disablePolling(unavailable, actions.markRouteUnavailable)
                     return
                 }
             } else {

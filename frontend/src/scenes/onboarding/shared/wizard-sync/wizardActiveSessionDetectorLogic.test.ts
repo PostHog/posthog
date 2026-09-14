@@ -158,13 +158,37 @@ describe('wizardActiveSessionDetectorLogic', () => {
                 logic.actions.check()
             })
                 .toDispatchActions(['setLastError'])
-                .toNotHaveDispatchedActions(['markPermanentlyDisabled'])
+                .toNotHaveDispatchedActions(['markRouteUnavailable'])
         }
         expect(logic.values.permanentlyDisabled).toBe(false)
 
         await expectLogic(logic, () => {
             logic.actions.check()
-        }).toDispatchActions(['markPermanentlyDisabled'])
+        }).toDispatchActions(['markRouteUnavailable'])
+
+        const callsAfterStop = mockLatestRetrieve.mock.calls.length
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        }).toFinishAllListeners()
+        expect(mockLatestRetrieve.mock.calls.length).toBe(callsAfterStop)
+    })
+
+    // An unserved poll route says nothing about a run the stream is already reporting. Dropping the
+    // session with the poll would take the widget away mid-install, for the rest of the tab — in
+    // exactly the rollout window the retry budget exists to ride out.
+    it('leaves a live run streaming when the unserved route runs out of retries', async () => {
+        logic.actions.markActive('posthog-integration')
+        mockLatestRetrieve.mockRejectedValue(new ApiError('not found', 404))
+
+        for (let poll = 0; poll < MAX_CONSECUTIVE_UNAVAILABLE_POLLS; poll++) {
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            }).toFinishAllListeners()
+        }
+
+        expect(logic.values.permanentlyDisabled).toBe(true)
+        expect(logic.values.hasActiveSession).toBe(true)
+        expect(logic.values.shouldStream).toBe(true)
     })
 
     it('gives an unserved route its retries again once a poll in between answers', async () => {
