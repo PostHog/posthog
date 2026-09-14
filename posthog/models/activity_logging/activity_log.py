@@ -1242,6 +1242,37 @@ class LogActivityEntry(TypedDict, total=False):
     force_save: bool
 
 
+def log_activity_with_soft_delete(
+    *,
+    scope: str,
+    previous: models.Model | None,
+    current: models.Model | None,
+    activity: str,
+    user: "User | None",
+    was_impersonated: bool,
+    name: str | None = None,
+) -> None:
+    instance = current or previous
+    if instance is None:
+        return
+
+    changes = changes_between(cast(AuditableScope, scope), previous=previous, current=current)
+    # Soft delete and restore go through save(), so the mixin reports them as "updated".
+    deleted_change = next((change for change in changes if change.field == "deleted"), None)
+    if deleted_change:
+        activity = "deleted" if deleted_change.after else "restored"
+    log_activity(
+        organization_id=None,
+        team_id=instance.serializable_value("team"),
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=str(instance.pk),
+        scope=scope,
+        activity=activity,
+        detail=Detail(name=name if name is not None else str(instance), changes=changes),
+    )
+
+
 def bulk_log_activity(
     log_entries: list[LogActivityEntry], batch_size: int = 500, *, notify: bool = True, using: str | None = None
 ) -> list[ActivityLog]:

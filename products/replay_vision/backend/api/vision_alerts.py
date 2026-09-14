@@ -18,21 +18,25 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.exceptions import as_drf_validation_error
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
-from products.alerts.backend.destinations import count_active_alert_destinations
-from products.alerts.backend.facade.api import (
+from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
-    AlertScheduleRestriction,
     DestinationType,
+)
+from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
+    count_active_alert_destinations,
     create_alert_destination_hog_functions,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
-    validate_and_normalize_schedule_restriction,
     validate_destination_data,
 )
+from products.alerts.backend.facade.scheduling import validate_and_normalize_schedule_restriction
+from products.alerts.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
 from products.replay_vision.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     MATCH_EVENT_KINDS,
@@ -588,7 +592,6 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             configs = [
                 build_alert_destination_config(
-                    team=alert.team,
                     spec=EVENT_KIND_CONFIG[kind],
                     alert_id=str(alert.id),
                     alert_name=alert.name,
@@ -597,12 +600,16 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
                 for kind in event_kinds
             ]
-            hog_functions = create_alert_destination_hog_functions(
-                configs,
-                request=self.request,
-                alert_id=str(alert.id),
-                allowed_event_ids=VISION_ALERT_EVENT_IDS,
-            )
+            try:
+                hog_function_ids = create_alert_destination_hog_functions(
+                    configs,
+                    team_id=alert.team_id,
+                    created_by_id=cast(User, request.user).id,
+                    alert_id=str(alert.id),
+                    allowed_event_ids=VISION_ALERT_EVENT_IDS,
+                )
+            except AlertDestinationValidationError as error:
+                raise as_drf_validation_error(error)
 
         report_user_action(
             request.user,
@@ -610,7 +617,7 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             {"alert_id": str(alert.id), "type": data["type"], "event_kinds": list(event_kinds)},
             request=request,
         )
-        response = VisionAlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
+        response = VisionAlertDestinationResponseSerializer({"hog_function_ids": list(hog_function_ids)})
         return Response(response.data, status=201)
 
     @extend_schema(
@@ -626,12 +633,15 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             alert = self._get_locked_alert()
-            soft_delete_alert_destinations(
-                team_id=self.team_id,
-                alert_id=str(alert.id),
-                allowed_event_ids=VISION_ALERT_EVENT_IDS,
-                hog_function_ids=hog_function_ids,
-            )
+            try:
+                soft_delete_alert_destinations(
+                    team_id=self.team_id,
+                    alert_id=str(alert.id),
+                    allowed_event_ids=VISION_ALERT_EVENT_IDS,
+                    hog_function_ids=hog_function_ids,
+                )
+            except AlertDestinationValidationError as error:
+                raise as_drf_validation_error(error)
 
         report_user_action(
             request.user,

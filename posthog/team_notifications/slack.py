@@ -7,8 +7,8 @@ failure does to the product's own records, stay with the product.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Literal
+from collections.abc import Mapping, Sequence
+from typing import Any, Literal
 
 import structlog
 from slack_sdk.errors import SlackApiError
@@ -22,6 +22,14 @@ logger = structlog.get_logger(__name__)
 # Slack rejects a section block over 3000 characters. The margin covers the mrkdwn escaping, which
 # can turn one character into five.
 MAX_SECTION_CHARS = 2900
+# Slack's other caps on one message. A block over any of them makes Slack refuse the whole post,
+# so a caller that cannot cut the value has to leave the block out.
+MAX_HEADER_CHARS = 150
+MAX_BUTTON_TEXT_CHARS = 75
+MAX_BUTTON_URL_CHARS = 3000
+MAX_BLOCKS = 50
+# The plain-text fallback. Slack cuts a longer one without saying so, rather than refusing the post.
+MAX_TEXT_CHARS = 40_000
 
 
 def clip_text(text: str, limit: int) -> str:
@@ -31,9 +39,58 @@ def clip_text(text: str, limit: int) -> str:
     return text[: max(limit - 1, 0)] + "…"
 
 
-def section_block(text: str) -> list[dict]:
-    """One mrkdwn section, in the block list a post takes."""
-    return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+@frozen
+class SlackButton:
+    """A link button, under a message or beside a section."""
+
+    text: str
+    url: str
+    primary: bool = False
+
+
+def _button_element(button: SlackButton) -> dict[str, Any]:
+    element: dict[str, Any] = {
+        "type": "button",
+        # Clipped here rather than at each call site, because Slack refuses the post instead of
+        # cutting the label itself.
+        "text": {"type": "plain_text", "text": clip_text(button.text, MAX_BUTTON_TEXT_CHARS), "emoji": True},
+        "url": button.url,
+    }
+    if button.primary:
+        element["style"] = "primary"
+    return element
+
+
+def header_block(text: str) -> dict[str, Any]:
+    """A message's title. Slack renders it as plain text, so mrkdwn in it stays literal."""
+    return {"type": "header", "text": {"type": "plain_text", "text": clip_text(text, MAX_HEADER_CHARS), "emoji": True}}
+
+
+def context_block(text: str) -> dict[str, Any]:
+    """A line of small print under whatever it belongs to."""
+    return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
+
+
+def section_block(text: str, button: SlackButton | None = None) -> dict[str, Any]:
+    """One mrkdwn section, with a link button on its right when the section has one action."""
+    block: dict[str, Any] = {"type": "section", "text": {"type": "mrkdwn", "text": text}}
+    if button is not None:
+        block["accessory"] = _button_element(button)
+    return block
+
+
+def fields_block(fields: Sequence[str]) -> dict[str, Any]:
+    """A section of short mrkdwn fields, which Slack lays out in two columns."""
+    return {"type": "section", "fields": [{"type": "mrkdwn", "text": field} for field in fields]}
+
+
+def actions_block(buttons: Sequence[SlackButton]) -> dict[str, Any]:
+    """A row of link buttons of its own, for actions that belong to the whole message."""
+    return {"type": "actions", "elements": [_button_element(button) for button in buttons]}
+
+
+def divider_block() -> dict[str, Any]:
+    return {"type": "divider"}
 
 
 # Slack channel flags that mark a channel as shared beyond this workspace. A caller that maps a team
@@ -100,7 +157,7 @@ def find_channel(
 def post_message(
     slack: SlackIntegration,
     channel_id: str,
-    blocks: list[dict],
+    blocks: list[dict[str, Any]],
     text: str,
     thread_ts: str | None = None,
 ) -> SlackResponse:
@@ -148,7 +205,7 @@ class SlackPostRefused(Exception):
 def post_with_join(
     slack: SlackIntegration,
     channel_id: str,
-    blocks: list[dict],
+    blocks: list[dict[str, Any]],
     text: str,
     *,
     channel_name: str | None = None,

@@ -55,7 +55,7 @@ export interface CommunitySkillListApi {
     readonly license: string
     /** Environment requirements declared by the skill. */
     readonly compatibility: string
-    /** Tools the skill declares it may use. Surface these to the user before install. */
+    /** Tools the skill asks to use. Surface these to the user before install. The list is a request, not a grant: a harness that loads the installed skill over MCP ignores it until the user approves that grant. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata carried from the skill's frontmatter. */
     metadata?: CommunitySkillListApiMetadata
@@ -123,7 +123,7 @@ export interface CommunitySkillApi {
     readonly license: string
     /** Environment requirements declared by the skill. */
     readonly compatibility: string
-    /** Tools the skill declares it may use. Surface these to the user before install. */
+    /** Tools the skill asks to use. Surface these to the user before install. The list is a request, not a grant: a harness that loads the installed skill over MCP ignores it until the user approves that grant. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata carried from the skill's frontmatter. */
     metadata?: CommunitySkillApiMetadata
@@ -244,6 +244,16 @@ export interface LLMSkillFileManifestApi {
     line_count: number
     /** Number of characters in the file content. */
     char_count: number
+    /**
+     * Size of the file content in bytes. Null on rows written before digests were stamped.
+     * @nullable
+     */
+    size: number | null
+    /**
+     * Hex SHA-256 of the file content. Null on rows written before digests were stamped.
+     * @nullable
+     */
+    sha256: string | null
 }
 
 export interface LLMSkillOutlineEntryApi {
@@ -288,7 +298,7 @@ export interface LLMSkillApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+    /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillApiMetadata
@@ -353,7 +363,7 @@ export interface LLMSkillListApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+    /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillListApiMetadata
@@ -442,7 +452,7 @@ export interface LLMSkillCreateApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+    /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillCreateApiMetadata
@@ -595,7 +605,7 @@ export interface PatchedLLMSkillPublishApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+    /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: PatchedLLMSkillPublishApiMetadata
