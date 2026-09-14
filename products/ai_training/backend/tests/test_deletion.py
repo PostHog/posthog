@@ -12,7 +12,7 @@ from posthog.models import Person, Team
 from posthog.models.team.util import delete_team_records
 
 from products.ai_training.backend.facade.api import queue_person_training_deletion, queue_training_deletion
-from products.ai_training.backend.models import AITrainingPrivacyRequest
+from products.ai_training.backend.models import AITrainingDeletionRequest
 
 
 @override_settings(AI_RESEARCH_REPLAY_PRIVACY_TABLE="test-table")
@@ -20,10 +20,10 @@ class TestAITrainingDeletionOutbox(TestCase):
     def test_queue_filters_invalid_session_ids_and_batches_valid_sessions(self) -> None:
         session_id = "01a09f92-e780-7000-8000-000000000001"
         queue_training_deletion(7, "session", ["invalid", session_id.upper(), session_id])
-        request = AITrainingPrivacyRequest.objects.for_team(7).get()
+        request = AITrainingDeletionRequest.objects.for_team(7).get()
         self.assertEqual(request.identifiers, [session_id])
         queue_training_deletion(7, "session", [f"01a09f92-e780-7000-8000-{index:012x}" for index in range(1001)])
-        self.assertEqual(AITrainingPrivacyRequest.objects.for_team(7).count(), 3)
+        self.assertEqual(AITrainingDeletionRequest.objects.for_team(7).count(), 3)
 
     @parameterized.expand([(False, False), (False, True), (True, True)])
     def test_bulk_person_deletion_resolves_all_ids_and_queues_only_sessions(
@@ -55,7 +55,7 @@ class TestAITrainingDeletionOutbox(TestCase):
                 delete_recordings=delete_recordings,
                 keep_person=keep_person,
             )
-        queued = AITrainingPrivacyRequest.objects.for_team(7).get()
+        queued = AITrainingDeletionRequest.objects.for_team(7).get()
         self.assertEqual(queued.kind, "session")
         self.assertEqual(queued.identifiers, [session_id])
         self.assertEqual(lookup.call_count, 1)
@@ -79,25 +79,25 @@ class TestAITrainingDeletionOutbox(TestCase):
         ):
             queue_person_training_deletion(7, ["user@example.com"])
         identifiers = [
-            value for request in AITrainingPrivacyRequest.objects.for_team(7).all() for value in request.identifiers
+            value for request in AITrainingDeletionRequest.objects.for_team(7).all() for value in request.identifiers
         ]
         self.assertEqual(sorted(identifiers), sessions)
         self.assertEqual(lookup.call_args.kwargs["placeholders"]["cursor"].value, sessions[999])
-        self.assertEqual(AITrainingPrivacyRequest.objects.for_team(7).count(), 2)
+        self.assertEqual(AITrainingDeletionRequest.objects.for_team(7).count(), 2)
 
-    def test_team_deletion_and_privacy_request_commit_together(self) -> None:
+    def test_team_deletion_and_deletion_request_commit_together(self) -> None:
         with patch.object(Team, "objects") as teams:
             teams.select_for_update.return_value.filter.return_value = [Team(id=7)]
             teams.filter.return_value.delete.side_effect = RuntimeError("team delete failed")
             with self.assertRaisesRegex(RuntimeError, "team delete failed"):
                 delete_team_records([7])
-            self.assertFalse(AITrainingPrivacyRequest.objects.for_team(7).exists())
+            self.assertFalse(AITrainingDeletionRequest.objects.for_team(7).exists())
 
             teams.filter.return_value.delete.side_effect = None
             delete_team_records([7])
-            self.assertEqual(AITrainingPrivacyRequest.objects.for_team(7).get().kind, "team")
+            self.assertEqual(AITrainingDeletionRequest.objects.for_team(7).get().kind, "team")
 
-    def test_team_deletion_does_not_run_if_privacy_request_write_fails(self) -> None:
+    def test_team_deletion_does_not_run_if_deletion_request_write_fails(self) -> None:
         with (
             patch.object(Team, "objects") as teams,
             patch("django.db.models.query.QuerySet.bulk_create", side_effect=DatabaseError("outbox unavailable")),

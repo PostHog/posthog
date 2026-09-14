@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.models.team.team import Team
 
 from products.ai_training.backend.config import privacy_enabled
-from products.ai_training.backend.models import AITrainingPrivacyRequest
+from products.ai_training.backend.models import AITrainingDeletionRequest
 
 
 def queue_training_deletion(team_id: int, kind: str, identifiers: Sequence[str] = ()) -> None:
@@ -28,10 +28,10 @@ def queue_training_deletion(team_id: int, kind: str, identifiers: Sequence[str] 
     if kind != "team" and not unique:
         return
     requests = [
-        AITrainingPrivacyRequest(team_id=team_id, kind=kind, identifiers=unique[offset : offset + 1000])
+        AITrainingDeletionRequest(team_id=team_id, kind=kind, identifiers=unique[offset : offset + 1000])
         for offset in range(0, max(1, len(unique)), 1000)
     ]
-    AITrainingPrivacyRequest.objects.for_team(team_id).bulk_create(requests)
+    AITrainingDeletionRequest.objects.for_team(team_id).bulk_create(requests)
 
 
 def queue_person_training_deletion(team_id: int, distinct_ids: Sequence[str]) -> None:

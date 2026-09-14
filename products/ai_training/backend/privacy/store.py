@@ -13,7 +13,7 @@ import boto3
 import structlog
 from botocore.config import Config
 
-from products.ai_training.backend.models import AITrainingPrivacyRequest
+from products.ai_training.backend.models import AITrainingDeletionRequest
 from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS
 
 logger = structlog.get_logger(__name__)
@@ -123,7 +123,7 @@ class AITrainingPrivacyStore:
                 ]
             )
 
-    def initialize(self, request: AITrainingPrivacyRequest) -> list[DeletionWork]:
+    def initialize(self, request: AITrainingDeletionRequest) -> list[DeletionWork]:
         if request.team_id is None:
             raise ValueError("AI training deletion request has no team")
         team_id = request.team_id
@@ -152,7 +152,7 @@ class AITrainingPrivacyStore:
             return [next_work]
         return []
 
-    def apply(self, request: AITrainingPrivacyRequest, deadline: float) -> bool:
+    def apply(self, request: AITrainingDeletionRequest, deadline: float) -> bool:
         work = request.cursor.get("work")
         if work is None:
             work = self.initialize(request)
@@ -185,7 +185,7 @@ class AITrainingPrivacyStore:
                 break
             with transaction.atomic():
                 request = (
-                    AITrainingPrivacyRequest.objects.unscoped()
+                    AITrainingDeletionRequest.objects.unscoped()
                     .select_for_update(skip_locked=True)
                     .filter(completed_at__isnull=True, leased_until__lte=timezone.now())
                     .order_by("created_at")
@@ -198,7 +198,7 @@ class AITrainingPrivacyStore:
             try:
                 completed += int(self.apply(request, deadline))
             except Exception:
-                logger.exception("ai_training_privacy_request_failed", request_id=str(request.pk), kind=request.kind)
+                logger.exception("ai_training_deletion_request_failed", request_id=str(request.pk), kind=request.kind)
                 request.leased_until = timezone.now() + timedelta(minutes=5)
             else:
                 request.leased_until = max(

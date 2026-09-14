@@ -180,7 +180,7 @@ Renaming configuration must not rotate that key.
 The privacy task uses the `ai_research_privacy` Celery queue.
 In prod-us, only the dedicated `ai-research-privacy-worker` deployment consumes this queue.
 Its service account has a dedicated IAM role and cloud-database user.
-The database user needs SELECT and UPDATE only on `posthog_aitrainingprivacyrequest`.
+The database user needs SELECT and UPDATE only on `posthog_aitrainingdeletionrequest`.
 The worker starts with `bin/docker-worker-ai-training-privacy` and does not use shared Django signing secrets.
 Its process-local signing key is not used for application requests.
 The worker skips general migration checks; the outbox table must exist before deployment.

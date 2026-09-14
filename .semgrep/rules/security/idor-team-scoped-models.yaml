@@ -74,7 +74,7 @@ rules:
                               |AgentTransportBinding
                               |AgentUser
                               |AIObservabilityChecklistItemState
-                              |AITrainingPrivacyRequest
+                              |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -487,7 +487,7 @@ rules:
                         |AgentTransportBinding
                         |AgentUser
                         |AIObservabilityChecklistItemState
-                        |AITrainingPrivacyRequest
+                        |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
                         |Annotation

@@ -6,7 +6,7 @@ The backend contains the privacy key store, encrypted-data reader, deletion requ
 Feature tests and encryption fixtures live in `backend/tests/`.
 Application lifecycle hooks call `backend/facade/api.py`.
 
-The `posthog_aitrainingprivacyrequest` model uses the main PostgreSQL database so team deletion and its request commit together.
+The `AITrainingDeletionRequest` model uses the main PostgreSQL database so team deletion and its request commit together.
 The worker keeps its existing Celery task name so queued tasks survive deployment.
 
 Ingestion uses the organization's existing AI training opt-in flag.

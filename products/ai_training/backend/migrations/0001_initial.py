@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="AITrainingPrivacyRequest",
+            name="AITrainingDeletionRequest",
             fields=[
                 (
                     "id",
@@ -37,7 +37,7 @@ class Migration(migrations.Migration):
                 ("cursor", models.JSONField(default=dict)),
             ],
             options={
-                "db_table": "posthog_aitrainingprivacyrequest",
+                "db_table": "posthog_aitrainingdeletionrequest",
                 "default_manager_name": "all_teams",
                 "indexes": [
                     models.Index(
