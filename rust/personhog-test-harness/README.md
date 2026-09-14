@@ -271,6 +271,19 @@ target/debug/personhog-test-harness consistency \
   --concurrency 5 --iterations 100
 ```
 
+## `bulk-delete` — a production-shaped bulk delete
+
+Creates persons through the identity service, then deletes them as one job: the ids are split into `DeletePersons` calls of at most 250 (the service's cap), a bounded number of calls run at once, and each call's op id is derived from the job id so a repeated job attaches to the ops it already started.
+Defaults to the dev stack's identity service (`http://127.0.0.1:50055`); point `--identity-url` at a router that fronts identity to run against a deployment.
+
+```bash
+target/debug/personhog-test-harness bulk-delete \
+  --team-id 900001 --count 5000 \
+  --chunk-size 250 --concurrency 8
+```
+
+The `traffic` scenario rotates its pools through the same deleter; `TRAFFIC_DELETE_CHUNK_SIZE` and `TRAFFIC_DELETE_CONCURRENCY` set its shape.
+
 ## Output
 
 ```text
