@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PostHogAPIClient } from "./posthog-api";
+import { API_TRANSFER_TIMEOUT_MS, PostHogAPIClient } from "./posthog-api";
 
 const mockFetch = vi.fn();
 
@@ -122,6 +122,24 @@ describe("PostHogAPIClient", () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
+  // Attribution for a local run is read here while the session starts, so an
+  // unbounded lookup left the session connecting for the life of the app.
+  it("bounds a task lookup so a stalled socket cannot hold session start", async () => {
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 1,
+    });
+    mockFetch.mockRejectedValue(
+      new DOMException("The operation was aborted.", "TimeoutError"),
+    );
+
+    await expect(client.getTask("task-1")).rejects.toThrow();
+
+    const init = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it("loads policies for managed MCP servers and keeps unmanaged servers", async () => {
     const client = new PostHogAPIClient({
       apiUrl: "https://app.posthog.com",
@@ -229,6 +247,42 @@ describe("PostHogAPIClient", () => {
       }),
     );
   });
+
+  // The signal also bounds the body read, so a download left on the flat
+  // control-plane deadline aborts a slow but working transfer.
+  it.each<[string, (client: PostHogAPIClient) => Promise<unknown>]>([
+    [
+      "an artifact download",
+      (client) => client.downloadArtifact("task-1", "run-1", "file.txt"),
+    ],
+    [
+      "a run log fetch",
+      (client) =>
+        client.fetchTaskRunLogs({ id: "run-1", task: "task-1" } as never),
+    ],
+  ])(
+    "gives %s longer than the control-plane deadline",
+    async (_label, call) => {
+      const client = new PostHogAPIClient({
+        apiUrl: "https://app.posthog.com",
+        getApiKey: vi.fn().mockResolvedValue("token"),
+        projectId: 7,
+      });
+      const timeout = vi.spyOn(AbortSignal, "timeout");
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
+        text: vi.fn().mockResolvedValue(""),
+      });
+
+      await call(client);
+
+      expect(timeout.mock.calls.at(-1)?.[0]).toBeGreaterThan(
+        API_TRANSFER_TIMEOUT_MS,
+      );
+      timeout.mockRestore();
+    },
+  );
 
   it.each([
     [
