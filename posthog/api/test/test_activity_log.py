@@ -2,8 +2,7 @@ from datetime import timedelta
 from typing import Any, Optional
 from uuid import uuid4
 
-from freezegun import freeze_time
-from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory, TickingDateTimeFactory
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest.mock import patch
 
@@ -82,27 +81,27 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         return response_json.get("id", None), response_json
 
     def _create_and_edit_things(self):
-        with freeze_time("2023-08-17") as frozen_time:
+        with time_machine.travel("2023-08-17", tick=False) as frozen_time:
             # almost every change below will be more than 5 minutes apart
             created_insights = []
             for _ in range(0, 11):
-                frozen_time.tick(delta=timedelta(minutes=6))
+                frozen_time.shift(timedelta(minutes=6))
                 insight_id, _ = self._create_insight({})
                 created_insights.append(insight_id)
 
-            frozen_time.tick(delta=timedelta(minutes=6))
+            frozen_time.shift(timedelta(minutes=6))
             flag_one = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 _feature_flag_json_payload("one"),
             ).json()["id"]
 
-            frozen_time.tick(delta=timedelta(minutes=6))
+            frozen_time.shift(timedelta(minutes=6))
             flag_two = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 _feature_flag_json_payload("two"),
             ).json()["id"]
 
-            frozen_time.tick(delta=timedelta(minutes=6))
+            frozen_time.shift(timedelta(minutes=6))
 
             notebook_json = self.client.post(
                 f"/api/projects/{self.team.id}/notebooks/",
@@ -138,18 +137,18 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         notebook_short_id: str,
         notebook_version: int,
         the_user: User,
-        frozen_time: FrozenDateTimeFactory | StepTickTimeFactory | TickingDateTimeFactory,
+        frozen_time: time_machine.Traveller,
     ) -> int:
         self.client.force_login(the_user)
         for created_insight_id in created_insights[:7]:
-            frozen_time.tick(delta=timedelta(minutes=6))
+            frozen_time.shift(timedelta(minutes=6))
             update_response = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{created_insight_id}",
                 {"name": f"{created_insight_id}-insight-changed-by-{the_user.id}"},
             )
             self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-            frozen_time.tick(delta=timedelta(minutes=6))
+            frozen_time.shift(timedelta(minutes=6))
         assert (
             self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_one}",
@@ -158,7 +157,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             == status.HTTP_200_OK
         )
 
-        frozen_time.tick(delta=timedelta(minutes=6))
+        frozen_time.shift(timedelta(minutes=6))
         assert (
             self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_two}",
@@ -167,7 +166,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             == status.HTTP_200_OK
         )
 
-        frozen_time.tick(delta=timedelta(minutes=6))
+        frozen_time.shift(timedelta(minutes=6))
         # notebooks save while you're typing so, we get multiple activities per edit
         for typed_text in [
             "print",
@@ -176,7 +175,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             "print('hello world again from ",
             f"print('hello world again from {the_user.id}')",
         ]:
-            frozen_time.tick(delta=timedelta(seconds=5))
+            frozen_time.shift(timedelta(seconds=5))
             assert (
                 self.client.patch(
                     f"/api/projects/{self.team.id}/notebooks/{notebook_short_id}",

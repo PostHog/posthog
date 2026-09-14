@@ -127,6 +127,16 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
                 "turn off syncing for this table, then re-enable the sync."
             ),
             "StreamingExportNotEnabled": "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade.",
+            # Convex treats a document_deltas/list_snapshot cursor conflict as deterministic, not
+            # transient (it's one of the few codes their own backend classifies as a user error
+            # rather than retryable). It surfaces when a data import or backup restore on the
+            # deployment invalidates the cursor's position in the document log, so every retry
+            # replays the same request against the same now-invalid cursor.
+            "409 Client Error": (
+                "PostHog's sync position for this table no longer matches your Convex deployment. "
+                "This can happen after a data import or backup restore. Trigger a full resync of "
+                "this source to continue syncing."
+            ),
             # Match a stable substring of the raised message, not the `InvalidWindowError` class name:
             # the non-retryable check compares against `str(exception)`, which contains the message
             # but not the class name. The table name in the message is volatile, so it's excluded.

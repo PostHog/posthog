@@ -45,7 +45,10 @@ from products.alerts.backend.insight_alert_destinations import (
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
-from products.alerts.backend.scheduling import validate_and_normalize_schedule_restriction
+from products.alerts.backend.scheduling import (
+    validate_and_normalize_schedule_restriction,
+    validate_and_normalize_schedule_start_time,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -243,4 +246,5 @@ __all__ = [
     "send_alert_email",
     "validate_destination_data",
     "validate_and_normalize_schedule_restriction",
+    "validate_and_normalize_schedule_start_time",
 ]

@@ -108,6 +108,8 @@ class SourceInputs:
     # Resolved from the schema for a source that declares a `history_lookback`; `None` means
     # unbounded. See `sources/common/history_window.py`.
     history_start: Optional[datetime.datetime] = None
+    # Start of the previous successful sync (the job's created_at), so a safe lower bound for "seen".
+    last_synced_at: Optional[datetime.datetime] = None
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None
     # Multi-schema import context, read by `resolve_source_location`.

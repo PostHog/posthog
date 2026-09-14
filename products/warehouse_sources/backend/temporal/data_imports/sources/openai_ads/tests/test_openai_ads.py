@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -205,7 +205,7 @@ class TestFanOut:
 
 
 class TestInsights:
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_windows_from_watermark_to_today(self, MockSession) -> None:
         session = MockSession.return_value
@@ -227,7 +227,7 @@ class TestInsights:
         assert "campaign.spend" in sent["fields[]"]
         assert "metadata.readable_time" in sent["fields[]"]
 
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_refresh_windows_from_product_launch_floor(self, MockSession) -> None:
         # Without a watermark we still need a bounded window — the API rejects unbounded/future
@@ -267,7 +267,7 @@ class TestInsights:
         assert rows[0]["end_time"] == datetime(2026, 4, 26, tzinfo=UTC)
         assert rows[0]["impressions"] == 5
 
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_checkpoint_pins_the_window_alongside_the_cursor(self, MockSession) -> None:
         session = MockSession.return_value
@@ -287,7 +287,7 @@ class TestInsights:
             cursor="b1", since="2026-07-01", until="2026-07-21"
         )
 
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_reuses_the_pinned_window_with_the_saved_cursor(self, MockSession) -> None:
         # A cursor is only valid for the result set it was issued for — recomputing `until` as a

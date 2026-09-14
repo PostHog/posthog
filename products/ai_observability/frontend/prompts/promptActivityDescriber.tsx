@@ -1,8 +1,8 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
 function changeAfter(logItem: ActivityLogItem, field: string): string | null {
@@ -18,7 +18,6 @@ function changeBefore(logItem: ActivityLogItem, field: string): string | null {
 // Lifecycle events (create/publish/archive/duplicate) for scope LLMPrompt, written by
 // log_llm_prompt_activity in backend activity_logging.py. detail.name is the prompt name.
 export function promptActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
-    const user = userNameForLogItem(logItem)
     const promptName = logItem?.detail?.name ?? ''
 
     if (logItem.activity === 'created') {
@@ -26,12 +25,12 @@ export function promptActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: duplicatedFrom ? (
                 <>
-                    <strong className="ph-no-capture">{user}</strong> created prompt <b>{promptName}</b> as a copy of{' '}
+                    <ActivityLogUserName logItem={logItem} /> created prompt <b>{promptName}</b> as a copy of{' '}
                     <b>{duplicatedFrom}</b>
                 </>
             ) : (
                 <>
-                    <strong className="ph-no-capture">{user}</strong> created prompt <b>{promptName}</b>
+                    <ActivityLogUserName logItem={logItem} /> created prompt <b>{promptName}</b>
                 </>
             ),
         }
@@ -45,7 +44,7 @@ export function promptActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{user}</strong> published <b>v{version ?? '?'}</b> of prompt{' '}
+                    <ActivityLogUserName logItem={logItem} /> published <b>v{version ?? '?'}</b> of prompt{' '}
                     <b>{promptName}</b>
                     {configChanged ? <> (configuration changed)</> : null}
                     {versionDescription ? <>: "{versionDescription}"</> : null}
@@ -59,7 +58,7 @@ export function promptActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{user}</strong> archived prompt <b>{promptName}</b>
+                    <ActivityLogUserName logItem={logItem} /> archived prompt <b>{promptName}</b>
                     {versionCount ? <> ({versionCount} versions)</> : null}
                 </>
             ),
@@ -71,7 +70,7 @@ export function promptActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{user}</strong> duplicated prompt <b>{promptName}</b>
+                    <ActivityLogUserName logItem={logItem} /> duplicated prompt <b>{promptName}</b>
                     {duplicatedTo ? (
                         <>
                             {' '}

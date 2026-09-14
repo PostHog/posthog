@@ -794,14 +794,11 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     if (!mount) {
       return null;
     }
-    // The publish token mirrors POSTHOG_API_KEY exactly: gatewayAuthToken()
-    // just re-synced it, so it is absent for impersonated sessions (an
-    // impersonation credential must never reach agent subprocesses) and fresh
-    // after any token rotation or account switch.
+    const publishToken = await this.agentAuthAdapter.gatewayPublishToken();
     return {
       path: mount.path,
       commitsPath: mount.commitsPath,
-      personalApiKey: process.env.POSTHOG_API_KEY || undefined,
+      personalApiKey: publishToken ?? undefined,
     };
   }
 

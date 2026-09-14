@@ -175,15 +175,20 @@ class SearchRecoveryAfterZeroHit(Scorer):
                     score=0.0,
                     metadata={"reason": "No learning follow-up after zero-hit search", "call_id": zero_hit.call_id},
                 )
-            nxt = min(following, key=lambda call: call.position)
-            command = _exec_command(nxt)
-            if command.verb != "learn":
+            # Parallel tool calls in one turn share a position, so check every call in the earliest batch.
+            earliest = min(call.position for call in following)
+            offender = next(
+                (call for call in following if call.position == earliest and _exec_command(call).verb != "learn"),
+                None,
+            )
+            if offender is not None:
+                command = _exec_command(offender)
                 return Score(
                     name=self._name(),
                     score=0.0,
                     metadata={
                         "reason": "A non-learning command followed a zero-hit search",
-                        "call_id": nxt.call_id,
+                        "call_id": offender.call_id,
                         "command": f"{command.verb} {command.arguments}".strip(),
                     },
                 )

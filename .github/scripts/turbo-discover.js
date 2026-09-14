@@ -873,10 +873,11 @@ const DJANGO_SEGMENTS = {
             'posthog/hogql/',
         ],
     },
-    // batch-exports and tasks used to run their temporal suites here. They now run
-    // them in their own product jobs, which cost no extra infrastructure because
-    // every shard already starts the temporal profile. signals/emission is listed
-    // because select-tests routes it here; leaving it out under-counted the segment.
+    // batch-exports, tasks and product-analytics used to run their temporal suites
+    // here. They now run them in their own product jobs, which cost no extra
+    // infrastructure because every shard already starts the temporal profile.
+    // signals/emission is listed because select-tests routes it here; leaving it
+    // out under-counted the segment.
     Temporal: {
         include: ['posthog/temporal/', 'products/signals/backend/emission/'],
         exclude: [],

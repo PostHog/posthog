@@ -19,6 +19,7 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTEC
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
 from common.hogvm.python.utils import (
+    MAX_MEMORY,
     HogVMException,
     HogVMMemoryExceededException,
     HogVMRuntimeExceededException,
@@ -34,7 +35,6 @@ from common.hogvm.python.utils import (
 if TYPE_CHECKING:
     from posthog.models import Team
 
-MAX_MEMORY = 64 * 1024 * 1024  # 64 MB
 MAX_FUNCTION_ARGS_LENGTH = 300
 CALLSTACK_LENGTH = 1000
 

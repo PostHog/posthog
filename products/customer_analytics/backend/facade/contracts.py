@@ -105,6 +105,12 @@ class Account:
 
 
 @dataclass(frozen=True)
+class AccountPresenceViewer:
+    user_id: int
+    display_name: str
+
+
+@dataclass(frozen=True)
 class EmailAccountMatch:
     account_id: str
     account_external_id: str | None
@@ -1078,9 +1084,8 @@ class CreateAccountNotebookInput:
     """Validated body for creating an account notebook.
 
     ``content`` is the ProseMirror document the caller supplied (or ``None``);
-    ``synthesized_content`` is the markdown-derived document the view built when the
-    caller passed only ``text_content`` — the view owns that normalization so the
-    ``ee.hogai`` tiptap helper stays off the facade import path.
+    ``synthesized_content`` is the markdown notebook document the view built when the
+    caller passed only ``text_content``.
     """
 
     title: str | None

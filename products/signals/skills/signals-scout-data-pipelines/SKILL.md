@@ -57,7 +57,7 @@ Three cheap reads cold-start a run:
 
 Then orient on each leg with one fleet-wide read apiece:
 
-1. **Functions state scan** — `cdp-functions-list {"enabled": true, "limit": 100}`, following `next` pages. Every entry carries `status: {state, tokens}` from the hog watcher, so one paginated scan gives fleet health without per-function calls. States: 1 healthy, 2 degraded (overflowed), 3 auto-disabled, 11 forcefully degraded, 12 forcefully disabled (11/12 are admin actions). **Footgun:** the `type` filter must be a comma-separated _string_ (`"type": "destination,transformation"`) — a JSON array silently returns zero results. **Footgun:** `status` exists only on the REST tools; `system.hog_functions` has no state column.
+1. **Functions state scan** — `cdp-functions-list {"enabled": true, "limit": 100}`, following `next` pages. Every entry carries `status: {state, tokens}` from the hog watcher, so one paginated scan gives fleet health without per-function calls. States: 1 healthy, 2 degraded (overflowed), 3 auto-disabled, 11 forcefully degraded, 12 forcefully disabled (11/12 are admin actions). **Footgun:** pass the `type` filter as a JSON array (`"type": ["destination", "transformation"]`); its schema description mentions comma-separated values, but a bare string is rejected outright. **Footgun:** `status` exists only on the REST tools; `system.hog_functions` has no state column.
 2. **Flows fleet stats** — `workflows-global-stats {"after": "-7d"}`: per-flow succeeded/failed counts, sorted most-failing first, one call. It returns bare `workflow_id`s — cross-reference names and lifecycle status via `system.hog_flows` (`id`, `name`, `status`), and only judge `active` flows.
 3. **Batch exports roster** — rosters are small, so check every live one:
 
@@ -189,7 +189,7 @@ When in doubt, write a memory entry instead of filing a report.
 
 Direct calls (read-only):
 
-- `cdp-functions-list` — the fleet state scan: `id`, `name`, `type`, `enabled`, `status: {state, tokens}`, `template.id`, `created_at`/`updated_at`, `filters`. Filters: `enabled`, `type` (comma-separated **string** — array returns zero), `limit`/`offset` with `next` links.
+- `cdp-functions-list` — the fleet state scan: `id`, `name`, `type`, `enabled`, `status: {state, tokens}`, `template.id`, `created_at`/`updated_at`, `filters`. Filters: `enabled`, `type` (JSON **array** of type names, despite the description mentioning commas), `limit`/`offset` with `next` links.
 - `cdp-functions-retrieve` — one function's full definition (inputs minus secrets, filters, code) when you need the mechanism.
 - `cdp-functions-metrics-retrieve` — per-function time series by metric name (`triggered` / `succeeded` / `failed` / `filtered`); `after`/`before`, `interval` hour/day/week. The only metrics surface — there is no fleet-wide equivalent.
 - `cdp-functions-logs-retrieve` — execution logs with level filter; the diagnosis.
@@ -203,7 +203,7 @@ Inbox & reviewer routing:
 
 - `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox; check before authoring so you edit instead of duplicating (`ordering=-updated_at`).
 - `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
-- `scout-members-list` — this project's members with their resolved `github_login`, to route `suggested_reviewers` to a pipeline's owner (wrap as a `{github_login}` object, or pass the member's `{user_uuid}` and let the server resolve; null `github_login` → try the next owner). The in-run roster; the org-scoped resolver tools aren't available in a scout run.
+- `scout-members-list` — this project's members with their `user_uuid` and resolved `github_login`. Route the owner with either value. Use `user_uuid` when `github_login` is null. The org-scoped resolver tools are not available in a scout run.
 
 Harness-level:
 

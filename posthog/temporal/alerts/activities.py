@@ -3,7 +3,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from django.db import transaction
-from django.db.models import Case, F, IntegerField, Q, Value, When
+from django.db.models import Case, Count, F, IntegerField, Min, Q, Value, When, Window
+from django.db.models.functions import Coalesce, RowNumber
 
 import structlog
 import temporalio.activity
@@ -35,6 +36,7 @@ from posthog.tasks.alerts.utils import (
     skip_because_of_weekend,
 )
 from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
+from posthog.temporal.alerts.metrics import record_due_insight_alert_metrics
 from posthog.temporal.alerts.types import (
     AlertInfo,
     EvaluateAlertActivityInputs,
@@ -45,6 +47,7 @@ from posthog.temporal.alerts.types import (
     PrepareAlertResult,
     RecordFailedEvaluationActivityInputs,
     RecordFailedEvaluationResult,
+    ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -70,10 +73,13 @@ _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name
 
 
 @temporalio.activity.defn
-async def retrieve_due_alerts() -> list[AlertInfo]:
+async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | None = None) -> list[AlertInfo]:
+    if inputs is None:
+        inputs = ScheduleDueAlertChecksWorkflowInputs()
+
     @database_sync_to_async(thread_sensitive=False)
     def get_alerts() -> list[AlertInfo]:
-        now = datetime.now(UTC)
+        polled_at = datetime.now(UTC)
 
         calculation_interval_order = Case(
             *(
@@ -84,18 +90,37 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
             output_field=IntegerField(),
         )
 
-        alerts = (
+        due_alerts_query = (
             AlertConfiguration.objects.filter(
-                Q(enabled=True, next_check_at__lte=now) | Q(enabled=True, next_check_at__isnull=True)
+                Q(enabled=True, next_check_at__lte=polled_at) | Q(enabled=True, next_check_at__isnull=True)
             )
-            .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
+            .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=polled_at))
             .filter(insight__deleted=False)
-            .annotate(_interval_order=calculation_interval_order)
-            .order_by("_interval_order", F("next_check_at").asc(nulls_first=True))
-            .only("id", "team_id", "calculation_interval", "insight_id")
+        )
+        alerts_query = (
+            due_alerts_query.annotate(_interval_order=calculation_interval_order)
+            .annotate(
+                _team_rank=Window(
+                    expression=RowNumber(),
+                    partition_by=[F("team_id")],
+                    order_by=[
+                        F("_interval_order").asc(),
+                        F("next_check_at").asc(nulls_first=True),
+                        F("id").asc(),
+                    ],
+                ),
+            )
+            .order_by(
+                "_team_rank",
+                "_interval_order",
+                F("next_check_at").asc(nulls_first=True),
+                "team_id",
+                "id",
+            )
+            .only("id", "team_id", "calculation_interval", "insight_id")[: inputs.max_alerts_per_run]
         )
 
-        return [
+        alerts = [
             AlertInfo(
                 alert_id=str(a.id),
                 team_id=a.team_id,
@@ -103,8 +128,14 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
                 calculation_interval=a.calculation_interval,
                 insight_id=a.insight_id,
             )
-            for a in alerts
+            for a in alerts_query
         ]
+
+        due_alert_metrics = due_alerts_query.aggregate(
+            due_count=Count("id"), oldest_due_at=Min(Coalesce("next_check_at", "created_at"))
+        )
+        record_due_insight_alert_metrics(due_alert_metrics["due_count"], due_alert_metrics["oldest_due_at"], polled_at)
+        return alerts
 
     async with Heartbeater():
         return await get_alerts()

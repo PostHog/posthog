@@ -23,7 +23,10 @@ import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/tasks/frontend/generated/api'
-import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import type {
+    TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
+    TaskRunDetailDTOApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { UserType } from '../../../../frontend/src/types'
@@ -39,7 +42,6 @@ import {
 import type {
     ContextUsage,
     PermissionRequestRecord,
-    ResourceProduct,
     RunArtifacts,
     RunLifecycleEvent,
     ProgressStatus,
@@ -74,7 +76,7 @@ import {
     isTaskRunStateFrame,
 } from '../types/wireTypes'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
-import { getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
+import { extractAgentToolName, getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
 import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import { debugLogsLogic } from './debugLogsLogic'
@@ -290,10 +292,18 @@ export function mapHttpStatusToStreamError(status: number | undefined): StreamEr
  * prepend context blocks when attachments are present — `<posthog_trusted_context>` and/or
  * `<posthog_untrusted_context>` from the frontend builder (`utils/posthogContextBlock.ts`), or the
  * legacy `<posthog_context>` wrapper from the deprecated backend `context_wrapper.py` path and old
- * persisted history. Stripping every leading block keeps a replayed prompt identical to the one the
- * live send path echoed via `pushHumanMessage`.
+ * persisted history. A task started from Slack carries the thread as `<slack_thread_context>`, and
+ * each Slack follow-up as `<slack_thread_context_update>` (products/slack_app). Stripping every
+ * leading block keeps a replayed prompt identical to the one the live send path echoed via
+ * `pushHumanMessage`.
  */
-const CONTEXT_BLOCK_TAGS = ['posthog_trusted_context', 'posthog_untrusted_context', 'posthog_context']
+const CONTEXT_BLOCK_TAGS = [
+    'posthog_trusted_context',
+    'posthog_untrusted_context',
+    'posthog_context',
+    'slack_thread_context',
+    'slack_thread_context_update',
+]
 
 export interface SplitUserMessageContent {
     /** The user's own text, with every leading context block removed. */
@@ -376,6 +386,8 @@ function normalizeNotificationEntry(entry: unknown): StoredLogEntry | null {
         type: 'notification',
         ...(typeof entry.timestamp === 'string' ? { timestamp: entry.timestamp } : {}),
         ...(typeof entry.source_run_id === 'string' ? { source_run_id: entry.source_run_id } : {}),
+        ...(typeof entry.event_id === 'string' ? { event_id: entry.event_id } : {}),
+        ...(typeof entry.first_event_id === 'string' ? { first_event_id: entry.first_event_id } : {}),
         notification: entry.notification,
     } as StoredLogEntry
 }
@@ -408,32 +420,11 @@ function normalizeHistory(entries: unknown[], runId: string, resumed: boolean): 
     })
 }
 
-/**
- * Union incoming resource products into the accumulated list by `id`, preserving first-seen order.
- * Pure — mirrors the reference `accumulateSessionResources`. Products without an `id` are skipped.
- */
-export function mergeResourceProducts(
-    existing: ResourceProduct[],
-    incoming: { id?: string; label?: string }[]
-): ResourceProduct[] {
-    const seen = new Set(existing.map((p) => p.id))
-    const next = [...existing]
-    for (const product of incoming) {
-        if (typeof product.id !== 'string' || product.id === '' || seen.has(product.id)) {
-            continue
-        }
-        seen.add(product.id)
-        next.push({ id: product.id, label: product.label })
-    }
-    return next
-}
-
 const RUN_ARTIFACT_KEYS = ['prUrl', 'branch', 'baseBranch', 'repo'] as const
 
 /**
  * Latest-wins fold of git artifacts onto the accumulated snapshot — a non-empty string overwrites,
- * undefined/empty values are ignored (so a later frame that omits a field never clears it). Mirrors
- * the `mergeResourceProducts` accumulation pattern.
+ * undefined/empty values are ignored (so a later frame that omits a field never clears it).
  */
 export function mergeRunArtifacts(existing: RunArtifacts, partial: Partial<RunArtifacts>): RunArtifacts {
     const next: RunArtifacts = { ...existing }
@@ -750,13 +741,10 @@ export function parsePermissionRequestFrame(
     const rawToolName = String(toolCall.toolName ?? '')
     const input = (toolCall.rawInput ?? toolCall.input ?? {}) as Record<string, unknown>
 
-    // Canonical ACP tool name (e.g. `mcp__posthog__exec`, or a built-in like `Bash`). The wire puts
-    // it on `_meta.claudeCode.toolName`; the bare fields are the fallback. The default permission
-    // policy classifies off this — `mcp__`-prefixed vs built-in, plus the exec sub-tool.
+    // Permission policy needs the canonical MCP name to distinguish external tools from built-ins.
     const meta = toolCall._meta
     const metaRecord = typeof meta === 'object' && meta !== null ? (meta as Record<string, unknown>) : {}
-    const claudeCode = getClaudeCodeMeta(meta) ?? {}
-    const toolName = String(claudeCode.toolName ?? toolCall.toolName ?? rawToolName)
+    const toolName = extractAgentToolName(meta) ?? rawToolName
 
     // `AskUserQuestion` is routed through the permission framework by the agent (Twig): the question
     // payload rides `_meta.codeToolKind === 'question'` + `_meta.questions`. When present, this renders
@@ -816,6 +804,13 @@ export interface RunLog {
     entries: StoredEntry[]
     /** Index into `entries` of the retained (merged) `tool_call_update` entry per toolCallId. */
     toolUpdateIndex: Record<string, number>
+}
+
+interface OptimisticResume {
+    entries: StoredEntry[]
+    message: string
+    historyComplete: boolean
+    turnComplete: boolean
 }
 
 export function emptyRunLog(): RunLog {
@@ -930,18 +925,17 @@ function isResumeContextPrompt(text: string): boolean {
     return text.startsWith(RESUME_CONTEXT_PREFIX)
 }
 
-/**
- * One-shot multiset reconciliation of the bootstrap seam (port of the reference client's
- * `drainBufferedLogBatches`). While the S3 history loads we connect the live SSE first and buffer
- * its frames; some buffered frames are the same logical entries the history already contains (the
- * live stream and the S3 log overlap around the connect cutoff). This drops each buffered frame a
- * historical frame accounts for, keyed on the ACP `notification` payload — the only field identical
- * across both copies. The SSE `id` is the Redis stream id (absent from S3), and the envelope
- * `timestamp` is stamped independently on the persist and the live-publish paths, so neither can be
- * part of the key. A *multiset* (counts, not a set) so N genuine repeats of an identical payload
- * survive: each historical copy absorbs exactly one buffered copy, and any buffered surplus passes
- * through. Steady-state live frames after the drain are appended directly and never deduped.
- */
+function parseAgentEventId(eventId: string): { boot: string; sequence: number } | null {
+    const match = /^(.+)-(\d+)$/.exec(eventId)
+    if (!match) {
+        return null
+    }
+    const sequence = Number(match[2])
+    return Number.isSafeInteger(sequence) ? { boot: match[1], sequence } : null
+}
+
+// The persisted log coalesces chunks and strips adapter fields, so payload equality cannot identify
+// modern overlap. Agent event IDs survive both paths; SSE IDs and timestamps do not.
 function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: StoredLogEntry[]): StoredLogEntry[] {
     const seamKey = (entry: StoredLogEntry): string =>
         JSON.stringify([
@@ -951,17 +945,67 @@ function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: Store
                 : undefined,
             entry.notification,
         ])
-    const historicalCounts = new Map<string, number>()
-    for (const entry of history) {
+    const historicalEntries = new Map<string, number[]>()
+    const eventIds = new Map<string, number>()
+    const eventRanges = new Map<string, { first: number; last: number; index: number }[]>()
+    const hasEventId = (entry: StoredLogEntry): entry is StoredLogEntry & { event_id: string } =>
+        typeof entry.event_id === 'string' && entry.event_id !== ''
+    for (const [index, entry] of history.entries()) {
         const key = seamKey(entry)
-        historicalCounts.set(key, (historicalCounts.get(key) ?? 0) + 1)
+        const entries = historicalEntries.get(key) ?? []
+        entries.push(index)
+        historicalEntries.set(key, entries)
+        if (!hasEventId(entry) || !entry.source_run_id) {
+            continue
+        }
+        eventIds.set(JSON.stringify([entry.source_run_id, entry.event_id]), index)
+        if (typeof entry.first_event_id !== 'string' || !entry.first_event_id) {
+            continue
+        }
+        eventIds.set(JSON.stringify([entry.source_run_id, entry.first_event_id]), index)
+        const first = parseAgentEventId(entry.first_event_id)
+        const last = parseAgentEventId(entry.event_id)
+        if (first && last && first.boot === last.boot && first.sequence <= last.sequence) {
+            const rangeKey = JSON.stringify([entry.source_run_id, first.boot])
+            const ranges = eventRanges.get(rangeKey) ?? []
+            ranges.push({ first: first.sequence, last: last.sequence, index })
+            eventRanges.set(rangeKey, ranges)
+        }
     }
+    const consumedHistory = new Set<number>()
     const survivors: StoredLogEntry[] = []
     for (const entry of buffered) {
+        let coveredIndex = hasEventId(entry)
+            ? eventIds.get(JSON.stringify([entry.source_run_id, entry.event_id]))
+            : undefined
+        if (coveredIndex === undefined && hasEventId(entry)) {
+            const parsed = parseAgentEventId(entry.event_id)
+            if (parsed) {
+                coveredIndex = eventRanges
+                    .get(JSON.stringify([entry.source_run_id, parsed.boot]))
+                    ?.find(({ first, last }) => first <= parsed.sequence && parsed.sequence <= last)?.index
+            }
+        }
+        if (coveredIndex !== undefined) {
+            consumedHistory.add(coveredIndex)
+            continue
+        }
+
+        // Legacy overlap remains a multiset: each historical copy absorbs only one live copy.
+        // Different stable IDs establish distinct events even when their payloads are identical.
         const key = seamKey(entry)
-        const remaining = historicalCounts.get(key) ?? 0
-        if (remaining > 0) {
-            historicalCounts.set(key, remaining - 1)
+        const matchingIndex = historicalEntries
+            .get(key)
+            ?.find(
+                (index) =>
+                    !consumedHistory.has(index) &&
+                    (!hasEventId(entry) || !hasEventId(history[index])) &&
+                    (!entry.source_run_id ||
+                        !history[index].source_run_id ||
+                        entry.source_run_id === history[index].source_run_id)
+            )
+        if (matchingIndex !== undefined) {
+            consumedHistory.add(matchingIndex)
             continue
         }
         survivors.push(entry)
@@ -984,6 +1028,7 @@ function invocationFromToolCall(update: Record<string, unknown>): ToolInvocation
         rawServerName: String(update.serverName ?? 'posthog'),
         rawToolName: String(update.toolName ?? ''),
         input: (update.rawInput ?? update.input ?? {}) as Record<string, unknown>,
+        output: update.rawOutput,
         status: mapAcpStatus(update.status),
         title: update.title as string | undefined,
         kind: update.kind as string | undefined,
@@ -1058,6 +1103,26 @@ export interface FoldedThread {
     toolInvocations: Map<string, ToolInvocation>
 }
 
+export interface PendingRunMessage {
+    runId: string
+    id: string
+    text: string
+}
+
+function readPendingRunMessage(state: unknown, runId: string): PendingRunMessage | null {
+    if (!isRecord(state) || typeof state.pending_user_message !== 'string') {
+        return null
+    }
+    const text = unwrapUserMessageContent(state.pending_user_message)
+    return text
+        ? {
+              runId,
+              id: typeof state.pending_user_message_id === 'string' ? state.pending_user_message_id : runId,
+              text,
+          }
+        : null
+}
+
 /**
  * Pure projection: fold the ordered log into the rendered thread (and the tool-invocation map the
  * renderer looks up). The fold rules (chunk buffering with the tail rule, tool-update merge,
@@ -1065,7 +1130,10 @@ export interface FoldedThread {
  * across re-folds. `isResumeRun` drives the §6 resume-context filter; per-entry `source` decides
  * whether a wire user turn renders (replay) or is left to the live echo (live).
  */
-export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: boolean }): FoldedThread {
+export function foldLogToThread(
+    entries: StoredEntry[],
+    options: { isResumeRun: boolean; pendingMessage?: PendingRunMessage | null }
+): FoldedThread {
     let items: ThreadItem[] = []
     const invocations = new Map<string, ToolInvocation>()
     // Texts already rendered by a `_posthog/user_message`, so a later identical `user_message_chunk`
@@ -1081,13 +1149,22 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
     let taskSeq = 0
     let consoleSeq = 0
     let contextSeq = 0
+    let timestamp: number | undefined
+    let importedRun = false
+    let entryRunId: string | undefined
+    let pendingMessageSeen = false
+    let pendingInsertionIndex: number | undefined
 
     const pushHuman = (text: string): void => {
+        if (options.pendingMessage?.text === text && entryRunId === options.pendingMessage.runId) {
+            pendingMessageSeen = true
+        }
         items = insertHumanMessageAtTurnStart(items, {
             id: `human-${humanCount++}`,
             type: 'human_message',
             text,
             complete: true,
+            ...(timestamp !== undefined && { startedAt: timestamp }),
         })
     }
 
@@ -1112,10 +1189,20 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         // does, since the backend drops chunks), so the bare fallback id would collide as a React key
         // across messages. The continuation lookup matches the `${id}@` prefix, so it still works.
         if (idx === -1 || items[idx].complete || idx !== items.length - 1) {
-            items.push({ id: `${id}@${bubbleSeq++}`, type, text: delta, complete: false })
+            items.push({
+                id: `${id}@${bubbleSeq++}`,
+                type,
+                text: delta,
+                complete: false,
+                ...(timestamp !== undefined && { startedAt: timestamp, endedAt: timestamp }),
+            })
             return
         }
-        items[idx] = { ...items[idx], text: (items[idx].text ?? '') + delta }
+        items[idx] = {
+            ...items[idx],
+            text: (items[idx].text ?? '') + delta,
+            ...(timestamp !== undefined && { endedAt: timestamp }),
+        }
     }
 
     const finalizeMessage = (id: string, text: string): void => {
@@ -1141,15 +1228,26 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             // No buffer to close (the common replay case: S3 drops chunks, so a finalized message
             // arrives alone). Push a fresh bubble with a unique id — a bare fallback id would collide
             // as a React key with every other no-`messageId` message in the thread.
-            items.push({ id: `${id}@${bubbleSeq++}`, type: 'assistant_message', text, complete: true })
+            items.push({
+                id: `${id}@${bubbleSeq++}`,
+                type: 'assistant_message',
+                text,
+                complete: true,
+                ...(timestamp !== undefined && { startedAt: timestamp, endedAt: timestamp }),
+            })
             return
         }
-        items[idx] = { ...items[idx], text, complete: true }
+        items[idx] = { ...items[idx], text, complete: true, ...(timestamp !== undefined && { endedAt: timestamp }) }
     }
 
-    const upsertInvocationItem = (toolCallId: string): void => {
+    const upsertInvocationItem = (toolCallId: string, hasStart = true): void => {
         if (!items.some((item) => item.type === 'tool_invocation' && item.toolCallId === toolCallId)) {
-            items.push({ id: toolCallId, type: 'tool_invocation', toolCallId })
+            items.push({
+                id: toolCallId,
+                type: 'tool_invocation',
+                toolCallId,
+                ...(hasStart && timestamp !== undefined && { startedAt: timestamp }),
+            })
         }
     }
 
@@ -1204,14 +1302,63 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         }
         invocations.set(next.toolCallId, next)
         if (!existing && !subagentParentToolCallId(update._meta)) {
-            upsertInvocationItem(next.toolCallId)
+            upsertInvocationItem(next.toolCallId, false)
+        }
+        if (timestamp !== undefined && (next.status === 'completed' || next.status === 'failed')) {
+            const index = items.findIndex((item) => item.toolCallId === next.toolCallId)
+            if (index !== -1) {
+                items[index] = { ...items[index], endedAt: timestamp }
+            }
         }
     }
 
+    // Two frames often describe one failure with the same text; keep the shorter, cleaner one.
+    const pushError = (message: string, variant: 'error' | 'crash', sourceRunId?: string): void => {
+        const last = items[items.length - 1]
+        if (last?.type === 'error' && last.errorMessage && variant === 'error' && last.variant !== 'crash') {
+            const a = last.errorMessage.trim()
+            const b = message.trim()
+            if (a.includes(b) || b.includes(a)) {
+                items[items.length - 1] = { ...last, errorMessage: a.length <= b.length ? a : b }
+                return
+            }
+        }
+        // A follow-up that failed to deliver earlier in this turn was a symptom of this error, so the
+        // undelivered card folds into the real one instead of standing next to it.
+        const turnStart = items.findLastIndex((item) => item.type === 'human_message')
+        const undeliveredIdx = items.findIndex(
+            (item, index) => index > turnStart && item.type === 'error' && item.variant === 'undelivered'
+        )
+        if (undeliveredIdx !== -1) {
+            items.splice(undeliveredIdx, 1)
+        }
+        items.push({
+            id: `error-${errorSeq++}`,
+            type: 'error',
+            errorMessage: message,
+            variant,
+            ...(undeliveredIdx !== -1 ? { undeliveredMessage: true } : {}),
+            ...(sourceRunId ? { sourceRunId } : {}),
+        })
+    }
     for (const { entry, source } of entries) {
+        entryRunId = entry.source_run_id ?? options.pendingMessage?.runId
+        if (
+            options.pendingMessage &&
+            entryRunId === options.pendingMessage.runId &&
+            pendingInsertionIndex === undefined
+        ) {
+            pendingInsertionIndex = items.length
+        }
         const notification = entry.notification
         const method = notification.method
         const params = (notification.params ?? {}) as Record<string, unknown>
+        if (method === '_posthog/run_started') {
+            importedRun = params.imported === true
+        }
+        const updateMeta = isRecord(params.update) && isRecord(params.update._meta) ? params.update._meta : null
+        const recordedAt = entry.timestamp ? Date.parse(entry.timestamp) : NaN
+        timestamp = !importedRun && !updateMeta?.imported && Number.isFinite(recordedAt) ? recordedAt : undefined
 
         if (method === '_client/human_message') {
             pushHuman(String(params.content ?? ''))
@@ -1227,23 +1374,46 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             continue
         }
         if (method === '_posthog/error') {
-            items.push({
-                id: `error-${errorSeq++}`,
-                type: 'error',
-                errorMessage: String(params.message ?? notification.error?.message ?? 'Agent error'),
-                variant: 'error',
-            })
+            pushError(
+                String(params.message ?? notification.error?.message ?? 'Agent error'),
+                'error',
+                entry.source_run_id
+            )
             continue
         }
         if (method === '_posthog/turn_complete') {
             const traceId = typeof params.traceId === 'string' ? params.traceId : undefined
-            items.push({ id: `turn-${separatorSeq++}`, type: 'turn_separator', ...(traceId && { traceId }) })
+            items.push({
+                id: `turn-${separatorSeq++}`,
+                type: 'turn_separator',
+                ...(traceId && { traceId }),
+                ...(timestamp !== undefined && { startedAt: timestamp }),
+            })
             continue
         }
         if (method === '_posthog/progress') {
             const group = stringifyOptional(params.group)
             const step = stringifyOptional(params.step)
             const label = stringifyOptional(params.label)
+            if (step === 'followup_delivery' && normalizeProgressStatus(params.status) === 'failed') {
+                // The undelivered follow-up is a consequence of the run's error, so it rides the error
+                // card instead of a second failed row. Without a preceding error it becomes the card.
+                items = items.filter((item) => !(item.type === 'progress' && item.progressGroup === group))
+                const last = items[items.length - 1]
+                if (last?.type === 'error' && last.variant !== 'crash') {
+                    items[items.length - 1] = { ...last, undeliveredMessage: true }
+                } else {
+                    items.push({
+                        id: `error-${errorSeq++}`,
+                        type: 'error',
+                        errorMessage: stringifyOptional(params.detail) ?? label ?? 'Message not delivered',
+                        variant: 'undelivered',
+                        undeliveredMessage: true,
+                        ...(entry.source_run_id ? { sourceRunId: entry.source_run_id } : {}),
+                    })
+                }
+                continue
+            }
             if (group && step && label) {
                 const detail = stringifyOptional(params.detail)
                 const nextStep: ProgressStep = {
@@ -1319,6 +1489,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
                 type: 'task_notification',
                 status: stringifyOptional(params.status),
                 summary: stringifyOptional(params.summary),
+                ...(timestamp !== undefined && { startedAt: timestamp, endedAt: timestamp }),
             })
             continue
         }
@@ -1370,6 +1541,16 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             }
             continue
         }
+        if (sessionUpdate === 'error') {
+            // The Claude adapter reports a stopped run only through this frame; Codex sends it and a
+            // `_posthog/error` with the same text, which `pushError` folds into one card.
+            pushError(
+                String(update.message ?? 'The agent stopped before completing this request.'),
+                'error',
+                entry.source_run_id
+            )
+            continue
+        }
         const content = update.content as { text?: string } | undefined
         switch (sessionUpdate) {
             case 'agent_message_chunk':
@@ -1408,17 +1589,28 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         }
     }
 
+    if (options.pendingMessage && !pendingMessageSeen) {
+        // This is a display fallback, not an optimistic send; bootstrap must still read the full log.
+        items.splice(pendingInsertionIndex ?? items.length, 0, {
+            id: `pending-${options.pendingMessage.runId}-${options.pendingMessage.id}`,
+            type: 'human_message',
+            text: options.pendingMessage.text,
+            complete: true,
+        })
+    }
     return { threadItems: items, toolInvocations: invocations }
 }
 
 /**
- * Whether a folded item renders any content. Empty priming thoughts and step-less progress rows fold
- * into the thread but render nothing; drop them here so a virtualized consumer never reserves an empty,
- * gap-padded row. Tool items are always paired with an invocation (see `upsertInvocationItem`), and
- * `debug` rows are gated separately by `showDebugLogs`, so neither needs a content check here.
+ * Empty assistant messages, priming thoughts, and step-less progress rows stay in the log for folding.
+ * Hide them from the rendered thread so message wrappers and virtualized consumers cannot reserve
+ * empty bubbles or gap-padded rows. Tool items are always paired with an invocation (see
+ * `upsertInvocationItem`), and `debug` rows are gated separately by `showDebugLogs`, so neither needs
+ * a content check here.
  */
 function rendersThreadItemContent(item: ThreadItem): boolean {
     switch (item.type) {
+        case 'assistant_message':
         case 'assistant_thought':
             return !!item.text?.trim()
         case 'progress':
@@ -1449,18 +1641,20 @@ export interface runStreamLogicValues {
     currentProgress: string | null
     currentRunStatus: RunStatus | null
     currentStage: string | null
+    errorTraceIds: Map<string, string>
     foldedThread: FoldedThread
     hasGitArtifacts: boolean
+    hasThreadItems: boolean
     isBootstrapResumeRun: boolean
     isThinking: boolean
     latestTurnTraceId: string | null
     log: RunLog
     logBootstrapLoading: boolean
     pendingPermissionRequest: PermissionRequestRecord | null
+    pendingRunMessage: PendingRunMessage | null
     permissionResponseRequestIds: Set<string>
     reconnectAttempt: number
     resolvedPermissionRequestIds: Set<string>
-    resourcesUsed: ResourceProduct[]
     respondingToPermission: boolean
     runArtifacts: RunArtifacts
     runConnectionState: RunConnectionState | null
@@ -1499,6 +1693,16 @@ export interface runStreamLogicActions {
     appendEntries: (entries: StoredEntry[]) => {
         entries: StoredEntry[]
     }
+    appendResumeBoundary: () => {
+        value: true
+    }
+    attachOptimisticResume: (
+        taskId: string,
+        run: TaskRunDetailDTOApi
+    ) => {
+        run: TaskRunDetailDTOApi
+        taskId: string
+    }
     autoApprovePermissionRequest: (
         record: PermissionRequestRecord,
         optionId: string
@@ -1512,8 +1716,15 @@ export interface runStreamLogicActions {
     bootstrapReplayComplete: () => {
         value: true
     }
-    bootstrapRun: (payload: { justCreatedRun?: boolean; runId: string; taskId: string; traceId?: string }) => {
+    bootstrapRun: (payload: {
+        justCreatedRun?: boolean
+        retainedMessage?: string
+        runId: string
+        taskId: string
+        traceId?: string
+    }) => {
         justCreatedRun?: boolean | undefined
+        retainedMessage?: string | undefined
         runId: string
         taskId: string
         traceId?: string | undefined
@@ -1590,17 +1801,6 @@ export interface runStreamLogicActions {
     markTurnStarted: () => {
         value: true
     }
-    mergeResourcesUsed: (
-        products: {
-            id?: string
-            label?: string
-        }[]
-    ) => {
-        products: {
-            id?: string | undefined
-            label?: string | undefined
-        }[]
-    }
     mergeRunArtifacts: (partial: Partial<RunArtifacts>) => {
         partial: Partial<RunArtifacts>
     }
@@ -1616,6 +1816,9 @@ export interface runStreamLogicActions {
     permissionRunChanged: () => {
         value: true
     }
+    prepareResumeRun: () => {
+        value: true
+    }
     pushConversationCleared: () => {
         value: true
     }
@@ -1628,6 +1831,9 @@ export interface runStreamLogicActions {
     }
     pushHumanMessage: (content: string) => {
         content: string
+    }
+    replaceLog: (log: RunLog) => {
+        log: RunLog
     }
     reset: () => {
         value: true
@@ -1642,6 +1848,9 @@ export interface runStreamLogicActions {
         customInput?: string | undefined
         optionId: string
         requestId: string
+    }
+    rollbackOptimisticResume: () => {
+        value: true
     }
     routePermissionRequest: (
         record: PermissionRequestRecord,
@@ -1665,6 +1874,9 @@ export interface runStreamLogicActions {
     setCurrentStage: (stage: string | null) => {
         stage: string | null
     }
+    setPendingRunMessage: (message: PendingRunMessage | null) => {
+        message: PendingRunMessage | null
+    }
     setRunOpening: (opening: boolean) => {
         opening: boolean
     }
@@ -1683,6 +1895,9 @@ export interface runStreamLogicActions {
     sseReconnecting: (attempt: number) => {
         attempt: number
     }
+    startOptimisticResume: (message: string) => {
+        message: string
+    }
     startOptimisticRun: (message?: string) => {
         message: string | undefined
     }
@@ -1699,9 +1914,15 @@ export interface runStreamLogicMeta {
             permissionResponseRequestIds: Set<string>,
             pendingPermissionRequest: PermissionRequestRecord | null
         ) => boolean
-        foldedThread: (log: RunLog, isBootstrapResumeRun: boolean) => FoldedThread
+        foldedThread: (
+            log: RunLog,
+            isBootstrapResumeRun: boolean,
+            pendingRunMessage: PendingRunMessage | null
+        ) => FoldedThread
+        errorTraceIds: (threadItems: ThreadItem[]) => Map<string, string>
         latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
+        hasThreadItems: (threadItems: ThreadItem[]) => boolean
         toolInvocations: (foldedThread: FoldedThread) => Map<string, ToolInvocation>
         isThinking: (
             runStarted: boolean,
@@ -1795,10 +2016,19 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * (`dedupeBufferedAgainstHistory`) so the seam neither duplicates nor gaps. `justCreatedRun`
          * skips the `logs/` round-trip (fresh-run fast path — nothing historical to assemble).
          */
-        bootstrapRun: (payload: { taskId: string; runId: string; justCreatedRun?: boolean; traceId?: string }) =>
-            payload,
+        bootstrapRun: (payload: {
+            taskId: string
+            runId: string
+            justCreatedRun?: boolean
+            traceId?: string
+            retainedMessage?: string
+        }) => payload,
         openSseForRun: (payload: { taskId: string; runId: string; startLatest?: boolean; traceId?: string }) => payload,
-        /** Internal: the read-only replay snapshot finished loading — clears the bootstrap spinner. */
+        /**
+         * Internal: a replay snapshot finished loading and no stream will follow — clears the bootstrap
+         * spinner. Covers the read-only viewer and a live instance that bootstrapped an already-terminal
+         * run, which never opens SSE and so never gets `sseOpened` to clear the spinner for it.
+         */
         bootstrapReplayComplete: true,
         /** Internal: the live run history snapshot finished loading or was intentionally skipped. */
         bootstrapLogReady: true,
@@ -1831,6 +2061,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ingestAcpFrame: (entry: StoredLogEntry, source: FrameSource = 'live') => ({ entry, source }),
         /** Append frames to the ordered log (the single source of truth). */
         appendEntries: (entries: StoredEntry[]) => ({ entries }),
+        replaceLog: (log: RunLog) => ({ log }),
         /** Records whether the bootstrapped run is a resume run, so the projection can drop its synthetic resume prompt. */
         markBootstrapResumeRun: (value: boolean) => ({ value }),
         /**
@@ -1927,12 +2158,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * `pushHumanMessage`.
          */
         startOptimisticRun: (message?: string) => ({ message }),
+        setPendingRunMessage: (message: PendingRunMessage | null) => ({ message }),
+        startOptimisticResume: (message: string) => ({ message }),
+        appendResumeBoundary: true,
+        rollbackOptimisticResume: true,
+        attachOptimisticResume: (taskId: string, run: TaskRunDetailDTOApi) => ({ taskId, run }),
+        prepareResumeRun: true,
         /** Injects a client-side error (terminal failure / stream disconnect) into the log as a `client`-sourced entry. */
         pushErrorItem: (errorMessage: string, variant: 'error' | 'crash' = 'error') => ({ errorMessage, variant }),
         /** Echoes a `/clear` boundary the backend just recorded against a finished run, which has no stream to send it back. */
         pushConversationCleared: true,
-        /** Union the products an answer was grounded in — accumulates across the whole session. */
-        mergeResourcesUsed: (products: { id?: string; label?: string }[]) => ({ products }),
         /** Latest-wins merge of git artifacts (PR url / branch / base / repo) a run exposes. */
         mergeRunArtifacts: (partial: Partial<RunArtifacts>) => ({ partial }),
         /** Latest-wins context-usage snapshot fold (token/cost/breakdown or numeric aggregate). */
@@ -1949,10 +2184,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
             false,
             {
                 setRunOpening: (_, { opening }) => opening,
+                rollbackOptimisticResume: () => false,
                 openSseForRun: () => false,
                 sseOpened: () => false,
                 handleStreamError: () => false,
-                handleTerminalStatus: () => false,
+                handleTerminalStatus: (state, { replayedFromHistory }) => (replayedFromHistory ? state : false),
                 pushErrorItem: () => false,
                 reset: () => false,
             },
@@ -1992,6 +2228,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 reset: () => 0,
             },
         ],
+        pendingRunMessage: [
+            null as PendingRunMessage | null,
+            {
+                setPendingRunMessage: (_, { message }) => message,
+                reset: () => null,
+                startOptimisticResume: () => null,
+            },
+        ],
         currentRunStatus: [
             null as RunStatus | null,
             {
@@ -1999,6 +2243,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // flickering back to queued; only a fresh open (no/terminal status) resets.
                 openSseForRun: (state) => (state && !isTerminalRunStatus(state) ? state : 'queued'),
                 handleTerminalStatus: (_, { status }) => status,
+                // The boundary drops the status of the run being left behind, which is always a terminal
+                // one. The successor's own seed can already be here — `openSseForRun` runs before the
+                // history this reconciles — and wiping it hides the composer for the rest of the run.
+                prepareResumeRun: (state) => (state && !isTerminalRunStatus(state) ? state : null),
                 reset: () => null,
             },
         ],
@@ -2025,6 +2273,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             emptyRunLog(),
             {
                 appendEntries: (state, { entries }) => appendToRunLog(state, entries),
+                replaceLog: (_, { log }) => log,
                 reset: () => emptyRunLog(),
             },
         ],
@@ -2068,6 +2317,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
             false,
             {
                 startOptimisticRun: () => true,
+                startOptimisticResume: () => true,
+                rollbackOptimisticResume: () => false,
                 bootstrapRun: () => false,
                 reset: () => false,
             },
@@ -2171,6 +2422,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             null as string | null,
             {
                 setCurrentMode: (_, { mode }) => mode,
+                prepareResumeRun: () => null,
                 reset: () => null,
             },
         ],
@@ -2179,6 +2431,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             {
                 setCurrentProgress: (_, { progress }) => progress,
                 markTurnComplete: () => null,
+                prepareResumeRun: () => null,
                 reset: () => null,
             },
         ],
@@ -2189,6 +2442,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             null as string | null,
             {
                 setCurrentStage: (_, { stage }) => stage,
+                prepareResumeRun: () => null,
                 reset: () => null,
             },
         ],
@@ -2196,6 +2450,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             false,
             {
                 markRunStarted: () => true,
+                prepareResumeRun: () => false,
                 reset: () => false,
             },
         ],
@@ -2222,16 +2477,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 markRunStarted: () => false,
                 pushHumanMessage: () => false,
                 markTurnStarted: () => false,
+                prepareResumeRun: () => false,
                 reset: () => false,
-            },
-        ],
-        // Products the agent grounded answers in, unioned by id (first-seen order) across the whole
-        // session. NOT cleared on markTurnComplete — the bar accumulates; only a reset clears it.
-        resourcesUsed: [
-            [] as ResourceProduct[],
-            {
-                mergeResourcesUsed: (state, { products }) => mergeResourceProducts(state, products),
-                reset: () => [],
             },
         ],
         // Git artifacts a coding run exposes (PR url, working branch, base branch, repo), accumulated
@@ -2259,6 +2506,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             null as SdkSession | null,
             {
                 setSdkSession: (_, { session }) => session,
+                prepareResumeRun: () => null,
                 reset: () => null,
             },
         ],
@@ -2274,8 +2522,35 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * Memoized on `log` identity, so it recomputes only when a frame is actually appended.
          */
         foldedThread: [
-            (s) => [s.log, s.isBootstrapResumeRun],
-            (log: RunLog, isResumeRun: boolean): FoldedThread => foldLogToThread(log.entries, { isResumeRun }),
+            (s) => [s.log, s.isBootstrapResumeRun, s.pendingRunMessage],
+            (log: RunLog, isResumeRun: boolean, pendingMessage: PendingRunMessage | null): FoldedThread =>
+                foldLogToThread(log.entries, { isResumeRun, pendingMessage }),
+        ],
+        errorTraceIds: [
+            (s) => [s.threadItems],
+            (threadItems: ThreadItem[]): Map<string, string> => {
+                // An error belongs to the turn that completes after it. A turn that never completes
+                // (a failed follow-up, a run that stopped) has no trace id, so the error gets none.
+                const result = new Map<string, string>()
+                threadItems.forEach((item, index) => {
+                    if (item.type !== 'error') {
+                        return
+                    }
+                    for (let j = index + 1; j < threadItems.length; j++) {
+                        const later = threadItems[j]
+                        if (later.type === 'human_message') {
+                            break
+                        }
+                        if (later.type === 'turn_separator') {
+                            if (later.traceId) {
+                                result.set(item.id, later.traceId)
+                            }
+                            break
+                        }
+                    }
+                })
+                return result
+            },
         ],
         latestTurnTraceId: [
             (s) => [s.threadItems],
@@ -2299,6 +2574,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     (item: ThreadItem) => (item.type !== 'debug' || showDebugLogs) && rendersThreadItemContent(item)
                 ),
         ],
+        hasThreadItems: [(s) => [s.threadItems], (threadItems: ThreadItem[]): boolean => threadItems.length > 0],
         toolInvocations: [
             (s) => [s.foldedThread],
             (foldedThread: FoldedThread): Map<string, ToolInvocation> => foldedThread.toolInvocations,
@@ -2338,9 +2614,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * Stream lifecycle phase gating the bottom-of-thread thinking indicator. `provisioning` = the
          * cold-boot window — the conversations/open POST is in flight (`runOpening`), or the stream is
          * opening/open but the agent hasn't started yet (the workflow is still setting up the sandbox).
-         * `ThreadView` shows a fixed "spinning up" indicator here until a real `_posthog/progress`
-         * boot step lands (which then takes over) or `run_started` flips the phase to `thinking`. The
-         * playful gerund loader is held off until `thinking` so it never shows before a turn begins.
+         * `ThreadView` uses setup progress as the startup indicator, with a fixed fallback before steps arrive.
+         * The playful gerund loader waits for `run_started` to flip the phase to `thinking`.
          * `thinking` = the agent is working a turn (mirrors `isThinking`), and is
          * what `ThreadView` gates the gerund loader on; `idle` otherwise (terminal, errored, or
          * not yet connecting). A read-only viewer is always `idle` — it never streams.
@@ -2358,6 +2633,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // A read-only snapshot never provisions or thinks — there is no live stream behind it.
                 if (replayOnly) {
                     return 'idle'
+                }
+                if (runOpening && isTerminalRunStatus(currentRunStatus)) {
+                    return 'provisioning'
                 }
                 const connecting = sseStatus === 'connecting' || sseStatus === 'open' || sseStatus === 'reconnecting'
                 // `runOpening` covers the conversations/open POST window, before any SSE state exists.
@@ -2386,13 +2664,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 threadItems: ThreadItem[],
                 toolInvocations: Map<string, ToolInvocation>
             ): boolean => {
-                if (streamPhase !== 'thinking') {
+                if (streamPhase === 'idle') {
                     return false
                 }
                 // Scan the current turn only (items after the last separator).
                 const turnStart = threadItems.findLastIndex((item) => item.type === 'turn_separator') + 1
                 for (let i = turnStart; i < threadItems.length; i++) {
                     const item = threadItems[i]
+                    if (streamPhase === 'provisioning' && (item.type === 'progress' || item.type === 'error')) {
+                        return false
+                    }
                     // A running structured-progress activity owns the "busy" line.
                     if (item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')) {
                         return false
@@ -2469,7 +2750,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props }) => ({
-        bootstrapRun: async ({ taskId, runId, justCreatedRun }, breakpoint) => {
+        bootstrapRun: async ({ taskId, runId, justCreatedRun, retainedMessage }, breakpoint) => {
             if (cache.activeRun && (cache.activeRun.runId !== runId || cache.activeRun.taskId !== taskId)) {
                 actions.cancelPermissionDelivery()
                 actions.permissionRunChanged()
@@ -2496,6 +2777,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 breakpoint()
                 actions.markBootstrapResumeRun(isResumeRun(replayRun))
                 actions.mergeRunArtifacts(extractRunArtifacts(replayRun))
+                actions.setPendingRunMessage(readPendingRunMessage(replayRun.state, runId))
 
                 const replayResult = await fetchLogEntriesWithRetry(taskId, runId, breakpoint)
                 if (!Array.isArray(replayResult)) {
@@ -2553,6 +2835,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // Flag the run's resume-ness so the projection can drop the synthetic resume-context
             // prompt (§6) before any history frame folds.
             actions.markBootstrapResumeRun(isResumeRun(run))
+            actions.setPendingRunMessage(readPendingRunMessage(run.state, runId))
             // Surface any git artifacts the run already carries (working/base branch, an opened PR)
             // so the pre-turn header and post-turn PR card render immediately on reopen.
             actions.mergeRunArtifacts(extractRunArtifacts(run))
@@ -2588,13 +2871,52 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // The full resume-chain S3 snapshot — replayed as `replay`, so the projection renders
             // persisted human turns and side-effect telemetry stays suppressed for history.
             const history = normalizeHistory(entries, runId, isResumeRun(run))
-            history.forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
+            if (retainedMessage) {
+                // Replace the partial snapshot synchronously; ancestor lifecycle frames must not make
+                // a successor that is still provisioning appear started or finished.
+                actions.replaceLog(emptyRunLog())
+                let reachedSuccessor = false
+                history.forEach((entry) => {
+                    if (!reachedSuccessor && entry.source_run_id === runId) {
+                        actions.appendResumeBoundary()
+                        actions.prepareResumeRun()
+                        actions.permissionRunChanged()
+                        reachedSuccessor = true
+                    }
+                    actions.ingestAcpFrame(entry, 'replay')
+                })
+                if (!reachedSuccessor) {
+                    actions.appendResumeBoundary()
+                    actions.prepareResumeRun()
+                    actions.permissionRunChanged()
+                }
+                const successorItems = foldLogToThread(
+                    history
+                        .filter((entry) => entry.source_run_id === runId)
+                        .map((entry) => ({ entry, source: 'replay' })),
+                    { isResumeRun: true }
+                ).threadItems
+                if (!successorItems.some((item) => item.type === 'human_message' && item.text === retainedMessage)) {
+                    actions.pushHumanMessage(retainedMessage)
+                }
+            } else {
+                history.forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
+            }
 
             if (terminal) {
+                if (retainedMessage) {
+                    // This bootstrap is the resume attach itself, and a terminal run opens no stream, so
+                    // the provisioning window is over. A replayed terminal status alone must not clear the
+                    // flag — an ancestor's bootstrap can resolve terminal while the successor still opens.
+                    actions.setRunOpening(false)
+                }
                 // Read-only history — surface the terminal status, do not open SSE. Flag the replay
                 // so the listener records the status without re-emitting termination telemetry.
                 actions.handleTerminalStatus({ status: run.status as RunStatus, replayedFromHistory: true })
-                actions.bootstrapLogReady()
+                // `bootstrapReplayComplete`, not `bootstrapLogReady`: with no SSE to open, `sseOpened`
+                // never clears the bootstrap spinner, so a terminal run whose history folds to no
+                // renderable rows would sit on the skeleton for the instance's lifetime.
+                actions.bootstrapReplayComplete()
                 return
             }
 
@@ -3250,6 +3572,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         },
         reset: () => {
             actions.cancelPermissionDelivery()
+            cache.optimisticResume = undefined
             // `log` clears via its own reducer on `reset`, so the projection empties with it. The
             // per-frame invocation tracker mirrors the log, so it must clear alongside it.
             cache.trackedToolInvocations = undefined
@@ -3274,6 +3597,67 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (message) {
                 actions.pushHumanMessage(message)
             }
+        },
+        appendResumeBoundary: () => {
+            // A killed run can end without a turn_complete frame. Close that turn before inserting
+            // the successor's message, or the projection moves it ahead of the previous answer.
+            if (!values.turnComplete && values.log.entries.length > 0) {
+                actions.appendEntries([
+                    {
+                        entry: { type: 'notification', notification: { method: '_posthog/turn_complete', params: {} } },
+                        source: 'client',
+                    },
+                ])
+            }
+        },
+        startOptimisticResume: ({ message }) => {
+            const historyComplete = !values.logBootstrapLoading && !values.bootstrapError
+            const turnComplete = values.turnComplete
+            const previousEntryCount = values.log.entries.length
+            actions.appendResumeBoundary()
+            actions.setRunOpening(true)
+            actions.pushHumanMessage(message)
+            cache.optimisticResume = {
+                entries: values.log.entries.slice(previousEntryCount),
+                message,
+                historyComplete,
+                turnComplete,
+            } satisfies OptimisticResume
+        },
+        rollbackOptimisticResume: () => {
+            const resume = cache.optimisticResume as OptimisticResume | undefined
+            if (!resume) {
+                return
+            }
+            cache.optimisticResume = undefined
+            actions.replaceLog(
+                appendToRunLog(
+                    emptyRunLog(),
+                    values.log.entries.filter((entry) => !resume.entries.includes(entry))
+                )
+            )
+            if (resume.turnComplete) {
+                actions.markTurnComplete()
+            }
+        },
+        attachOptimisticResume: ({ taskId, run }) => {
+            const resume = cache.optimisticResume as OptimisticResume | undefined
+            if (!resume) {
+                return
+            }
+            cache.optimisticResume = undefined
+            actions.closeSse()
+            actions.prepareResumeRun()
+            actions.permissionRunChanged()
+            cache.trackedToolInvocations = undefined
+            actions.markBootstrapResumeRun(true)
+            actions.mergeRunArtifacts(extractRunArtifacts(run))
+            actions.bootstrapRun({
+                taskId,
+                runId: run.id,
+                justCreatedRun: resume.historyComplete,
+                ...(!resume.historyComplete ? { retainedMessage: resume.message } : {}),
+            })
         },
         pushHumanMessage: ({ content }) => {
             // The echo is always a live turn (replayed human turns render straight from the log), so
@@ -3440,11 +3824,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 ) {
                     actions.markPermissionRequestResolved(requestId)
                 }
-                return
-            }
-            // The agent reports, per turn, which PostHog products an answer was grounded in.
-            if (isPosthogNotification(notification, '_posthog/resources_used')) {
-                actions.mergeResourcesUsed(notification.params?.products ?? [])
                 return
             }
             // Token usage + cost + context-window breakdown. The numeric used/size aggregate that

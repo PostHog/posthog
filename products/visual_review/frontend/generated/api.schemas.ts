@@ -16,6 +16,7 @@ export interface RepoApi {
     repo_full_name: string
     baseline_file_paths: RepoApiBaselineFilePaths
     enable_pr_comments: boolean
+    debt_digest_enabled: boolean
     created_at: string
 }
 
@@ -42,8 +43,16 @@ export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]:
 export interface PatchedUpdateRepoRequestInputApi {
     /** @nullable */
     baseline_file_paths?: PatchedUpdateRepoRequestInputApiBaselineFilePaths
-    /** @nullable */
+    /**
+     * Post a pull request comment when a run finds visual changes to review.
+     * @nullable
+     */
     enable_pr_comments?: boolean | null
+    /**
+     * Post the visual review debt digest to the Slack channels of the teams that own the snapshots. Off by default. The digest goes out every Monday morning.
+     * @nullable
+     */
+    debt_digest_enabled?: boolean | null
 }
 
 export interface UserBasicInfoApi {
@@ -75,6 +84,8 @@ export interface BaselineQuarantineSummaryApi {
 export interface BaselineEntryApi {
     /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
     quarantine?: BaselineQuarantineSummaryApi | null
+    /** Accepted variants still recorded against this baseline's current hash. Unlike the 30-day and 90-day counts, this has no time window: an accepted variant keeps matching without a new record. A baseline change resets it to zero. */
+    active_variants_current_baseline: number
     identifier: string
     run_type: string
     /** @nullable */
@@ -98,6 +109,8 @@ export type BaselineTotalsApiByRunType = { [key: string]: number }
 
 export interface BaselineTotalsApi {
     by_run_type: BaselineTotalsApiByRunType
+    /** Baselines carrying three or more accepted variants of their current hash. */
+    variant_pileups: number
     all_snapshots: number
     recently_tolerated: number
     frequently_tolerated: number

@@ -14,6 +14,7 @@ import type {
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
 import { SignalScoutConfigNetworkAccessEnumApi } from 'products/signals/frontend/generated/api.schemas'
+import { MODELS } from 'products/tasks/frontend/modelCatalog.generated'
 
 import {
     dailyCronToTime,
@@ -22,7 +23,7 @@ import {
     DEFAULT_SCOUT_WEEKLY_DAY,
     getScoutScheduleMode,
     getScoutScheduleOptions,
-    prettifyScoutSkillName,
+    scoutDisplayName,
     SCOUT_CRON_MAX_LENGTH,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
@@ -45,11 +46,12 @@ interface ScoutConfigControlsProps {
 
 // The models the picker offers, a deliberate subset of the Tasks catalog the backend
 // validates pins against — growing this list is a frontend-only change.
+const SCOUT_MODEL_IDS = ['claude-sonnet-5', 'claude-opus-5', 'gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol']
+
+// Labels come from the generated catalog, so every surface names a model the same way.
 const SCOUT_MODEL_OPTIONS: { value: string | null; label: string }[] = [
     { value: null, label: 'Default' },
-    { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
-    { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
-    { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
+    ...SCOUT_MODEL_IDS.map((id) => ({ value: id, label: MODELS.find((model) => model.id === id)?.label ?? id })),
 ]
 
 interface ScoutConfigFormProps extends ScoutConfigControlsProps {
@@ -404,7 +406,7 @@ function ScoutCustomCronField({
  * its config. Irreversible, so the dialog steers users toward disable when they only want a pause.
  */
 function confirmDeleteScout(config: SignalScoutConfig, onDelete: (configId: string) => void): void {
-    const displayName = prettifyScoutSkillName(config.skill_name)
+    const displayName = scoutDisplayName(config)
     LemonDialog.open({
         title: `Delete the ${displayName} scout?`,
         description: (

@@ -4,10 +4,10 @@ This prototype keeps multiple immutable, permission-filtered catalogs in memory 
 It uses `github.com/orian/clickhouse-sql-parser` to recover table and alias context from the query. Django remains the
 authority for deciding which schema and properties belong in each catalog.
 
-For local development, start the service on its loopback listener:
+For local development, start the service on its loopback listener with Hogli:
 
 ```bash
-HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE=1 .codex/with-flox go -C services/hogql-language-service run ./cmd/server
+hogli start:hogql-lang-service
 ```
 
 Publish a permission-filtered catalog through the multitenant endpoint below before making language requests. The Go
@@ -128,7 +128,7 @@ Build the image from the service directory:
 ```bash
 docker build \
   --build-arg COMMIT_HASH="$(git rev-parse HEAD)" \
-  --tag hogql-language-service:local \
+  --tag hogql-lang-service:local \
   services/hogql-language-service
 ```
 
@@ -139,9 +139,14 @@ requires `HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS`:
 docker run --rm \
   --publish 127.0.0.1:8091:8091 \
   --env HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS=local-development-key \
-  hogql-language-service:local
+  --env MAX_CATALOGS=2 \
+  --env CATALOG_CACHE_MAX_BYTES=268435456 \
+  hogql-lang-service:local
 ```
 
 The production binary is compiled with Go 1.27.1 and `go build -trimpath`. The runtime image contains only the static
 service binary, the commit identifier, and CA certificates. BuildKit's `TARGETOS` and `TARGETARCH` arguments allow
 native `linux/amd64` and `linux/arm64` builds.
+
+Merges that change this service build and publish the `hogql-lang-service` image once, then send its digest to the
+matching Charts release. Pull requests rely on the service tests and repository Dockerfile lint checks.

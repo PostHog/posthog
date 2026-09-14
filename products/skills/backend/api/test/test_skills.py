@@ -1993,6 +1993,97 @@ class TestSkillAccessControlRBAC(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED
 
+    def _other_skill_with_object_grant(self) -> LLMSkill:
+        other = LLMSkill.objects.create(
+            team=self.team,
+            name="theirs",
+            description="d",
+            body="# x\n",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=str(other.id),
+            access_level="editor",
+            organization_member=OrganizationMembership.objects.get(user=self.member, organization=self.organization),
+        )
+        return other
+
+    @parameterized.expand(
+        [
+            ("read by name", "get", "name/make-fractals", None),
+            ("resolve by name", "get", "resolve/name/make-fractals", None),
+            ("export", "get", "name/make-fractals/export", None),
+            ("update by name", "patch", "name/make-fractals", {"description": "d2", "base_version": 1}),
+            ("archive", "post", "name/make-fractals/archive", {}),
+            ("duplicate", "post", "name/make-fractals/duplicate", {"new_name": "copy"}),
+            ("rename", "post", "name/make-fractals/rename", {"new_name": "renamed-fractals"}),
+            ("create file", "post", "name/make-fractals/files", {"path": "notes.md", "content": "x"}),
+            ("delete file", "delete", "name/make-fractals/files/SKILL.md", None),
+            ("rename file", "post", "name/make-fractals/files-rename", {"old_path": "a.md", "new_path": "b.md"}),
+        ]
+    )
+    def test_an_object_level_grant_on_one_skill_does_not_reach_another(self, _label, method, path, data):
+        self._other_skill_with_object_grant()
+
+        call = getattr(self.client, method)
+        response = call(self._url(path)) if data is None else call(self._url(path), data=data, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_an_object_level_grant_reaches_the_skill_it_was_granted_on(self):
+        other = self._other_skill_with_object_grant()
+
+        response = self.client.patch(
+            self._url(f"name/{other.name}"),
+            data={"description": "d2", "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    @parameterized.expand(
+        [(access, endpoint) for access in ("none", "viewer") for endpoint in ("list", "body", "file", "id")]
+    )
+    def test_list_and_reads_respect_individual_skill_grants(self, resource_access: str, endpoint: str) -> None:
+        self._grant_llm_skill_access(resource_access)
+        membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
+        restricted = LLMSkill.objects.create(
+            team=self.team,
+            name="aaa-restricted",
+            description="Restricted description",
+            body="Restricted instructions",
+            created_by=self.user,
+        )
+        for skill, access in [(self.skill, "viewer"), (restricted, "none")]:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="llm_skill",
+                resource_id=str(skill.id),
+                access_level=access,
+                organization_member=membership,
+            )
+            LLMSkillFile.objects.create(skill=skill, path="reference.md", content=f"Reference for {skill.name}")
+
+        if endpoint == "list":
+            response = self.client.get(self._url(), {"limit": "1", "order_by": "name"})
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["count"] == 1
+            assert [skill["name"] for skill in response.json()["results"]] == [self.skill.name]
+            return
+
+        allowed_status = status.HTTP_302_FOUND if endpoint == "id" else status.HTTP_200_OK
+        for skill, expected_status in [(self.skill, allowed_status), (restricted, status.HTTP_403_FORBIDDEN)]:
+            name = str(skill.id) if endpoint == "id" else skill.name
+            suffix = "/files/reference.md" if endpoint == "file" else ""
+            version_params: list[dict[str, int]] = [{}, {"version": 1}]
+            for params in version_params:
+                response = self.client.get(self._url(f"name/{name}{suffix}"), params)
+                assert response.status_code == expected_status, (endpoint, skill.name, params, response.content)
+
     def test_org_admin_has_full_access_without_explicit_grant(self):
         membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
         membership.level = OrganizationMembership.Level.ADMIN

@@ -1,7 +1,7 @@
 import base64
 import hashlib
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -10,6 +10,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -235,6 +237,85 @@ def _get_spend_rows(
         page += 1
 
 
+_WINDOWED_NORMALIZERS = {
+    "usage_events": _normalize_usage_event,
+    "daily_usage": _normalize_daily_usage,
+}
+
+
+@frozen
+class WindowStart:
+    start_ms: int
+    first_page: int
+
+
+def _resolve_window_start(
+    config: CursorEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[CursorResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    end_ms: int,
+) -> WindowStart:
+    """Return the first window start and page for a windowed sync.
+
+    Prefer a saved resume point; otherwise start at the incremental watermark, and fall back to
+    the default lookback for a first sync.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.window_start is not None:
+        logger.debug(f"Cursor: resuming {config.name} from window_start={resume.window_start}, page={resume.page}")
+        return WindowStart(start_ms=resume.window_start, first_page=resume.page)
+
+    if should_use_incremental_field and db_incremental_field_last_value is not None:
+        # startDate/endDate bounds are inclusive, so starting at the watermark re-fetches the
+        # rows at exactly the watermark value — merge dedupes them, and for daily_usage it also
+        # refreshes the partial day the previous sync ended on.
+        return WindowStart(start_ms=min(_to_epoch_ms(db_incremental_field_last_value), end_ms), first_page=1)
+
+    return WindowStart(
+        start_ms=end_ms - int(timedelta(days=DEFAULT_LOOKBACK_DAYS).total_seconds() * 1000), first_page=1
+    )
+
+
+def _paginate_window(
+    session: requests.Session,
+    config: CursorEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[CursorResumeConfig],
+    normalize: Callable[[dict[str, Any]], dict[str, Any]],
+    window_start: int,
+    window_end: int,
+    end_ms: int,
+    first_page: int,
+) -> Iterator[list[dict[str, Any]]]:
+    page = first_page
+    while True:
+        body = {
+            "startDate": window_start,
+            "endDate": window_end,
+            "page": page,
+            "pageSize": config.page_size,
+        }
+        data = _fetch(session, config.method, f"{CURSOR_BASE_URL}{config.path}", logger, json_body=body)
+
+        items = data.get(config.data_key) or []
+        rows = [normalize(item) for item in items]
+        has_next = _has_next_page(data, page, len(items), config.page_size)
+
+        if rows:
+            yield rows
+            # Save AFTER yielding so a crash re-yields the last batch rather than skipping it.
+            if has_next:
+                resumable_source_manager.save_state(CursorResumeConfig(window_start=window_start, page=page + 1))
+            elif window_end + 1 <= end_ms:
+                resumable_source_manager.save_state(CursorResumeConfig(window_start=window_end + 1, page=1))
+
+        if not items or not has_next:
+            break
+        page += 1
+
+
 def _get_windowed_rows(
     session: requests.Session,
     config: CursorEndpointConfig,
@@ -245,58 +326,33 @@ def _get_windowed_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     end_ms = _now_ms()
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None and resume.window_start is not None:
-        start_ms = resume.window_start
-        first_window_page = resume.page
-        logger.debug(f"Cursor: resuming {config.name} from window_start={start_ms}, page={first_window_page}")
-    else:
-        if should_use_incremental_field and db_incremental_field_last_value is not None:
-            # startDate/endDate bounds are inclusive, so starting at the watermark re-fetches the
-            # rows at exactly the watermark value — merge dedupes them, and for daily_usage it also
-            # refreshes the partial day the previous sync ended on.
-            start_ms = min(_to_epoch_ms(db_incremental_field_last_value), end_ms)
-        else:
-            start_ms = end_ms - int(timedelta(days=DEFAULT_LOOKBACK_DAYS).total_seconds() * 1000)
-        first_window_page = 1
+    window_start = _resolve_window_start(
+        config,
+        logger,
+        resumable_source_manager,
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        end_ms,
+    )
 
-    if config.name == "usage_events":
-        normalize = _normalize_usage_event
-    elif config.name == "daily_usage":
-        normalize = _normalize_daily_usage
-    else:
+    normalize = _WINDOWED_NORMALIZERS.get(config.name)
+    if normalize is None:
         raise ValueError(f"No normalizer defined for windowed endpoint: {config.name}")
 
-    for window_start, window_end in _build_windows(start_ms, end_ms):
-        page = first_window_page
-        first_window_page = 1  # only the resumed-into window starts mid-pagination
-
-        while True:
-            body = {
-                "startDate": window_start,
-                "endDate": window_end,
-                "page": page,
-                "pageSize": config.page_size,
-            }
-            data = _fetch(session, config.method, f"{CURSOR_BASE_URL}{config.path}", logger, json_body=body)
-
-            items = data.get(config.data_key) or []
-            rows = [normalize(item) for item in items]
-            has_next = _has_next_page(data, page, len(items), config.page_size)
-
-            if rows:
-                yield rows
-                # Save AFTER yielding so a crash re-yields the last batch rather than skipping it.
-                if has_next:
-                    resumable_source_manager.save_state(CursorResumeConfig(window_start=window_start, page=page + 1))
-                else:
-                    next_window = window_end + 1
-                    if next_window <= end_ms:
-                        resumable_source_manager.save_state(CursorResumeConfig(window_start=next_window, page=1))
-
-            if not items or not has_next:
-                break
-            page += 1
+    first_page = window_start.first_page
+    for start, end in _build_windows(window_start.start_ms, end_ms):
+        yield from _paginate_window(
+            session,
+            config,
+            logger,
+            resumable_source_manager,
+            normalize,
+            start,
+            end,
+            end_ms,
+            first_page,
+        )
+        first_page = 1  # only the resumed-into window starts mid-pagination
 
 
 def cursor_source(

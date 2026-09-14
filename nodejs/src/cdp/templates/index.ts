@@ -53,6 +53,7 @@ import { template as defaultTransformationTemplate } from './_transformations/de
 import { template as downsamplingTemplate } from './_transformations/downsampling/downsampling.template'
 import { template as dropEventsTemplate } from './_transformations/drop-events/drop-events.template'
 import { template as filterPropertiesTemplate } from './_transformations/filter-properties/filter-properties.template'
+import { template as flattenPropertiesTemplate } from './_transformations/flatten-properties/flatten-properties.template'
 import { template as geoipTemplate } from './_transformations/geoip/geoip.template'
 import { template as hashPropertiesTemplate } from './_transformations/hash-properties/hash-properties.template'
 import { template as ipAnonymizationTemplate } from './_transformations/ip-anonymization/ip-anonymization.template'
@@ -134,6 +135,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     urlParametersToPropertiesTemplate,
     taxonomyTemplate,
     userAgentTemplate,
+    flattenPropertiesTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_LOG: HogFunctionTemplate[] = [

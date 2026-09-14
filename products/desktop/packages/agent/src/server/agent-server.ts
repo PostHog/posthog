@@ -124,10 +124,7 @@ import { createEventIdSource } from "../utils/event-id";
 import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
-import {
-  ClaudeTokenEventRedactor,
-  redactClaudeTokens,
-} from "../utils/redact-claude-tokens";
+import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
 import { AgentBootTracker } from "./boot-phases";
 import {
@@ -162,6 +159,7 @@ const agentErrorClassificationSchema = z.enum([
   "content_block_rejection",
   "turn_ended_without_response",
   "subscription_usage_limit",
+  "task_spend_limit",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
 
@@ -205,6 +203,14 @@ const MAX_UPSTREAM_TURN_RETRIES = 2;
 const UPSTREAM_TURN_RETRY_DELAY_MS = 5_000;
 const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
+
+const POSTHOG_AI_ORIGIN_PRODUCT = "posthog_ai";
+
+export function systemPromptAppendText(
+  prompt: ClaudeCodeConfig["systemPrompt"],
+): string {
+  return (typeof prompt === "string" ? prompt : prompt?.append) ?? "";
+}
 
 export function buildCloudSessionSystemPrompt(
   cloudAppend: string,
@@ -517,7 +523,7 @@ export class AgentServer {
   private initializingSseController: SseController | null = null;
   private initializingTelemetry: OtelRunTelemetry | undefined;
   private pendingEvents: Record<string, unknown>[] = [];
-  private tokenEventRedactor = new ClaudeTokenEventRedactor();
+  private eventRedactor = new SecretEventRedactor();
   /** ACP notifications emitted by newSession/resumeSession before this.session is assigned. */
   private preSessionEvents: Record<string, unknown>[] = [];
   private deliveredMessageIds = new Set<string>();
@@ -1119,7 +1125,7 @@ export class AgentServer {
   async reportFatalError(error: unknown): Promise<void> {
     if (error instanceof CredentialRelayError && error.code === "cancelled")
       return;
-    const errorMessage = redactClaudeTokens(
+    const errorMessage = redactSecrets(
       error instanceof CredentialRelayError
         ? CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE
         : error instanceof Error
@@ -1956,6 +1962,7 @@ export class AgentServer {
       originProduct: preTask?.origin_product,
       signalReportId: preTask?.signal_report,
       aiStage: getTaskRunStateString(preTaskRun, "ai_stage"),
+      aiAgentName: getTaskRunStateString(preTaskRun, "ai_agent_name"),
       taskId: payload.task_id,
       taskRunId: payload.run_id,
       taskUserId: payload.user_id || preTask?.created_by?.id || null,
@@ -2020,12 +2027,25 @@ export class AgentServer {
       claudeCodeConfigSchema.shape.systemPrompt.safeParse(
         runState?.systemPrompt,
       );
+    const runStateSystemPromptData = runStateSystemPrompt.success
+      ? runStateSystemPrompt.data
+      : undefined;
+
+    if (
+      preTask?.origin_product === POSTHOG_AI_ORIGIN_PRODUCT &&
+      !systemPromptAppendText(runStateSystemPromptData)
+    ) {
+      this.logger.warn("posthog_ai_run_state_system_prompt_missing", {
+        runId: payload.run_id,
+        parsed: runStateSystemPrompt.success,
+      });
+    }
 
     const sessionSystemPrompt = this.buildSessionSystemPrompt(
       prUrl,
       slackThreadUrl,
       inboxReportUrl,
-      runStateSystemPrompt.success ? runStateSystemPrompt.data : undefined,
+      runStateSystemPromptData,
     );
     const codexInstructions =
       runtimeAdapter === "codex"
@@ -2110,6 +2130,7 @@ export class AgentServer {
                 )
                   ? this.config.reasoningEffort
                   : undefined,
+              serviceTier: this.config.serviceTier,
               developerInstructions: codexInstructions,
               httpHeaders: gatewayEnv.openaiCustomHeaders,
             }
@@ -4970,7 +4991,7 @@ ${commonInstructions}
     errorMessage?: string,
     options?: { errorCategory?: AgentErrorClassification },
   ): Promise<void> {
-    errorMessage = redactClaudeTokens(errorMessage);
+    errorMessage = redactSecrets(errorMessage);
     const currentSession = this.session;
     const sessionMatchesRun = currentSession?.payload.run_id === payload.run_id;
     const terminalErrorMessage = errorMessage ?? "Agent error";
@@ -5074,6 +5095,7 @@ ${commonInstructions}
     originProduct,
     signalReportId,
     aiStage,
+    aiAgentName,
     taskId,
     taskRunId,
     taskUserId,
@@ -5090,6 +5112,7 @@ ${commonInstructions}
     originProduct?: Task["origin_product"] | null;
     signalReportId?: string | null;
     aiStage?: string | null;
+    aiAgentName?: string | null;
     taskId?: string | null;
     taskRunId?: string | null;
     taskUserId?: number | null;
@@ -5146,6 +5169,8 @@ ${commonInstructions}
       task_internal: isInternal,
       signal_report_id: signalReportId,
       ai_stage: resolvedStage,
+      // The team-scoped agent name; `ai_stage` stays a bounded fleet-wide tag.
+      ai_agent_name: aiAgentName,
       task_id: taskId,
       task_run_id: taskRunId,
       task_user_id: taskUserId,
@@ -5178,6 +5203,13 @@ ${commonInstructions}
       };
       customHeaders = buildPosthogPropertiesHeaderLines(properties);
       openaiCustomHeaders = buildPosthogPropertiesHeaderRecord(properties);
+      // The Go gateway writes this into the OpenAI body's `service_tier`, which
+      // is the only way a Codex run reaches the flex or priority queue: Codex
+      // itself omits a tier its model catalogue does not advertise. Codex-only,
+      // so it rides the OpenAI record; the Claude path has no tier concept.
+      if (this.config.serviceTier) {
+        openaiCustomHeaders["X-PostHog-Service-Tier"] = this.config.serviceTier;
+      }
     } else {
       customHeaders = buildPosthogScopedPropertyHeaderLines(
         gatewayProperties,
@@ -5993,7 +6025,7 @@ ${commonInstructions}
   }
 
   private broadcastEvent(event: Record<string, unknown>): void {
-    for (const redacted of this.tokenEventRedactor.redact(event)) {
+    for (const redacted of this.eventRedactor.redact(event)) {
       this.deliverEvent(redacted);
     }
   }

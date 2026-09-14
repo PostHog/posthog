@@ -10,7 +10,7 @@ import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdow
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import { isFunnelsQuery, isMetricInsightQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel } from '~/types'
 
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
@@ -268,7 +268,7 @@ export const calculateLayouts = (
             } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
                 defaultW = 2
                 defaultH = 2
-            } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.Metric) {
+            } else if (isMetricInsightQuery(query?.query)) {
                 defaultW = 3
                 defaultH = 3
             }

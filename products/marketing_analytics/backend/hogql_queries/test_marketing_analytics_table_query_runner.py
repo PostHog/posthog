@@ -10,6 +10,7 @@ from posthog.schema import (
     ConversionGoalFilter1,
     ConversionGoalFilter3,
     DateRange,
+    IntegrationFilter,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
@@ -756,6 +757,41 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         no_spend_row = next(row for row in result.results if row[campaign_idx].value == "fall_sale_newsletter")
         assert no_spend_row[cost_idx].value is None
         assert no_spend_row[clicks_idx].value is None
+
+    def test_integration_filter_can_exclude_campaigns_with_no_ad_spend(self) -> None:
+        session_id = str(uuid7("2023-01-15"))
+        for event in ("$pageview", "purchase"):
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=session_id,
+                timestamp="2023-01-15",
+                properties={
+                    "$session_id": session_id,
+                    "utm_source": "newsletter",
+                    "utm_campaign": "fall_sale_newsletter",
+                },
+            )
+        flush_persons_and_events()
+
+        def campaigns_for(integration_filter: IntegrationFilter | None) -> set[str]:
+            query = MarketingAnalyticsTableQuery(
+                dateRange=self.default_date_range,
+                limit=DEFAULT_LIMIT,
+                offset=0,
+                properties=[],
+                drillDownLevel=MarketingAnalyticsDrillDownLevel.CAMPAIGN,
+                draftConversionGoal=self._create_test_conversion_goal(goal_id="filter_goal"),
+                integrationFilter=integration_filter,
+            )
+            result = self._create_query_runner(query).calculate()
+            assert result.columns is not None
+            campaign_idx = result.columns.index(MarketingAnalyticsBaseColumns.CAMPAIGN)
+            return {str(row[campaign_idx].value) for row in result.results}
+
+        assert "fall_sale_newsletter" in campaigns_for(None)
+        assert "fall_sale_newsletter" in campaigns_for(IntegrationFilter(includeNonIntegrated=True))
+        assert "fall_sale_newsletter" not in campaigns_for(IntegrationFilter(includeNonIntegrated=False))
 
     def test_channel_source_drill_down_emits_both_channel_and_source_columns(self):
         """The whole point of the composite level: Source survives as a column (it's excluded at
