@@ -6647,6 +6647,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_device_id_bucketing_withholds_unpinned_variant_without_device() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        // The percentages leave part of the range unassigned, so the hash picks between
+        // "test" and no variant. The variant-sum rule does not reject this today.
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "device-flag-short-variants".mock_into(),
+            filters: FlagFilters {
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: None,
+                    rollout_percentage: Some(100.0)
+                )],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![MultivariateFlagVariant {
+                        name: None,
+                        key: "test".to_string(),
+                        rollout_percentage: 50.0,
+                    }],
+                }),
+                ..Default::default()
+            },
+            bucketing_identifier: "device_id".mock_into()
+        );
+
+        let matcher = FeatureFlagMatcher::new(
+            "distinct-foo".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            !result.matches,
+            "an unpinned variant reads the hash, so it must not fall back to distinct_id"
+        );
+    }
+
+    #[tokio::test]
     async fn test_distinct_id_bucketing_ignores_device_id() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
