@@ -5,7 +5,9 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import requests
@@ -391,6 +393,27 @@ class TestCanarySampling(BaseTest):
 
         targets = sample_canary_targets_sync(ExperimentPrecomputeCanaryInputs(per_experiment_cap=10))
         assert {t.metric_uuid for t in targets} == {secondary["uuid"], saved_uuid}
+
+    def test_sampling_reads_saved_metrics_in_one_query(self):
+        self._enable_precompute()
+        for _ in range(3):
+            experiment = self._experiment([])
+            saved = ExperimentSavedMetric.objects.create(
+                team=self.team,
+                name="saved",
+                query={"uuid": str(uuid.uuid4()), "kind": "ExperimentMetric", "metric_type": "funnel"},
+            )
+            ExperimentToSavedMetric.objects.create(
+                experiment=experiment, saved_metric=saved, metadata={"type": "primary"}
+            )
+
+        with CaptureQueriesContext(connection) as ctx:
+            targets = sample_canary_targets_sync(ExperimentPrecomputeCanaryInputs(per_experiment_cap=10))
+
+        assert len(targets) == 3
+        # One prefetch on the through table; a query per experiment means the cache was bypassed.
+        link_queries = [q for q in ctx.captured_queries if "experimenttosavedmetric" in q["sql"]]
+        assert len(link_queries) == 1
 
     def test_forensics_mode_ignores_team_config_and_quotas(self):
         metrics = [_inline_metric("funnel") for _ in range(5)]
