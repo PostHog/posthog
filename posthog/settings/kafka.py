@@ -169,6 +169,13 @@ def _resolve_producer_settings(profile: str) -> dict[str, Any]:
 # Dev-local host a profile falls back to when no `*_HOSTS` env var is set.
 KAFKA_DEV_LOCAL_HOSTS = "kafka:9092"
 
+# Security protocols that make a client authenticate with SASL.
+SASL_SECURITY_PROTOCOLS = frozenset({"SASL_PLAINTEXT", "SASL_SSL"})
+
+
+class KafkaProfileConfigurationError(Exception):
+    """A cluster profile cannot build a working client."""
+
 
 @dataclass(frozen=True)
 class KafkaProfileSettings:
@@ -184,6 +191,36 @@ class KafkaProfileSettings:
     # False when `hosts` is the dev-local fallback rather than a configured value.
     # Lets callers tell a missing config apart from a real cluster address.
     hosts_configured: bool = True
+
+    @property
+    def uses_sasl(self) -> bool:
+        return self.security_protocol in SASL_SECURITY_PROTOCOLS
+
+    def check_sasl_credentials(self) -> None:
+        """Raise when the profile authenticates with SASL but a credential is unset.
+
+        librdkafka rejects such a config with `_INVALID_ARG`, and that message names
+        neither the profile nor the env var, so the reader goes after the cluster
+        instead of the config.
+        """
+        if not self.uses_sasl:
+            return
+        missing = [
+            suffix
+            for suffix, value in (
+                ("SASL_MECHANISM", self.sasl_mechanism),
+                ("SASL_USER", self.sasl_user),
+                ("SASL_PASSWORD", self.sasl_password),
+            )
+            if not value
+        ]
+        if not missing:
+            return
+        names = ", ".join(f"KAFKA_{self.name.upper()}_{suffix}" for suffix in missing)
+        raise KafkaProfileConfigurationError(
+            f"Kafka profile '{self.name}' uses {self.security_protocol}, "
+            f"but these env vars have no value: {names}. Set them, or the matching KAFKA_DEFAULT_* vars."
+        )
 
 
 def _resolve_profile(profile: str) -> KafkaProfileSettings:

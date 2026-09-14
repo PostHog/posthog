@@ -5,7 +5,7 @@ import pytest
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
-from posthog.settings.kafka import KafkaProfileSettings
+from posthog.settings.kafka import KafkaProfileConfigurationError, KafkaProfileSettings
 from posthog.temporal.dlq_replay.activities import client_kwargs, resolve_topic_profile
 
 
@@ -53,10 +53,15 @@ class TestClientKwargs:
 
 
 class TestResolveTopicProfile:
-    def test_rejects_a_sasl_profile_without_credentials(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_reports_a_router_config_error_as_non_retryable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The router rejects a SASL profile with no credentials; a retry cannot fix that."""
+
+        def raise_config_error(topic: str) -> KafkaProfileSettings:
+            raise KafkaProfileConfigurationError("KAFKA_TRACES_SASL_USER is not set")
+
         monkeypatch.setattr(
             "posthog.temporal.dlq_replay.activities.get_profile_settings",
-            lambda topic: _profile(security_protocol="SASL_SSL"),
+            raise_config_error,
         )
 
         with pytest.raises(ApplicationError) as error:
