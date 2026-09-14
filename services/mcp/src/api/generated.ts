@@ -49337,6 +49337,18 @@ export namespace Schemas {
       text: string;
     }
 
+    export interface LLMSkillSpecProblem {
+      /** Stable machine-readable code for the problem, e.g. description_too_long or file_path_collides. */
+      code: string;
+      /** What is wrong and what to change, written for the skill's author. */
+      message: string;
+      /**
+         * The bundled file the problem is about. Null when it is about the skill itself.
+         * @nullable
+         */
+      file_path: string | null;
+    }
+
     export interface LLMSkill {
       readonly id: string;
       /**
@@ -49380,6 +49392,8 @@ export namespace Schemas {
       readonly files: readonly LLMSkillFileManifest[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
+      /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+      readonly spec_problems: readonly LLMSkillSpecProblem[];
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -49465,6 +49479,8 @@ export namespace Schemas {
       files?: LLMSkillFileInput[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
+      /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+      readonly spec_problems: readonly LLMSkillSpecProblem[];
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -49597,6 +49613,8 @@ export namespace Schemas {
       readonly owners: readonly UserBasic[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
+      /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+      readonly spec_problems: readonly LLMSkillSpecProblem[];
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
