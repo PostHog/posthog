@@ -14,7 +14,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import type { TrendsQuery } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
-import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightShortId, PropertyMathType } from '~/types'
 
 import { ChartAlternatives } from './ChartAlternatives'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
@@ -218,7 +218,13 @@ describe('ChartAlternatives', () => {
                     },
                 })
             )?.title
-        ).toBe('This chart type removes the breakdown and formula')
+        ).toBe('This chart type removes the formula')
+        expect(
+            getChartDisplayChangeWarning(
+                ChartDisplayType.BoldNumber,
+                makeTrendsQuery({ breakdownFilter: { breakdown: 'browser', breakdown_type: 'event' } })
+            )
+        ).toBeNull()
         expect(
             getChartDisplayChangeWarning(
                 ChartDisplayType.WorldMap,
@@ -227,8 +233,84 @@ describe('ChartAlternatives', () => {
                 })
             )?.title
         ).toBe('This chart type changes the breakdown to Country code')
+    })
 
-        const compatibleOptions = getChartDisplayOptions({
+    it.each([
+        {
+            name: 'prefers time series siblings and Metric for a plain line chart',
+            query: makeTrendsQuery(),
+            expected: [
+                ChartDisplayType.Metric,
+                ChartDisplayType.ActionsUnstackedBar,
+                ChartDisplayType.ActionsAreaGraph,
+                ChartDisplayType.ActionsBarValue,
+            ],
+        },
+        {
+            name: 'puts the world map first for a country breakdown and skips breakdown-dropping types',
+            query: makeTrendsQuery({ breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' } }),
+            expected: [
+                ChartDisplayType.WorldMap,
+                ChartDisplayType.ActionsUnstackedBar,
+                ChartDisplayType.ActionsAreaGraph,
+                ChartDisplayType.ActionsBarValue,
+            ],
+        },
+        {
+            name: 'puts the world map first for a country filter',
+            query: makeTrendsQuery({
+                properties: [{ key: '$geoip_country_name', value: 'Germany', operator: 'exact', type: 'event' }],
+            }),
+            expected: [
+                ChartDisplayType.WorldMap,
+                ChartDisplayType.Metric,
+                ChartDisplayType.ActionsUnstackedBar,
+                ChartDisplayType.ActionsAreaGraph,
+            ],
+        },
+        {
+            name: 'puts the box plot first for a percentile series',
+            query: makeTrendsQuery({
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        math: PropertyMathType.P90,
+                        math_property: 'duration',
+                    },
+                ],
+            }),
+            expected: [
+                ChartDisplayType.BoxPlot,
+                ChartDisplayType.Metric,
+                ChartDisplayType.ActionsUnstackedBar,
+                ChartDisplayType.ActionsAreaGraph,
+            ],
+        },
+        {
+            name: 'puts the box plot first for a moving average',
+            query: makeTrendsQuery({
+                trendsFilter: { display: ChartDisplayType.ActionsLineGraph, smoothingIntervals: 7 },
+            }),
+            expected: [
+                ChartDisplayType.BoxPlot,
+                ChartDisplayType.Metric,
+                ChartDisplayType.ActionsUnstackedBar,
+                ChartDisplayType.ActionsAreaGraph,
+            ],
+        },
+        {
+            name: 'prefers other total value charts when viewing a pie chart',
+            query: makeTrendsQuery({ trendsFilter: { display: ChartDisplayType.ActionsPie } }),
+            expected: [
+                ChartDisplayType.ActionsDonut,
+                ChartDisplayType.ActionsBarValue,
+                ChartDisplayType.Metric,
+                ChartDisplayType.ActionsUnstackedBar,
+            ],
+        },
+    ])('$name', ({ query, expected }) => {
+        const options = getChartDisplayOptions({
             isTrends: true,
             hasSingleSeriesOutput: true,
             hasTrendsFormula: false,
@@ -236,12 +318,7 @@ describe('ChartAlternatives', () => {
             hasMetricInsight: true,
         })
         expect(
-            getChartAlternatives(compatibleOptions, ChartDisplayType.ActionsLineGraph, {
-                breakdown: '$geoip_country_code',
-            }).map((option) => option.display)
-        ).toEqual([ChartDisplayType.BoxPlot, ChartDisplayType.WorldMap, ChartDisplayType.Metric])
-        expect(
-            getChartAlternatives(compatibleOptions, ChartDisplayType.ActionsLineGraph).map((option) => option.display)
-        ).toEqual([ChartDisplayType.BoxPlot, ChartDisplayType.Metric, ChartDisplayType.ActionsBarValue])
+            getChartAlternatives(options, query.trendsFilter?.display, query).map((option) => option.display)
+        ).toEqual(expected)
     })
 })

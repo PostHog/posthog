@@ -40,7 +40,7 @@ export function ChartGallery({
         }))
         .filter((group) => group.previews.length > 0)
     if (unavailable.length) {
-        sections.push({ title: 'Not available for this insight', previews: unavailable })
+        sections.push({ title: 'Not available', previews: unavailable })
     }
 
     return (

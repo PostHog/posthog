@@ -29,7 +29,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../../../../frontend/src/queries/schema/schema-general'
-import { getChartAlternatives, getChartDisplayOptions } from './chartDisplayOptions'
+import { BREAKDOWN_FREE_DISPLAYS, getChartAlternatives, getChartDisplayOptions } from './chartDisplayOptions'
 import type { ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
 
 export type ChartAlternativeSource = 'gallery' | 'preview' | 'recommended'
@@ -290,7 +290,7 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
                 getChartAlternatives(
                     options,
                     currentDisplay,
-                    querySource && isTrendsQuery(querySource) ? querySource.breakdownFilter : undefined
+                    querySource && isTrendsQuery(querySource) ? querySource : null
                 ),
         ],
         currentOption: [
@@ -388,14 +388,7 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
             const previousDisplay = values.currentDisplay
             const source_ = values.querySource
             const update: Partial<TrendsQuery> = { trendsFilter: { ...source_.trendsFilter, display } }
-            if (
-                [
-                    ChartDisplayType.BoldNumber,
-                    ChartDisplayType.Metric,
-                    ChartDisplayType.CalendarHeatmap,
-                    ChartDisplayType.BoxPlot,
-                ].includes(display)
-            ) {
+            if (BREAKDOWN_FREE_DISPLAYS.has(display)) {
                 update.breakdownFilter = undefined
             }
             if (display === ChartDisplayType.BoxPlot) {

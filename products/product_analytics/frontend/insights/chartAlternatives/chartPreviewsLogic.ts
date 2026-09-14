@@ -28,17 +28,10 @@ import type {
 } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { ChartAlternativesLogicProps } from './chartAlternativesLogic'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
-import { getChartDisplayChangeWarning } from './chartDisplayOptions'
+import { BREAKDOWN_FREE_DISPLAYS, getChartDisplayChangeWarning } from './chartDisplayOptions'
 import type { ChartDisplayChangeWarning, ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
 import { RAW_TIME_SERIES_DISPLAYS, deriveChartPreview } from './chartPreviewData'
 import type { ChartPreviewFidelity } from './chartPreviewData'
-
-const BREAKDOWN_FREE_DISPLAYS = new Set<ChartDisplayType>([
-    ChartDisplayType.BoldNumber,
-    ChartDisplayType.Metric,
-    ChartDisplayType.CalendarHeatmap,
-    ChartDisplayType.BoxPlot,
-])
 
 export interface ChartPreview {
     option: ChartDisplayOption
