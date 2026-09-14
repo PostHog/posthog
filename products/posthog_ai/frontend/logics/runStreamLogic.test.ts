@@ -1,3 +1,4 @@
+import { getContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -404,6 +405,45 @@ describe('runStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.currentRunStatus).toEqual('completed')
+        })
+    })
+
+    describe('ingestAcpFrames', () => {
+        it('appends a replayed history in one log update, and still runs each frame side effect', async () => {
+            const frames: StoredLogEntry[] = [
+                notification('_posthog/run_started', {}),
+                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Hello' } }),
+                sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 't1', status: 'in_progress' }),
+                sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' }),
+                notification('_posthog/turn_complete', {}),
+            ]
+
+            // The thread projection is memoized on `log` identity, so counting how often the log changes
+            // counts how often the whole history re-folds. One append per frame makes that quadratic and
+            // freezes the tab while a long conversation opens.
+            let logUpdates = 0
+            let lastLog = logic.values.log
+            const unsubscribe = getContext().store.subscribe(() => {
+                if (logic.values.log !== lastLog) {
+                    lastLog = logic.values.log
+                    logUpdates += 1
+                }
+            })
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.ingestAcpFrames(frames, 'replay')
+                }).toFinishAllListeners()
+            } finally {
+                unsubscribe()
+            }
+
+            expect(logUpdates).toEqual(1)
+            expect(logic.values.log.entries).toHaveLength(frames.length)
+            // The batch folds and side-effects exactly like per-frame ingestion.
+            expect(logic.values.runStarted).toEqual(true)
+            expect(logic.values.turnComplete).toEqual(true)
+            expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toEqual('Hello')
+            expect(logic.values.toolInvocations.get('t1')?.status).toEqual('completed')
         })
     })
 
