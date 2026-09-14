@@ -37,13 +37,14 @@ _HEADER = pr_header_query(
     """
 )
 
-# Both reads are ordered ascending, so HogQL's default 100-row cap would drop a PR's *latest* runs
-# and transitions, which is what the timeline is for. Bounded by the PR's own shape, never paged.
+# Both reads are bounded by the PR's own shape, never paged. Newest first, so a PR that somehow
+# outgrows the cap loses its oldest runs and transitions rather than the latest ones the timeline
+# exists to show; the caller reverses the rows back into chronological order.
 _RUNS = f"""
     SELECT id, workflow_name, status, conclusion, run_started_at, updated_at
     FROM __RUNS_SOURCE__ AS r
     WHERE head_sha = {{head_sha}}
-    ORDER BY run_started_at ASC
+    ORDER BY run_started_at DESC
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
@@ -53,7 +54,7 @@ _STATE_EVENTS = f"""
     SELECT event, created_at, actor_login
     FROM __STATE_EVENTS_SOURCE__ AS se
     WHERE pr_number = {{pr_number}}
-    ORDER BY created_at ASC, id ASC
+    ORDER BY created_at DESC, id DESC
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
@@ -137,7 +138,7 @@ def query_pr_lifecycle(
             query_type="engineering_analytics.pr_lifecycle.state_events",
             placeholders={"pr_number": ast.Constant(value=pr_number)},
         )
-        for event, at, actor_login in transitions.results:
+        for event, at, actor_login in reversed(transitions.results):
             kind = _STATE_EVENT_KINDS.get(event)
             if kind is not None:
                 add(kind, at, detail=actor_login or None)
@@ -152,7 +153,7 @@ def query_pr_lifecycle(
         else None
     )
     if runs is not None:
-        for run_id, workflow_name, status, conclusion, run_started_at, updated_at in runs.results:
+        for run_id, workflow_name, status, conclusion, run_started_at, updated_at in reversed(runs.results):
             run_id = int(run_id) if run_id is not None else None
             add(PRLifecycleEventKind.CI_STARTED, run_started_at, detail=workflow_name, run_id=run_id)
             if status == "completed":
