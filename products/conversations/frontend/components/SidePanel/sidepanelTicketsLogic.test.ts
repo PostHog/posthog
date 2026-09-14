@@ -598,6 +598,37 @@ describe('sidepanelTicketsLogic', () => {
         expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(expectedIds)
     })
 
+    // The fixtures above carry no last_message_at, so ordering there falls back to created_at and
+    // cannot tell the two apart. Surfacing a reply on an older thread is what this list is for.
+    it('orders by the latest message, not the creation time', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setTickets([
+            {
+                id: 't-new-thread-quiet-since',
+                status: 'open',
+                message_count: 1,
+                created_at: '2026-07-14T00:00:00Z',
+                last_message_at: '2026-07-14T00:00:00Z',
+            },
+            {
+                id: 't-old-thread-fresh-reply',
+                status: 'open',
+                message_count: 2,
+                created_at: '2026-07-12T00:00:00Z',
+                last_message_at: '2026-07-15T00:00:00Z',
+            },
+        ] as ConversationTicket[])
+        logic.actions.setStatusFilter('all')
+
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual([
+            't-old-thread-fresh-reply',
+            't-new-thread-quiet-since',
+        ])
+    })
+
     it('counts tickets per filter for the dropdown labels', async () => {
         logic = sidepanelTicketsLogic.build()
         logic.mount()
