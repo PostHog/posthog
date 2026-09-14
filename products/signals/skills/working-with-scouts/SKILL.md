@@ -140,7 +140,9 @@ Four caveats change what the answer means:
 
 - **The window is not an attribution.** The same filter also catches the acting user's own MCP writes in that window, from Claude Code, Cursor, or any other MCP client. Narrow by scope and timestamp, then read the rows.
 - **The advanced log is gated.** `advanced-activity-logs-list` and `advanced-activity-logs-filters` need `activity_log:read` on the credential, and the advanced log trims results to the organization's audit-logs lookback. An older run can fall outside that window. The plain side-panel feed is not a substitute: it filters only by user, scope, and item, so it cannot isolate MCP writes.
-- **A dry run changes nothing.** A scout on `emit: false` never holds the grant, so it writes no rows. An empty result for a dry-run window is correct, not a gap.
+- **A dry run drops the grant, not the floor.** A scout on `emit: false` never holds the granted scopes, so it writes no rows under the scopes in the table above.
+  It keeps `notebook:write`, the floor write every scout holds, so a dry run can still create, edit, or delete a notebook.
+  Keep `Notebook` in the filter for a dry-run window.
 - **A refused write is not logged, because it never happened.** The grant is an upper bound and the acting user's own permissions still apply, so a close-out that reports a refused write will have no matching row. That is the expected pairing, not a discrepancy.
 
 ## The steering ladder
