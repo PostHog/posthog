@@ -950,6 +950,11 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "BenchRankBot": BotDefinition(
         "BenchRank", "seo_crawler", "Bot", "BenchRank", documentation_url="https://benchrank.app/bot"
     ),
+    "SEOkicks": BotDefinition(
+        "SEOkicks", "seo_crawler", "Bot", "SEOkicks", documentation_url="https://www.seokicks.de/robot.html"
+    ),
+    "SEARWEB-Crawler": BotDefinition("SEARWEB Crawler", "seo_crawler", "Bot", "SEARWEB"),
+    "RunAgentsSEO": BotDefinition("RunAgentsSEO", "seo_crawler", "Bot", "RunAgents"),
     # Social / link-preview crawlers
     "PagePeeker": BotDefinition(
         "PagePeeker", "social_crawler", "Bot", "PagePeeker", documentation_url="https://pagepeeker.com/robots/"
@@ -997,5 +1002,8 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     # HTTP clients
     "MrAnandPortfolio": BotDefinition(
         "MrAnandPortfolio", "http_client", "Bot", "mranand.com", documentation_url="https://mranand.com"
+    ),
+    "danotes/": BotDefinition(
+        "danotes", "http_client", "Bot", "danotes", documentation_url="https://github.com/rafmartom/danotes"
     ),
 }

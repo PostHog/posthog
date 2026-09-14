@@ -246,6 +246,9 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "PagePilot-SiteAudit/1.0 (+https://pagepilot-ai-24.polsia.app)",
         "double-ats-customer-discoverer/0.1 (+https://double.fyi; respectful crawler)",
         "BenchRankBot/1.0 (+https://benchrank.app/bot)",
+        "Mozilla/5.0 (compatible; SEOkicks; +https://www.seokicks.de/robot.html)",
+        "SEARWEB-Crawler/1.0 (+https://www.searweb.com/about)",
+        "Mozilla/5.0 (compatible; RunAgentsSEO/1.0; +https://runagents.co/bot)",
     ],
     "social_crawler": [
         "Mozilla/5.0 (compatible; FacebookBot/1.0; +https://developers.facebook.com/docs/sharing/webmasters/crawler)",
@@ -369,6 +372,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 zgrab/0.x",
         # Self-declared crawlers observed in production `$http_log` traffic
         "Mozilla/5.0 (compatible; MrAnandPortfolio/1.0; +https://mranand.com)",
+        "danotes/2.0 (+https://github.com/rafmartom/danotes)",
     ],
     "headless_browser": [
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/116.0.0.0 Safari/537.36",

@@ -790,6 +790,18 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'BenchRankBot',
         definition: { name: 'BenchRank', category: 'seo_crawler', trafficType: 'Bot', operator: 'BenchRank' },
     },
+    {
+        pattern: 'SEOkicks',
+        definition: { name: 'SEOkicks', category: 'seo_crawler', trafficType: 'Bot', operator: 'SEOkicks' },
+    },
+    {
+        pattern: 'SEARWEB-Crawler',
+        definition: { name: 'SEARWEB Crawler', category: 'seo_crawler', trafficType: 'Bot', operator: 'SEARWEB' },
+    },
+    {
+        pattern: 'RunAgentsSEO',
+        definition: { name: 'RunAgentsSEO', category: 'seo_crawler', trafficType: 'Bot', operator: 'RunAgents' },
+    },
     // Social / link-preview crawlers
     {
         pattern: 'PagePeeker',
@@ -852,6 +864,10 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     {
         pattern: 'MrAnandPortfolio',
         definition: { name: 'MrAnandPortfolio', category: 'http_client', trafficType: 'Bot', operator: 'mranand.com' },
+    },
+    {
+        pattern: 'danotes/',
+        definition: { name: 'danotes', category: 'http_client', trafficType: 'Bot', operator: 'danotes' },
     },
 ]
 

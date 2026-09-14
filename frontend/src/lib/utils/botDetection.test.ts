@@ -29,6 +29,10 @@ describe('botDetection', () => {
                 'wkhtmltopdf',
                 'headless_browser',
             ],
+            ['Mozilla/5.0 (compatible; SEOkicks; +https://www.seokicks.de/robot.html)', 'SEOkicks', 'seo_crawler'],
+            ['SEARWEB-Crawler/1.0 (+https://www.searweb.com/about)', 'SEARWEB Crawler', 'seo_crawler'],
+            ['Mozilla/5.0 (compatible; RunAgentsSEO/1.0; +https://runagents.co/bot)', 'RunAgentsSEO', 'seo_crawler'],
+            ['danotes/2.0 (+https://github.com/rafmartom/danotes)', 'danotes', 'http_client'],
         ])('detects bot from user agent: %s', (userAgent, expectedName, expectedCategory) => {
             const bot = detectBot(userAgent)
             expect(bot).not.toBeNull()
