@@ -69,7 +69,12 @@ class CachedFunction(Generic[P, R]):
             if self._background_refresh:
                 if not self._refreshing.get(key) and not self._refresh_is_backed_off(key, current_time):
                     self._refreshing[key] = current_time
-                    t = threading.Thread(target=refresh, kwargs={"in_background": True})
+                    t = threading.Thread(
+                        target=refresh,
+                        kwargs={"in_background": True},
+                        name="cache-for-background-refresh",
+                        daemon=True,
+                    )
                     t.start()
             else:
                 refresh(in_background=False)

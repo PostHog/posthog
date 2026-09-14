@@ -1,8 +1,9 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import timedelta
+from functools import partial
 from time import sleep
-from typing import Optional
+from typing import Any, Optional
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -109,20 +110,33 @@ def fn_background_failing() -> int:
     return failing_dependency()
 
 
+class InlineThread:
+    """Stands in for threading.Thread and runs the target inline, so the tests need no real thread."""
+
+    def __init__(
+        self,
+        started: list["InlineThread"],
+        target: Callable[..., None],
+        kwargs: dict[str, Any] | None = None,
+        name: str | None = None,
+        daemon: bool = False,
+    ) -> None:
+        self._started = started
+        self._target = target
+        self._kwargs = kwargs or {}
+        self.name = name
+        self.daemon = daemon
+
+    def start(self) -> None:
+        self._started.append(self)
+        self._target(**self._kwargs)
+
+
 @contextmanager
-def inline_threads() -> Iterator[list[None]]:
-    started: list[None] = []
+def inline_threads() -> Iterator[list[InlineThread]]:
+    started: list[InlineThread] = []
 
-    class InlineThread:
-        def __init__(self, target, kwargs=None):
-            self._target = target
-            self._kwargs = kwargs or {}
-
-        def start(self) -> None:
-            started.append(None)
-            self._target(**self._kwargs)
-
-    with patch("posthog.cache_utils.threading.Thread", InlineThread):
+    with patch("posthog.cache_utils.threading.Thread", partial(InlineThread, started)):
         yield started
 
 
@@ -142,6 +156,7 @@ class TestFailingBackgroundRefresh(SimpleTestCase):
             with inline_threads() as started:
                 assert 1 == fn_background_failing(use_cache=True)
                 assert len(started) == 1
+                assert started[0].daemon is True
 
                 assert 1 == fn_background_failing(use_cache=True)
                 assert len(started) == 1
