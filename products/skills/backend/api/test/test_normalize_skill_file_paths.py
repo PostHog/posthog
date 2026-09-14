@@ -27,7 +27,7 @@ class TestPlanSkillPaths(SimpleTestCase):
                 "collision_with_stored_path",
                 [(ROW_A, "refs\\guide.md"), (ROW_B, "refs/Guide.md")],
                 [],
-                [("refs\\guide.md", "refs/guide.md")],
+                [("refs\\guide.md", "refs/Guide.md")],
                 [],
                 False,
             ),
@@ -35,7 +35,7 @@ class TestPlanSkillPaths(SimpleTestCase):
                 "collision_between_rewrites",
                 [(ROW_A, "refs\\guide.md"), (ROW_B, "Refs\\Guide.md")],
                 [],
-                [("Refs\\Guide.md", "Refs/Guide.md"), ("refs\\guide.md", "refs/guide.md")],
+                [("Refs\\Guide.md", "refs\\guide.md"), ("refs\\guide.md", "Refs\\Guide.md")],
                 [],
                 False,
             ),
@@ -96,6 +96,8 @@ class TestNormalizeSkillFilePathsCommand(BaseTest):
         self.file.refresh_from_db()
         assert self.file.path == "references\\guide.md"
         assert "references/guide.md" in output
+        assert f"team_id={self.team.id}" in output
+        assert "name='legacy-skill'" in output
 
     def test_apply_returns_the_skill_to_the_bundle(self) -> None:
         assert self._bundle().included == []

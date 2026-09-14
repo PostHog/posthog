@@ -27,7 +27,14 @@ class SkillPathPlan:
 @frozen
 class SkillFileRows:
     skill_id: UUID
+    team_id: int
+    name: str
+    version: int
     rows: list[tuple[UUID, str]]
+
+    @property
+    def label(self) -> str:
+        return f"skill id={self.skill_id} team_id={self.team_id} name='{self.name}' version={self.version}"
 
 
 def plan_skill_paths(rows: list[tuple[UUID, str]]) -> SkillPathPlan:
@@ -37,7 +44,9 @@ def plan_skill_paths(rows: list[tuple[UUID, str]]) -> SkillPathPlan:
     they want rather than walked in arrival order, so the plan is a function of the row set alone:
     `_rows_by_skill` orders by skill id only, which leaves two rows of one skill free to arrive
     either way round. Every row of a group that two rows want is reported, and none of them is
-    rewritten — the rows hold different content, so choosing a winner would silently drop one.
+    rewritten — the rows hold different content, so choosing a winner would silently drop one. A
+    report names the stored paths of the group, because the shared destination is a path the
+    operator cannot look up.
 
     The rewrites are then kept only if the whole resulting path set passes the same gate the bundle
     uses. A rewrite turns one flat name into a directory, so `assets\\logo.png` beside a file named
@@ -59,7 +68,10 @@ def plan_skill_paths(rows: list[tuple[UUID, str]]) -> SkillPathPlan:
     collisions: list[tuple[str, str]] = []
     for group in claimants.values():
         if len(group) > 1:
-            collisions.extend((path, canonical) for _, path, canonical in group if canonical != path)
+            stored = sorted(path for _, path, _ in group)
+            for _, path, canonical in group:
+                if canonical != path:
+                    collisions.extend((path, conflict) for conflict in stored if conflict != path)
             continue
         row_id, path, canonical = group[0]
         if canonical != path:
@@ -97,22 +109,20 @@ class Command(BaseCommand):
                 unsafe += 1
                 self.stdout.write(
                     self.style.WARNING(
-                        f"skill {skill_files.skill_id}: left alone — the rewritten paths would still be unsafe to clone"
+                        f"{skill_files.label}: left alone — the rewritten paths would still be unsafe to clone"
                     )
                 )
-            for path, canonical in plan.collisions:
+            for path, conflict in plan.collisions:
                 collided += 1
                 self.stdout.write(
-                    self.style.WARNING(f"skill {skill_files.skill_id}: '{path}' would collide with '{canonical}'")
+                    self.style.WARNING(f"{skill_files.label}: '{path}' would collide with stored '{conflict}'")
                 )
             for path, reason in plan.unfixable:
                 unfixable += 1
-                self.stdout.write(
-                    self.style.WARNING(f"skill {skill_files.skill_id}: '{path}' has no canonical form — {reason}")
-                )
+                self.stdout.write(self.style.WARNING(f"{skill_files.label}: '{path}' has no canonical form — {reason}"))
             for _, path, canonical in plan.rewrites:
                 rewritten += 1
-                self.stdout.write(f"skill {skill_files.skill_id}: '{path}' -> '{canonical}'")
+                self.stdout.write(f"{skill_files.label}: '{path}' -> '{canonical}'")
             if apply and plan.rewrites:
                 self._apply(skill_files.skill_id, plan.rewrites)
 
@@ -144,7 +154,8 @@ class Command(BaseCommand):
         """Yield each skill's `(row id, path)` pairs as one group.
 
         Ordering by skill id makes the rows arrive grouped, so collision checking sees a whole
-        skill without one query per skill.
+        skill without one query per skill. The skill's team, name and version join onto the same
+        query, so a reported row names a skill an operator can find without a second lookup.
 
         `chunk_size` bounds the fetch only where server-side cursors are on. Cloud sets
         `DISABLE_SERVER_SIDE_CURSORS` behind PgBouncer, so `.iterator()` buffers the whole result
@@ -155,6 +166,18 @@ class Command(BaseCommand):
         files = LLMSkillFile.objects.all()
         if team_id is not None:
             files = files.filter(skill__team_id=team_id)
-        rows = files.order_by("skill_id").values_list("id", "skill_id", "path").iterator(chunk_size=READ_CHUNK_SIZE)
+        rows = (
+            files.order_by("skill_id")
+            .values_list("id", "skill_id", "skill__team_id", "skill__name", "skill__version", "path")
+            .iterator(chunk_size=READ_CHUNK_SIZE)
+        )
         for skill_id, group in groupby(rows, key=lambda row: row[1]):
-            yield SkillFileRows(skill_id=skill_id, rows=[(row_id, path) for row_id, _, path in group])
+            grouped = list(group)
+            _, _, skill_team_id, name, version, _ = grouped[0]
+            yield SkillFileRows(
+                skill_id=skill_id,
+                team_id=skill_team_id,
+                name=name,
+                version=version,
+                rows=[(row_id, path) for row_id, _, _, _, _, path in grouped],
+            )
