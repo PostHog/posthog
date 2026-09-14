@@ -26,6 +26,7 @@ block, advisories never do); the fix loop is ``--fix`` — see the running-ci-pr
 from __future__ import annotations
 
 import os
+import re
 import json
 import time
 import shutil
@@ -36,6 +37,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+import yaml
 import click
 from hogli import telemetry
 from hogli.hooks import telemetry_property_hooks
@@ -294,25 +296,50 @@ class CompanionCheck:
     exact_mirror: bool = False
 
 
-# Duplicated from .github/workflows/ci-backend-shadow-drift.yml so the failure lands
-# pre-push instead of a CI round-trip. A test binds the two so they cannot drift.
-COMPANION_CHECKS: list[CompanionCheck] = [
-    CompanionCheck(
-        key="shadow-drift",
-        label="depot shadow drift (.depot mirror of ci-backend.yml)",
-        source=".github/workflows/ci-backend.yml",
-        companion=".depot/workflows/ci-backend.yml",
-        escape_hatch="document it as an intentional delta in that file's header",
-    ),
-    CompanionCheck(
-        key="paths-filter-shadow-drift",
-        label="depot paths-filter drift (.depot mirror of the canonical action)",
-        source=".github/actions/paths-filter/**",
-        companion=".depot/actions/paths-filter/**",
-        escape_hatch="mirror the canonical action change",
-        exact_mirror=True,
-    ),
-]
+SHADOW_DRIFT_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci-backend-shadow-drift.yml"
+DEPOT_DIR = REPO_ROOT / ".depot"
+# Keep equal to the grep pattern in SHADOW_DRIFT_WORKFLOW, so both derive the same mirror set.
+DEPOT_ACTION_USE = re.compile(r"""uses:\s*['"]?\./\.(?:github|depot)/actions/([A-Za-z0-9_.-]+)""")
+
+
+def _companion_checks() -> list[CompanionCheck]:
+    """Mirror pairs enforced by SHADOW_DRIFT_WORKFLOW, so the failure lands pre-push instead of a CI round-trip.
+
+    The pairs come from the same sources the workflow reads: every `./.depot/actions/<name>` that a
+    Depot YAML file uses, and the workflow's DELTA_MIRRORS env. A new mirror needs no edit here.
+    """
+    workflow = yaml.safe_load(SHADOW_DRIFT_WORKFLOW.read_text())
+    delta_mirrors = set(workflow["jobs"]["check"]["env"]["DELTA_MIRRORS"].split())
+    mirrors = sorted(
+        {
+            action
+            for path in DEPOT_DIR.rglob("*")
+            if path.suffix in {".yml", ".yaml"} and path.is_file()
+            for action in DEPOT_ACTION_USE.findall(path.read_text())
+        }
+    )
+    return [
+        CompanionCheck(
+            key="shadow-drift",
+            label="depot shadow drift (.depot mirror of ci-backend.yml)",
+            source=".github/workflows/ci-backend.yml",
+            companion=".depot/workflows/ci-backend.yml",
+            escape_hatch="document it as an intentional delta in that file's header",
+        ),
+        *(
+            CompanionCheck(
+                key=f"{action}-shadow-drift",
+                label=f"depot {action} drift (.depot mirror of the canonical action)",
+                source=f".github/actions/{action}/**",
+                companion=f".depot/actions/{action}/**",
+                escape_hatch="document it as an intentional delta in the mirror's header"
+                if action in delta_mirrors
+                else "mirror the canonical action change",
+                exact_mirror=action not in delta_mirrors,
+            )
+            for action in mirrors
+        ),
+    ]
 
 
 def _has_node_modules() -> bool:
@@ -737,7 +764,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
             triggered.append(chk)
     triggered_companions = [
         companion
-        for companion in COMPANION_CHECKS
+        for companion in _companion_checks()
         if any(
             matches_globs(path, [companion.source])
             or (companion.exact_mirror and matches_globs(path, [companion.companion]))

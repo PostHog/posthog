@@ -6,7 +6,7 @@ name: Backend CI shadow drift check
 # without this check, canonical drifts silently and the Depot timing trial stops
 # measuring the same work.
 #
-# Cheap to run — only triggers when one of the mirrored paths changes, so it costs ~nothing.
+# Cheap to run: it triggers only on changes to the backend workflows, local actions, Depot files, or this file.
 # Always enforced (no variable gate): keeping the depot mirror in sync with canonical is
 # a structural invariant worth holding whether or not the shadow is currently sampling —
 # you want them already in sync the moment the shadow is switched on. The sampling rate
@@ -16,22 +16,10 @@ name: Backend CI shadow drift check
 on:
     pull_request:
         paths:
+            - .github/workflows/ci-backend-shadow-drift.yml
             - .github/workflows/ci-backend.yml
-            - .depot/workflows/ci-backend.yml
-            - .github/actions/paths-filter/**
-            - .depot/actions/paths-filter/**
-            - .github/actions/pnpm-install/**
-            - .depot/actions/pnpm-install/**
-            - .github/actions/setup-pnpm/**
-            - .depot/actions/setup-pnpm/**
-            - .github/actions/setup-python-cached/**
-            - .depot/actions/setup-python-cached/**
-            - .github/actions/setup-sqlx-cli/**
-            - .depot/actions/setup-sqlx-cli/**
-            - .github/actions/setup-turbo/**
-            - .depot/actions/setup-turbo/**
-            - .github/actions/setup-uv/**
-            - .depot/actions/setup-uv/**
+            - .github/actions/**
+            - .depot/**
 
 permissions:
     contents: read
@@ -48,6 +36,10 @@ jobs:
         # `actions/checkout` defaults to depth=1 (HEAD only); a full-history clone is unnecessary
         # — we only need to diff two SHAs.
         timeout-minutes: 5
+        # `hogli ci:preflight` reads DELTA_MIRRORS from this job-level env to enforce the same
+        # mirror pairs before a push. Moving or renaming it breaks that check.
+        env:
+            DELTA_MIRRORS: pnpm-install setup-pnpm
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - name: Compare PR diff scope
@@ -59,11 +51,13 @@ jobs:
                   # is the merge commit — diffing BASE_SHA..HEAD gives the PR's effective
                   # changes. We only need to fetch BASE_SHA (HEAD is already local).
                   git fetch --no-tags --depth=100 origin "$BASE_SHA"
-                  # Every local action the depot workflow uses has a mirror under .depot/actions.
-                  # The first group is kept byte-identical to canonical; the second carries
-                  # intentional deltas documented in each mirror's header.
-                  equal_mirrors="paths-filter setup-python-cached setup-sqlx-cli setup-turbo setup-uv"
-                  delta_mirrors="pnpm-install setup-pnpm"
+                  # Depot resolves both `./.github/actions/<name>` and `./.depot/actions/<name>` from
+                  # .depot/actions/<name>. Every local action that a Depot YAML file uses therefore
+                  # needs a mirror there, so a mirror that is still in use cannot be deleted.
+                  # Mirrors in DELTA_MIRRORS carry intentional deltas documented in each mirror's
+                  # header. Every other mirror stays byte-identical to canonical. ci:preflight
+                  # derives the same set with the same pattern (DEPOT_ACTION_USE in ci_preflight.py).
+                  mirrors=$({ grep -rhoE --include='*.yml' --include='*.yaml' "uses:[[:space:]]*['\"]?\./\.(github|depot)/actions/[A-Za-z0-9_.-]+" .depot || true; } | sed 's#.*/##' | sort -u)
                   changed=$(git diff --name-only "$BASE_SHA" HEAD -- \
                       .github/workflows/ci-backend.yml \
                       .depot/workflows/ci-backend.yml \
@@ -79,7 +73,11 @@ jobs:
                      ! echo "$changed" | grep -Fxq '.github/workflows/ci-backend.yml'; then
                       echo "::notice::Only the depot shadow changed. That is allowed (e.g. tuning a depot-only knob), but worth a glance from the reviewer."
                   fi
-                  for action in $equal_mirrors $delta_mirrors; do
+                  for action in $mirrors; do
+                      if [ ! -d ".depot/actions/$action" ]; then
+                          echo "::error::A Depot file uses ./.depot/actions/$action, but that mirror does not exist."
+                          exit 1
+                      fi
                       for canonical_file in $(echo "$changed" | grep "^\.github/actions/$action/" || true); do
                           mirror_file=".depot/actions/$action/${canonical_file#".github/actions/$action/"}"
                           if ! echo "$changed" | grep -Fxq "$mirror_file"; then
@@ -88,8 +86,9 @@ jobs:
                               exit 1
                           fi
                       done
-                  done
-                  for action in $equal_mirrors; do
+                      case " $DELTA_MIRRORS " in
+                          *" $action "*) continue ;;
+                      esac
                       if ! diff -qr ".github/actions/$action" ".depot/actions/$action"; then
                           echo "::error::The Depot $action action differs from its canonical copy."
                           exit 1

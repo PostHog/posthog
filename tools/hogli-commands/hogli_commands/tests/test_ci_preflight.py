@@ -9,13 +9,7 @@ from click.testing import CliRunner
 from hogli.cli import cli
 from hogli.manifest import REPO_ROOT
 from hogli_commands.change_detection import matches_globs
-from hogli_commands.ci_preflight import (
-    COMPANION_CHECKS,
-    DIFF_CHECKS,
-    _pnpm_workspace_root,
-    _run_workspace_scoped,
-    _staleness_risks,
-)
+from hogli_commands.ci_preflight import DIFF_CHECKS, _pnpm_workspace_root, _run_workspace_scoped, _staleness_risks
 
 runner = CliRunner()
 
@@ -347,6 +341,12 @@ class TestShadowDriftCompanion:
                 "both files updated",
             ),
             ([".depot/actions/paths-filter/src/main.ts"], 0, "both files updated"),
+            ([".github/actions/setup-uv/action.yml"], 1, "mirror the change into .depot/actions/setup-uv/**"),
+            (
+                [".github/actions/pnpm-install/action.yml", ".depot/actions/pnpm-install/action.yml"],
+                0,
+                "both files updated",
+            ),
         ],
     )
     @patch("hogli_commands.ci_preflight._emit_telemetry")
@@ -371,14 +371,3 @@ class TestShadowDriftCompanion:
             assert expected_fragment in result.output
         else:
             assert "shadow-drift" not in result.output
-
-    def test_pair_matches_workflow(self) -> None:
-        import yaml
-        from hogli.manifest import REPO_ROOT
-
-        workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci-backend-shadow-drift.yml").read_text())
-        # `on` parses as the boolean True in YAML 1.1.
-        watched = set(workflow[True]["pull_request"]["paths"])
-        companion_paths = {path for companion in COMPANION_CHECKS for path in (companion.source, companion.companion)}
-
-        assert watched == companion_paths
