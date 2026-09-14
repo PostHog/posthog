@@ -41,6 +41,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
+    "products.ai_training.backend.apps.AiTrainingConfig",
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
@@ -1331,6 +1332,10 @@ WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS: list[int] = [
 # Sized well above any realistic team; 0 disables the cap.
 WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM: int = get_from_env(
     "WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM", 1000, type_cast=int
+)
+
+WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY: int = get_from_env(
+    "WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY", 4, type_cast=int
 )
 
 # Cohort the weekly AI path-cleaning-suggestion job runs for. Defaults to the precompute enrollment

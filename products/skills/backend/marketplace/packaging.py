@@ -171,18 +171,6 @@ def build_skill_stub_tree(stub: SkillStub) -> FileTree:
     return {"SKILL.md": render_skill_stub_md(stub)}
 
 
-def validate_for_export(skill: SkillExport) -> list[str]:
-    """Return spec-compliance problems that should block or warn on export. Empty == clean."""
-    problems: list[str] = []
-    if len(skill.description) > SPEC_DESCRIPTION_MAX_LENGTH:
-        problems.append(
-            f"description is {len(skill.description)} characters; the spec maximum is {SPEC_DESCRIPTION_MAX_LENGTH}"
-        )
-    if not skill.description.strip():
-        problems.append("description is required and must be non-empty")
-    return problems
-
-
 # OpenAI Codex reads this optional sidecar for UI metadata + tool deps; every other agent
 # ignores it. Generated into the tree so the same artifact is first-class in Codex too.
 CODEX_METADATA_PATH = "agents/openai.yaml"
