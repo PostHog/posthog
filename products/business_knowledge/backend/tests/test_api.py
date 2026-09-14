@@ -22,14 +22,14 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         super().setUp()
         self.url = f"/api/projects/{self.team.id}/business_knowledge/sources/"
 
-    def _create_generated_source(self) -> str:
+    def _create_generated_source(self, *, source_team_id: int | None = None) -> str:
         result = logic.create_generated_knowledge_document(
             logic.CreateGeneratedKnowledgeDocument(
                 team_id=self.team.id,
                 provider="conversations",
                 ticket_id=UUID("10000000-0000-0000-0000-000000000001"),
                 ticket_number=42,
-                source_team_id=self.team.id,
+                source_team_id=source_team_id if source_team_id is not None else self.team.id,
                 resolution_comment_id=UUID("20000000-0000-0000-0000-000000000002"),
                 analysis_version="post_resolution_v1",
                 title="Refund policy",
@@ -51,6 +51,8 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         assert body["status"] == "ready"
         assert body["document_count"] == 1
         assert body["chunk_count"] >= 1
+        assert body["learned_from_ticket_number"] is None
+        assert body["learned_from_ticket_url"] is None
         # Denormalized team_id landed on child rows.
         source = KnowledgeSource.objects.unscoped().get(id=body["id"])
         assert KnowledgeDocument.objects.unscoped().filter(source=source, team=self.team).count() == 1
@@ -168,27 +170,95 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         assert results[0]["id"] == source_id
         assert results[0]["source_type"] == "text"
         assert results[0]["is_generated"] is True
+        assert results[0]["name"] == "Refund policy"
+        assert results[0]["learned_from_ticket_number"] == 42
+        assert results[0]["learned_from_ticket_url"].endswith(f"/project/{self.team.id}/support/tickets/42")
 
-    @parameterized.expand(
-        [
-            ("update", "patch", "", {"name": "Changed"}),
-            ("refresh", "post", "refresh/", None),
-            ("delete", "delete", "", None),
-            ("raw_text", "get", "text/", None),
-        ]
-    )
-    def test_generated_source_is_read_only(self, _ff, _name, method, suffix, body) -> None:
-        source_id = self._create_generated_source()
+    def test_generated_source_ticket_url_uses_the_ticket_environment(self, _ff) -> None:
+        from posthog.models.team import Team
 
-        request_method = getattr(self.client, method)
-        response = (
-            request_method(f"{self.url}{source_id}/{suffix}", body, format="json")
-            if body is not None
-            else request_method(f"{self.url}{source_id}/{suffix}")
+        child_team = Team.objects.create(
+            organization=self.organization,
+            parent_team=self.team,
+            project=self.team.project,
+            name="Child environment",
+        )
+        self._create_generated_source(source_team_id=child_team.id)
+
+        response = self.client.get(self.url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["learned_from_ticket_url"].endswith(
+            f"/project/{child_team.id}/support/tickets/42"
         )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert KnowledgeSource.objects.unscoped().filter(id=source_id).exists()
+    def test_generated_source_text_can_be_read_and_updated(self, _ff) -> None:
+        source_id = self._create_generated_source()
+
+        text_response = self.client.get(f"{self.url}{source_id}/text/")
+        patch_response = self.client.patch(
+            f"{self.url}{source_id}/",
+            {"name": "Refund policy", "text": "Updated refund window."},
+            format="json",
+        )
+
+        assert text_response.status_code == status.HTTP_200_OK
+        assert text_response.json()["text"] == "Refunds are available within 30 days."
+        assert patch_response.status_code == status.HTTP_200_OK, patch_response.content
+        assert patch_response.json()["name"] == "Refund policy"
+        document = KnowledgeDocument.objects.unscoped().get(source_id=source_id)
+        assert document.content == "Updated refund window."
+        assert document.metadata["edited_by_user"] is True
+
+    def test_generated_source_update_without_document_is_rejected(self, _ff) -> None:
+        source_id = self._create_generated_source()
+        KnowledgeDocument.objects.unscoped().filter(source_id=source_id).delete()
+
+        text_response = self.client.get(f"{self.url}{source_id}/text/")
+        response = self.client.patch(
+            f"{self.url}{source_id}/",
+            {"text": "Updated refund window."},
+            format="json",
+        )
+
+        assert text_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_generated_source_with_multiple_documents_cannot_be_updated(self, _ff) -> None:
+        source_id = self._create_generated_source()
+        source = KnowledgeSource.objects.unscoped().get(id=source_id)
+        extra_id = UUID("30000000-0000-0000-0000-000000000003")
+        KnowledgeDocument.objects.unscoped().create(
+            id=extra_id,
+            team_id=self.team.id,
+            source=source,
+            stable_id=str(extra_id),
+            title="Second topic",
+            content="Second topic body.",
+            content_hash="abc",
+        )
+
+        text_response = self.client.get(f"{self.url}{source_id}/text/")
+        patch_response = self.client.patch(
+            f"{self.url}{source_id}/",
+            {"text": "Updated refund window."},
+            format="json",
+        )
+
+        assert text_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert text_response.json()["detail"] == logic.GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE
+        assert patch_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert patch_response.json()["detail"] == logic.GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE
+        assert KnowledgeDocument.objects.unscoped().filter(source_id=source_id).count() == 2
+        assert KnowledgeDocument.objects.unscoped().get(id=extra_id).content == "Second topic body."
+
+    def test_generated_source_can_be_deleted(self, _ff) -> None:
+        source_id = self._create_generated_source()
+
+        response = self.client.delete(f"{self.url}{source_id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not KnowledgeSource.objects.unscoped().filter(id=source_id).exists()
 
     def test_generated_refresh_is_rejected_before_processing_source_checks(self, _ff) -> None:
         source_id = self._create_generated_source()
