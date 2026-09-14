@@ -3236,6 +3236,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // chaining can help. `contentDocument` returns null for that frame instead.
                 const iframeDocument = iframe?.contentDocument
                 if (!iframeDocument) {
+                    // Media captured from an earlier document must not be resumed once that document is gone.
+                    cache.pausedMediaElements = []
                     return
                 }
 
