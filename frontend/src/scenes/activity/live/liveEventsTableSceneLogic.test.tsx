@@ -54,4 +54,21 @@ describe('liveEventsTableSceneLogic', () => {
         await waitFor(() => expect(screen.getByText(FATAL_ERROR.message)).toBeInTheDocument())
         expect(screen.queryByText(TRANSPORT_ERROR.message)).not.toBeInTheDocument()
     })
+
+    it.each([
+        ['the first healthy open', false],
+        ['recovering from an earlier error', true],
+    ])('still reports a failure that follows %s', async (_label, hadEarlierError) => {
+        render(<ToastContainer />)
+
+        if (hadEarlierError) {
+            logic.actions.streamErrored(TRANSPORT_ERROR)
+            await waitFor(() => expect(screen.getByText(TRANSPORT_ERROR.message)).toBeInTheDocument())
+        }
+        logic.actions.streamConnected()
+
+        logic.actions.streamErrored(FATAL_ERROR)
+
+        await waitFor(() => expect(screen.getByText(FATAL_ERROR.message)).toBeInTheDocument())
+    })
 })
