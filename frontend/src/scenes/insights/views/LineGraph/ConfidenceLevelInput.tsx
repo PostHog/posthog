@@ -6,9 +6,10 @@ import { LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { isTrendsQuery } from '~/queries/utils'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 export function ConfidenceLevelInput(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

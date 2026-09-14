@@ -1,4 +1,3 @@
-import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightModel, InsightType } from '~/types'
 
 import { extractValidationErrorCode, getQueryBasedInsightModel } from './utils'
@@ -57,21 +56,14 @@ describe('getQueryBasedInsightModel', () => {
         expect(result.dashboards).toEqual(expected)
     })
 
-    it.each([
-        ['converts stored filters when the insight has no query', InsightType.TRENDS],
-        ['reads a filter object with no insight type as trends', undefined],
-    ])('%s', (_name, insightType) => {
-        // Insights written before queries are served as `filters` with a null `query`, and this
-        // conversion is the only thing that renders them. A stored object can omit the type, which
-        // the server's converter also reads as trends.
+    it('drops stored filters rather than converting them', () => {
+        // A blank insight is the accepted outcome here, not a fault: saving one writes a query.
         const result = getQueryBasedInsightModel({
             query: null,
-            filters: { insight: insightType, events: [{ id: '$pageview' }] },
+            filters: { insight: InsightType.TRENDS, events: [{ id: '$pageview' }] },
         } as Partial<InsightModel>)
 
-        expect(result.query).toMatchObject({
-            kind: NodeKind.InsightVizNode,
-            source: { kind: NodeKind.TrendsQuery },
-        })
+        expect(result.query).toBeNull()
+        expect(result).not.toHaveProperty('filters')
     })
 })

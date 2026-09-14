@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { IconCheck } from '@posthog/icons'
 import { LemonInput, Spinner } from '@posthog/lemon-ui'
 
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'

@@ -2524,6 +2524,20 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
+    def signal_agent_turn_completed(self) -> None:
+        import asyncio
+
+        from posthog.temporal.common.client import sync_connect
+
+        from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(self.workflow_id)
+            asyncio.run(handle.signal(ProcessTaskWorkflow.agent_state_changed, arg=False))
+        except Exception as e:
+            logger.warning("task_run.turn_completed_signal_failed", task_run_id=str(self.id), error=str(e))
+
     def signal_agent_boot_milestone(
         self, milestone: Literal["agent_command_dispatched", "agent_activity_observed"]
     ) -> bool:
@@ -2803,6 +2817,30 @@ class TaskRun(models.Model):
             props["benjamin_version"] = benjamin_version
         return props
 
+    def analytics_properties(self) -> dict:
+        """Run context shared by run events and GitHub PR attribution."""
+        return {
+            "task_id": str(self.task_id),
+            "run_id": str(self.id),
+            "team_id": self.team_id,
+            "repository": self.task.repository,
+            "repositories": (self.state or {}).get("repositories")
+            or self.task.repositories
+            or ([self.task.repository] if self.task.repository else []),
+            "origin_product": self.task.origin_product,
+            "title": self.task.title,
+            "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
+            "loop_id": (self.state or {}).get("loop_id"),
+            "loop_trigger_id": (self.state or {}).get("loop_trigger_id"),
+            "environment": self.environment,
+            # The bare `environment` property gets clobbered by the analytics
+            # client's deployment-region super-property, so ship the run's
+            # local/cloud value under an unclobbered name too.
+            "run_environment": self.environment,
+            "mode": self.mode,
+            **self._analytics_usage_properties(),
+        }
+
     def capture_event(
         self,
         event: str,
@@ -2823,27 +2861,7 @@ class TaskRun(models.Model):
                 if self.task.created_by_id and self.task.created_by
                 else str(self.team.uuid)
             )
-            all_properties: dict = {
-                "task_id": str(self.task_id),
-                "run_id": str(self.id),
-                "team_id": self.team_id,
-                "repository": self.task.repository,
-                "repositories": (self.state or {}).get("repositories")
-                or self.task.repositories
-                or ([self.task.repository] if self.task.repository else []),
-                "origin_product": self.task.origin_product,
-                "title": self.task.title,
-                "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
-                "loop_id": (self.state or {}).get("loop_id"),
-                "loop_trigger_id": (self.state or {}).get("loop_trigger_id"),
-                "environment": self.environment,
-                # The bare `environment` property gets clobbered by the analytics
-                # client's deployment-region super-property, so ship the run's
-                # local/cloud value under an unclobbered name too.
-                "run_environment": self.environment,
-                "mode": self.mode,
-                **self._analytics_usage_properties(),
-            }
+            all_properties = self.analytics_properties()
             if properties:
                 all_properties.update(properties)
             capture_kwargs: dict = {

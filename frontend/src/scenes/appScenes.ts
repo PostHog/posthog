@@ -72,8 +72,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.CredentialReview]: () => import('./authentication/account/credential-review/CredentialReview'),
     [Scene.PasswordReset]: () => import('./authentication/password-reset/PasswordReset'),
     [Scene.TwoFactorReset]: () => import('./authentication/two-factor-reset/TwoFactorReset'),
-    [Scene.Person]: () => import('./persons/PersonScene'),
-    [Scene.Persons]: () => import('./persons/PersonsScene'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
     [Scene.ProjectCreateFirst]: () => import('./project/Create'),
     [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
