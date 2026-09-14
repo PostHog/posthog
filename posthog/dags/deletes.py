@@ -124,13 +124,25 @@ class MonthlyCleanupConfig(dagster.Config):
     )
 
 
-# Reads only team_id, person_id, timestamp and uuid, which every registered target declares, so it
-# applies unchanged to all of them. Shared with the post-sweep count so what gets verified is
-# exactly what got deleted.
+# Reads only team_id, person_id, timestamp, uuid and inserted_at, which every registered target
+# declares. Shared with the post-sweep count so what gets verified is exactly what got deleted.
+#
+# The person and adhoc arms bound both timestamp and inserted_at by the request's own created_at:
+# a request can only name rows that were already ingested when it was made, and a row cannot be
+# ingested before its event happened. A row ingested after the request is outside its scope and
+# takes a new request to remove; counting such rows would let a tenant that keeps ingesting
+# backdated events for a pending deletion fail verification for every tenant, and inserted_at is
+# stamped server-side (writable_events does not even expose the column), so the bound cannot be
+# forged the way the event timestamp can. NULL inserted_at predates the column and always counts.
+# The team arm stays unbounded: ingestion for a deleted team stops with its token, so late rows
+# there are pipeline stragglers the next run converges on, not a sustained obligation.
 _DELETE_PREDICATE = """or(
-    (dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id)) AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))),
+    (dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id))
+        AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))
+        AND (inserted_at IS NULL OR inserted_at <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id)))),
     (dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))),
-    (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid)))
+    (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid))
+        AND (inserted_at IS NULL OR inserted_at <= dictGet(%(adhoc_event_deletes_dictionary)s, 'created_at', (team_id, uuid))))
 )"""
 
 
@@ -551,33 +563,12 @@ def load_and_verify_adhoc_event_deletes_dictionary(
     return dictionary
 
 
-@dagster.op(
-    ins={
-        "deletes_dictionary_ready": dagster.In(dagster.Nothing),
-        "adhoc_dictionary_ready": dagster.In(dagster.Nothing),
-    }
-)
-def capture_sweep_started_at(cluster: dagster.ResourceParam[ClickhouseCluster]) -> datetime:
-    """A ClickHouse clock reading taken after the dictionaries are loaded and before any delete.
-
-    One boundary, two uses. As MutationRunner.reuse_since it refuses mutations older than this
-    run's dictionary contents. As the ingestion watermark in mark_deletions_verified it scopes
-    the survivor count to rows the sweep was responsible for: a row inserted after this instant
-    was not necessarily in any part the mutations covered, so counting it would let backdated
-    ingestion during the run fail verification for every tenant. Every request in the run was
-    created before the dictionaries were snapshotted, so a count scoped by this reading still
-    covers everything those requests promise to remove.
-    """
-    return _mutation_reuse_floor(cluster)
-
-
 @dagster.op
 def delete_events(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     load_and_verify_deletes_dictionary: PendingDeletesDictionary,
     load_and_verify_adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary,
-    sweep_started_at: datetime,
 ) -> tuple[PendingDeletesDictionary, ClusterShardMutations]:
     """Delete events from every personal-data table, on whichever cluster stores each one."""
 
@@ -621,6 +612,7 @@ def delete_events(
 
     # Every registered target must get this delete, or rows survive on the table that got skipped.
     placements = resolve_placements(cluster)
+    reuse_floor = _mutation_reuse_floor(cluster)
     delete_mutation_runners = [
         (
             placement,
@@ -630,7 +622,7 @@ def delete_events(
                 parameters=_delete_predicate_params(
                     load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary
                 ),
-                reuse_since=sweep_started_at,
+                reuse_since=reuse_floor,
             ),
         )
         for placement in placements
@@ -797,21 +789,12 @@ def _rows_per_shard(cluster: ClickhouseCluster, query: Query) -> list:
 
 _SURVIVOR_COUNT_ATTEMPTS = 3
 
-# The delete predicate scoped to rows the sweep was responsible for. A deletion request covers
-# the rows present in ClickHouse when it was made, and every request in a run has created_at
-# before the watermark, so a row inserted after the sweep started is outside every request being
-# verified; removing it takes a new request. Counting such rows would also let a tenant that
-# keeps ingesting backdated events for a pending deletion fail verification for every tenant. A
-# mutation only rewrites parts that existed when it was created, which is why a late row survives
-# even a correct sweep. NULL inserted_at predates the column and always counts.
-_SURVIVOR_COUNT_PREDICATE = f"({_DELETE_PREDICATE}) AND (inserted_at IS NULL OR inserted_at <= %(sweep_started_at)s)"
-
 
 def _count_through(
     context: dagster.OpExecutionContext,
     runner: Callable[[Query], list],
     table: str,
-    params: dict[str, str | int | datetime],
+    params: dict[str, str | int],
     max_execution_time: int,
 ) -> int | None:
     """Survivors on ``table``, or None when no attempt could complete.
@@ -822,7 +805,7 @@ def _count_through(
     slow or sick host.
     """
     query = Query(
-        surviving_rows_sql(table, _SURVIVOR_COUNT_PREDICATE),
+        surviving_rows_sql(table, _DELETE_PREDICATE),
         params,
         settings={"max_execution_time": str(max_execution_time)},
     )
@@ -843,7 +826,6 @@ def _count_unswept_rows(
     pending_deletes_dictionary: "PendingDeletesDictionary",
     adhoc_event_deletes_dictionary: "AdhocEventDeletesDictionary",
     max_execution_time: int,
-    sweep_started_at: datetime,
 ) -> dict[str, int | None]:
     """Count rows this run was supposed to remove and that are still readable, per table.
 
@@ -862,10 +844,7 @@ def _count_unswept_rows(
     Proving zero survivors is a full scan of the events tables, so each count is bounded rather
     than left to run for as long as it takes.
     """
-    params: dict[str, str | int | datetime] = {
-        **_delete_predicate_params(pending_deletes_dictionary, adhoc_event_deletes_dictionary),
-        "sweep_started_at": sweep_started_at,
-    }
+    params = _delete_predicate_params(pending_deletes_dictionary, adhoc_event_deletes_dictionary)
     counts: dict[str, int | None] = {}
     for placement in resolve_placements(cluster):
         counts[placement.target.read_table] = _count_through(
@@ -893,7 +872,6 @@ def mark_deletions_verified(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     pending_deletions_dictionary: PendingDeletesDictionary,
     adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary,
-    sweep_started_at: datetime,
 ) -> VerifiedDeletionResources:
     unswept = _count_unswept_rows(
         context,
@@ -901,7 +879,6 @@ def mark_deletions_verified(
         pending_deletions_dictionary,
         adhoc_event_deletes_dictionary,
         config.verification_max_execution_time,
-        sweep_started_at,
     )
     context.add_output_metadata({"unswept_rows": dagster.MetadataValue.json(unswept)})
 
@@ -994,11 +971,7 @@ def deletes_job():
     adhoc_event_deletes_dictionary = load_and_verify_adhoc_event_deletes_dictionary(create_adhoc_event_deletes_dict())
 
     # Delete all data requested
-    sweep_started_at = capture_sweep_started_at(
-        deletes_dictionary_ready=pending_deletes_dictionary,
-        adhoc_dictionary_ready=adhoc_event_deletes_dictionary,
-    )
-    delete_mutations = delete_events(pending_deletes_dictionary, adhoc_event_deletes_dictionary, sweep_started_at)
+    delete_mutations = delete_events(pending_deletes_dictionary, adhoc_event_deletes_dictionary)
     pending_deletes_dictionary = wait_for_delete_mutations_in_shards(delete_mutations)
 
     for table in [
@@ -1015,9 +988,7 @@ def deletes_job():
         delete_mutations = delete_team_data_from(table)(pending_deletes_dictionary)
         pending_deletes_dictionary = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
-    verified_deletion_resources = mark_deletions_verified(
-        pending_deletes_dictionary, adhoc_event_deletes_dictionary, sweep_started_at
-    )
+    verified_deletion_resources = mark_deletions_verified(pending_deletes_dictionary, adhoc_event_deletes_dictionary)
 
     # Clean up
     cleanup_delete_assets(verified_deletion_resources)

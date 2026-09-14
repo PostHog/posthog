@@ -67,14 +67,18 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
     events = [(i, f"distinct_id_{i}", UUID(int=i), timestamp - timedelta(hours=i)) for i in range(event_count)]
 
     def insert_events(client: Client) -> None:
+        # Straight into the storage table with inserted_at pinned to the event time:
+        # writable_events does not expose inserted_at, and each deletion request below carries
+        # created_at an hour after its event, so the DEFAULT of insert time would put every row
+        # out of its backdated request's scope.
         client.execute(
-            """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp)
+            f"""INSERT INTO {EVENTS_DATA_TABLE()} (team_id, distinct_id, person_id, timestamp, inserted_at)
             VALUES
             """,
-            events,
+            [(*event, event[3]) for event in events],
         )
 
-    cluster.any_host(insert_events).result()
+    cluster.any_host_by_role(insert_events, NodeRole.DATA).result()
 
     # Flag-evaluation rows for one person whose deletion lands inside the window and one whose
     # deletion sits past the override watermark, mirroring the two event assertions below. The
@@ -84,7 +88,14 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
         partial(
             insert_flag_evaluations,
             [
-                (i, f"distinct_id_{i}", UUID(int=i), UUID(int=i), timestamp - timedelta(hours=i))
+                (
+                    i,
+                    f"distinct_id_{i}",
+                    UUID(int=i),
+                    UUID(int=i),
+                    timestamp - timedelta(hours=i),
+                    timestamp - timedelta(hours=i),
+                )
                 for i in (swept_person, retained_person)
             ],
         )
@@ -405,12 +416,14 @@ def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
             return {}
         return {(row[0], row[1]): row[2] for row in result}
 
-    # Insert some pending deletions
+    # Insert some pending deletions. created_at is explicit and past every ingestion above:
+    # the sweep only covers rows ingested before their request was created, and the column's
+    # DEFAULT would race the data inserts across host clocks at sub-second distance.
     def insert_adhoc_event_deletes(client: Client) -> None:
-        deletes = [(events[i][0], events[i][2]) for i in range(delete_count)]
+        deletes = [(events[i][0], events[i][2], timestamp) for i in range(delete_count)]
 
         client.execute(
-            """INSERT INTO adhoc_events_deletion (team_id, uuid)
+            """INSERT INTO adhoc_events_deletion (team_id, uuid, created_at)
             VALUES
             """,
             deletes,
@@ -429,11 +442,12 @@ def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
         return result[0][0]
 
     cluster.any_host(insert_events).result()
-    cluster.any_host(insert_adhoc_event_deletes).result()
 
     # The queue holds (team_id, uuid) and the drain applies it to every personal-data table, so a
     # flag-evaluation row sharing a queued uuid has to go with the event. This is the assumption
     # the producer must honor: mirror the source event's uuid, or the two tables diverge here.
+    # Inserted before the deletion requests: the sweep only covers rows ingested before their
+    # request was created, which is the order production follows too.
     queued_uuid, unqueued_uuid = 5, delete_count + 5
     cluster.any_host(
         partial(
@@ -441,6 +455,8 @@ def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
             [(i, f"distinct_id_{i}", UUID(int=i), UUID(int=i), timestamp) for i in (queued_uuid, unqueued_uuid)],
         )
     ).result()
+
+    cluster.any_host(insert_adhoc_event_deletes).result()
 
     # Check preconditions
     initial_events = cluster.any_host(partial(get_by_team_and_uuid, "writable_events")).result()
@@ -926,7 +942,12 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
             ],
         )
 
-    sweep_started_at = timestamp + timedelta(hours=1)
+    def count_late_event_rows(client: Client) -> int:
+        [[count]] = client.execute(
+            "SELECT count() FROM events WHERE uuid = %(uuid)s AND _row_exists = 1",
+            {"uuid": UUID(int=1003)},
+        )
+        return count
 
     try:
         cluster.any_host(table.create).result()
@@ -939,7 +960,7 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
 
         context = build_op_context()
         before = _count_unswept_rows(
-            context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time, sweep_started_at
+            context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time
         )
         surviving = before["events"]
         assert surviving is not None and surviving >= 2, "the count cannot see rows the sweep has not removed yet"
@@ -952,29 +973,18 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
         for _host, mutation in cluster.map_one_host_per_shard(runner).result().items():
             cluster.map_all_hosts(mutation.wait).result()
 
-        after = _count_unswept_rows(
-            context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time, sweep_started_at
-        )
+        after = _count_unswept_rows(context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time)
         assert after["events"] == 0
 
-        # A row ingested after the sweep started was in no part the mutation covered, so it must
-        # not fail verification: counting it would let one tenant that keeps ingesting backdated
-        # events block every tenant's deletions from being marked.
+        # A row ingested after its request was created is outside that request's scope, so it
+        # must fail neither the delete nor the verification: counting it would let one tenant
+        # that keeps ingesting backdated events block every tenant's deletions from being marked.
         cluster.any_host_by_role(insert_late_event, NodeRole.DATA).result()
-        late = _count_unswept_rows(
-            context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time, sweep_started_at
+        late = _count_unswept_rows(context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time)
+        assert late["events"] == 0, "a row inserted after its request's created_at must not count as unswept"
+        assert cluster.any_host_by_role(count_late_event_rows, NodeRole.DATA).result() == 1, (
+            "the created_at bound, not a delete, must be what hides the late row"
         )
-        assert late["events"] == 0, "a row inserted after the watermark must not count as unswept"
-
-        past_watermark = _count_unswept_rows(
-            context,
-            cluster,
-            dictionary,
-            adhoc,
-            DeleteConfig().verification_max_execution_time,
-            timestamp + timedelta(hours=3),
-        )
-        assert past_watermark["events"] == 1, "the watermark, not the predicate, must be what hides the late row"
     finally:
         cluster.any_host(dictionary.drop).result()
         cluster.any_host(adhoc.drop).result()
@@ -1039,7 +1049,6 @@ def test_a_target_on_another_cluster_is_also_counted_on_its_storage_table(cluste
                 dictionary,
                 adhoc,
                 DeleteConfig().verification_max_execution_time,
-                timestamp + timedelta(hours=1),
             )
 
         storage = counts[EVENTS.data_table]
@@ -1068,7 +1077,6 @@ def test_marking_is_refused_when_a_count_survives_or_cannot_complete(unswept: di
                 cast(ClickhouseCluster, None),
                 PendingDeletesDictionary(source=PendingDeletesTable(timestamp=datetime(2026, 9, 1))),
                 AdhocEventDeletesDictionary(source=AdhocEventDeletesTable()),
-                datetime(2026, 9, 1, 12, 0, 0),
             )
     assert "events" in str(excinfo.value)
 
