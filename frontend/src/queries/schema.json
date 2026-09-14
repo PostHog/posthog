@@ -965,10 +965,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "properties": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             },
             "required": ["actionId"],
@@ -17392,10 +17389,7 @@
                     "type": "string"
                 },
                 "properties": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             },
             "required": ["customEventName"],

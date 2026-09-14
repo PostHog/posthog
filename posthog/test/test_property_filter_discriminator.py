@@ -64,6 +64,11 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
         goal = model.model_validate({**fields, "properties": [{"type": "event", "key": "plan", "value": "paid"}]})
         assert goal.properties is not None
         assert isinstance(goal.properties[0], EventPropertyFilter)
+        for property_type in ["account_custom_property", "revenue_analytics", "recording"]:
+            with self.assertRaises(ValidationError):
+                model.model_validate(
+                    {**fields, "properties": [{"type": property_type, "key": "plan", "value": "paid"}]}
+                )
 
     @parameterized.expand(
         [

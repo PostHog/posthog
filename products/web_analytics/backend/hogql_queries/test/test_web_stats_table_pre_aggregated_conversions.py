@@ -1,10 +1,16 @@
 import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
 
+from django.test import override_settings
+
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionConversionGoal,
+    CompareFilter,
     CustomEventConversionGoal,
     DateRange,
+    EventPropertyFilter,
     HogQLQueryModifiers,
     SessionTableVersion,
     WebStatsBreakdown,
@@ -204,6 +210,50 @@ class TestWebStatsTablePreAggregatedConversions(WebAnalyticsPreAggregatedTestBas
                     if goal:
                         assert row["context.columns.unique_conversions"][0] == 3
                         assert row["context.columns.conversion_rate"][0] == 3
+
+    @parameterized.expand(
+        [
+            ("join_bounce", False, False, False),
+            ("join_time", False, False, True),
+            ("no_join_bounce", True, False, False),
+            ("no_join_time", True, False, True),
+            ("session_set_bounce", False, True, False),
+            ("session_set_time", False, True, True),
+        ]
+    )
+    def test_page_traffic_metrics_with_engagement(
+        self, _name: str, no_join: bool, session_set: bool, average_time: bool
+    ) -> None:
+        with (
+            override_settings(
+                WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk] if no_join else [],
+                WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk] if session_set else [],
+            ),
+            time_machine.travel("2024-01-02T00:00:00Z", tick=False),
+        ):
+            response = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
+                    compareFilter=CompareFilter(compare=True),
+                    breakdownBy=WebStatsBreakdown.PAGE,
+                    includeTrafficMetrics=True,
+                    includeBounceRate=True,
+                    includeAvgTimeOnPage=average_time,
+                    properties=[EventPropertyFilter(key="$pathname", value="/page1")] if session_set else [],
+                ),
+                modifiers=HogQLQueryModifiers(
+                    sessionTableVersion=SessionTableVersion.V2, useWebAnalyticsPreAggregatedTables=False
+                ),
+            ).calculate()
+            assert response.columns is not None
+            row = dict(zip(response.columns, next(row for row in response.results if row[0] == "/page1")))
+            assert row["context.columns.sessions"] == (1, 0)
+            assert row["context.columns.visitors"] == (1, 0)
+            assert row["context.columns.views"] == (1, 0)
+            assert row["context.columns.bounce_rate"][0] == 1
+            if average_time:
+                assert "context.columns.avg_time_on_page" in row
 
     def test_conversion_goal_with_preaggregated_tables_bounce_style(self):
         """Test conversion goals using bounce-rate-style query pattern (alternative implementation)"""

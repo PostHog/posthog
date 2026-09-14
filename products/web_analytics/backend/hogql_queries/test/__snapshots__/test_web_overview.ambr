@@ -1016,8 +1016,8 @@
 # name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event.1
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
-         tuple(uniq(if(greater(filtered_pageview_count, 0), filtered_person_id, NULL)), NULL) AS `context.columns.visitors`,
-         tuple(uniq(if(greater(filtered_pageview_count, 0), session_id, NULL)), NULL) AS `context.columns.sessions`,
+         tuple(uniqIf(filtered_person_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.visitors`,
+         tuple(uniqIf(session_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.sessions`,
          tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
          tuple(sum(conversion_count), NULL) AS `context.columns.total_conversions`,
          tuple(uniq(conversion_person_id), NULL) AS `context.columns.unique_conversions`,
@@ -1077,8 +1077,8 @@
 # name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event.2
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
-         tuple(uniq(if(greater(filtered_pageview_count, 0), filtered_person_id, NULL)), NULL) AS `context.columns.visitors`,
-         tuple(uniq(if(greater(filtered_pageview_count, 0), session_id, NULL)), NULL) AS `context.columns.sessions`,
+         tuple(uniqIf(filtered_person_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.visitors`,
+         tuple(uniqIf(session_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.sessions`,
          tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
@@ -1237,8 +1237,8 @@
 # name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action.1
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
-         tuple(uniq(if(greater(filtered_pageview_count, 0), filtered_person_id, NULL)), NULL) AS `context.columns.visitors`,
-         tuple(uniq(if(greater(filtered_pageview_count, 0), session_id, NULL)), NULL) AS `context.columns.sessions`,
+         tuple(uniqIf(filtered_person_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.visitors`,
+         tuple(uniqIf(session_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.sessions`,
          tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
          tuple(sum(conversion_count), NULL) AS `context.columns.total_conversions`,
          tuple(uniq(conversion_person_id), NULL) AS `context.columns.unique_conversions`,
@@ -1298,8 +1298,8 @@
 # name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action.2
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
-         tuple(uniq(if(greater(filtered_pageview_count, 0), filtered_person_id, NULL)), NULL) AS `context.columns.visitors`,
-         tuple(uniq(if(greater(filtered_pageview_count, 0), session_id, NULL)), NULL) AS `context.columns.sessions`,
+         tuple(uniqIf(filtered_person_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.visitors`,
+         tuple(uniqIf(session_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.sessions`,
          tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM

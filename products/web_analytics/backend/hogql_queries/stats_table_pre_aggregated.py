@@ -361,9 +361,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     stats_select_columns.append(
                         ast.Alias(
                             alias=f"{metric}_{period}",
-                            expr=ast.Call(
-                                name=function,
-                                args=[ast.Field(chain=[state]), period_filter],
+                            expr=(
+                                ast.Call(name=function, args=[ast.Field(chain=[state]), period_filter])
+                                if period == "current" or self.runner.query_compare_to_date_range
+                                else ast.Constant(value=0)
                             ),
                         )
                     )

@@ -340,40 +340,6 @@ export interface PersonPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export interface PersonMetadataPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
-    type?: 'person_metadata'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
-
-export const Key10Api = {
-    TagName: 'tag_name',
-    Text: 'text',
-    Href: 'href',
-    Selector: 'selector',
-} as const
-
-export interface ElementPropertyFilterApi {
-    key: Key10Api
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'element'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface EventMetadataPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'event_metadata'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
 export interface SessionPropertyFilterApi {
     key: string
     label?: string | null
@@ -391,280 +357,17 @@ export interface CohortPropertyFilterApi {
     value: number
 }
 
-export type DurationTypeApi = (typeof DurationTypeApi)[keyof typeof DurationTypeApi]
-
-export const DurationTypeApi = {
-    Duration: 'duration',
-    ActiveSeconds: 'active_seconds',
-    InactiveSeconds: 'inactive_seconds',
-} as const
-
-export interface RecordingPropertyFilterApi {
-    key: DurationTypeApi | string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'recording'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface LogEntryPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'log_entry'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null
-
-export interface GroupPropertyFilterApi {
-    group_key_names?: GroupPropertyFilterApiGroupKeyNames
-    group_type_index?: number | null
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'group'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface FeaturePropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    /** Event property with "$feature/" prepended */
-    type?: 'feature'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface FlagPropertyFilterApi {
-    /** The key should be the flag ID */
-    key: string
-    label?: string | null
-    /** Only flag_evaluates_to operator is allowed for flag dependencies */
-    operator?: 'flag_evaluates_to'
-    /** Feature flag dependency */
-    type?: 'flag'
-    /** The value can be true, false, or a variant name */
-    value: boolean | string
-}
-
-export interface HogQLPropertyFilterApi {
-    key: string
-    label?: string | null
-    type?: 'hogql'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export const EmptyPropertyFilterApiValue = {
-    type: 'empty',
-} as const
-export type EmptyPropertyFilterApi = typeof EmptyPropertyFilterApiValue
-
-export interface DataWarehousePropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'data_warehouse'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface DataWarehousePersonPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'data_warehouse_person_property'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface ErrorTrackingIssueFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'error_tracking_issue'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export type LogPropertyFilterTypeApi = (typeof LogPropertyFilterTypeApi)[keyof typeof LogPropertyFilterTypeApi]
-
-export const LogPropertyFilterTypeApi = {
-    Log: 'log',
-    LogAttribute: 'log_attribute',
-    LogResourceAttribute: 'log_resource_attribute',
-} as const
-
-export interface LogPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type: LogPropertyFilterTypeApi
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface MetricPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'metric_attribute'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export type SpanPropertyFilterTypeApi = (typeof SpanPropertyFilterTypeApi)[keyof typeof SpanPropertyFilterTypeApi]
-
-export const SpanPropertyFilterTypeApi = {
-    Span: 'span',
-    SpanAttribute: 'span_attribute',
-    SpanResourceAttribute: 'span_resource_attribute',
-} as const
-
-export interface SpanPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type: SpanPropertyFilterTypeApi
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface RevenueAnalyticsPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'revenue_analytics'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface AccountCustomPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    /** Customer analytics account custom property — the key is the property definition id */
-    type?: 'account_custom_property'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface WorkflowVariablePropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'workflow_variable'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export type BehavioralEventSourceApi = (typeof BehavioralEventSourceApi)[keyof typeof BehavioralEventSourceApi]
-
-export const BehavioralEventSourceApi = {
-    Events: 'events',
-    Actions: 'actions',
-} as const
-
-export type TimeUnitTypeApi = (typeof TimeUnitTypeApi)[keyof typeof TimeUnitTypeApi]
-
-export const TimeUnitTypeApi = {
-    Day: 'day',
-    Week: 'week',
-    Month: 'month',
-    Year: 'year',
-} as const
-
-export type InlineBehavioralTypeApi = (typeof InlineBehavioralTypeApi)[keyof typeof InlineBehavioralTypeApi]
-
-export const InlineBehavioralTypeApi = {
-    PerformedEvent: 'performed_event',
-    PerformedEventMultiple: 'performed_event_multiple',
-} as const
-
-export interface BehavioralPropertyFilterApi {
-    /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
-    event_filters?:
-        | (
-              | EventPropertyFilterApi
-              | PersonPropertyFilterApi
-              | ElementPropertyFilterApi
-              | FeaturePropertyFilterApi
-              | HogQLPropertyFilterApi
-          )[]
-        | null
-    event_type: BehavioralEventSourceApi
-    /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
-    explicit_datetime?: string | null
-    explicit_datetime_to?: string | null
-    /** Event name, or action id when event_type is 'actions' */
-    key: string
-    label?: string | null
-    /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
-    negation?: boolean | null
-    /** Count comparison for performed_event_multiple, defaults to exact */
-    operator?: PropertyOperatorApi | null
-    /** Count threshold for performed_event_multiple */
-    operator_value?: number | null
-    time_interval?: TimeUnitTypeApi | null
-    /** Relative time window size, paired with time_interval */
-    time_value?: number | null
-    /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
-    type?: 'behavioral'
-    value: InlineBehavioralTypeApi
-}
-
 export interface ActionConversionGoalApi {
     actionId: number
     properties?:
-        | (
-              | EventPropertyFilterApi
-              | PersonPropertyFilterApi
-              | PersonMetadataPropertyFilterApi
-              | ElementPropertyFilterApi
-              | EventMetadataPropertyFilterApi
-              | SessionPropertyFilterApi
-              | CohortPropertyFilterApi
-              | RecordingPropertyFilterApi
-              | LogEntryPropertyFilterApi
-              | GroupPropertyFilterApi
-              | FeaturePropertyFilterApi
-              | FlagPropertyFilterApi
-              | HogQLPropertyFilterApi
-              | EmptyPropertyFilterApi
-              | DataWarehousePropertyFilterApi
-              | DataWarehousePersonPropertyFilterApi
-              | ErrorTrackingIssueFilterApi
-              | LogPropertyFilterApi
-              | MetricPropertyFilterApi
-              | SpanPropertyFilterApi
-              | RevenueAnalyticsPropertyFilterApi
-              | AccountCustomPropertyFilterApi
-              | WorkflowVariablePropertyFilterApi
-              | BehavioralPropertyFilterApi
-          )[]
+        | (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi | CohortPropertyFilterApi)[]
         | null
 }
 
 export interface CustomEventConversionGoalApi {
     customEventName: string
     properties?:
-        | (
-              | EventPropertyFilterApi
-              | PersonPropertyFilterApi
-              | PersonMetadataPropertyFilterApi
-              | ElementPropertyFilterApi
-              | EventMetadataPropertyFilterApi
-              | SessionPropertyFilterApi
-              | CohortPropertyFilterApi
-              | RecordingPropertyFilterApi
-              | LogEntryPropertyFilterApi
-              | GroupPropertyFilterApi
-              | FeaturePropertyFilterApi
-              | FlagPropertyFilterApi
-              | HogQLPropertyFilterApi
-              | EmptyPropertyFilterApi
-              | DataWarehousePropertyFilterApi
-              | DataWarehousePersonPropertyFilterApi
-              | ErrorTrackingIssueFilterApi
-              | LogPropertyFilterApi
-              | MetricPropertyFilterApi
-              | SpanPropertyFilterApi
-              | RevenueAnalyticsPropertyFilterApi
-              | AccountCustomPropertyFilterApi
-              | WorkflowVariablePropertyFilterApi
-              | BehavioralPropertyFilterApi
-          )[]
+        | (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi | CohortPropertyFilterApi)[]
         | null
 }
 
@@ -953,6 +656,253 @@ export interface HogQLQueryModifiersApi {
     useWebAnalyticsPreAggregatedTables?: boolean | null
     /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
     webAnalyticsFirstPageviewFilters?: boolean | null
+}
+
+export interface PersonMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    type?: 'person_metadata'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
+
+export const Key10Api = {
+    TagName: 'tag_name',
+    Text: 'text',
+    Href: 'href',
+    Selector: 'selector',
+} as const
+
+export interface ElementPropertyFilterApi {
+    key: Key10Api
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'element'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface EventMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'event_metadata'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type DurationTypeApi = (typeof DurationTypeApi)[keyof typeof DurationTypeApi]
+
+export const DurationTypeApi = {
+    Duration: 'duration',
+    ActiveSeconds: 'active_seconds',
+    InactiveSeconds: 'inactive_seconds',
+} as const
+
+export interface RecordingPropertyFilterApi {
+    key: DurationTypeApi | string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'recording'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface LogEntryPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'log_entry'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null
+
+export interface GroupPropertyFilterApi {
+    group_key_names?: GroupPropertyFilterApiGroupKeyNames
+    group_type_index?: number | null
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'group'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface FeaturePropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Event property with "$feature/" prepended */
+    type?: 'feature'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface FlagPropertyFilterApi {
+    /** The key should be the flag ID */
+    key: string
+    label?: string | null
+    /** Only flag_evaluates_to operator is allowed for flag dependencies */
+    operator?: 'flag_evaluates_to'
+    /** Feature flag dependency */
+    type?: 'flag'
+    /** The value can be true, false, or a variant name */
+    value: boolean | string
+}
+
+export interface HogQLPropertyFilterApi {
+    key: string
+    label?: string | null
+    type?: 'hogql'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export const EmptyPropertyFilterApiValue = {
+    type: 'empty',
+} as const
+export type EmptyPropertyFilterApi = typeof EmptyPropertyFilterApiValue
+
+export interface DataWarehousePropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'data_warehouse'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface DataWarehousePersonPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'data_warehouse_person_property'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface ErrorTrackingIssueFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'error_tracking_issue'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type LogPropertyFilterTypeApi = (typeof LogPropertyFilterTypeApi)[keyof typeof LogPropertyFilterTypeApi]
+
+export const LogPropertyFilterTypeApi = {
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
+} as const
+
+export interface LogPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type: LogPropertyFilterTypeApi
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface MetricPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'metric_attribute'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type SpanPropertyFilterTypeApi = (typeof SpanPropertyFilterTypeApi)[keyof typeof SpanPropertyFilterTypeApi]
+
+export const SpanPropertyFilterTypeApi = {
+    Span: 'span',
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
+} as const
+
+export interface SpanPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type: SpanPropertyFilterTypeApi
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface RevenueAnalyticsPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'revenue_analytics'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface AccountCustomPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Customer analytics account custom property — the key is the property definition id */
+    type?: 'account_custom_property'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface WorkflowVariablePropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'workflow_variable'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type BehavioralEventSourceApi = (typeof BehavioralEventSourceApi)[keyof typeof BehavioralEventSourceApi]
+
+export const BehavioralEventSourceApi = {
+    Events: 'events',
+    Actions: 'actions',
+} as const
+
+export type TimeUnitTypeApi = (typeof TimeUnitTypeApi)[keyof typeof TimeUnitTypeApi]
+
+export const TimeUnitTypeApi = {
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Year: 'year',
+} as const
+
+export type InlineBehavioralTypeApi = (typeof InlineBehavioralTypeApi)[keyof typeof InlineBehavioralTypeApi]
+
+export const InlineBehavioralTypeApi = {
+    PerformedEvent: 'performed_event',
+    PerformedEventMultiple: 'performed_event_multiple',
+} as const
+
+export interface BehavioralPropertyFilterApi {
+    /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
+    event_filters?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | HogQLPropertyFilterApi
+          )[]
+        | null
+    event_type: BehavioralEventSourceApi
+    /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
+    explicit_datetime?: string | null
+    explicit_datetime_to?: string | null
+    /** Event name, or action id when event_type is 'actions' */
+    key: string
+    label?: string | null
+    /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
+    negation?: boolean | null
+    /** Count comparison for performed_event_multiple, defaults to exact */
+    operator?: PropertyOperatorApi | null
+    /** Count threshold for performed_event_multiple */
+    operator_value?: number | null
+    time_interval?: TimeUnitTypeApi | null
+    /** Relative time window size, paired with time_interval */
+    time_value?: number | null
+    /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
+    type?: 'behavioral'
+    value: InlineBehavioralTypeApi
 }
 
 export interface PropertyGroupFilterValueApi {

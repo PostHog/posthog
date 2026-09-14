@@ -160,3 +160,5 @@ Suffix conventions: `*_lazy_query` = bucket read (served from precompute), `*_la
 Find the request in query_log and check `query_type`.
 A `*_lazy_query` taking seconds is a bucket-read problem (rare).
 A fast-path or full-join tag on an enrolled team means the lazy gate rejected the query (filters, avg-time-on-page, >90d range, opt-out) or the buckets weren't fresh — in which case a background warm is already in flight and the next identical request should hit.
+
+Conversion goal property filters accept event, person, session and cohort filters. Unsupported filter types fail query validation. `includeTrafficMetrics` also retains session counts for page breakdowns with bounce rate or average time on page, including the join-free strategies.
