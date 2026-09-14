@@ -86,6 +86,12 @@ The dashboard "enqueues precompute" as a side effect; it never waits on it.
 | 6   | No-join                    | Unfiltered: path-bounce, path-bounce+avg-time, or simple breakdown without session fields                                                                                                                                      | `stats_table_no_join_*`                                                                                              |
 | 7   | Full join                  | Fallback per shape                                                                                                                                                                                                             | `stats_table_path_bounce`, `stats_table_entry_bounce`, `stats_table_channel_type`, `stats_table_simple_breakdown`, … |
 
+### Traffic metrics alongside conversion goals
+
+`WebStatsTableQuery.includeTrafficMetrics` adds sessions and retains pageviews alongside conversion columns. Traffic visitors and sessions require a pageview or screenview; goal-only sessions contribute to conversions without increasing the traffic denominator. The option defaults to off, preserving existing callers.
+
+Queries with this option bypass the simple-breakdown and paths lazy caches and use the supported live or preaggregated execution path. Event and action conversion goals can carry property filters, which restrict conversions rather than traffic.
+
 ### Goals, vitals, external clicks
 
 | Runner                      | Tier 1                        | Fallback                                 | Notes                                                         |

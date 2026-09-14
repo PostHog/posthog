@@ -963,6 +963,12 @@
             "properties": {
                 "actionId": {
                     "$ref": "#/definitions/integer"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["actionId"],
@@ -17384,6 +17390,12 @@
             "properties": {
                 "customEventName": {
                     "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["customEventName"],
@@ -57599,6 +57611,9 @@
                     "type": "boolean"
                 },
                 "includeScrollDepth": {
+                    "type": "boolean"
+                },
+                "includeTrafficMetrics": {
                     "type": "boolean"
                 },
                 "interval": {

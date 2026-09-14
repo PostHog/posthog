@@ -396,31 +396,6 @@ const CompareFilter = z.object({
 
 const integer = z.coerce.number().int()
 
-const ActionConversionGoal = z.object({
-    actionId: integer,
-})
-
-const CustomEventConversionGoal = z.object({
-    customEventName: z.string(),
-})
-
-const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventConversionGoal])
-
-const AssistantDateRange = z.object({
-    date_from: z.string().describe('ISO8601 date string.'),
-    date_to: z.string().nullable().describe('ISO8601 date string.').optional(),
-})
-
-const AssistantDurationRange = z.object({
-    date_from: z
-        .string()
-        .describe(
-            "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start."
-        ),
-})
-
-const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
-
 const PropertyOperator = z.enum([
     'exact',
     'is_not',
@@ -482,6 +457,33 @@ const PersonPropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
+const PersonMetadataPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z
+        .literal('person_metadata')
+        .describe('Top-level columns on the persons table (e.g. created_at), not properties JSON')
+        .default('person_metadata'),
+    value: PropertyFilterValue.optional(),
+})
+
+const ElementPropertyFilter = z.object({
+    key: z.enum(['tag_name', 'text', 'href', 'selector']),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('element').default('element'),
+    value: PropertyFilterValue.optional(),
+})
+
+const EventMetadataPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('event_metadata').default('event_metadata'),
+    value: PropertyFilterValue.optional(),
+})
+
 const SessionPropertyFilter = z.object({
     key: z.string(),
     label: z.string().optional(),
@@ -498,6 +500,253 @@ const CohortPropertyFilter = z.object({
     type: z.literal('cohort').default('cohort'),
     value: z.coerce.number().int(),
 })
+
+const DurationType = z.enum(['duration', 'active_seconds', 'inactive_seconds'])
+
+const RecordingPropertyFilter = z.object({
+    key: z.union([
+        DurationType,
+        z.literal('snapshot_source'),
+        z.literal('visited_page'),
+        z.literal('comment_text'),
+        z.literal('click_count'),
+        z.literal('keypress_count'),
+        z.literal('mouse_activity_count'),
+    ]),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('recording').default('recording'),
+    value: PropertyFilterValue.optional(),
+})
+
+const LogEntryPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('log_entry').default('log_entry'),
+    value: PropertyFilterValue.optional(),
+})
+
+const GroupPropertyFilter = z.object({
+    group_key_names: z.record(z.string(), z.string()).optional(),
+    group_type_index: z.union([z.number().int(), z.null()]).optional(),
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('group').default('group'),
+    value: PropertyFilterValue.optional(),
+})
+
+const FeaturePropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('feature').describe('Event property with "$feature/" prepended').default('feature'),
+    value: PropertyFilterValue.optional(),
+})
+
+const FlagPropertyFilter = z.object({
+    key: z.string().describe('The key should be the flag ID'),
+    label: z.string().optional(),
+    operator: z
+        .literal('flag_evaluates_to')
+        .describe('Only flag_evaluates_to operator is allowed for flag dependencies')
+        .default('flag_evaluates_to'),
+    type: z.literal('flag').describe('Feature flag dependency').default('flag'),
+    value: z.union([z.boolean(), z.string()]).describe('The value can be true, false, or a variant name'),
+})
+
+const HogQLPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    type: z.literal('hogql').default('hogql'),
+    value: PropertyFilterValue.optional(),
+})
+
+const EmptyPropertyFilter = z.object({
+    type: z.literal('empty').default('empty').optional(),
+})
+
+const DataWarehousePropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('data_warehouse').default('data_warehouse'),
+    value: PropertyFilterValue.optional(),
+})
+
+const DataWarehousePersonPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('data_warehouse_person_property').default('data_warehouse_person_property'),
+    value: PropertyFilterValue.optional(),
+})
+
+const ErrorTrackingIssueFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('error_tracking_issue').default('error_tracking_issue'),
+    value: PropertyFilterValue.optional(),
+})
+
+const LogPropertyFilterType = z.enum(['log', 'log_attribute', 'log_resource_attribute'])
+
+const LogPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: LogPropertyFilterType,
+    value: PropertyFilterValue.optional(),
+})
+
+const MetricPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('metric_attribute').default('metric_attribute'),
+    value: PropertyFilterValue.optional(),
+})
+
+const SpanPropertyFilterType = z.enum(['span', 'span_attribute', 'span_resource_attribute'])
+
+const SpanPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: SpanPropertyFilterType,
+    value: PropertyFilterValue.optional(),
+})
+
+const RevenueAnalyticsPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('revenue_analytics').default('revenue_analytics'),
+    value: PropertyFilterValue.optional(),
+})
+
+const AccountCustomPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z
+        .literal('account_custom_property')
+        .describe('Customer analytics account custom property — the key is the property definition id')
+        .default('account_custom_property'),
+    value: PropertyFilterValue.optional(),
+})
+
+const WorkflowVariablePropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('workflow_variable').default('workflow_variable'),
+    value: PropertyFilterValue.optional(),
+})
+
+const BehavioralEventSource = z.enum(['events', 'actions'])
+
+const TimeUnitType = z.enum(['day', 'week', 'month', 'year'])
+
+const InlineBehavioralType = z.enum(['performed_event', 'performed_event_multiple'])
+
+const BehavioralPropertyFilter = z.object({
+    event_filters: z
+        .array(
+            z.union([
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+            ])
+        )
+        .describe(
+            'Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups'
+        )
+        .optional(),
+    event_type: BehavioralEventSource,
+    explicit_datetime: z
+        .string()
+        .describe('Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval')
+        .optional(),
+    explicit_datetime_to: z.string().optional(),
+    key: z.string().describe("Event name, or action id when event_type is 'actions'"),
+    label: z.string().optional(),
+    negation: z.coerce
+        .boolean()
+        .describe(
+            'Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators'
+        )
+        .optional(),
+    operator: PropertyOperator.describe('Count comparison for performed_event_multiple, defaults to exact').optional(),
+    operator_value: z.coerce.number().int().describe('Count threshold for performed_event_multiple').optional(),
+    time_interval: TimeUnitType.optional(),
+    time_value: z.coerce.number().int().describe('Relative time window size, paired with time_interval').optional(),
+    type: z
+        .literal('behavioral')
+        .describe(
+            "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP"
+        )
+        .default('behavioral'),
+    value: InlineBehavioralType,
+})
+
+const AnyPropertyFilter = z.union([
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    PersonMetadataPropertyFilter,
+    ElementPropertyFilter,
+    EventMetadataPropertyFilter,
+    SessionPropertyFilter,
+    CohortPropertyFilter,
+    RecordingPropertyFilter,
+    LogEntryPropertyFilter,
+    GroupPropertyFilter,
+    FeaturePropertyFilter,
+    FlagPropertyFilter,
+    HogQLPropertyFilter,
+    EmptyPropertyFilter,
+    DataWarehousePropertyFilter,
+    DataWarehousePersonPropertyFilter,
+    ErrorTrackingIssueFilter,
+    LogPropertyFilter,
+    MetricPropertyFilter,
+    SpanPropertyFilter,
+    RevenueAnalyticsPropertyFilter,
+    AccountCustomPropertyFilter,
+    WorkflowVariablePropertyFilter,
+    BehavioralPropertyFilter,
+])
+
+const ActionConversionGoal = z.object({
+    actionId: integer,
+    properties: z.array(AnyPropertyFilter).optional(),
+})
+
+const CustomEventConversionGoal = z.object({
+    customEventName: z.string(),
+    properties: z.array(AnyPropertyFilter).optional(),
+})
+
+const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventConversionGoal])
+
+const AssistantDateRange = z.object({
+    date_from: z.string().describe('ISO8601 date string.'),
+    date_to: z.string().nullable().describe('ISO8601 date string.').optional(),
+})
+
+const AssistantDurationRange = z.object({
+    date_from: z
+        .string()
+        .describe(
+            "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start."
+        ),
+})
+
+const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
 
 const WebAnalyticsPropertyFilter = z.union([
     EventPropertyFilter,

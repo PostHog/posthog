@@ -77,6 +77,14 @@ class SimpleBreakdownStrategy(StatsTableQueryStrategy):
                 self.runner._period_comparison_tuple("filtered_person_id", "context.columns.visitors", "uniq"),
             ]
 
+            if self.runner.query.includeTrafficMetrics:
+                selects.extend(
+                    [
+                        self.runner._period_comparison_tuple("session_id", "context.columns.sessions", "uniq"),
+                        self.runner._period_comparison_tuple("filtered_pageview_count", "context.columns.views", "sum"),
+                    ]
+                )
+
             if self.runner.query.conversionGoal is not None:
                 selects.extend(
                     [
@@ -102,9 +110,10 @@ class SimpleBreakdownStrategy(StatsTableQueryStrategy):
                     ]
                 )
             else:
-                selects.append(
-                    self.runner._period_comparison_tuple("filtered_pageview_count", "context.columns.views", "sum"),
-                )
+                if not self.runner.query.includeTrafficMetrics:
+                    selects.append(
+                        self.runner._period_comparison_tuple("filtered_pageview_count", "context.columns.views", "sum"),
+                    )
 
                 if self.runner._include_extra_aggregation_value():
                     selects.append(self.runner._extra_aggregation_value())
@@ -121,9 +130,38 @@ class SimpleBreakdownStrategy(StatsTableQueryStrategy):
             if fill_fraction_expr:
                 selects.append(fill_fraction_expr)
 
+            inner_query = self._inner_query(breakdown)
+            if self.runner.query.includeTrafficMetrics:
+                aggregate = inner_query
+                if inner_query.select_from and isinstance(inner_query.select_from.table, ast.SelectQuery):
+                    aggregate = inner_query.select_from.table
+                for column in aggregate.select:
+                    if isinstance(column, ast.Alias):
+                        if column.alias == "filtered_pageview_count":
+                            column.expr = parse_expr("countIf(events.event = '$pageview' OR events.event = '$screen')")
+                        elif column.alias == "filtered_person_id":
+                            column.expr = parse_expr(
+                                "anyIf(events.person_id, events.event = '$pageview' OR events.event = '$screen')"
+                            )
+                for column in selects:
+                    if isinstance(column, ast.Alias) and column.alias in (
+                        "context.columns.visitors",
+                        "context.columns.sessions",
+                    ):
+                        assert isinstance(column.expr, ast.Tuple)
+                        for period in column.expr.exprs:
+                            if isinstance(period, ast.Call):
+                                period.args[0] = ast.Call(
+                                    name="if",
+                                    args=[
+                                        parse_expr("filtered_pageview_count > 0"),
+                                        period.args[0],
+                                        ast.Constant(value=None),
+                                    ],
+                                )
             query = ast.SelectQuery(
                 select=selects,
-                select_from=ast.JoinExpr(table=self._inner_query(breakdown)),
+                select_from=ast.JoinExpr(table=inner_query),
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
                 order_by=order_by,
                 having=self.runner.outer_where_breakdown(),

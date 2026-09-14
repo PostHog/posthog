@@ -3,6 +3,7 @@ from posthog.test.base import _create_event, _create_person, flush_persons_and_e
 
 from posthog.schema import (
     ActionConversionGoal,
+    CustomEventConversionGoal,
     DateRange,
     HogQLQueryModifiers,
     SessionTableVersion,
@@ -140,6 +141,69 @@ class TestWebStatsTablePreAggregatedConversions(WebAnalyticsPreAggregatedTestBas
             assert total_conversions_current == 0.0
             assert unique_conversions_current == 0.0
             assert conversion_rate_current == 0.0
+            query.includeTrafficMetrics = True
+            traffic_response = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers).calculate()
+            assert traffic_response.columns is not None
+            traffic_row = dict(
+                zip(traffic_response.columns, next(row for row in traffic_response.results if row[0] == "/page1"))
+            )
+            assert traffic_row["context.columns.sessions"][0] >= 1
+            assert traffic_row["context.columns.views"][0] >= 1
+            assert traffic_row["context.columns.unique_conversions"][0] >= 1
+            query.conversionGoal = None
+            without_goal = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers).calculate()
+            assert without_goal.columns is not None
+            without_goal_row = dict(
+                zip(without_goal.columns, next(row for row in without_goal.results if row[0] == "/page1"))
+            )
+            assert without_goal_row["context.columns.sessions"] == traffic_row["context.columns.sessions"]
+            assert without_goal_row["context.columns.views"] == traffic_row["context.columns.views"]
+
+    def test_traffic_population_excludes_goal_only_sessions(self):
+        for i in range(3):
+            distinct_id = f"goal_only_{i}"
+            _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+            _create_event(
+                team=self.team,
+                event="customer_created",
+                distinct_id=distinct_id,
+                timestamp="2024-01-01T12:00:00Z",
+                properties={
+                    "$session_id": str(uuid7("2024-01-01T12:00:00")),
+                    "$current_url": "https://example.com/page1",
+                    "$pathname": "/page1",
+                },
+            )
+        flush_persons_and_events()
+        sql = WEB_STATS_INSERT_SQL(
+            date_start="2024-01-01", date_end="2024-01-02", team_ids=[self.team.pk], select_only=True
+        )
+        sync_execute(f"INSERT INTO web_pre_aggregated_stats {sql}")
+        with time_machine.travel("2024-01-02T00:00:00Z", tick=False):
+            for preaggregated in [False, True]:
+                for goal in [CustomEventConversionGoal(customEventName="customer_created"), None]:
+                    response = WebStatsTableQueryRunner(
+                        team=self.team,
+                        query=WebStatsTableQuery(
+                            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
+                            breakdownBy=WebStatsBreakdown.PAGE,
+                            conversionGoal=goal,
+                            includeTrafficMetrics=True,
+                            properties=[],
+                        ),
+                        modifiers=HogQLQueryModifiers(
+                            sessionTableVersion=SessionTableVersion.V2,
+                            useWebAnalyticsPreAggregatedTables=preaggregated,
+                        ),
+                    ).calculate()
+                    assert response.columns is not None
+                    row = dict(zip(response.columns, next(row for row in response.results if row[0] == "/page1")))
+                    assert row["context.columns.visitors"][0] == 1
+                    assert row["context.columns.sessions"][0] == 1
+                    assert row["context.columns.views"][0] == 1
+                    if goal:
+                        assert row["context.columns.unique_conversions"][0] == 3
+                        assert row["context.columns.conversion_rate"][0] == 3
 
     def test_conversion_goal_with_preaggregated_tables_bounce_style(self):
         """Test conversion goals using bounce-rate-style query pattern (alternative implementation)"""

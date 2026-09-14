@@ -279,301 +279,6 @@ export interface CompareFilterApi {
     compare_to?: string | null
 }
 
-export interface ActionConversionGoalApi {
-    actionId: number
-}
-
-export interface CustomEventConversionGoalApi {
-    customEventName: string
-}
-
-export type DaysOfWeekEnumApi = (typeof DaysOfWeekEnumApi)[keyof typeof DaysOfWeekEnumApi]
-
-export const DaysOfWeekEnumApi = {
-    Number1: 1,
-    Number2: 2,
-    Number3: 3,
-    Number4: 4,
-    Number5: 5,
-    Number6: 6,
-    Number7: 7,
-} as const
-
-export interface DateRangeApi {
-    /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
-     * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
-    date_from?: string | null
-    /** End of the date range. Same format as date_from. Omit or null for "now". */
-    date_to?: string | null
-    /** Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
-    daysOfWeek?: DaysOfWeekEnumApi[] | null
-    /** Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries. */
-    excludeIncompletePeriods?: boolean | null
-    /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
-    explicitDate?: boolean | null
-}
-
-export type IntervalTypeApi = (typeof IntervalTypeApi)[keyof typeof IntervalTypeApi]
-
-export const IntervalTypeApi = {
-    Second: 'second',
-    Minute: 'minute',
-    Hour: 'hour',
-    Day: 'day',
-    Week: 'week',
-    Month: 'month',
-    Quarter: 'quarter',
-    Year: 'year',
-} as const
-
-export type BounceRatePageViewModeApi = (typeof BounceRatePageViewModeApi)[keyof typeof BounceRatePageViewModeApi]
-
-export const BounceRatePageViewModeApi = {
-    CountPageviews: 'count_pageviews',
-    UniqUrls: 'uniq_urls',
-    UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
-} as const
-
-export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
-
-export const FilterLogicalOperatorApi = {
-    And: 'AND',
-    Or: 'OR',
-} as const
-
-export type CustomBotFieldApi = (typeof CustomBotFieldApi)[keyof typeof CustomBotFieldApi]
-
-export const CustomBotFieldApi = {
-    RawUserAgent: '$raw_user_agent',
-    Ip: '$ip',
-    Lib: '$lib',
-    Host: '$host',
-    Pathname: '$pathname',
-    CurrentUrl: '$current_url',
-    Browser: '$browser',
-    Os: '$os',
-    BrowserLanguage: '$browser_language',
-    ScreenWidth: '$screen_width',
-    ScreenHeight: '$screen_height',
-    GeoipCountryCode: '$geoip_country_code',
-    Referrer: '$referrer',
-    ReferringDomain: '$referring_domain',
-} as const
-
-export type CustomBotMatcherApi = (typeof CustomBotMatcherApi)[keyof typeof CustomBotMatcherApi]
-
-export const CustomBotMatcherApi = {
-    Contains: 'contains',
-    Regex: 'regex',
-    Exact: 'exact',
-    Cidr: 'cidr',
-} as const
-
-export interface CustomBotConditionApi {
-    id: string
-    /** The event property this condition reads. */
-    key: CustomBotFieldApi
-    matcher: CustomBotMatcherApi
-    /** Matched against the property named by `key`. */
-    pattern: string
-}
-
-export interface CustomBotRuleApi {
-    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
-    category?: string | null
-    /** Whether every condition must match (AND) or any one of them (OR). */
-    combiner: FilterLogicalOperatorApi
-    id: string
-    items: CustomBotConditionApi[]
-    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
-    name: string
-}
-
-export type CustomChannelFieldApi = (typeof CustomChannelFieldApi)[keyof typeof CustomChannelFieldApi]
-
-export const CustomChannelFieldApi = {
-    UtmSource: 'utm_source',
-    UtmMedium: 'utm_medium',
-    UtmCampaign: 'utm_campaign',
-    ReferringDomain: 'referring_domain',
-    Url: 'url',
-    Pathname: 'pathname',
-    Hostname: 'hostname',
-} as const
-
-export type CustomChannelOperatorApi = (typeof CustomChannelOperatorApi)[keyof typeof CustomChannelOperatorApi]
-
-export const CustomChannelOperatorApi = {
-    Exact: 'exact',
-    IsNot: 'is_not',
-    IsSet: 'is_set',
-    IsNotSet: 'is_not_set',
-    Icontains: 'icontains',
-    NotIcontains: 'not_icontains',
-    Regex: 'regex',
-    NotRegex: 'not_regex',
-} as const
-
-export interface CustomChannelConditionApi {
-    id: string
-    key: CustomChannelFieldApi
-    op: CustomChannelOperatorApi
-    value?: string | string[] | null
-}
-
-export interface CustomChannelRuleApi {
-    channel_type: string
-    combiner: FilterLogicalOperatorApi
-    id: string
-    items: CustomChannelConditionApi[]
-}
-
-export interface DataWarehouseEventsModifierApi {
-    distinct_id_field: string
-    id_field: string
-    table_name: string
-    timestamp_field: string
-}
-
-export type InCohortViaApi = (typeof InCohortViaApi)[keyof typeof InCohortViaApi]
-
-export const InCohortViaApi = {
-    Auto: 'auto',
-    Leftjoin: 'leftjoin',
-    Subquery: 'subquery',
-    LeftjoinConjoined: 'leftjoin_conjoined',
-} as const
-
-export type InlineCohortCalculationApi = (typeof InlineCohortCalculationApi)[keyof typeof InlineCohortCalculationApi]
-
-export const InlineCohortCalculationApi = {
-    Off: 'off',
-    Auto: 'auto',
-    Always: 'always',
-} as const
-
-export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
-
-export const MaterializationModeApi = {
-    Auto: 'auto',
-    LegacyNullAsString: 'legacy_null_as_string',
-    LegacyNullAsNull: 'legacy_null_as_null',
-    Disabled: 'disabled',
-} as const
-
-export type MaterializedColumnsOptimizationModeApi =
-    (typeof MaterializedColumnsOptimizationModeApi)[keyof typeof MaterializedColumnsOptimizationModeApi]
-
-export const MaterializedColumnsOptimizationModeApi = {
-    Disabled: 'disabled',
-    Optimized: 'optimized',
-} as const
-
-export type ParserModeApi = (typeof ParserModeApi)[keyof typeof ParserModeApi]
-
-export const ParserModeApi = {
-    CppOnly: 'cpp_only',
-    CppWithRustShadow: 'cpp_with_rust_shadow',
-    CppWithRustPyShadow: 'cpp_with_rust_py_shadow',
-    RustWithCppShadow: 'rust_with_cpp_shadow',
-    RustOnly: 'rust_only',
-    RustPyOnly: 'rust_py_only',
-    RustPyWithCppShadow: 'rust_py_with_cpp_shadow',
-} as const
-
-export type PersonsArgMaxVersionApi = (typeof PersonsArgMaxVersionApi)[keyof typeof PersonsArgMaxVersionApi]
-
-export const PersonsArgMaxVersionApi = {
-    Auto: 'auto',
-    V1: 'v1',
-    V2: 'v2',
-} as const
-
-export type PersonsJoinModeApi = (typeof PersonsJoinModeApi)[keyof typeof PersonsJoinModeApi]
-
-export const PersonsJoinModeApi = {
-    Inner: 'inner',
-    Left: 'left',
-} as const
-
-export type PersonsOnEventsModeApi = (typeof PersonsOnEventsModeApi)[keyof typeof PersonsOnEventsModeApi]
-
-export const PersonsOnEventsModeApi = {
-    Disabled: 'disabled',
-    PersonIdNoOverridePropertiesOnEvents: 'person_id_no_override_properties_on_events',
-    PersonIdOverridePropertiesOnEvents: 'person_id_override_properties_on_events',
-    PersonIdOverridePropertiesJoined: 'person_id_override_properties_joined',
-} as const
-
-export type PropertyGroupsModeApi = (typeof PropertyGroupsModeApi)[keyof typeof PropertyGroupsModeApi]
-
-export const PropertyGroupsModeApi = {
-    Enabled: 'enabled',
-    Disabled: 'disabled',
-    Optimized: 'optimized',
-} as const
-
-export type SessionTableVersionApi = (typeof SessionTableVersionApi)[keyof typeof SessionTableVersionApi]
-
-export const SessionTableVersionApi = {
-    Auto: 'auto',
-    V1: 'v1',
-    V2: 'v2',
-    V3: 'v3',
-} as const
-
-export type SessionsV2JoinModeApi = (typeof SessionsV2JoinModeApi)[keyof typeof SessionsV2JoinModeApi]
-
-export const SessionsV2JoinModeApi = {
-    String: 'string',
-    Uuid: 'uuid',
-} as const
-
-export interface HogQLQueryModifiersApi {
-    bounceRateDurationSeconds?: number | null
-    bounceRatePageViewMode?: BounceRatePageViewModeApi | null
-    convertToProjectTimezone?: boolean | null
-    customBotDefinitions?: CustomBotRuleApi[] | null
-    customChannelTypeRules?: CustomChannelRuleApi[] | null
-    dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
-    debug?: boolean | null
-    /** If these are provided, the query will fail if these skip indexes are not used */
-    forceClickhouseDataSkippingIndexes?: string[] | null
-    formatCsvAllowDoubleQuotes?: boolean | null
-    inCohortVia?: InCohortViaApi | null
-    inlineCohortCalculation?: InlineCohortCalculationApi | null
-    materializationMode?: MaterializationModeApi | null
-    materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
-    /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
-    mergeFederatedAggregateJoins?: boolean | null
-    optimizeJoinedFilters?: boolean | null
-    optimizeProjections?: boolean | null
-    /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
-    parserMode?: ParserModeApi | null
-    personsArgMaxVersion?: PersonsArgMaxVersionApi | null
-    personsJoinMode?: PersonsJoinModeApi | null
-    personsOnEventsMode?: PersonsOnEventsModeApi | null
-    propertyGroupsMode?: PropertyGroupsModeApi | null
-    pushDownPredicates?: boolean | null
-    s3TableUseInvalidColumns?: boolean | null
-    /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
-    sessionIdPushdown?: boolean | null
-    /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
-    sessionPropertyPreAggregation?: boolean | null
-    sessionTableVersion?: SessionTableVersionApi | null
-    sessionsV2JoinMode?: SessionsV2JoinModeApi | null
-    timings?: boolean | null
-    /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
-    typeAwareCastSimplification?: boolean | null
-    useMaterializedViews?: boolean | null
-    usePreaggregatedIntermediateResults?: boolean | null
-    /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
-    usePreaggregatedTableTransforms?: boolean | null
-    useWebAnalyticsPreAggregatedTables?: boolean | null
-    /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
-    webAnalyticsFirstPageviewFilters?: boolean | null
-}
-
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
 
 export const PropertyOperatorApi = {
@@ -897,6 +602,357 @@ export interface BehavioralPropertyFilterApi {
     /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
     type?: 'behavioral'
     value: InlineBehavioralTypeApi
+}
+
+export interface ActionConversionGoalApi {
+    actionId: number
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+}
+
+export interface CustomEventConversionGoalApi {
+    customEventName: string
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
+          )[]
+        | null
+}
+
+export type DaysOfWeekEnumApi = (typeof DaysOfWeekEnumApi)[keyof typeof DaysOfWeekEnumApi]
+
+export const DaysOfWeekEnumApi = {
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+    Number5: 5,
+    Number6: 6,
+    Number7: 7,
+} as const
+
+export interface DateRangeApi {
+    /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
+     * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
+    date_from?: string | null
+    /** End of the date range. Same format as date_from. Omit or null for "now". */
+    date_to?: string | null
+    /** Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
+    daysOfWeek?: DaysOfWeekEnumApi[] | null
+    /** Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries. */
+    excludeIncompletePeriods?: boolean | null
+    /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+    explicitDate?: boolean | null
+}
+
+export type IntervalTypeApi = (typeof IntervalTypeApi)[keyof typeof IntervalTypeApi]
+
+export const IntervalTypeApi = {
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
+} as const
+
+export type BounceRatePageViewModeApi = (typeof BounceRatePageViewModeApi)[keyof typeof BounceRatePageViewModeApi]
+
+export const BounceRatePageViewModeApi = {
+    CountPageviews: 'count_pageviews',
+    UniqUrls: 'uniq_urls',
+    UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
+} as const
+
+export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
+
+export const FilterLogicalOperatorApi = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export type CustomBotFieldApi = (typeof CustomBotFieldApi)[keyof typeof CustomBotFieldApi]
+
+export const CustomBotFieldApi = {
+    RawUserAgent: '$raw_user_agent',
+    Ip: '$ip',
+    Lib: '$lib',
+    Host: '$host',
+    Pathname: '$pathname',
+    CurrentUrl: '$current_url',
+    Browser: '$browser',
+    Os: '$os',
+    BrowserLanguage: '$browser_language',
+    ScreenWidth: '$screen_width',
+    ScreenHeight: '$screen_height',
+    GeoipCountryCode: '$geoip_country_code',
+    Referrer: '$referrer',
+    ReferringDomain: '$referring_domain',
+} as const
+
+export type CustomBotMatcherApi = (typeof CustomBotMatcherApi)[keyof typeof CustomBotMatcherApi]
+
+export const CustomBotMatcherApi = {
+    Contains: 'contains',
+    Regex: 'regex',
+    Exact: 'exact',
+    Cidr: 'cidr',
+} as const
+
+export interface CustomBotConditionApi {
+    id: string
+    /** The event property this condition reads. */
+    key: CustomBotFieldApi
+    matcher: CustomBotMatcherApi
+    /** Matched against the property named by `key`. */
+    pattern: string
+}
+
+export interface CustomBotRuleApi {
+    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+    category?: string | null
+    /** Whether every condition must match (AND) or any one of them (OR). */
+    combiner: FilterLogicalOperatorApi
+    id: string
+    items: CustomBotConditionApi[]
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+    name: string
+}
+
+export type CustomChannelFieldApi = (typeof CustomChannelFieldApi)[keyof typeof CustomChannelFieldApi]
+
+export const CustomChannelFieldApi = {
+    UtmSource: 'utm_source',
+    UtmMedium: 'utm_medium',
+    UtmCampaign: 'utm_campaign',
+    ReferringDomain: 'referring_domain',
+    Url: 'url',
+    Pathname: 'pathname',
+    Hostname: 'hostname',
+} as const
+
+export type CustomChannelOperatorApi = (typeof CustomChannelOperatorApi)[keyof typeof CustomChannelOperatorApi]
+
+export const CustomChannelOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+export interface CustomChannelConditionApi {
+    id: string
+    key: CustomChannelFieldApi
+    op: CustomChannelOperatorApi
+    value?: string | string[] | null
+}
+
+export interface CustomChannelRuleApi {
+    channel_type: string
+    combiner: FilterLogicalOperatorApi
+    id: string
+    items: CustomChannelConditionApi[]
+}
+
+export interface DataWarehouseEventsModifierApi {
+    distinct_id_field: string
+    id_field: string
+    table_name: string
+    timestamp_field: string
+}
+
+export type InCohortViaApi = (typeof InCohortViaApi)[keyof typeof InCohortViaApi]
+
+export const InCohortViaApi = {
+    Auto: 'auto',
+    Leftjoin: 'leftjoin',
+    Subquery: 'subquery',
+    LeftjoinConjoined: 'leftjoin_conjoined',
+} as const
+
+export type InlineCohortCalculationApi = (typeof InlineCohortCalculationApi)[keyof typeof InlineCohortCalculationApi]
+
+export const InlineCohortCalculationApi = {
+    Off: 'off',
+    Auto: 'auto',
+    Always: 'always',
+} as const
+
+export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
+
+export const MaterializationModeApi = {
+    Auto: 'auto',
+    LegacyNullAsString: 'legacy_null_as_string',
+    LegacyNullAsNull: 'legacy_null_as_null',
+    Disabled: 'disabled',
+} as const
+
+export type MaterializedColumnsOptimizationModeApi =
+    (typeof MaterializedColumnsOptimizationModeApi)[keyof typeof MaterializedColumnsOptimizationModeApi]
+
+export const MaterializedColumnsOptimizationModeApi = {
+    Disabled: 'disabled',
+    Optimized: 'optimized',
+} as const
+
+export type ParserModeApi = (typeof ParserModeApi)[keyof typeof ParserModeApi]
+
+export const ParserModeApi = {
+    CppOnly: 'cpp_only',
+    CppWithRustShadow: 'cpp_with_rust_shadow',
+    CppWithRustPyShadow: 'cpp_with_rust_py_shadow',
+    RustWithCppShadow: 'rust_with_cpp_shadow',
+    RustOnly: 'rust_only',
+    RustPyOnly: 'rust_py_only',
+    RustPyWithCppShadow: 'rust_py_with_cpp_shadow',
+} as const
+
+export type PersonsArgMaxVersionApi = (typeof PersonsArgMaxVersionApi)[keyof typeof PersonsArgMaxVersionApi]
+
+export const PersonsArgMaxVersionApi = {
+    Auto: 'auto',
+    V1: 'v1',
+    V2: 'v2',
+} as const
+
+export type PersonsJoinModeApi = (typeof PersonsJoinModeApi)[keyof typeof PersonsJoinModeApi]
+
+export const PersonsJoinModeApi = {
+    Inner: 'inner',
+    Left: 'left',
+} as const
+
+export type PersonsOnEventsModeApi = (typeof PersonsOnEventsModeApi)[keyof typeof PersonsOnEventsModeApi]
+
+export const PersonsOnEventsModeApi = {
+    Disabled: 'disabled',
+    PersonIdNoOverridePropertiesOnEvents: 'person_id_no_override_properties_on_events',
+    PersonIdOverridePropertiesOnEvents: 'person_id_override_properties_on_events',
+    PersonIdOverridePropertiesJoined: 'person_id_override_properties_joined',
+} as const
+
+export type PropertyGroupsModeApi = (typeof PropertyGroupsModeApi)[keyof typeof PropertyGroupsModeApi]
+
+export const PropertyGroupsModeApi = {
+    Enabled: 'enabled',
+    Disabled: 'disabled',
+    Optimized: 'optimized',
+} as const
+
+export type SessionTableVersionApi = (typeof SessionTableVersionApi)[keyof typeof SessionTableVersionApi]
+
+export const SessionTableVersionApi = {
+    Auto: 'auto',
+    V1: 'v1',
+    V2: 'v2',
+    V3: 'v3',
+} as const
+
+export type SessionsV2JoinModeApi = (typeof SessionsV2JoinModeApi)[keyof typeof SessionsV2JoinModeApi]
+
+export const SessionsV2JoinModeApi = {
+    String: 'string',
+    Uuid: 'uuid',
+} as const
+
+export interface HogQLQueryModifiersApi {
+    bounceRateDurationSeconds?: number | null
+    bounceRatePageViewMode?: BounceRatePageViewModeApi | null
+    convertToProjectTimezone?: boolean | null
+    customBotDefinitions?: CustomBotRuleApi[] | null
+    customChannelTypeRules?: CustomChannelRuleApi[] | null
+    dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
+    debug?: boolean | null
+    /** If these are provided, the query will fail if these skip indexes are not used */
+    forceClickhouseDataSkippingIndexes?: string[] | null
+    formatCsvAllowDoubleQuotes?: boolean | null
+    inCohortVia?: InCohortViaApi | null
+    inlineCohortCalculation?: InlineCohortCalculationApi | null
+    materializationMode?: MaterializationModeApi | null
+    materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
+    /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
+    mergeFederatedAggregateJoins?: boolean | null
+    optimizeJoinedFilters?: boolean | null
+    optimizeProjections?: boolean | null
+    /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+    parserMode?: ParserModeApi | null
+    personsArgMaxVersion?: PersonsArgMaxVersionApi | null
+    personsJoinMode?: PersonsJoinModeApi | null
+    personsOnEventsMode?: PersonsOnEventsModeApi | null
+    propertyGroupsMode?: PropertyGroupsModeApi | null
+    pushDownPredicates?: boolean | null
+    s3TableUseInvalidColumns?: boolean | null
+    /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
+    sessionIdPushdown?: boolean | null
+    /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
+    sessionPropertyPreAggregation?: boolean | null
+    sessionTableVersion?: SessionTableVersionApi | null
+    sessionsV2JoinMode?: SessionsV2JoinModeApi | null
+    timings?: boolean | null
+    /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
+    typeAwareCastSimplification?: boolean | null
+    useMaterializedViews?: boolean | null
+    usePreaggregatedIntermediateResults?: boolean | null
+    /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
+    usePreaggregatedTableTransforms?: boolean | null
+    useWebAnalyticsPreAggregatedTables?: boolean | null
+    /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
+    webAnalyticsFirstPageviewFilters?: boolean | null
 }
 
 export interface PropertyGroupFilterValueApi {
@@ -3449,6 +3505,7 @@ export interface WebStatsTableQueryApi {
     includeHost?: boolean | null
     includeRevenue?: boolean | null
     includeScrollDepth?: boolean | null
+    includeTrafficMetrics?: boolean | null
     /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalTypeApi | null
     kind?: 'WebStatsTableQuery'

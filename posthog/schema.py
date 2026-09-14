@@ -1074,13 +1074,6 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
-class CustomEventConversionGoal(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    customEventName: str
-
-
 class DangerousOperationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3368,13 +3361,6 @@ class AccountsTableRow(BaseModel):
         default=None,
         description="Sorted tag names. Omitted when the request does not select tags.",
     )
-
-
-class ActionConversionGoal(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    actionId: int
 
 
 class ActorsPropertyTaxonomyResponse(BaseModel):
@@ -10539,184 +10525,6 @@ class AssistantTrendsQuery(BaseModel):
     )
     trendsFilter: AssistantTrendsFilter | None = Field(
         default=None, description="Properties specific to the trends insight"
-    )
-
-
-class AssistantWebAnalyticsQueryBase(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compareFilter: CompareFilter | None = Field(
-        default=None,
-        description=(
-            "Compare the current period to a prior period. Disabled by default."
-            " Enabling roughly doubles query cost — leave it off unless the user"
-            " explicitly asks for a period-over-period comparison."
-        ),
-    )
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
-        default=None,
-        description=(
-            "Conversion goal — pass an `actionId` (must belong to the current project)"
-            " or a `customEventName`. Adds conversion columns to the response. Disables"
-            " the pre-aggregated fast path — only set when the user explicitly asks"
-            " about a conversion."
-        ),
-    )
-    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
-        default=None,
-        description=(
-            "Date range for the query. Defaults to the last 7 days when omitted. Keep"
-            " ranges short — the backend has no upper bound and large windows on the"
-            " slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be"
-            " expensive."
-        ),
-    )
-    doPathCleaning: bool | None = Field(
-        default=False,
-        description="Apply the team's path-cleaning rules to URL-style breakdowns.",
-    )
-    filterTestAccounts: bool | None = Field(
-        default=False,
-        description=("Exclude internal and test users by applying the team's test-account filter."),
-    )
-    properties: (
-        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
-    ) = Field(
-        default=[],
-        description=("Property filters applied to the query. Accepts event, person, session, or cohort filters."),
-    )
-
-
-class AssistantWebOverviewQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compareFilter: CompareFilter | None = Field(
-        default=None,
-        description=(
-            "Compare the current period to a prior period. Disabled by default."
-            " Enabling roughly doubles query cost — leave it off unless the user"
-            " explicitly asks for a period-over-period comparison."
-        ),
-    )
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
-        default=None,
-        description=(
-            "Conversion goal — pass an `actionId` (must belong to the current project)"
-            " or a `customEventName`. Adds conversion columns to the response. Disables"
-            " the pre-aggregated fast path — only set when the user explicitly asks"
-            " about a conversion."
-        ),
-    )
-    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
-        default=None,
-        description=(
-            "Date range for the query. Defaults to the last 7 days when omitted. Keep"
-            " ranges short — the backend has no upper bound and large windows on the"
-            " slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be"
-            " expensive."
-        ),
-    )
-    doPathCleaning: bool | None = Field(
-        default=False,
-        description="Apply the team's path-cleaning rules to URL-style breakdowns.",
-    )
-    filterTestAccounts: bool | None = Field(
-        default=False,
-        description=("Exclude internal and test users by applying the team's test-account filter."),
-    )
-    kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
-    properties: (
-        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
-    ) = Field(
-        default=[],
-        description=("Property filters applied to the query. Accepts event, person, session, or cohort filters."),
-    )
-
-
-class AssistantWebStatsTableQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdownBy: WebStatsBreakdown = Field(
-        ...,
-        description=(
-            "Required. Property to break down the table by. The full enum covers"
-            " path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`),"
-            " marketing/source (UTM source/medium/campaign/term/content, channel,"
-            " referring domain), audience/device (browser, OS, device type, viewport),"
-            " and geography (country, region, city, timezone, language). Path-style"
-            " breakdowns pair naturally with `includeBounceRate` /"
-            " `includeAvgTimeOnPage`."
-        ),
-    )
-    compareFilter: CompareFilter | None = Field(
-        default=None,
-        description=(
-            "Compare the current period to a prior period. Disabled by default."
-            " Enabling roughly doubles query cost — leave it off unless the user"
-            " explicitly asks for a period-over-period comparison."
-        ),
-    )
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
-        default=None,
-        description=(
-            "Conversion goal — pass an `actionId` (must belong to the current project)"
-            " or a `customEventName`. Adds conversion columns to the response. Disables"
-            " the pre-aggregated fast path — only set when the user explicitly asks"
-            " about a conversion."
-        ),
-    )
-    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
-        default=None,
-        description=(
-            "Date range for the query. Defaults to the last 7 days when omitted. Keep"
-            " ranges short — the backend has no upper bound and large windows on the"
-            " slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be"
-            " expensive."
-        ),
-    )
-    doPathCleaning: bool | None = Field(
-        default=False,
-        description="Apply the team's path-cleaning rules to URL-style breakdowns.",
-    )
-    filterTestAccounts: bool | None = Field(
-        default=False,
-        description=("Exclude internal and test users by applying the team's test-account filter."),
-    )
-    includeAvgTimeOnPage: bool | None = Field(
-        default=False,
-        description=(
-            "Add an average-time-on-page column. Implies a Page-style breakdown. Disables the pre-aggregated fast path."
-        ),
-    )
-    includeBounceRate: bool | None = Field(
-        default=False,
-        description=("Add a bounce-rate column. Most useful with a path-style breakdown."),
-    )
-    includeHost: bool | None = Field(
-        default=False,
-        description=(
-            "When using a path-style breakdown (`Page`, `InitialPage`, `ExitPage`,"
-            " `PreviousPage`), concatenate host + pathname so the same path on"
-            " different hosts is counted separately."
-        ),
-    )
-    kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
-    limit: conint(ge=1) | None = Field(
-        default=None,
-        description=(
-            "Maximum rows to return. Prefer 10–25 unless the user explicitly asks for"
-            " more. Hard ceiling enforced at the wrapper."
-        ),
-    )
-    offset: conint(ge=0) | None = Field(default=None, description="Pagination offset.")
-    properties: (
-        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
-    ) = Field(
-        default=[],
-        description=("Property filters applied to the query. Accepts event, person, session, or cohort filters."),
     )
 
 
@@ -24426,53 +24234,6 @@ class VectorSearchQueryResponse(BaseModel):
     )
 
 
-class WebAgentAnalyticsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    compareFilter: CompareFilter | None = None
-    contentGrouping: WebAgentContentGrouping | None = None
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    filterTestAccounts: bool | None = None
-    includeCrawlers: bool | None = None
-    includeRevenue: bool | None = None
-    intentKey: str | None = None
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    journeyKey: str | None = Field(
-        default=None,
-        description=("Opaque journey identifier returned by the journeys list, used to load one journey's timeline."),
-    )
-    kind: Literal["WebAgentAnalyticsQuery"] = "WebAgentAnalyticsQuery"
-    limit: int | None = None
-    llmsTxtUrl: str | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    queryType: WebAgentAnalyticsQueryType
-    response: WebAgentAnalyticsQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class WebAnalyticsAssistantFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -24492,298 +24253,6 @@ class WebAnalyticsExternalSummaryQuery(BaseModel):
     kind: Literal["WebAnalyticsExternalSummaryQuery"] = "WebAnalyticsExternalSummaryQuery"
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebAnalyticsExternalSummaryQueryResponse | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class WebBotsTableQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    breakdownBy: WebBotsBreakdown
-    compareFilter: CompareFilter | None = None
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    kind: Literal["WebBotsTableQuery"] = "WebBotsTableQuery"
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    response: WebBotsTableQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class WebExternalClicksTableQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    compareFilter: CompareFilter | None = None
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    kind: Literal["WebExternalClicksTableQuery"] = "WebExternalClicksTableQuery"
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    response: WebExternalClicksTableQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    stripQueryParams: bool | None = None
-    tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class WebGoalsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    compareFilter: CompareFilter | None = None
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    kind: Literal["WebGoalsQuery"] = "WebGoalsQuery"
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    response: WebGoalsQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
-    useWebAnalyticsPrecompute: bool | None = Field(
-        default=None,
-        description=(
-            "Opt this specific query into the web_goals_query precompute path. Requires"
-            " the `web-analytics-precompute-toggle` PostHog feature flag to be on for"
-            " the team's organization for the gate to pass. *"
-        ),
-    )
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class WebNotableChangesQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    compareFilter: CompareFilter | None = None
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    kind: Literal["WebNotableChangesQuery"] = "WebNotableChangesQuery"
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    response: WebNotableChangesQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class WebOverviewQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    compareFilter: CompareFilter | None = None
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    response: WebOverviewQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
-    useWebAnalyticsPrecompute: bool | None = Field(
-        default=None,
-        description=(
-            "Opt this specific query into the web_overview_query precompute path."
-            " Requires the `web-analytics-precompute-toggle` PostHog feature flag to be"
-            " on for the team's organization for the gate to pass. *"
-        ),
-    )
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class WebPageURLSearchQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    compareFilter: CompareFilter | None = None
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    kind: Literal["WebPageURLSearchQuery"] = "WebPageURLSearchQuery"
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    response: WebPageURLSearchQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    searchTerm: str | None = None
-    stripQueryParams: bool | None = None
-    tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class WebStatsTableQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    breakdownBy: WebStatsBreakdown
-    compareFilter: CompareFilter | None = None
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    filterTestAccounts: bool | None = None
-    includeAvgTimeOnPage: bool | None = None
-    includeBounceRate: bool | None = None
-    includeHost: bool | None = None
-    includeRevenue: bool | None = None
-    includeScrollDepth: bool | None = None
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    response: WebStatsTableQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
-    useWebAnalyticsPrecompute: bool | None = Field(
-        default=None,
-        description=(
-            "Opt this specific query into the web stats table precompute path. Requires"
-            " the `web-analytics-precompute-toggle` PostHog feature flag to be on for"
-            " the team's organization for the gate to pass. *"
-        ),
-    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -25877,6 +25346,14 @@ class ConversionGoalFilter3(BaseModel):
     table_name: str
     timestamp_field: str
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class CustomEventConversionGoal(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    customEventName: str
+    properties: list[AnyPropertyFilterDiscriminated] | None = None
 
 
 class DashboardFilter(BaseModel):
@@ -27150,203 +26627,6 @@ class MCPToolTopUsersQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class MarketingAnalyticsAggregatedQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    compareFilter: CompareFilter | None = None
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    draftConversionGoal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | None = Field(
-        default=None,
-        description="Draft conversion goal that can be set in the UI without saving",
-    )
-    drillDownLevel: MarketingAnalyticsDrillDownLevel | None = Field(
-        default=None,
-        description=("Drill-down hierarchy level: channel, source, or campaign (default)"),
-    )
-    filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
-    integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration IDs")
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    kind: Literal["MarketingAnalyticsAggregatedQuery"] = "MarketingAnalyticsAggregatedQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    response: MarketingAnalyticsAggregatedQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    select: list[str] | None = Field(
-        default=None,
-        description="Return a limited set of data. Will use default columns if empty.",
-    )
-    tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class MarketingAnalyticsAttributionPathsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    allowMultipleConversionsPerVisitor: bool | None = Field(
-        default=None,
-        description=(
-            "Whether one person converting repeatedly contributes one path or one per"
-            " conversion. Null follows the goal's math."
-        ),
-    )
-    breakdownBy: MarketingAnalyticsAttributionBreakdown | None = Field(
-        default=None, description="Path step dimension. Defaults to channel."
-    )
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    conversionGoalId: str = Field(
-        ...,
-        description=("conversion_goal_id of the goal whose conversions the paths lead to."),
-    )
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    excludeDirectTraffic: bool | None = Field(
-        default=None,
-        description=("Drop direct sessions from every path, mirroring the attribution table's option."),
-    )
-    excludeUnattributed: bool | None = Field(
-        default=None,
-        description=('Drop touchpoints whose breakdown value is empty or unknown — the "(none)" steps.'),
-    )
-    filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
-    includeRevenue: bool | None = None
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    kind: Literal["MarketingAnalyticsAttributionPathsQuery"] = "MarketingAnalyticsAttributionPathsQuery"
-    limit: int | None = Field(default=None, description="Number of rows to return")
-    lookbackWindowDays: int | None = Field(
-        default=None,
-        description=(
-            "How many days before each conversion a touchpoint can be part of its path,"
-            " overriding the team's configured attribution window for this query only."
-        ),
-    )
-    maxTouchpoints: int | None = Field(
-        default=None,
-        description=("Only paths with at most this many touchpoints, counted before truncation."),
-    )
-    minTouchpoints: int | None = Field(
-        default=None,
-        description=("Only paths with at least this many touchpoints, counted before truncation."),
-    )
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    response: MarketingAnalyticsAttributionPathsQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class MarketingAnalyticsAttributionQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    allowMultipleConversionsPerVisitor: bool | None = Field(
-        default=None,
-        description=(
-            "Whether one person converting repeatedly counts once or every time. Null"
-            " follows the goal's own math: unique-users goals count each person once,"
-            " count-based goals count every conversion. Set explicitly to override."
-            " Counting every conversion makes the rate columns exceed 100%, since a"
-            " person can convert more times than they visited."
-        ),
-    )
-    breakdownBy: MarketingAnalyticsAttributionBreakdown | None = Field(
-        default=None, description="Row dimension. Defaults to channel."
-    )
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    conversionGoalId: str = Field(
-        ...,
-        description=("conversion_goal_id of the goal to attribute. The table is meaningless without one."),
-    )
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    excludeDirectTraffic: bool | None = Field(
-        default=None,
-        description=(
-            "Drop direct sessions from the touchpoint set before weights are computed,"
-            " so the remaining touchpoints renormalize to full credit rather than"
-            " losing direct's share."
-        ),
-    )
-    excludeUnattributed: bool | None = Field(
-        default=None,
-        description=(
-            "Drop touchpoints whose current breakdown value is empty or unknown — the"
-            ' "(none)" row — before weights are computed, so the remaining touchpoints'
-            " renormalize to full credit."
-        ),
-    )
-    filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
-    includeRevenue: bool | None = None
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    kind: Literal["MarketingAnalyticsAttributionQuery"] = "MarketingAnalyticsAttributionQuery"
-    limit: int | None = Field(default=None, description="Number of rows to return")
-    lookbackWindowDays: int | None = Field(
-        default=None,
-        description=(
-            "How many days before each conversion a touchpoint can earn credit,"
-            " overriding the team's configured attribution window for this query only."
-        ),
-    )
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    response: MarketingAnalyticsAttributionQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class MarketingAnalyticsConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -27418,59 +26698,6 @@ class MarketingAnalyticsRetentionQuery(BaseModel):
         default=None,
         description="Return columns, counting period 0. Defaults to 8, clamped to 40.",
     )
-    useSessionsTable: bool | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class MarketingAnalyticsTableQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    draftConversionGoal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | None = Field(
-        default=None,
-        description="Draft conversion goal that can be set in the UI without saving",
-    )
-    drillDownLevel: MarketingAnalyticsDrillDownLevel | None = Field(
-        default=None,
-        description=("Drill-down hierarchy level: channel, source, or campaign (default)"),
-    )
-    filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
-    includeRevenue: bool | None = None
-    integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration type")
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    kind: Literal["MarketingAnalyticsTableQuery"] = "MarketingAnalyticsTableQuery"
-    limit: int | None = Field(default=None, description="Number of rows to return")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
-    orderBy: list[list[str | MarketingAnalyticsOrderByEnum]] | None = Field(
-        default=None, description="Columns to order by - similar to EventsQuery format"
-    )
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    response: MarketingAnalyticsTableQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    select: list[str] | None = Field(
-        default=None,
-        description="Return a limited set of data. Will use default columns if empty.",
-    )
-    tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -28046,51 +27273,12 @@ class VectorSearchQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class WebVitalsPathBreakdownQuery(BaseModel):
+class ActionConversionGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    compareFilter: CompareFilter | None = None
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    kind: Literal["WebVitalsPathBreakdownQuery"] = "WebVitalsPathBreakdownQuery"
-    metric: WebVitalsMetric
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    percentile: WebVitalsPercentile
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    response: WebVitalsPathBreakdownQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    tags: QueryLogTags | None = None
-    thresholds: list[float] = Field(..., max_length=2, min_length=2)
-    useSessionsTable: bool | None = None
-    useWebAnalyticsPrecompute: bool | None = Field(
-        default=None,
-        description=(
-            "Opt this specific query into the web vitals path breakdown precompute"
-            " path. Requires the `web-analytics-precompute-toggle` PostHog feature flag"
-            " to be on for the team's organization for the gate to pass. *"
-        ),
-    )
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    actionId: int
+    properties: list[AnyPropertyFilterDiscriminated] | None = None
 
 
 class ActionsNode(BaseModel):
@@ -28833,6 +28021,524 @@ class TraceSpansTreeQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class WebBotsTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(
+        default=None,
+        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
+    )
+    breakdownBy: WebBotsBreakdown
+    compareFilter: CompareFilter | None = None
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
+    dateRange: DateRange | None = None
+    doPathCleaning: bool | None = None
+    filterTestAccounts: bool | None = None
+    includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
+    )
+    kind: Literal["WebBotsTableQuery"] = "WebBotsTableQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
+    response: WebBotsTableQueryResponse | None = None
+    sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    tags: QueryLogTags | None = None
+    useSessionsTable: bool | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebExternalClicksTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(
+        default=None,
+        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
+    )
+    compareFilter: CompareFilter | None = None
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
+    dateRange: DateRange | None = None
+    doPathCleaning: bool | None = None
+    filterTestAccounts: bool | None = None
+    includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
+    )
+    kind: Literal["WebExternalClicksTableQuery"] = "WebExternalClicksTableQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
+    response: WebExternalClicksTableQueryResponse | None = None
+    sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    stripQueryParams: bool | None = None
+    tags: QueryLogTags | None = None
+    useSessionsTable: bool | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebGoalsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(
+        default=None,
+        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
+    )
+    compareFilter: CompareFilter | None = None
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
+    dateRange: DateRange | None = None
+    doPathCleaning: bool | None = None
+    filterTestAccounts: bool | None = None
+    includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
+    )
+    kind: Literal["WebGoalsQuery"] = "WebGoalsQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
+    response: WebGoalsQueryResponse | None = None
+    sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    tags: QueryLogTags | None = None
+    useSessionsTable: bool | None = None
+    useWebAnalyticsPrecompute: bool | None = Field(
+        default=None,
+        description=(
+            "Opt this specific query into the web_goals_query precompute path. Requires"
+            " the `web-analytics-precompute-toggle` PostHog feature flag to be on for"
+            " the team's organization for the gate to pass. *"
+        ),
+    )
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebNotableChangesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(
+        default=None,
+        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
+    )
+    compareFilter: CompareFilter | None = None
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
+    dateRange: DateRange | None = None
+    doPathCleaning: bool | None = None
+    filterTestAccounts: bool | None = None
+    includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
+    )
+    kind: Literal["WebNotableChangesQuery"] = "WebNotableChangesQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
+    response: WebNotableChangesQueryResponse | None = None
+    sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    tags: QueryLogTags | None = None
+    useSessionsTable: bool | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebOverviewQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(
+        default=None,
+        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
+    )
+    compareFilter: CompareFilter | None = None
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
+    dateRange: DateRange | None = None
+    doPathCleaning: bool | None = None
+    filterTestAccounts: bool | None = None
+    includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
+    )
+    kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
+    response: WebOverviewQueryResponse | None = None
+    sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    tags: QueryLogTags | None = None
+    useSessionsTable: bool | None = None
+    useWebAnalyticsPrecompute: bool | None = Field(
+        default=None,
+        description=(
+            "Opt this specific query into the web_overview_query precompute path."
+            " Requires the `web-analytics-precompute-toggle` PostHog feature flag to be"
+            " on for the team's organization for the gate to pass. *"
+        ),
+    )
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebPageURLSearchQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(
+        default=None,
+        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
+    )
+    compareFilter: CompareFilter | None = None
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
+    dateRange: DateRange | None = None
+    doPathCleaning: bool | None = None
+    filterTestAccounts: bool | None = None
+    includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
+    )
+    kind: Literal["WebPageURLSearchQuery"] = "WebPageURLSearchQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
+    response: WebPageURLSearchQueryResponse | None = None
+    sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    searchTerm: str | None = None
+    stripQueryParams: bool | None = None
+    tags: QueryLogTags | None = None
+    useSessionsTable: bool | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebStatsTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(
+        default=None,
+        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
+    )
+    breakdownBy: WebStatsBreakdown
+    compareFilter: CompareFilter | None = None
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
+    dateRange: DateRange | None = None
+    doPathCleaning: bool | None = None
+    filterTestAccounts: bool | None = None
+    includeAvgTimeOnPage: bool | None = None
+    includeBounceRate: bool | None = None
+    includeHost: bool | None = None
+    includeRevenue: bool | None = None
+    includeScrollDepth: bool | None = None
+    includeTrafficMetrics: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
+    )
+    kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
+    response: WebStatsTableQueryResponse | None = None
+    sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    tags: QueryLogTags | None = None
+    useSessionsTable: bool | None = None
+    useWebAnalyticsPrecompute: bool | None = Field(
+        default=None,
+        description=(
+            "Opt this specific query into the web stats table precompute path. Requires"
+            " the `web-analytics-precompute-toggle` PostHog feature flag to be on for"
+            " the team's organization for the gate to pass. *"
+        ),
+    )
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebVitalsPathBreakdownQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(
+        default=None,
+        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
+    )
+    compareFilter: CompareFilter | None = None
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
+    dateRange: DateRange | None = None
+    doPathCleaning: bool | None = None
+    filterTestAccounts: bool | None = None
+    includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
+    )
+    kind: Literal["WebVitalsPathBreakdownQuery"] = "WebVitalsPathBreakdownQuery"
+    metric: WebVitalsMetric
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
+    percentile: WebVitalsPercentile
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
+    response: WebVitalsPathBreakdownQueryResponse | None = None
+    sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    tags: QueryLogTags | None = None
+    thresholds: list[float] = Field(..., max_length=2, min_length=2)
+    useSessionsTable: bool | None = None
+    useWebAnalyticsPrecompute: bool | None = Field(
+        default=None,
+        description=(
+            "Opt this specific query into the web vitals path breakdown precompute"
+            " path. Requires the `web-analytics-precompute-toggle` PostHog feature flag"
+            " to be on for the team's organization for the gate to pass. *"
+        ),
+    )
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class AssistantWebAnalyticsQueryBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=(
+            "Compare the current period to a prior period. Disabled by default."
+            " Enabling roughly doubles query cost — leave it off unless the user"
+            " explicitly asks for a period-over-period comparison."
+        ),
+    )
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
+        default=None,
+        description=(
+            "Conversion goal — pass an `actionId` (must belong to the current project)"
+            " or a `customEventName`. Adds conversion columns to the response. Disables"
+            " the pre-aggregated fast path — only set when the user explicitly asks"
+            " about a conversion."
+        ),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None,
+        description=(
+            "Date range for the query. Defaults to the last 7 days when omitted. Keep"
+            " ranges short — the backend has no upper bound and large windows on the"
+            " slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be"
+            " expensive."
+        ),
+    )
+    doPathCleaning: bool | None = Field(
+        default=False,
+        description="Apply the team's path-cleaning rules to URL-style breakdowns.",
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the team's test-account filter."),
+    )
+    properties: (
+        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
+    ) = Field(
+        default=[],
+        description=("Property filters applied to the query. Accepts event, person, session, or cohort filters."),
+    )
+
+
+class AssistantWebOverviewQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=(
+            "Compare the current period to a prior period. Disabled by default."
+            " Enabling roughly doubles query cost — leave it off unless the user"
+            " explicitly asks for a period-over-period comparison."
+        ),
+    )
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
+        default=None,
+        description=(
+            "Conversion goal — pass an `actionId` (must belong to the current project)"
+            " or a `customEventName`. Adds conversion columns to the response. Disables"
+            " the pre-aggregated fast path — only set when the user explicitly asks"
+            " about a conversion."
+        ),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None,
+        description=(
+            "Date range for the query. Defaults to the last 7 days when omitted. Keep"
+            " ranges short — the backend has no upper bound and large windows on the"
+            " slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be"
+            " expensive."
+        ),
+    )
+    doPathCleaning: bool | None = Field(
+        default=False,
+        description="Apply the team's path-cleaning rules to URL-style breakdowns.",
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the team's test-account filter."),
+    )
+    kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
+    properties: (
+        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
+    ) = Field(
+        default=[],
+        description=("Property filters applied to the query. Accepts event, person, session, or cohort filters."),
+    )
+
+
+class AssistantWebStatsTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownBy: WebStatsBreakdown = Field(
+        ...,
+        description=(
+            "Required. Property to break down the table by. The full enum covers"
+            " path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`),"
+            " marketing/source (UTM source/medium/campaign/term/content, channel,"
+            " referring domain), audience/device (browser, OS, device type, viewport),"
+            " and geography (country, region, city, timezone, language). Path-style"
+            " breakdowns pair naturally with `includeBounceRate` /"
+            " `includeAvgTimeOnPage`."
+        ),
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=(
+            "Compare the current period to a prior period. Disabled by default."
+            " Enabling roughly doubles query cost — leave it off unless the user"
+            " explicitly asks for a period-over-period comparison."
+        ),
+    )
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
+        default=None,
+        description=(
+            "Conversion goal — pass an `actionId` (must belong to the current project)"
+            " or a `customEventName`. Adds conversion columns to the response. Disables"
+            " the pre-aggregated fast path — only set when the user explicitly asks"
+            " about a conversion."
+        ),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None,
+        description=(
+            "Date range for the query. Defaults to the last 7 days when omitted. Keep"
+            " ranges short — the backend has no upper bound and large windows on the"
+            " slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be"
+            " expensive."
+        ),
+    )
+    doPathCleaning: bool | None = Field(
+        default=False,
+        description="Apply the team's path-cleaning rules to URL-style breakdowns.",
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the team's test-account filter."),
+    )
+    includeAvgTimeOnPage: bool | None = Field(
+        default=False,
+        description=(
+            "Add an average-time-on-page column. Implies a Page-style breakdown. Disables the pre-aggregated fast path."
+        ),
+    )
+    includeBounceRate: bool | None = Field(
+        default=False,
+        description=("Add a bounce-rate column. Most useful with a path-style breakdown."),
+    )
+    includeHost: bool | None = Field(
+        default=False,
+        description=(
+            "When using a path-style breakdown (`Page`, `InitialPage`, `ExitPage`,"
+            " `PreviousPage`), concatenate host + pathname so the same path on"
+            " different hosts is counted separately."
+        ),
+    )
+    kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
+    limit: conint(ge=1) | None = Field(
+        default=None,
+        description=(
+            "Maximum rows to return. Prefer 10–25 unless the user explicitly asks for"
+            " more. Hard ceiling enforced at the wrapper."
+        ),
+    )
+    offset: conint(ge=0) | None = Field(default=None, description="Pagination offset.")
+    properties: (
+        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
+    ) = Field(
+        default=[],
+        description=("Property filters applied to the query. Accepts event, person, session, or cohort filters."),
+    )
+
+
 class ErrorTrackingBreakdownsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -29310,6 +29016,256 @@ class LogsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class MarketingAnalyticsAggregatedQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(
+        default=None,
+        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
+    )
+    compareFilter: CompareFilter | None = None
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
+    dateRange: DateRange | None = None
+    doPathCleaning: bool | None = None
+    draftConversionGoal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | None = Field(
+        default=None,
+        description="Draft conversion goal that can be set in the UI without saving",
+    )
+    drillDownLevel: MarketingAnalyticsDrillDownLevel | None = Field(
+        default=None,
+        description=("Drill-down hierarchy level: channel, source, or campaign (default)"),
+    )
+    filterTestAccounts: bool | None = None
+    includeRevenue: bool | None = None
+    integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration IDs")
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
+    )
+    kind: Literal["MarketingAnalyticsAggregatedQuery"] = "MarketingAnalyticsAggregatedQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
+    response: MarketingAnalyticsAggregatedQueryResponse | None = None
+    sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    select: list[str] | None = Field(
+        default=None,
+        description="Return a limited set of data. Will use default columns if empty.",
+    )
+    tags: QueryLogTags | None = None
+    useSessionsTable: bool | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class MarketingAnalyticsAttributionPathsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(
+        default=None,
+        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
+    )
+    allowMultipleConversionsPerVisitor: bool | None = Field(
+        default=None,
+        description=(
+            "Whether one person converting repeatedly contributes one path or one per"
+            " conversion. Null follows the goal's math."
+        ),
+    )
+    breakdownBy: MarketingAnalyticsAttributionBreakdown | None = Field(
+        default=None, description="Path step dimension. Defaults to channel."
+    )
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    conversionGoalId: str = Field(
+        ...,
+        description=("conversion_goal_id of the goal whose conversions the paths lead to."),
+    )
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
+    dateRange: DateRange | None = None
+    doPathCleaning: bool | None = None
+    excludeDirectTraffic: bool | None = Field(
+        default=None,
+        description=("Drop direct sessions from every path, mirroring the attribution table's option."),
+    )
+    excludeUnattributed: bool | None = Field(
+        default=None,
+        description=('Drop touchpoints whose breakdown value is empty or unknown — the "(none)" steps.'),
+    )
+    filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
+    includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
+    )
+    kind: Literal["MarketingAnalyticsAttributionPathsQuery"] = "MarketingAnalyticsAttributionPathsQuery"
+    limit: int | None = Field(default=None, description="Number of rows to return")
+    lookbackWindowDays: int | None = Field(
+        default=None,
+        description=(
+            "How many days before each conversion a touchpoint can be part of its path,"
+            " overriding the team's configured attribution window for this query only."
+        ),
+    )
+    maxTouchpoints: int | None = Field(
+        default=None,
+        description=("Only paths with at most this many touchpoints, counted before truncation."),
+    )
+    minTouchpoints: int | None = Field(
+        default=None,
+        description=("Only paths with at least this many touchpoints, counted before truncation."),
+    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
+    response: MarketingAnalyticsAttributionPathsQueryResponse | None = None
+    sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    tags: QueryLogTags | None = None
+    useSessionsTable: bool | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class MarketingAnalyticsAttributionQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(
+        default=None,
+        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
+    )
+    allowMultipleConversionsPerVisitor: bool | None = Field(
+        default=None,
+        description=(
+            "Whether one person converting repeatedly counts once or every time. Null"
+            " follows the goal's own math: unique-users goals count each person once,"
+            " count-based goals count every conversion. Set explicitly to override."
+            " Counting every conversion makes the rate columns exceed 100%, since a"
+            " person can convert more times than they visited."
+        ),
+    )
+    breakdownBy: MarketingAnalyticsAttributionBreakdown | None = Field(
+        default=None, description="Row dimension. Defaults to channel."
+    )
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    conversionGoalId: str = Field(
+        ...,
+        description=("conversion_goal_id of the goal to attribute. The table is meaningless without one."),
+    )
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
+    dateRange: DateRange | None = None
+    doPathCleaning: bool | None = None
+    excludeDirectTraffic: bool | None = Field(
+        default=None,
+        description=(
+            "Drop direct sessions from the touchpoint set before weights are computed,"
+            " so the remaining touchpoints renormalize to full credit rather than"
+            " losing direct's share."
+        ),
+    )
+    excludeUnattributed: bool | None = Field(
+        default=None,
+        description=(
+            "Drop touchpoints whose current breakdown value is empty or unknown — the"
+            ' "(none)" row — before weights are computed, so the remaining touchpoints'
+            " renormalize to full credit."
+        ),
+    )
+    filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
+    includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
+    )
+    kind: Literal["MarketingAnalyticsAttributionQuery"] = "MarketingAnalyticsAttributionQuery"
+    limit: int | None = Field(default=None, description="Number of rows to return")
+    lookbackWindowDays: int | None = Field(
+        default=None,
+        description=(
+            "How many days before each conversion a touchpoint can earn credit,"
+            " overriding the team's configured attribution window for this query only."
+        ),
+    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
+    response: MarketingAnalyticsAttributionQueryResponse | None = None
+    sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    tags: QueryLogTags | None = None
+    useSessionsTable: bool | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class MarketingAnalyticsTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(
+        default=None,
+        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
+    )
+    compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
+    dateRange: DateRange | None = None
+    doPathCleaning: bool | None = None
+    draftConversionGoal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | None = Field(
+        default=None,
+        description="Draft conversion goal that can be set in the UI without saving",
+    )
+    drillDownLevel: MarketingAnalyticsDrillDownLevel | None = Field(
+        default=None,
+        description=("Drill-down hierarchy level: channel, source, or campaign (default)"),
+    )
+    filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
+    includeRevenue: bool | None = None
+    integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration type")
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
+    )
+    kind: Literal["MarketingAnalyticsTableQuery"] = "MarketingAnalyticsTableQuery"
+    limit: int | None = Field(default=None, description="Number of rows to return")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
+    orderBy: list[list[str | MarketingAnalyticsOrderByEnum]] | None = Field(
+        default=None, description="Columns to order by - similar to EventsQuery format"
+    )
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
+    response: MarketingAnalyticsTableQueryResponse | None = None
+    sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    select: list[str] | None = Field(
+        default=None,
+        description="Return a limited set of data. Will use default columns if empty.",
+    )
+    tags: QueryLogTags | None = None
+    useSessionsTable: bool | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class PathsV2Query(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -29396,6 +29352,53 @@ class SessionsQuery(BaseModel):
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     where: list[str] | None = Field(default=None, description="HogQL filters to apply on returned data")
+
+
+class WebAgentAnalyticsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(
+        default=None,
+        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
+    )
+    compareFilter: CompareFilter | None = None
+    contentGrouping: WebAgentContentGrouping | None = None
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
+    dateRange: DateRange | None = None
+    doPathCleaning: bool | None = None
+    filterTestAccounts: bool | None = None
+    includeCrawlers: bool | None = None
+    includeRevenue: bool | None = None
+    intentKey: str | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
+    )
+    journeyKey: str | None = Field(
+        default=None,
+        description=("Opaque journey identifier returned by the journeys list, used to load one journey's timeline."),
+    )
+    kind: Literal["WebAgentAnalyticsQuery"] = "WebAgentAnalyticsQuery"
+    limit: int | None = None
+    llmsTxtUrl: str | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
+    queryType: WebAgentAnalyticsQueryType
+    response: WebAgentAnalyticsQueryResponse | None = None
+    sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    tags: QueryLogTags | None = None
+    useSessionsTable: bool | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class CalendarHeatmapQuery(BaseModel):

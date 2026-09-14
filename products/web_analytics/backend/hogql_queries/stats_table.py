@@ -553,7 +553,7 @@ WHERE and(
         return True if get_query_tag_value("precompute_stale") else None
 
     def get_lazy_precomputed_result(self) -> Optional[LazyStatsResult]:
-        if not can_use_lazy_precompute(self):
+        if self.query.includeTrafficMetrics or not can_use_lazy_precompute(self):
             return None
         return execute_lazy_precomputed_read(self)
 
@@ -597,7 +597,7 @@ WHERE and(
         Returns None when ineligible or on any failure, in which case the caller
         falls through to the v2/raw HogQL path.
         """
-        if not can_use_paths_lazy_precompute(self):
+        if self.query.includeTrafficMetrics or not can_use_paths_lazy_precompute(self):
             return None
         sort_column, sort_direction = self._resolve_sort_field()
         limit = self.paginator.limit
