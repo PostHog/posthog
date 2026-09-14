@@ -13,12 +13,12 @@ import { initKeaTests } from '~/test/init'
 import { BounceRateDurationSetting } from './BounceRateDuration'
 
 describe('<BounceRateDurationSetting />', () => {
-    const loadTeam = (bounceRateDurationSeconds: number): void => {
+    const loadTeam = (bounceRateDurationSeconds?: number): void => {
         act(() => {
             teamLogic.actions.loadCurrentTeamSuccess({
                 ...MOCK_DEFAULT_TEAM,
                 effective_membership_level: OrganizationMembershipLevel.Admin,
-                modifiers: { bounceRateDurationSeconds },
+                modifiers: bounceRateDurationSeconds === undefined ? {} : { bounceRateDurationSeconds },
             })
         })
     }
@@ -38,6 +38,15 @@ describe('<BounceRateDurationSetting />', () => {
         loadTeam(42)
 
         expect(screen.getByRole('spinbutton')).toHaveValue(42)
+        expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'true')
+    })
+
+    it('gates save when the team stores no duration', () => {
+        render(<BounceRateDurationSetting />)
+
+        loadTeam()
+
+        expect(screen.getByRole('spinbutton')).toHaveValue(10)
         expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
 

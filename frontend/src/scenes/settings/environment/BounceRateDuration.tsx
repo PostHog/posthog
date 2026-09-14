@@ -22,9 +22,11 @@ export function BounceRateDurationSetting(): JSX.Element {
     })
 
     const savedDuration =
-        currentTeam?.modifiers?.bounceRateDurationSeconds ?? currentTeam?.default_modifiers?.bounceRateDurationSeconds
+        currentTeam?.modifiers?.bounceRateDurationSeconds ??
+        currentTeam?.default_modifiers?.bounceRateDurationSeconds ??
+        DEFAULT_BOUNCE_RATE_DURATION
     const [editedDuration, setEditedDuration] = useState<number | null>(null)
-    const bounceRateDuration = editedDuration ?? savedDuration ?? DEFAULT_BOUNCE_RATE_DURATION
+    const bounceRateDuration = editedDuration ?? savedDuration
 
     const handleChange = (duration: number | undefined): void => {
         if (Number.isNaN(duration)) {
