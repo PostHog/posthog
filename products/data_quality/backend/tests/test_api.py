@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -212,7 +212,7 @@ class TestMetricCheckAPI(APIBaseTest):
                     return await original_describe(schedules, key)
                 return None
 
-            failure = patch.object(MetricSchedules, "describe", missing_after_update)
+            failure = patch.object(MetricSchedules, "describe", cast(AsyncMock, missing_after_update))
         with failure:
             response = self.client.patch(f"{self.url}/schedule/", {"enabled": False})
         assert response.status_code == 503

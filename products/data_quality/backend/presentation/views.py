@@ -601,6 +601,7 @@ class MetricCheckViewSet(_BaseCheckViewSet):
             self._require_enabled_check_access()
             serializer = DataQualityCheckScheduleUpdateSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
+        schedule: api.MetricCheckSchedule | None
         try:
             if request.method == "PATCH":
                 schedule = api.update_schedule(
