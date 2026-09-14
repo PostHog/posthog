@@ -73,6 +73,7 @@ import {
     type playerCommentOverlayLogicType,
 } from './commenting/playerFrameCommentOverlayLogic'
 import { clipWindowSeconds } from './controller/clipRange'
+import { getPlayerFrameLoadDiagnostics } from './playerFrameLoadDiagnostics'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import {
@@ -94,6 +95,10 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
 export const ONE_SECOND_MS = 1000
+// A failed frame load is usually transient, so the frame gets a few more chances before the player
+// falls back to the app document.
+const MAX_PLAYER_FRAME_LOAD_RETRIES = 2
+const PLAYER_FRAME_RETRY_DELAY_MS = 1000
 
 export type { ResourceErrorDetails, GroupedAssetErrors, DoctorDiagnostics } from './utils/asset-error-grouping'
 
@@ -641,6 +646,8 @@ export interface sessionRecordingPlayerLogicValues {
     player: Player | null
     playerError: string | null
     playerFrameDocumentFailed: boolean
+    playerFrameLoadFailures: number
+    playerFrameLoadRetries: number
     playerSpeed: number
     playingState: SessionPlayerState.PLAY | SessionPlayerState.PAUSE
     playingTimeTracking: PlayerTimeTracking
@@ -881,13 +888,16 @@ export interface sessionRecordingPlayerLogicActions {
     playerErrorSeen: (error: any) => {
         error: any
     }
-    playerFrameDocumentLoadFailed: () => {
-        value: true
+    playerFrameDocumentLoadFailed: (iframe: HTMLIFrameElement | null) => {
+        iframe: HTMLIFrameElement | null
     }
     restartIframePlayback: () => {
         value: true
     }
     retryLoadingSnapshots: () => {
+        value: true
+    }
+    retryPlayerFrameLoad: () => {
         value: true
     }
     schedulePlayerTimeTracking: () => {
@@ -1050,6 +1060,7 @@ export interface sessionRecordingPlayerLogicActions {
 export interface sessionRecordingPlayerLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        playerFrameDocumentFailed: (playerFrameLoadFailures: any) => boolean
         sessionRecordingId: (sessionRecordingId: string) => string
         logicProps: (arg: any) => SessionRecordingPlayerLogicProps
         playNextRecording: (arg: any) => ((automatic: boolean) => void) | undefined
@@ -1304,7 +1315,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         incrementClickCount: true,
         // the error is emitted from code we don't control in rrweb, so we can't guarantee it's really an Error
         playerErrorSeen: (error: any) => ({ error }),
-        playerFrameDocumentLoadFailed: true,
+        playerFrameDocumentLoadFailed: (iframe: HTMLIFrameElement | null) => ({ iframe }),
+        retryPlayerFrameLoad: true,
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
         setDebugSnapshotTypes: (types: EventType[]) => ({ types }),
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
@@ -1500,8 +1512,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
-        // The frame's src never changes, so a second load never arrives on its own, and nothing resets this.
-        playerFrameDocumentFailed: [false, { playerFrameDocumentLoadFailed: () => true }],
+        playerFrameLoadFailures: [0, { playerFrameDocumentLoadFailed: (failures) => failures + 1 }],
+        // PlayerFrame adds this to the frame's src, because a frame loads again only when its src changes.
+        playerFrameLoadRetries: [0, { retryPlayerFrameLoad: (retries) => retries + 1 }],
         playerError: [
             null as string | null,
             {
@@ -1576,6 +1589,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     })),
     selectors({
+        // Nothing resets this, because the frame's src stops changing once the retries run out.
+        playerFrameDocumentFailed: [
+            (s) => [s.playerFrameLoadFailures],
+            (playerFrameLoadFailures: number): boolean => playerFrameLoadFailures > MAX_PLAYER_FRAME_LOAD_RETRIES,
+        ],
         // Prop references for use by other logics
         sessionRecordingId: [(_, p) => [p.sessionRecordingId], (sessionRecordingId: string) => sessionRecordingId],
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
@@ -2281,12 +2299,37 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setPlay()
             }
         },
-        playerFrameDocumentLoadFailed: () => {
-            // The player still works from the app document, so the only sign of this is the report.
-            posthog.captureException(new Error('Replay player frame loaded without its mount node'), {
-                feature: 'session-recording-player-frame',
+        playerFrameDocumentLoadFailed: ({ iframe }) => {
+            const report = {
                 sessionRecordingId: props.sessionRecordingId,
-            })
+                attempt: values.playerFrameLoadFailures,
+                ...getPlayerFrameLoadDiagnostics(iframe),
+            }
+            if (values.playerFrameDocumentFailed) {
+                // The app-document fallback hides the failure from the viewer, so the only sign of it is the report.
+                posthog.captureException(new Error('Replay player frame loaded without its mount node'), {
+                    feature: 'session-recording-player-frame',
+                    ...report,
+                })
+                return
+            }
+            posthog.capture('replay player frame load retried', report)
+            const delayMs = PLAYER_FRAME_RETRY_DELAY_MS * values.playerFrameLoadFailures
+            cache.disposables.add(
+                () => {
+                    const retry = (): void => actions.retryPlayerFrameLoad()
+                    // A load retried while offline fails again, so wait for the connection instead.
+                    if (!navigator.onLine) {
+                        window.addEventListener('online', retry, { once: true })
+                        return () => window.removeEventListener('online', retry)
+                    }
+                    const timer = setTimeout(retry, delayMs)
+                    return () => clearTimeout(timer)
+                },
+                'playerFrameLoadRetry',
+                // `online` fires while the tab is hidden too.
+                { pauseOnPageHidden: false }
+            )
         },
         playerErrorSeen: ({ error }) => {
             const fingerprint = encodeURIComponent(error.message + error.filename + error.lineno + error.colno)
