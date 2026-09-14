@@ -2040,7 +2040,7 @@ class AccountViewSet(
             raise PermissionDenied()
         except api.AccountOwnershipManagedError:
             raise Conflict(
-                "This account's commercial roles are managed here, so it can't be deleted. "
+                "This account has a managed commercial role or commercial role history, so it can't be deleted. "
                 "Ignore the account to hide it instead."
             )
         return Response(status=status.HTTP_204_NO_CONTENT)

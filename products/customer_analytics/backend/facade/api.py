@@ -3610,12 +3610,26 @@ def delete_account_for_view(
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
     with transaction.atomic():
-        # Authority is checked under the same lock adoption and claims take, so an account that
-        # became managed a moment ago cannot be deleted on a stale read.
+        # The config lock comes first, the order adoption takes, and holds the bindings still.
+        # Authority is then checked under the same account lock adoption and claims take, so an
+        # account that became managed a moment ago cannot be deleted on a stale read.
+        bindings = _ownership.lock_role_bindings(team_id)
         locked = _relationships_logic.lock_account(team_id, account.id)
         if locked is None:
             raise Account.DoesNotExist
-        if any(_ownership.is_managed(locked, role) for role in _ownership.OWNERSHIP_ROLES):
+        # The cascade would take relationship rows with it, so rows under a bound commercial
+        # definition refuse the account's deletion the way they refuse their own.
+        bound_definition_ids = [
+            definition_id
+            for definition_id in (bindings.definition_id_of(role) for role in _ownership.OWNERSHIP_ROLES)
+            if definition_id is not None
+        ]
+        has_commercial_history = bool(bound_definition_ids) and (
+            AccountRelationship.objects.for_team(team_id)
+            .filter(account=locked, definition_id__in=bound_definition_ids)
+            .exists()
+        )
+        if any(_ownership.is_managed(locked, role) for role in _ownership.OWNERSHIP_ROLES) or has_commercial_history:
             raise AccountOwnershipManagedError(account_id)
         _log_activity_swallowing(
             instance=account,
@@ -4550,7 +4564,8 @@ class AccountRelationshipProtectedError(Exception):
 
 
 class AccountOwnershipManagedError(Exception):
-    """The account manages a commercial role, so it cannot be deleted while that authority stands."""
+    """The account manages a commercial role or carries relationship rows under a bound commercial
+    definition, so it cannot be deleted."""
 
 
 class AccountRelationshipRoleManagedError(Exception):

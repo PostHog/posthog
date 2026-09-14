@@ -536,8 +536,12 @@ class TestCommercialRolePolicy(BaseTest):
             )
         assert AccountRelationshipDefinition.objects.for_team(self.team.id).filter(id=self.ae_definition.id).exists()
 
-    def test_managed_account_cannot_be_deleted(self):
-        self._manage_ae()
+    @parameterized.expand(["managed_role", "history_under_a_bound_definition"])
+    def test_account_with_commercial_authority_or_history_cannot_be_deleted(self, case):
+        if case == "managed_role":
+            self._manage_ae()
+        else:
+            self._assign(self.other_user, self.human)
 
         with self.assertRaises(facade.AccountOwnershipManagedError):
             facade.delete_account_for_view(
