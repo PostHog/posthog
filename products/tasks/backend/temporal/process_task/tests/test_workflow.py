@@ -542,6 +542,8 @@ class TestSandboxRotation:
             ("run_finishing", {"task_completed": True}, False),
             ("followup_in_flight", {"followup_running": True}, False),
             ("followup_finished", {"followup_running": False, "followup_present": True}, True),
+            ("followup_queued", {"followup_queued": True}, False),
+            ("followup_queued_behind_finished", {"followup_running": False, "followup_queued": True}, False),
         ]
     )
     def test_only_an_idle_run_with_the_flag_on_may_rotate(self, _name, overrides, expected):
@@ -554,6 +556,8 @@ class TestSandboxRotation:
             followup = Mock()
             followup.done.return_value = not overrides.get("followup_running", False)
             wf._active_followup_task = followup
+        if overrides.get("followup_queued"):
+            wf._pending_followups = [PendingFollowup(message="follow up", artifact_ids=[])]
 
         assert (wf._sandbox_rotation_block_reason() is None) is expected
 

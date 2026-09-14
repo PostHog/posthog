@@ -153,6 +153,10 @@ _PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE = "tasks-continue-after-reposi
 _PATCH_ID_ASYNC_AGENT_SHADOW_RESULT = "tasks-async-agent-shadow-result"
 _PATCH_ID_AGENT_BOOT_INTERACTION_TELEMETRY = "tasks-agent-boot-interaction-telemetry"
 
+# Pre-patch histories rotated the sandbox while a user message sat queued, so the marker keeps
+# their replays on that path while new runs hold the rotation until the message is dispatched.
+_PATCH_ID_ROTATION_WAITS_FOR_QUEUED_FOLLOWUP = "tasks-rotation-waits-for-queued-followup"
+
 
 class _TaskCompletedDuringSandboxCreation(Exception):
     pass
@@ -469,6 +473,12 @@ def _agent_boot_interaction_telemetry_enabled() -> bool:
     return workflow.in_workflow() and workflow.patched(_PATCH_ID_AGENT_BOOT_INTERACTION_TELEMETRY)
 
 
+def _rotation_waits_for_queued_followup() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_ROTATION_WAITS_FOR_QUEUED_FOLLOWUP)
+
+
 @temporalio.workflow.defn(name="process-task")
 class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
@@ -782,8 +792,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
         Only while nothing is in flight: rotation restores a filesystem snapshot, so a turn
         underway would be cut off mid-thought with no way to resume it. A delivery that has
-        not yet produced an active-state signal counts as in flight too, which is why the
-        follow-up task is checked alongside the agent's own state.
+        not yet produced an active-state signal counts as in flight too, which is why a queued
+        or dispatching follow-up is checked alongside the agent's own state.
 
         The reason is what tells a rollout whether rotation is idle-gated out of the runs that
         need it most, so it is a metric label rather than a log line.
@@ -794,6 +804,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return "agent_active"
         if self._active_followup_task is not None and not self._active_followup_task.done():
             return "followup_in_flight"
+        if _rotation_waits_for_queued_followup() and (self._pending_followup is not None or self._pending_followups):
+            return "followup_queued"
         if self._task_completed:
             return "run_completed"
         return None

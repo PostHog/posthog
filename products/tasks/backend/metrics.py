@@ -707,6 +707,7 @@ _SANDBOX_DEADLINE_REASONS = {
     "flag_disabled",
     "agent_active",
     "followup_in_flight",
+    "followup_queued",
     "run_completed",
     "snapshot_missing",
     "provision_failed",
