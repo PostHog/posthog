@@ -41,11 +41,7 @@ from products.tasks.backend.logic.services.agentsh import (
     enforced_egress_domains,
 )
 from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason
-from products.tasks.backend.logic.services.connection_token import (
-    SANDBOX_JWT_STATE_KID_KEY,
-    get_primary_sandbox_jwt_kid,
-    get_sandbox_jwt_public_key,
-)
+from products.tasks.backend.logic.services.connection_token import SANDBOX_JWT_STATE_KID_KEY, get_sandbox_jwt_public_key
 from products.tasks.backend.logic.services.network_policy import (
     EffectiveNetworkPolicy,
     NetworkPolicyValidationError,
@@ -60,12 +56,6 @@ from products.tasks.backend.logic.services.sandbox import (
     get_sandbox_class_for_sandbox_id,
     sandbox_repo_path,
     workload_for_origin_product,
-)
-from products.tasks.backend.logic.services.sandbox_config import DEV_STACK_PREVIEW_MEMORY_GB
-from products.tasks.backend.logic.services.sandbox_usage import (
-    measure_sandbox_billed_cpu_usage,
-    measure_sandbox_cpu_usage,
-    open_sandbox_session,
 )
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
@@ -85,6 +75,7 @@ from products.tasks.backend.temporal.observability import (
     log_activity_execution,
     log_with_activity_context,
 )
+from products.tasks.backend.temporal.process_task.sandbox_connection import persist_sandbox_connection
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     replace_sandbox_credentials,
     set_git_remote_token,
@@ -754,13 +745,6 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         )
 
 
-def _dev_stack_preview_resources(ctx: TaskProcessingContext) -> dict[str, float | int]:
-    overrides = ctx.sandbox_resource_overrides()
-    if ctx.dev_stack_preview_enabled:
-        overrides.setdefault("memory_gb", DEV_STACK_PREVIEW_MEMORY_GB)
-    return overrides
-
-
 @asyncify
 def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
     ctx = input.context
@@ -787,7 +771,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         # The VM template bakes in Docker (and forces the VM runtime), so the agent
         # can run nested containers; the default template has neither.
         use_vm_sandbox = ctx.use_modal_vm_sandbox
-        resource_overrides = _dev_stack_preview_resources(ctx)
+        resource_overrides = ctx.sandbox_resource_overrides()
         config = SandboxConfig(
             name=prepared.sandbox_name,
             template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
@@ -875,72 +859,62 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                     "sandbox_creation_with_policy_request", runtime, "modal_requested", "failure"
                 )
             raise
-        if config.outbound_domain_allowlist is not None:
-            emit_agent_log(ctx.run_id, "debug", "Modal sandbox created with network policy requested")
-            record_network_enforcement("sandbox_creation_with_policy_request", runtime, "modal_requested", "success")
-        if not sandbox.start_cpu_billing_sampler():
-            activity.logger.warning("Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id})
-        if sandbox.config.image_fallback:
-            emit_agent_log(
-                ctx.run_id,
-                "warn",
-                f"Sandbox image downgraded: {sandbox.config.image_fallback}",
-            )
-        if sandbox.launch_dev_stack_bootstrap():
-            emit_agent_log(
-                ctx.run_id,
-                "debug",
-                "Warming the prebaked dev stack in the background (compose host aliases + dockerd)",
-            )
-        create_ms = sandbox_creation_timer.elapsed_ms
-        snapshot_outcome = (
-            "used" if actual_used_snapshot else "fresh" if prepared.snapshot_source == "none" else "fallback"
-        )
-        metrics_snapshot_kind = prepared.snapshot_kind if prepared.snapshot_source != "none" else "none"
-        increment_snapshot_usage(
-            actual_used_snapshot,
-            snapshot_source=prepared.snapshot_source,
-            snapshot_kind=metrics_snapshot_kind,
-        )
-        increment_snapshot_restore(prepared.snapshot_source, metrics_snapshot_kind, snapshot_outcome)
-
-        record_sandbox_created(
-            runtime,
-            _sandbox_image_kind(prepared.image_source, config.custom_image_name),
-            sandbox.config.image_fallback is not None,
-            create_ms,
-            sandbox_backend=sandbox_backend,
-        )
-
-        credentials = sandbox.get_connect_credentials()
-
         try:
-            jwt_kid = get_primary_sandbox_jwt_kid()
-            sandbox_state = {
-                "sandbox_id": sandbox.id,
-                "sandbox_url": credentials.url,
-                SANDBOX_JWT_STATE_KID_KEY: jwt_kid,
-            }
-            if ctx.sandbox_backend != "modal":
-                sandbox_state["sandbox_backend"] = ctx.sandbox_backend
-            if credentials.token:
-                sandbox_state["sandbox_connect_token"] = credentials.token
-            TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
-            cpu_usage_attribution_usec, cpu_usage_attribution_measured_at = measure_sandbox_cpu_usage(sandbox)
-            billed_cpu_usage_attribution_usec = measure_sandbox_billed_cpu_usage(sandbox)
-            open_sandbox_session(
+            if config.outbound_domain_allowlist is not None:
+                emit_agent_log(ctx.run_id, "debug", "Modal sandbox created with network policy requested")
+                record_network_enforcement(
+                    "sandbox_creation_with_policy_request", runtime, "modal_requested", "success"
+                )
+            if not sandbox.start_cpu_billing_sampler():
+                activity.logger.warning("Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id})
+            if sandbox.config.image_fallback:
+                emit_agent_log(
+                    ctx.run_id,
+                    "warn",
+                    f"Sandbox image downgraded: {sandbox.config.image_fallback}",
+                )
+            if sandbox.launch_dev_stack_bootstrap():
+                emit_agent_log(
+                    ctx.run_id,
+                    "debug",
+                    "Warming the prebaked dev stack in the background (compose host aliases + dockerd)",
+                )
+            create_ms = sandbox_creation_timer.elapsed_ms
+            snapshot_outcome = (
+                "used" if actual_used_snapshot else "fresh" if prepared.snapshot_source == "none" else "fallback"
+            )
+            metrics_snapshot_kind = prepared.snapshot_kind if prepared.snapshot_source != "none" else "none"
+            increment_snapshot_usage(
+                actual_used_snapshot,
+                snapshot_source=prepared.snapshot_source,
+                snapshot_kind=metrics_snapshot_kind,
+            )
+            increment_snapshot_restore(prepared.snapshot_source, metrics_snapshot_kind, snapshot_outcome)
+
+            record_sandbox_created(
+                runtime,
+                _sandbox_image_kind(prepared.image_source, config.custom_image_name),
+                sandbox.config.image_fallback is not None,
+                create_ms,
+                sandbox_backend=sandbox_backend,
+            )
+
+            credentials = sandbox.get_connect_credentials()
+            jwt_kid = persist_sandbox_connection(
                 run_id=ctx.run_id,
-                sandbox_id=sandbox.id,
-                config=sandbox.config,
+                sandbox=sandbox,
+                credentials=credentials,
                 sandbox_created_at=sandbox_created_at,
-                cpu_usage_attribution_usec=cpu_usage_attribution_usec,
-                billed_cpu_usage_attribution_usec=billed_cpu_usage_attribution_usec,
-                cpu_usage_attribution_measured_at=cpu_usage_attribution_measured_at,
-                required=ctx.task_runtime == "pi",
+                task_runtime=ctx.task_runtime,
+                sandbox_backend=ctx.sandbox_backend if ctx.sandbox_backend != "modal" else None,
             )
         except Exception:
             try:
                 sandbox.destroy()
+            except Exception:
+                activity.logger.warning(
+                    "Failed to destroy sandbox after provisioning failure", extra={"sandbox_id": sandbox.id}
+                )
             finally:
                 TaskRun.clear_sandbox_connection_state_atomic(ctx.run_id, sandbox.id)
             raise

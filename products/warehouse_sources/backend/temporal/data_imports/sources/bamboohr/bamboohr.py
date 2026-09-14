@@ -1,37 +1,58 @@
 import re
 import dataclasses
-from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from collections.abc import Iterable, Iterator
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, Optional, cast
 
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.settings import (
     BAMBOOHR_ENDPOINTS,
+    EMPLOYEE_TABLE_EMPLOYEE_ID,
+    EMPLOYEE_TABLE_LAST_CHANGED,
     BambooHREndpointConfig,
+    ChunkedDateWindow,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BaseNextUrlPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # BambooHR's API is served through a single gateway host; the company subdomain is a path segment.
-# Confirmed live: the gateway returns 401 (not 404) for the v1 paths below, so the route shape is correct.
+# Confirmed live: the gateway returns 401 (not 404) for the versioned paths in settings.py, so the route
+# shape is correct.
 BAMBOOHR_API_HOST = "https://api.bamboohr.com/api/gateway.php"
 # Basic auth uses the API key as the username and any non-empty string as the password.
 BAMBOOHR_BASIC_AUTH_PASSWORD = "x"
 # Credential validation is a single cheap probe; keep it snappy so source creation doesn't feel hung.
 VALIDATE_TIMEOUT_SECONDS = 10
+# Bounds each sync request, so a gateway that accepts the connection then stalls cannot hold a
+# worker open indefinitely.
+SYNC_TIMEOUT_SECONDS = 120
 # Time-off endpoints require an explicit window; widen it enough to capture all history and pending future requests.
 TIME_OFF_WINDOW_START = "2000-01-01"
 TIME_OFF_FUTURE_DAYS = 730
+# The employee-table history endpoints require a `since` cursor, so a full refresh needs a floor
+# old enough to predate any company's records.
+EMPLOYEE_TABLE_HISTORY_START = datetime(2000, 1, 1, tzinfo=UTC)
 
 # A BambooHR company subdomain is the "<company>" slug from <company>.bamboohr.com — letters, digits,
 # and hyphens only. It's an editable, non-secret field spliced straight into the request path, so pin
@@ -50,14 +71,14 @@ def _validate_subdomain(subdomain: str) -> None:
         raise ValueError(f"Invalid BambooHR subdomain: {subdomain!r}")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BambooHRResumeConfig:
     next_url: str
 
 
 def _base_url(subdomain: str) -> str:
     _validate_subdomain(subdomain)
-    return f"{BAMBOOHR_API_HOST}/{subdomain}/v1"
+    return f"{BAMBOOHR_API_HOST}/{subdomain}"
 
 
 class BambooHRBasicAuth(HttpBasicAuth):
@@ -126,6 +147,97 @@ def _selector_for(config: BambooHREndpointConfig) -> tuple[str | None, bool]:
     return None, True
 
 
+def _endpoint_extra(config: BambooHREndpointConfig) -> Endpoint:
+    """The response-shape half of an endpoint config, for the fan-out helper's endpoint overrides."""
+    data_selector, data_selector_required = _selector_for(config)
+    extra: Endpoint = {"data_selector_required": data_selector_required}
+    if data_selector is not None:
+        extra["data_selector"] = data_selector
+    return extra
+
+
+def _rest_client(base_url: str, api_key: str) -> RESTClient:
+    return RESTClient(
+        base_url=base_url,
+        headers={"Accept": "application/json"},
+        auth=BambooHRBasicAuth(username=api_key, password=BAMBOOHR_BASIC_AUTH_PASSWORD),
+        # Neither stream built on this client paginates: each response carries its whole collection.
+        paginator=SinglePagePaginator(),
+        # Pins every request to the gateway host the API key was issued for.
+        allowed_hosts=[],
+        request_timeout=SYNC_TIMEOUT_SECONDS,
+    )
+
+
+def _employee_table_rows(body: Any) -> Iterator[dict[str, Any]]:
+    """Flatten one ``employees/changed/tables/{table}`` response into rows.
+
+    The response groups rows under a map of employee id — ``{"employees": {"123": {"lastChanged":
+    ..., "rows": [...]}}}`` — so the employee id and the change timestamp exist only on the map
+    entry. Both are stamped onto every row; the map key wins over any ``employeeId`` in the row
+    because it is what the API keyed the group by.
+    """
+    employees = body.get("employees") if isinstance(body, dict) else None
+    if not isinstance(employees, dict):
+        raise ValueError(
+            "Required an 'employees' object in the response body, got "
+            f"{type(employees).__name__}. The API response shape may have changed."
+        )
+    for employee_id, entry in employees.items():
+        if not isinstance(entry, dict):
+            continue
+        last_changed = entry.get(EMPLOYEE_TABLE_LAST_CHANGED)
+        for row in entry.get("rows") or []:
+            yield {
+                **row,
+                EMPLOYEE_TABLE_EMPLOYEE_ID: str(employee_id),
+                EMPLOYEE_TABLE_LAST_CHANGED: last_changed,
+            }
+
+
+def _employee_table_pages(
+    client: RESTClient, config: BambooHREndpointConfig, since: datetime
+) -> Iterator[list[dict[str, Any]]]:
+    for page in client.paginate(path=config.path, params={"since": since.isoformat()}):
+        for body in page:
+            rows = list(_employee_table_rows(body))
+            # Rows arrive grouped by employee, in no order — sort so the cursor really is
+            # ascending and the pipeline's watermark can only move forward over rows we yielded.
+            rows.sort(key=_last_changed_sort_key)
+            if rows:
+                yield rows
+
+
+def _last_changed_sort_key(row: dict[str, Any]) -> datetime:
+    return parse_datetime_value(row.get(EMPLOYEE_TABLE_LAST_CHANGED)) or datetime.min.replace(tzinfo=UTC)
+
+
+def _chunked_window_pages(
+    client: RESTClient, config: BambooHREndpointConfig, window: ChunkedDateWindow
+) -> Iterator[list[dict[str, Any]]]:
+    today = datetime.now(UTC).date()
+    start = today - timedelta(days=window.history_days)
+    while start <= today:
+        end = min(start + timedelta(days=window.chunk_days - 1), today)
+        yield from _window_pages(client, config, start, end)
+        start = end + timedelta(days=1)
+
+
+def _window_pages(
+    client: RESTClient, config: BambooHREndpointConfig, start: date, end: date
+) -> Iterator[list[dict[str, Any]]]:
+    params = {"start": start.isoformat(), "end": end.isoformat()}
+    for page in client.paginate(path=config.path, params=params, data_selector_required=True):
+        if page:
+            yield page
+
+
+def _employee_table_since(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> datetime:
+    if not should_use_incremental_field:
+        return EMPLOYEE_TABLE_HISTORY_START
+    return parse_datetime_value(db_incremental_field_last_value) or EMPLOYEE_TABLE_HISTORY_START
+
+
 def bamboohr_source(
     subdomain: str,
     api_key: str,
@@ -133,9 +245,63 @@ def bamboohr_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[BambooHRResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     config = BAMBOOHR_ENDPOINTS[endpoint]
     base_url = _base_url(subdomain)
+
+    if config.employee_table is not None:
+        client = _rest_client(base_url, api_key)
+        since = _employee_table_since(should_use_incremental_field, db_incremental_field_last_value)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _employee_table_pages(client, config, since),
+            primary_keys=config.primary_keys,
+        )
+
+    if config.chunked_date_window is not None:
+        client = _rest_client(base_url, api_key)
+        window = config.chunked_date_window
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _chunked_window_pages(client, config, window),
+            primary_keys=config.primary_keys,
+        )
+
+    client_config: ClientConfig = {
+        "base_url": base_url,
+        "headers": {"Accept": "application/json"},
+        # Auth goes through the framework config so the API key is redacted from logs;
+        # only the non-secret Accept header is set on the session.
+        "auth": BambooHRBasicAuth(username=api_key, password=BAMBOOHR_BASIC_AUTH_PASSWORD),
+        "paginator": BambooHRPaginator(),
+    }
+
+    if config.fanout is not None:
+        parent_config = BAMBOOHR_ENDPOINTS[config.fanout.parent_name]
+        resource = cast(
+            Iterable[Any],
+            build_dependent_resource(
+                endpoint_configs=BAMBOOHR_ENDPOINTS,
+                child_endpoint=endpoint,
+                fanout=config.fanout,
+                client_config=client_config,
+                path_format_values={},
+                team_id=team_id,
+                job_id=job_id,
+                db_incremental_field_last_value=None,
+                # BambooHR list endpoints take no page-size parameter.
+                page_size_param=None,
+                parent_endpoint_extra=_endpoint_extra(parent_config),
+                child_endpoint_extra=_endpoint_extra(config),
+            ),
+        )
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: resource,
+            primary_keys=config.primary_keys,
+        )
 
     params: dict[str, Any] = {}
     if config.requires_date_window:
@@ -145,14 +311,7 @@ def bamboohr_source(
     data_selector, data_selector_required = _selector_for(config)
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url,
-            "headers": {"Accept": "application/json"},
-            # Auth goes through the framework config so the API key is redacted from logs;
-            # only the non-secret Accept header is set on the session.
-            "auth": BambooHRBasicAuth(username=api_key, password=BAMBOOHR_BASIC_AUTH_PASSWORD),
-            "paginator": BambooHRPaginator(),
-        },
+        "client": client_config,
         "resources": [
             {
                 "name": endpoint,
@@ -205,7 +364,7 @@ def validate_credentials(subdomain: str, api_key: str, schema_name: Optional[str
     (``schema_name is None``) since users may only grant the scopes they intend to sync.
     """
     try:
-        url = f"{_base_url(subdomain)}/meta/fields"
+        url = f"{_base_url(subdomain)}/v1/meta/fields"
     except ValueError:
         return False, INVALID_SUBDOMAIN_MESSAGE
 

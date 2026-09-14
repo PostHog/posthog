@@ -79,6 +79,7 @@ const DATA_TOOLS = [
 ]
 
 const QUERY_TOOLS: { key: string; displayName: string; icon: JSX.Element }[] = [
+    { key: 'execute-sql', displayName: 'SQL query', icon: <IconGraph /> },
     { key: 'insight-query', displayName: 'Insight query', icon: <IconGraph /> },
     { key: 'query-trends', displayName: 'Trends query', icon: <IconTrends /> },
     { key: 'query-funnel', displayName: 'Funnel query', icon: <IconFunnels /> },
