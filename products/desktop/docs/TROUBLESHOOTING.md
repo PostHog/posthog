@@ -9,6 +9,12 @@ Restarting the session does not reduce the request size.
 Start a new task with a short text summary of the work.
 Do not copy the old images or full tool output into the new task.
 
+## Completion sounds when resuming a task
+
+Resuming an idle sandbox does not trigger a completion sound or notification.
+For Pi sessions, completion notifications require an active turn and stay silent during restart setup.
+A completed reply or a request for input still follows your notification settings.
+
 ## Codex asks for the same permissions again
 
 Codex Auto keeps approvals for actions outside its allowed scope.

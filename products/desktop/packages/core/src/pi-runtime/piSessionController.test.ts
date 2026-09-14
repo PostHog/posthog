@@ -713,55 +713,70 @@ describe("PiSessionController", () => {
     );
   });
 
-  it("notifies when a live completion arrives before history hydration", async () => {
-    let onEvent: (
-      event: AgentConversationEvent,
-      context?: PiConversationEventContext,
-    ) => void = () => {};
-    let resolveConversation: (events: AgentConversationEvent[]) => void =
-      () => {};
-    const conversation = new Promise<AgentConversationEvent[]>((resolve) => {
-      resolveConversation = resolve;
-    });
-    const session = createSession();
-    vi.mocked(session.getConversation).mockReturnValue(conversation);
-    vi.mocked(session.onConversationEvent).mockImplementation((handler) => {
-      onEvent = handler;
-      return () => {};
-    });
-    const notifier = { notify: vi.fn() };
-    const controller = createController(
-      session,
-      undefined,
-      undefined,
-      notifier,
-    );
-    controller.setNotificationContext("task-1", {
-      taskTitle: "Fix notifications",
-    });
+  it.each([false, true])(
+    "handles a live completion before history loads with turn activity: %s",
+    async (hasTurnActivity) => {
+      let onEvent: (
+        event: AgentConversationEvent,
+        context?: PiConversationEventContext,
+      ) => void = () => {};
+      let resolveConversation: (events: AgentConversationEvent[]) => void =
+        () => {};
+      const conversation = new Promise<AgentConversationEvent[]>((resolve) => {
+        resolveConversation = resolve;
+      });
+      const session = createSession();
+      vi.mocked(session.getConversation).mockReturnValue(conversation);
+      vi.mocked(session.onConversationEvent).mockImplementation((handler) => {
+        onEvent = handler;
+        return () => {};
+      });
+      const notifier = { notify: vi.fn() };
+      const controller = createController(
+        session,
+        undefined,
+        undefined,
+        notifier,
+      );
+      controller.setNotificationContext("task-1", {
+        taskTitle: "Fix notifications",
+      });
 
-    const connection = controller.connect("task-1");
-    await vi.waitFor(() => {
-      expect(session.onConversationEvent).toHaveBeenCalledOnce();
-    });
-    onEvent(
-      { type: "turn_completed", timestamp: 52, stopReason: "stop" },
-      { isLive: true },
-    );
+      const connection = controller.connect("task-1");
+      await vi.waitFor(() => {
+        expect(session.onConversationEvent).toHaveBeenCalledOnce();
+      });
+      if (hasTurnActivity) {
+        onEvent(
+          {
+            type: "assistant_message_chunk",
+            timestamp: 51,
+            content: { type: "text", text: "Done" },
+          },
+          { isLive: true },
+        );
+      }
+      onEvent(
+        { type: "turn_completed", timestamp: 52, stopReason: "stop" },
+        { isLive: true },
+      );
 
-    expect(notifier.notify).toHaveBeenCalledWith({
-      kind: "turn_completed",
-      trigger: "pi_turn_completed",
-      taskId: "task-1",
-      taskTitle: "Fix notifications",
-      stopReason: "end_turn",
-      durationMs: undefined,
-      isTaskAuthor: undefined,
-    });
+      expect(notifier.notify).toHaveBeenCalledTimes(hasTurnActivity ? 1 : 0);
+      if (hasTurnActivity)
+        expect(notifier.notify).toHaveBeenCalledWith({
+          kind: "turn_completed",
+          trigger: "pi_turn_completed",
+          taskId: "task-1",
+          taskTitle: "Fix notifications",
+          stopReason: "end_turn",
+          durationMs: undefined,
+          isTaskAuthor: undefined,
+        });
 
-    resolveConversation([]);
-    await connection;
-  });
+      resolveConversation([]);
+      await connection;
+    },
+  );
 
   it("notifies once for a live completed turn without replaying historical completions", async () => {
     let onEvent: (
@@ -910,50 +925,56 @@ describe("PiSessionController", () => {
     expect(controller.store.getState().sessions["task-1"].events).toEqual([]);
   });
 
-  it("notifies a background cloud completion before releasing the session", async () => {
-    const session: PiSession = {
-      ...createSession(),
-      cloudStatus: "in_progress",
-    };
-    const unsubscribe = vi.fn();
-    let onEvent: (
-      event: AgentConversationEvent,
-      context?: PiConversationEventContext,
-    ) => void = () => {};
-    let onCloudStatus: Parameters<PiSession["onConversationEvent"]>[2];
-    vi.mocked(session.onConversationEvent).mockImplementation(
-      (handler, _error, onStatus) => {
-        onEvent = handler;
-        onCloudStatus = onStatus;
-        return unsubscribe;
-      },
-    );
-    const notifier = { notify: vi.fn() } as unknown as AgentSessionNotifier;
-    const controller = createController(
-      session,
-      undefined,
-      undefined,
-      notifier,
-    );
-    controller.setNotificationContext("task-1", {
-      taskTitle: "Fix notifications",
-      isTaskAuthor: true,
-    });
+  it.each([false, true])(
+    "handles a background cloud completion with turn activity: %s",
+    async (hasTurnActivity) => {
+      const session: PiSession = {
+        ...createSession(),
+        cloudStatus: "in_progress",
+      };
+      const unsubscribe = vi.fn();
+      let onEvent: (
+        event: AgentConversationEvent,
+        context?: PiConversationEventContext,
+      ) => void = () => {};
+      let onCloudStatus: Parameters<PiSession["onConversationEvent"]>[2];
+      vi.mocked(session.onConversationEvent).mockImplementation(
+        (handler, _error, onStatus) => {
+          onEvent = handler;
+          onCloudStatus = onStatus;
+          return unsubscribe;
+        },
+      );
+      const notifier = { notify: vi.fn() } as unknown as AgentSessionNotifier;
+      const controller = createController(
+        session,
+        undefined,
+        undefined,
+        notifier,
+      );
+      controller.setNotificationContext("task-1", {
+        taskTitle: "Fix notifications",
+        isTaskAuthor: true,
+      });
 
-    await controller.connect("task-1");
-    controller.release("task-1");
+      await controller.connect("task-1");
+      if (hasTurnActivity) {
+        await controller.submit("task-1", "continue", false, "steer");
+      }
+      controller.release("task-1");
 
-    // The cloud client reports the terminal status first, then emits the turn event.
-    onCloudStatus?.("completed");
-    onEvent(
-      { type: "turn_completed", timestamp: 5, stopReason: "stop" },
-      { isLive: true },
-    );
-    await Promise.resolve();
+      // The cloud client reports the terminal status first, then emits the turn event.
+      onCloudStatus?.("completed");
+      onEvent(
+        { type: "turn_completed", timestamp: 5, stopReason: "stop" },
+        { isLive: true },
+      );
+      await Promise.resolve();
 
-    expect(notifier.notify).toHaveBeenCalledOnce();
-    expect(unsubscribe).toHaveBeenCalledOnce();
-  });
+      expect(notifier.notify).toHaveBeenCalledTimes(hasTurnActivity ? 1 : 0);
+      expect(unsubscribe).toHaveBeenCalledOnce();
+    },
+  );
 
   it("releases a finished cloud run holding an unanswered permission request", async () => {
     const session: PiSession = {
@@ -1445,6 +1466,14 @@ describe("PiSessionController", () => {
       taskRunId: "run-1",
     };
     const resumedSession = createSession();
+    let onEvent: (event: AgentConversationEvent) => void = () => {};
+    vi.mocked(resumedSession.onConversationEvent).mockImplementation(
+      (handler) => {
+        onEvent = handler;
+        handler({ type: "turn_completed", timestamp: 1, stopReason: "stop" });
+        return () => {};
+      },
+    );
     const provider = {
       get: vi
         .fn()
@@ -1453,7 +1482,17 @@ describe("PiSessionController", () => {
     } as PiSessionProvider;
     const resumeCloudPiRun = vi.fn(async () => ({ id: "run-1" }));
     const taskService = { resumeCloudPiRun } as unknown as TaskService;
-    const controller = new PiSessionController(provider, taskService);
+    const notifier = { notify: vi.fn() };
+    const controller = new PiSessionController(
+      provider,
+      taskService,
+      undefined,
+      notifier,
+    );
+    controller.setNotificationContext("task-1", {
+      taskTitle: "Continue the task",
+      isTaskAuthor: true,
+    });
 
     await controller.connect("task-1");
 
@@ -1463,6 +1502,13 @@ describe("PiSessionController", () => {
 
     expect(resumeCloudPiRun).toHaveBeenCalledWith("task-1", "run-1");
     expect(resumedSession.client.prompt).toHaveBeenCalledWith("continue");
+    expect(notifier.notify).not.toHaveBeenCalled();
+    onEvent({
+      type: "turn_completed",
+      timestamp: Date.now(),
+      stopReason: "stop",
+    });
+    expect(notifier.notify).toHaveBeenCalledOnce();
   });
 
   it("applies deferred Pi config before the first resumed prompt", async () => {
@@ -1519,6 +1565,14 @@ describe("PiSessionController", () => {
         ...createSession(),
         sendUserMessage: vi.fn(async () => {}),
       };
+      let onEvent: (event: AgentConversationEvent) => void = () => {};
+      vi.mocked(resumedSession.onConversationEvent).mockImplementation(
+        (handler) => {
+          onEvent = handler;
+          handler({ type: "turn_completed", timestamp: 1, stopReason: "stop" });
+          return () => {};
+        },
+      );
       const provider = {
         get: vi
           .fn()
@@ -1533,7 +1587,17 @@ describe("PiSessionController", () => {
         })),
         resumeCloudPiRun,
       } as unknown as TaskService;
-      const controller = new PiSessionController(provider, taskService);
+      const notifier = { notify: vi.fn() };
+      const controller = new PiSessionController(
+        provider,
+        taskService,
+        undefined,
+        notifier,
+      );
+      controller.setNotificationContext("task-1", {
+        taskTitle: "Continue the task",
+        isTaskAuthor: true,
+      });
 
       await controller.connect("task-1");
       await controller.submit("task-1", "continue", false, "steer");
@@ -1545,6 +1609,13 @@ describe("PiSessionController", () => {
         [],
         expect.any(String),
       );
+      expect(notifier.notify).not.toHaveBeenCalled();
+      onEvent({
+        type: "turn_completed",
+        timestamp: Date.now(),
+        stopReason: "stop",
+      });
+      expect(notifier.notify).toHaveBeenCalledOnce();
     },
   );
 
