@@ -424,6 +424,8 @@ export function useInboxBulkActions(
 
         if (result.failureCount > 0) {
           toast.error(formatBulkActionSummary("suppress", result));
+        } else {
+          toast.success(formatBulkActionSummary("suppress", result));
         }
       },
       onError: (error, _variables, context) => {
