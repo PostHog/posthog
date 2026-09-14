@@ -54,10 +54,14 @@ class MetricRunResponseSerializer(serializers.Serializer):
         help_text="True when the query hit its row limit and more rows exist. Narrow the window or the "
         "interval and run the metric again. A HogQLQuery metric fixes its window in SQL and rejects those "
         "overrides, so report the window the definition itself covers, or ask for a parameterized metric. "
-        "Either way, do not re-derive the series by hand."
+        "Either way, do not re-derive the series by hand. False whenever row_limit is null, because no row "
+        "cap was reported for that run."
     )
     row_limit = serializers.IntegerField(
-        allow_null=True, help_text="Row limit applied to this run. Null for a markdown metric."
+        allow_null=True,
+        help_text="Row limit applied to this run. Null when no row cap was reported: a markdown metric, an "
+        "insight or trends query, or a HogQL metric that sets its own LIMIT or uses a UNION. This field "
+        "cannot verify the completeness of those runs.",
     )
     posthog_url = serializers.CharField(
         allow_null=True, help_text="Deep link to open the query in the app (SQL editor or insight)."
