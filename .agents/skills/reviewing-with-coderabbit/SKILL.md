@@ -87,10 +87,12 @@ cr auth status                   # confirms the session and the organization
 7. Continue the normal flow: `hogli ci:preflight`, then `gh pr create`.
    When the review was skipped, Agent context says why: the CLI was absent, signed out, rate limited, or the person chose to skip.
 
-## After `@coderabbitai review`
+## After the PR opens
 
-`auto_review` is off in `.coderabbit.yaml`, so no review posts when a PR opens.
-Comment `@coderabbitai review` on the PR to ask for one, then handle its threads like CLI findings:
+`auto_review` is on in `.coderabbit.yaml`, so a review posts once when the PR opens, drafts included.
+It does not re-review a later push, so comment `@coderabbitai review` when you want a second pass over the fixes.
+
+Handle the posted threads like CLI findings:
 
 - List the unresolved, non-outdated threads whose root comment is by `coderabbitai[bot]`.
   `gh api graphql` over `pullRequest.reviewThreads` returns `isResolved`, `isOutdated`, `path`, and `line`.
