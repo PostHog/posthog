@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -21,6 +22,7 @@ from posthog.hogql.errors import QueryError
 
 from posthog.caching.insight_result import InsightResult
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.query_cache.cache import QueryCache
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -480,10 +482,7 @@ class TestImageExporter(APIBaseTest):
             image_exporter.export_image(exported_asset)
 
         call_kwargs = mock_calculate.call_args[1]
-        if expected_query_override is not None:
-            assert call_kwargs["query_override"] == expected_query_override
-        else:
-            assert "query_override" not in call_kwargs
+        assert call_kwargs.get("query_override") == expected_query_override
 
         if expected_query_override is not None:
             # When query_override is present, variables_override must be None —
@@ -502,14 +501,34 @@ class TestImageExporter(APIBaseTest):
             assert call_kwargs["variables_override"] is None
 
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
-    def test_insight_export_without_a_query_skips_cache_warming(self, mock_calculate: Any, *args: Any) -> None:
-        # An insight that stores only legacy filters has no query to warm, and warming it would
-        # raise. The render converts the filters in the browser, so the export still produces one.
+    def test_dashboard_export_warms_a_tile_with_only_legacy_filters(self, mock_calculate: Any, *args: Any) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Legacy dashboard")
         insight = Insight.objects.create(
             team=self.team,
-            name="Legacy insight",
-            filters={"events": [{"id": "$pageview"}]},
+            name="Legacy tile",
+            filters={"insight": "TRENDS", "events": [{"id": "$pageview"}]},
         )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            dashboard=dashboard,
+        )
+
+        mock_calculate.return_value = make_insight_result("legacy_tile_cache_key")
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(exported_asset)
+
+        call_kwargs = mock_calculate.call_args[1]
+        assert call_kwargs["execution_mode"] == ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+        assert call_kwargs["query_override"]["kind"] == "TrendsQuery"
+
+    @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
+    def test_insight_export_without_a_query_or_filters_skips_cache_warming(
+        self, mock_calculate: Any, *args: Any
+    ) -> None:
+        # Nothing to convert and nothing to compute, so the render still runs rather than failing.
+        insight = Insight.objects.create(team=self.team, name="Empty insight", filters={})
         exported_asset = ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.PNG,
@@ -718,6 +737,40 @@ class TestImageExporterQueryOverrideE2E(ClickhouseTestMixin, APIBaseTest):
         assert "cache_keys=" in url_default
         assert "cache_keys=" in url_override
         assert url_default != url_override
+
+    def test_legacy_filters_insight_hands_the_render_a_freshly_computed_cache_entry(
+        self,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        _create_event(distinct_id="user1", event="$pageview", team=self.team)
+        _create_event(distinct_id="user2", event="$pageview", team=self.team)
+        flush_persons_and_events()
+
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Legacy insight",
+            filters={"insight": "TRENDS", "events": [{"id": "$pageview", "type": "events"}]},
+        )
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            insight=insight,
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(exported_asset)
+
+        url_to_render = mock_screenshot_asset.call_args[0][1]
+        cache_keys = json.loads(parse_qs(urlparse(url_to_render).query)["cache_keys"][0])
+        cache_key = cache_keys[str(insight.id)]
+
+        # The render looks the handed-off key up directly, so the entry behind it is what the
+        # image shows. It must hold this run's numbers, not whatever a visitor last cached.
+        entry = QueryCache(team_id=self.team.pk, cache_key=cache_key).lookup().entry
+        assert entry is not None
+        assert entry.as_full_response()["results"][0]["count"] == 2
 
 
 class TestInsightQueryScreenshotWidth(SimpleTestCase):
