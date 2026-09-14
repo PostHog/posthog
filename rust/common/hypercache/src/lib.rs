@@ -60,7 +60,8 @@ const HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME: &str = "posthog_hypercache_redi
 
 /// Metric name for tracking read-repair writes back into Redis after an S3 hit.
 /// Labels: `namespace`, `value`, `key` (payload | etag), `result` (success | skipped | error),
-/// where `skipped` means the key already existed and the repair deferred to it.
+/// where `skipped` means the payload key already existed and the repair deferred to it. The
+/// etag write overwrites, so it never reports `skipped`.
 const HYPERCACHE_READ_REPAIR_COUNTER_NAME: &str = "posthog_hypercache_read_repair";
 
 /// Per-tier latency histogram for the Redis read inside `get_typed_with_source`.
@@ -89,6 +90,23 @@ pub(crate) const ETAG_KEY_SUFFIX: &str = ":etag";
 /// repair all derive it here, so no caller can drift off the layout Django expects.
 pub(crate) fn etag_key(redis_cache_key: &str) -> String {
     format!("{redis_cache_key}{ETAG_KEY_SUFFIX}")
+}
+
+/// How read repair writes one of its two keys.
+///
+/// The payload is written `IfAbsent`, because a repair must never overwrite an entry that
+/// already exists: the writer, or a concurrent repair, may have landed a fresher one after
+/// our S3 read. The etag is written `Overwrite`, because it is only written for a payload
+/// this repair installed and it has to describe those exact bytes. An orphan etag, left
+/// behind when a payload was evicted before its companion, would otherwise survive next to
+/// the repaired payload and answer 304 for a version the payload no longer holds.
+///
+/// The pair is therefore two writes rather than the one pipeline `set_with_etag` uses: the
+/// etag write has to see whether the payload write won.
+#[derive(Debug, Clone, Copy)]
+enum RepairWrite {
+    IfAbsent,
+    Overwrite,
 }
 
 /// Cache key type matching Django's KeyType = Team | str | int
@@ -981,9 +999,12 @@ impl HyperCacheReader {
             return;
         };
 
-        let redis_client = self.redis_client.clone();
-        let namespace = self.config.namespace.clone();
-        let object_name = self.config.object_name.clone();
+        let repair = ReadRepair {
+            redis_client: self.redis_client.clone(),
+            namespace: self.config.namespace.clone(),
+            object_name: self.config.object_name.clone(),
+            ttl_seconds,
+        };
         let enable_etag = self.config.enable_etag;
 
         tokio::spawn(async move {
@@ -992,60 +1013,59 @@ impl HyperCacheReader {
             let etag_repair =
                 enable_etag.then(|| (etag_key(&redis_cache_key), writer::compute_etag(&json_data)));
 
-            let installed = Self::repair_key(
-                &redis_client,
-                &namespace,
-                &object_name,
-                "payload",
-                redis_cache_key,
-                json_data,
-                ttl_seconds,
-            )
-            .await;
+            let installed = repair
+                .write("payload", redis_cache_key, json_data, RepairWrite::IfAbsent)
+                .await;
 
             // The etag describes the exact bytes this repair installed, so it is only
             // written for a payload the repair installed itself. A skipped payload write
             // means Redis holds someone else's bytes, which this etag would misdescribe.
             if let Some((etag_key, etag)) = etag_repair.filter(|_| installed) {
-                Self::repair_key(
-                    &redis_client,
-                    &namespace,
-                    &object_name,
-                    "etag",
-                    etag_key,
-                    etag,
-                    ttl_seconds,
-                )
-                .await;
+                repair
+                    .write("etag", etag_key, etag, RepairWrite::Overwrite)
+                    .await;
             }
         });
     }
+}
 
+/// One detached read repair: the Redis client and the labels its two writes share.
+struct ReadRepair {
+    redis_client: Arc<dyn RedisClient + Send + Sync>,
+    namespace: String,
+    object_name: String,
+    ttl_seconds: u64,
+}
+
+impl ReadRepair {
     /// Write one repaired key and count the outcome. Returns whether this call installed it.
-    async fn repair_key(
-        redis_client: &Arc<dyn RedisClient + Send + Sync>,
-        namespace: &str,
-        object_name: &str,
+    async fn write(
+        &self,
         key_label: &str,
         redis_key: String,
         value: String,
-        ttl_seconds: u64,
+        mode: RepairWrite,
     ) -> bool {
-        // NX: a repair must never overwrite an entry that already exists. The writer
-        // (or a concurrent repair) may have landed a fresher value after our S3 read. This
-        // is why the payload and the etag are not one pipeline the way `set_with_etag`
-        // writes them: the etag write has to see whether the payload write won.
-        let result = redis_client
-            .set_nx_ex_with_format(redis_key, value, ttl_seconds, writer::REDIS_FORMAT)
-            .await;
+        let result = match mode {
+            RepairWrite::IfAbsent => {
+                self.redis_client
+                    .set_nx_ex_with_format(redis_key, value, self.ttl_seconds, writer::REDIS_FORMAT)
+                    .await
+            }
+            RepairWrite::Overwrite => self
+                .redis_client
+                .setex_with_format(redis_key, value, self.ttl_seconds, writer::REDIS_FORMAT)
+                .await
+                .map(|()| true),
+        };
 
         let outcome = match result {
             Ok(true) => "success",
             Ok(false) => "skipped",
             Err(ref e) => {
                 debug!(
-                    namespace = %namespace,
-                    value = %object_name,
+                    namespace = %self.namespace,
+                    value = %self.object_name,
                     key = key_label,
                     error = %e,
                     "HyperCache read repair failed"
@@ -1057,8 +1077,8 @@ impl HyperCacheReader {
             HYPERCACHE_READ_REPAIR_COUNTER_NAME,
             &[
                 ("result".to_string(), outcome.to_string()),
-                ("namespace".to_string(), namespace.to_string()),
-                ("value".to_string(), object_name.to_string()),
+                ("namespace".to_string(), self.namespace.clone()),
+                ("value".to_string(), self.object_name.clone()),
                 ("key".to_string(), key_label.to_string()),
             ],
             1,
@@ -1568,9 +1588,11 @@ mod tests {
         let calls = redis_calls_after_s3_hit(&fixture).await;
 
         let etag_key = etag_key(&fixture.cache_key);
+        // Written unconditionally: an orphan etag from an evicted payload must not survive
+        // next to the repaired payload and answer 304 for the version it no longer holds.
         let repair = calls
             .iter()
-            .find(|c| c.op == "set_nx_ex_with_format" && c.key == etag_key)
+            .find(|c| c.op == "setex_with_format" && c.key == etag_key)
             .expect("expected the S3 hit to repair the companion etag");
         match &repair.value {
             common_redis::MockRedisValue::StringWithTTLAndFormat(value, ttl, format) => {
