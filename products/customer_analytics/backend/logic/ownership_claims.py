@@ -13,11 +13,13 @@ one row per Task with these columns:
 - ``released_at``: when the Task was disqualified, or null while the allocation stands.
 - ``source_releaser_id``: Salesforce user id of whoever disqualified the Task, or null.
 
-Each run reads every row, in pages ordered by ``task_id``, and applies it: a row without
-``released_at`` claims the AE role, one with it withdraws that same Task's claim. Both are
-idempotent, so rereading a Task costs one lookup and changes nothing; the view is expected to keep
-only recent Tasks. A Task listed more than once is not applied at all, so a view must express a
-release by setting ``released_at`` on the Task's one row, never by adding a second row. Timestamps without a timezone are read as UTC, which is how Salesforce records
+Each run reads every row with a usable ``task_id``, in pages ordered by that id, and applies it: a
+row without ``released_at`` claims the AE role, one with it withdraws that same Task's claim. Both
+are idempotent, so rereading a Task costs one lookup and changes nothing; the view is expected to
+keep only recent Tasks. A Task listed more than once is not applied at all, so a view must express
+a release by setting ``released_at`` on the Task's one row, never by adding a second row. Paging
+compares the id as text, so a row whose ``task_id`` is null or empty is not read and reaches no
+outcome count; it carries no idempotency key, so no run could apply it safely. Timestamps without a timezone are read as UTC, which is how Salesforce records
 them. Nothing is written back to Salesforce: accepted and released claims are visible on the
 account's relationships and audit trail, and every outcome is counted and logged here.
 """
