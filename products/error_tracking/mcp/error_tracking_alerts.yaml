@@ -208,11 +208,11 @@ tools:
         description: >
             List error tracking alerts in the project. The same endpoint backs `cdp-functions-list`, so every
             destination is a candidate row — select the alerts server-side with `filters` instead of reading the whole
-            list. Pass `type=internal_destination` and `filters={"events": [{"id": "<lifecycle event>"}]}`, one call
-            for each lifecycle event you check (`$error_tracking_issue_created`, `$error_tracking_issue_reopened`,
+            list. Pass `type=internal_destination` and `filters={"events": [{"id": "<lifecycle event>"}]}`, one call for
+            each lifecycle event you check (`$error_tracking_issue_created`, `$error_tracking_issue_reopened`,
             `$error_tracking_issue_spiking`). Each call returns only the alerts on that event, so the response stays
-            small in a project with hundreds of destinations. Pagination defaults to 100 per page — keep paging
-            with `offset` while `next` is set.
+            small in a project with hundreds of destinations. Pagination defaults to 100 per page — keep paging with
+            `offset` while `next` is set.
 
 
             The response carries the fields a dedupe check needs: `name`, `description`, `enabled`, the trigger event
