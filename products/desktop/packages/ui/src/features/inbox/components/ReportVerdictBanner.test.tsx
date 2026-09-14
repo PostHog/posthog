@@ -17,6 +17,7 @@ const {
   useReportTasks,
   useInboxReportArtefacts,
   openResolveDialog,
+  openDismissDialog,
   fireAction,
 } = vi.hoisted(() => ({
   createPrReport: vi.fn(),
@@ -30,6 +31,7 @@ const {
   useReportTasks: vi.fn(),
   useInboxReportArtefacts: vi.fn(),
   openResolveDialog: vi.fn(),
+  openDismissDialog: vi.fn(),
   fireAction: vi.fn(),
 }));
 
@@ -70,7 +72,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", () => ({
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportDismissAction", () => ({
   useInboxReportDismissAction: () => ({
     dialog: null,
-    openDialog: vi.fn(),
+    openDialog: openDismissDialog,
   }),
 }));
 
@@ -211,6 +213,22 @@ describe("ReportVerdictBanner", () => {
 
     expect(openResolveDialog).toHaveBeenCalledTimes(2);
     expect(screen.getByText("Dismiss")).toBeInTheDocument();
+  });
+
+  it("offers dismiss in triage from both the button and shortcut", async () => {
+    const user = userEvent.setup();
+    render(
+      <ReportVerdictBanner
+        report={report}
+        variant="triage-actions"
+        dismissHotkey="a"
+      />,
+    );
+
+    await user.click(screen.getByText("Dismiss"));
+    await user.keyboard("a");
+
+    expect(openDismissDialog).toHaveBeenCalledTimes(2);
   });
 
   it("starts a discussion with optional direction and hides the actions after creation", async () => {

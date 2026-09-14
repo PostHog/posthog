@@ -2,6 +2,7 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -310,6 +311,49 @@ describe('experimentLogic', () => {
                     action.payload.triggeredBy === 'manual',
                 'markRefreshStarted',
             ])
+        })
+
+        it('re-runs the refresh when a later flag update contradicts the value it used', async () => {
+            // The outer beforeEach delivered an empty flag set: flags count as received, but the
+            // recalculation flag reads off, like the bootstrap set of a page load.
+            logic.actions.setExperiment(experiment)
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': () => [
+                        200,
+                        { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
+                    ],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
+                },
+            })
+            // The expectLogic wrapper consumes this refresh's actions from the recorded history, so the
+            // assertions below match only the replayed refresh, not this original one.
+            await expectLogic(logic, async () => {
+                await logic.asyncActions.refreshExperimentResults(true, 'manual')
+            }).toDispatchActions(['refreshExperimentResults', 'markRefreshStarted', 'markRefreshFinished'])
+
+            // The real flag response lands with the flag on. The refresh must re-run with its original
+            // arguments, or the page keeps whatever the wrong branch loaded.
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                })
+            }).toDispatchActions([
+                (action) =>
+                    action.type === logic.actionTypes.refreshExperimentResults &&
+                    action.payload.forceRefresh === true &&
+                    action.payload.triggeredBy === 'manual',
+                'markRefreshStarted',
+            ])
+
+            // A repeated update with the same value must not re-run the refresh.
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                })
+            }).toNotHaveDispatchedActions(['refreshExperimentResults'])
         })
     })
 

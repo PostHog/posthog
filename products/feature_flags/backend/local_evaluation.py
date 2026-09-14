@@ -32,6 +32,7 @@ import structlog
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
     GroupTypesUnavailable,
@@ -400,16 +401,25 @@ def _load_flag_definitions_with_cohorts(key: KeyType) -> dict[str, Any]:
     return _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key))
 
 
-flag_definitions_hypercache = HyperCache(
-    namespace="feature_flags",
-    value="flags_with_cohorts.json",
-    load_fn=_load_flag_definitions_with_cohorts,
-    cache_ttl=settings.FLAGS_CACHE_TTL,
-    cache_miss_ttl=settings.FLAGS_CACHE_MISS_TTL,
-    batch_load_fn=lambda teams: _get_flags_response_for_local_evaluation_batch(teams),
-    enable_etag=True,
-    expiry_sorted_set_key=FLAG_DEFINITIONS_CACHE_EXPIRY_SORTED_SET,
-)
+def _build_flag_definitions_hypercache() -> HyperCache:
+    has_dedicated_cache = FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES
+    return HyperCache(
+        namespace="feature_flags",
+        value="flags_with_cohorts.json",
+        load_fn=_load_flag_definitions_with_cohorts,
+        cache_ttl=settings.FLAGS_CACHE_TTL,
+        cache_miss_ttl=settings.FLAGS_CACHE_MISS_TTL,
+        batch_load_fn=lambda teams: _get_flags_response_for_local_evaluation_batch(teams),
+        enable_etag=True,
+        expiry_sorted_set_key=FLAG_DEFINITIONS_CACHE_EXPIRY_SORTED_SET,
+        cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if has_dedicated_cache else None,
+        # Mirror to the shared Redis while the /flags/definitions reader still reads
+        # from it.
+        secondary_cache_alias="default" if has_dedicated_cache else None,
+    )
+
+
+flag_definitions_hypercache = _build_flag_definitions_hypercache()
 
 
 def _resolve_team(team: Team | int) -> Team | None:

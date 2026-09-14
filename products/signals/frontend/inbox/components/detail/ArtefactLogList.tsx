@@ -216,20 +216,39 @@ function ReviewersBody({ reviewers }: { reviewers: EnrichedReviewer[] }): JSX.El
     return (
         <div className="flex flex-wrap gap-1.5">
             {reviewers.map((reviewer) => {
-                const name = reviewer.user?.first_name || reviewer.github_name || reviewer.github_login
-                return (
+                const name =
+                    reviewer.user?.first_name ||
+                    reviewer.github_name ||
+                    reviewer.github_login ||
+                    reviewer.user?.email ||
+                    'Reviewer'
+                const body = (
+                    <>
+                        <ProfilePicture user={reviewer.user} name={name} size="xs" />
+                        <span className="text-default">{name}</span>
+                        {reviewer.github_login ? (
+                            <span className="font-mono text-tertiary">@{reviewer.github_login}</span>
+                        ) : null}
+                    </>
+                )
+                return reviewer.github_login ? (
                     <Link
-                        key={reviewer.github_login}
+                        key={reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login}
                         to={`https://github.com/${reviewer.github_login}`}
                         target="_blank"
                         disableClientSideRouting
                         className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 text-xs no-underline hover:bg-fill-highlight-50"
                     >
-                        <ProfilePicture user={reviewer.user} name={name} size="xs" />
-                        <span className="text-default">{name}</span>
-                        <span className="font-mono text-tertiary">@{reviewer.github_login}</span>
+                        {body}
                         <IconExternal className="size-3 text-tertiary" />
                     </Link>
+                ) : (
+                    <div
+                        key={reviewer.user?.uuid ?? reviewer.user_uuid ?? name}
+                        className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 text-xs"
+                    >
+                        {body}
+                    </div>
                 )
             })}
         </div>

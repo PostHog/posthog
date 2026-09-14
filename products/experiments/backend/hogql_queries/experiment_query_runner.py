@@ -109,6 +109,11 @@ DEFAULT_EXPOSURE_TTL_SECONDS = {
 # instead of failing atomically on every attempt.
 PRECOMPUTE_MAX_WINDOW_DAYS = 7
 
+# Spread frozen chunk expiries so an experiment's history does not expire all at once
+# (see TtlSchedule.default_ttl_jitter_seconds). 14 days means roughly one chunk expiry
+# per day for a months-long experiment; a larger value would only keep data on disk longer.
+PRECOMPUTE_TTL_JITTER_SECONDS = 14 * 24 * 60 * 60
+
 # Upper bound on how far past the experiment end a metric-events build may scan.
 # retention_window_end is an unrestricted user-supplied integer; without a cap, a huge
 # window would stretch the precompute horizon into thousands of daily jobs before the
@@ -122,6 +127,7 @@ def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
         DEFAULT_EXPOSURE_TTL_SECONDS,
         team_timezone,
         max_window_days=PRECOMPUTE_MAX_WINDOW_DAYS,
+        default_ttl_jitter_seconds=PRECOMPUTE_TTL_JITTER_SECONDS,
     )
 
 
@@ -360,6 +366,7 @@ class ExperimentQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            end_is_data_horizon=True,
             # High-volume teams' builds OOM even at capped window widths; spilling the
             # GROUP BY to disk degrades gracefully instead of failing the build.
             spill_to_disk=True,
@@ -397,6 +404,7 @@ class ExperimentQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            end_is_data_horizon=True,
             spill_to_disk=True,
         )
 
@@ -474,8 +482,9 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _metric_events_precompute_applicable(self) -> bool:
         """
-        Metric-events precompute supports ordered funnels, numeric mean metrics
-        (count/sum/avg/min/max), and retention metrics, in all cases without
+        Metric-events precompute supports ordered funnels, mean metrics with
+        numeric math (count/sum/avg/min/max) or ID-valued math (unique users /
+        unique sessions), and retention metrics, in all cases without
         breakdowns, CUPED, or data warehouse sources.
         """
         if self._get_breakdowns_for_builder() or self.cuped_config.enabled or self.is_data_warehouse_query:
@@ -487,21 +496,32 @@ class ExperimentQueryRunner(QueryRunner):
             if not isinstance(source, (EventsNode, ActionsNode)):
                 return False
             # Session-property means aggregate via a per-session dedup CTE that the
-            # precomputed table can't feed; ID-valued math (unique session/DAU/group)
-            # and HogQL expressions don't fit the Float64 numeric_value column.
+            # precomputed table can't feed. Unique-group math is excluded because
+            # the build INSERT can't resolve $group_N (MATERIALIZED on
+            # sharded_events), and HogQL math because user expressions are arbitrary.
             if is_session_property_metric(source):
                 return False
             math_type = getattr(source, "math", None) or ExperimentMetricMathType.TOTAL
-            # These math types are safe because the build query stores the same
+            # Numeric math types are safe because the build query stores the same
             # coalesced per-event float regardless of math type, and the math is
             # applied at read time by build_value_aggregation_expr on both paths.
-            return math_type in (
+            if math_type in (
                 ExperimentMetricMathType.TOTAL,
                 ExperimentMetricMathType.SUM,
                 ExperimentMetricMathType.AVG,
                 ExperimentMetricMathType.MIN,
                 ExperimentMetricMathType.MAX,
-            )
+            ):
+                return True
+            # unique_session counts distinct session_id, which every mean build stores.
+            if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
+                return True
+            # dau counts distinct entity_id, which is the person id only when the
+            # experiment is person-keyed. Group experiments never reach precompute,
+            # but keep the guard explicit in case that exclusion is ever lifted.
+            if math_type == ExperimentMetricMathType.DAU:
+                return self.group_type_index is None
+            return False
         if isinstance(self.metric, ExperimentRetentionMetric):
             if not isinstance(self.metric.start_event, (EventsNode, ActionsNode)) or not isinstance(
                 self.metric.completion_event, (EventsNode, ActionsNode)
@@ -514,6 +534,17 @@ class ExperimentQueryRunner(QueryRunner):
                 return False
             return self._retention_metric_events_precomputation_enabled()
         return False
+
+    @property
+    def metric_events_path(self) -> str:
+        """
+        Which source fed the metric-events side of the built query: "precomputed",
+        "direct_scan", or "not_applicable". Meaningful after _get_experiment_query()
+        has run. The exposures side is reported separately (response.is_precomputed).
+        """
+        if not self._metric_events_precompute_applicable():
+            return "not_applicable"
+        return "precomputed" if self._metric_events_precomputed else "direct_scan"
 
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
@@ -638,10 +669,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Tag after _get_experiment_query() which sets the precompute flags
         exposures_path = "precomputed" if self._is_precomputed else "direct_scan"
-        if not self._metric_events_precompute_applicable():
-            metric_events_path = "not_applicable"
-        else:
-            metric_events_path = "precomputed" if self._metric_events_precomputed else "direct_scan"
+        metric_events_path = self.metric_events_path
         tag_queries(
             experiment_exposures_path=exposures_path,
             experiment_metric_events_path=metric_events_path,

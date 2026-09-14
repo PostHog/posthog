@@ -222,7 +222,7 @@ class EndpointCrudService:
             )
 
             step = "version_fields"
-            self._apply_version_field_updates(target_version, data, raw_data, version_targeted)
+            self._apply_version_field_updates(endpoint, target_version, data, raw_data, version_targeted)
 
             step = "materialization"
             materialization_error = self._reconcile_materialization(
@@ -306,6 +306,7 @@ class EndpointCrudService:
 
     def _apply_version_field_updates(
         self,
+        endpoint: Endpoint,
         target_version: EndpointVersion,
         data: EndpointRequest,
         raw_data: dict,
@@ -332,6 +333,9 @@ class EndpointCrudService:
         if update_fields:
             update_fields.append("updated_at")
             target_version.save(update_fields=update_fields)
+        if {"data_freshness_seconds", "optional_breakdown_properties"} & set(update_fields):
+            # Both fields are part of the cached serving snapshot the throttle classifies from.
+            clear_endpoint_materialization_cache(self.team.pk, endpoint.name, versions=[target_version.version])
 
     def _reconcile_materialization(
         self,

@@ -6,8 +6,6 @@ import { subscriptions } from 'kea-subscriptions'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api-error'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { hashCodeForString } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,7 +20,6 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from 'products/skills/frontend/skillConstants'
 
-import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 import {
     dailyCronToTime,
     dayTimeToWeeklyCron,
@@ -31,8 +28,6 @@ import {
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
     SCOUT_WEEKLY_ON_SCHEDULE_MODE,
-    SIGNALS_SCOUT_SKILL_PREFIX,
-    stripScoutPrefix,
     timeToDailyCron,
     weeklyCronToDayTime,
 } from '../utils/scoutRunsWindow'
@@ -103,15 +98,8 @@ export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
     },
 }
 
-/**
- * Under the redesign the form holds the part after `signals-scout-` and the input shows the prefix;
- * callers (deep links, templates) may pass a full skill name. With the flag off the form holds the
- * whole skill name, prefix included, as it always did.
- */
-export function getScoutCreateFormValues(
-    initialValues: ScoutCreateInitialValues | undefined,
-    redesign: boolean
-): ScoutCreateFormValues {
+/** The form holds the whole skill name, so a caller's name is taken as it is. */
+export function getScoutCreateFormValues(initialValues: ScoutCreateInitialValues | undefined): ScoutCreateFormValues {
     const config = {
         ...DEFAULT_SCOUT_CREATE_FORM_VALUES.config,
         ...initialValues?.config,
@@ -126,9 +114,7 @@ export function getScoutCreateFormValues(
     return {
         ...DEFAULT_SCOUT_CREATE_FORM_VALUES,
         ...editableInitialValues,
-        name: redesign
-            ? stripScoutPrefix((initialValues?.name ?? '').trim())
-            : (initialValues?.name ?? SIGNALS_SCOUT_SKILL_PREFIX),
+        name: (initialValues?.name ?? '').trim(),
         config,
         dailyTime:
             dailyCronToTime(config.run_cron_schedule) ??
@@ -172,14 +158,6 @@ export function scoutCreateModalLogicKey(initialValues: ScoutCreateInitialValues
     return 'new'
 }
 
-/**
- * The skill name a form entry produces: the fixed prefix plus what was typed. A pasted full name
- * (`signals-scout-foo`) is not doubled up.
- */
-export function scoutSkillNameFromInput(name: string): string {
-    return `${SIGNALS_SCOUT_SKILL_PREFIX}${stripScoutPrefix(name.trim())}`
-}
-
 function isValidScoutDailyTime(dailyTime: string): boolean {
     return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(dailyTime)
 }
@@ -198,28 +176,36 @@ function scoutWeeklyDay(form: ScoutCreateFormValues): string {
     return day && /^[0-6]$/.test(day) ? day : DEFAULT_SCOUT_WEEKLY_DAY
 }
 
-function scoutNameError(name: string, redesign: boolean): string | undefined {
-    if (!redesign) {
-        const normalizedName = name.trim()
-        const validationError = validateSkillName(normalizedName)
-        if (validationError) {
-            return validationError
-        }
-        if (!normalizedName.startsWith(SIGNALS_SCOUT_SKILL_PREFIX)) {
-            return `Name must start with ${SIGNALS_SCOUT_SKILL_PREFIX}`
-        }
-        return undefined
-    }
-    const bareName = stripScoutPrefix(name.trim())
-    if (!bareName) {
+// Version of the persisted draft's shape. The `name` field used to hold only the part after
+// `signals-scout-`, because the input rendered the prefix separately and the submit added it back.
+// Restoring such a draft into the field that now holds the whole name would create a differently
+// named scout, and would leave its suggestion on offer, because the backend retires a suggestion
+// only when the submitted name matches the one it proposed. Bumping this drops those drafts.
+const SCOUT_CREATE_DRAFT_STORAGE_VERSION = 'v2.'
+
+// Names the inbox reads as sub-pages of `/inbox/scouts/`, so a scout that took one could never be
+// opened. The backend refuses them too; this is so the reason shows next to the field.
+const RESERVED_SCOUT_NAMES = new Set(['scratchpad', 'findings', 'runs'])
+
+function scoutNameError(name: string): string | undefined {
+    const normalizedName = name.trim()
+    if (!normalizedName) {
         return 'Name is required'
     }
     // The shared skill-name rule rejects spaces too, but as "lowercase letters, numbers, and hyphens
     // only", which does not tell someone who typed "checkout failures" what to change.
-    if (/\s/.test(bareName)) {
+    if (/\s/.test(normalizedName)) {
         return 'Name cannot contain spaces. Use hyphens between words.'
     }
-    return validateSkillName(`${SIGNALS_SCOUT_SKILL_PREFIX}${bareName}`)
+    const validationError = validateSkillName(normalizedName)
+    if (validationError) {
+        return validationError
+    }
+    // `validateSkillName` has already rejected anything but lowercase, so no folding is needed here.
+    if (RESERVED_SCOUT_NAMES.has(normalizedName)) {
+        return `'${normalizedName}' is reserved by the inbox. Pick another name.`
+    }
+    return undefined
 }
 
 function scoutTagsError(tags: string[]): string | undefined {
@@ -234,7 +220,6 @@ function scoutTagsError(tags: string[]): string | undefined {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface scoutCreateModalLogicValues {
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     teamScoutServers: MCPServiceAccountServerApi[] // scoutMcpServersLogic
     currentTeamId: number | null // teamLogic
     isScoutCreateFormSubmitting: boolean
@@ -323,14 +308,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
     props({} as ScoutCreateModalLogicProps),
     key((logicProps) => logicProps.logicKey),
     connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            featureFlagLogic,
-            ['featureFlags'],
-            scoutMcpServersLogic,
-            ['teamScoutServers'],
-        ],
+        values: [teamLogic, ['currentTeamId'], scoutMcpServersLogic, ['teamScoutServers']],
     })),
     actions({
         setScoutCreateScheduleMode: (scheduleMode: string) => ({ scheduleMode }),
@@ -349,7 +327,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
         // is a separate action rather than tied to the form reset.
         mcpServersDefaulted: [
             logicProps.initialValues?.config?.mcp_gateway_server_ids !== undefined,
-            buildUserScopedPersistenceConfig(),
+            buildUserScopedPersistenceConfig(SCOUT_CREATE_DRAFT_STORAGE_VERSION),
             {
                 markMcpServersDefaulted: () => true,
                 resetMcpServersDefaulted: () => logicProps.initialValues?.config?.mcp_gateway_server_ids !== undefined,
@@ -358,7 +336,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
     })),
     forms(({ props: logicProps, actions, values }) => ({
         scoutCreateForm: {
-            defaults: getScoutCreateFormValues(logicProps.initialValues, isInboxRedesignEnabled(values.featureFlags)),
+            defaults: getScoutCreateFormValues(logicProps.initialValues),
             errors: ({ name, description, body, config, dailyTime }) => {
                 const runIntervalError =
                     !Number.isFinite(config.run_interval_minutes) ||
@@ -369,7 +347,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                 const tagsError = scoutTagsError(config.tags)
 
                 return {
-                    name: scoutNameError(name, isInboxRedesignEnabled(values.featureFlags)),
+                    name: scoutNameError(name),
                     description: !description.trim()
                         ? 'Description is required'
                         : description.length > SKILL_DESCRIPTION_MAX_LENGTH
@@ -419,9 +397,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
 
                 try {
                     const scout = await signalsScoutCreate(String(values.currentTeamId), {
-                        name: isInboxRedesignEnabled(values.featureFlags)
-                            ? scoutSkillNameFromInput(formValues.name)
-                            : formValues.name.trim(),
+                        name: formValues.name.trim(),
                         description: formValues.description.trim(),
                         body: formValues.body.trim(),
                         config: formValues.config,
@@ -459,8 +435,12 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
     // a fresh mount, so without this a restored draft would open unguarded and one backdrop click
     // would discard it.
     reducers(() => ({
-        scoutCreateForm: [DEFAULT_SCOUT_CREATE_FORM_VALUES, buildUserScopedPersistenceConfig(), {}],
-        scoutCreateFormChanged: [false, buildUserScopedPersistenceConfig(), {}],
+        scoutCreateForm: [
+            DEFAULT_SCOUT_CREATE_FORM_VALUES,
+            buildUserScopedPersistenceConfig(SCOUT_CREATE_DRAFT_STORAGE_VERSION),
+            {},
+        ],
+        scoutCreateFormChanged: [false, buildUserScopedPersistenceConfig(SCOUT_CREATE_DRAFT_STORAGE_VERSION), {}],
     })),
     // The team's servers load asynchronously, so the default is applied once they arrive
     // rather than in the form defaults. Applying it once keeps a later reload from

@@ -8,10 +8,12 @@ mod resolve;
 mod stub_create;
 
 use std::collections::HashMap;
+use std::time::Instant;
 
 use async_trait::async_trait;
+use sqlx::pool::PoolConnection;
 use sqlx::postgres::{PgPool, PgRow};
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 
 use personhog_common::grpc::{current_client_name, current_method_name};
 
@@ -22,19 +24,55 @@ use crate::storage::{IdentityStorage, DB_QUERY_DURATION};
 
 const POOL_LABEL: &str = "primary";
 
+/// Wait for a pool connection. Connection churn shows up here while
+/// every other layer reads idle.
+const DB_POOL_ACQUIRE_DURATION: &str = "personhog_identity_db_pool_acquire_duration_ms";
+
+fn record_acquire(start: Instant) {
+    common_metrics::histogram(
+        DB_POOL_ACQUIRE_DURATION,
+        &[
+            ("pool".to_string(), POOL_LABEL.to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ],
+        start.elapsed().as_secs_f64() * 1000.0,
+    );
+}
+
+/// Acquire a primary connection, recording the wait.
+pub(super) async fn acquire_timed(pool: &PgPool) -> sqlx::Result<PoolConnection<Postgres>> {
+    let start = Instant::now();
+    let conn = pool.acquire().await;
+    record_acquire(start);
+    conn
+}
+
+/// Begin a primary transaction, recording the acquire wait it contains.
+pub(crate) async fn begin_timed(pool: &PgPool) -> sqlx::Result<Transaction<'_, Postgres>> {
+    let start = Instant::now();
+    let tx = pool.begin().await;
+    record_acquire(start);
+    tx
+}
+
 /// Decode a person from a row whose SELECT list uses the canonical aliases
-/// (`team_id::bigint AS team_id`, `properties::text AS properties`, the
-/// `is_user_id` boolean CASE, …). Shared by every submodule that selects
-/// person rows — the table name is interpolated at runtime, so the queries
-/// cannot use the compile-time sqlx macros and their generated row types.
+/// (`team_id::bigint AS team_id`, the `is_user_id` boolean CASE, …). Shared
+/// by every submodule that selects person rows — the table name is
+/// interpolated at runtime, so the queries cannot use the compile-time sqlx
+/// macros and their generated row types.
+///
+/// Properties are never read. The identity service resolves identity only;
+/// the partition leader owns person properties, and a primary-sourced copy
+/// would lag it by writer apply lag.
 pub(super) fn person_from_row(row: &PgRow) -> Result<Person, sqlx::Error> {
     Ok(Person {
         id: row.try_get("id")?,
         uuid: row.try_get("uuid")?,
         team_id: row.try_get("team_id")?,
-        properties: row.try_get("properties")?,
-        properties_last_updated_at: row.try_get("properties_last_updated_at")?,
-        properties_last_operation: row.try_get("properties_last_operation")?,
+        properties: None,
+        properties_last_updated_at: None,
+        properties_last_operation: None,
         created_at: row.try_get("created_at")?,
         version: row.try_get("version")?,
         is_identified: row.try_get("is_identified")?,
@@ -48,9 +86,6 @@ pub(super) fn person_from_row(row: &PgRow) -> Result<Person, sqlx::Error> {
 pub(super) fn person_columns(p: &str) -> String {
     format!(
         "{p}.id, {p}.uuid, {p}.team_id::bigint AS team_id, \
-         {p}.properties::text AS properties, \
-         {p}.properties_last_updated_at::text AS properties_last_updated_at, \
-         {p}.properties_last_operation::text AS properties_last_operation, \
          {p}.created_at, {p}.version, {p}.is_identified, \
          CASE WHEN {p}.is_user_id IS NULL THEN NULL ELSE ({p}.is_user_id != 0) END AS is_user_id, \
          {p}.last_seen_at"

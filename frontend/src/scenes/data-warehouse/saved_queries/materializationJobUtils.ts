@@ -5,6 +5,9 @@ import { DataModelingJob } from '~/types'
 
 const LOGS_FILTER_FORMAT = 'YYYY-MM-DD HH:mm:ss'
 
+/** The fields the duration helpers read. Both the handwritten job type and the generated `DataModelingJobApi` satisfy it. */
+type JobTiming = Pick<DataModelingJob, 'created_at' | 'updated_at' | 'last_run_at'> & { status: string }
+
 function isParseableDate(value: string | null | undefined): value is string {
     return !!value && dayjs(value).isValid()
 }
@@ -21,7 +24,7 @@ function latestOf(...values: (string | null | undefined)[]): string | null {
  * stamped by different write paths: a model save advances both fields, a bulk `QuerySet.update()`
  * skips the `auto_now` on `updated_at`, and rows predating the failure stamp still carry the run's
  * start time in `last_run_at`. Whichever is later is the end in all three cases. */
-function jobEndTimestamp(job: DataModelingJob): string | null {
+function jobEndTimestamp(job: JobTiming): string | null {
     if (job.status === 'Running') {
         return null
     }
@@ -31,7 +34,7 @@ function jobEndTimestamp(job: DataModelingJob): string | null {
     return latestOf(job.updated_at, job.last_run_at)
 }
 
-export function computeJobDuration(job: DataModelingJob): string {
+export function computeJobDuration(job: JobTiming): string {
     if (job.status === 'Running') {
         return 'In progress'
     }

@@ -6,7 +6,6 @@ import {
   PencilSimpleIcon,
   ShapesIcon,
   SidebarSimpleIcon,
-  SpinnerGapIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
 import {
@@ -54,6 +53,8 @@ import {
 } from "@posthog/quill";
 import { CANVAS_COMPONENT_PATH, formatRelativeAge } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import {
   isCanvasGenerating,
   isCanvasGenerationRunning,
@@ -66,6 +67,7 @@ import {
   useCanvasSource,
   useCanvasVersions,
   useDashboardMutations,
+  usePrimeCanvasView,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
@@ -83,8 +85,10 @@ import {
 import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
-import { Spin } from "@posthog/ui/primitives/Spinner";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import {
@@ -107,6 +111,7 @@ import { CanvasGenerateHero } from "./CanvasGenerateHero";
 import { CanvasPermissionDialog } from "./CanvasPermissionDialog";
 import { CanvasSelectionCommentAction } from "./CanvasSelectionCommentAction";
 import { CanvasSidePanel } from "./CanvasSidePanel";
+import { canvasChatTaskId } from "./canvasChatTask";
 import { canvasCommentTaskId } from "./canvasCommentTask";
 import { canvasRuntimeErrorAnalytics } from "./canvasRuntimeError";
 import { canvasSidePanelVisibility } from "./canvasSidePanelVisibility";
@@ -116,6 +121,7 @@ import {
   shouldClearCanvasBrowse,
 } from "./canvasVersionNavigation";
 import { handleFreeformDataRequest } from "./freeformDataBridge";
+import { useCanvasConnectorPermission } from "./useCanvasConnectorPermission";
 import { useCanvasNavigation } from "./useCanvasNavigation";
 import { usePinnedArtifact } from "./usePinnedArtifact";
 
@@ -195,6 +201,16 @@ export function FreeformCanvasView({
 
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
+  const authenticatedClient = useOptionalAuthenticatedClient();
+
+  // One combined round trip (record + live build + head source) that seeds the
+  // per-endpoint caches below where they're empty. On a cold open this removes
+  // the sequential source hop; after a hover prime it makes the whole open a
+  // cache hit. The per-endpoint queries stay authoritative once loaded.
+  const primeCanvasView = usePrimeCanvasView();
+  useEffect(() => {
+    if (dashboardId) primeCanvasView(dashboardId);
+  }, [dashboardId, primeCanvasView]);
 
   // The generation-task association lives in the canvas record's meta. Poll it
   // while a task is running so the fresh head version + the cleared association
@@ -251,12 +267,6 @@ export function FreeformCanvasView({
     latestRun: genTask?.latest_run,
     session: genSession,
   });
-  // The run whose live chat the panel shows: only one that is still in flight.
-  // The record keeps a finished run's id (comments hang off it), but its chat
-  // is not reopened, so every visit starts a fresh run from the composer.
-  const chatTaskId =
-    startedTaskId ?? (isGenerating && !genTaskLoading ? genTaskId : null);
-
   // Poll the record while the session is alive so a just-published head version
   // appears (the publish lands while the prompt is still pending).
   useQuery(
@@ -335,6 +345,17 @@ export function FreeformCanvasView({
     interactive ? dashboardId : undefined,
   );
   const commentTaskId = canvasCommentTaskId(genTaskId, versions);
+  // The run whose chat the panel shows: this person's own run on the canvas,
+  // found through the record's task or the versions they published. Another
+  // person's run never shows, so each editor keeps their own conversation.
+  const { data: currentUser } = useCurrentUser({ client: authenticatedClient });
+  const chatTaskId = canvasChatTaskId({
+    startedTaskId,
+    generationTaskId: genTaskId,
+    generationTaskCreatorUuid: genTask?.created_by?.uuid,
+    versions,
+    currentUserUuid: currentUser?.uuid,
+  });
   // The browsed version is a draft preview when it matches a staged draft
   // rather than a published version. Drives the Draft label and Promote action.
   const browsingDraft = drafts.some(
@@ -601,11 +622,17 @@ export function FreeformCanvasView({
       setAgentRequest(null);
     }
   }, [dashboardId]);
+  const requestConnectorPermission = useCanvasConnectorPermission(
+    dashboardId,
+    displayedVersionId,
+  );
   const onDataRequest = useCallback(
     (method: string, payload: unknown) => {
       if (method !== "agentRequest") {
         return handleFreeformDataRequest(method, payload, queryClient, {
           dashboardId,
+          sourceVersionId: displayedVersionId ?? undefined,
+          requestConnectorPermission,
         });
       }
       const input = canvasAgentRequestInputSchema.parse(payload);
@@ -621,7 +648,7 @@ export function FreeformCanvasView({
         agentRequestPromiseRef.current = { resolve, reject };
       });
     },
-    [queryClient, dashboardId],
+    [queryClient, dashboardId, displayedVersionId, requestConnectorPermission],
   );
   const cancelAgentRequest = useCallback(() => {
     agentRequestPromiseRef.current?.reject(new Error("Agent request canceled"));
@@ -784,12 +811,12 @@ export function FreeformCanvasView({
   const [generatingPanelDismissed, setGeneratingPanelDismissed] =
     useState(false);
   useEffect(() => {
-    if (effectiveTaskId) setGeneratingPanelDismissed(false);
-  }, [effectiveTaskId]);
+    if (chatTaskId) setGeneratingPanelDismissed(false);
+  }, [chatTaskId]);
   const generatingPanelOpen =
     !embedded &&
     isGenerating &&
-    !!effectiveTaskId &&
+    !!chatTaskId &&
     !pinnedArtifact &&
     !headCode &&
     !generatingPanelDismissed;
@@ -829,9 +856,9 @@ export function FreeformCanvasView({
           would have nowhere to go, so surface it as a modal. When the panel is
           open, the chat handles it. */}
       {interactive &&
-        effectiveTaskId &&
+        chatTaskId &&
         ((collapsed && !generatingPanelOpen) || waitingForHeroExit) && (
-          <CanvasPermissionDialog taskId={effectiveTaskId} />
+          <CanvasPermissionDialog taskId={chatTaskId} />
         )}
       <Flex
         direction="column"
@@ -839,211 +866,206 @@ export function FreeformCanvasView({
         overflow="hidden"
       >
         {showToolbar && (
-          <Flex
-            align="center"
-            justify="between"
-            className="h-10 shrink-0 items-center border-b bg-chrome px-3"
-          >
-            <Flex align="center" gap="1">
-              {interactive && (
-                <>
-                  <Button
-                    size="icon"
-                    variant="default"
-                    aria-label="Undo"
-                    disabled={!canUndo}
-                    onClick={onUndo}
-                  >
-                    <ArrowUUpLeftIcon size={16} />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="default"
-                    aria-label="Redo"
-                    disabled={!canRedo}
-                    onClick={onRedo}
-                  >
-                    <ArrowUUpRightIcon size={16} />
-                  </Button>
-                  {browsingDraft ? (
-                    <Badge variant="warning" className="ml-1">
-                      Draft preview
-                    </Badge>
-                  ) : (
-                    versions.length > 0 && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <Button
-                              size="sm"
-                              variant="default"
-                              className="ml-1"
-                              aria-label="Version history"
-                            />
-                          }
+          <ChromeBar
+            inset="even"
+            className="bg-chrome"
+            actions={
+              <>
+                <CanvasBuildStatus
+                  dashboardId={dashboardId}
+                  lifecycle={lifecycle}
+                  onAskAgentToFix={interactive ? prefillComposer : undefined}
+                />
+                {interactive &&
+                  (isGenerating && effectiveTaskId ? (
+                    <>
+                      <Spinner size="md" className="text-accent-9" />
+                      <Text size="1" className="text-gray-10">
+                        Generating
+                      </Text>
+                      <RadixButton size="1" variant="soft" asChild>
+                        <Link
+                          to="/spaces/$channelId/tasks/$taskId"
+                          params={{ channelId, taskId: effectiveTaskId }}
                         >
-                          v{versions.length - currentIndex}/{versions.length}
-                          {!browsing && " · Live"}
-                          <CaretDownIcon size={12} />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" side="bottom">
-                          {versions.map((version, index) => (
-                            <DropdownMenuItem
-                              key={version.id}
+                          View task
+                        </Link>
+                      </RadixButton>
+                    </>
+                  ) : (
+                    runtimeError && (
+                      <>
+                        <TooltipProvider delay={0}>
+                          <QuillTooltip>
+                            <TooltipTrigger
                               render={
-                                <ItemMenuItem size="xs" className="w-full" />
+                                <div className="flex items-center gap-1 text-red-11">
+                                  <WarningIcon size={14} />
+                                  <Text size="1">Runtime error</Text>
+                                </div>
                               }
-                              onClick={() =>
-                                setBrowseVersion(
-                                  threadId,
-                                  version.id === headVersionId
-                                    ? null
-                                    : version.id,
-                                )
-                              }
-                            >
-                              <ItemContent variant="menuItem">
-                                <ItemTitle>
-                                  v{versions.length - index}
-                                  {version.id === headVersionId && " · Live"}
-                                </ItemTitle>
-                                <ItemDescription className="leading-none">
-                                  {describeCanvasVersion(version)}
-                                </ItemDescription>
-                              </ItemContent>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                            />
+                            <TooltipContent>
+                              <span className="block max-w-sm whitespace-pre-wrap break-words">
+                                {runtimeError}
+                              </span>
+                            </TooltipContent>
+                          </QuillTooltip>
+                        </TooltipProvider>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={askAgentToFix}
+                        >
+                          Ask agent to fix
+                        </Button>
+                      </>
                     )
+                  ))}
+                {interactive &&
+                  showPanel &&
+                  collapsed &&
+                  !generatingPanelOpen && (
+                    <Tooltip content={chatTaskId ? "Show chat" : "Edit canvas"}>
+                      <Button
+                        size="icon"
+                        variant="default"
+                        aria-label="Show panel"
+                        onClick={() => setCollapsed(false)}
+                      >
+                        <SidebarSimpleIcon size={16} />
+                      </Button>
+                    </Tooltip>
                   )}
-                  {browsing && !browsingDraft && (
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      className="ml-1"
-                      disabled={isReverting}
-                      onClick={() => void onRevert()}
-                    >
-                      {isReverting ? "Reverting…" : "Revert to this version"}
-                    </Button>
-                  )}
-                  {browsingDraft && (
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      className="ml-1"
-                      disabled={isPromoting}
-                      onClick={() => void onPromote()}
-                    >
-                      {isPromoting ? "Publishing…" : "Publish draft"}
-                    </Button>
-                  )}
-                  {drafts.length > 0 && (
+              </>
+            }
+          >
+            {interactive && (
+              <>
+                <Button
+                  size="icon"
+                  variant="default"
+                  aria-label="Undo"
+                  disabled={!canUndo}
+                  onClick={onUndo}
+                >
+                  <ArrowUUpLeftIcon size={16} />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="default"
+                  aria-label="Redo"
+                  disabled={!canRedo}
+                  onClick={onRedo}
+                >
+                  <ArrowUUpRightIcon size={16} />
+                </Button>
+                {browsingDraft ? (
+                  <Badge variant="warning" className="ml-1">
+                    Draft preview
+                  </Badge>
+                ) : (
+                  versions.length > 0 && (
                     <DropdownMenu>
                       <DropdownMenuTrigger
                         render={
-                          <Button size="sm" variant="default" className="ml-1">
-                            Drafts ({drafts.length})
-                            <CaretDownIcon size={12} />
-                          </Button>
+                          <Button
+                            size="sm"
+                            variant="default"
+                            className="ml-1"
+                            aria-label="Version history"
+                          />
                         }
-                      />
+                      >
+                        v{versions.length - currentIndex}/{versions.length}
+                        {!browsing && " · Live"}
+                        <CaretDownIcon size={12} />
+                      </DropdownMenuTrigger>
                       <DropdownMenuContent align="start" side="bottom">
-                        {drafts.map((draft) => (
+                        {versions.map((version, index) => (
                           <DropdownMenuItem
-                            key={draft.versionId}
+                            key={version.id}
+                            render={
+                              <ItemMenuItem size="xs" className="w-full" />
+                            }
                             onClick={() =>
-                              setBrowseVersion(threadId, draft.versionId)
+                              setBrowseVersion(
+                                threadId,
+                                version.id === headVersionId
+                                  ? null
+                                  : version.id,
+                              )
                             }
                           >
-                            <span className="mr-2 truncate">
-                              {draft.prompt || "Untitled draft"}
-                            </span>
-                            <Badge
-                              variant={draftBadgeVariant(draft.buildStatus)}
-                            >
-                              {draft.buildStatus ?? "pending"}
-                            </Badge>
+                            <ItemContent variant="menuItem">
+                              <ItemTitle>
+                                v{versions.length - index}
+                                {version.id === headVersionId && " · Live"}
+                              </ItemTitle>
+                              <ItemDescription className="leading-none">
+                                {describeCanvasVersion(version)}
+                              </ItemDescription>
+                            </ItemContent>
                           </DropdownMenuItem>
                         ))}
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  )}
-                </>
-              )}
-            </Flex>
-            <Flex align="center" gap="2">
-              <CanvasBuildStatus
-                dashboardId={dashboardId}
-                lifecycle={lifecycle}
-                onAskAgentToFix={interactive ? prefillComposer : undefined}
-              />
-              {interactive &&
-                (isGenerating && effectiveTaskId ? (
-                  <>
-                    <Spin className="text-accent-9">
-                      <SpinnerGapIcon size={14} />
-                    </Spin>
-                    <Text size="1" className="text-gray-10">
-                      Generating
-                    </Text>
-                    <RadixButton size="1" variant="soft" asChild>
-                      <Link
-                        to="/spaces/$channelId/tasks/$taskId"
-                        params={{ channelId, taskId: effectiveTaskId }}
-                      >
-                        View task
-                      </Link>
-                    </RadixButton>
-                  </>
-                ) : (
-                  runtimeError && (
-                    <>
-                      <TooltipProvider delay={0}>
-                        <QuillTooltip>
-                          <TooltipTrigger
-                            render={
-                              <div className="flex items-center gap-1 text-red-11">
-                                <WarningIcon size={14} />
-                                <Text size="1">Runtime error</Text>
-                              </div>
-                            }
-                          />
-                          <TooltipContent>
-                            <span className="block max-w-sm whitespace-pre-wrap break-words">
-                              {runtimeError}
-                            </span>
-                          </TooltipContent>
-                        </QuillTooltip>
-                      </TooltipProvider>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={askAgentToFix}
-                      >
-                        Ask agent to fix
-                      </Button>
-                    </>
                   )
-                ))}
-              {interactive &&
-                showPanel &&
-                collapsed &&
-                !generatingPanelOpen && (
-                  <Tooltip content={chatTaskId ? "Show chat" : "Edit canvas"}>
-                    <Button
-                      size="icon"
-                      variant="default"
-                      aria-label="Show panel"
-                      onClick={() => setCollapsed(false)}
-                    >
-                      <SidebarSimpleIcon size={16} />
-                    </Button>
-                  </Tooltip>
                 )}
-            </Flex>
-          </Flex>
+                {browsing && !browsingDraft && (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    className="ml-1"
+                    disabled={isReverting}
+                    onClick={() => void onRevert()}
+                  >
+                    {isReverting ? "Reverting…" : "Revert to this version"}
+                  </Button>
+                )}
+                {browsingDraft && (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    className="ml-1"
+                    disabled={isPromoting}
+                    onClick={() => void onPromote()}
+                  >
+                    {isPromoting ? "Publishing…" : "Publish draft"}
+                  </Button>
+                )}
+                {drafts.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button size="sm" variant="default" className="ml-1">
+                          Drafts ({drafts.length})
+                          <CaretDownIcon size={12} />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="start" side="bottom">
+                      {drafts.map((draft) => (
+                        <DropdownMenuItem
+                          key={draft.versionId}
+                          onClick={() =>
+                            setBrowseVersion(threadId, draft.versionId)
+                          }
+                        >
+                          <span className="mr-2 truncate">
+                            {draft.prompt || "Untitled draft"}
+                          </span>
+                          <Badge variant={draftBadgeVariant(draft.buildStatus)}>
+                            {draft.buildStatus ?? "pending"}
+                          </Badge>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </>
+            )}
+          </ChromeBar>
         )}
 
         <Box position="relative" className="min-h-0 flex-1">
@@ -1143,7 +1165,7 @@ export function FreeformCanvasView({
               </Flex>
             ) : buildsLoading ? (
               <ScrollArea className="h-full">
-                <LoadingState />
+                <LoadingState label="Loading canvas" />
               </ScrollArea>
             ) : (
               <ScrollArea className="h-full">
@@ -1242,7 +1264,10 @@ export function FreeformCanvasView({
                   taskId={effectiveTaskId ?? ""}
                 />
               ) : dashboardLoading || buildsLoading || headSourceLoading ? (
-                <LoadingState />
+                // Shown while the canvas record is still loading, so a canvas
+                // that actually has content doesn't flash the empty state
+                // before its source/builds resolve.
+                <LoadingState label="Loading canvas" />
               ) : hasSource ? (
                 // Source exists but nothing is renderable yet: a multi-file
                 // project whose build hasn't succeeded. The toolbar's build
@@ -1359,23 +1384,6 @@ export function FreeformCanvasView({
   );
 }
 
-// Shown while the canvas record is still loading, so a canvas that actually has
-// content doesn't flash the empty state before its source/builds resolve.
-function LoadingState() {
-  return (
-    <Empty className="h-full">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <Spin className="text-accent-9">
-            <SpinnerGapIcon size={18} />
-          </Spin>
-        </EmptyMedia>
-        <EmptyTitle>Loading canvas</EmptyTitle>
-      </EmptyHeader>
-    </Empty>
-  );
-}
-
 // Centered status shown while a generation task runs on an empty canvas, with a
 // button to jump to the task doing the work.
 function GeneratingState({
@@ -1389,9 +1397,7 @@ function GeneratingState({
     <Empty className="h-full border-0">
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <Spin className="text-accent-9">
-            <SpinnerGapIcon size={18} />
-          </Spin>
+          <Spinner size="md" className="text-accent-9" />
         </EmptyMedia>
         <EmptyTitle>Generating</EmptyTitle>
         <EmptyDescription>An agent is building this canvas.</EmptyDescription>

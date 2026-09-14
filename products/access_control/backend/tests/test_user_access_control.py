@@ -313,7 +313,10 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         assert ac_user in matching_acs
         assert ac_role in matching_acs
         assert ac_role_2 in matching_acs
-        # the matching one should be the highest level
+        # Legacy resolution: the highest matching row decides
+        self.organization.uses_most_specific_access_resolution = False
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
         assert self.user_access_control.access_level_for_object(self.team) == "admin"
 
     def test_org_admin_always_has_access(self):
@@ -654,6 +657,9 @@ class TestUserAccessControlSerializer(BaseUserAccessControlTest):
 
     def test_resource_level_takes_priority(self):
         # Legacy resolution: resource-level rules beat the object's own default rule
+        self.organization.uses_most_specific_access_resolution = False
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
         self._create_access_control(resource="dashboard", resource_id=None, access_level="editor")
         self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="viewer")
         serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
@@ -941,6 +947,9 @@ class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
             role=self.role_a,
         )
 
+        self.organization.uses_most_specific_access_resolution = False
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
         access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
         assert access_level == "editor"  # Legacy resolution: higher level wins across member and role rows
 
@@ -1169,8 +1178,11 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
             role=self.role_a,
         )
 
+        self.organization.uses_most_specific_access_resolution = False
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
         access_level = self.user_access_control.specific_access_level_for_object(self.other_dashboard)
-        assert access_level == "editor"  # Higher level wins
+        assert access_level == "editor"  # Legacy resolution: higher level wins
 
     def test_mixed_member_and_role_controls(self):
         """Test that both member and role controls are considered"""
@@ -1189,8 +1201,11 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
             role=self.role_a,
         )
 
+        self.organization.uses_most_specific_access_resolution = False
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
         access_level = self.user_access_control.specific_access_level_for_object(self.other_dashboard)
-        assert access_level == "manager"  # Role control with higher level wins
+        assert access_level == "manager"  # Legacy resolution: role control with higher level wins
 
     def test_project_specific_access_control(self):
         """Test project-specific access controls"""
@@ -1204,12 +1219,11 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
         access_level = self.user_access_control.specific_access_level_for_object(self.team)
         assert access_level == "admin"
 
-    def test_organization_specific_access_control(self):
-        """Test organization-specific access controls"""
+    def test_organization_has_no_specific_access_control(self):
+        # Organization access comes from the membership level, never from an object row
         uac = UserAccessControl(user=self.user, organization_id=self.organization.id)
 
-        access_level = uac.specific_access_level_for_object(self.organization)
-        assert access_level == "member"
+        assert uac.specific_access_level_for_object(self.organization) is None
 
     def test_feature_flag_specific_access_control(self):
         """Test feature flag-specific access controls"""

@@ -55,7 +55,7 @@ Requiring more than that makes the gate unreachable for an image late in a batch
 
 When no peer is available to vouch at all, the time spent on considered rejections and their backoffs opens the gate on its own.
 Request time counts because a wedged worker consumes most of the Kafka lease before each backoff starts.
-Busy, timeout, and transport intervals do not consume this budget because they do not identify a bad image.
+Busy, timeout, refused, and reset intervals do not consume this budget because they do not identify a bad image.
 That threshold has to fire comfortably inside `max.poll.interval.ms` (300s), which is the binding constraint rather than a preference: a batch cannot return while one of its images is in flight, so anything above the lease can never be reached — the group fences the pod first, the partition moves, and its new owner repeats the same work and is fenced in turn, circling the fleet forever.
 
 It is published through this lane's own producer slot on the replay cluster, which is where the source topic lives and which carries a `message.max.bytes` sized for these payloads; the generic slot points elsewhere with librdkafka's 1 MB default, where parking a normal image would fail on every attempt.
@@ -67,11 +67,15 @@ A publish that keeps failing is retried rather than raised, because the Kafka lo
 With no dead-letter destination configured the client keeps waiting instead, because the only other option would be discarding.
 `ml_mirror_image_scrub_consumer_dead_lettered_total` should sit at zero; anything above a trickle is a sidecar bug reproducing across many images, and the fix belongs in the sidecar.
 
-Waiting only applies to answers a later attempt could change: 5xx, 408, 429, and transport failures (a refused socket is the ordinary case while the sidecar is still starting in the same pod).
+Waiting only applies to answers a later attempt could change: 5xx, 408, 429, and socket failures (a refused socket is the ordinary case while the image-scrub container is restarting in the same pod).
 Any other status, and a 200 carrying no bytes, is the sidecar answering a question we did not think we were asking, so it fails the batch loudly instead.
 Waiting on a 404 from a misdirected `SIDECAR_URL` would otherwise turn a deploy mistake into a pod that consumes nothing, passes every probe, and surfaces only as lag.
 
-`ml_mirror_image_scrub_consumer_scrub_waits_total` (by `reason`: `busy`, `timeout`, `transport`) counts attempts that came back without bytes and will be retried, so it is a saturation signal and never a loss signal.
+`ml_mirror_image_scrub_consumer_scrub_waits_total` (by `reason`: `busy`, `timeout`, `refused`, `reset`, `transport`, `rejected`) counts attempts that came back without bytes and will be retried, so it is a saturation signal and never a loss signal.
+`refused` means nothing is listening on the sidecar port, which after boot means the image-scrub container has exited.
+A `reset` is a connection the sidecar accepted and then dropped, which its shutdown does to idle keep-alive sockets, so resets are expected on every rollout and scale-down.
+`transport` is any other socket failure, so a sustained rate outside a rollout is a fault to look at rather than noise.
+The unreachable alert selects `refused` and `transport`, never `reset`.
 `ml_mirror_image_scrub_consumer_stuck_images_total` re-increments while any one image is still being retried past the point a healthy sidecar would have finished it, so it reads as a level rather than a one-off edge.
 
 **A stalled pod on this lane looks healthy to Kubernetes.** The lane runs the legacy heartbeat health check (`CONSUMER_LOOP_BASED_HEALTH_CHECK` is unset), and the consumer refreshes that heartbeat every 10s for the whole batch, so a pod blocked on one image stays Ready and Live indefinitely.

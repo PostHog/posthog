@@ -20,12 +20,17 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
-from products.tasks.backend.logic.services.agent_command import sandbox_transport_token, validate_sandbox_url
+from products.tasks.backend.logic.services.agent_command import (
+    is_hogland_sandbox_url,
+    sandbox_transport_token,
+    validate_sandbox_url,
+)
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
     try_auto_respond_permission_request,
 )
+from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_after_final_message
 from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.models import (
@@ -40,7 +45,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     is_slack_interaction_state,
 )
 
-from ee.hogai.sandbox import is_turn_complete
+from ee.hogai.sandbox import is_turn_complete, turn_complete_trace_id
 
 logger = structlog.get_logger(__name__)
 
@@ -427,7 +432,8 @@ async def _relay_loop(
                         read=SSE_READ_TIMEOUT_SECONDS,
                         write=30.0,
                         pool=30.0,
-                    )
+                    ),
+                    trust_env=not is_hogland_sandbox_url(events_url),
                 ) as client:
                     async with httpx_sse.aconnect_sse(
                         client,
@@ -496,7 +502,11 @@ async def _relay_loop(
                                     # turn_completed, which clears the parent's relay id and would
                                     # otherwise drop a delta that arrived after it.
                                     await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
-                                    await _signal_safely(workflow_handle, "turn_completed")
+                                    await _signal_safely(
+                                        workflow_handle,
+                                        "turn_completed",
+                                        arg=turn_complete_trace_id(event_data),
+                                    )
                                 final_text = final_message_tracker.end_turn()
                                 if final_text is not None and task_run is not None:
                                     await asyncio.to_thread(_persist_final_message, run_id, final_text)
@@ -924,6 +934,8 @@ def _persist_final_message(run_id: str, text: str) -> None:
             output = run.output if isinstance(run.output, dict) else {}
             run.output = {**output, "final_message": text}
             run.save(update_fields=["output", "updated_at"])
+        # The `finish` tool can complete the run before this message lands (the row lock orders the two).
+        resume_workflow_step_after_final_message(run)
     except Exception:
         logger.warning("relay_final_message_persist_failed", run_id=run_id, exc_info=True)
 

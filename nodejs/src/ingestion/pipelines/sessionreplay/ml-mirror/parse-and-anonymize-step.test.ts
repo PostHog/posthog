@@ -126,6 +126,7 @@ describe('createParseAndAnonymizeMessageStep', () => {
         expect(parsed.eventsByWindowId).toEqual({})
         expect(parsed.preSerialized.lines.toString()).toContain('"window-1"')
         expect(parsed.preSerialized.events).toEqual([{ ts: now, flags: 5 }])
+        expect(parsed.preSerialized.windowId).toBe('window-1')
         expect(parsed.preSerialized.consoleWarnCount).toBe(2)
         expect(parsed.eventsRange.start.toMillis()).toBe(now)
         expect(parsed.eventsRange.end.toMillis()).toBe(now + 1000)

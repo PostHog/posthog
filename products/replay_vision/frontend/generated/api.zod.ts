@@ -549,7 +549,7 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
+                'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
             ),
         scanner_config: zod
             .unknown()
@@ -691,7 +691,7 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
+                'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
             ),
         scanner_config: zod
             .unknown()
@@ -960,7 +960,7 @@ export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOn
 )
 export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax = 5
 
-export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = false
+export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const visionScannersScoutsCreateBodyConfigOneModelMax = 200
@@ -1051,7 +1051,7 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                                             visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault
                                         )
                                         .describe(
-                                            "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                            "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post."
                                         ),
                                 }),
                                 zod.null(),

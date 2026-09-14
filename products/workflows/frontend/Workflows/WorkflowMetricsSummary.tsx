@@ -294,9 +294,12 @@ export function WorkflowMetricsSummary({
                             // and its tooltip break the total down by channel.
                             const emailSeries = getSingleTrendSeries('email_sent', previous)
                             const pushSeries = getSingleTrendSeries('push_sent', previous)
-                            const labels = emailSeries?.labels ?? pushSeries?.labels ?? []
+                            const source = emailSeries ?? pushSeries
+                            if (!source) {
+                                return null
+                            }
                             return {
-                                labels,
+                                ...source,
                                 series: [
                                     { name: 'Emails sent', values: emailSeries?.series[0]?.values ?? [] },
                                     { name: 'Push notifications sent', values: pushSeries?.series[0]?.values ?? [] },

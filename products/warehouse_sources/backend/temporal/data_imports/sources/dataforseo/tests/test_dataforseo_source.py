@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source import DataForSEOSource
 
@@ -183,6 +184,21 @@ class TestDataForSEOSource:
         errors = DataForSEOSource().get_non_retryable_errors()
         assert expected_key in errors
         assert errors[expected_key]
+
+    @parameterized.expand(
+        [
+            ("http_status", "DataForSEO API error (retryable): status=500, url=https://api.dataforseo.com/v3/x"),
+            ("body_rate_limit", "DataForSEO API error (retryable) [40202]: rate limit exceeded"),
+            ("body_server_error", "DataForSEO API error (retryable) [50000]: internal error"),
+        ]
+    )
+    def test_transient_api_errors_are_retryable(self, _name: str, error_msg: str) -> None:
+        # `_post_task` already exhausted its own tenacity retry before this reaches us, so it
+        # must stay retryable (and out of the non-retryable set), so that a self-recovering
+        # blip is retried by Temporal instead of reported as an unclassified error.
+        source = DataForSEOSource()
+        assert error_message_matches(error_msg, source.get_retryable_errors())
+        assert not error_message_matches(error_msg, source.get_non_retryable_errors().keys())
 
     def test_canonical_descriptions_keyed_by_endpoint(self) -> None:
         descriptions = DataForSEOSource().get_canonical_descriptions()

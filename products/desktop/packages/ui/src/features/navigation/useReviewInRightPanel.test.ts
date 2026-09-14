@@ -13,6 +13,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => mocks.channelsLayout,
 }));
 vi.mock("@tanstack/react-router", () => ({
+  useSearch: () => ({}),
   useParams: (opts?: {
     select?: (p: {
       taskId?: string;
@@ -25,10 +26,16 @@ vi.mock("@tanstack/react-router", () => ({
   }: {
     select: (s: {
       matches: { fullPath: string; search: Record<string, unknown> }[];
+      location: { pathname: string; href: string; search: object };
     }) => unknown;
   }) =>
     select({
       matches: [{ fullPath: mocks.fullPath, search: mocks.search }],
+      location: {
+        pathname: mocks.fullPath,
+        href: mocks.fullPath,
+        search: mocks.search,
+      },
     }),
 }));
 

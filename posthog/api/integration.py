@@ -2265,14 +2265,12 @@ class IntegrationViewSet(
         if provider_endpoint and provider_endpoint not in DOMAIN_CONNECT_PROVIDERS:
             raise ValidationError("Unsupported provider endpoint")
 
-        host: str | None = None
-
         if context == "email":
             integration_id = request.data.get("integration_id")
             if not integration_id:
                 raise ValidationError("integration_id is required for email context")
             try:
-                domain, service_id, variables = resolve_email_context(integration_id, self.team_id)
+                resolved = resolve_email_context(integration_id, self.team_id)
             except ValueError as e:
                 capture_exception(e, {"integration_id": integration_id, "team_id": self.team_id, "context": context})
                 raise ValidationError(
@@ -2285,7 +2283,7 @@ class IntegrationViewSet(
                 raise ValidationError("proxy_record_id is required for proxy context")
             organization = self.organization
             try:
-                domain, service_id, host, variables = resolve_proxy_context(proxy_record_id, str(organization.id))
+                resolved = resolve_proxy_context(proxy_record_id, str(organization.id))
             except ValueError as e:
                 capture_exception(
                     e, {"proxy_record_id": proxy_record_id, "organization_id": organization.id, "context": context}
@@ -2298,15 +2296,17 @@ class IntegrationViewSet(
 
         try:
             url = generate_apply_url(
-                domain=domain,
-                service_id=service_id,
-                variables=variables,
-                host=host,
+                domain=resolved.root_domain,
+                service_id=resolved.service_id,
+                variables=resolved.variables,
+                host=resolved.host,
                 provider_endpoint=provider_endpoint,
                 redirect_uri=redirect_uri,
             )
         except DomainConnectSigningKeyMissing as e:
-            capture_exception(e, {"context": context, "domain": domain, "provider_endpoint": provider_endpoint})
+            capture_exception(
+                e, {"context": context, "domain": resolved.root_domain, "provider_endpoint": provider_endpoint}
+            )
             raise ValidationError(
                 "Automatic DNS configuration is temporarily unavailable for this provider. "
                 "Please configure your DNS records manually."
@@ -2316,9 +2316,9 @@ class IntegrationViewSet(
                 e,
                 {
                     "context": context,
-                    "domain": domain,
-                    "service_id": service_id,
-                    "host": host,
+                    "domain": resolved.root_domain,
+                    "service_id": resolved.service_id,
+                    "host": resolved.host,
                     "provider_endpoint": provider_endpoint,
                     "redirect_uri": redirect_uri,
                 },

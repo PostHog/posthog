@@ -171,6 +171,10 @@ export const ChannelHomeComposer = forwardRef<
     isLoadingIntegrations,
     allowWorktree: false,
   });
+  const cloudGithubUnavailable =
+    workspaceMode === "cloud" &&
+    !isLoadingIntegrations &&
+    !hasGithubIntegration;
   const { cloudTarget, setCloudTarget } = useCloudTargetSelection();
   const cloudIds = workspaceMode === "cloud" ? cloudTargetIds(cloudTarget) : {};
   const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
@@ -463,6 +467,8 @@ export const ChannelHomeComposer = forwardRef<
           overrideModes={["local", "cloud"]}
           cloudTarget={cloudTarget}
           onCloudTargetChange={setCloudTarget}
+          hasGithubIntegration={hasGithubIntegration}
+          isLoadingGithubIntegration={isLoadingIntegrations}
           size="1"
           disabled={isBusy}
         />
@@ -470,7 +476,7 @@ export const ChannelHomeComposer = forwardRef<
           cloud={workspaceMode === "cloud"}
           repositoryCount={taskRepositories.length}
           hasFolder={!!taskFolder}
-          disabled={isBusy}
+          disabled={isBusy || cloudGithubUnavailable}
           onOpen={() => setRepositoryDialogOpen(true)}
         />
       </div>

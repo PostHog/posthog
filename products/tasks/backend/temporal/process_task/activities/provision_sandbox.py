@@ -61,7 +61,6 @@ from products.tasks.backend.logic.services.sandbox import (
     sandbox_repo_path,
     workload_for_origin_product,
 )
-from products.tasks.backend.logic.services.sandbox_config import DEV_STACK_PREVIEW_MEMORY_GB
 from products.tasks.backend.logic.services.sandbox_usage import (
     measure_sandbox_billed_cpu_usage,
     measure_sandbox_cpu_usage,
@@ -98,6 +97,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_otel_env_vars,
     get_sandbox_snapshot_metadata,
     get_task_run_credential_user,
+    mcp_exec_skills_env_vars,
     parse_run_state,
     run_gateway_env_vars,
 )
@@ -297,17 +297,28 @@ def _prewarmed_resume_needs_fresh_agent(
     *,
     used_snapshot: bool,
 ) -> bool:
-    """Whether a full resume snapshot bundled an agent that cannot idle before the resumed prompt."""
+    """Whether a restored full snapshot bundled an agent that cannot idle before the resumed prompt.
+
+    A repository snapshot (``snapshot_id``) restores the same filesystem as a resume snapshot
+    (``snapshot_external_id``), so it supplies the snapshot's own agent binary too and needs the
+    same probe. Only a directory restore keeps the vetted image's agent.
+    """
+    # `prewarmedResumeMessageDriven` is an ACP capability, advertised and consumed only by the
+    # ACP agent server. The Pi server dispatches no startup turn and downloads its session
+    # history from the API instead of the snapshot, so probing a Pi bundle for the string
+    # rejects a healthy snapshot and re-clones the repository for no behavior change.
+    if ctx.task_runtime == Task.Runtime.PI:
+        return False
     if (
         not used_snapshot
-        or prepared.snapshot_external_id is None
+        or (prepared.snapshot_external_id is None and prepared.snapshot_id is None)
         or prepared.snapshot_kind == SNAPSHOT_KIND_DIRECTORY
         or not (ctx.state or {}).get("prewarmed")
         or not (ctx.state or {}).get("resume_from_run_id")
     ):
         return False
     try:
-        return not sandbox.agent_server_supports_prewarmed_resume_idle()
+        return not sandbox.agent_server_supports_prewarmed_resume_message_driven()
     except Exception:
         logger.warning("prewarmed_resume_agent_capability_probe_failed", extra={"run_id": ctx.run_id})
         return True
@@ -520,6 +531,7 @@ def _build_environment_variables(
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
     environment_variables.update(run_gateway_env_vars(ctx, task))
+    environment_variables.update(mcp_exec_skills_env_vars(ctx))
 
     if settings.DEBUG:
         # Local eval runs pin models per unit; the agent's overload rescue would silently switch a
@@ -741,13 +753,6 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         )
 
 
-def _dev_stack_preview_resources(ctx: TaskProcessingContext) -> dict[str, float | int]:
-    overrides = ctx.sandbox_resource_overrides()
-    if ctx.dev_stack_preview_enabled:
-        overrides.setdefault("memory_gb", DEV_STACK_PREVIEW_MEMORY_GB)
-    return overrides
-
-
 @asyncify
 def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
     ctx = input.context
@@ -774,7 +779,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         # The VM template bakes in Docker (and forces the VM runtime), so the agent
         # can run nested containers; the default template has neither.
         use_vm_sandbox = ctx.use_modal_vm_sandbox
-        resource_overrides = _dev_stack_preview_resources(ctx)
+        resource_overrides = ctx.sandbox_resource_overrides()
         config = SandboxConfig(
             name=prepared.sandbox_name,
             template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,

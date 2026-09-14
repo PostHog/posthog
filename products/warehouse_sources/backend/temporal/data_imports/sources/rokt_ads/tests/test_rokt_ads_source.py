@@ -1,3 +1,6 @@
+from datetime import date
+
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -7,10 +10,14 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFie
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.rokt_ads import (
+    DateWindow,
+    ReportCapabilities,
     RoktAdsError,
     RoktAdsResumeConfig,
+    build_report_body,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.settings import (
+    CAMPAIGN_METRICS,
     ENDPOINTS,
     INCREMENTAL_LOOKBACK_SECONDS,
     PRIMARY_KEYS,
@@ -20,6 +27,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.s
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.source"
+
+ALL_DIMENSIONS = {dimension for endpoint in ENDPOINTS.values() for dimension in endpoint["dimensions"]}
+ALL_METRICS = set(CAMPAIGN_METRICS)
+MARCH_WINDOW = DateWindow(start=date(2026, 3, 1), end=date(2026, 4, 1))
 
 
 def _input_field(name: str) -> SourceFieldInputConfig:
@@ -231,6 +242,31 @@ class TestNonRetryableErrors:
         token_error = "400 Client Error: Bad Request for url: https://api.rokt.com/auth/oauth2/token"
         errors = RoktAdsSource().get_non_retryable_errors()
         assert not error_message_matches(token_error, errors.keys())
+
+    @parameterized.expand(
+        [
+            # An advertiser-only account holds every metric but lacks the partner dimensions
+            # TransactionPerformance needs to identify a row.
+            (
+                "missing_dimensions",
+                ReportCapabilities(
+                    dimensions=ALL_DIMENSIONS - {"partner_vertical", "partner_sub_vertical"},
+                    metrics=ALL_METRICS,
+                ),
+            ),
+            # An account holds every dimension but is granted none of the table's metrics.
+            ("missing_metrics", ReportCapabilities(dimensions=ALL_DIMENSIONS, metrics=set())),
+        ]
+    )
+    def test_capability_config_error_stops_retrying(self, _name, capabilities):
+        # build_report_body raises on purpose when a fixed account capability is missing. The
+        # non-retryable map must match that raised message, or Temporal retries a dead condition
+        # until it exhausts the budget.
+        with pytest.raises(RoktAdsError) as raised:
+            build_report_body("TransactionPerformance", MARCH_WINDOW, capabilities, None, None)
+
+        errors = RoktAdsSource().get_non_retryable_errors()
+        assert error_message_matches(str(raised.value), errors.keys())
 
 
 class TestCanonicalDescriptions:

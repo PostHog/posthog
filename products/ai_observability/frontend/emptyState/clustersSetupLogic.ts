@@ -27,7 +27,12 @@ export const clustersSetupLogic = createSetupDetectionLogic({
         if ((response.results?.length ?? 0) > 0) {
             return 'has-data'
         }
-        return (await hasRecentAIEvents()) ? 'waiting-for-data' : 'needs-setup'
+        const seenAiEvents = await hasRecentAIEvents()
+        if (seenAiEvents === null) {
+            // Preserve any existing setup screen while the check cannot answer.
+            return null
+        }
+        return seenAiEvents ? 'waiting-for-data' : 'needs-setup'
     },
     // Runs are emitted about once a day, so a slow poll is enough to flip the
     // screen; the wizard flow is what needs the needs-setup → waiting flip.

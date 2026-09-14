@@ -6,8 +6,10 @@ and content blocks. Supports multiple provider formats (OpenAI, Anthropic, etc.)
 with truncation and interactive markers for frontend display.
 """
 
+import re
 import json
 import base64
+from collections.abc import Iterable
 from typing import Any, TypedDict
 
 from .constants import (
@@ -42,6 +44,7 @@ class FormatterOptions(TypedDict, total=False):
     collapsed: bool  # Show full hierarchy vs summary (default: False)
     include_line_numbers: bool  # Prefix each line with line number (default: False)
     max_length: int | None  # Max output length; randomly drop lines if exceeded (default: None)
+    max_render_length: int  # Abort oversized renders before sampling or assembling the full transcript
 
 
 class ToolCall(TypedDict, total=False):
@@ -155,6 +158,59 @@ def reduce_by_uniform_sampling(
         result = result[:max_length]
 
     return result, True
+
+
+# UTF-16 surrogate code points. A well-formed pair survives the round trip in
+# `sanitize_surrogates` and becomes the character it encodes; a lone one becomes U+FFFD.
+SURROGATE_REGEX = re.compile("[\ud800-\udfff]")
+
+
+def sanitize_surrogates(text: str) -> str:
+    """Make `text` encodable as UTF-8.
+
+    Trace content arrives as it was captured, and the truncation and sampling above cut on
+    character counts, so either source can leave an unpaired surrogate -- half of an emoji -- in
+    the result. UTF-8 cannot represent one, so `str.encode("utf-8")` raises and the whole text
+    representation is lost: the Redis write in the batch summarization path and the request body of
+    the summarization LLM call both fail that way. Repair at the formatter exits, so every consumer
+    of a text representation gets the same encodable string.
+
+    Unlike `safe_clickhouse_string`, this does not escape the surrogate into literal `\\ud83c`
+    text. Escaping is right where the bytes must round-trip, but a text representation is read as
+    prose by a model, so a replacement character is the better loss.
+    """
+    if not SURROGATE_REGEX.search(text):
+        return text
+    return text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
+
+
+class RenderBudgetExceeded(Exception):
+    """The complete representation cannot fit; the caller must retry with truncation."""
+
+
+class FormatterLines(list[str]):
+    def __init__(self, options: FormatterOptions | None = None) -> None:
+        super().__init__()
+        self._max_length = options.get("max_render_length") if options else None
+        self._length = 0
+
+    def check_length(self, length: int) -> None:
+        if self._max_length is not None and length > self._max_length:
+            raise RenderBudgetExceeded
+
+    def append(self, line: str) -> None:
+        if self._max_length is not None:
+            line = sanitize_surrogates(line)
+            self._length += len(line) + bool(self)
+            self.check_length(self._length)
+        super().append(line)
+
+    def extend(self, lines: Iterable[str]) -> None:
+        if self._max_length is None:
+            super().extend(lines)
+            return
+        for line in lines:
+            self.append(line)
 
 
 def truncate_content(content: str, options: FormatterOptions | None = None) -> tuple[list[str], bool]:
@@ -573,7 +629,7 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
     Returns:
         List of formatted lines (no header, starts directly with messages)
     """
-    lines: list[str] = []
+    lines = FormatterLines(options)
 
     for i, msg in enumerate(messages):
         if not isinstance(msg, dict):

@@ -6,7 +6,7 @@ export const semverFlattenerPlugin: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'stable',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-semver-flattener-plugin',
         name: 'SemVer Flattener',
