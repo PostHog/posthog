@@ -18,6 +18,32 @@ export default meta
 
 type StepSpec = HogFlowAction['type'] | [HogFlowAction['type'], string]
 
+function triggerConfig(type: string): Record<string, unknown> {
+    return type === 'event' ? { type, filters: {} } : { type }
+}
+
+// Each step carries the config its type requires in HogFlowActionSchema, so the card is drawn from
+// the same shape the API returns rather than from a stub the schema would reject
+function stepConfig(type: HogFlowAction['type'], templateId?: string): Record<string, unknown> {
+    switch (type) {
+        case 'delay':
+            return { delay_duration: '3d' }
+        case 'conditional_branch':
+            return { conditions: [{ filters: {} }] }
+        case 'function_email':
+            return {
+                template_id: templateId,
+                inputs: { email: { value: { to: { email: 'person@example.com' } } } },
+            }
+        case 'function':
+            return templateId === 'template-webhook'
+                ? { template_id: templateId, inputs: { url: { value: 'https://hooks.example.com/workflow' } } }
+                : { template_id: templateId, inputs: { channel: { value: '#support' } } }
+        default:
+            return {}
+    }
+}
+
 function template(
     name: string,
     description: string,
@@ -26,20 +52,33 @@ function template(
     tags: string[] = []
 ): HogFlowTemplate {
     const actions = [
-        { id: 'trigger', type: 'trigger', name: 'Trigger', config: { type: trigger, filters: {} } },
+        { id: 'trigger', type: 'trigger', name: 'Trigger', config: triggerConfig(trigger) },
         ...steps.map((step, index) => {
             const [type, templateId] = Array.isArray(step) ? step : [step, undefined]
-            return { id: `${type}_${index}`, type, name: type, config: templateId ? { template_id: templateId } : {} }
+            return { id: `${type}_${index}`, type, name: type, config: stepConfig(type, templateId) }
         }),
         { id: 'exit', type: 'exit', name: 'Exit', config: {} },
-    ]
+    ] as HogFlowAction[]
     // The shipped templates chain their steps with `continue` edges, and the card reads that chain
     const edges = actions.slice(0, -1).map((action, index) => ({
         from: action.id,
         to: actions[index + 1].id,
-        type: 'continue',
+        type: 'continue' as const,
     }))
-    return { id: name, name, description, actions, edges, tags, scope: 'global' } as unknown as HogFlowTemplate
+    return {
+        id: name,
+        team_id: 1,
+        version: 1,
+        name,
+        description,
+        exit_condition: 'exit_only_at_end',
+        actions,
+        edges,
+        tags,
+        scope: 'global',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+    }
 }
 
 // Copied from the templates that ship in products/workflows/backend/templates, so the card is
