@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/core/api'
-import { castStringToInt } from '@/tools/cast-helpers'
+import { ProjectIdOrCurrentSchema } from '@/schema/tool-inputs'
 import {
     withPostHogUrl,
     withInformationalResponse,
@@ -122,14 +122,7 @@ const productsEnable = (): ToolBase<ReturnType<typeof ProductsEnableSchema>, Sch
 const ProjectGetSchema = () => {
     const OrganizationsProjectsRetrieveParams = orvalSchemas.OrganizationsProjectsRetrieveParams()
     return OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
-        id: z
-            .preprocess(
-                castStringToInt,
-                OrganizationsProjectsRetrieveParams.shape['id']
-                    .describe("Project ID. If omitted, returns the caller's active project.")
-                    .optional()
-            )
-            .optional(),
+        id: ProjectIdOrCurrentSchema.optional(),
     })
 }
 
@@ -162,11 +155,21 @@ const ProjectSettingsUpdateSchema = () => {
     return OrganizationsProjectsPartialUpdateParams.omit({ organization_id: true })
         .extend(OrganizationsProjectsPartialUpdateBody.shape)
         .extend({
-            id: z.preprocess(
-                castStringToInt,
-                OrganizationsProjectsPartialUpdateParams.shape['id'].describe(
-                    "Project ID, or `@current` to target the caller's active project."
-                )
+            id: ProjectIdOrCurrentSchema.optional(),
+            session_recording_masking_config: OrganizationsProjectsPartialUpdateBody.shape[
+                'session_recording_masking_config'
+            ].describe(
+                'Replay masking. An object with any of `maskAllInputs` (boolean), `maskTextSelector` (string) and `blockSelector` (string), or null to clear it. No other keys are accepted.'
+            ),
+            session_recording_trigger_groups: OrganizationsProjectsPartialUpdateBody.shape[
+                'session_recording_trigger_groups'
+            ].describe(
+                'Replay trigger groups, which take precedence over the legacy trigger fields. Shape: `{"version": 2, "fallbackSampleRate": 0-1 (optional), "groups": [...]}`. Each group needs `id`, `sampleRate` (0-1) and `conditions`, and accepts `name` and `minDurationMs` (0-30000). `conditions` accepts `matchType` ("any" or "all"), `events` (event names, or objects with `name` and `properties`), `urls` (objects with `url` as a regex and `matching` set to "regex"), `flag` (a flag key or an object with `key`) and `properties`.'
+            ),
+            customer_analytics_config: OrganizationsProjectsPartialUpdateBody.shape[
+                'customer_analytics_config'
+            ].describe(
+                'Customer analytics event mapping. Each event field takes an events node, for example `{"kind": "EventsNode", "event": "$pageview"}`, or an actions node, for example `{"kind": "ActionsNode", "id": 42}` where `id` is the numeric action id. Pass `{}` to clear one. Null is rejected.'
             ),
         })
 }
@@ -179,6 +182,10 @@ const projectSettingsUpdate = (): ToolBase<
     schema: ProjectSettingsUpdateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ProjectSettingsUpdateSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
+        const id = params.id ?? (await context.stateManager.getProjectId())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active project first.')
+        }
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
             body['name'] = params.name
@@ -391,7 +398,7 @@ const projectSettingsUpdate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.ProjectBackwardCompat>({
             method: 'PATCH',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/`,
             body,
         })
         return result

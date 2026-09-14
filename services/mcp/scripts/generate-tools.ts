@@ -737,10 +737,16 @@ function composeToolSchema(
                 return optionalParamNames.has(paramName) ? `${wrapped}.optional()` : wrapped
             }
 
+            // A param addressed on the URL keeps travelling there when an override
+            // replaces its schema, and its optionality comes from that override's own
+            // `optional` flag rather than from the PATCH body's partial shape.
+            const isUrlParam = pathParamNames.includes(paramName) || queryParamNames.includes(paramName)
+            const overrideSuffix = isUrlParam ? (override.optional ? '.optional()' : '') : optionalSuffix
+
             if (override.input_schema) {
                 toolInputsImports.push(override.input_schema)
-                schemaOverrides.push(`${paramName}: ${override.input_schema}${optionalSuffix}`)
-                if (isWriteOp && !bodyFieldNames.includes(paramName)) {
+                schemaOverrides.push(`${paramName}: ${override.input_schema}${overrideSuffix}`)
+                if (isWriteOp && !isUrlParam && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
             } else if (override.schema_ref) {
@@ -748,8 +754,8 @@ function composeToolSchema(
                 const zodCode = generateZodFromSchemaRef(getQuerySchema(), override.schema_ref, excludeProps)
                 schemaRefBlocks.push(zodCode)
                 const varName = getEntryVarName(override.schema_ref)
-                schemaOverrides.push(`${paramName}: ${varName}${optionalSuffix}`)
-                if (isWriteOp && !bodyFieldNames.includes(paramName)) {
+                schemaOverrides.push(`${paramName}: ${varName}${overrideSuffix}`)
+                if (isWriteOp && !isUrlParam && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
             } else if (

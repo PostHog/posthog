@@ -924,6 +924,20 @@
             "type": "object",
             "properties": {}
         },
+        "ProjectIdOrCurrentSchema": {
+            "description": "Project ID. Omit it, or pass `@current`, to target the caller's active project.",
+            "anyOf": [
+                {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                },
+                {
+                    "type": "string",
+                    "const": "@current"
+                }
+            ]
+        },
         "ProjectSetActiveSchema": {
             "type": "object",
             "properties": {
