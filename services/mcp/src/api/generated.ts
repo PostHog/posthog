@@ -103162,6 +103162,11 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Comma-separated artefact types. Only rows of these types are returned and counted, so a reader that needs one status type (a card showing the current suggested reviewers) does not download the whole log. Omit to list every artefact. One of: actionability_judgment, channel_assignment, code_reference, code_review, commit, dismissal, note, priority_judgment, pull_request, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, summary_change, task_run, title_change, video_segment, work_claim, work_release.
+     * @minLength 1
+     */
+    type?: string;
     };
 
     export type SignalsReportsPrCiStatusesParams = {

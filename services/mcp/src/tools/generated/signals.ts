@@ -88,6 +88,7 @@ const inboxReportArtefactsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                type: params.type,
             },
         })
         return await withPostHogUrl(context, result, '/inbox')
