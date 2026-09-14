@@ -597,7 +597,7 @@ export interface infiniteListLogicMeta {
         minSearchQueryLength: (group: TaxonomicFilterGroup | undefined, arg: any) => any
         needsMoreSearchCharacters: (minSearchQueryLength: any, searchQuery: string) => boolean
         maxSearchQueryLength: (group: TaxonomicFilterGroup | undefined) => number
-        searchQueryTooLong: (maxSearchQueryLength: any, searchQuery: string) => boolean
+        searchQueryTooLong: (maxSearchQueryLength: number, searchQuery: string) => boolean
         excludedProperties: (group: TaxonomicFilterGroup | undefined) => string[] | undefined
         propertyAllowList: (group: TaxonomicFilterGroup | undefined) => string[] | undefined
         scopedRemoteEndpoint: (group: TaxonomicFilterGroup | undefined) => string | null
@@ -644,7 +644,7 @@ export interface infiniteListLogicMeta {
             hasRemoteDataSource: boolean,
             showNonCapturedEventOption: boolean,
             needsMoreSearchCharacters: boolean,
-            searchQueryTooLong: any,
+            searchQueryTooLong: boolean,
             remoteResultsAreFresh: boolean,
             showErrorState: boolean
         ) => boolean
