@@ -49307,6 +49307,16 @@ export namespace Schemas {
       line_count: number;
       /** Number of characters in the file content. */
       char_count: number;
+      /**
+         * Size of the file content in bytes. Null on rows written before digests were stamped.
+         * @nullable
+         */
+      size: number | null;
+      /**
+         * Hex SHA-256 of the file content. Null on rows written before digests were stamped.
+         * @nullable
+         */
+      sha256: string | null;
     }
 
     export interface LLMSkillOutlineEntry {
