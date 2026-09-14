@@ -12,6 +12,7 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.aviationstack import (
     AviationstackResumeConfig,
     aviationstack_source,
+    parse_iata_codes,
     validate_credentials as validate_aviationstack_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.settings import (
@@ -97,6 +98,10 @@ class AviationstackSource(ResumableSource[AviationstackSourceConfig, Aviationsta
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        endpoint = AVIATIONSTACK_ENDPOINTS.get(schema_name) if schema_name else None
+        if endpoint is not None and endpoint.per_airport and not parse_iata_codes(config.airport_iata_codes):
+            return False, f"The {endpoint.name} table needs at least one airport IATA code, for example JFK."
+
         if validate_aviationstack_credentials(config.access_key):
             return True, None
 
@@ -118,6 +123,8 @@ class AviationstackSource(ResumableSource[AviationstackSourceConfig, Aviationsta
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             db_incremental_field_last_value=None,  # aviationstack has no server-side cursor; full refresh only
+            airport_iata_codes=config.airport_iata_codes,
+            flights_future_days=config.flights_future_days,
         )
 
     @property
@@ -131,7 +138,9 @@ class AviationstackSource(ResumableSource[AviationstackSourceConfig, Aviationsta
 
 You can find your access key in your [aviationstack dashboard](https://aviationstack.com/dashboard).
 
-Note: aviationstack pricing is a monthly request quota tied to your plan. Some tables (e.g. historical flights and certain filters) require a paid plan.""",
+The `timetable` and `flights_future` tables are per-airport: list the airport IATA codes you want, and those tables sync for those airports only. aviationstack serves future flights from 8 days out, so `flights_future` starts there and covers the number of days you set.
+
+Note: aviationstack pricing is a monthly request quota tied to your plan. Some tables (e.g. historical flights, timetable, and future flights) require a paid plan.""",
             iconPath="/static/services/aviationstack.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aviationstack",
             fields=cast(
@@ -144,6 +153,22 @@ Note: aviationstack pricing is a monthly request quota tied to your plan. Some t
                         required=True,
                         placeholder="",
                         secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="airport_iata_codes",
+                        label="Airport IATA codes",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="JFK, DXB",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="flights_future_days",
+                        label="Days of future flights to sync",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=False,
+                        placeholder="7",
+                        secret=False,
                     ),
                 ],
             ),
