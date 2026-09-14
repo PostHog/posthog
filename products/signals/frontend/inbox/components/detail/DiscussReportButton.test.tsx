@@ -87,6 +87,22 @@ describe('DiscussReportButton', () => {
         expect(questionSourceOf()).toBe('suggested')
     })
 
+    it('shows multiple report suggestions in the current suggestions menu', async () => {
+        const secondSuggestion = 'Which release introduced the exception?'
+        const user = await openPanel(makeReport([SUGGESTION, secondSuggestion]))
+
+        await user.click(screen.getByText('Report suggestions'))
+
+        expect(screen.getAllByTestId('inbox-report-ask-ai-suggestion')).toHaveLength(2)
+        await user.click(screen.getByText(secondSuggestion))
+        expect(discussReport).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'report-1' }),
+            'https://app/report-1',
+            secondSuggestion
+        )
+        expect(questionSourceOf()).toBe('suggested')
+    })
+
     it.each([
         [
             'writing a question',
@@ -140,9 +156,7 @@ describe('DiscussReportButton', () => {
         expect(discussReport).not.toHaveBeenCalled()
     })
 
-    it('sends a slash command as plain text instead of starting a hidden conversation', async () => {
-        // The autocomplete activates a command straight against the Max thread logic, never through
-        // the composer's send — in this panel that would start a conversation with nowhere to render.
+    it('sends a slash command as plain text instead of treating it as a command', async () => {
         const user = await openPanel(makeReport())
 
         await user.type(screen.getByTestId('max-chat-input'), '/usage')
