@@ -1,13 +1,20 @@
-import { expectLogic } from 'kea-test-utils'
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import api from 'lib/api'
+import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api, { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, LiveEvent, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { liveEventsLogic } from './liveEventsLogic'
+import { liveEventsTableSceneLogic } from './liveEventsTableSceneLogic'
 
 function makeLiveEvent(currentUrl?: string): LiveEvent {
     return {
@@ -29,10 +36,12 @@ describe('liveEventsLogic', () => {
     let logic: ReturnType<typeof liveEventsLogic.build>
     let flagsLogic: ReturnType<typeof featureFlagLogic.build>
     let streamSpy: jest.SpyInstance
+    let toastSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
         streamSpy = jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
+        toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
         flagsLogic = featureFlagLogic()
         flagsLogic.mount()
         logic = liveEventsLogic()
@@ -43,6 +52,7 @@ describe('liveEventsLogic', () => {
         logic?.unmount()
         flagsLogic?.unmount()
         streamSpy.mockRestore()
+        toastSpy.mockRestore()
     })
 
     function setRichFiltersFlag(enabled: boolean): void {
@@ -79,6 +89,103 @@ describe('liveEventsLogic', () => {
             }).toMatchValues({
                 eventHosts: [],
             })
+        })
+    })
+
+    describe('stream errors', () => {
+        function lastStreamOptions(): { onError: (error: any) => void; onOpen?: () => void } {
+            const calls = streamSpy.mock.calls
+            if (calls.length === 0) {
+                throw new Error('api.stream was not called')
+            }
+            return calls[calls.length - 1][1]
+        }
+
+        function streamErrorCaptures(): unknown[] {
+            return jest.mocked(posthog.capture).mock.calls.filter(([name]) => name === 'livestream_sse_error')
+        }
+
+        it.each([
+            [401, 'This project cannot read the live event stream.'],
+            [504, 'The live event stream failed with error 504.'],
+        ])('surfaces an http %s as a non-retrying error', async (status, expectedStart) => {
+            await expectLogic(logic, () => {
+                lastStreamOptions().onError(new ApiError(undefined, status))
+            }).toMatchValues({ streamError: { message: expect.stringContaining(expectedStart), retrying: false } })
+        })
+
+        it('marks a transport error as retrying', async () => {
+            await expectLogic(logic, () => {
+                lastStreamOptions().onError(new TypeError('Failed to fetch'))
+            }).toMatchValues({ streamError: { message: expect.any(String), retrying: true } })
+        })
+
+        it('clears the error once the stream opens again', async () => {
+            lastStreamOptions().onError(new ApiError(undefined, 504))
+            await expectLogic(logic, () => {
+                lastStreamOptions().onOpen?.()
+            }).toMatchValues({ streamError: null })
+        })
+
+        it.each([
+            ['on its own, so onboarding stays quiet', false],
+            ['once the live events scene is mounted', true],
+        ])('toasts %s', (_label, sceneMounted) => {
+            const sceneLogic = sceneMounted ? liveEventsTableSceneLogic() : null
+            sceneLogic?.mount()
+
+            lastStreamOptions().onError(new ApiError(undefined, 504))
+
+            expect(toastSpy).toHaveBeenCalledTimes(sceneMounted ? 1 : 0)
+            sceneLogic?.unmount()
+        })
+
+        it('reports a repeating reconnect failure once, and reports a different one again', () => {
+            const options = lastStreamOptions()
+
+            options.onError(new TypeError('Failed to fetch'))
+            options.onError(new TypeError('Failed to fetch'))
+            options.onError(new TypeError('Failed to fetch'))
+            expect(streamErrorCaptures()).toHaveLength(1)
+
+            options.onError(new ApiError(undefined, 502))
+            expect(streamErrorCaptures()).toHaveLength(2)
+        })
+
+        it('reports a reconnect failure again once the stream has recovered', () => {
+            const options = lastStreamOptions()
+
+            options.onError(new TypeError('Failed to fetch'))
+            options.onOpen?.()
+            options.onError(new TypeError('Failed to fetch'))
+
+            expect(streamErrorCaptures()).toHaveLength(2)
+        })
+
+        it('does not connect without a live events token, and says so', async () => {
+            streamSpy.mockClear()
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, live_events_token: '' })
+
+            await expectLogic(logic, () => {
+                logic.actions.updateEventsConnection()
+            }).toMatchValues({ streamError: { message: expect.any(String), retrying: false } })
+            expect(streamSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('connection lifecycle', () => {
+        it.each([
+            ['leaves a stream that was never paused alone', false, 1],
+            ['reconnects a stream that was paused', true, 2],
+        ])('resuming %s', (_label, pauseFirst, expectedConnections) => {
+            expect(streamSpy).toHaveBeenCalledTimes(1)
+
+            if (pauseFirst) {
+                logic.actions.pauseStream()
+            }
+            logic.actions.resumeStream()
+
+            expect(streamSpy).toHaveBeenCalledTimes(expectedConnections)
         })
     })
 

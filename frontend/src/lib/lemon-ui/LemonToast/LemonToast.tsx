@@ -358,6 +358,28 @@ export const lemonToast = {
             ...toastOptions,
         } as UpdateOptions)
     },
+    updateToError(
+        id: number | string,
+        message: string | JSX.Element,
+        { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}
+    ): void {
+        // Unlike a second error() under the same id, which react-toastify drops as a duplicate,
+        // this replaces the text of a toast that is still on screen. Options the caller leaves out
+        // keep the values the toast already has, so a persistent toast stays persistent.
+        toast.update(id, {
+            render: (
+                <ToastContent
+                    type="error"
+                    message={withIncidentNote(withClickableUrls(message))}
+                    button={button !== undefined ? button : hideButton ? undefined : GET_HELP_BUTTON}
+                    id={id}
+                />
+            ),
+            type: 'error',
+            icon: <IconErrorOutline />,
+            ...toastOptions,
+        } as UpdateOptions)
+    },
     isActive(id: number | string): boolean {
         return toast.isActive(id)
     },

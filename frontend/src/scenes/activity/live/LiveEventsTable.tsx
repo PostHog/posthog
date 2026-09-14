@@ -36,8 +36,8 @@ export const scene: SceneExport = {
 }
 
 export function LiveEventsTable(): JSX.Element {
-    const { events, streamPaused, filters } = useValues(liveEventsLogic)
-    const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsLogic)
+    const { events, streamPaused, streamError, filters } = useValues(liveEventsLogic)
+    const { pauseStream, resumeStream, setFilters, clearEvents, updateEventsConnection } = useActions(liveEventsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { isVisible } = usePageVisibility()
@@ -116,7 +116,12 @@ export function LiveEventsTable(): JSX.Element {
                 </div>
             </div>
             <LiveBotPanel events={events} className="mb-2" />
-            <LiveEventsFeed events={events} streamPaused={streamPaused} />
+            <LiveEventsFeed
+                events={events}
+                streamPaused={streamPaused}
+                streamError={streamError}
+                onRetry={updateEventsConnection}
+            />
         </SceneContent>
     )
 }
