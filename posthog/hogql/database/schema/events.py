@@ -88,6 +88,25 @@ class EventsGroupSubTable(VirtualTable):
         return "events"
 
 
+EVENTS_PERSON_DESCRIPTION = (
+    "The person this event is attributed to. Access person properties via `person.properties.*`."
+)
+EVENTS_PERSON_ID_DESCRIPTION = (
+    "Stable person identifier resolved from `distinct_id`. It is the same for a user's anonymous and "
+    "identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` "
+    "events."
+)
+# Used where the project reads the ingested `person_id` column without joining
+# `person_distinct_id_overrides`. That mode does not resolve merges at query time, so the shared
+# description above would promise a stitching guarantee the column cannot keep.
+EVENTS_PERSON_ID_NO_OVERRIDE_DESCRIPTION = (
+    "Person identifier stored on the event at ingestion. This project does not apply merge corrections at "
+    "query time, so events captured before a user identified keep the person they had then, until a "
+    "background job rewrites them. Group by `person_id` rather than `distinct_id`, and join "
+    "`person_distinct_id_overrides` on `distinct_id` when you need merges resolved."
+)
+
+
 class EventsTable(Table):
     description: str = "Every analytics event captured for the project. The central fact table for product analytics."
     fields: dict[str, FieldOrTable] = {
@@ -109,7 +128,11 @@ class EventsTable(Table):
         "distinct_id": StringDatabaseField(
             name="distinct_id",
             nullable=False,
-            description="Identifier of the user/device that sent the event; resolved to a person via `person_id`.",
+            description=(
+                "Identifier of the user/device that sent the event. It changes when a user identifies: earlier "
+                "events keep the anonymous id, later events use the id passed to `identify`. Use `person_id` to "
+                "follow one user across both."
+            ),
         ),
         "elements_chain": StringDatabaseField(
             name="elements_chain",
@@ -146,10 +169,11 @@ class EventsTable(Table):
         # These are swapped out if the user has PoE enabled
         "person": FieldTraverser(
             chain=["pdi", "person"],
-            description="The person this event is attributed to. Access person properties via `person.properties.*`.",
+            description=EVENTS_PERSON_DESCRIPTION,
         ),
         "person_id": FieldTraverser(
-            chain=["pdi", "person_id"], description="Stable person identifier resolved from `distinct_id`."
+            chain=["pdi", "person_id"],
+            description=EVENTS_PERSON_ID_DESCRIPTION,
         ),
         "$group_0": StringDatabaseField(name="$group_0", nullable=False),
         "group_0": LazyJoin(
