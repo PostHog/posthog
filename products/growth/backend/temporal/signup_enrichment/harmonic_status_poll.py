@@ -3,6 +3,10 @@
 Batches every org's most recently archived open URN into `GET /enrichment_status` calls, since
 Harmonic has no webhook, and stamps the result onto `OrganizationEnrichment.data` for the
 re-enrichment sweep and RevOps to read.
+
+The poll runs as `SPEC` under the generic `growth-enrichment-sweep` workflow (sweep.py). The
+`harmonic-enrichment-status-poll` workflow type and its activities below stay registered as
+thin adapters until no execution of that type remains in any region.
 """
 
 import typing
@@ -25,6 +29,13 @@ from products.growth.backend.enrichment.writer import (
     HARMONIC_STATUS_KEY,
     HARMONIC_URN_KEY,
     write_harmonic_enrichment_status,
+)
+from products.growth.backend.temporal.signup_enrichment.sweep_types import (
+    SweepKind,
+    SweepRunEvent,
+    SweepRunReport,
+    SweepSelection,
+    SweepSpec,
 )
 from products.growth.backend.temporal.signup_enrichment.workflow import MAX_ENRICH_ATTEMPTS
 
@@ -64,25 +75,12 @@ class HarmonicStatusPollInputs:
     pass
 
 
-@activity.defn
-@close_db_connections
-async def select_status_poll_candidates_activity(inputs: HarmonicStatusPollInputs) -> dict[str, typing.Any]:
-    """Read-only, so its kill-switch and region guards live here rather than in the schedule, letting a
-    config flip take effect on the next run without touching Temporal state.
-    """
+async def select_status_poll_candidates(cap: int | None) -> SweepSelection:
     from asgiref.sync import sync_to_async  # noqa: PLC0415
 
-    from products.growth.backend.enrichment import gates  # noqa: PLC0415
     from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch  # noqa: PLC0415
 
     logger = LOGGER.bind()
-
-    if not await sync_to_async(gates.enrichment_enabled)():
-        logger.info("harmonic_status_poll_skipped_kill_switch")
-        return {"candidates": [], "eligible": 0}
-    if not gates.region_allowed():
-        logger.info("harmonic_status_poll_skipped_region")
-        return {"candidates": [], "eligible": 0}
 
     def _select() -> tuple[list[dict[str, typing.Any]], int]:
         now = dt.datetime.now(dt.UTC)
@@ -146,12 +144,10 @@ async def select_status_poll_candidates_activity(inputs: HarmonicStatusPollInput
 
     candidates, eligible_count = await sync_to_async(_select)()
     logger.info("harmonic_status_poll_selected", count=len(candidates), eligible=eligible_count)
-    return {"candidates": candidates, "eligible": eligible_count}
+    return SPEC.selection(candidates, extra={"eligible": eligible_count})
 
 
-@activity.defn
-@close_db_connections
-async def poll_status_batch_activity(candidates: list[dict[str, typing.Any]]) -> dict[str, typing.Any]:
+async def poll_status_batch(candidates: list[dict[str, typing.Any]]) -> dict[str, int]:
     """Re-checks the kill switch here, not only at selection, since a run spanning many batches must not
     keep making paid Harmonic calls after the switch flips off.
     """
@@ -232,6 +228,64 @@ async def poll_status_batch_activity(candidates: list[dict[str, typing.Any]]) ->
     return {"polled": polled, "unobserved": unobserved, "changed": changed, "stalled": stalled}
 
 
+def summarize_status_poll_run(report: SweepRunReport) -> SweepRunEvent:
+    """One event per run, so an absence alert can see a poller that stopped firing."""
+    return SweepRunEvent(
+        distinct_id="harmonic-status-poller",
+        event=STATUS_POLL_RUN_EVENT,
+        properties={
+            "eligible": report.extra["eligible"],
+            "selected": report.selected,
+            "polled": report.counters.get("polled", 0),
+            "unobserved": report.counters.get("unobserved", 0),
+            "changed": report.counters.get("changed", 0),
+            "stalled": report.counters.get("stalled", 0),
+            "errors": report.failed,
+        },
+    )
+
+
+SPEC = SweepSpec(
+    kind=SweepKind.HARMONIC_STATUS_POLL,
+    batch_size=POLL_BATCH_SIZE,
+    item_timeout=POLL_BATCH_ACTIVITY_TIMEOUT,
+    item_max_attempts=MAX_ENRICH_ATTEMPTS,
+    empty_extra={"eligible": 0},
+    select=select_status_poll_candidates,
+    process=poll_status_batch,
+    summarize=summarize_status_poll_run,
+)
+
+
+@activity.defn
+@close_db_connections
+async def select_status_poll_candidates_activity(inputs: HarmonicStatusPollInputs) -> dict[str, typing.Any]:
+    from asgiref.sync import sync_to_async  # noqa: PLC0415
+
+    from products.growth.backend.enrichment import gates  # noqa: PLC0415
+
+    logger = LOGGER.bind()
+
+    if not await sync_to_async(gates.enrichment_enabled)():
+        logger.info("harmonic_status_poll_skipped_kill_switch")
+        return {"candidates": [], "eligible": 0}
+    if not gates.region_allowed():
+        logger.info("harmonic_status_poll_skipped_region")
+        return {"candidates": [], "eligible": 0}
+
+    selection = await select_status_poll_candidates(None)
+    return {
+        "candidates": [item for batch in selection.batches for item in batch],
+        "eligible": selection.extra["eligible"],
+    }
+
+
+@activity.defn
+@close_db_connections
+async def poll_status_batch_activity(candidates: list[dict[str, typing.Any]]) -> dict[str, typing.Any]:
+    return await poll_status_batch(candidates)
+
+
 @dataclasses.dataclass(frozen=True)
 class HarmonicStatusPollRunSummary:
     eligible: int
@@ -245,18 +299,27 @@ class HarmonicStatusPollRunSummary:
 
 @activity.defn
 def report_status_poll_run_activity(summary: HarmonicStatusPollRunSummary) -> None:
-    """One event per run, so an absence alert can see a poller that stopped firing."""
     region = get_instance_region()
     if region not in ("US", "EU"):
         LOGGER.error("harmonic_status_poll_no_regional_client")
         return
 
-    with ph_scoped_capture(region=region) as capture:
-        capture(
-            distinct_id="harmonic-status-poller",
-            event=STATUS_POLL_RUN_EVENT,
-            properties=dataclasses.asdict(summary),
+    event = summarize_status_poll_run(
+        SweepRunReport(
+            kind=SweepKind.HARMONIC_STATUS_POLL,
+            selected=summary.selected,
+            counters={
+                "polled": summary.polled,
+                "unobserved": summary.unobserved,
+                "changed": summary.changed,
+                "stalled": summary.stalled,
+            },
+            failed=summary.errors,
+            extra={"eligible": summary.eligible},
         )
+    )
+    with ph_scoped_capture(region=region) as capture:
+        capture(distinct_id=event.distinct_id, event=event.event, properties=event.properties)
 
 
 @workflow.defn(name="harmonic-enrichment-status-poll")

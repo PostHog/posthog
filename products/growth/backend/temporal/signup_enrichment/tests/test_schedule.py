@@ -10,6 +10,7 @@ from products.growth.backend.temporal.signup_enrichment.schedule import (
     build_harmonic_status_poll_schedule,
     build_icp_reenrichment_sweep_schedule,
 )
+from products.growth.backend.temporal.signup_enrichment.sweep_types import SweepInputs, SweepKind
 
 
 def _action() -> ScheduleActionStartWorkflow:
@@ -22,8 +23,9 @@ class TestIcpReenrichmentSweepSchedule:
     def test_targets_the_signup_enrichment_queue(self) -> None:
         assert _action().task_queue == settings.SIGNUP_ENRICHMENT_TASK_QUEUE
 
-    def test_starts_the_sweep_workflow_under_a_stable_id(self) -> None:
-        assert _action().workflow == "icp-reenrichment-sweep"
+    def test_starts_the_generic_sweep_as_reenrichment_under_a_stable_id(self) -> None:
+        assert _action().workflow == "growth-enrichment-sweep"
+        assert _action().args == [SweepInputs(kind=SweepKind.ICP_REENRICHMENT, cap=None)]
         assert _action().id == SCHEDULE_ID
 
     def test_skips_an_overlapping_run_and_fires_daily(self) -> None:
@@ -42,8 +44,9 @@ class TestHarmonicStatusPollSchedule:
     def test_targets_the_signup_enrichment_queue(self) -> None:
         assert _poll_action().task_queue == settings.SIGNUP_ENRICHMENT_TASK_QUEUE
 
-    def test_starts_the_poll_workflow_under_a_stable_id(self) -> None:
-        assert _poll_action().workflow == "harmonic-enrichment-status-poll"
+    def test_starts_the_generic_sweep_as_status_poll_under_a_stable_id(self) -> None:
+        assert _poll_action().workflow == "growth-enrichment-sweep"
+        assert _poll_action().args == [SweepInputs(kind=SweepKind.HARMONIC_STATUS_POLL, cap=None)]
         assert _poll_action().id == HARMONIC_STATUS_POLL_SCHEDULE_ID
 
     def test_skips_an_overlapping_run_and_fires_daily_an_hour_before_the_sweep(self) -> None:

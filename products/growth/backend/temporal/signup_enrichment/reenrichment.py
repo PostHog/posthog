@@ -25,6 +25,10 @@ goes through `enrich_organization` as `EnrichmentPhase.SWEEP` — same archive, 
 person-mirror policy; the write-once at-signup snapshot and the launch signal are untouched
 by construction (both live only in the signup activity). Emits `icp_reenrichment_completed`
 per org so the sweep has its own health signal.
+
+The sweep runs as `SPEC` under the generic `growth-enrichment-sweep` workflow (sweep.py). The
+`icp-reenrichment-sweep` workflow type and its activities below stay registered as thin
+adapters until no execution of that type remains in any region.
 """
 
 import json
@@ -42,6 +46,13 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 from posthog.utils import get_instance_region
 
+from products.growth.backend.temporal.signup_enrichment.sweep_types import (
+    SweepKind,
+    SweepRunEvent,
+    SweepRunReport,
+    SweepSelection,
+    SweepSpec,
+)
 from products.growth.backend.temporal.signup_enrichment.workflow import ENRICH_ACTIVITY_TIMEOUT, MAX_ENRICH_ATTEMPTS
 
 LOGGER = get_logger(__name__)
@@ -55,7 +66,7 @@ SWEEPABLE_STATUSES = ("insufficient_data", "not_found")
 MIN_DAYS_SINCE_LAST_ATTEMPT = 30
 MAX_DAYS_SINCE_FIRST_FETCH = 90
 
-# Stamped on every sweep attempt (see reenrich_organization_activity), not on a successful
+# Stamped on every sweep attempt (see reenrich_organization), not on a successful
 # write — an archived fetch from an unrelated command (e.g. backfill_harmonic_ownership) or
 # a raised Harmonic error must not silently move or freeze this org's retry clock.
 ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY = "icp_reenrichment_last_attempted_at"
@@ -85,14 +96,8 @@ class ReenrichOrgInputs:
     role_at_organization: typing.Optional[str] = None
 
 
-@activity.defn
-@close_db_connections
-async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepInputs) -> list[dict[str, typing.Any]]:
-    """Pick the orgs due a re-enrichment attempt, oldest-attempted-first, up to the daily cap.
-
-    Guards live here rather than in the schedule so a config flip takes effect on the next
-    run without touching Temporal state.
-    """
+async def select_reenrichment_candidates(cap: int | None) -> SweepSelection:
+    """Pick the orgs due a re-enrichment attempt, oldest-attempted-first, up to the daily cap."""
     from django.db.models import Max, Min, Q  # noqa: PLC0415
 
     from asgiref.sync import sync_to_async  # noqa: PLC0415
@@ -104,15 +109,8 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
 
     logger = LOGGER.bind()
 
-    if not await sync_to_async(gates.enrichment_enabled)():
-        logger.info("icp_reenrichment_skipped_kill_switch")
-        return []
-    if not gates.region_allowed():
-        logger.info("icp_reenrichment_skipped_region")
-        return []
-
     daily_cap = await sync_to_async(get_instance_setting)("GROWTH_ICP_REENRICH_DAILY_CAP")
-    cap = inputs.cap if inputs.cap and inputs.cap > 0 else daily_cap
+    effective_cap = cap if cap and cap > 0 else daily_cap
 
     def _select() -> list[dict[str, typing.Any]]:
         now = dt.datetime.now(dt.UTC)
@@ -159,7 +157,7 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
         ordered_org_ids = sorted(
             (str(row["organization_id"]) for row in due_rows),
             key=lambda organization_id: attempt_eligible[organization_id] or "",
-        )[: cap * _SELECTION_OVERFETCH_MULTIPLIER]
+        )[: effective_cap * _SELECTION_OVERFETCH_MULTIPLIER]
 
         roles = {
             str(record.organization_id): record.data.get("signup_role")
@@ -181,18 +179,16 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
                     "role_at_organization": roles.get(organization_id),
                 }
             )
-            if len(candidates) >= cap:
+            if len(candidates) >= effective_cap:
                 break
         return candidates
 
     candidates = await sync_to_async(_select)()
-    logger.info("icp_reenrichment_selected", count=len(candidates), cap=cap)
-    return candidates
+    logger.info("icp_reenrichment_selected", count=len(candidates), cap=effective_cap)
+    return SPEC.selection(candidates)
 
 
-@activity.defn
-@close_db_connections
-async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str, typing.Any]:
+async def reenrich_organization(inputs: ReenrichOrgInputs) -> dict[str, typing.Any]:
     """One org through the standard enrichment path, recheck-style, with its own event."""
 
     from django.db.models import Min  # noqa: PLC0415
@@ -288,6 +284,67 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
         pha_client.shutdown()
 
 
+async def process_reenrichment_batch(items: list[dict[str, typing.Any]]) -> dict[str, int]:
+    (item,) = items
+    result = await reenrich_organization(ReenrichOrgInputs(**item))
+    return {"matched": 1 if result.get("matched") else 0}
+
+
+SWEEP_RUN_EVENT = "icp_reenrichment_sweep_completed"
+
+
+def summarize_reenrichment_run(report: SweepRunReport) -> SweepRunEvent:
+    """One event per run, so an alert can see a sweep that stopped firing or selects nothing."""
+    return SweepRunEvent(
+        distinct_id="icp-reenrichment-sweep",
+        event=SWEEP_RUN_EVENT,
+        properties={
+            "selected": report.selected,
+            "attempted": report.selected,
+            "matched": report.counters.get("matched", 0),
+            "failed": report.failed,
+        },
+    )
+
+
+SPEC = SweepSpec(
+    kind=SweepKind.ICP_REENRICHMENT,
+    batch_size=1,
+    item_timeout=ENRICH_ACTIVITY_TIMEOUT,
+    item_max_attempts=MAX_ENRICH_ATTEMPTS,
+    empty_extra={},
+    select=select_reenrichment_candidates,
+    process=process_reenrichment_batch,
+    summarize=summarize_reenrichment_run,
+)
+
+
+@activity.defn
+@close_db_connections
+async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepInputs) -> list[dict[str, typing.Any]]:
+    from asgiref.sync import sync_to_async  # noqa: PLC0415
+
+    from products.growth.backend.enrichment import gates  # noqa: PLC0415
+
+    logger = LOGGER.bind()
+
+    if not await sync_to_async(gates.enrichment_enabled)():
+        logger.info("icp_reenrichment_skipped_kill_switch")
+        return []
+    if not gates.region_allowed():
+        logger.info("icp_reenrichment_skipped_region")
+        return []
+
+    selection = await select_reenrichment_candidates(inputs.cap)
+    return [item for batch in selection.batches for item in batch]
+
+
+@activity.defn
+@close_db_connections
+async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str, typing.Any]:
+    return await reenrich_organization(inputs)
+
+
 @dataclasses.dataclass(frozen=True)
 class SweepRunSummary:
     selected: int
@@ -296,23 +353,24 @@ class SweepRunSummary:
     failed: int
 
 
-SWEEP_RUN_EVENT = "icp_reenrichment_sweep_completed"
-
-
 @activity.defn
 def report_sweep_run_activity(summary: SweepRunSummary) -> None:
-    """One event per run, so an alert can see a sweep that stopped firing or selects nothing."""
     region = get_instance_region()
     if region not in ("US", "EU"):
         LOGGER.error("icp_reenrichment_no_regional_client")
         return
 
-    with ph_scoped_capture(region=region) as capture:
-        capture(
-            distinct_id="icp-reenrichment-sweep",
-            event=SWEEP_RUN_EVENT,
-            properties=dataclasses.asdict(summary),
+    event = summarize_reenrichment_run(
+        SweepRunReport(
+            kind=SweepKind.ICP_REENRICHMENT,
+            selected=summary.selected,
+            counters={"matched": summary.matched},
+            failed=summary.failed,
+            extra={},
         )
+    )
+    with ph_scoped_capture(region=region) as capture:
+        capture(distinct_id=event.distinct_id, event=event.event, properties=event.properties)
 
 
 @workflow.defn(name="icp-reenrichment-sweep")

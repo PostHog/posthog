@@ -17,8 +17,9 @@ from temporalio.client import (
 
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
-from products.growth.backend.temporal.signup_enrichment.harmonic_status_poll import HarmonicStatusPollInputs
-from products.growth.backend.temporal.signup_enrichment.reenrichment import IcpReenrichmentSweepInputs
+from products.growth.backend.temporal.signup_enrichment.sweep_types import SweepInputs, SweepKind
+
+SWEEP_WORKFLOW = "growth-enrichment-sweep"
 
 SCHEDULE_ID = "icp-reenrichment-sweep-daily"
 
@@ -30,8 +31,8 @@ CRON = "40 7 * * *"
 def build_icp_reenrichment_sweep_schedule() -> Schedule:
     return Schedule(
         action=ScheduleActionStartWorkflow(
-            "icp-reenrichment-sweep",
-            IcpReenrichmentSweepInputs(),
+            SWEEP_WORKFLOW,
+            SweepInputs(kind=SweepKind.ICP_REENRICHMENT, cap=None),
             id=SCHEDULE_ID,
             task_queue=settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
         ),
@@ -58,8 +59,8 @@ HARMONIC_STATUS_POLL_CRON = "40 6 * * *"
 def build_harmonic_status_poll_schedule() -> Schedule:
     return Schedule(
         action=ScheduleActionStartWorkflow(
-            "harmonic-enrichment-status-poll",
-            HarmonicStatusPollInputs(),
+            SWEEP_WORKFLOW,
+            SweepInputs(kind=SweepKind.HARMONIC_STATUS_POLL, cap=None),
             id=HARMONIC_STATUS_POLL_SCHEDULE_ID,
             task_queue=settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
         ),
