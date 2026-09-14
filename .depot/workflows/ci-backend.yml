@@ -8,10 +8,8 @@
 # changes without a matching depot bump.
 #
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
-# - Side effects read only needs.sample.outputs.side_effects. The sample job enables
-#   them for CI_DEPOT_SIDE_EFFECTS == 'true' or the depot-side-effects PR label.
-#   The control job runs even at zero sampling to evaluate the opt-in; disabled
-#   runs still skip the downstream graph. Opted-in source PRs bypass sampling.
+# - The `sample` job routes each event to one engine with .github/scripts/ci_backend_route.py
+#   and exposes `sampled` and `side_effects`, both true only when this engine runs the tests.
 # - runs-on: depot-* labels instead of ubuntu-latest
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
 #   setup-sqlx-cli, setup-python-cached, setup-uv, setup-turbo, and paths-filter mirror
@@ -145,20 +143,18 @@
 # Shards derive from .test_durations (Amdahl), restored from Depot Cache (else committed);
 # .depot/workflows/ci-backend-update-test-timing.yml keeps that cache fresh.
 name: '[optional, does not block merge] Backend CI'
-# OPTIONAL, non-blocking shadow of canonical Backend CI — its statuses must never gate
-# merging (hence the "[optional, does not block merge]" name prefix). The
-# CI_DEPOT_SHADOW_PERCENT Depot CI variable (0-100; 0 or unset = fully off) is both the
-# sampling switch and the eligible pull_request sample rate: when >0, source PR runs are sampled
-# at that percent unless side effects are enabled. Trunk merge-queue PRs and drafts
-# labeled `no-ci` are excluded before a
-# runner is allocated. Master (push) runs only check-migrations to prime the schema cache (test
-# matrices are skipped there); manual triggers always run. The `sample` job rolls deterministic
-# per-run dice; `changes` (root of the needs graph) only runs when sampled in, so the whole
-# workflow cascades off on a miss. This is a Depot variable, NOT a GitHub one —
-# Depot CI reads its own `vars` store. Set it with:
-#   depot ci vars add CI_DEPOT_SHADOW_PERCENT=<n> --repo PostHog/posthog    (n=0 disables)
+# OPTIONAL, non-blocking shadow of canonical Backend CI: its statuses must never gate
+# merging (hence the "[optional, does not block merge]" name prefix). Each event runs on
+# exactly one engine. The `sample` job runs .github/scripts/ci_backend_route.py, which
+# hashes the pull request number against the GitHub repository variable
+# CI_BACKEND_DEPOT_PERCENT (read through the API with the ambient token) and honours the
+# ci-backend-depot / ci-backend-github labels. `changes` (root of the needs graph) only
+# runs when the route is depot, so the whole workflow cascades off otherwise. Master
+# (push) runs only check-migrations to prime the schema cache while the percent is above
+# 0; manual triggers always run here. Change the percent with:
+#   gh variable set CI_BACKEND_DEPOT_PERCENT --repo PostHog/posthog --body <n>   (0 = off)
 # The drift check (.github/workflows/ci-backend-shadow-drift.yml) keeps this file in sync
-# with canonical; it runs whenever either file changes, independent of this variable.
+# with canonical; it runs whenever either file changes, independent of the percent.
 on:
     push:
         branches:
@@ -242,56 +238,34 @@ jobs:
         if: >-
             github.event_name == 'workflow_dispatch'
             || github.event_name == 'api'
-            || (github.event_name != 'pull_request'
-                || (!startsWith(github.head_ref, 'trunk-merge/')
-                    && (github.event.pull_request.draft != true
-                        || !contains(github.event.pull_request.labels.*.name, 'no-ci'))))
+            || github.event_name != 'pull_request'
+            || github.event.pull_request.draft != true
+            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: '[optional, does not block merge] Sample run'
+        # Side effects follow the route: whichever engine runs the tests also runs
+        # the snapshots, uploads and posters, so nothing is ever done twice.
         outputs:
-            sampled: ${{ steps.roll.outputs.sampled }}
-            side_effects: ${{ steps.side-effects.outputs.enabled }}
+            sampled: ${{ steps.route.outputs.route == 'depot' }}
+            side_effects: ${{ steps.route.outputs.route == 'depot' }}
+            route: ${{ steps.route.outputs.route }}
         steps:
-            - name: Resolve side effects gate
-              id: side-effects
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/ci_backend_route.py
+                  sparse-checkout-cone-mode: false
+            - name: Route this event to one engine
+              id: route
               env:
-                  ENABLED: ${{ vars.CI_DEPOT_SIDE_EFFECTS == 'true' || contains(github.event.pull_request.labels.*.name, 'depot-side-effects') }}
-              run: echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
-            - name: Roll sampling dice
-              id: roll
-              env:
-                  PERCENT: ${{ vars.CI_DEPOT_SHADOW_PERCENT }}
-                  RUN_ID: ${{ github.run_id }}
+                  PLATFORM: depot
                   EVENT: ${{ github.event_name }}
-                  SIDE_EFFECTS: ${{ steps.side-effects.outputs.enabled }}
-              run: |
-                  set -euo pipefail
-                  if [ "$SIDE_EFFECTS" = "true" ]; then
-                      echo "sampled=true" >> "$GITHUB_OUTPUT"
-                      exit 0
-                  fi
-                  if [ "$EVENT" != "workflow_dispatch" ] && [ "$EVENT" != "api" ] && { [ -z "$PERCENT" ] || [ "$PERCENT" = "0" ]; }; then
-                      echo "sampled=false" >> "$GITHUB_OUTPUT"
-                      exit 0
-                  fi
-                  # Only pull_request is sampled; any other event that reaches this job always
-                  # runs (sampling it would skip cache priming or no-op a manual trigger).
-                  if [ "$EVENT" != "pull_request" ]; then
-                      echo "sampled=true" >> "$GITHUB_OUTPUT"
-                      echo "::notice::Optional Backend CI: $EVENT always runs when enabled."
-                      exit 0
-                  fi
-                  # Deterministic per-run dice. Non-integer percent → 0 (off).
-                  case "$PERCENT" in ''|*[!0-9]*) PERCENT=0 ;; esac
-                  bucket=$(( RUN_ID % 100 ))
-                  if [ "$bucket" -lt "$PERCENT" ]; then
-                      echo "sampled=true" >> "$GITHUB_OUTPUT"
-                      echo "::notice::Optional Backend CI: PR sampled IN (bucket $bucket < ${PERCENT}%)."
-                  else
-                      echo "sampled=false" >> "$GITHUB_OUTPUT"
-                      echo "::notice::Optional Backend CI: PR sampled OUT (bucket $bucket >= ${PERCENT}%) — skipped."
-                  fi
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+                  IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
+                  IS_DRAFT: ${{ github.event.pull_request.draft }}
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: python3 .github/scripts/ci_backend_route.py
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
