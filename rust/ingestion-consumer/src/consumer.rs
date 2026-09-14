@@ -334,16 +334,16 @@ impl IngestionConsumer {
             .set_revoke_hook(Box::new(move |partitions| {
                 purge_dispatcher.purge_revoked(partitions);
                 if let Some(list) = &hook_revoked {
-                    list.lock().unwrap().extend(partitions.iter().map(
-                        |(topic, partition)| {
+                    list.lock()
+                        .unwrap()
+                        .extend(partitions.iter().map(|(topic, partition)| {
                             let topic_partition = TopicPartition::new(topic, *partition);
                             let generation = revoke_ledger.generation(&topic_partition);
                             RevokedPartition {
                                 topic_partition,
                                 generation,
                             }
-                        },
-                    ));
+                        }));
                 }
             }));
         let (batcher, outputs) = Batcher::new(
@@ -419,16 +419,16 @@ impl IngestionConsumer {
         context.set_revoke_hook(Box::new(move |partitions| {
             purge_dispatcher.purge_revoked(partitions);
             if let Some(list) = &hook_revoked {
-                list.lock().unwrap().extend(partitions.iter().map(
-                    |(topic, partition)| {
+                list.lock()
+                    .unwrap()
+                    .extend(partitions.iter().map(|(topic, partition)| {
                         let topic_partition = TopicPartition::new(topic, *partition);
                         let generation = revoke_ledger.generation(&topic_partition);
                         RevokedPartition {
                             topic_partition,
                             generation,
                         }
-                    },
-                ));
+                    }));
             }
         }));
         let consumer: StreamConsumer<SentinelContext> =

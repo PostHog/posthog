@@ -130,6 +130,7 @@ fn send_group_completions(
 pub struct Batcher {
     inner: Arc<BatcherInner>,
     flush_queue: mpsc::UnboundedSender<FlushTicket>,
+    parked_retry_pump: Option<JoinHandle<()>>,
 }
 
 impl Batcher {
@@ -152,13 +153,14 @@ impl Batcher {
             errors: errors_tx,
         });
         let (flush_queue, flush_rx) = mpsc::unbounded_channel();
-        if inner.dispatcher.scheduler_kind() == SchedulerKind::KeyTable {
-            tokio::spawn(run_parked_retry_pump(
-                Arc::clone(&inner),
-                parked_retry_interval,
-                deferred_flush_timeout,
-            ));
-        }
+        let parked_retry_pump = (inner.dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
+            .then(|| {
+                tokio::spawn(run_parked_retry_pump(
+                    Arc::clone(&inner),
+                    parked_retry_interval,
+                    deferred_flush_timeout,
+                ))
+            });
         tokio::spawn(run_flush_driver(
             Arc::clone(&inner),
             flush_rx,
@@ -166,7 +168,11 @@ impl Batcher {
             deferred_flush_timeout,
         ));
         (
-            Self { inner, flush_queue },
+            Self {
+                inner,
+                flush_queue,
+                parked_retry_pump,
+            },
             BatcherOutputs {
                 completions: completions_rx,
                 errors: errors_rx,
@@ -229,6 +235,14 @@ impl Batcher {
             scatter,
         });
         assignment_epoch
+    }
+}
+
+impl Drop for Batcher {
+    fn drop(&mut self) {
+        if let Some(pump) = self.parked_retry_pump.take() {
+            pump.abort();
+        }
     }
 }
 
