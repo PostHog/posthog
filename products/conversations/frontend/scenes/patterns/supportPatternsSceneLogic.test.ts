@@ -135,13 +135,33 @@ describe('supportPatternsSceneLogic', () => {
         expect(logic.values.statusFilter).toEqual('open')
     })
 
-    it('loads nothing when the feature flag is off', async () => {
+    it('loads nothing while the flag is off, then once when it arrives', async () => {
+        let requests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/conversations/patterns/': () => {
+                    requests += 1
+                    return [200, { results: [makePattern('a')], count: 1, next: null, previous: null }]
+                },
+            },
+        })
         logic.unmount()
         featureFlagLogic.actions.setFeatureFlags([], {})
         logic = supportPatternsSceneLogic()
         logic.mount()
 
         await expectLogic(logic).toNotHaveDispatchedActions(['loadPatterns'])
+
+        const flags = { [FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_PATTERNS]: true }
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_PATTERNS], flags)
+        await expectLogic(logic).toDispatchActions(['loadPatterns', 'loadPatternsSuccess'])
+
+        // A later flag refresh must not reload a list that is already there.
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_PATTERNS], flags)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.patterns.map((p) => p.id)).toEqual(['a'])
+        expect(requests).toEqual(1)
     })
 
     it('puts the row back when the decision fails', async () => {

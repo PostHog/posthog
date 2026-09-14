@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ticketPatternsLogic } from '../../components/TicketPatterns/ticketPatternsLogic'
@@ -28,6 +29,7 @@ export interface supportPatternsSceneLogicValues {
     patternsEnabled: boolean // ticketPatternsLogic
     patterns: TicketPatternApi[]
     patternsLoading: boolean
+    patternsRequested: boolean
     statusFilter: PatternStatusFilter
     visiblePatterns: TicketPatternApi[]
 }
@@ -58,6 +60,13 @@ export interface supportPatternsSceneLogicActions {
             value: true
         }
     }
+    setFeatureFlags: (
+        flags: string[],
+        variants: Record<string, string | boolean>
+    ) => {
+        flags: string[]
+        variants: Record<string, string | boolean>
+    } // featureFlagLogic
     setStatusFilter: (statusFilter: PatternStatusFilter) => {
         statusFilter: PatternStatusFilter
     }
@@ -84,7 +93,7 @@ export type supportPatternsSceneLogicType = MakeLogicType<
 export const supportPatternsSceneLogic = kea<supportPatternsSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'patterns', 'supportPatternsSceneLogic']),
     connect(() => ({
-        actions: [ticketPatternsLogic, ['decisionSucceeded']],
+        actions: [ticketPatternsLogic, ['decisionSucceeded'], featureFlagLogic, ['setFeatureFlags']],
         values: [ticketPatternsLogic, ['inFlightIds', 'patternsEnabled']],
     })),
     actions({
@@ -124,6 +133,7 @@ export const supportPatternsSceneLogic = kea<supportPatternsSceneLogicType>([
     })),
     reducers({
         statusFilter: [DEFAULT_STATUS_FILTER, { setStatusFilter: (_, { statusFilter }) => statusFilter }],
+        patternsRequested: [false, { loadPatterns: () => true }],
         patterns: {
             // The banner and this list share the decision actions, so a confirm made anywhere updates the row here.
             decisionSucceeded: (state, { pattern }) => state.map((p) => (p.id === pattern.id ? pattern : p)),
@@ -144,8 +154,15 @@ export const supportPatternsSceneLogic = kea<supportPatternsSceneLogicType>([
                     : patterns.filter((p) => p.status === statusFilter && !inFlightIds.includes(p.id)),
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setStatusFilter: () => actions.loadPatterns(),
+        // The flag can land after the scene mounts, and the scene only shows once it is on, so the
+        // first load has to wait for it rather than for a filter change.
+        setFeatureFlags: () => {
+            if (values.patternsEnabled && !values.patternsRequested) {
+                actions.loadPatterns()
+            }
+        },
     })),
     urlToAction(({ actions, values }) => ({
         // The URL owns the filter. The panel on a ticket links here with the pattern's own status, so
@@ -169,7 +186,7 @@ export const supportPatternsSceneLogic = kea<supportPatternsSceneLogicType>([
     })),
     afterMount(({ actions, values }) => {
         // A status in the URL already started a load through setStatusFilter.
-        if (values.patternsEnabled && !values.patternsLoading) {
+        if (values.patternsEnabled && !values.patternsRequested) {
             actions.loadPatterns()
         }
     }),
