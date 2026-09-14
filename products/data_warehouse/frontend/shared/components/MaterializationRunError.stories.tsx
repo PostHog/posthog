@@ -1,14 +1,14 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { MaterializationRunErrorCell } from './MaterializationRunErrorCell'
+import { MaterializationRunError } from './MaterializationRunError'
 
-const meta: Meta<typeof MaterializationRunErrorCell> = {
+const meta: Meta<typeof MaterializationRunError> = {
     title: 'Scenes-App/Data Warehouse/Materialization run error',
-    component: MaterializationRunErrorCell,
+    component: MaterializationRunError,
 }
 export default meta
 
-type Story = StoryObj<typeof MaterializationRunErrorCell>
+type Story = StoryObj<typeof MaterializationRunError>
 
 const FAILED_ERROR = [
     'ClickHouse error: Code 62. DB::Exception: Syntax error: failed at position 118 (line 4, col 5)',
@@ -17,9 +17,9 @@ const FAILED_ERROR = [
 ].join('\n')
 
 export const FailedRun: Story = {
-    render: () => <MaterializationRunErrorCell error={FAILED_ERROR} status="Failed" />,
+    render: () => <MaterializationRunError error={FAILED_ERROR} status="Failed" />,
 }
 
 export const CompletedRunWithWarning: Story = {
-    render: () => <MaterializationRunErrorCell error="Warning: query returned no results" status="Completed" />,
+    render: () => <MaterializationRunError error="Warning: query returned no results" status="Completed" />,
 }
