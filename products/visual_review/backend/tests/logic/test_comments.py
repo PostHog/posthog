@@ -6,6 +6,7 @@ from django.db.models import F
 
 from parameterized import parameterized
 
+from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.enums import ReviewDecision, ReviewState, SnapshotResult
 from products.visual_review.backend.logic import comment_markdown, comments, github_api
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
@@ -695,6 +696,18 @@ class TestReviewPromptComment:
 
         run.refresh_from_db()
         assert run.metadata["github_comment_id"] == 5002
+
+    def test_reads_the_previous_run_from_the_writer(self, repo, mocker):
+        # Both aliases share one database under test, so only the call records
+        # that a replica read cannot decide between rewriting and deleting.
+        self._mk_run(repo, "aaa111", metadata={"github_comment_id": 5001})
+        run = self._mk_run(repo, "bbb222")
+        using = mocker.spy(Run.objects, "using")
+
+        previous = comments._previous_comment(repo, 42, exclude_run_id=run.id)
+
+        using.assert_called_once_with(WRITER_DB)
+        assert previous is not None and previous[1] == 5001
 
     def test_skips_a_run_that_already_commented(self, repo, mocker):
         run = self._mk_run(repo, "aaa111", metadata={"github_comment_id": 5001})

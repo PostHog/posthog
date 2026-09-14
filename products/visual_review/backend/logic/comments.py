@@ -27,9 +27,15 @@ def _comment_id(run: Run) -> int | None:
 
 
 def _previous_comment(repo: Repo, pr_number: int, exclude_run_id: UUID) -> tuple[Run, int] | None:
-    """The run that owns the live visual-review comment on the PR, and that comment's ID."""
+    """The run that owns the live visual-review comment on the PR, and that comment's ID.
+
+    Reads the writer: ``review_decision`` decides whether the comment is rewritten or
+    deleted, and a replica that still reports the pre-approval value would delete a
+    comment that records a human decision.
+    """
     previous_run = (
-        Run.objects.filter(repo=repo, pr_number=pr_number, metadata__has_key="github_comment_id")
+        Run.objects.using(WRITER_DB)
+        .filter(repo=repo, pr_number=pr_number, metadata__has_key="github_comment_id")
         .exclude(id=exclude_run_id)
         .order_by("-created_at")
         .first()
