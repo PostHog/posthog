@@ -27,7 +27,7 @@ from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
 
-from products.ai_training.backend.facade.api import queue_training_deletion
+from products.ai_training.backend.facade.api import queue_person_training_deletion
 
 logger = structlog.get_logger(__name__)
 
@@ -75,8 +75,8 @@ def delete_persons_profile(
     from posthog.personhog_client.client import personhog_call
 
     if queue_ai_training_deletion:
-        queue_training_deletion(
-            team_id, "distinct", [distinct_id for person in persons for distinct_id in person.distinct_ids]
+        queue_person_training_deletion(
+            team_id, [distinct_id for person in persons for distinct_id in person.distinct_ids]
         )
     deleted: builtins.list[Person] = []
     errors: builtins.list[uuid_lib.UUID] = []
@@ -155,8 +155,8 @@ def queue_person_recording_deletion(
     if not persons:
         return
     if queue_ai_training_deletion:
-        queue_training_deletion(
-            team_id, "distinct", [distinct_id for person in persons for distinct_id in person.distinct_ids]
+        queue_person_training_deletion(
+            team_id, [distinct_id for person in persons for distinct_id in person.distinct_ids]
         )
     _start_recording_workflows(team_id, persons, actor, reason)
 

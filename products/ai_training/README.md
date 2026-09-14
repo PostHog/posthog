@@ -13,6 +13,9 @@ Ingestion uses the organization's existing AI training opt-in flag.
 Consent controls ingestion only; withdrawing consent preserves stored data and keys.
 Re-enabling consent resumes existing sessions.
 No consent backfill or deployment command is required.
+Person deletion resolves sessions through the replay index and queues only session IDs.
+ML data and key indexes do not store distinct IDs.
+Replay index retention limits which sessions a person lookup can find.
 The `delete_ai_training_month` command removes keys for a session month.
 
 See [ML replay data contracts](docs/replay-data.md) for consent, encryption, deletion, and reader behavior.

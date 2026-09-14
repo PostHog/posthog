@@ -12,8 +12,8 @@ Its storage and deletion implementation is separate from production session repl
 The cutoff is **Monday, 2026-09-14 at 11:00 UTC**, which is noon in Europe/London.
 The session UUIDv7 timestamp selects the version:
 
-- Before the cutoff: v1 uses HMAC team, session, and distinct IDs.
-- At or after the cutoff: v2 uses raw IDs and encrypted payloads.
+- Before the cutoff: v1 uses HMAC team and session IDs.
+- At or after the cutoff: v2 uses raw team and session IDs and encrypted payloads.
 - An invalid UUIDv7 timestamp selects v1.
 
 Event timestamps, arrival times, retries, and flushes do not change the version.
@@ -33,7 +33,9 @@ There is no separate consent model, DynamoDB consent entry, consent timestamp, o
 
 ## Keys and batch processing
 
-The independent DynamoDB table stores session keys, team image keys, deletion markers, and distinct-ID associations.
+The independent DynamoDB table stores session keys, team image keys, deletion markers, and monthly key indexes.
+ML outputs omit distinct IDs, including their hashes and pseudonyms.
+The metadata consumer projects supported fields before storage, including for messages already in Kafka.
 A session has one data key.
 New sessions share one image key per team and session start month.
 KMS wraps each data key with an encryption context that binds its owner and purpose.
@@ -42,8 +44,8 @@ The authenticated payload also binds the dataset kind and, for images, the objec
 
 Ingestion processes privacy state in batches:
 
-1. Bulk-read session keys, team blocks, distinct-ID blocks, and image keys.
-2. Resolve keys and accumulate associations in memory while processing the batch.
+1. Bulk-read session keys, team blocks, month blocks, and image keys.
+2. Resolve keys in memory while processing the batch.
 3. Commit bounded DynamoDB transactions before publishing replay blocks or image messages.
 4. On a competing write, bulk-read the winning state and retry with its keys.
 
@@ -67,30 +69,33 @@ Restoring a deleted wrapped key would defeat deletion.
 ## Deletion
 
 Existing recording, person, team, and organization deletion flows enqueue ML privacy work.
-Person deletion includes distinct IDs even when the user does not select the replay deletion option.
-Each bulk request queues the combined resolved and supplied distinct IDs once, including IDs with no remaining person profile.
+Person deletion resolves the combined supplied and profile distinct IDs through the replay ClickHouse index.
+This lookup also runs when the user does not select replay deletion and includes IDs with no remaining person profile.
+Only the resulting session IDs enter the ML privacy outbox.
+A lookup failure stops the request before profile deletion so it can retry.
 Team deletion and its privacy outbox request commit in the same database transaction.
 If the outbox write fails, team deletion fails and can retry.
 Consent changes do not enqueue privacy requests.
 The outbox survives removal of the source team or organization.
 Its team IDs refer to the original environment, without resolving a child environment to its parent.
 
-| Scope       | Effect                                                                                          |
-| ----------- | ----------------------------------------------------------------------------------------------- |
-| Session     | Remove its wrapped key and permanently block that session ID.                                   |
-| Distinct ID | Permanently block the team and distinct-ID pair, then remove keys for every associated session. |
-| Team        | Permanently block the team and remove its session and image keys.                               |
+| Scope   | Effect                                                                              |
+| ------- | ----------------------------------------------------------------------------------- |
+| Session | Remove its wrapped key and permanently block that session ID.                       |
+| Person  | Resolve its session IDs through replay, then apply session deletion to each result. |
+| Team    | Permanently block the team and remove its session and image keys.                   |
 
-Distinct IDs and sessions have a many-to-many relationship.
-Ingestion records both directions of each association before publishing data.
-Team and distinct-ID lookups use 32 session shards with strongly consistent queries; they do not require ClickHouse or an eventually consistent secondary index.
-Deleting one distinct ID deletes each complete associated session, including events with other distinct IDs.
-A later event for a blocked distinct ID also blocks its session.
+The person lookup matches any available replay row for the requested IDs, then deduplicates and paginates sessions.
+It does not filter out recordings marked deleted or past their replay retention date while their index rows remain.
+Replay index retention limits this lookup: after those rows expire, person deletion cannot discover the corresponding ML sessions.
+New sessions from the same person can be collected if consent permits them.
+Team lookups use 32 session shards with strongly consistent DynamoDB queries.
+Deleting a resolved session removes all of its events, including events from other identities.
 
 Deletion uses resumable query pages and stores progress in the outbox.
 A failed request backs off without blocking unrelated requests.
 Completion follows key removal and the five-minute reader lifetime.
-Scrubbed images remain available after session or distinct-ID deletion, but become unreadable after team or month deletion.
+Scrubbed images remain available after session or person deletion, but become unreadable after team or month deletion.
 
 This mechanism covers encrypted v2 objects.
 It does not erase legacy plaintext objects, previously downloaded data, derived training artifacts, or a trained model.
@@ -121,7 +126,8 @@ Deleting a month does not affect another month's image keys.
 | URL images           | `scrubbed-images/v2/<YYYY-MM>/<team>/url/<hash>` | Team and session month                  |
 
 Metadata catalogs expose raw `team_id`, `session_id`, `format_version`, and an encrypted `payload`.
-Distinct IDs, URLs, block locations, and replay indexes are inside that payload.
+URLs, block locations, and replay indexes are inside that payload.
+Neither the catalog nor its encrypted payload includes a distinct-ID field.
 V2 does not write a separate plaintext replay index.
 
 Athena can select catalog rows but cannot decrypt replay fields.
@@ -133,7 +139,7 @@ Readers have key-read and decrypt permissions; they cannot create keys or change
 Use metadata block locations and byte ranges to fetch recordings, then decrypt before decompressing.
 Include all relevant metadata arrival dates when collecting a session with late blocks.
 
-Join analytics on both raw team and session IDs, or on team and distinct IDs.
+Join analytics on both raw team and session IDs.
 Remove identifiers from model inputs.
 Resolve image references before training because they contain team IDs.
 

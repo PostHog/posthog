@@ -59,31 +59,20 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
         with self.assertRaises(ValueError):
             store.delete_month("2026-13")
 
-    def test_distinct_deletion_shreds_each_session_and_removes_both_association_directions(self) -> None:
+    def test_session_deletion_shreds_keys_without_querying_user_indexes(self) -> None:
         client = MagicMock()
         sessions = ["01a09f92-e780-7000-8000-000000000001", "01a09f92-e780-7000-8000-000000000002"]
-        client.query.return_value = {
-            "Items": [item_key("team:7:distinct:digest:shard:0", f"session:{value}") for value in sessions]
-        }
         store = AITrainingPrivacyStore(client, "table")
-        next_work = store.advance({"op": "distinct", "team_id": 7, "digest": "digest", "shard": 0})
+        self.assertEqual(store.initialize(MagicMock(kind="session", team_id=7, identifiers=sessions)), [])
         updates = client.transact_write_items.call_args.kwargs["TransactItems"]
         self.assertEqual([update["Update"]["Key"] for update in updates], [session_key(7, value) for value in sessions])
-        self.assertEqual([work["session_id"] for work in next_work if work["op"] == "associations"], sessions)
-        client.query.return_value = {
-            "Items": [
-                {
-                    **item_key(f"team:7:session:{sessions[0]}", "distinct:digest"),
-                    "forward_pk": {"S": "team:7:distinct:digest:shard:0"},
-                }
-            ]
-        }
-        store.advance(next_work[0])
-        deletions = client.transact_write_items.call_args.kwargs["TransactItems"]
-        self.assertEqual(len(deletions), 2)
-        self.assertEqual(
-            deletions[1]["Delete"]["Key"], item_key("team:7:distinct:digest:shard:0", f"session:{sessions[0]}")
+        self.assertTrue(
+            all(
+                update["Update"]["UpdateExpression"] == "SET deleted = :deleted REMOVE wrapped_key"
+                for update in updates
+            )
         )
+        client.query.assert_not_called()
 
     def test_completion_waits_for_reader_leases_without_sleeping_in_the_worker(self) -> None:
         request = MagicMock(kind="team", cursor={"work": []}, completed_at=None)

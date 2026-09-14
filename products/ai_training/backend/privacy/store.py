@@ -31,8 +31,6 @@ class DynamoResponse(TypedDict, total=False):
 class DeletionWork(TypedDict, total=False):
     op: str
     team_id: int
-    session_id: str
-    digest: str
     shard: int
     after: DynamoItem
 
@@ -72,11 +70,10 @@ class AITrainingPrivacyStore:
         )
         return cls(cast(PrivacyDynamoClient, client), settings.AI_RESEARCH_REPLAY_PRIVACY_TABLE)
 
-    def block(self, team_id: int, distinct_id: str | None = None) -> None:
-        key = item_key(
-            f"team:{team_id}", f"distinct:{identity_digest(distinct_id)}" if distinct_id is not None else "deleted"
+    def block(self, team_id: int) -> None:
+        self.client.put_item(
+            TableName=self.table_name, Item={**item_key(f"team:{team_id}", "deleted"), "deleted": {"BOOL": True}}
         )
-        self.client.put_item(TableName=self.table_name, Item={**key, "deleted": {"BOOL": True}})
 
     def delete_month(self, session_month: str) -> int:
         if re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", session_month) is None:
@@ -135,68 +132,25 @@ class AITrainingPrivacyStore:
             return [{"op": "team", "team_id": team_id, "shard": -1}]
         if request.kind == "session":
             self.shred([session_key(team_id, value) for value in request.identifiers])
-            return [{"op": "associations", "team_id": team_id, "session_id": value} for value in request.identifiers]
-        if request.kind == "distinct":
-            for offset in range(0, len(request.identifiers), 100):
-                self.client.transact_write_items(
-                    TransactItems=[
-                        {
-                            "Put": {
-                                "TableName": self.table_name,
-                                "Item": {
-                                    **item_key(f"team:{team_id}", f"distinct:{identity_digest(value)}"),
-                                    "deleted": {"BOOL": True},
-                                },
-                            }
-                        }
-                        for value in request.identifiers[offset : offset + 100]
-                    ]
-                )
-            return [
-                {"op": "distinct", "team_id": team_id, "digest": identity_digest(value), "shard": 0}
-                for value in request.identifiers
-            ]
+            return []
         raise ValueError("Unknown AI training deletion request")
 
     def advance(self, work: DeletionWork) -> list[DeletionWork]:
-        operation = work["op"]
-        team_id = int(work["team_id"])
-        if operation == "associations":
-            session_id = str(work["session_id"])
-            response = self.page(f"team:{team_id}:session:{session_id}", "distinct:", work.get("after"))
-            deletions: list[DynamoItem] = []
-            for row in response.get("Items", []):
-                deletions.append({"pk": row["pk"], "sk": row["sk"]})
-                forward_pk = row.get("forward_pk", {}).get("S")
-                if isinstance(forward_pk, str):
-                    deletions.append(item_key(forward_pk, f"session:{session_id}"))
-            if deletions:
-                self.client.transact_write_items(
-                    TransactItems=[{"Delete": {"TableName": self.table_name, "Key": key}} for key in deletions]
-                )
-            return [{**work, "after": response["LastEvaluatedKey"]}] if response.get("LastEvaluatedKey") else []
-        shard = int(work["shard"])
-        if operation == "team":
-            pk = f"team:{team_id}" if shard == -1 else f"team:{team_id}:shard:{shard}"
-            prefix = "image:" if shard == -1 else "session:"
-        elif operation == "distinct":
-            pk, prefix = f"team:{team_id}:distinct:{work['digest']}:shard:{shard}", "session:"
-        else:
+        if work["op"] != "team":
             raise ValueError("Unknown AI training deletion operation")
+        team_id = int(work["team_id"])
+        shard = int(work["shard"])
+        pk = f"team:{team_id}" if shard == -1 else f"team:{team_id}:shard:{shard}"
+        prefix = "image:" if shard == -1 else "session:"
         response = self.page(pk, prefix, work.get("after"))
-        rows = response.get("Items", [])
-        sessions = [str(row["sk"]["S"]).removeprefix("session:") for row in rows] if prefix == "session:" else []
-        self.shred([session_key(team_id, session_id) for session_id in sessions] if operation == "distinct" else rows)
-        association_work: list[DeletionWork] = [
-            {"op": "associations", "team_id": team_id, "session_id": session_id} for session_id in sessions
-        ]
+        self.shred(response.get("Items", []))
         if response.get("LastEvaluatedKey"):
-            return [*association_work, {**work, "after": response["LastEvaluatedKey"]}]
+            return [{**work, "after": response["LastEvaluatedKey"]}]
         if shard + 1 < KEY_SHARDS:
             next_work: DeletionWork = {**work, "shard": shard + 1}
             next_work.pop("after", None)
-            return [*association_work, next_work]
-        return association_work
+            return [next_work]
+        return []
 
     def apply(self, request: AITrainingPrivacyRequest, deadline: float) -> bool:
         work = request.cursor.get("work")

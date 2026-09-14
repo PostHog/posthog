@@ -82,7 +82,7 @@ from posthog.utils import (
     relative_date_parse_with_delta_mapping,
 )
 
-from products.ai_training.backend.facade.api import queue_training_deletion
+from products.ai_training.backend.facade.api import queue_person_training_deletion
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
 from products.workflows.backend.api.message_assets import (
@@ -892,9 +892,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
         if not keep_person or delete_recordings:
-            queue_training_deletion(
+            queue_person_training_deletion(
                 self.team_id,
-                "distinct",
                 [*(distinct_ids or []), *(value for person in persons for value in person.distinct_ids)],
             )
 
