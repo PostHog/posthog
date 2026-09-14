@@ -48,23 +48,29 @@ LABEL_BATCH_RUN_EVENT = "ai_enrichment_label_batch_completed"
 
 
 def _report_batch_run(*, label: str, version: str, counts: dict[str, int]) -> None:
-    region = get_instance_region()
-    if region not in ("US", "EU"):
-        return
-    with ph_scoped_capture(region=region) as capture:
-        capture(
-            distinct_id="ai-enrichment-label-batch",
-            event=LABEL_BATCH_RUN_EVENT,
-            properties={
-                "label": label,
-                "version": version,
-                "attempted": counts["attempted"],
-                "succeeded": counts["succeeded"],
-                "failed": counts["failed"],
-                "tool_calls": counts["tool_calls"],
-                "tools_deferred": counts["tools_deferred"],
-            },
-        )
+    """Never raises: the run's summary and exit status must survive a broken client, capture, or
+    flush here, or a monitoring-only failure would take down a run that otherwise succeeded."""
+    try:
+        region = get_instance_region()
+        if region not in ("US", "EU"):
+            return
+        with ph_scoped_capture(region=region) as capture:
+            capture(
+                distinct_id="ai-enrichment-label-batch",
+                event=LABEL_BATCH_RUN_EVENT,
+                properties={
+                    "label": label,
+                    "version": version,
+                    "attempted": counts["attempted"],
+                    "succeeded": counts["succeeded"],
+                    "failed": counts["failed"],
+                    "tool_calls": counts["tool_calls"],
+                    "tools_deferred": counts["tools_deferred"],
+                },
+            )
+    except Exception as e:
+        capture_exception(e, {"path": "enrichment_label_batch._report_batch_run"})
+        logger.exception("enrichment_label_batch_report_failed", label=label, version=version)
 
 
 def _advisory_lock_key(label: str) -> int:

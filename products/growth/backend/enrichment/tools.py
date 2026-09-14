@@ -15,7 +15,7 @@ from posthog.egress.firecrawl import (
     scrape,
     search,
 )
-from posthog.egress.firecrawl.client import MAX_SEARCH_LIMIT
+from posthog.egress.firecrawl.client import MAX_SEARCH_LIMIT, MAX_SEARCH_QUERY_CHARS
 from posthog.egress.limiter.policies import Priority
 
 EGRESS_SOURCE = "growth_ai_enrichment"
@@ -42,7 +42,11 @@ TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "The search query."},
+                    "query": {
+                        "type": "string",
+                        "description": "The search query.",
+                        "maxLength": MAX_SEARCH_QUERY_CHARS,
+                    },
                     "num_results": {
                         "type": "integer",
                         "description": f"How many results to return, up to {MAX_SEARCH_LIMIT}. "
@@ -93,8 +97,16 @@ def _web_search(arguments: dict[str, Any]) -> ToolOutcome:
             urls=(),
             error="bad_arguments",
         )
+    if len(query) > MAX_SEARCH_QUERY_CHARS:
+        return ToolOutcome(
+            name="web_search",
+            arguments=arguments,
+            result={"error": f"query must be at most {MAX_SEARCH_QUERY_CHARS} characters"},
+            urls=(),
+            error="bad_arguments",
+        )
     try:
-        limit = min(int(arguments.get("num_results") or DEFAULT_SEARCH_RESULTS), MAX_SEARCH_LIMIT)
+        limit = max(1, min(int(arguments.get("num_results") or DEFAULT_SEARCH_RESULTS), MAX_SEARCH_LIMIT))
     except (TypeError, ValueError):
         return ToolOutcome(
             name="web_search",

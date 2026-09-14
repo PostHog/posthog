@@ -289,12 +289,17 @@ class TestClassifyPayloadToolLoop(SimpleTestCase):
         config = self._config()
         url = "https://blog.example.org/post/"
         client = _ScriptedClient(
+            _FakeResponse(tool_calls=[_search_tool_call()]),
             _FakeResponse(tool_calls=[_fetch_tool_call(url=url)]),
             _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": url})),
         )
+        found = FirecrawlSearch(query="Acme AI", results=(FirecrawlSearchResult(url=url),))
         page = FirecrawlScrape(url=url, markdown="# Post", status_code=200)
 
-        with patch(f"{_TOOLS_MODULE}.scrape", return_value=page):
+        with (
+            patch(f"{_TOOLS_MODULE}.search", return_value=found),
+            patch(f"{_TOOLS_MODULE}.scrape", return_value=page),
+        ):
             result = classify_payload(config, {"name": "Acme"}, "acme.com", cast(OpenAI, client))
 
         assert result["evidence_url"] == url
@@ -334,6 +339,39 @@ class TestClassifyPayloadToolLoop(SimpleTestCase):
         rejected_message = client.calls[1]["messages"][-1]
         assert rejected_message["role"] == "tool"
         assert json.loads(rejected_message["content"]) == {"error": "tool budget exhausted"}
+
+    def test_non_object_tool_arguments_are_rejected_without_calling_the_tool(self):
+        config = self._config()
+        call = _FakeToolCall("call_1", "web_search", cast(Any, []))
+        client = _ScriptedClient(
+            _FakeResponse(tool_calls=[call]),
+            _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": ""})),
+        )
+
+        with patch(f"{_TOOLS_MODULE}.search") as search_mock:
+            result = classify_payload(config, {"name": "Acme"}, "example.com", cast(OpenAI, client))
+
+        search_mock.assert_not_called()
+        assert result["meta"]["tool_calls"] == [{"name": "web_search", "arguments": {}, "error": "bad_arguments"}]
+
+    def test_a_retryable_error_after_a_tool_call_retries_only_the_model_request(self):
+        config = self._config()
+        client = MagicMock()
+        client.chat.completions.create.side_effect = [
+            _FakeResponse(tool_calls=[_search_tool_call()]),
+            openai.RateLimitError(message="rate limited", response=MagicMock(), body={}),
+            _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": ""})),
+        ]
+        found = FirecrawlSearch(query="Acme AI", results=(FirecrawlSearchResult(url="https://x.example"),))
+
+        with (
+            patch(f"{_TOOLS_MODULE}.search", return_value=found) as search_mock,
+            patch("tenacity.nap.time.sleep"),
+        ):
+            result = classify_payload(config, {"name": "Acme"}, "example.com", client)
+
+        search_mock.assert_called_once()
+        assert len(result["meta"]["tool_calls"]) == 1
 
     def test_a_transient_tool_error_raises_before_any_further_model_call(self):
         config = self._config()
@@ -423,6 +461,72 @@ class TestClassifyPayloadToolEvidenceUrl(SimpleTestCase):
 
         assert result["evidence_url"] == expected
         assert ("evidence_url_rejected" in result.get("meta", {})) is expect_rejected
+
+
+class TestClassifyPayloadFetchUrlAllowlist(SimpleTestCase):
+    def _config(self) -> EnrichmentPromptConfig:
+        return EnrichmentPromptConfig(
+            name="test_label",
+            version="v1",
+            prompt_text="judge it. Email: {email}",
+            model="gpt-5-mini",
+            input_fields=["name"],
+            output_fields=[
+                {"key": "is_ai", "type": "boolean", "description": ""},
+                {"key": "evidence_url", "type": "string", "description": ""},
+            ],
+        )
+
+    def test_a_fetch_of_a_url_a_search_returned_is_executed(self):
+        config = self._config()
+        url = "https://techcrunch.com/acme"
+        client = _ScriptedClient(
+            _FakeResponse(tool_calls=[_search_tool_call()]),
+            _FakeResponse(tool_calls=[_fetch_tool_call(url=url)]),
+            _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": url})),
+        )
+        found = FirecrawlSearch(query="Acme AI", results=(FirecrawlSearchResult(url=url),))
+        page = FirecrawlScrape(url=url, markdown="# Acme", status_code=200)
+
+        with (
+            patch(f"{_TOOLS_MODULE}.search", return_value=found),
+            patch(f"{_TOOLS_MODULE}.scrape", return_value=page) as scrape_mock,
+        ):
+            result = classify_payload(config, {"name": "Acme"}, "example.com", cast(OpenAI, client))
+
+        scrape_mock.assert_called_once()
+        assert result["meta"]["tool_calls"][1]["error"] is None
+
+    def test_a_fetch_of_the_signup_domain_is_executed_without_a_prior_search(self):
+        config = self._config()
+        url = "https://acme.example/pricing"
+        client = _ScriptedClient(
+            _FakeResponse(tool_calls=[_fetch_tool_call(url=url)]),
+            _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": url})),
+        )
+        page = FirecrawlScrape(url=url, markdown="# Pricing", status_code=200)
+
+        with patch(f"{_TOOLS_MODULE}.scrape", return_value=page) as scrape_mock:
+            result = classify_payload(config, {"name": "Acme"}, "acme.example", cast(OpenAI, client))
+
+        scrape_mock.assert_called_once()
+        assert result["meta"]["tool_calls"][0]["error"] is None
+
+    def test_a_fetch_of_an_unrelated_host_is_refused_without_calling_firecrawl(self):
+        config = self._config()
+        url = "https://attacker.example/steal?q=secret"
+        client = _ScriptedClient(
+            _FakeResponse(tool_calls=[_fetch_tool_call(url=url)]),
+            _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": ""})),
+        )
+
+        with patch(f"{_TOOLS_MODULE}.scrape") as scrape_mock:
+            result = classify_payload(config, {"name": "Acme"}, "acme.example", cast(OpenAI, client))
+
+        scrape_mock.assert_not_called()
+        assert result["meta"]["tool_calls"] == [
+            {"name": "fetch_page", "arguments": {"url": url}, "error": "invalid_url"}
+        ]
 
 
 class TestConfigurableOutputFields(SimpleTestCase):

@@ -613,6 +613,24 @@ class TestBatchRunReportEvent(_BatchCommandTestCase):
             "tools_deferred": 0,
         }
 
+    def test_a_report_failure_is_captured_and_the_run_still_completes(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+        out = StringIO()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_BATCH_COMMAND_MODULE}.ph_scoped_capture", side_effect=RuntimeError("boom")),
+            patch(f"{_BATCH_COMMAND_MODULE}.capture_exception") as capture_mock,
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
+
+        capture_mock.assert_called_once()
+        assert "attempted 1" in out.getvalue()
+        assert EnrichmentLabelResult.objects.count() == 1
+
     def test_skips_outside_a_cloud_region(self):
         self._config()
         self._fetch()

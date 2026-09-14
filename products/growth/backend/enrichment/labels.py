@@ -15,7 +15,7 @@ from urllib.parse import urlsplit, urlunsplit
 from django.db.models import QuerySet
 
 from openai import APIConnectionError, InternalServerError, OpenAI, RateLimitError
-from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_random
 
 from posthog.llm.semantic_enrichment import extract_json_object
@@ -334,6 +334,19 @@ def _normalize_url(url: str) -> str:
     return normalized[:-1] if normalized.endswith("/") else normalized
 
 
+def _url_is_trusted(url: str, presented: set[str], signup_domain: str | None) -> bool:
+    """Whether url is one a tool call actually surfaced, or the company's own domain - never a
+    URL a page's own text could have steered the model into asking for."""
+    if _normalize_url(url) in presented:
+        return True
+    host = urlsplit(url).hostname
+    if host is None or signup_domain is None:
+        return False
+    host = host.lower()
+    domain = signup_domain.lower()
+    return host == domain or host.endswith(f".{domain}")
+
+
 def _parse_custom_output(config: EnrichmentPromptConfig, data: dict[str, Any]) -> dict[str, Any]:
     """Validate presence and coerce basic types for a configurable output schema — the stored
     output ends up with exactly the configured keys, nothing more.
@@ -372,7 +385,24 @@ def _accumulate_meta(combined: dict[str, Any], turn: dict[str, Any]) -> None:
             combined[key] = turn[key]
 
 
-def _run_tool_call(call: Any) -> ToolOutcome:
+def _reject_unsupported_fetch_url(
+    arguments: dict[str, Any], presented: set[str], signup_domain: str | None
+) -> ToolOutcome | None:
+    """None lets the normal fetch_page path handle a missing/non-string url as bad_arguments -
+    this only gates a url that parses but wasn't earned by a prior tool call or the signup domain."""
+    url = arguments.get("url")
+    if not isinstance(url, str) or _url_is_trusted(url, presented, signup_domain):
+        return None
+    return ToolOutcome(
+        name="fetch_page",
+        arguments=arguments,
+        result={"error": "url must come from a search result or the company's own domain"},
+        urls=(),
+        error="invalid_url",
+    )
+
+
+def _run_tool_call(call: Any, *, presented_urls: set[str], signup_domain: str | None) -> ToolOutcome:
     try:
         arguments = json.loads(call.function.arguments or "{}")
     except (TypeError, ValueError):
@@ -383,6 +413,18 @@ def _run_tool_call(call: Any) -> ToolOutcome:
             urls=(),
             error="bad_arguments",
         )
+    if not isinstance(arguments, dict):
+        return ToolOutcome(
+            name=call.function.name,
+            arguments={},
+            result={"error": "arguments must be an object"},
+            urls=(),
+            error="bad_arguments",
+        )
+    if call.function.name == "fetch_page":
+        rejected = _reject_unsupported_fetch_url(arguments, presented_urls, signup_domain)
+        if rejected is not None:
+            return rejected
     return run_tool(call.function.name, arguments)
 
 
@@ -400,10 +442,13 @@ def _run_tool_call(call: Any) -> ToolOutcome:
     wait=wait_exponential(multiplier=1, min=2, max=30) + wait_random(0, 2),
     reraise=True,
 )
+def _complete(client: OpenAI, request: dict[str, Any]) -> ChatCompletion:
+    return client.chat.completions.create(**request)
+
+
 def _call_and_parse(
-    config: EnrichmentPromptConfig, messages: list[dict[str, Any]], client: OpenAI
+    config: EnrichmentPromptConfig, messages: list[dict[str, Any]], client: OpenAI, *, signup_domain: str | None
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    messages = list(messages)
     meta: dict[str, Any] = {}
     tool_log: list[dict[str, Any]] = []
     tool_urls: set[str] = set()
@@ -425,7 +470,7 @@ def _call_and_parse(
         if tool_calls_used < MAX_TOOL_CALLS:
             request["tools"] = TOOLS
             request["tool_choice"] = "auto"
-        response = client.chat.completions.create(**request)
+        response = _complete(client, request)
         _accumulate_meta(meta, _response_meta(response))
         # Content filtering and some upstream routes reply with an empty choices list; indexing
         # it unguarded raises IndexError, which (unlike OutputParseError) tenacity retries at
@@ -437,7 +482,7 @@ def _call_and_parse(
             raise OutputParseError("response truncated at max_completion_tokens")
         message = choice.message
         tool_calls = getattr(message, "tool_calls", None)
-        if tool_calls:
+        if isinstance(tool_calls, list) and tool_calls:
             if tool_rounds_used >= MAX_TOOL_ROUNDS:
                 raise OutputParseError("no final answer after tool rounds")
             tool_rounds_used += 1
@@ -466,7 +511,7 @@ def _call_and_parse(
                     )
                     continue
                 tool_calls_used += 1
-                outcome = _run_tool_call(call)
+                outcome = _run_tool_call(call, presented_urls=tool_urls, signup_domain=signup_domain)
                 tool_log.append(
                     {
                         "name": outcome.name,
@@ -557,14 +602,8 @@ def _reject_unsupported_evidence_url(
     evidence_url = output.get("evidence_url")
     if not evidence_url or not isinstance(evidence_url, str):
         return
-    if _normalize_url(evidence_url) in presented:
+    if _url_is_trusted(evidence_url, presented, signup_domain):
         return
-    host = urlsplit(evidence_url).hostname
-    if host is not None and signup_domain is not None:
-        host = host.lower()
-        domain = signup_domain.lower()
-        if host == domain or host.endswith(f".{domain}"):
-            return
     meta["evidence_url_rejected"] = evidence_url
     output["evidence_url"] = None
 
@@ -597,7 +636,7 @@ def classify_payload(
         return unknown_output(config, signup_domain, "archived payload has none of the configured input fields")
 
     messages = build_messages(config, inputs, signup_domain)
-    output, meta = _call_and_parse(config, messages, client)
+    output, meta = _call_and_parse(config, messages, client, signup_domain=signup_domain)
     tool_calls = meta.pop("tool_calls", None)
     _reject_unsupported_evidence_url(output, signup_domain, set(meta.get("tool_urls", ())), meta)
     inputs_record: dict[str, Any] = {"signup_domain": signup_domain, "fields": inputs}

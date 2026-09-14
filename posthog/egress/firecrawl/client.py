@@ -11,7 +11,8 @@ from typing import Literal, cast
 from django.conf import settings
 
 from posthog.dataclasses import frozen
-from posthog.egress.firecrawl.transport import firecrawl_request
+from posthog.egress.firecrawl.limiter import consume_firecrawl_sync
+from posthog.egress.firecrawl.transport import FirecrawlEgressBudgetExhausted, firecrawl_request
 from posthog.egress.limiter.policies import Priority
 
 FIRECRAWL_API_BASE = "https://api.firecrawl.dev"
@@ -38,6 +39,9 @@ DEFAULT_SEARCH_TIMEOUT: tuple[float, float] = (5.0, 45.0)
 
 # Firecrawl bills search at 2 credits per 10 results, so an unbounded limit is an unbounded bill.
 MAX_SEARCH_LIMIT = 10
+
+# Firecrawl rejects a longer query outright.
+MAX_SEARCH_QUERY_CHARS = 500
 
 
 class FirecrawlNotConfigured(Exception):
@@ -177,7 +181,8 @@ def search(
     priority: Priority = Priority.NORMAL,
     timeout: float | tuple[float, float] = DEFAULT_SEARCH_TIMEOUT,
 ) -> FirecrawlSearch:
-    """Search the web through Firecrawl.
+    """Search the web through Firecrawl. Costs 2 credits per call, so this reserves a second
+    limiter unit itself on top of the one the transport already reserves per request.
 
     Raises :class:`FirecrawlNotConfigured` when the instance has no API key,
     :class:`FirecrawlSearchFailed` when Firecrawl answers with anything but a successful search, and
@@ -186,10 +191,15 @@ def search(
     """
     if limit > MAX_SEARCH_LIMIT:
         raise ValueError(f"limit must be at most {MAX_SEARCH_LIMIT}")
+    if len(query) > MAX_SEARCH_QUERY_CHARS:
+        raise ValueError(f"query must be at most {MAX_SEARCH_QUERY_CHARS} characters")
 
     api_key = settings.FIRECRAWL_API_KEY
     if not api_key:
         raise FirecrawlNotConfigured("No FIRECRAWL_API_KEY configured")
+
+    if not consume_firecrawl_sync(1, priority=priority, source=source):
+        raise FirecrawlEgressBudgetExhausted("Firecrawl search egress budget exhausted; degrading")
 
     response = firecrawl_request(
         "POST",

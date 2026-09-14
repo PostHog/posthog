@@ -13,6 +13,7 @@ from requests.structures import CaseInsensitiveDict
 
 from posthog.egress.firecrawl.client import (
     MAX_SEARCH_LIMIT,
+    MAX_SEARCH_QUERY_CHARS,
     FirecrawlNotConfigured,
     FirecrawlScrapeFailed,
     FirecrawlSearchFailed,
@@ -21,6 +22,7 @@ from posthog.egress.firecrawl.client import (
 )
 from posthog.egress.firecrawl.limiter import consume_firecrawl_sync, firecrawl_account_key
 from posthog.egress.firecrawl.observability import record_firecrawl_api_response
+from posthog.egress.firecrawl.transport import FirecrawlEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority, resolve_policy
 
 _FAKE_API_KEY = "fake-key-for-tests"
@@ -70,10 +72,14 @@ def _response_with_rate_limit_headers(headers: dict[str, str], url: str) -> requ
 
 @contextmanager
 def _firecrawl_answers(response: requests.Response) -> Iterator[tuple[MagicMock, MagicMock]]:
-    """Yield the patched sender and limiter gate. The gate is patched so these tests never draw on
-    the shared budget counter, which would couple them to each other's ordering."""
+    """Yield the patched sender and limiter gate. The gate is patched in both the transport and the
+    client, which each hold their own imported reference to consume_firecrawl_sync, so neither
+    silently draws on the shared budget counter, which would couple these tests to each other's
+    ordering."""
+    consume = MagicMock(return_value=True)
     with (
-        patch("posthog.egress.firecrawl.transport.consume_firecrawl_sync", return_value=True) as consume,
+        patch("posthog.egress.firecrawl.transport.consume_firecrawl_sync", consume),
+        patch("posthog.egress.firecrawl.client.consume_firecrawl_sync", consume),
         patch("requests.request", return_value=response) as request,
     ):
         yield request, consume
@@ -235,8 +241,33 @@ class TestFirecrawlSearchEgress(SimpleTestCase):
                 search("widget makers", source="test", limit=MAX_SEARCH_LIMIT + 1)
         request.assert_not_called()
 
+    def test_search_above_the_query_character_ceiling_never_calls_out(self) -> None:
+        with patch("requests.request") as request:
+            with self.assertRaises(ValueError):
+                search("x" * (MAX_SEARCH_QUERY_CHARS + 1), source="test")
+        request.assert_not_called()
+
     def test_search_priority_passes_through_to_the_limiter_gate(self) -> None:
         with _firecrawl_answers(_response(200, json.dumps(_SUCCESSFUL_SEARCH))) as (_request, consume):
             search("widget makers", source="test", priority=Priority.BATCH)
 
         assert consume.call_args.kwargs["priority"] is Priority.BATCH
+
+    def test_search_reserves_two_units_for_the_two_credit_per_ten_results_cost(self) -> None:
+        with _firecrawl_answers(_response(200, json.dumps(_SUCCESSFUL_SEARCH))) as (_request, consume):
+            search("widget makers", source="test")
+
+        assert consume.call_count == 2
+
+    def test_search_denied_the_extra_credit_unit_raises_before_any_request(self) -> None:
+        with (
+            patch("posthog.egress.firecrawl.client.consume_firecrawl_sync", return_value=False) as client_consume,
+            patch("posthog.egress.firecrawl.transport.consume_firecrawl_sync") as transport_consume,
+            patch("requests.request") as request,
+        ):
+            with self.assertRaises(FirecrawlEgressBudgetExhausted):
+                search("widget makers", source="test")
+
+        client_consume.assert_called_once()
+        transport_consume.assert_not_called()
+        request.assert_not_called()
