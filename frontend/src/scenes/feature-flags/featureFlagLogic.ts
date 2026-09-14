@@ -3242,7 +3242,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as FeatureFlagType | null,
             {
                 // `afterAgentChange` is unused here; refreshFeatureFlagSuccess reads it off the payload.
-                refreshFeatureFlag: async (_payload: { afterAgentChange?: boolean } | undefined, breakpoint) => {
+                // The `= {}` default keeps the generated action's payload optional now that
+                // `breakpoint` follows it, so the mount-path `refreshFeatureFlag()` call still
+                // typechecks once kea-typegen regenerates this logic's types.
+                refreshFeatureFlag: async (_payload: { afterAgentChange?: boolean } = {}, breakpoint) => {
                     if (!props.id || props.id === 'new' || props.id === 'link') {
                         return null
                     }
