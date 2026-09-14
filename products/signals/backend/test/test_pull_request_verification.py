@@ -11,6 +11,7 @@ from products.signals.backend.management.commands.reconcile_report_pull_requests
 from products.signals.backend.models import SignalReport, SignalReportPullRequest
 from products.signals.backend.pull_requests import verify_pull_request_state
 from products.signals.backend.task_run_artefacts import record_implementation_task
+from products.signals.backend.tasks import verify_implementation_pr_state
 from products.tasks.backend.models import Task, TaskRun
 
 _PR_URL = "https://github.com/PostHog/posthog/pull/42"
@@ -118,6 +119,16 @@ class TestPullRequestVerification(BaseTest):
         )
         report.refresh_from_db()
         assert report.status == SignalReport.Status.RESOLVED
+
+    @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository")
+    def test_a_duplicate_queued_read_does_not_call_github_again(self, integration):
+        integration.return_value.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
+        self._merged_task_run(self._report())
+
+        verify_implementation_pr_state(team_id=self.team.id, pr_url=_PR_URL)
+        verify_implementation_pr_state(team_id=self.team.id, pr_url=_PR_URL)
+
+        assert integration.return_value.get_pull_request.call_count == 1
 
     @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository")
     def test_a_failed_github_read_leaves_the_report_open(self, integration):

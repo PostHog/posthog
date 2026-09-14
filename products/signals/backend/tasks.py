@@ -33,7 +33,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalScratchpad,
 )
-from products.signals.backend.pull_requests import verify_pull_request_state
+from products.signals.backend.pull_requests import pull_request_state_confirmed, verify_pull_request_state
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,
@@ -586,6 +586,10 @@ def verify_implementation_pr_state(team_id: int, pr_url: str) -> None:
     queued it. Best effort and never retried: the reports stay open until a state is confirmed, and
     the next pull request event queues this again.
     """
+    # One pull request event queues this once per linked report and once per reconcile pass, so a
+    # duplicate usually finds the state another run already read.
+    if pull_request_state_confirmed(team_id=team_id, pr_url=pr_url):
+        return
     verify_pull_request_state(team_id=team_id, pr_url=pr_url)
 
 

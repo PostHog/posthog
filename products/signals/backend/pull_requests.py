@@ -186,6 +186,18 @@ def schedule_pull_request_verification(*, team_id: int, prs: Sequence["Implement
         )
 
 
+def pull_request_state_confirmed(*, team_id: int, pr_url: str) -> bool:
+    """True when a GitHub read already stored a state for this pull request."""
+    parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
+    if parsed is None:
+        return False
+    return (
+        SignalReportPullRequest.objects.for_team(team_id)
+        .filter(repository=parsed.repository.lower(), number=parsed.number, checked_at__isnull=False)
+        .exists()
+    )
+
+
 def _stored_merge_exists(*, team_id: int, repository: str, pr_number: int, confirmed: bool) -> bool:
     return (
         SignalReportPullRequest.objects.for_team(team_id)
