@@ -9,6 +9,7 @@ import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
@@ -18,7 +19,6 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartParams, TrendResult } from '~/types'
 
-import { SeriesDatum } from '../../InsightTooltip/insightTooltipUtils'
 import { regionMapLogic } from './regionMapLogic'
 
 const SATURATION_FLOOR = 0.2
