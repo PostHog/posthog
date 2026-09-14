@@ -823,6 +823,24 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('manual person selection for static cohort creation', () => {
+        it('keeps the display name so it can be shown in the selected list, and forgets it on remove', async () => {
+            await initCohortLogic({ id: 'new' })
+
+            await expectLogic(logic, () => {
+                logic.actions.addPersonToCreateStaticCohort('person-1', 'Jane Doe')
+            }).toMatchValues({
+                personsToCreateStaticCohort: { 'person-1': 'Jane Doe' },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.removePersonFromCreateStaticCohort('person-1')
+            }).toMatchValues({
+                personsToCreateStaticCohort: {},
+            })
+        })
+    })
+
     describe('mutate filters', () => {
         beforeEach(async () => {
             await initCohortLogic({ id: 1 })
