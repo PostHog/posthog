@@ -777,6 +777,48 @@ describe('accountsLogic', () => {
             expect(logic.values.tiles).toEqual(CUSTOM_TILES)
         })
 
+        it.each(['name', 'csm'])('keeps the %s sort while default columns load after Back', async (column) => {
+            logic.actions.setSortOrder({ column, direction: 'desc' })
+            const listLocation = router.values.currentLocation
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID))
+            logic.unmount()
+            initKeaTests()
+
+            let resolveDefinitions!: (value: { count: number; results: AccountRelationshipDefinitionApi[] }) => void
+            mockDefinitionsList.mockReturnValue(new Promise((resolve) => (resolveDefinitions = resolve)))
+            router.actions.locationChanged({
+                ...listLocation,
+                url: `${listLocation.pathname}${listLocation.search}${listLocation.hash}`,
+                method: 'POP',
+            })
+            logic = accountsLogic()
+            logic.mount()
+            expect(logic.values.sortOrder).toEqual({ column, direction: 'desc' })
+
+            resolveDefinitions({ count: DEFINITIONS.length, results: DEFINITIONS })
+            await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
+            expect(logic.values.sortOrder).toEqual({ column, direction: 'desc' })
+            const rows = ['a', 'b'].map((id, index) => ({
+                result: {
+                    id,
+                    name: id,
+                    accountFields: {},
+                    relationships: { [CSM_DEFINITION_ID]: [index + 1] },
+                    customProperties: {},
+                    customPropertyHistory: {},
+                },
+            }))
+            expect(logic.values.sortedRowsTransformer?.(rows)).toEqual([rows[1], rows[0]])
+            logic.actions.listLoadNextData()
+            expect(logic.values.accountsQuerySource?.sort).toEqual({
+                column:
+                    column === 'name'
+                        ? { kind: 'account_field', field: 'name' }
+                        : { kind: 'relationship', definitionId: CSM_DEFINITION_ID },
+                direction: 'desc',
+            })
+        })
+
         it('coerces a malformed scalar assignedTo from the view hash into an array', async () => {
             // normalizeRoleFilter defends the array-shaped filter against a stray
             // scalar in the hash (hand-edited or stale link) so .length/.map stay safe.

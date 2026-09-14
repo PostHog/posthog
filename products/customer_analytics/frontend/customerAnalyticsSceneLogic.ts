@@ -97,8 +97,7 @@ const setQueryParams = (params: Record<string, string>): string => {
     })
 
     const currentPath = router.values.location.pathname
-    // Keep the hash: the Accounts tab encodes its shareable view state there, so dropping it
-    // would reset the list (and the "My accounts" choice) on every date or test-account change.
+    // Preserve the Accounts hash so URL updates retain shared view state.
     const currentHash = router.values.location.hash
     return `${currentPath}${urlParams.toString() ? '?' + urlParams.toString() : ''}${currentHash}`
 }
@@ -301,9 +300,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         setBusinessType: (businessType: BusinessType) => ({ businessType }),
         setSelectedGroupType: (selectedGroupType: number) => ({ selectedGroupType }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
-        // Shared "My accounts" (assigned-to-me) toggle backing the checkbox on both the
-        // Accounts and Notes tabs. Held here (not per-tab) so the choice persists as the
-        // user switches between them.
+        // Share the toggle across Accounts and Notes.
         setMineOnly: (mineOnly: boolean) => ({ mineOnly }),
     }),
     reducers(() => ({
@@ -569,7 +566,6 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 dateRange: { date_from: string | null; date_to: string | null },
                 filterTestAccounts: boolean
             ): InsightDefinition[] => {
-                // Backend guarantees activity event exists, but add safety check
                 if (!dauSeries || !wauSeries || !mauSeries) {
                     return []
                 }
@@ -582,8 +578,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             source: {
                                 kind: NodeKind.TrendsQuery,
                                 tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                // Label each line distinctly here rather than on the shared
-                                // selectors, which are reused by other single-metric charts.
+                                // Set labels here because other charts reuse the individual series.
                                 series: [
                                     { ...dauSeries, custom_name: 'Daily active' },
                                     { ...wauSeries, custom_name: 'Weekly active' },
