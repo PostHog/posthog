@@ -902,8 +902,7 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              AITrainingConsent
-                              |BillingAlertConfiguration
+                              BillingAlertConfiguration
                               |BillingAlertEvaluationClaim
                               |BillingAlertEvent
                               |CIMDVerificationToken
@@ -979,8 +978,7 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        AITrainingConsent
-                        |BillingAlertConfiguration
+                        BillingAlertConfiguration
                         |BillingAlertEvaluationClaim
                         |BillingAlertEvent
                         |CIMDVerificationToken

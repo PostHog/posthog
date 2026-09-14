@@ -59,18 +59,6 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
         with self.assertRaises(ValueError):
             store.delete_month("2026-13")
 
-    def test_withdrawal_preserves_keys_from_a_later_consent_period(self) -> None:
-        client = MagicMock()
-        old = {**item_key("team:7", "image:100"), "granted_at": {"N": "100"}, "wrapped_key": {"B": b"old"}}
-        new = {**item_key("team:7", "image:300"), "granted_at": {"N": "300"}, "wrapped_key": {"B": b"new"}}
-        client.query.return_value = {"Items": [old, new]}
-        store = AITrainingPrivacyStore(client, "table")
-        work = store.advance({"op": "team", "team_id": 7, "shard": -1, "withdrawn_at": 200})
-        updates = client.transact_write_items.call_args.kwargs["TransactItems"]
-        self.assertEqual([update["Update"]["Key"] for update in updates], [item_key("team:7", "image:100")])
-        self.assertEqual(work, [{"op": "team", "team_id": 7, "shard": 0, "withdrawn_at": 200}])
-        self.assertTrue(client.query.call_args.kwargs["ConsistentRead"])
-
     def test_distinct_deletion_shreds_each_session_and_removes_both_association_directions(self) -> None:
         client = MagicMock()
         sessions = ["01a09f92-e780-7000-8000-000000000001", "01a09f92-e780-7000-8000-000000000002"]

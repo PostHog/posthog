@@ -40,7 +40,6 @@ class KmsReader(Protocol):
 class TrainingKeyIdentity:
     team_id: int
     organization_id: str
-    consent_granted_at: int
     session_id: str | None = None
     session_month: str | None = None
 
@@ -48,7 +47,6 @@ class TrainingKeyIdentity:
         context: dict[str, str | int] = {
             "teamId": self.team_id,
             "organizationId": self.organization_id,
-            "consentGrantedAt": self.consent_granted_at,
             "kind": kind,
         }
         if self.session_id is not None:
@@ -73,7 +71,6 @@ class TrainingKeyIdentity:
             "purpose": "ai-research-session" if self.session_id else "ai-research-image",
             "team_id": str(self.team_id),
             "organization_id": self.organization_id,
-            "consent_granted_at": str(self.consent_granted_at),
         }
         if self.session_id:
             context["session_id"] = self.session_id
@@ -130,8 +127,8 @@ class TrainingKeyLocation:
         return cls(pk=f"team:{team_id}:shard:{shard}", sk=f"session:{session_id}")
 
     @classmethod
-    def image(cls, team_id: int, consent_granted_at: int, session_month: str) -> TrainingKeyLocation:
-        return cls(pk=f"team:{team_id}", sk=f"image:{consent_granted_at}:{session_month}")
+    def image(cls, team_id: int, session_month: str) -> TrainingKeyLocation:
+        return cls(pk=f"team:{team_id}", sk=f"image:{session_month}")
 
     def encoded(self) -> DynamoItem:
         return {"pk": {"S": self.pk}, "sk": {"S": self.sk}}
@@ -193,7 +190,6 @@ class TrainingDataKeyReader:
             identities[location] = TrainingKeyIdentity(
                 team_id=int(str(row["team_id"]["N"])),
                 organization_id=str(row["organization_id"]["S"]),
-                consent_granted_at=int(str(row["granted_at"]["N"])),
                 session_id=location.sk.removeprefix("session:") if location.sk.startswith("session:") else None,
                 session_month=str(row["session_month"]["S"]) if location.sk.startswith("image:") else None,
             )
@@ -203,19 +199,15 @@ class TrainingDataKeyReader:
                 for identity in identities.values()
                 for location in (
                     identity.month_block_location(),
-                    TrainingKeyLocation(pk=f"organization:{identity.organization_id}", sk="consent"),
                     TrainingKeyLocation(pk=f"team:{identity.team_id}", sk="deleted"),
                 )
             ]
         )
         eligible: dict[TrainingKeyLocation, TrainingKeyIdentity] = {}
         for location, identity in identities.items():
-            consent = state.get(TrainingKeyLocation(pk=f"organization:{identity.organization_id}", sk="consent"), {})
             if (
                 identity.month_block_location() in state
                 or TrainingKeyLocation(pk=f"team:{identity.team_id}", sk="deleted") in state
-                or consent.get("allowed", {}).get("BOOL") is not True
-                or int(str(consent.get("granted_at", {}).get("N", "-1"))) != identity.consent_granted_at
             ):
                 continue
             eligible[location] = identity

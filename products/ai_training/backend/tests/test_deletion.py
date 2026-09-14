@@ -8,65 +8,15 @@ from django.test import TestCase, override_settings
 from parameterized import parameterized
 
 from posthog.api.person import PersonViewSet
-from posthog.models import Organization, Person, Team
+from posthog.models import Person, Team
 from posthog.models.team.util import delete_team_records
 
-from products.ai_training.backend.facade.api import queue_training_deletion, record_training_consent
-from products.ai_training.backend.models import AITrainingConsent, AITrainingPrivacyRequest
+from products.ai_training.backend.facade.api import queue_training_deletion
+from products.ai_training.backend.models import AITrainingPrivacyRequest
 
 
 @override_settings(AI_RESEARCH_REPLAY_PRIVACY_TABLE="test-table")
-class TestAITrainingConsentOutbox(TestCase):
-    @parameterized.expand([("",), ("test-table",)])
-    def test_reconsent_has_a_new_timestamp_and_rollback_preserves_the_previous_state(self, table: str) -> None:
-        with self.settings(AI_RESEARCH_REPLAY_PRIVACY_TABLE=table):
-            organization_id = UUID("00000000-0000-0000-0000-000000000007")
-            with record_training_consent(organization_id, True):
-                pass
-            first = AITrainingConsent.objects.get(organization_id=organization_id)
-            with record_training_consent(organization_id, False):
-                pass
-            with record_training_consent(organization_id, True):
-                pass
-            resumed = AITrainingConsent.objects.get(organization_id=organization_id)
-            self.assertGreater(resumed.granted_at_ms, first.granted_at_ms)
-            self.assertEqual(resumed.revision, 3)
-            with self.assertRaises(ValueError), record_training_consent(organization_id, False):
-                raise ValueError("rollback")
-            self.assertTrue(AITrainingConsent.objects.get(organization_id=organization_id).allowed)
-            self.assertEqual(AITrainingPrivacyRequest.objects.unscoped().count(), 3)
-
-    @parameterized.expand([(True,), (False,)])
-    def test_first_consent_record_preserves_legacy_opt_in_until_a_new_grant(self, legacy_allowed: bool) -> None:
-        organization_id = UUID("00000000-0000-0000-0000-000000000007")
-        Organization.objects.bulk_create(
-            [Organization(id=organization_id, name="Example", slug="example", is_ai_training_opted_in=legacy_allowed)]
-        )
-        for _ in range(2):
-            with record_training_consent(organization_id, legacy_allowed):
-                pass
-        initial = AITrainingConsent.objects.get(organization_id=organization_id)
-        self.assertEqual(initial.allowed, legacy_allowed)
-        self.assertEqual(initial.granted_at_ms, 0)
-        self.assertEqual(initial.revision, 1)
-        self.assertEqual(AITrainingPrivacyRequest.objects.unscoped().count(), 1)
-        with record_training_consent(organization_id, False):
-            Organization.objects.filter(id=organization_id).update(is_ai_training_opted_in=False)
-        with record_training_consent(organization_id, True):
-            Organization.objects.filter(id=organization_id).update(is_ai_training_opted_in=True)
-        resumed = AITrainingConsent.objects.get(organization_id=organization_id)
-        self.assertGreater(resumed.granted_at_ms, 0)
-        self.assertEqual(resumed.revision, 3 if legacy_allowed else 2)
-
-    def test_first_opt_in_does_not_inherit_a_legacy_grant(self) -> None:
-        organization_id = UUID("00000000-0000-0000-0000-000000000007")
-        Organization.objects.bulk_create(
-            [Organization(id=organization_id, name="Example", slug="example", is_ai_training_opted_in=False)]
-        )
-        with record_training_consent(organization_id, True):
-            Organization.objects.filter(id=organization_id).update(is_ai_training_opted_in=True)
-        self.assertGreater(AITrainingConsent.objects.get(organization_id=organization_id).granted_at_ms, 0)
-
+class TestAITrainingDeletionOutbox(TestCase):
     def test_queue_filters_invalid_session_ids_and_retains_distinct_ids_in_bulk(self) -> None:
         session_id = "01a09f92-e780-7000-8000-000000000001"
         queue_training_deletion(7, "session", ["invalid", session_id.upper(), session_id])
