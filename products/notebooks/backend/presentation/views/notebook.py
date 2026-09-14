@@ -63,6 +63,7 @@ from products.notebooks.backend.analytics import (
     notebook_node_count,
 )
 from products.notebooks.backend.collab import submit_steps
+from products.notebooks.backend.facade.api import to_markdown_notebook_content
 from products.notebooks.backend.facade.compute_pricing import (
     COMPUTE_PRESETS,
     DEFAULT_COMPUTE_PRESET_KEY,
@@ -92,7 +93,6 @@ from products.notebooks.backend.facade.widgets import (
     start_widget_generation,
 )
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
-from products.notebooks.backend.markdown_migration import to_markdown_notebook_content
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.presentation.widget_serializers import (
     WidgetCancelRequestSerializer,
