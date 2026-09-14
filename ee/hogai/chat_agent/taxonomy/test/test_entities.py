@@ -131,6 +131,23 @@ class TestEntities(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("name", "\n".join(property_vals.get("person", [])))
         self.assertTrue(any("Test User" in str(val) for val in property_vals.get("person", [])))
 
+    @patch("ee.hogai.chat_agent.taxonomy.toolkit.excluded_property_names")
+    async def test_person_property_values_keep_request_order_around_excluded(self, mock_excluded):
+        mock_excluded.return_value = {"secret"}
+        await PropertyDefinition.objects.acreate(
+            team=self.team,
+            name="secret",
+            property_type="String",
+            is_numerical=False,
+            type=PropertyDefinition.Type.PERSON,
+        )
+
+        results = await self.toolkit._retrieve_multiple_entity_property_values("person", ["name", "secret"])
+
+        self.assertEqual(len(results), 2)
+        self.assertIn("Test User", results[0])
+        self.assertEqual("No values found for property secret on entity person", results[1])
+
     async def test_multiple_entities(self):
         result = await self.toolkit._get_entity_names()
         expected = ["person", "session", "organization", "project"]
