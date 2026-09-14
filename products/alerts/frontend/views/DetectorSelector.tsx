@@ -499,8 +499,10 @@ function MinBaselineInput({
     value,
     onChange,
 }: {
-    value: number | undefined
-    onChange: (value: number) => void
+    // A stored config that never set a floor comes back from the API as null, so the value
+    // reaching this input is wider than the schema type.
+    value: number | null | undefined
+    onChange: (value: number | undefined) => void
 }): JSX.Element {
     return (
         <div>
@@ -513,9 +515,12 @@ function MinBaselineInput({
                 type="number"
                 min={0}
                 step={1}
-                value={value}
+                // An unset floor renders as NaN, which LemonInput shows as an empty controlled
+                // input. Passing undefined would turn the input uncontrolled and leave the text
+                // the user typed on screen after the config drops the floor.
+                value={value ?? NaN}
                 placeholder={String(DEFAULT_ANOMALY_MIN_BASELINE)}
-                onChange={(val) => onChange(val ?? 0)}
+                onChange={(val) => onChange(Number.isFinite(val) ? val : undefined)}
                 fullWidth
             />
         </div>
