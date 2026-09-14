@@ -312,6 +312,7 @@ class TestEmailReputationAPI(APIBaseTest):
                     bounce_rate=0.01,
                     transient_bounce_rate=0.02,
                     complaint_rate=None,
+                    complaint_base=0,
                 ),
                 IspSendingMetrics(
                     isp="Yahoo",
@@ -320,6 +321,7 @@ class TestEmailReputationAPI(APIBaseTest):
                     bounce_rate=0.0,
                     transient_bounce_rate=0.0,
                     complaint_rate=0.002,
+                    complaint_base=50,
                 ),
             ],
         )
@@ -334,6 +336,7 @@ class TestEmailReputationAPI(APIBaseTest):
                 # Null rather than 0: Gmail runs no feedback loop, so a complaint rate would be
                 # a number we can't actually measure.
                 "complaint_rate": None,
+                "complaint_base": 0,
                 "unavailable": [],
             },
             {
@@ -343,6 +346,7 @@ class TestEmailReputationAPI(APIBaseTest):
                 "bounce_rate": 0.0,
                 "transient_bounce_rate": 0.0,
                 "complaint_rate": 0.002,
+                "complaint_base": 50,
                 "unavailable": [],
             },
         ]
@@ -421,6 +425,7 @@ class TestEmailReputationAPI(APIBaseTest):
                     bounce_rate=0.01,
                     transient_bounce_rate=0.0,
                     complaint_rate=None,
+                    complaint_base=0,
                 )
             ],
         )
@@ -474,6 +479,7 @@ class TestEmailReputationAPI(APIBaseTest):
                     bounce_rate=0.01,
                     transient_bounce_rate=0.0,
                     complaint_rate=None,
+                    complaint_base=0,
                 )
             ],
             isp_flag_enabled=False,
@@ -532,6 +538,7 @@ class TestEmailReputationAccessControl(APIBaseTest):
                 bounce_rate=0.05,
                 transient_bounce_rate=0.0,
                 complaint_rate=None,
+                complaint_base=0,
             )
         ]
         with (

@@ -78,6 +78,10 @@ class IspSendingMetrics:
     # Also None when the provider runs no feedback loop, or when nothing was delivered to measure
     # complaints against: both are "no rate exists", as against "we could not load it".
     complaint_rate: float | None
+    # The deliveries complaint_rate divides by, which is far smaller than emails_sent. A caller
+    # judging whether the rate rests on enough volume has to weigh it against this, not against
+    # what was sent.
+    complaint_base: int
     # Rates whose metric AWS did not return, so the reader can be told the number is missing rather
     # than shown one. A null rate that is not listed here has no value to state at all.
     unavailable: tuple[str, ...] = ()
@@ -189,6 +193,7 @@ def _isp_rows_from_series(isps: Sequence[str], series: IspMetricSeries) -> list[
                         1.0, sum(buckets.get(IspMetric(isp=isp, metric="COMPLAINT"), {}).values()) / complaint_base
                     )
                 ),
+                complaint_base=0 if complaint_failed else complaint_base,
                 unavailable=tuple(
                     name
                     for name, missing in (
@@ -255,6 +260,7 @@ def _other_provider_row(isps: Sequence[str], series: IspMetricSeries) -> IspSend
         complaint_rate=(
             None if not complaint_base else min(1.0, sum(remainder("COMPLAINT").values()) / complaint_base)
         ),
+        complaint_base=complaint_base,
     )
 
 

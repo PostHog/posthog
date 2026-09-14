@@ -2375,6 +2375,7 @@ def _fetch_isp_metrics(team_id: int, window_days: int, domains: list[str]) -> li
             "bounce_rate": row.bounce_rate,
             "transient_bounce_rate": row.transient_bounce_rate,
             "complaint_rate": row.complaint_rate,
+            "complaint_base": row.complaint_base,
             "unavailable": list(row.unavailable),
         }
         for row in rows
@@ -2526,6 +2527,14 @@ class IspSendingHealthSerializer(serializers.Serializer):
             "Spam complaints from this provider, divided by the deliveries it reports complaints "
             "for (0-1). Null when there is no rate to state — the provider runs no feedback loop, "
             "or nothing was delivered — and also when the metric could not be loaded from AWS."
+        ),
+    )
+    complaint_base = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Deliveries the provider reports complaints for, which is what `complaint_rate` "
+            "divides by. Far smaller than `emails_sent`, so a caller deciding whether the rate "
+            "rests on enough volume has to weigh it against this. Zero when there is no base."
         ),
     )
     unavailable = serializers.ListField(

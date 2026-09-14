@@ -23,6 +23,7 @@ const baseResponse: TeamEmailReputationResponseApi = {
             transient_bounce_rate: 0.29,
             // Gmail runs no feedback loop, so a complaint rate here would be unmeasurable.
             complaint_rate: null,
+            complaint_base: 0,
             unavailable: [],
         },
         {
@@ -32,6 +33,7 @@ const baseResponse: TeamEmailReputationResponseApi = {
             bounce_rate: 0.004,
             transient_bounce_rate: 0.012,
             complaint_rate: 0.0004,
+            complaint_base: 11800,
             unavailable: [],
         },
         {
@@ -41,6 +43,7 @@ const baseResponse: TeamEmailReputationResponseApi = {
             bounce_rate: 0.012,
             transient_bounce_rate: 0.53,
             complaint_rate: null,
+            complaint_base: 0,
             unavailable: [],
         },
         {
@@ -50,6 +53,7 @@ const baseResponse: TeamEmailReputationResponseApi = {
             bounce_rate: 0.006,
             transient_bounce_rate: 0.03,
             complaint_rate: 0.0011,
+            complaint_base: 900,
             unavailable: [],
         },
         {
@@ -60,6 +64,7 @@ const baseResponse: TeamEmailReputationResponseApi = {
             bounce_rate: 0,
             transient_bounce_rate: 0,
             complaint_rate: 0,
+            complaint_base: 8,
             unavailable: [],
         },
     ],

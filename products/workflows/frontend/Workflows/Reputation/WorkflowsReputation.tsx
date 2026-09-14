@@ -46,7 +46,7 @@ const RATE_THRESHOLDS = {
 
 type RateLevel = 'healthy' | 'elevated' | 'high'
 
-// Below this many emails one event on its own clears the elevated line, so a tag would be
+// Below this much volume one event on its own clears the elevated line, so a tag would be
 // reporting noise: one bounce in 20 sends reads as 5%.
 function minimumVolumeToClassify(kind: 'bounce' | 'complaint'): number {
     return Math.ceil(1 / RATE_THRESHOLDS[kind].elevated)
@@ -89,18 +89,21 @@ function MissingRate({ reason }: { reason: 'unavailable' | 'no-rate' }): JSX.Ele
 function RateCell({
     rate,
     kind,
-    emailsSent,
+    // What the rate divides by, which differs per kind: sends for bounces, and for complaints the
+    // far smaller set of deliveries the provider reports them for.
+    volume,
 }: {
     rate: number
     kind: 'bounce' | 'complaint'
-    emailsSent?: number
+    volume?: number
 }): JSX.Element {
     const label = kind === 'bounce' ? 'bounce rate' : 'spam complaint rate'
     const minimumVolume = minimumVolumeToClassify(kind)
-    if (emailsSent !== undefined && emailsSent < minimumVolume) {
+    if (volume !== undefined && volume < minimumVolume) {
+        const noun = kind === 'bounce' ? 'emails sent' : 'deliveries this provider reports complaints for'
         return (
             <Tooltip
-                title={`Too few emails to judge the ${label}. Under ${humanFriendlyNumber(minimumVolume)} sends, one ${kind === 'bounce' ? 'bounce' : 'complaint'} on its own would put this above ${formatRate(RATE_THRESHOLDS[kind].elevated)}.`}
+                title={`Too little volume to judge the ${label}. Under ${humanFriendlyNumber(minimumVolume)} ${noun}, one ${kind === 'bounce' ? 'bounce' : 'complaint'} on its own would put this above ${formatRate(RATE_THRESHOLDS[kind].elevated)}.`}
             >
                 <span className="tabular-nums text-secondary cursor-default">{formatRate(rate)}</span>
             </Tooltip>
@@ -275,7 +278,7 @@ function IspBreakdown({
                             row.bounce_rate === null ? (
                                 <MissingRate reason="unavailable" />
                             ) : (
-                                <RateCell rate={row.bounce_rate} kind="bounce" emailsSent={row.emails_sent} />
+                                <RateCell rate={row.bounce_rate} kind="bounce" volume={row.emails_sent} />
                             ),
                     },
                     {
@@ -301,7 +304,7 @@ function IspBreakdown({
                                     reason={row.unavailable?.includes('complaint') ? 'unavailable' : 'no-rate'}
                                 />
                             ) : (
-                                <RateCell rate={row.complaint_rate} kind="complaint" emailsSent={row.emails_sent} />
+                                <RateCell rate={row.complaint_rate} kind="complaint" volume={row.complaint_base} />
                             ),
                     },
                     {

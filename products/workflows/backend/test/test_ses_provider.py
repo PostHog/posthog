@@ -744,6 +744,9 @@ class TestGetIdentityIspMetrics(TestCase):
         rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail"])
 
         assert [row.complaint_rate for row in rows] == [expected]
+        # The base travels with the rate: a caller weighing whether the rate rests on enough
+        # volume has to use it, since emails_sent is far larger and would clear any floor.
+        assert [row.complaint_base for row in rows] == [delivery_complaint]
 
     def test_soft_rejections_are_reported_apart_from_permanent_bounces(self):
         self._serve(
