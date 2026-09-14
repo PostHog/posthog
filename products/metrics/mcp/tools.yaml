@@ -62,6 +62,9 @@ tools:
     metrics-samples-create:
         operation: metrics_samples_create
         enabled: false
+    metrics-values-create:
+        operation: metrics_values_create
+        enabled: false
     query-metrics:
         operation: metrics_query_create
         enabled: true

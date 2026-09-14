@@ -5,8 +5,6 @@ __all__ = ["django_db_setup"]
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
-from uuid import UUID
 
 import pytest
 from posthog.test.base import reset_clickhouse_database, reset_clickhouse_database_if_dirty
@@ -29,12 +27,18 @@ from posthog.dags.tests.dagster_pg_fixtures import (  # noqa: F401
 from posthog.persons_db import persons_db_connection
 
 
-def insert_flag_evaluations(rows: list[tuple[int, str, str | UUID, str | UUID, datetime]], client: Client) -> None:
-    """Insert rows of (team_id, distinct_id, person_id, uuid, timestamp) into flag_evaluations."""
-    client.execute(
-        "INSERT INTO writable_flag_evaluations (team_id, distinct_id, person_id, uuid, timestamp) VALUES",
-        rows,
-    )
+def insert_flag_evaluations(rows: list[tuple], client: Client) -> None:
+    """Insert rows of (team_id, distinct_id, person_id, uuid, timestamp[, inserted_at]) into flag_evaluations.
+
+    Six-element rows pin inserted_at, for tests whose deletion requests carry a created_at in the
+    past: the sweep predicate only covers rows ingested before their request was created, and the
+    column's DEFAULT stamps insert time, which would put the row out of every backdated request's
+    scope.
+    """
+    columns = "team_id, distinct_id, person_id, uuid, timestamp"
+    if rows and len(rows[0]) == 6:
+        columns += ", inserted_at"
+    client.execute(f"INSERT INTO writable_flag_evaluations ({columns}) VALUES", rows)
 
 
 def refresh_person_from_persons_db(person) -> None:
