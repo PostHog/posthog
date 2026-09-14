@@ -12,7 +12,7 @@ const meta: Meta<typeof MarkdownMessage> = {
             'The <insight id="example">signup funnel</insight> changed after <flag id="1">new signup</flag>.',
             '<hogql display="block" title="Daily signups">SELECT 1</hogql>',
             'Read <report id="example-report">the report</report> for details.',
-            'Example syntax: `<insight id="example">Signup funnel</insight>`.',
+            'Code example: `<insight id="example">Signup funnel</insight>`.',
         ].join('\n\n'),
     },
 }

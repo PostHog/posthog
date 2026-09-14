@@ -93,7 +93,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         ]
     )
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_preserves_buffered_code_examples(
+    def test_flattens_buffered_code_examples(
         self, _name: str, fence: str, closed: bool, mock_get_client: MagicMock
     ) -> None:
         client = mock_get_client.return_value
@@ -119,7 +119,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         streamed = "".join(
             chunk.get("text", "") for call in client.chat_appendStream.call_args_list for chunk in call.kwargs["chunks"]
         )
-        assert streamed == "".join(updates)
+        assert streamed == "".join(updates).replace('<insight id="1">Example</insight>', "Example")
 
     @patch.object(SlackThreadHandler, "_get_client")
     def test_streamed_label_cannot_create_mentions(self, mock_get_client: MagicMock) -> None:

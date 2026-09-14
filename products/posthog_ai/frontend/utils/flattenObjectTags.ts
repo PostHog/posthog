@@ -1,6 +1,3 @@
-import type { Nodes } from 'mdast'
-import { fromMarkdown } from 'mdast-util-from-markdown'
-
 const OBJECT_TAG_KINDS = new Set([
     'insight',
     'hogql',
@@ -48,7 +45,7 @@ function tagLabel(kind: string, rawAttributes: string, body: string): string {
     )
 }
 
-function flattenSegment(segment: string): string {
+export function flattenObjectTags(segment: string): string {
     const pieces: string[] = []
     const closers = new Map<string, RegExpExecArray | null>()
     let cursor = 0
@@ -77,25 +74,5 @@ function flattenSegment(segment: string): string {
         cursor = end
     }
     pieces.push(segment.slice(cursor))
-    return pieces.join('')
-}
-
-export function flattenObjectTags(text: string): string {
-    const pieces: string[] = []
-    let cursor = 0
-    function preserveCode(node: Nodes): void {
-        if (node.type === 'code' || node.type === 'inlineCode') {
-            const start = node.position?.start.offset
-            const end = node.position?.end.offset
-            if (start !== undefined && end !== undefined) {
-                pieces.push(flattenSegment(text.slice(cursor, start)), text.slice(start, end))
-                cursor = end
-            }
-        } else if ('children' in node) {
-            node.children.forEach(preserveCode)
-        }
-    }
-    preserveCode(fromMarkdown(text))
-    pieces.push(flattenSegment(text.slice(cursor)))
     return pieces.join('')
 }

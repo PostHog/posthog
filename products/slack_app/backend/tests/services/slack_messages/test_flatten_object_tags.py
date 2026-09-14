@@ -56,14 +56,14 @@ class TestFlattenObjectTags(unittest.TestCase):
                 "<summary>a recap</summary>",
             ),
             (
-                "tag_inside_inline_code_stays_literal",
+                "tag_inside_inline_code_is_flattened",
                 'Write `<insight id="9pQx3">label</insight>` to cite one',
-                'Write `<insight id="9pQx3">label</insight>` to cite one',
+                "Write `label` to cite one",
             ),
             (
-                "tag_inside_fence_stays_literal",
+                "tag_inside_fence_is_flattened",
                 '```\n<hogql label="x">SELECT 1</hogql>\n```',
-                '```\n<hogql label="x">SELECT 1</hogql>\n```',
+                "```\nx\n```",
             ),
             (
                 "half_streamed_tag_is_left_alone",
@@ -78,30 +78,30 @@ class TestFlattenObjectTags(unittest.TestCase):
             (
                 "tilde_fence",
                 '~~~xml\n<insight id="1">Example</insight>\n~~~',
-                '~~~xml\n<insight id="1">Example</insight>\n~~~',
+                "~~~xml\nExample\n~~~",
             ),
-            ("open_fence", '```xml\n<insight id="1">Example</insight>', '```xml\n<insight id="1">Example</insight>'),
+            ("open_fence", '```xml\n<insight id="1">Example</insight>', "```xml\nExample"),
             (
                 "long_fence",
                 '````xml\n```\n<insight id="1">Example</insight>\n````',
-                '````xml\n```\n<insight id="1">Example</insight>\n````',
+                "````xml\n```\nExample\n````",
             ),
-            ("indented_code", '    <insight id="1">Example</insight>\n', '    <insight id="1">Example</insight>\n'),
-            ("tab_indented_code", '\t<insight id="1">Example</insight>\n', '\t<insight id="1">Example</insight>\n'),
+            ("indented_code", '    <insight id="1">Example</insight>\n', "    Example\n"),
+            ("tab_indented_code", '\t<insight id="1">Example</insight>\n', "\tExample\n"),
             (
                 "quoted_fence",
                 '> ```xml\n> <insight id="1">Example</insight>\n> ```',
-                '> ```xml\n> <insight id="1">Example</insight>\n> ```',
+                "> ```xml\n> Example\n> ```",
             ),
             (
                 "double_backtick",
                 'Use ``<insight id="1">Example</insight>``.',
-                'Use ``<insight id="1">Example</insight>``.',
+                "Use ``Example``.",
             ),
             (
                 "multiline_inline_code",
                 'Use ``one\n<insight id="1">Example</insight>\ntwo``.',
-                'Use ``one\n<insight id="1">Example</insight>\ntwo``.',
+                "Use ``one\nExample\ntwo``.",
             ),
             (
                 "escaped_channel_mention",
@@ -123,7 +123,7 @@ class TestFlattenObjectTags(unittest.TestCase):
             (
                 "mixed_code_and_prose",
                 'Read <insight id="1">One</insight>.\n\n~~~xml\n<insight id="1">Example</insight>\n~~~\n\nRead <insight id="2">Two</insight>.',
-                'Read One.\n\n~~~xml\n<insight id="1">Example</insight>\n~~~\n\nRead Two.',
+                "Read One.\n\n~~~xml\nExample\n~~~\n\nRead Two.",
             ),
             ("empty_text_unchanged", "", ""),
             ("plain_text_unchanged", "No tags here", "No tags here"),

@@ -35,7 +35,6 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.dataclasses import frozen
-from posthog.helpers.markdown_code import markdown_code_spans
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.utils import absolute_uri
 
@@ -262,16 +261,7 @@ def flatten_object_tags(text: str) -> str:
     A tag split across two streamed chunks is left alone: only a complete tag is flattened, so
     half of one stays literal until both halves arrive in the same string.
     """
-    if not text:
-        return text
-    pieces: list[str] = []
-    cursor = 0
-    for span in markdown_code_spans(text):
-        pieces.append(_flatten_object_tags_segment(text[cursor : span.start]))
-        pieces.append(text[span.start : span.stop])
-        cursor = span.stop
-    pieces.append(_flatten_object_tags_segment(text[cursor:]))
-    return "".join(pieces)
+    return _flatten_object_tags_segment(text)
 
 
 def flatten_block_text(node: Any) -> list[str]:
