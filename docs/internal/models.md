@@ -10,6 +10,7 @@ Endpoint-backed models use the endpoint page to manage their lifecycle.
 Run history shows ten runs per page with previous and next controls.
 Refreshing the history reloads the current page.
 The latest run continues to update independently while you browse older pages, so the model status and run controls reflect the current run.
+**Last synced** reports the newest completed run, even when it is older than the ten runs on the first page.
 
 When suspension enforcement is enabled, a model suspended on the serving engine shows **Suspended** in both the attention list and its detail summary.
 The summary includes the reason and the stopped schedule; past runs retain their recorded outcomes.

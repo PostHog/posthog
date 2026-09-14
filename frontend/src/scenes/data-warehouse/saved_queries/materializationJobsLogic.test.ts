@@ -96,8 +96,12 @@ describe('materializationJobsLogic', () => {
         const requests: string[] = []
         mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = (req) => {
             const params = new URL(req.request.url).searchParams
-            requests.push(`${params.get('limit')}:${params.get('offset')}`)
             const offset = Number(params.get('offset'))
+            // The last-successful-sync lookup is a separate, status-filtered request; this test is about
+            // the history pages, so only those are recorded.
+            if (!params.get('status')) {
+                requests.push(`${params.get('limit')}:${offset}`)
+            }
             return [
                 200,
                 {
@@ -122,6 +126,29 @@ describe('materializationJobsLogic', () => {
         await expectLogic(logic, () => logic.actions.setJobsPage(1)).toDispatchActions(['loadDataModelingJobsSuccess'])
         expect(logic.values.jobsPageResults?.results.map((job) => job.id)).toEqual(['run-0'])
         expect(requests).toEqual(['10:0', '10:10', '10:0', '10:0'])
+    })
+
+    // Regression: the run history only holds the ten newest runs, so a view whose recent runs all
+    // failed still serves the data an older completed run built. That timestamp must survive.
+    it.each([
+        ['every recent run failed', 'Failed', '2026-09-01T10:00:00Z', 1],
+        ['a recent run completed', 'Completed', '2026-09-10T10:00:00Z', 0],
+    ])('reports the last successful sync when %s', async (_name, status, expected, expectedLookups) => {
+        let lookups = 0
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = (req) => {
+            if (new URL(req.request.url).searchParams.get('status') === 'Completed') {
+                lookups += 1
+                return [200, { count: 1, results: [{ id: 'old', status: 'Completed', last_run_at: expected }] }]
+            }
+            return [200, { count: 1, results: [{ id: 'recent', status, last_run_at: '2026-09-10T10:00:00Z' }] }]
+        }
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataModelingJobsSuccess']).toFinishAllListeners()
+        expect(logic.values.lastSuccessfulSyncAt).toBe(expected)
+        expect(lookups).toBe(expectedLookups)
     })
 
     it.each([false, true])(
@@ -398,7 +425,11 @@ describe('materializationJobsLogic', () => {
             let jobsCalls = 0
             let fail = false
             const mocks = apiMocks({ isMaterialized: true })
-            mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = () => {
+            mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = (req) => {
+                // Only the unfiltered history request is on the polling schedule.
+                if (new URL(req.request.url).searchParams.get('status')) {
+                    return [200, { results: [], count: 0 }]
+                }
                 jobsCalls += 1
                 return fail ? [500, { detail: 'Unavailable' }] : [200, { results: [{ id: 'job-1', status }], count: 1 }]
             }

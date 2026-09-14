@@ -59,6 +59,8 @@ export interface materializationJobsLogicValues {
     jobsPageResults: PaginatedDataModelingJobListApi | null
     jobsRefreshPending: boolean
     lastSuccessfulSyncAt: string | null
+    latestCompletedJob: PaginatedDataModelingJobListApi | null
+    latestCompletedJobLoading: boolean
     materializationRefreshPending: boolean
     olderJobsPage: PaginatedDataModelingJobListApi | null
     olderJobsPageError: boolean
@@ -158,6 +160,21 @@ export interface materializationJobsLogicActions {
         incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null
         payload?: any
     }
+    loadLatestCompletedJob: (_: void) => void
+    loadLatestCompletedJobFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLatestCompletedJobSuccess: (
+        latestCompletedJob: PaginatedDataModelingJobListApi,
+        payload?: void
+    ) => {
+        latestCompletedJob: PaginatedDataModelingJobListApi
+        payload?: void
+    }
     loadOlderJobsPage: (_: void) => void
     loadOlderJobsPageFailure: (
         error: string,
@@ -243,7 +260,10 @@ export interface materializationJobsLogicMeta {
             dataModelingJobs: PaginatedDataModelingJobListApi | null,
             olderJobsPage: PaginatedDataModelingJobListApi | null
         ) => PaginatedDataModelingJobListApi | null
-        lastSuccessfulSyncAt: (dataModelingJobs: PaginatedDataModelingJobListApi | null) => string | null
+        lastSuccessfulSyncAt: (
+            dataModelingJobs: PaginatedDataModelingJobListApi | null,
+            latestCompletedJob: PaginatedDataModelingJobListApi | null
+        ) => string | null
     }
 }
 
@@ -338,6 +358,23 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                     const jobs = await dataModelingJobsList(String(ApiConfig.getCurrentTeamId()), {
                         saved_query_id: props.viewId,
                         limit: DEFAULT_JOBS_PAGE_SIZE,
+                        offset: 0,
+                    })
+                    breakpoint()
+                    return jobs
+                },
+            },
+        ],
+        // The newest completed run when the first page holds none. The panel reports when the data the
+        // view serves was built, and a view whose last ten runs all failed still serves an older build.
+        latestCompletedJob: [
+            null as PaginatedDataModelingJobListApi | null,
+            {
+                loadLatestCompletedJob: async (_: void, breakpoint) => {
+                    const jobs = await dataModelingJobsList(String(ApiConfig.getCurrentTeamId()), {
+                        saved_query_id: props.viewId,
+                        status: 'Completed',
+                        limit: 1,
                         offset: 0,
                     })
                     breakpoint()
@@ -516,9 +553,11 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             ): PaginatedDataModelingJobListApi | null => (page === 1 ? latest : older),
         ],
         lastSuccessfulSyncAt: [
-            (s) => [s.dataModelingJobs],
-            (dataModelingJobs: PaginatedDataModelingJobListApi | null) =>
-                latestSuccessfulSyncAt(dataModelingJobs?.results),
+            (s) => [s.dataModelingJobs, s.latestCompletedJob],
+            (
+                dataModelingJobs: PaginatedDataModelingJobListApi | null,
+                latestCompletedJob: PaginatedDataModelingJobListApi | null
+            ) => latestSuccessfulSyncAt([...(dataModelingJobs?.results ?? []), ...(latestCompletedJob?.results ?? [])]),
         ],
     }),
     afterMount(({ actions, props }) => {
@@ -545,7 +584,6 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         deleteDataWarehouseSavedQuerySuccess: ({ payload }) => {
             if (payload === props.viewId && values.deletingView) {
                 actions.finishDeletingView()
-                lemonToast.success('View deleted')
                 router.actions.push(urls.models())
             }
         },
@@ -682,9 +720,12 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 actions.loadSavedQuery()
             }
         },
-        loadDataModelingJobsSuccess: () => {
+        loadDataModelingJobsSuccess: ({ dataModelingJobs }) => {
             // Refresh saved query alongside jobs so latest_error / status / sync_frequency stay in sync.
             actions.loadSavedQuery()
+            if (!dataModelingJobs.results.some((job) => job.status === 'Completed')) {
+                actions.loadLatestCompletedJob()
+            }
             const active = values.startingMaterialization || values.dataModelingJobs?.results[0]?.status === 'Running'
             actions.scheduleJobsRefresh(active ? ACTIVE_REFRESH_INTERVAL_MS : IDLE_REFRESH_INTERVAL_MS)
         },
