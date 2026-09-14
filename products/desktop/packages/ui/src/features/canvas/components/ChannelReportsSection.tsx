@@ -7,7 +7,6 @@ import {
   EmptyMedia,
   EmptyTitle,
   Skeleton,
-  Spinner,
 } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { ReportRow } from "@posthog/ui/features/canvas/components/ReportRow";
@@ -17,6 +16,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useChannelReports";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useEffect, useMemo } from "react";
 
 /**

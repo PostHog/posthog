@@ -16,18 +16,12 @@ import {
   TONE_ICON_VAR,
   taskBadges,
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
-import { DotRingSpinner } from "@posthog/ui/primitives/DotRingSpinner";
+import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import type { ReactElement, ReactNode } from "react";
 
 const DOT_SIZE = 8;
-// Drawn at the row-icon size the rest of the app spins at, not at the dot's own
-// 8px: eight dots inside an 8px box are 1.6px across, and that reads as a smudge
-// rather than as something turning, which leaves the one row that is working the
-// faintest mark in the list.
 const SPINNER_SIZE = 12;
-// The box the ring is centered in and measured by. It stays the plain dot's, so
-// the icon column holds one width and a working row's label lines up with its
-// neighbours' — the ring's extra width spills evenly into the row's padding.
+// Keep the status column stable when a dot changes to a larger spinner.
 const SPINNER_BOX = DOT_SIZE;
 // Enough to still find the dot if you look for it, not enough to count as one of
 // the list's live rows.
@@ -81,17 +75,14 @@ function dotMark(dot: TaskDot, decorative = false): ReactElement {
       <span
         {...naming}
         className="relative flex shrink-0 items-center justify-center"
-        // The spinner draws its dots in `currentColor`, so the tone is set
-        // here rather than passed down.
         style={{
           color: TONE_ICON_VAR[dot.tone],
           width: SPINNER_BOX,
           height: SPINNER_BOX,
         }}
       >
-        <DotRingSpinner
+        <DotsCircleSpinner
           size={SPINNER_SIZE}
-          // Out of flow, so the box measures the dot rather than the ring.
           className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 left-1/2"
         />
       </span>
@@ -102,9 +93,6 @@ function dotMark(dot: TaskDot, decorative = false): ReactElement {
       {...naming}
       className={cn(
         "block shrink-0 rounded-full",
-        // ph-pulse is the app's existing flash, but it has no reduced-motion
-        // rule of its own — hold a static dot rather than blinking at someone
-        // who asked us not to.
         dot.pulse && "ph-pulse motion-reduce:animate-none",
       )}
       style={{
@@ -123,11 +111,39 @@ function dotMark(dot: TaskDot, decorative = false): ReactElement {
  * A task's state as a single dot: blue wants a decision, the brand yellow is
  * working or unread, grey is quiet. The trigger renders as a span because rows are
  * `<button>`s — a nested button would be invalid HTML.
+ *
+ * `hitArea="row"` is for the list rows, where the dot is the only thing to aim
+ * at and eight pixels of it is a target people miss — enough that the tooltip
+ * reads as absent rather than small, so the colours end up meaning nothing. The
+ * dot keeps its own box in the row's layout, so nothing moves; the trigger
+ * grows around it into the square below.
  */
-export function TaskStatusDot({ dot }: { dot: TaskDot }) {
+export function TaskStatusDot({
+  dot,
+  hitArea = "dot",
+}: {
+  dot: TaskDot;
+  /** `row`: the row's whole leading square, not just the mark drawn in it. */
+  hitArea?: "dot" | "row";
+}) {
   return (
     <RowTooltip label={dot.label} side="right">
-      {dotMark(dot)}
+      {hitArea === "row" ? (
+        <span className="relative flex shrink-0 items-center justify-center">
+          {dotMark(dot)}
+          {/* `-inset-2` around an 8px dot is a 24px square. On a 28px row whose
+              dot sits in its 8px of leading padding, that square starts at the
+              row's own left edge and stops just short of its top and bottom —
+              the target you were already aiming at. It overflows the dot's box
+              instead of widening it, so the mark stays where it was drawn, and
+              `mouseenter` counts an overflowing child as part of the trigger. */}
+          {/* `aria-hidden` because the mark inside carries the label; a second
+              named element here would announce the state twice. */}
+          <span aria-hidden className="-inset-2 absolute" />
+        </span>
+      ) : (
+        dotMark(dot)
+      )}
     </RowTooltip>
   );
 }

@@ -9,7 +9,9 @@ import type {
   AUTH_TOKEN_OVERRIDE,
 } from "@posthog/core/auth/identifiers";
 import type {
+  CLAUDE_SUBSCRIPTION_TOKEN_STORE,
   CLOUD_TASK_AUTH,
+  ClaudeSubscriptionTokenStore,
   ICloudTaskAuth,
   MCP_RELAY_EXECUTOR,
   McpRelayExecutor,
@@ -18,6 +20,10 @@ import type {
   CONTEXT_MENU_EXTERNAL_APPS_SERVICE,
   IContextMenuExternalApps,
 } from "@posthog/core/context-menu/identifiers";
+import type {
+  CUSTOM_CLOUD_STORE,
+  CustomCloudStore,
+} from "@posthog/core/custom-cloud/identifiers";
 import type {
   FOCUS_SESSION_STORE,
   FOCUS_WORKSPACE_CLIENT,
@@ -387,6 +393,7 @@ export interface MainBindings {
   [MCP_PROXY_AUTH]: McpProxyAuth;
   [MCP_RELAY_SERVICE]: McpRelayService;
   [MCP_RELAY_EXECUTOR]: McpRelayExecutor;
+  [CLAUDE_SUBSCRIPTION_TOKEN_STORE]: ClaudeSubscriptionTokenStore;
 
   // Archive / suspension host ports
   [ARCHIVE_SESSION_CANCELLER]: SessionCanceller;
@@ -432,6 +439,7 @@ export interface MainBindings {
   // Notification / oauth
   [NOTIFICATION_SERVICE]: NotificationService;
   [OAUTH_HOST]: OAuthHost;
+  [CUSTOM_CLOUD_STORE]: CustomCloudStore;
 
   // Process tracking / posthog plugin
   [MAIN_PROCESS_TRACKING_SERVICE]: ProcessTrackingService;

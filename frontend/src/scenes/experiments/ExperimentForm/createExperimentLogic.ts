@@ -36,14 +36,13 @@ import type { ExperimentMetricUnion } from '../../../queries/schema/schema-gener
 import type { FeatureFlagType } from '../../../types'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
-import { experimentScannerBody, experimentScannerFilters } from '../replayVisionScanner'
+import { experimentScannerBody } from '../replayVisionScanner'
 import {
     type ExperimentWritePayload,
     getExperimentVariants,
     toExperimentWritePayload,
     toFlagVariantsInput,
 } from '../utils'
-import { loadUnlinkableEventNames } from '../viewRecordingsLinkabilityLogic'
 import { validateExperimentSubmission } from './experimentSubmissionValidation'
 import type { FeatureFlagKeyValidation } from './variantsPanelLogic'
 import { variantsPanelLogic } from './variantsPanelLogic'
@@ -527,14 +526,10 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     let replayScannerId: string | null = null
                     let replayScannerCreationFailed = false
                     if (values.createReplayVisionScanner) {
-                        const { filters, usedExposureFallback } = experimentScannerFilters(
-                            response,
-                            await loadUnlinkableEventNames(response)
-                        )
                         try {
                             const replayScanner = await visionScannersCreate(
                                 String(values.currentProjectId),
-                                experimentScannerBody(response, filters, usedExposureFallback)
+                                experimentScannerBody(response)
                             )
                             replayScannerId = replayScanner.id
                             actions.addProductIntentForCrossSell({

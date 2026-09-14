@@ -1,5 +1,7 @@
 import { useState } from 'react'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
@@ -66,6 +68,12 @@ export function useReportDismiss({
                         ...suppressDismissalPayload(dismissal),
                     })
                     onDismissed?.()
+                } catch (error: any) {
+                    // A rejected submit keeps the dialog open and captures unexpected failures, but
+                    // shows the user nothing, so a refused dismiss needs this toast. Reject after it
+                    // so the reason and note survive for a retry. Matches useReportResolve.
+                    lemonToast.error(error?.detail || error?.message || 'Failed to dismiss report')
+                    throw error
                 } finally {
                     setIsDismissing(false)
                 }

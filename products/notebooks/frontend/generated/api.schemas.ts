@@ -117,7 +117,7 @@ export interface NotebookVariableApi {
     name: string
     /** How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'. */
     type: string
-    /** The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone. */
+    /** The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected. */
     value?: unknown
 }
 
@@ -600,12 +600,16 @@ export interface NotebookCellLastRunApi {
 export interface NotebookCellStateApi {
     /** Durable cell identity, used by the cell run and edit endpoints. */
     node_id: string
-    /** Cell kind: 'sql', 'python', or 'saved_insight' (embedded insight, never runs). */
+    /** Cell kind: 'sql', 'python', 'saved_insight' (embedded insight, never runs), or 'markdown' (prose, a heading, or a fenced block; never runs and joins no dependency graph). */
     cell_type: string
     /** Name other cells reference this cell's result by; blank means display-only. */
     dataframe_name: string
-    /** The cell's source, truncated with a marker past 8KB. */
+    /** The cell's source, truncated with a marker past 8KB. For a markdown cell this is the block's markdown. */
     code: string
+    /** Offset where the cell's source starts in the notebook's markdown, in UTF-16 code units, the same unit the collaboration diffs use. */
+    start: number
+    /** Offset just past the cell's source, in UTF-16 code units, excluding the blank lines that separate it from the next cell. */
+    end: number
     /** Derived cell state: 'never_run', 'running', 'done', 'failed', 'interrupted', or 'stale' — stale means re-running now would execute different code than the last completed run (the cell or an upstream dependency changed). */
     status: string
     /** node_ids of cells whose dataframes this cell's code references. */
@@ -638,6 +642,8 @@ export interface NotebookSQLV2StateResponseApi {
     content?: unknown
     /** The notebook's kernel runtime state and compute config. */
     kernel: NotebookKernelStateApi
+    /** The notebook's declared variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global; a cell that reads an undeclared name fails to run. */
+    variables: NotebookVariableApi[]
     /** Every cell in document order, with its dependency edges and derived run state. */
     cells: NotebookCellStateApi[]
 }

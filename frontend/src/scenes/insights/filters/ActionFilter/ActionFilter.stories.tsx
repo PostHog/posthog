@@ -18,7 +18,7 @@ import { EntityTypes, FilterLogicalOperator, FilterType, InsightLogicProps, Insi
 
 import __trendsLineBreakdown from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
 import { ActionFilter, ActionFilterProps } from './ActionFilter'
-import { MathAvailability } from './ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from './ActionFilterRow/types'
 
 type Story = StoryObj<ActionFilterProps>
 const meta: Meta<ActionFilterProps> = {

@@ -100,16 +100,8 @@ async fn top_queries(State(s): S, Path(server): Path<String>, Query(p): Query<To
         .await?,
     ))
 }
-async fn query_detail(
-    State(s): S,
-    Path((server, queryid)): Path<(String, i64)>,
-    Query(r): Query<Range>,
-) -> R {
-    let (f, t) = r.resolve()?;
-    Ok(Json(q::query_detail(&s.db, &server, queryid, f, t).await?))
-}
 #[derive(Deserialize)]
-struct WaitsQ {
+struct BucketQ {
     #[serde(flatten)]
     range: Range,
     #[serde(default = "d_bucket")]
@@ -118,7 +110,17 @@ struct WaitsQ {
 fn d_bucket() -> String {
     "1m".into()
 }
-async fn waits(State(s): S, Path(server): Path<String>, Query(p): Query<WaitsQ>) -> R {
+async fn query_detail(
+    State(s): S,
+    Path((server, queryid)): Path<(String, i64)>,
+    Query(p): Query<BucketQ>,
+) -> R {
+    let (f, t) = p.range.resolve()?;
+    Ok(Json(
+        q::query_detail(&s.db, &server, queryid, f, t, &p.bucket).await?,
+    ))
+}
+async fn waits(State(s): S, Path(server): Path<String>, Query(p): Query<BucketQ>) -> R {
     let (f, t) = p.range.resolve()?;
     Ok(Json(q::wait_events(&s.db, &server, f, t, &p.bucket).await?))
 }

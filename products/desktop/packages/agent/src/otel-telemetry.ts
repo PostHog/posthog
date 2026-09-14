@@ -195,9 +195,11 @@ export function mapNotificationToLogRecord(
       // params.error is free text that can embed prompt or repo content
       // (exception messages, provider errors), so only its provenance is
       // exported. The raw message stays in the session log and on the task
-      // run's error_message.
+      // run's error_message. The classification is a fixed vocabulary, so it is
+      // safe to export and lets APM split failures by class.
       const attrs: Attributes = {};
       strAttr(attrs, "error_source", params.source);
+      strAttr(attrs, "error_category", params.errorCategory);
       strAttr(attrs, "stop_reason", params.stopReason);
       return record(ERROR, "run error", method, attrs);
     }

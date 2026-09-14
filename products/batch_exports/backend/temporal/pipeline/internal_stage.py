@@ -19,6 +19,7 @@ from temporalio import activity
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.credentials import AWSKeyPair
+from posthog.dataclasses import frozen
 
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
@@ -52,13 +53,14 @@ from products.batch_exports.backend.service import (
     afetch_last_run_records_completed,
 )
 from products.batch_exports.backend.temporal.batch_exports import default_fields
-from products.batch_exports.backend.temporal.filters import compose_filters_clause
+from products.batch_exports.backend.temporal.filters import InvalidFilterError, compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.pipeline.query_ranges import (
     is_5_min_batch_export,
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
 )
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportError
 from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel, resolve_batch_exports_model
 from products.batch_exports.backend.temporal.sql.common import get_s3_function_call
 from products.batch_exports.backend.temporal.sql.events import (
@@ -89,12 +91,23 @@ class DataIntervalEndInFutureError(Exception):
 class HogQLQueryResourceLimitExceededError(Exception):
     """A user's HogQL batch export query exceeded a per-query ClickHouse resource limit.
 
-    Raised in place of the ClickHouse error so the workflow treats it as non-retryable (see the
-    stage activity's `non_retryable_error_types`): re-running the query unchanged would fail again.
+    Raised in place of the ClickHouse error so the staging activity treats it as non-retryable
+    (see `NON_RETRYABLE_ERRORS`): re-running the query unchanged would fail again.
 
     Only raised for the `hogql` model. The fixed models keep their ClickHouse errors and stay
     retryable, since their queries are ours and any failures are our responsibility to address.
     """
+
+
+# Staging failures the user has to resolve; retrying them ourselves would achieve nothing.
+# The activity returns these as an `InternalStageResult.error` instead of raising, which fails the
+# run without failing the activity. This mirrors how the destination activities treat their own
+# non-retryable errors (see `handle_non_retryable_errors`), and prevents us being alerted on user errors.
+NON_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
+    DataIntervalEndInFutureError,
+    HogQLQueryResourceLimitExceededError,
+    InvalidFilterError,
+)
 
 
 def _raise_on_hogql_resource_limit_error(exc: ClickHouseError, model_name: str) -> None:
@@ -250,13 +263,15 @@ class S3StagingFolder:
     url: str
 
 
-@dataclass
+@frozen
 class InternalStageResult:
     """Result of staging a batch export run's data in the internal S3 area."""
 
     stage_folder: str
     # Total rows written to the stage (from ClickHouse's query summary), or None if unknown.
     records_total: int | None = None
+    # Set when staging failed with one of `NON_RETRYABLE_ERRORS`, in which case nothing was staged.
+    error: BatchExportError | None = None
 
 
 @dataclass
@@ -299,11 +314,7 @@ class BatchExportInsertIntoInternalStageInputs:
 async def insert_into_internal_stage_activity(
     inputs: BatchExportInsertIntoInternalStageInputs,
 ) -> InternalStageResult:
-    """Write record batches to our own internal S3 staging area.
-
-    Returns:
-        The S3 staging folder where the data was written to, and the total number of rows staged.
-    """
+    """Write record batches to our own internal S3 staging area."""
     bind_contextvars(
         team_id=inputs.team_id,
         batch_export_id=inputs.batch_export_id,
@@ -346,47 +357,83 @@ async def insert_into_internal_stage_activity(
         )
         logger.info("Computed staging partitions", num_partitions=num_partitions)
 
-        if record_batch_model is not None:
-            query_or_model = record_batch_model
-            query_parameters = {}
-        else:
-            query, query_parameters = await _get_query(
+        try:
+            records_total = await _stage_query_results(
+                inputs,
+                record_batch_model=record_batch_model,
                 model_name=model_name,
-                backfill_details=inputs.backfill_details,
-                team_id=inputs.team_id,
-                batch_export_id=inputs.batch_export_id,
-                s3_staging_folder_url=s3_staging_folder.url,
-                full_range=full_range,
-                data_interval_start=inputs.data_interval_start,
-                data_interval_end=inputs.data_interval_end,
                 fields=fields,
                 filters=filters,
-                destination_default_fields=inputs.destination_default_fields,
-                exclude_events=inputs.exclude_events,
-                include_events=inputs.include_events,
                 extra_query_parameters=extra_query_parameters,
-                num_partitions=num_partitions,
-                is_workflows=inputs.is_workflows,
-            )
-            query_or_model = query
-
-        try:
-            records_total = await _write_batch_export_record_batches_to_internal_stage(
-                query_or_model=query_or_model,
                 full_range=full_range,
-                query_parameters=query_parameters,
-                team_id=inputs.team_id,
-                batch_export_id=inputs.batch_export_id,
-                data_interval_start=inputs.data_interval_start,
-                data_interval_end=inputs.data_interval_end,
-                s3_staging_folder_url=s3_staging_folder.url,
+                s3_staging_folder=s3_staging_folder,
                 num_partitions=num_partitions,
             )
-        except ClickHouseError as e:
-            _raise_on_hogql_resource_limit_error(e, model_name)
-            raise
+        except NON_RETRYABLE_ERRORS as e:
+            logger.warning("Staging data failed with a non-retryable error", error=str(e))
+            return InternalStageResult(
+                stage_folder=s3_staging_folder.folder,
+                error=BatchExportError(type=type(e).__name__, message=str(e)),
+            )
+
     logger.info("Staging data completed successfully", records_total=records_total)
     return InternalStageResult(stage_folder=s3_staging_folder.folder, records_total=records_total)
+
+
+async def _stage_query_results(
+    inputs: BatchExportInsertIntoInternalStageInputs,
+    *,
+    record_batch_model: RecordBatchModel | None,
+    model_name: str,
+    fields: list[BatchExportField] | None,
+    filters: list[dict[str, str | list[str] | None]] | None,
+    extra_query_parameters: dict[str, typing.Any] | None,
+    full_range: tuple[dt.datetime | None, dt.datetime],
+    s3_staging_folder: S3StagingFolder,
+    num_partitions: int,
+) -> int | None:
+    """Build this run's query and write its results into the internal S3 staging area.
+
+    Returns the number of rows staged, or None if the count couldn't be determined.
+    """
+    if record_batch_model is not None:
+        query_or_model: str | RecordBatchModel = record_batch_model
+        query_parameters: dict[str, typing.Any] = {}
+    else:
+        query_or_model, query_parameters = await _get_query(
+            model_name=model_name,
+            backfill_details=inputs.backfill_details,
+            team_id=inputs.team_id,
+            batch_export_id=inputs.batch_export_id,
+            s3_staging_folder_url=s3_staging_folder.url,
+            full_range=full_range,
+            data_interval_start=inputs.data_interval_start,
+            data_interval_end=inputs.data_interval_end,
+            fields=fields,
+            filters=filters,
+            destination_default_fields=inputs.destination_default_fields,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
+            extra_query_parameters=extra_query_parameters,
+            num_partitions=num_partitions,
+            is_workflows=inputs.is_workflows,
+        )
+
+    try:
+        return await _write_batch_export_record_batches_to_internal_stage(
+            query_or_model=query_or_model,
+            full_range=full_range,
+            query_parameters=query_parameters,
+            team_id=inputs.team_id,
+            batch_export_id=inputs.batch_export_id,
+            data_interval_start=inputs.data_interval_start,
+            data_interval_end=inputs.data_interval_end,
+            s3_staging_folder_url=s3_staging_folder.url,
+            num_partitions=num_partitions,
+        )
+    except ClickHouseError as e:
+        _raise_on_hogql_resource_limit_error(e, model_name)
+        raise
 
 
 async def compute_num_partitions(

@@ -178,21 +178,39 @@ describe('createMergeFoldPlanningStep', () => {
         expect(planOf(items[2])).toBe(plan)
     })
 
-    it('excludes anon ids no backend can store, which would fail the fold transaction', async () => {
-        // A NUL cannot exist in Postgres text and over 400 code points
-        // cannot fit the column, so folding one in aborts the whole
-        // transaction and every pair with it.
-        const items = await scan([identify('anon-1'), identify('anon\u0000two'), identify('x'.repeat(401))])
+    it.each([
+        ['a NUL, which the column cannot hold', 'anon\u0000bad'],
+        ['over 400 code points, which the column cannot fit', 'a'.repeat(401)],
+    ])('excludes an anon distinct id carrying %s', async (_case, badId) => {
+        // The sequential path refuses these before merging. Admitting one
+        // into a fold instead runs it against the column, which aborts the
+        // whole folded transaction and takes every other pair in the run
+        // down with it.
+        const items = await scan([identify('anon-1'), identify(badId), identify('anon-2')])
 
-        expect(planOf(items[0])?.pairs.map((p) => p.anonDistinctId)).toEqual(['anon-1'])
+        expect(planOf(items[0])?.pairs.map((p) => p.anonDistinctId)).toEqual(['anon-1', 'anon-2'])
         expect(items[1].mergeFold.type).toBe('immediate')
-        expect(items[2].mergeFold.type).toBe('immediate')
     })
 
     it('skips planning when only illegal anon distinct ids are in the run', async () => {
         const items = await scan([identify('anonymous'), identify('null')])
 
         expect(items.every((item) => item.mergeFold.type === 'immediate')).toBe(true)
+    })
+
+    it('splits a run longer than the saga source cap into several plans', async () => {
+        const items = await scan(Array.from({ length: 260 }, (_, i) => identify(`anon-${i}`)))
+
+        // One request carrying 260 sources is refused outright, which spends
+        // the fold and drops every pair back to its own sequential merge.
+        const plans = new Set(items.map((item) => planOf(item)).filter(Boolean))
+        expect(plans.size).toBe(2)
+        const sizes = [...plans].map((plan) => plan!.pairs.length).sort((a, b) => b - a)
+        expect(sizes).toEqual([250, 10])
+
+        // Every pair still folds: the split loses no merge.
+        const folded = [...plans].flatMap((plan) => plan!.pairs.map((pair) => pair.anonDistinctId))
+        expect(new Set(folded).size).toBe(260)
     })
 
     it('excludes self-merges from the plan', async () => {

@@ -2,6 +2,7 @@ import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import {
     DashboardFilter,
     DataNode,
@@ -64,6 +65,8 @@ export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
+/** Matches MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE in posthog/api/query.py. */
+const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavailable'
 
 /**
  * Parse error message that may be in ErrorDetail string format.
@@ -181,7 +184,9 @@ async function executeQuery<N extends DataNode>(
      * (stale-while-revalidate: `is_cached` is true *and* an incomplete `query_status` is
      * attached), return the cached results immediately instead of blocking on the recompute.
      */
-    acceptStaleCache = false
+    acceptStaleCache = false,
+    /** True on the retry below, so a failed retry cannot start another one. */
+    retriedAfterExpiry = false
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
@@ -220,7 +225,43 @@ async function executeQuery<N extends DataNode>(
         }
     }
 
-    const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
+    let statusResponse: QueryStatus
+    try {
+        statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
+    } catch (e: any) {
+        // The server keeps a query's status in Redis for 20 minutes. A backgrounded tab stops
+        // polling and stops its own give-up timer, so it can outlive that TTL and then poll for a
+        // query the server has forgotten. That query most likely finished and cached its result.
+        //
+        // So run it again, once. force_async becomes async, to read the cached result instead of
+        // recomputing it. The query ID is reused, so cancels and log lookups still find the run;
+        // safe because the server only joins a query that is still running.
+        //
+        // A warehouse that is down also answers 404. Do not retry that one. A shared or exported
+        // view may only read, so it cannot submit at all; report the expired status rather than
+        // the permission error the server would answer with.
+        if (
+            retriedAfterExpiry ||
+            e?.status !== 404 ||
+            e?.code === MANAGED_WAREHOUSE_UNAVAILABLE_CODE ||
+            isSharedView()
+        ) {
+            throw e
+        }
+        return await executeQuery(
+            queryNode,
+            methodOptions,
+            refresh === 'force_async' ? 'async' : refresh,
+            queryId,
+            setPollResponse,
+            filtersOverride,
+            variablesOverride,
+            false,
+            limitContext,
+            acceptStaleCache,
+            true
+        )
+    }
     return statusResponse.results
 }
 

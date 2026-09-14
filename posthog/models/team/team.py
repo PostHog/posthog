@@ -1221,6 +1221,7 @@ class Team(UUIDTClassicModel):
 
                 role_user_ids = (
                     RoleMembership.objects.filter(role_id__in=roles_with_access)
+                    .valid_for_authorization()
                     .values_list("organization_member__user_id", flat=True)
                     .distinct()
                 )

@@ -11,6 +11,9 @@ database "posthog" {
     column "uuid" {
       type = "UUID"
     }
+    column "data_deletion_request_id" {
+      type = "Nullable(UUID)"
+    }
     column "created_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "now64()"
@@ -356,7 +359,7 @@ database "posthog" {
       type = "UInt64"
     }
     engine "distributed" {
-      cluster_name    = "posthog"
+      cluster_name    = "aux"
       remote_database = "posthog"
       remote_table    = "sharded_billing_usage_records"
       sharding_key    = "cityHash64(team_id)"
@@ -1885,24 +1888,6 @@ database "posthog" {
     column "person_id" {
       type = "UUID"
     }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
-    }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
@@ -2337,10 +2322,10 @@ database "posthog" {
       type = "Nullable(String)"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_events_json'"
-      group_name           = "kafka_group_name = 'group1'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "group1"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -2488,10 +2473,10 @@ database "posthog" {
       type = "Float64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_performance_events'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_performance_events"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2512,10 +2497,10 @@ database "posthog" {
       type = "Nullable(Int8)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_person_unique_id'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_person_unique_id"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3280,6 +3265,26 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.person_overrides"
       replica_name   = "{replica}-{shard}"
       version_column = "version"
+    }
+  }
+
+  table "person_property_mutation_log" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "event_uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "ingested_at" {
+      type = "DateTime('UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "person_property_mutation_log_data"
     }
   }
 
@@ -4581,20 +4586,8 @@ database "posthog" {
     column "max_last_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
     }
-    column "block_first_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_last_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_urls" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
-    }
     column "first_url" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "all_urls" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "click_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
@@ -4626,14 +4619,29 @@ database "posthog" {
     column "event_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
     }
+    column "_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
     column "snapshot_source" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    }
+    column "all_urls" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "snapshot_library" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
-    column "_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime)"
+    column "block_first_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_last_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_urls" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+    }
+    column "retention_period_days" {
+      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     column "is_deleted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
@@ -4652,8 +4660,8 @@ database "posthog" {
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
+    column "snapshot_mode" {
+      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -5083,58 +5091,6 @@ database "posthog" {
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_app_metrics2"
       replica_name = "{replica}"
-    }
-  }
-
-  table "sharded_billing_usage_records" {
-    order_by     = ["team_id", "toDate(timestamp)", "producer_id", "usage_key", "record_id"]
-    partition_by = "toYYYYMM(timestamp)"
-    settings = {
-      index_granularity = "8192"
-    }
-    column "schema_version" {
-      type = "UInt8"
-    }
-    column "record_id" {
-      type = "String"
-    }
-    column "producer_id" {
-      type = "LowCardinality(String)"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "organization_id" {
-      type = "UUID"
-    }
-    column "usage_key" {
-      type = "LowCardinality(String)"
-    }
-    column "unit" {
-      type = "LowCardinality(String)"
-    }
-    column "quantity" {
-      type = "Int64"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "inserted_at" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_partition" {
-      type = "UInt64"
-    }
-    engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
-      replica_name   = "{replica}"
-      version_column = "inserted_at"
     }
   }
 
@@ -6359,24 +6315,6 @@ database "posthog" {
     }
     column "person_id" {
       type = "UUID"
-    }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
     }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
@@ -7788,20 +7726,8 @@ database "posthog" {
     column "max_last_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
     }
-    column "block_first_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_last_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_urls" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
-    }
     column "first_url" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "all_urls" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "click_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
@@ -7833,14 +7759,29 @@ database "posthog" {
     column "event_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
     }
+    column "_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
     column "snapshot_source" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    }
+    column "all_urls" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "snapshot_library" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
-    column "_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime)"
+    column "block_first_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_last_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_urls" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+    }
+    column "retention_period_days" {
+      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     column "is_deleted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
@@ -7859,8 +7800,8 @@ database "posthog" {
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
+    column "snapshot_mode" {
+      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.session_replay_events"
@@ -10017,6 +9958,9 @@ database "posthog" {
     column "snapshot_library" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
+    column "snapshot_mode" {
+      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    }
     column "_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime)"
     }
@@ -11507,10 +11451,10 @@ SQL
     query = <<SQL
 WITH
   ['ClickHouseCustomMetric_BackupFailed', 'ClickHouseCustomMetric_BackupSuccess', 'ClickHouseCustomMetric_BackupCancelled', 'ClickHouseCustomMetric_BackupAttempts'] AS names,
-  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS values,
+  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS `values`,
   ['Number of failed backups', 'Number of successful backups', 'Number of cancelled backups', 'Number of backup attempts'] AS descriptions,
   ['gauge', 'gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('instance', hostname()) AS labels,
@@ -11583,10 +11527,10 @@ SQL
     query = <<SQL
 WITH
   ['ClickHouseCustomMetric_ReplicationQueueStuckEntries', 'ClickHouseCustomMetric_ReplicationQueueMaxPostponedEntrySeconds', 'ClickHouseCustomMetric_ReplicationQueueMaxErrorEntrySeconds'] AS names,
-  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS values,
+  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS `values`,
   ['Number of entries that have been in the replication queue for more than 15 days', 'Maximum number of seconds that an entry has been postponed', 'Maximum number of seconds that an entry has been in error'] AS descriptions,
   ['gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('table', `table`, 'instance', hostname()) AS labels,
@@ -12208,4 +12152,40 @@ SQL
     layout "hashed" {
     }
   }
+}
+
+named_collection "msk_cluster" {
+  external = true
+}
+
+named_collection "warpstream_calculated_events" {
+  external = true
+}
+
+named_collection "warpstream_cyclotron" {
+  external = true
+}
+
+named_collection "warpstream_ingestion" {
+  external = true
+}
+
+named_collection "warpstream_logs" {
+  external = true
+}
+
+named_collection "warpstream_metrics" {
+  external = true
+}
+
+named_collection "warpstream_replay" {
+  external = true
+}
+
+named_collection "warpstream_shared" {
+  external = true
+}
+
+named_collection "warpstream_traces" {
+  external = true
 }

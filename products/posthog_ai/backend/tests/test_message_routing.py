@@ -19,7 +19,10 @@ from products.posthog_ai.backend.message_routing import (
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.services.system_prompt.service import PromptService
-from products.tasks.backend.facade import warm as warm_facade
+from products.tasks.backend.facade import (
+    api as tasks_facade,
+    warm as warm_facade,
+)
 from products.tasks.backend.models import Task, TaskRun
 
 ROUTING = "products.posthog_ai.backend.message_routing"
@@ -103,6 +106,17 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert wf_kwargs["create_pr"] is False
         # The agent needs write scopes to create insights/dashboards/notebooks.
         assert wf_kwargs["posthog_mcp_scopes"] == "full"
+
+    def test_system_prompt_written_on_open_reaches_the_sandbox(self):
+        task, run = self._stub_task()
+        car, workflow, sysprompt = self._patches(task)
+        with car, workflow, sysprompt:
+            self._service().open({"content": "Why did checkout drop?", "trace_id": "trace-1"})
+
+        detail = tasks_facade.get_task_run_detail(run.id, task.id, self.team.id, include_agent_state=True)
+
+        assert detail is not None
+        assert detail.state["systemPrompt"] == SYS_PROMPT
 
     def test_handoff_detaches_previous_owner_conversation(self):
         new_owner = User.objects.create_user(

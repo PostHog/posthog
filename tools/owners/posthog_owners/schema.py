@@ -27,7 +27,7 @@ _TEAMS_ENTRY_KEYS = {"slack", "notifications"}
 # Automation that posts to a team's notifications channel and can be silenced on its own. A
 # producer must be named here to be nameable in `notifications:`. Lint reports a typo where lint
 # runs; where it does not, an unreadable mapping silences rather than posts (see _validate_teams).
-Producer = Literal["stamphog"]
+Producer = Literal["stamphog", "visual_review"]
 PRODUCERS = frozenset(get_args(Producer))
 _KNOWN_PRODUCERS = ", ".join(sorted(PRODUCERS))
 

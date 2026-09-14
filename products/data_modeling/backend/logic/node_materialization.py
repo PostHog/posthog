@@ -1,6 +1,5 @@
 import asyncio
 from dataclasses import asdict
-from datetime import timedelta
 from uuid import UUID
 
 from django.conf import settings
@@ -11,7 +10,7 @@ from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDR
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
-from products.data_modeling.backend.logic.node_suspension import resume_nodes
+from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
 from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
 from products.data_modeling.backend.models import Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -20,17 +19,26 @@ from products.data_modeling.backend.schedule import get_v2_saved_query_ids
 logger = structlog.get_logger(__name__)
 
 
-def start_node_materialization(node: Node) -> None:
+def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_id: int | None = None) -> None:
     """Start a one-off materialization workflow for a single node.
 
     Shared by node `materialize` and saved-query `run`.
+
+    `resume=False` is for automatic callers, such as a repair triggered by read traffic. The run
+    still starts, but a suspended node keeps its marker and its failure window, so request traffic
+    cannot hold the circuit breaker open.
+
+    `triggered_by_id` is the person who asked for this run, and only they are told if it fails.
+    Callers with no person behind them leave it unset.
     """
-    # An explicit run is a request to try again, so it gets a fresh failure window.
-    resume_nodes([node], by="manual_run")
+    if resume:
+        # An explicit run is a request to try again, so it gets a fresh failure window.
+        unsuspend_nodes([node], by="manual_run")
     inputs = MaterializeViewWorkflowInputs(
         team_id=node.team_id,
         dag_id=str(node.dag_id),
         node_id=str(node.id),
+        manually_triggered_by_id=triggered_by_id,
     )
 
     temporal = sync_connect()
@@ -42,12 +50,7 @@ def start_node_materialization(node: Node) -> None:
             task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            retry_policy=RetryPolicy(
-                initial_interval=timedelta(seconds=10),
-                maximum_interval=timedelta(seconds=60),
-                maximum_attempts=3,
-                non_retryable_error_types=["NondeterminismError", "CancelledError"],
-            ),
+            retry_policy=RetryPolicy(maximum_attempts=1),  # retries handled within the workflow
         )
     )
 
@@ -87,7 +90,9 @@ def run_saved_query_materialization(team_id: int, saved_query_id: UUID | str) ->
     materialize_saved_query(saved_query)
 
 
-def materialize_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
+def materialize_saved_query(
+    saved_query: DataWarehouseSavedQuery, *, resume: bool = True, triggered_by_id: int | None = None
+) -> None:
     """Materialize the saved query's backing node via the v2 workflow.
 
     Fire a single materialization — don't fan out over duplicate-DAG nodes, or two workers race to
@@ -99,4 +104,4 @@ def materialize_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
         # Raise rather than return: returning reports a materialization the caller can then find no
         # trace of, and there is no v1 schedule left to fall back to.
         raise MissingDagNodeError(f"Saved query {saved_query.id} has no DAG node to materialize")
-    start_node_materialization(node)
+    start_node_materialization(node, resume=resume, triggered_by_id=triggered_by_id)

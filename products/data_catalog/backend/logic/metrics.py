@@ -39,7 +39,7 @@ from .analytics import (
     METRIC_UPDATED_EVENT,
     capture_metric_event,
 )
-from .drift import canonical_query_hash, compute_drift, effective_insight_query, fetch_insight
+from .drift import canonical_query_hash, compute_drift, fetch_insight
 from .exceptions import MetricDrifted, SourceInsightUnavailable
 from .validation import validate_description, validate_metric_definition
 
@@ -111,11 +111,9 @@ def _snapshot_from_insight(team: Team, short_id: str, user: Optional[User]) -> t
     if insight is None:
         raise ValidationError({"source_insight_short_id": "Insight not found."})
     _require_insight_viewer_access(insight, team, user)
-    query = effective_insight_query(insight)
+    query = insight.query
     if not query:
-        raise ValidationError(
-            {"source_insight_short_id": "Could not convert this insight's query. Define the metric manually."}
-        )
+        raise ValidationError({"source_insight_short_id": "This insight has no query. Define the metric manually."})
     return query, canonical_query_hash(query)
 
 
@@ -376,11 +374,9 @@ def refresh_metric_from_insight(metric: Metric, user: Optional[User], request: "
         if insight is None or insight.deleted:
             raise SourceInsightUnavailable()
         _require_insight_viewer_access(insight, metric.team, user)
-        query = effective_insight_query(insight)
+        query = insight.query
         if not query:
-            raise SourceInsightUnavailable(
-                "Could not convert the source insight's query. Edit the definition or unlink."
-            )
+            raise SourceInsightUnavailable("The source insight has no query. Edit the definition or unlink.")
 
         canonical_def, referenced = _canonical_definition(query, metric.team, user)
         new_hash = canonical_query_hash(query)

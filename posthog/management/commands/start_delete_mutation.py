@@ -22,5 +22,11 @@ class Command(BaseCommand):
 
 def run():
     logger.info("Starting deletion of data for teams")
-    failed = sweep_cohort_deletions()
-    logger.info("Finished deletion of data for teams", failed_passes=failed)
+    report = sweep_cohort_deletions()
+    logger.info(
+        "Finished deletion of data for teams",
+        cohorts=report.targets,
+        mutations=report.mutations,
+        marked=report.marked,
+        failed_passes=report.failed,
+    )

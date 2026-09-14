@@ -321,6 +321,22 @@ BASE_COLUMN_MAPPING = {
     ),
 }
 
+# Metrics that only the cost side can report. A row with no cost match has no value for them,
+# which the table shows as "-" rather than as a spend of zero.
+COST_SIDE_METRIC_COLUMNS: frozenset[MarketingAnalyticsBaseColumns] = frozenset(
+    {
+        MarketingAnalyticsBaseColumns.COST,
+        MarketingAnalyticsBaseColumns.CLICKS,
+        MarketingAnalyticsBaseColumns.IMPRESSIONS,
+        MarketingAnalyticsBaseColumns.CPC,
+        MarketingAnalyticsBaseColumns.CTR,
+        MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS,
+        MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE,
+        MarketingAnalyticsBaseColumns.REPORTED_ROAS,
+        MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS,
+    }
+)
+
 BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
 
 # Hierarchy columns are emitted by the campaign_costs CTE only at AD_GROUP / AD levels
@@ -760,3 +776,10 @@ def to_marketing_analytics_data(
         changeFromPreviousPct=change_from_previous_pct,
         hasComparison=has_comparison,
     )
+
+
+# Spill the GROUP BY to disk past this much memory. Deliberately far below the shared
+# MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY (22 GiB): these queries peak around 1.5 GiB, so a threshold above
+# their peak never fires, and one above the per-query memory limit could never fire at all.
+# `test_spill_threshold_is_reachable` locks that relationship.
+MARKETING_SPILL_AFTER_BYTES = 512 * 1024 * 1024

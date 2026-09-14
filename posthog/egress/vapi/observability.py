@@ -1,5 +1,7 @@
 """Vapi outbound API request telemetry."""
 
+from collections.abc import Mapping
+
 import requests
 from prometheus_client import Counter, Gauge
 
@@ -8,6 +10,7 @@ from posthog.egress.observability.observability import (
     EgressObservability,
     RateLimitSnapshot,
     register_egress_observability,
+    unpack_requests_response,
 )
 from posthog.egress.vapi.limiter import VAPI_DOMAIN
 
@@ -35,7 +38,7 @@ _metrics = EgressMetrics(
 )
 
 
-def _parse_vapi_rate_limit(_response: requests.Response) -> RateLimitSnapshot:
+def _parse_vapi_rate_limit(_headers: Mapping[str, str] | None, _url: str | None) -> RateLimitSnapshot:
     return RateLimitSnapshot(resource="api")
 
 
@@ -51,7 +54,17 @@ def record_vapi_api_response(
     method: str,
     endpoint: str,
 ) -> None:
-    vapi_egress.record_response(response, source=source, scope=scope, method=method, endpoint=endpoint)
+    primitives = unpack_requests_response(response)
+    vapi_egress.record_response(
+        primitives.status_code,
+        primitives.headers,
+        source=source,
+        scope=scope,
+        method=method,
+        endpoint=endpoint,
+        request_method=primitives.request_method,
+        request_url=primitives.request_url,
+    )
 
 
 def record_vapi_api_exception(*, source: str, scope: str, method: str, endpoint: str, url: str) -> None:

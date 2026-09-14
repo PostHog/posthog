@@ -150,7 +150,6 @@ export interface CanvasApi {
     readonly description: string
     readonly channel: string
     readonly template_id: string
-    readonly context: string
     /** @nullable */
     readonly generation_task_id: string | null
     /** Whether the canvas is pinned to its channel. */
@@ -220,8 +219,6 @@ export interface PatchedCanvasUpdateApi {
      * @maxLength 400
      */
     name?: string
-    /** Updated author context markdown. */
-    context?: string
     /** Updated canvas description (for components, the store-search text). */
     description?: string
     /** Id of the space the canvas belongs to. */
@@ -452,6 +449,99 @@ export interface CanvasBuildActionApi {
 }
 
 /**
+ * Tool arguments, validated against the tool's input schema.
+ */
+export type CanvasConnectorCallApiArguments = { [key: string]: unknown }
+
+/**
+ * Payload for calling one connector tool as the viewer.
+ */
+export interface CanvasConnectorCallApi {
+    /**
+     * Single-use token from a needs_approval response. Submit only after the viewer approves this exact call. Expires after 15 minutes.
+     * @maxLength 200
+     */
+    approval_token?: string
+    /**
+     * Declared provider id, e.g. 'github'.
+     * @maxLength 300
+     */
+    provider: string
+    /**
+     * Declared tool name, e.g. 'list_pull_requests'.
+     * @maxLength 200
+     */
+    tool: string
+    /** Tool arguments, validated against the tool's input schema. */
+    arguments?: CanvasConnectorCallApiArguments
+}
+
+/**
+ * Tool output. Native tools return their documented shape; MCP tools return {content, structured_content, is_error}.
+ * @nullable
+ */
+export type CanvasConnectorCallResultApiResult = { [key: string]: unknown } | null
+
+/**
+ * * `ok` - Ok
+ * * `not_connected` - Not Connected
+ * * `needs_reauth` - Needs Reauth
+ * * `needs_approval` - Needs Approval
+ * * `blocked` - Blocked
+ * * `tool_missing` - Tool Missing
+ * * `write_blocked` - Write Blocked
+ * * `upstream_error` - Upstream Error
+ */
+export type ConnectorCallStatusEnumApi = (typeof ConnectorCallStatusEnumApi)[keyof typeof ConnectorCallStatusEnumApi]
+
+export const ConnectorCallStatusEnumApi = {
+    Ok: 'ok',
+    NotConnected: 'not_connected',
+    NeedsReauth: 'needs_reauth',
+    NeedsApproval: 'needs_approval',
+    Blocked: 'blocked',
+    ToolMissing: 'tool_missing',
+    WriteBlocked: 'write_blocked',
+    UpstreamError: 'upstream_error',
+} as const
+
+/**
+ * Result of one connector call. `status` is 'ok' when `result` holds the tool's output.
+ */
+export interface CanvasConnectorCallResultApi {
+    /**
+     * Host-only, single-use approval token bound to this viewer, connection, canvas version, tool, and arguments. Never forward it to the canvas iframe.
+     * @nullable
+     */
+    approval_token: string | null
+    /** 'ok' carries a result. 'not_connected' and 'needs_reauth' mean the viewer must connect the provider at connect_path. 'blocked' is team policy. 'write_blocked' is a tool that may write. 'needs_approval' requires the viewer to approve this call in the host. 'upstream_error' is a failure at the provider.
+     *
+     * * `ok` - Ok
+     * * `not_connected` - Not Connected
+     * * `needs_reauth` - Needs Reauth
+     * * `needs_approval` - Needs Approval
+     * * `blocked` - Blocked
+     * * `tool_missing` - Tool Missing
+     * * `write_blocked` - Write Blocked
+     * * `upstream_error` - Upstream Error */
+    status: ConnectorCallStatusEnumApi
+    /**
+     * Tool output. Native tools return their documented shape; MCP tools return {content, structured_content, is_error}.
+     * @nullable
+     */
+    result: CanvasConnectorCallResultApiResult
+    /** Human-readable explanation for a non-ok status. */
+    detail: string
+    /** True when the result exceeded the size cap and was cut to a preview. */
+    truncated: boolean
+    /**
+     * In-app path where the viewer can connect the provider, when that would help.
+     * @nullable
+     */
+    connect_path: string | null
+}
+
+/**
  * * `base64` - base64
  */
 export type EncodingEnumApi = (typeof EncodingEnumApi)[keyof typeof EncodingEnumApi]
@@ -540,9 +630,32 @@ export interface CanvasNetworkCapabilitiesApi {
     origins: string[]
 }
 
+/**
+ * One provider a canvas may call through ph.connectors, with the tools it may use.
+ */
+export interface CanvasConnectorDeclarationApi {
+    /**
+     * Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store.
+     * @maxLength 300
+     */
+    provider: string
+    /**
+     * Tool names the canvas may call on this provider. Read-only tools only.
+     * @minItems 1
+     * @maxItems 64
+     * @items.maxLength 200
+     */
+    tools: string[]
+}
+
 export interface CanvasCapabilitiesApi {
     posthog: CanvasPostHogCapabilitiesApi
     network: CanvasNetworkCapabilitiesApi
+    /**
+     * Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review.
+     * @maxItems 20
+     */
+    connectors?: CanvasConnectorDeclarationApi[]
 }
 
 /**
@@ -613,6 +726,8 @@ export interface CanvasCapabilityWideningApi {
     state_scopes_added: string[]
     /** Action verbs the draft newly declares it may invoke via ph.actions. */
     actions_added: string[]
+    /** Connector providers and tools the draft newly declares it may call via ph.connectors. */
+    connectors_added: CanvasConnectorDeclarationApi[]
 }
 
 /**
@@ -927,9 +1042,37 @@ export interface CanvasLayoutApi {
 }
 
 /**
- * A grid canvas's layout plus the version pointer edits must be based on.
+ * The renderable build of one component referenced by a grid layout, shaped
+ * like the builds endpoint's response so clients reuse one lifecycle reader.
  */
-export interface CanvasLayoutResponseApi {
+export interface CanvasComponentLifecycleApi {
+    /** Id of the component canvas. */
+    canvas_id: string
+    /**
+     * The source version the placement pins, or null when it follows the latest.
+     * @nullable
+     */
+    requested_version_id: string | null
+    /**
+     * Id of the component's live build. Null until a build completes.
+     * @nullable
+     */
+    published_build_id: string | null
+    /**
+     * Id of the source version the component's head points at.
+     * @nullable
+     */
+    current_version_id: string | null
+    /** The build the placement renders (live, or the pinned version's retained build). Empty when none is renderable. */
+    builds: CanvasBuildApi[]
+}
+
+/**
+ * The layout response, plus (when requested) the renderable build of every
+ * component the layout places — so a grid opens on one round trip instead of
+ * one builds fetch per placement.
+ */
+export interface CanvasLayoutWithComponentsResponseApi {
     /** Identity and version pointers for the canvas. */
     canvas: CanvasSummaryApi
     /** The layout document. A grid canvas with no versions yet returns the default empty layout. */
@@ -939,6 +1082,8 @@ export interface CanvasLayoutResponseApi {
      * @nullable
      */
     current_version_id: string | null
+    /** One entry per distinct (component, pinned version) the layout's live placements reference, present only when the request passes include_components. Components the caller may not see are omitted. */
+    component_lifecycles?: CanvasComponentLifecycleApi[]
 }
 
 /**
@@ -1378,6 +1523,34 @@ export interface PaginatedCanvasVersionListApi {
 }
 
 /**
+ * Everything a client needs to open a canvas, in one round trip.
+ *
+ * Replaces the record → builds → source waterfall: the record, the live
+ * build (with its signed artifact URL), and — only when there is nothing
+ * built to render — the head source project (freeform/component) or the
+ * layout document (grid).
+ */
+export interface CanvasViewResponseApi {
+    /** The canvas record. */
+    canvas: CanvasApi
+    /** The live build with its signed artifact URL. Null until a build completes. */
+    published_build: CanvasBuildApi | null
+    /**
+     * Id of the source version the canvas's head points at. Null before the first publish.
+     * @nullable
+     */
+    current_version_id: string | null
+    /** True while a build is queued or running — poll the builds endpoint until it settles. */
+    has_active_build: boolean
+    /** The head source project, present only when the canvas has no live build to render (the client-side fallback tier). Null otherwise, and always null for grid canvases. */
+    source?: CanvasSourceProjectApi | null
+    /** For grid canvases: the head layout document. Null for other kinds. */
+    layout?: CanvasLayoutApi | null
+    /** For grid canvases: the renderable build of every component the layout's live placements reference, so the grid renders from this one call. Absent for other kinds. */
+    component_lifecycles?: CanvasComponentLifecycleApi[]
+}
+
+/**
  * One registered action verb, as the host renders it before invoking.
  */
 export interface CanvasActionDefinitionApi {
@@ -1397,6 +1570,70 @@ export interface CanvasActionDefinitionApi {
 export interface CanvasActionsResponseApi {
     /** Registered verbs, sorted by name. */
     actions: CanvasActionDefinitionApi[]
+}
+
+/**
+ * * `native` - Native
+ * * `mcp` - Mcp
+ */
+export type ConnectorKindEnumApi = (typeof ConnectorKindEnumApi)[keyof typeof ConnectorKindEnumApi]
+
+export const ConnectorKindEnumApi = {
+    Native: 'native',
+    Mcp: 'mcp',
+} as const
+
+/**
+ * JSON Schema of the tool's arguments object.
+ */
+export type CanvasConnectorToolApiInputSchema = { [key: string]: unknown }
+
+/**
+ * One tool a connector provider exposes to canvases.
+ */
+export interface CanvasConnectorToolApi {
+    /** Tool name, as passed to ph.connectors.call. */
+    name: string
+    /** One line naming what the tool reads. */
+    summary: string
+    /** True when the tool only reads. Canvases may call read-only tools. */
+    is_read_only: boolean
+    /** JSON Schema of the tool's arguments object. */
+    input_schema: CanvasConnectorToolApiInputSchema
+    /** Authoring docs: argument and result shape, limits, and behavior. */
+    usage: string
+}
+
+/**
+ * One connector provider, with the caller's connection state and the tools it exposes.
+ */
+export interface CanvasConnectorApi {
+    /** Provider id to declare and call, e.g. 'github' or 'mcp:mcp.calendly.com'. */
+    provider: string
+    /** Display name of the provider. */
+    display_name: string
+    /** 'native' runs through a PostHog personal integration; 'mcp' through an MCP store installation.
+     *
+     * * `native` - Native
+     * * `mcp` - Mcp */
+    kind: ConnectorKindEnumApi
+    /**
+     * True when the caller has a usable connection. Null in the static catalog returned to sandbox authors.
+     * @nullable
+     */
+    connected: boolean | null
+    /** In-app path where the caller connects this provider. */
+    connect_path: string
+    /** Tools the caller's connection exposes, sorted by name. */
+    tools: CanvasConnectorToolApi[]
+}
+
+/**
+ * The connector catalog: every provider a canvas may declare and call.
+ */
+export interface CanvasConnectorsResponseApi {
+    /** Native providers first, then the requested MCP hosts. */
+    connectors: CanvasConnectorApi[]
 }
 
 export type CanvasesListParams = {
@@ -1432,6 +1669,10 @@ export const CanvasesListKind = {
 
 export type CanvasesBuildsRetrieveParams = {
     /**
+     * "slim" returns only what rendering needs — the live build, the head version's builds, and anything still in flight — instead of the full recent-build history. Any other value (or none) returns the full window.
+     */
+    scope?: string
+    /**
      * Include the retained ready build for this historical source version.
      */
     version_id?: string
@@ -1449,6 +1690,10 @@ export type CanvasesDraftsRetrieveParams = {
 }
 
 export type CanvasesLayoutRetrieveParams = {
+    /**
+     * Also return the renderable build (with signed artifact URL) of every component the layout's live placements reference, so a grid renders from this one call.
+     */
+    include_components?: boolean
     /**
      * Read this historical layout version instead of the head (for version browsing).
      */
@@ -1485,4 +1730,11 @@ export type CanvasesVersionsRetrieveParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type CanvasesConnectorsRetrieveParams = {
+    /**
+     * Comma-separated MCP server hosts to include (e.g. 'mcp.calendly.com'). Defaults to every server the caller has connected in the MCP store.
+     */
+    mcp_hosts?: string
 }

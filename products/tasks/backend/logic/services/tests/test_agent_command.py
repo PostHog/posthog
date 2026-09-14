@@ -71,6 +71,28 @@ class TestValidateSandboxUrl:
         assert result is not None
         assert "blocked range" in result
 
+    @pytest.mark.parametrize(
+        "url,allowed",
+        [
+            ("https://hogland.example.com/v1/hogboxes/box-abc/proxy/8080", True),
+            ("https://hogland.example.com:8443/v1/hogboxes/box-abc/proxy/8080", False),
+            ("https://hogland.attacker.example.com/v1/hogboxes/box-abc/proxy/8080", False),
+        ],
+        ids=["configured_origin", "wrong_port", "wrong_host"],
+    )
+    @override_settings(HOGLAND_API_URL="https://hogland.example.com")
+    @patch("products.tasks.backend.logic.services.agent_command.socket.getaddrinfo")
+    def test_configured_hogland_origin_is_exempt_from_private_ip_block(self, mock_getaddrinfo, url, allowed):
+        mock_getaddrinfo.return_value = [
+            (2, 1, 6, "", ("10.0.0.5", 443)),
+        ]
+        result = validate_sandbox_url(url)
+        if allowed:
+            assert result is None
+        else:
+            assert result is not None
+            assert "blocked range" in result
+
     @patch("products.tasks.backend.logic.services.agent_command.socket.getaddrinfo")
     def test_ssrf_allows_public_ip(self, mock_getaddrinfo):
         mock_getaddrinfo.return_value = [
@@ -159,14 +181,15 @@ class TestSendAgentCommand:
 
     @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
     @patch("products.tasks.backend.logic.services.agent_command.requests.post")
-    def test_success(self, mock_post, mock_validate):
+    @pytest.mark.parametrize("method", ["user_message", "credential_response"])
+    def test_success(self, mock_post, mock_validate, method):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"jsonrpc": "2.0", "result": "ok"}
         mock_post.return_value = mock_resp
 
         task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc", connect_token="tok")
-        result = send_agent_command(task_run, "user_message", params={"message": "hi"})
+        result = send_agent_command(task_run, method, params={"message": "hi"})
 
         assert result.success
         assert result.status_code == 200
@@ -174,8 +197,12 @@ class TestSendAgentCommand:
 
         call_kwargs = mock_post.call_args
         assert call_kwargs.kwargs["headers"]["Authorization"] == "Bearer tok"
-        assert call_kwargs.kwargs["json"]["method"] == "user_message"
+        assert call_kwargs.kwargs["json"]["method"] == method
         assert call_kwargs.args[0] == "https://sandbox.modal.run/rpc/command"
+
+        if method == "credential_response":
+            assert call_kwargs.kwargs["timeout"] == 5
+            assert call_kwargs.kwargs["allow_redirects"] is False
 
     @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
     @patch("products.tasks.backend.logic.services.agent_command.requests.post")

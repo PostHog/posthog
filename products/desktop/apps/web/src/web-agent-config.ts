@@ -1,4 +1,7 @@
-import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import type {
+  SessionConfigOption,
+  SessionConfigSelectOption,
+} from "@agentclientprotocol/sdk";
 import { getReasoningEffortOptions } from "@posthog/agent/adapters/reasoning-effort";
 import {
   getAvailableCodexModes,
@@ -17,7 +20,7 @@ import {
   isOpenAIModel,
 } from "@posthog/agent/gateway-models";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
-import type { Adapter } from "@posthog/shared";
+import { type Adapter, customModelMeta } from "@posthog/shared";
 
 // Web port of AgentService.getPreviewConfigOptions (workspace-server). The
 // desktop host runs this in the Node main process; the browser can run the exact
@@ -38,7 +41,7 @@ export async function getWebPreviewConfigOptions(
       : (model: GatewayModel) =>
           isAnthropicModel(model) || isCloudflareModel(model);
 
-  const modelOptions = gatewayModels
+  const modelOptions: SessionConfigSelectOption[] = gatewayModels
     .filter((model) => modelFilter(model))
     .map((model) => ({
       value: model.id,
@@ -68,6 +71,7 @@ export async function getWebPreviewConfigOptions(
       value: resolvedModelId,
       name: resolvedModelId,
       description: "Custom model",
+      _meta: customModelMeta(),
     });
   }
 

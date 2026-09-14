@@ -216,10 +216,7 @@ Note: Mailgun only retains events for a limited period (1 day on free plans, up 
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_mailgun_credentials(config.api_key, config.region):
-            return True, None
-
-        return False, "Invalid Mailgun API key or region"
+        return validate_mailgun_credentials(config.api_key, config.region)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MailgunResumeConfig]:
         return ResumableSourceManager[MailgunResumeConfig](inputs, MailgunResumeConfig)

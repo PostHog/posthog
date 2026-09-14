@@ -6,10 +6,8 @@ import {
 } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
-import { toast } from "@posthog/ui/primitives/toast";
 import type { ReactElement } from "react";
 import { useAuthenticatedMutation } from "../../../hooks/useAuthenticatedMutation";
-import { navigateToTaskDetail } from "../../../router/navigationBridge";
 import { track } from "../../../shell/analytics";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
 
@@ -39,12 +37,6 @@ export function useTaskAnalysis(task: Task): TaskAnalysisControls {
           run_id: runId ?? "",
           created: result.created,
         });
-        toast.success(
-          result.created
-            ? "Analyzing this run. The report will appear on the analysis task."
-            : "An analysis for this run already exists. Opening it.",
-        );
-        navigateToTaskDetail(result.analysis_task_id);
       },
       onError: (error) => {
         toastError("Could not analyze this run", error);

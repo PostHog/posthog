@@ -9,7 +9,7 @@ from products.data_modeling.backend.logic.node_frequency import get_declared_tar
 from products.data_modeling.backend.models import DAG, Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import (
     DataWarehouseSavedQuery,
-    V1SchedulingPathReached,
+    NoSchedulableDagError,
 )
 from products.data_modeling.backend.models.node import NodeType
 
@@ -82,7 +82,7 @@ class TestScheduleMaterializationV2Guard(BaseTest):
     def test_reports_and_disables_when_there_is_no_node_to_bootstrap(self):
         # a DAG with no v2 schedule is bootstrapped through its node, so the one way left to
         # reach the end of schedule_materialization with nothing scheduled is a query that has
-        # no node at all. That is the arrival the winddown reporter exists to catch.
+        # no node at all. Nothing can run it, so materialization is turned back off.
         nodeless = DataWarehouseSavedQuery.objects.create(
             name="sync_failed",
             team=self.team,
@@ -97,7 +97,7 @@ class TestScheduleMaterializationV2Guard(BaseTest):
 
         nodeless.refresh_from_db()
         assert nodeless.is_materialized is False
-        assert isinstance(capture.call_args.args[0], V1SchedulingPathReached)
+        assert isinstance(capture.call_args.args[0], NoSchedulableDagError)
         assert capture.call_args.args[1]["team_id"] == self.team.pk
 
     def test_virgin_dag_is_born_on_tiers(self):
@@ -164,11 +164,10 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         node.refresh_from_db()
         assert get_declared_target(node) is None
 
-    def test_tiered_flag_writes_target_through_and_nulls_interval(self):
+    def test_writes_target_through_and_nulls_interval(self):
         node = Node.objects.get(saved_query=self.sq)
         with (
             mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
-            mock.patch(f"{RECONCILE}.tiered_schedules_enabled", return_value=True),
             mock.patch(f"{RECONCILE}.maybe_reconcile_dag") as reconcile,
         ):
             self.sq.schedule_materialization()
@@ -187,7 +186,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.save(update_fields=["sync_frequency_interval"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
-            mock.patch(f"{RECONCILE}.tiered_schedules_enabled", return_value=True),
             mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
         ):
             self.sq.schedule_materialization()
@@ -199,15 +197,13 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         node = Node.objects.get(saved_query=self.sq)
         set_declared_target(node, timedelta(hours=12))
         with (
-            mock.patch(f"{RECONCILE}.tiered_schedules_enabled", return_value=True),
             mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
-            mock.patch("products.data_warehouse.backend.facade.api.delete_saved_query_schedule"),
         ):
             self.sq.revert_materialization()
         node.refresh_from_db()
         assert get_declared_target(node) is None
 
-    def test_tiered_flag_surfaces_invalid_frequency_without_disabling(self):
+    def test_surfaces_invalid_frequency_without_disabling(self):
         # an invalid frequency is a request problem: it must reach the caller as a validation
         # error, not silently flip is_materialized like infrastructure failures do
         self.sq.is_materialized = True
@@ -215,7 +211,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.save(update_fields=["is_materialized", "sync_frequency_interval"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
-            mock.patch(f"{RECONCILE}.tiered_schedules_enabled", return_value=True),
         ):
             try:
                 self.sq.schedule_materialization()

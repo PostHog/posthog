@@ -52,7 +52,7 @@ class ActiveCampaignSource(ResumableSource[ActiveCampaignSourceConfig, ActiveCam
             name=SchemaExternalDataSourceType.ACTIVE_CAMPAIGN,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="ActiveCampaign",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your ActiveCampaign API URL and key to sync your CRM and marketing data into the PostHog Data warehouse.
 
 You can find both in your ActiveCampaign account under **Settings > Developer**. The API key is account-wide and grants read access to every endpoint listed below.""",

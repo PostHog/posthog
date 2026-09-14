@@ -1,12 +1,14 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import redis
 from parameterized import parameterized
 
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
     get_idempotency_key,
+    get_redis_client,
     is_batch_already_processed,
     mark_batch_as_processed,
 )
@@ -197,3 +199,29 @@ class TestMarkBatchAsProcessed:
             mock_get_client.return_value.__enter__.return_value = None
             mark_batch_as_processed(team_id=1, schema_id="s", run_uuid="r", batch_index=0)
             # No exception — the function logs a warning and returns
+
+
+class TestGetRedisClient:
+    """A bare connection blip previously fell through to the delta history scan on
+    every batch with no retry (see `sync_lock.TestGetRedisClient` for the sibling
+    fix this mirrors)."""
+
+    @patch(f"{_IDEMPOTENCY_MODULE}.get_client")
+    def test_recovers_from_transient_connection_error(self, mock_get_client: MagicMock) -> None:
+        mock_redis = MagicMock()
+        mock_redis.ping.side_effect = [redis.exceptions.TimeoutError("Timeout connecting to server"), None]
+        mock_get_client.return_value = mock_redis
+
+        with get_redis_client() as client:
+            assert client is mock_redis
+        assert mock_redis.ping.call_count == 2
+
+    @patch(f"{_IDEMPOTENCY_MODULE}.get_client")
+    def test_fails_closed_after_exhausting_retries(self, mock_get_client: MagicMock) -> None:
+        mock_redis = MagicMock()
+        mock_redis.ping.side_effect = redis.exceptions.TimeoutError("Timeout connecting to server")
+        mock_get_client.return_value = mock_redis
+
+        with get_redis_client() as client:
+            assert client is None
+        assert mock_redis.ping.call_count == 3

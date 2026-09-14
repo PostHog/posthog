@@ -92,15 +92,16 @@ export function InboxScopeFilter(): JSX.Element {
                     setSearch(value)
                     searchAvailableReviewers(value)
                 }}
-                // The pinned "For you" row already stands for the signed-in user, so their own
-                // roster row would be a second control writing a different scope for the same view.
-                people={reviewers
-                    .filter((reviewer) => reviewer.user_uuid !== user?.uuid)
-                    .map((reviewer) => ({
-                        uuid: reviewer.user_uuid,
-                        name: reviewer.name,
-                        email: reviewer.email,
-                    }))}
+                // The signed-in user keeps their own roster row next to the pinned "For you" row. Both
+                // show the same reports, but only the roster row writes `scope=teammate:<uuid>` to the
+                // URL. "For you" is the default, so it leaves the URL bare and resolves to whoever opens
+                // the link. The roster row is the only way to share a link that opens to your reports.
+                people={reviewers.map((reviewer) => ({
+                    uuid: reviewer.user_uuid,
+                    name: reviewer.name,
+                    email: reviewer.email,
+                    trailing: reviewer.user_uuid === user?.uuid ? '(you)' : undefined,
+                }))}
                 loading={availableReviewersLoading}
                 selectedUuid={scope === INBOX_SCOPE_ENTIRE_PROJECT ? null : (selectedTeammateUuid ?? undefined)}
                 forYou={{ active: isForYou, onPick: () => pick(INBOX_SCOPE_FOR_YOU) }}

@@ -19,8 +19,8 @@ export function ScopePanel({
     children: ReactNode
 }): JSX.Element {
     return (
-        <div className="relative mt-4 rounded-lg border border-primary p-4">
-            <div className="absolute -top-4 right-3 flex flex-wrap items-center justify-end gap-2 bg-primary px-2">
+        <div className="relative mt-4 flex flex-col rounded-lg border border-primary p-4">
+            <div className="-mt-8 -mr-1 flex max-w-full flex-wrap items-center justify-end gap-2 self-end bg-primary px-2">
                 {busy && <Spinner className="text-secondary" />}
                 {controls ?? (
                     <>

@@ -101,6 +101,14 @@ describe('sourceWizardLogic', () => {
             )
         })
 
+        it('replaces the generic server-error detail with connection guidance', () => {
+            // DRF answers an unhandled 500 with a fixed placeholder detail. Surfacing it told the
+            // user nothing, and it masked the 5xx branch below.
+            const message = resolveConnectErrorMessage({ detail: 'A server error occurred.', status: 500 })
+            expect(message).toContain('check your connection details')
+            expect(message).not.toContain('A server error occurred.')
+        })
+
         it('never returns undefined for a 4xx with no message body', () => {
             const message = resolveConnectErrorMessage({ status: 400 })
             expect(message).toBeTruthy()

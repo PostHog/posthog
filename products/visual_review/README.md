@@ -27,6 +27,91 @@ No sync problems, no "baseline service went down", no mystery diffs from someone
 
 **Supersession** — when a new run is created for the same (repo, branch, run_type), older runs get a `superseded_by` pointer. This prevents approving stale runs without GitHub API polling — the DB knows what's current.
 
+### Retention
+
+A daily Celery task, `sweep visual review retention`, deletes data that can no longer be used.
+The windows and the reasons behind them are constants in `backend/logic/retention.py`.
+
+- Superseded runs on PR branches go after 30 days, on the default branch after 180 days.
+  A run without a PR number counts as default-branch history, because we do not record a repo's real default branch.
+- A PR branch with no run in 90 days loses its latest runs too, except the repo's newest completed full run per run type, which is the last row naming the committed baseline hashes.
+- Artifacts go by reference, never by age: content addressing means one upload backs every later run with the same pixels.
+  An artifact goes when no snapshot of the repo points at it or names its hash, no artifact uses it as a thumbnail, and it is over 7 days old.
+- Rows go before objects, and run registration and the delete share a per-repo lock, so a run is never told an artifact exists that the sweep then removes.
+  An artifact row is what makes the CLI skip an upload, so a row without its object is the one state to avoid; a leaked object only costs storage.
+- Each invocation is capped by rows and by a time budget, so a backlog drains over days.
+
+### Weekly debt digest
+
+Every Monday morning a Celery task, `send visual review debt digests`, posts each team a Slack reminder about the visual review debt it still carries.
+The digest is stateless: every Monday both conditions below are evaluated from current data, and nothing is stored about what was sent.
+An item repeats every week while it stands, and stops the week the condition no longer holds.
+The same task runs twice a day, and only the Monday morning run posts.
+The other runs read the Storybook story index into the cache, because the build artifact it comes from is short lived and the Monday run would otherwise have nothing to attribute against.
+
+Each message is Block Kit.
+The lead names the team and the week, and counts each condition that has items, with buttons to the repository's flakiness overview and its snapshots.
+Under it, one thread reply per condition that has items: a line saying what to do about that condition, then one section per item with the single action that resolves it on a button beside it.
+Theme variants of one story list as one entry when the reader would see the same facts for each.
+A merged expiring quarantine links to the flakiness page searched to that story, and a merged unowned file keeps its file button.
+Pile-ups never merge, because a baseline resets one snapshot at a time.
+The last reply says when the next digest comes.
+A team that owns nothing gets no message at all.
+
+Two conditions, and nothing else:
+
+- **Quarantine expiring.**
+  An active quarantine that runs out inside `FLAKINESS_EXPIRY_SOON_DAYS`, plus one day.
+  The extra day is overlap: two weekly runs can fall slightly more than seven days apart, and a quarantine expiring in that gap would otherwise never be reported.
+  The flakiness page keeps the plain seven days.
+  It clears when somebody extends it past the window, lifts it, or lets it lapse.
+- **N accepted variants of the current baseline.**
+  `VARIANT_PILEUP_MIN` or more active intentional tolerations recorded against the hash the baseline currently holds, with no quarantine already covering the identity.
+  This is not the ninety-day tolerated count on the baselines page, which measures how often somebody accepted drift in a window.
+  This count has no window, because an accepted variant keeps matching without a new record.
+  It clears when the tolerations are removed, or when the baseline changes.
+
+A baseline change invalidates the tolerations recorded against the old baseline: they can never match again, so the count drops to zero.
+That is not evidence the story recovered.
+Reminders about retained exceptions repeat until they are removed or no longer apply.
+
+Attribution runs through the Storybook build behind the current baseline, and then through `owners.yaml`.
+The build uploads its story index as a GitHub Actions artifact, so the digest reads the artifact of the workflow run recorded on that baseline run (`metadata["github_run_id"]`), and the index names the file each story lives in.
+A snapshot identifier is a story id plus the theme, the browser when it is not chromium, and the viewport width for a story that snapshots several.
+The full story id is looked up first and the width suffix is only stripped when that misses, because a story can be named after a width.
+The parsed index is cached per repository and workflow run for eight days, and the key rotates on its own whenever the baseline moves.
+The cache has to outlive a week, because the run that reads the artifact and the run that posts are usually days apart.
+Nothing is guessed from the identifier: a story name is not a path.
+Only Storybook runs are attributed today.
+
+Three outcomes have no owning team, and the digest keeps them apart:
+
+- **Nobody owns the file.** The story maps to a file, and no owners entry covers it. Add one for the path, which the message carries.
+- **The story is not in the index.** It moved, was renamed, was deleted, or it only exists on a branch.
+- **Ownership could not be worked out.** The artifact was missing or expired, the download failed, the team has no GitHub integration, or the run type is not supported yet.
+
+All three go to whoever owns `products/visual_review/`, in a message of their own rather than inside the digest those maintainers get for what they own.
+Holding an item until a team takes it is not owning it, and the wording says so.
+The message goes out only when at least one item asks somebody to act.
+The first two outcomes are listed, each with a button to the file or the snapshot.
+The third is only counted in the footer, because it asks the reader for nothing; the reasons go to the log instead.
+When nobody owns `products/visual_review/` either, the items are logged and dropped rather than posted somewhere arbitrary.
+The artifact is kept for one day, so the digest reads it on the day the baseline moves and serves the Monday post from the cache.
+A baseline whose artifact expired before any run read it reads as ownership could not be worked out, and the digest says so instead of guessing.
+
+Routing goes to the team's `notifications` channel in the repository's root `owners.yaml` registry, under the `visual_review` producer.
+A team opts out with `notifications: {visual_review: false}` under its entry.
+A shared Slack channel is refused, so a name match never carries an internal reminder out of the workspace.
+
+The digest is off for a repository until `debt_digest_enabled` is set on it.
+Set it through the repo API (`PATCH /api/projects/:team_id/visual_review/repos/:id/`), the `visual-review-repos-partial-update` MCP tool, or Django admin.
+The beat task runs twice a day and fans out only to the repositories that are on.
+A repository that owes nothing posts nothing.
+
+`./manage.py visual_review_debt_digest --repo owner/name [--mode preview]` runs one repository by hand on any day, whatever `debt_digest_enabled` says, because a run somebody starts is already a decision to send it.
+`--mode preview`, the default, prints and logs the plain text behind every message without posting.
+`--mode live` posts.
+
 ## The flow
 
 ### Single-command flow (`vr submit`)
@@ -50,7 +135,7 @@ Backend completes the run
   - tolerated hash cache: skip diffing for known sub-threshold pairs
   - detect removals: baseline identifiers missing from RunSnapshot rows
   - verify uploads, create artifact records, link to snapshots
-  - two-tier diff (Celery): pixel diff → SSIM for tall-page dilution
+  - diff (Celery): row alignment absorbs small vertical shifts, then pixel diff → SSIM for tall-page dilution
   - post GitHub Check (pass/fail)
        │
        ▼
@@ -128,9 +213,15 @@ Add `--tolerate-drift` to report the drift and still exit 0. Use it on the defau
 
 Working end to end: CI upload → async diff → GitHub Check → web review → approve → baseline commit → clean re-run. Multi-repo per team, snapshot change history across runs, run supersession, GitHub commit status checks on transitions.
 
-**Tolerated hashes** — when the two-tier diff classifies a snapshot as below-threshold noise, it caches the `(identifier, baseline_hash, alternate_hash)` tuple.
+**Tolerated hashes** — when the diff classifies a snapshot as below-threshold noise, it caches the `(identifier, baseline_hash, alternate_hash)` tuple.
 Future runs skip diffing entirely for cached pairs.
 Developers can also manually tolerate a snapshot from the UI.
+
+**Row alignment** — a panel that grows by a pixel moves everything below it down, which a top-aligned pixel diff reads as a page-wide change.
+Before thresholding, the diff pairs the rows that exist in both images, so the classifier sees only what actually changed.
+A shift of one or two rows with nothing else changed is absorbed as noise, and the snapshot keeps the shift in `diff_metadata.row_shift` plus a diff image that shows the moved row, so the run leaves a trace instead of disappearing.
+A taller shift is `change_kind=layout`, which still needs review.
+The cap is measured against the committed baseline on every run, so absorbed shifts cannot accumulate into a page that quietly moved.
 
 **Quarantine** — known-flaky identifiers can be quarantined per repo and run type.
 Quarantined snapshots are still captured and diffed but excluded from gating.
@@ -181,6 +272,5 @@ Variants recorded against a superseded baseline can never match again.
 **Not yet built:**
 
 - Auto-release of a quarantine whose snapshot has gone clean (the flakiness tab flags it, a human still decides)
-- Retention / cleanup of old runs and artifacts
 - Server-side thumbnailing for the snapshot strip
 - Webhook-driven run creation (currently CLI-initiated only)

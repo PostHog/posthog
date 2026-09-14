@@ -169,6 +169,11 @@ class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeC
             self.get_oauth_integration(config.snapchat_integration_id, team_id)
             return True, None
         except Exception as e:
+            if isinstance(e, ValueError) and "Integration not found" in str(e):
+                # The integration was deleted/disconnected while the source still references it —
+                # an expected user state, not an error worth reporting (get_oauth_integration raises
+                # ValueError("Integration not found: <id>")).
+                return False, "Snapchat Ads integration not found. Please reconnect your Snapchat Ads integration."
             capture_exception(e)
             return False, f"Failed to validate Snapchat Ads credentials: {str(e)}"
 

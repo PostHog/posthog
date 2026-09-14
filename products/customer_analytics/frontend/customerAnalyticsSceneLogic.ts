@@ -43,7 +43,15 @@ import { customerAnalyticsConfigLogic } from './customerAnalyticsConfigLogic'
 
 export type BusinessType = 'b2c' | 'b2b'
 
-type ActiveTab = 'dashboard' | 'journeys' | 'accounts' | 'notes' | 'announcements' | 'feed' | 'feature_requests'
+type ActiveTab =
+    | 'dashboard'
+    | 'journeys'
+    | 'accounts'
+    | 'notes'
+    | 'announcements'
+    | 'feed'
+    | 'tasks'
+    | 'feature_requests'
 
 const SCENE_KEY_TO_TAB: Record<string, ActiveTab> = {
     customerAnalyticsJourneys: 'journeys',
@@ -52,6 +60,7 @@ const SCENE_KEY_TO_TAB: Record<string, ActiveTab> = {
     customerAnalyticsNotes: 'notes',
     customerAnalyticsAnnouncements: 'announcements',
     customerAnalyticsFeed: 'feed',
+    customerAnalyticsTasks: 'tasks',
     customerAnalyticsFeatureRequests: 'feature_requests',
 }
 

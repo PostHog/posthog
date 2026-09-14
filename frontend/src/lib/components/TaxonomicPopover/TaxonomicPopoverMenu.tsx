@@ -82,6 +82,7 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     schemaColumns?: DatabaseSchemaField[]
     metadataSource?: AnyDataNode
     excludedProperties?: ExcludedProperties
+    includeHiddenEvents?: boolean
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
@@ -220,6 +221,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
     schemaColumns,
     metadataSource,
     excludedProperties,
+    includeHiddenEvents,
     selectedProperties,
     propertyAllowList,
     optionsFromProp,
@@ -271,6 +273,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
             id: value,
             name: String(value),
             ...(isDataWarehouse ? dataWarehouseTablesMap[String(value)] : {}),
+            ...(isDataWarehouse ? filter : {}),
         }
         return {
             item,
@@ -281,7 +284,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
             },
             name: String(value),
         } as unknown as MenuFilterEntry
-    }, [value, selectedGroupType, dataWarehouseTablesMap])
+    }, [value, selectedGroupType, dataWarehouseTablesMap, filter])
 
     // A renamed series doesn't reveal the thing it queries — surface the rename on the
     // committed selection's row so the user can connect it to the series they clicked.
@@ -302,6 +305,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
             schemaColumns={schemaColumns}
             metadataSource={metadataSource}
             excludedProperties={excludedProperties}
+            includeHiddenEvents={includeHiddenEvents}
             selectedProperties={selectedProperties}
             propertyAllowList={propertyAllowList}
             optionsFromProp={optionsFromProp}

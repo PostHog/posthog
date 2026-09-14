@@ -2,6 +2,8 @@ import { JSONContent } from '@tiptap/core'
 
 import { LemonCard } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
+
 import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketChannel, TicketStatus } from '../../types'
 import { MessageInput } from './MessageInput'
 import { MessageList, type TimelineExtra } from './MessageList'
@@ -24,6 +26,13 @@ export interface ChatViewProps {
     header?: React.ReactNode
     minHeight?: string
     maxHeight?: string
+    /** Fill a bounded parent (the ticket scene pane). Do not opt in when the parent height is auto:
+     *  overflow-hidden plus a 0 min-height list would collapse the thread. */
+    fillParent?: boolean
+    /** Show a one-line field until the user focuses it, then the full composer. */
+    collapseUntilActive?: boolean
+    /** When this changes, the collapsed composer closes. Ticket navigation reuses the same mount. */
+    threadId?: string
     /** Channel the ticket came from; drives the reply placeholder and send-button logo */
     channel?: TicketChannel
     /** Whether to show the "Send as private" option in the message input */
@@ -85,6 +94,9 @@ export function ChatView({
     header,
     minHeight,
     maxHeight,
+    fillParent = false,
+    collapseUntilActive = false,
+    threadId,
     channel,
     showPrivateOption = false,
     unreadCustomerCount,
@@ -116,11 +128,14 @@ export function ChatView({
     fullEmailLoadingMessageId,
     onViewFullEmail,
 }: ChatViewProps): JSX.Element {
-    const listMinHeight = minHeight ?? '400px'
-    const listMaxHeight = maxHeight ?? '600px'
+    const listMinHeight = minHeight ?? (fillParent ? '0' : '400px')
+    const listMaxHeight = maxHeight ?? (fillParent ? 'none' : '600px')
 
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col overflow-hidden p-3">
+        <LemonCard
+            hoverEffect={false}
+            className={cn('flex flex-col overflow-hidden p-3', fillParent && 'h-full min-h-0 flex-1')}
+        >
             {header}
             <MessageList
                 messages={messages}
@@ -146,7 +161,7 @@ export function ChatView({
                 fullEmailLoadingMessageId={fullEmailLoadingMessageId}
                 onViewFullEmail={onViewFullEmail}
             />
-            <div className="border-t pt-3">
+            <div className="border-t pt-3 shrink-0">
                 <MessageInput
                     onSendMessage={onSendMessage}
                     messageSending={messageSending}
@@ -166,6 +181,8 @@ export function ChatView({
                     unsavedTicketChanges={unsavedTicketChanges}
                     editingMessageId={editingMessageId}
                     onCancelEdit={onCancelEdit}
+                    collapseUntilActive={collapseUntilActive}
+                    threadId={threadId}
                 />
             </div>
         </LemonCard>

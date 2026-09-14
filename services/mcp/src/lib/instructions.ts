@@ -247,6 +247,7 @@ export class ToolDomainExtractor {
         'pause',
         'publish',
         'record',
+        'rename',
         'reset',
         'restore',
         'resume',

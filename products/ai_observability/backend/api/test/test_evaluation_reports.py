@@ -1,7 +1,7 @@
 import uuid
 import datetime as dt
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -267,7 +267,7 @@ class TestEvaluationReportApi(APIBaseTest):
     def test_list_reports(self):
         report_with_runs = self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
         report_without_runs = self._create_report(evaluation=self._create_boolean_evaluation())
-        with freeze_time("2026-08-10T12:00:00Z"):
+        with time_machine.travel("2026-08-10T12:00:00Z", tick=False):
             EvaluationReportRun.objects.create(
                 report=report_with_runs,
                 content={},
@@ -275,7 +275,7 @@ class TestEvaluationReportApi(APIBaseTest):
                 period_start=timezone.now() - dt.timedelta(hours=1),
                 period_end=timezone.now(),
             )
-        with freeze_time("2026-08-11T12:00:00Z"):
+        with time_machine.travel("2026-08-11T12:00:00Z", tick=False):
             EvaluationReportRun.objects.create(
                 report=report_with_runs,
                 content={},
@@ -523,7 +523,7 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(response.json().get("attr"), "rrule")
 
     def test_create_scheduled_defaults_starts_at(self):
-        with freeze_time("2026-01-15T16:37:42Z"):
+        with time_machine.travel("2026-01-15T16:37:42Z", tick=False):
             response = self.client.post(self.base_url, self._scheduled_payload(), format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         report = EvaluationReport.objects.get()
@@ -712,7 +712,7 @@ class TestEvaluationReportApi(APIBaseTest):
 
     def test_update_report(self):
         report = self._create_report()
-        with freeze_time("2026-01-15T16:37:42Z"):
+        with time_machine.travel("2026-01-15T16:37:42Z", tick=False):
             response = self.client.patch(
                 f"{self.base_url}{report.id}/",
                 {"frequency": "scheduled", "rrule": "FREQ=WEEKLY;BYDAY=MO"},

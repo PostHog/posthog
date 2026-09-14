@@ -140,7 +140,6 @@ export function OptOutCategories(): JSX.Element {
                         <LemonCollapse panels={collapseItems} />
                     ) : (
                         <ProductIntroduction
-                            productName="Message Categories"
                             thingName="category"
                             description="Configure message categories to manage user opt-out preferences for different types of communications."
                             docsURL="https://posthog.com/docs/workflows/customerio-import"

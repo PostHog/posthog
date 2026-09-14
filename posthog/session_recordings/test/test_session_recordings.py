@@ -4,7 +4,7 @@ from typing import cast
 from urllib.parse import urlencode
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -355,7 +355,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
         with (
-            freeze_time("2022-06-03T12:00:00.000Z"),
+            time_machine.travel("2022-06-03T12:00:00.000Z", tick=False),
             patch(
                 "posthog.hogql.database.database.feature_enabled_or_false",
                 return_value=False,
@@ -736,7 +736,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert update_response.status_code == 404
 
-    @freeze_time("2023-01-01T12:00:00.000Z")
+    @time_machine.travel("2023-01-01T12:00:00.000Z", tick=False)
     def test_get_single_session_recording_metadata(self):
         p = create_person(
             team=self.team,
@@ -849,7 +849,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.json()["ongoing"] is expected_ongoing
 
     def test_get_single_session_recording_viewed_stats_someone_else_viewed(self):
-        with freeze_time("2023-01-01T12:00:00.000Z"):
+        with time_machine.travel("2023-01-01T12:00:00.000Z", tick=False):
             session_recording_id = "session_1"
             base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
             produce_replay_summary(
@@ -876,7 +876,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         }
 
     def test_get_single_session_recording_viewed_stats_current_user_viewed(self):
-        with freeze_time("2023-01-01T12:00:00.000Z"):
+        with time_machine.travel("2023-01-01T12:00:00.000Z", tick=False):
             session_recording_id = "session_1"
             base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
             produce_replay_summary(
@@ -1020,7 +1020,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
     )
     def test_session_ids_filter(self, use_recording_events: bool, api_version: int):
-        with freeze_time("2020-09-13T12:26:40.000Z"):
+        with time_machine.travel("2020-09-13T12:26:40.000Z", tick=False):
             create_person(
                 team=self.team,
                 distinct_ids=["user"],
@@ -1054,7 +1054,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert response_data["results"][2]["id"] == "3"
 
     def test_session_ids_filter_returns_recordings_outside_default_date_range(self):
-        with freeze_time("2020-09-13T12:26:40.000Z"):
+        with time_machine.travel("2020-09-13T12:26:40.000Z", tick=False):
             create_person(
                 team=self.team,
                 distinct_ids=["user"],
@@ -1074,7 +1074,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert response.json()["results"] == []
 
     def test_empty_list_session_ids_filter_returns_no_recordings(self):
-        with freeze_time("2020-09-13T12:26:40.000Z"):
+        with time_machine.travel("2020-09-13T12:26:40.000Z", tick=False):
             create_person(
                 team=self.team,
                 distinct_ids=["user"],
