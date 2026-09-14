@@ -1056,12 +1056,14 @@ def social_create_user(
         if user.is_email_verified is not True:
             logger.info(f"social_create_user_is_not_new_unverified_clearing_local_credentials")
             with transaction.atomic():
-                reconcile_email_claim_credentials(
+                reconciled_user = reconcile_email_claim_credentials(
                     user,
                     trusted_social_auth_id=social.id if social is not None else None,
                 )
-                user.is_email_verified = True
-                user.save(update_fields=["is_email_verified"])
+                reconciled_user.is_email_verified = True
+                reconciled_user.save(update_fields=["is_email_verified"])
+            # Keep the object social-auth passes to the remaining pipeline in sync with the locked row.
+            user.refresh_from_db()
 
         if invite_id:
             process_social_invite_signup(strategy, invite_id, user.email, user.first_name, user)

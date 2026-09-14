@@ -1423,9 +1423,16 @@ class WebauthnBackend(BaseBackend):
                 credential_current_sign_count=credential.counter,
             )
 
-            # Update sign count
-            credential.counter = verification.new_sign_count
-            credential.save()
+            with transaction.atomic():
+                user = User.objects.select_for_update().get(pk=user.pk)
+                if not user.is_active:
+                    structlog_logger.warning("webauthn_login_user_inactive", user_id=user.pk)
+                    return None
+                if not WebauthnCredential.objects.filter(pk=credential.pk, user=user).update(
+                    counter=verification.new_sign_count
+                ):
+                    structlog_logger.warning("webauthn_login_credential_not_found", credential_id=credential_id)
+                    return None
 
             structlog_logger.info("webauthn_login_success", user_id=user.pk, credential_id=credential.pk)
 

@@ -255,6 +255,37 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.status_code, status.HTTP_200_OK)
         self.assertEqual(me_response.json()["email"], self.user.email)
 
+    @patch("posthog.auth.verify_passkey_authentication_response")
+    def test_login_does_not_restore_a_credential_deleted_during_verification(self, mock_verify):
+        credential_pk = self.credential.pk
+
+        def delete_credential(*args, **kwargs):
+            WebauthnCredential.objects.filter(pk=credential_pk).delete()
+            return MagicMock(new_sign_count=1)
+
+        mock_verify.side_effect = delete_credential
+        self.client.post("/api/webauthn/login/begin/")
+        user_handle = user_uuid_to_handle(self.user.uuid)
+
+        response = self.client.post(
+            "/api/webauthn/login/complete/",
+            {
+                "id": bytes_to_base64url(self.credential.credential_id),
+                "rawId": bytes_to_base64url(self.credential.credential_id),
+                "type": "public-key",
+                "response": {
+                    "authenticatorData": "data",
+                    "clientDataJSON": "data",
+                    "signature": "sig",
+                    "userHandle": bytes_to_base64url(user_handle),
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(WebauthnCredential.objects.filter(pk=credential_pk).exists())
+
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.email_verification.send_email_verification_code")
     @patch("posthog.auth.verify_passkey_authentication_response")
@@ -714,6 +745,31 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
         self.assertTrue(verify_complete_response.json()["verified"])
 
         mock_send_email.delay.assert_called_once_with(self.user.id)
+
+    @patch("posthog.api.webauthn.verify_passkey_authentication_response")
+    def test_verify_complete_does_not_restore_a_credential_deleted_during_verification(self, mock_verify):
+        unverified_credential = WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"deleted-during-verification",
+            label="Unverified Passkey",
+            public_key=b"public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=False,
+        )
+        self.client.post(f"/api/webauthn/credentials/{unverified_credential.pk}/verify/")
+        credential_pk = unverified_credential.pk
+
+        def delete_credential(*args, **kwargs):
+            WebauthnCredential.objects.filter(pk=credential_pk).delete()
+            return MagicMock(new_sign_count=1)
+
+        mock_verify.side_effect = delete_credential
+        response = self.client.post(f"/api/webauthn/credentials/{credential_pk}/verify_complete/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(WebauthnCredential.objects.filter(pk=credential_pk).exists())
 
     @patch("posthog.api.webauthn.request_session_is_live", return_value=False)
     @patch("posthog.api.webauthn.verify_passkey_authentication_response")

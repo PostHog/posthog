@@ -1222,6 +1222,30 @@ class TestUserAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    @patch("posthog.api.user.request_session_is_live", return_value=False)
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    def test_email_change_verification_refused_after_session_revocation(
+        self, mock_send_code, _mock_email_available, _mock_session_is_live
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.is_email_verified = True
+        self.user.save(update_fields=["email", "is_email_verified"])
+
+        response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
+        assert response.status_code == status.HTTP_200_OK
+
+        response = self.client.post(
+            "/api/users/verify_email/",
+            {"uuid": self.user.uuid, "code": mock_send_code.call_args[0][1]},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email == "beta@example.com"
+        assert email_verification_code_verifier.check_code(self.user, mock_send_code.call_args[0][1])
+
     @parameterized.expand(
         [
             ("current_email_enforced", "alpha@example.com", "sso_enforced_current_email"),
@@ -1917,6 +1941,37 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertTrue(self.user.has_usable_password())
         self.assertTrue(self.user.check_password(new_password))
+
+    def test_personal_api_key_cannot_change_password(self):
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Password change", user=self.user, secure_value=hash_key_value(api_key_value), scopes=["*"]
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"current_password": self.CONFIG_PASSWORD, "password": "a_new_password"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+
+    def test_profile_update_does_not_restore_a_reconciled_password(self):
+        stale_user = User.objects.get(pk=self.user.pk)
+        serializer = UserSerializer(instance=stale_user, data={"first_name": "Updated"}, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        self.user.set_unusable_password()
+        self.user.save(update_fields=["password"])
+
+        serializer.save()
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, "Updated")
+        self.assertFalse(self.user.has_usable_password())
 
     def test_unauthenticated_user_cannot_update_anything(self):
         self.client.logout()

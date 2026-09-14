@@ -756,41 +756,46 @@ class UserSerializer(serializers.ModelSerializer):
 
         # Update password
         current_password = validated_data.pop("current_password", None)
-        password = self.validate_password_change(
-            cast(User, instance), current_password, validated_data.pop("password", None)
-        )
+        requested_password = validated_data.pop("password", None)
+        if requested_password and not isinstance(
+            getattr(self.context["request"], "successful_authenticator", None), SessionAuthentication
+        ):
+            raise exceptions.PermissionDenied("Password changes require a browser session.")
+        password = self.validate_password_change(cast(User, instance), current_password, requested_password)
 
-        old_passkeys_enabled_for_2fa = instance.passkeys_enabled_for_2fa
         updated_attrs = list(validated_data.keys())
-
-        if password:
-            with transaction.atomic():
-                # Lock before any write and re-check the session. super().update() saves the whole
-                # instance, so a claim committing between validation and that save would otherwise
-                # be undone by the stale password hash written back here.
-                instance = cast(User, User.objects.select_for_update().get(pk=instance.pk))
+        credential_changed = bool(password)
+        with transaction.atomic():
+            instance = cast(User, User.objects.select_for_update().get(pk=instance.pk))
+            old_passkeys_enabled_for_2fa = instance.passkeys_enabled_for_2fa
+            if password:
                 if not request_session_is_live(self.context["request"], instance):
                     raise exceptions.PermissionDenied("Your session ended. Log in again to change your password.")
-                # Re-check the current password against the locked row: the claim may have wiped it
-                # while this request ran.
                 self.validate_password_change(instance, current_password, password)
-                instance = cast(User, super().update(instance, validated_data))
+
+            for attr, value in validated_data.items():
+                setattr(instance, attr, value)
+            if password:
                 # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validated in validate_password_change above)
                 instance.set_password(password)
-                instance.save()
+
+            update_fields = [*updated_attrs, *(["password"] if password else [])]
+            if update_fields:
+                instance.save(update_fields=update_fields)
+
+            credential_changed = credential_changed or bool(
+                "passkeys_enabled_for_2fa" in validated_data
+                and not old_passkeys_enabled_for_2fa
+                and instance.passkeys_enabled_for_2fa
+            )
+
+        if password:
             update_session_auth_hash(self.context["request"], instance)
             updated_attrs.append("password")
             send_password_changed_email.delay(instance.id)
-        else:
-            instance = cast(User, super().update(instance, validated_data))
 
         # Only the upgrade (enabling) counts as a credential change — disabling is a downgrade and
         # deliberately does not revoke other sessions.
-        credential_changed = bool(password) or (
-            "passkeys_enabled_for_2fa" in validated_data
-            and not old_passkeys_enabled_for_2fa
-            and instance.passkeys_enabled_for_2fa
-        )
         if credential_changed:
             # Revoke other sessions after update_session_auth_hash so the current (rotated) session is kept.
             revoke_other_sessions_for_request(self.context["request"], instance)
@@ -1172,18 +1177,34 @@ class UserViewSet(
         if email_changed and not same_user_session:
             raise exceptions.PermissionDenied("Complete this email change in the browser where it started.")
 
-        email_verification_code_verifier.invalidate(user)
-
         if email_changed:
-            old_email = user.email
             with transaction.atomic():
+                user = User.objects.select_for_update().get(pk=user.pk)
+                if not request_session_is_live(request, user):
+                    raise exceptions.PermissionDenied("Your session ended. Log in again to change your email.")
+                locked_email_change_proof = request.session.get(EMAIL_CHANGE_PROOF_SESSION_KEY)
+                if not (
+                    isinstance(locked_email_change_proof, dict)
+                    and locked_email_change_proof.get("user_uuid") == str(user.uuid)
+                    and locked_email_change_proof.get("target_email") == user.pending_email
+                ):
+                    raise exceptions.PermissionDenied("Complete this email change in the browser where it started.")
+                if not email_verification_code_verifier.check_code(user, code):
+                    raise serializers.ValidationError(
+                        {"code": ["This code is invalid or has expired."]},
+                        code="invalid_code",
+                    )
+                old_email = user.email
                 user.email = cast(str, user.pending_email)
                 user.pending_email = None
                 user.save(update_fields=["email", "pending_email"])
                 UserSocialAuth.objects.filter(user=user).delete()
+                revoke_other_sessions_for_request(request, user)
+            email_verification_code_verifier.invalidate(user)
             request.session.pop(EMAIL_CHANGE_PROOF_SESSION_KEY, None)
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
-            revoke_other_sessions_for_request(request, user)
+        else:
+            email_verification_code_verifier.invalidate(user)
 
         if user.is_email_verified is False:
             signup_proof = request.session.get(SIGNUP_EMAIL_PROOF_SESSION_KEY)
@@ -1198,7 +1219,7 @@ class UserViewSet(
                 else None
             )
             with transaction.atomic():
-                reconcile_email_claim_credentials(
+                user = reconcile_email_claim_credentials(
                     user,
                     trusted_password=trusted_password,
                     trusted_passkey_id=trusted_passkey_id,

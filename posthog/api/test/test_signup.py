@@ -1195,6 +1195,8 @@ class TestSignupAPI(APIBaseTest):
                 verified=True,
             )
             stale_social_auth = UserSocialAuth.objects.create(user=squatter, provider="github", uid="stale-github")
+            totp_device = TOTPDevice.objects.create(user=squatter, name="default", confirmed=True)
+            static_device = StaticDevice.objects.create(user=squatter, name="backup", confirmed=True)
             self._setup_jit_domain_for_email(email)
 
             response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
@@ -1205,6 +1207,8 @@ class TestSignupAPI(APIBaseTest):
             self.assertFalse(squatter.passkeys_enabled_for_2fa)
             self.assertFalse(WebauthnCredential.objects.filter(user=squatter).exists())
             self.assertFalse(UserSocialAuth.objects.filter(id=stale_social_auth.id).exists())
+            self.assertFalse(TOTPDevice.objects.filter(id=totp_device.id).exists())
+            self.assertFalse(StaticDevice.objects.filter(id=static_device.id).exists())
             self.assertTrue(UserSocialAuth.objects.filter(user=squatter, provider="google-oauth2", uid="123").exists())
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
@@ -2064,14 +2068,14 @@ class TestPasskeySignupAPI(APIBaseTest):
 
         response = self.client.post("/api/users/verify_email/", {"uuid": user.uuid, "code": self.verification_code})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["requires_2fa"])
+        self.assertEqual(response.json(), {"success": True})
 
         credential.refresh_from_db()
         self.assertTrue(credential.verified)
         self.assertFalse(WebauthnCredential.objects.filter(id=unrelated_passkey.id).exists())
         self.assertFalse(UserSocialAuth.objects.filter(id=stale_social_auth.id).exists())
-        self.assertTrue(TOTPDevice.objects.filter(id=totp_device.id).exists())
-        self.assertTrue(StaticDevice.objects.filter(id=static_device.id).exists())
+        self.assertFalse(TOTPDevice.objects.filter(id=totp_device.id).exists())
+        self.assertFalse(StaticDevice.objects.filter(id=static_device.id).exists())
         user.refresh_from_db()
         self.assertTrue(user.is_email_verified)
 
@@ -2118,8 +2122,8 @@ class TestPasskeySignupAPI(APIBaseTest):
         self.assertFalse(user.has_usable_password())
         self.assertFalse(WebauthnCredential.objects.filter(user=user).exists())
         self.assertFalse(UserSocialAuth.objects.filter(id=stale_social_auth.id).exists())
-        self.assertTrue(TOTPDevice.objects.filter(id=totp_device.id).exists())
-        self.assertTrue(StaticDevice.objects.filter(id=static_device.id).exists())
+        self.assertFalse(TOTPDevice.objects.filter(id=totp_device.id).exists())
+        self.assertFalse(StaticDevice.objects.filter(id=static_device.id).exists())
         self.assertTrue(PersonalAPIKey.objects.filter(id=personal_api_key.id).exists())
         self.assertFalse(Session.objects.filter(session_key=stale_session_key).exists())
 

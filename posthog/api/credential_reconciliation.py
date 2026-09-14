@@ -1,3 +1,5 @@
+from django_otp.plugins.otp_static.models import StaticDevice
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from social_django.models import UserSocialAuth
 
 from posthog.models.user import User
@@ -11,12 +13,9 @@ def reconcile_email_claim_credentials(
     trusted_password: bool = False,
     trusted_passkey_id: str | None = None,
     trusted_social_auth_id: int | None = None,
-) -> None:
+) -> User:
     """Reconcile credentials when an email address is claimed."""
-    # Serialize with login-credential writers (password change, passkey verification): they take
-    # this same row lock and then re-check their session, so a write from a session this claim
-    # revokes cannot land after the wipe.
-    User.objects.select_for_update().get(pk=user.pk)
+    user = User.objects.select_for_update().get(pk=user.pk)
     update_fields: list[str] = []
 
     if user.credentials_reviewed_at is not None:
@@ -43,8 +42,11 @@ def reconcile_email_claim_credentials(
     if trusted_social_auth_id is not None:
         social_auth = social_auth.exclude(id=trusted_social_auth_id)
     social_auth.delete()
+    TOTPDevice.objects.filter(user=user).delete()
+    StaticDevice.objects.filter(user=user).delete()
 
     if update_fields:
         user.save(update_fields=update_fields)
 
     revoke_other_sessions(user, keep_session_key=None)
+    return user

@@ -400,17 +400,22 @@ class LoginSerializer(serializers.Serializer):
                         # if we failed to send the email, we should fall through to allow login without code-based verification
                         pass
 
-        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        with transaction.atomic():
+            user = User.objects.select_for_update().get(pk=user.pk)
+            if not user.is_active or not user.check_password(validated_data["password"]):
+                raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
-        # Log successful authentication with axes
-        handler.user_logged_in(None, user=user, request=axes_request)
+            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
-        if not self._check_if_2fa_required(user):
-            set_two_factor_verified_in_session(request)
+            # Log successful authentication with axes
+            handler.user_logged_in(None, user=user, request=axes_request)
 
-        # This is auto-handled for social auth providers, but we need to handle it manually for user/pass logins
-        request.session["reauth"] = "true" if was_authenticated_before_login_attempt else "false"
-        request.session.save()
+            if not self._check_if_2fa_required(user):
+                set_two_factor_verified_in_session(request)
+
+            # This is auto-handled for social auth providers, but we need to handle it manually for user/pass logins
+            request.session["reauth"] = "true" if was_authenticated_before_login_attempt else "false"
+            request.session.save()
 
         # Trigger login notification (password, no-2FA) and skip re-auth
         if not was_authenticated_before_login_attempt and not has_valid_known_device_cookie(request, user):
@@ -1215,14 +1220,17 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
 
         was_unverified = user.is_email_verified is False
         with transaction.atomic():
-            user.set_password(password)
-            user.requested_password_reset_at = None
             # The reset token proves address ownership. Treat the new password as the
             # trusted credential when clearing credentials from an unverified account.
             if was_unverified:
-                reconcile_email_claim_credentials(user, trusted_password=True)
+                user = reconcile_email_claim_credentials(user, trusted_password=True)
+            else:
+                user = User.objects.select_for_update().get(pk=user.pk)
+            # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validated above)
+            user.set_password(password)
+            user.requested_password_reset_at = None
             user.is_email_verified = True
-            user.save()
+            user.save(update_fields=["password", "requested_password_reset_at", "is_email_verified"])
 
         # The reset flow doesn't log the user in, and a reset is the canonical compromise-recovery
         # action, so revoke every existing login session for this user.

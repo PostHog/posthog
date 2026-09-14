@@ -274,22 +274,23 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         was_authenticated_before_login_attempt = bool(getattr(request.user, "is_authenticated", False))
 
         try:
-            verified_user = self._verify_login_assertion(
-                request, credential_id=credential_id, challenge=challenge, typed_response=typed_response
-            )
-            if not isinstance(verified_user, User):
-                return verified_user
-            if policy_response := self._enforce_login_policy(request, verified_user, credential_id):
-                return policy_response
+            with transaction.atomic():
+                verified_user = self._verify_login_assertion(
+                    request, credential_id=credential_id, challenge=challenge, typed_response=typed_response
+                )
+                if not isinstance(verified_user, User):
+                    return verified_user
+                if policy_response := self._enforce_login_policy(request, verified_user, credential_id):
+                    return policy_response
 
-            # Login the user with the WebauthnBackend
-            login(request, verified_user, backend="posthog.auth.WebauthnBackend")
+                # Login the user with the WebauthnBackend
+                login(request, verified_user, backend="posthog.auth.WebauthnBackend")
 
-            # Passkey bypasses 2FA
-            set_two_factor_verified_in_session(request)
+                # Passkey bypasses 2FA
+                set_two_factor_verified_in_session(request)
 
-            request.session["reauth"] = "true" if was_authenticated_before_login_attempt else "false"
-            request.session.save()
+                request.session["reauth"] = "true" if was_authenticated_before_login_attempt else "false"
+                request.session.save()
 
             report_user_logged_in(verified_user, social_provider="passkey")
 
@@ -786,15 +787,20 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
             # revokes this request's session row inside its transaction, so a verification that
             # lands after it would re-add a login credential on the reconciled account.
             with transaction.atomic():
-                User.objects.select_for_update().get(pk=user.pk)
+                user = User.objects.select_for_update().get(pk=user.pk)
                 if not request_session_is_live(request, user):
                     return Response(
                         {"error": "Your session ended. Please log in and try again."},
                         status=status.HTTP_401_UNAUTHORIZED,
                     )
-                credential.verified = True
-                credential.counter = verification.new_sign_count
-                credential.save()
+                if not WebauthnCredential.objects.filter(pk=credential.pk, user=user, verified=False).update(
+                    verified=True, counter=verification.new_sign_count
+                ):
+                    return Response(
+                        {"error": "Credential not found or already verified."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                credential = WebauthnCredential.objects.get(pk=credential.pk, user=user)
 
             send_passkey_added_email.delay(user.id)
 

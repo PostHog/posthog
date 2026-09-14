@@ -413,6 +413,23 @@ class TestLoginAPI(APIBaseTest):
             },
         )
 
+    def test_login_refuses_a_password_removed_by_an_email_claim_before_session_save(self):
+        self.user.is_email_verified = True
+        self.user.save(update_fields=["is_email_verified"])
+        original_select_for_update = User.objects.select_for_update
+
+        def claim_then_lock():
+            self.user.set_unusable_password()
+            self.user.save(update_fields=["password"])
+            return original_select_for_update()
+
+        with patch.object(User.objects, "select_for_update", side_effect=claim_then_lock) as mock_select_for_update:
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_select_for_update.assert_called_once()
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
     def test_login_refused_for_blocked_member_when_org_requires_verified_domain(self):
         # A blocked member has no recovery action a session would enable, so they get a clear
         # refusal instead of a fully gated app.
@@ -2092,8 +2109,8 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertFalse(WebauthnCredential.objects.filter(user=self.user).exists())
         self.assertFalse(UserSocialAuth.objects.filter(id=social_auth.id).exists())
         self.assertFalse(self.user.passkeys_enabled_for_2fa)
-        self.assertTrue(TOTPDevice.objects.filter(id=totp_device.id).exists())
-        self.assertTrue(StaticDevice.objects.filter(id=static_device.id).exists())
+        self.assertFalse(TOTPDevice.objects.filter(id=totp_device.id).exists())
+        self.assertFalse(StaticDevice.objects.filter(id=static_device.id).exists())
         self.assertTrue(PersonalAPIKey.objects.filter(id=personal_api_key.id).exists())
         self.assertIsNone(self.user.credentials_reviewed_at)
 
