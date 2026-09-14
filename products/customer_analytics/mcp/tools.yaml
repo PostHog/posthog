@@ -274,8 +274,8 @@ tools:
             converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`,
             fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content`
             (ProseMirror JSON) only if you already have a structured document; the server converts it into the same
-            markdown notebook format. In most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the
-            global notebooks list.
+            markdown notebook format. In most cases leave it unset and write Markdown in `text_content`. The notebook is
+            created with internal visibility so it does not appear in the global notebooks list.
         feature_flag: customer-analytics-csp
     accounts-notebooks-destroy:
         operation: accounts_notebooks_destroy
