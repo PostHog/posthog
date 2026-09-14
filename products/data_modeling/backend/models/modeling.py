@@ -175,12 +175,10 @@ class BoundedResolver(Resolver):
         super().__init__(*args, **kwargs)
         self.source = source
         self.initial_view_name = initial_view_name
-        # views whose bodies are currently being visited; seeded with the current view name so
-        # it counts as "visited" for cycle detection
-        self.resolving_views: set[str] = {initial_view_name} if initial_view_name else set()
-        # set by visit_join_expr, consumed by the body visit it triggers (cycle detection needs
-        # the name during resolution, before the id map below is populated)
-        self._pending_view_name: str | None = None
+        # the base resolver tracks the views whose bodies are being visited; seed it with the
+        # current view name so it counts as "visited" for cycle detection
+        if initial_view_name:
+            self.resolving_views.add(initial_view_name)
         # id(resolved union body) -> the view it was inlined from. The base resolver stamps
         # `view_name` on SelectQuery bodies but not SelectSetQuery, so union-bodied views would
         # otherwise lose their identity; get_parents reads this to record the view as the parent
@@ -267,16 +265,7 @@ class BoundedResolver(Resolver):
                         # soft mode: still expand, but record the overshoot via max_view_depth_observed
                     if next_depth > self.max_view_depth_observed:
                         self.max_view_depth_observed = next_depth
-                    # Hand the name to the body visit rather than marking it resolving here: the
-                    # base resolver walks node.next_join from inside visit_join_expr, so anything
-                    # marked around super() stays marked while later tables in the same FROM
-                    # resolve, and siblings would read as cycles.
-                    previous_pending = self._pending_view_name
-                    self._pending_view_name = view_name
-                    try:
-                        result = super().visit_join_expr(node)
-                    finally:
-                        self._pending_view_name = previous_pending
+                    result = super().visit_join_expr(node)
                     # a union body carries no view_name on the resolved tree; record its identity
                     # so get_parents can recover the view name it was inlined from
                     if isinstance(result, ast.JoinExpr) and isinstance(result.table, ast.SelectSetQuery):
@@ -284,37 +273,6 @@ class BoundedResolver(Resolver):
                     return result
 
         return super().visit_join_expr(node)
-
-    def _enter_view_body(self, stamped_view_name: str | None) -> str | None:
-        """Mark the view whose body is about to be visited, returning the name to pop after.
-
-        The base resolver inlines a view by replacing the table with its parsed body and
-        visiting that body before it walks `next_join`, so the body visit — not the JoinExpr
-        subtree — is what "on the current path" means for cycle detection. It stamps
-        `view_name` on `ast.SelectQuery` bodies only, so union-bodied views rely on the name
-        `visit_join_expr` left in `_pending_view_name`.
-        """
-        view_name = stamped_view_name or self._pending_view_name
-        self._pending_view_name = None
-        if view_name is not None:
-            self.resolving_views.add(view_name)
-        return view_name
-
-    def visit_select_query(self, node: ast.SelectQuery):
-        view_name = self._enter_view_body(node.view_name)
-        try:
-            return super().visit_select_query(node)
-        finally:
-            if view_name is not None:
-                self.resolving_views.discard(view_name)
-
-    def visit_select_set_query(self, node: ast.SelectSetQuery):
-        view_name = self._enter_view_body(None)
-        try:
-            return super().visit_select_set_query(node)
-        finally:
-            if view_name is not None:
-                self.resolving_views.discard(view_name)
 
 
 def bounded_resolver_factory_for_view(

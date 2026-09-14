@@ -344,6 +344,15 @@ class TestUnknownTableSuggestions(TestCase):
 
         assert str(error.exception) == expected_message
 
+    def test_excluded_names_are_not_suggested(self):
+        database = Database()
+        database._add_views(_catalog_node(["customer_orders"]))
+
+        with self.assertRaises(QueryError) as error:
+            database.get_table("customer_order", exclude_from_suggestions={"customer_orders"})
+
+        assert str(error.exception) == "Unknown table `customer_order`."
+
 
 class TestDatabase(BaseTest, QueryMatchingTest):
     snapshot: Any

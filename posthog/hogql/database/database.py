@@ -765,7 +765,10 @@ class Database(BaseModel):
 
         return self.tables.get_child(table_name)
 
-    def get_table(self, table_name: str | list[str]) -> Table:
+    def get_table(self, table_name: str | list[str], *, exclude_from_suggestions: Collection[str] = ()) -> Table:
+        """Resolve a table by name. `exclude_from_suggestions` names tables the caller must not
+        be offered as a near match: the resolver passes the views it is inlining, because a view
+        cannot select from itself."""
         try:
             table = cast(Table, self.get_table_node(table_name).get())
         except ResolutionError as e:
@@ -773,7 +776,7 @@ class Database(BaseModel):
                 table_name = ".".join(table_name)
             if self.is_table_access_denied(table_name):
                 raise TableAccessDeniedError(table_name) from e
-            suggestions = self._suggest_table_names(table_name)
+            suggestions = self._suggest_table_names(table_name, exclude=exclude_from_suggestions)
             suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             raise QueryError(f"Unknown table `{table_name}`.{suffix}") from e
 
@@ -831,7 +834,7 @@ class Database(BaseModel):
             self._foreign_keys_built = True
             self._deferred_foreign_key_tables = []
 
-    def _suggest_table_names(self, name: str, *, limit: int = 3) -> list[str]:
+    def _suggest_table_names(self, name: str, *, exclude: Collection[str] = (), limit: int = 3) -> list[str]:
         """Return up to `limit` close matches for a mistyped table name.
 
         Uses a relatively strict cutoff so common exact-text assertions on
@@ -859,9 +862,10 @@ class Database(BaseModel):
             return []
         # Drop any candidate that matches the input — suggesting `persons` for `persons`
         # is noise, and on a direct connection the same name can exist in the broader
-        # catalog without being available on the source we actually queried.
-        lowered = name.casefold()
-        candidates = {c for c in candidates if c.casefold() != lowered}
+        # catalog without being available on the source we actually queried. Excluded
+        # names go the same way; the caller knows they cannot resolve here.
+        dropped = {name.casefold(), *(excluded.casefold() for excluded in exclude)}
+        candidates = {c for c in candidates if c.casefold() not in dropped}
         prefix, dot, _ = name.rpartition(".")
         if dot:
             schema = prefix.casefold()

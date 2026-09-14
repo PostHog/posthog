@@ -382,6 +382,13 @@ class Resolver(CloningVisitor):
         self.scopes: list[ast.SelectQueryType] = scopes or []
         self.ctes: dict[str, ast.CTE] = {}
         self.current_view_depth: int = 0
+        # Names of the views whose bodies are being visited on the current path. The table-name
+        # suggester reads it, so a failed lookup inside a view body never proposes the enclosing
+        # view, which resolves into itself. Subclasses also use it for cycle detection.
+        self.resolving_views: set[str] = set()
+        # Set by visit_join_expr for the body visit it triggers, because a union body carries
+        # no view_name of its own.
+        self._pending_view_name: str | None = None
         self.context = context
         self.dialect = dialect
         self.database = context.database
@@ -409,7 +416,30 @@ class Resolver(CloningVisitor):
             )
         return super().visit(node)
 
+    def _enter_view_body(self, stamped_view_name: str | None) -> str | None:
+        """Mark the view whose body is about to be visited, returning the name to pop after.
+
+        A view is inlined by replacing the table with its parsed body and visiting that body
+        before `next_join` is walked, so the body visit — not the JoinExpr subtree — is what
+        "on the current path" means. The return value names only what this call added, so a
+        caller never pops a mark that an outer visit of the same view owns.
+        """
+        view_name = stamped_view_name or self._pending_view_name
+        self._pending_view_name = None
+        if view_name is None or view_name in self.resolving_views:
+            return None
+        self.resolving_views.add(view_name)
+        return view_name
+
     def visit_select_set_query(self, node: ast.SelectSetQuery):
+        view_name = self._enter_view_body(None)
+        try:
+            return self._visit_select_set_query(node)
+        finally:
+            if view_name is not None:
+                self.resolving_views.discard(view_name)
+
+    def _visit_select_set_query(self, node: ast.SelectSetQuery):
         parent_ctes = self.ctes
         self.ctes = dict(parent_ctes)
 
@@ -880,6 +910,14 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
+        view_name = self._enter_view_body(node.view_name)
+        try:
+            return self._visit_select_query(node)
+        finally:
+            if view_name is not None:
+                self.resolving_views.discard(view_name)
+
+    def _visit_select_query(self, node: ast.SelectQuery):
         # Capture before visiting CTEs/subqueries (which re-enter here), so only the outermost query
         # counts as root — a top-level `SELECT *` on a direct table is kept literal below.
         is_root_select = not self._entered_root_select
@@ -1370,7 +1408,9 @@ class Resolver(CloningVisitor):
 
             if database_table is None:
                 try:
-                    database_table = cast(Database, self.database).get_table(table_name_chain)
+                    database_table = cast(Database, self.database).get_table(
+                        table_name_chain, exclude_from_suggestions=self.resolving_views
+                    )
                 except QueryError:
                     # Direct Postgres/DuckDB sources expose introspected table-valued functions
                     # (range, generate_series, unnest, …) via connection metadata. If the lookup
@@ -1393,9 +1433,12 @@ class Resolver(CloningVisitor):
                     node.table.view_name = database_table.name
 
                 node.alias = table_alias or database_table.name
-                node = self.visit(node)
-
-                self.current_view_depth -= 1
+                self._pending_view_name = database_table.name
+                try:
+                    node = self.visit(node)
+                finally:
+                    self._pending_view_name = None
+                    self.current_view_depth -= 1
                 return node
 
             if isinstance(database_table, LazyTable):
