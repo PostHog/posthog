@@ -99,15 +99,20 @@ def record_sandbox_ended(runtime: KernelRuntime, *, reason: str, sandbox_still_r
         logger.exception("notebook_kernel_sandbox_ended_report_failed", kernel_runtime_id=str(runtime.id))
 
 
-def record_sandbox_ended_by_id(kernel_runtime_id: UUID, *, reason: str, sandbox_still_running: bool) -> None:
+def record_sandbox_ended_by_id(
+    kernel_runtime_id: UUID, *, team_id: int, user_id: int | None, reason: str, sandbox_still_running: bool
+) -> None:
     """Record the end of a sandbox for a caller that holds only the runtime id.
 
     The facade accepts ids and not model rows, so the kernel status endpoint uses this function. The
+    lookup also filters on the team and the user, so a caller can only end a runtime that it owns. The
     lookup skips a row that has already ended, so a status poll on an ended runtime costs one query.
     Never raises.
     """
     try:
-        runtime = KernelRuntime.objects.filter(pk=kernel_runtime_id, ended_at__isnull=True).first()
+        runtime = KernelRuntime.objects.filter(
+            pk=kernel_runtime_id, team_id=team_id, user_id=user_id, ended_at__isnull=True
+        ).first()
     except Exception:
         logger.exception("notebook_kernel_sandbox_ended_report_failed", kernel_runtime_id=str(kernel_runtime_id))
         return

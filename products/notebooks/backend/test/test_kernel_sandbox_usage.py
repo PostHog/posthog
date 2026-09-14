@@ -79,7 +79,13 @@ class TestRecordSandboxEnded(BaseTest):
         runtime = self._modal_runtime_with_an_hour_ttl()
 
         record_sandbox_ended(runtime, reason=KernelRuntime.Status.STOPPED, sandbox_still_running=False)
-        record_sandbox_ended_by_id(runtime.id, reason=KernelRuntime.Status.TIMED_OUT, sandbox_still_running=False)
+        record_sandbox_ended_by_id(
+            runtime.id,
+            team_id=self.team.id,
+            user_id=self.user.id,
+            reason=KernelRuntime.Status.TIMED_OUT,
+            sandbox_still_running=False,
+        )
 
         self.assertEqual(mock_report.call_count, 2)
         self.assertEqual(mock_report.call_args[0][1]["ended_reason"], KernelRuntime.Status.TIMED_OUT)
