@@ -1493,13 +1493,12 @@ class TestActiveOrganizationPermission(SimpleTestCase):
 
         self.assertTrue(self.permission.has_permission(self._request(authenticator), self._view()))
 
-    def test_null_is_active_is_treated_as_deactivated(self):
+    def test_null_is_active_is_treated_as_never_deactivated(self):
+        # Reading a null as deactivated would refuse API access to any organization that ever
+        # acquired one, and disagree with the middleware's `is_active is not False`.
         self.organization.is_active = None
 
-        with self.assertRaises(PermissionDenied) as denial:
-            self.permission.has_permission(self._request(self._personal_api_key_auth()), self._view())
-
-        self.assertEqual(self._denial_code(denial.exception), "organization_deactivated")
+        self.assertTrue(self.permission.has_permission(self._request(self._personal_api_key_auth()), self._view()))
 
     def test_active_organization_admits_a_token(self):
         self.assertTrue(self.permission.has_permission(self._request(self._personal_api_key_auth()), self._view()))

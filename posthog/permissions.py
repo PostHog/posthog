@@ -35,6 +35,7 @@ from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.organization_access import block_api_detail, organization_block
 from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
@@ -326,17 +327,6 @@ def view_targets_one_organization(view) -> bool:
     return bool(view.parent_query_kwargs or view.param_derived_from_user_current_team)
 
 
-ORGANIZATION_PENDING_DELETION_ERROR = (
-    "This organization is scheduled for deletion. API access is blocked. Contact support if you need it restored."
-)
-
-
-def organization_deactivated_error(reason: Optional[str]) -> str:
-    """The refusal shown to an API caller. `reason` is operator text, already user-facing."""
-    detail = f"This organization is deactivated. {reason.strip()}" if reason else "This organization is deactivated."
-    return f"{detail} API access stays blocked until it's restored. Contact support if you think this is a mistake."
-
-
 class ActiveOrganizationPermission(BasePermission):
     """
     Deny token-authenticated requests that target a deactivated organization.
@@ -349,11 +339,9 @@ class ActiveOrganizationPermission(BasePermission):
     Session auth passes through. The middleware already covers the browser, and a member of a
     deactivated organization still has to reach the app to see why and to pay an unpaid balance.
 
-    A null `is_active` counts as deactivated. The column is nullable because the field was added
-    with `null=True`, and treating an unknown state as deactivated fails closed.
-
     Checked against the URL-resolved organization, never `user.current_organization`, because the
-    current organization is a UI preference the API doesn't validate.
+    current organization is a UI preference the API doesn't validate. What counts as blocked comes
+    from `posthog.organization_access`, shared with the middleware.
     """
 
     # Billing stays reachable, so an integration can still read the state that explains the refusal.
@@ -402,16 +390,9 @@ class ActiveOrganizationPermission(BasePermission):
         return get_authenticator_scopes(getattr(request, "successful_authenticator", None)) is not None
 
     def _admits(self, organization: Organization) -> bool:
-        if organization.is_pending_deletion:
-            raise PermissionDenied(
-                detail=ORGANIZATION_PENDING_DELETION_ERROR,
-                code="organization_pending_deletion",
-            )
-        if not organization.is_active:
-            raise PermissionDenied(
-                detail=organization_deactivated_error(organization.is_not_active_reason),
-                code="organization_deactivated",
-            )
+        block = organization_block(organization)
+        if block is not None:
+            raise PermissionDenied(detail=block_api_detail(block, organization), code=block.value)
         return True
 
 

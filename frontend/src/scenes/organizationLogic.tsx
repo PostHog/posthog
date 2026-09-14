@@ -11,12 +11,48 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationType } from '~/types'
 
 import { urls } from './urls'
 import { userLogic } from './userLogic'
+
+type OrganizationBlock = 'pending_deletion' | 'deactivated'
+
+function blockPage(block: OrganizationBlock): string {
+    return block === 'pending_deletion' ? urls.organizationPendingDeletion() : urls.organizationDeactivated()
+}
+
+/**
+ * Path prefixes a block does not apply to. Mirrors `posthog/organization_access.py`, which does
+ * the same for hard page loads. Nothing imports across the two trees, so change one and change
+ * the other. Deactivation keeps billing, because settling the balance is how a member lifts it.
+ */
+const ORG_INDEPENDENT_PAGES: string[] = ['/signup/']
+const EXTRA_ALLOWED_PAGES: Record<OrganizationBlock, string[]> = {
+    pending_deletion: [],
+    deactivated: ['/organization/billing'],
+}
+
+function organizationBlock(organization: OrganizationType | null): OrganizationBlock | null {
+    if (organization?.is_pending_deletion) {
+        return 'pending_deletion'
+    }
+    if (organization?.is_active === false) {
+        return 'deactivated'
+    }
+    return null
+}
+
+function pageIsAllowed(block: OrganizationBlock, pathname: string): boolean {
+    return (
+        pathname === blockPage(block) ||
+        ORG_INDEPENDENT_PAGES.some((allowed) => pathname.startsWith(allowed)) ||
+        EXTRA_ALLOWED_PAGES[block].some((allowed) => pathname.startsWith(allowed))
+    )
+}
 
 export type OrganizationUpdatePayload = Partial<
     Pick<
@@ -344,15 +380,14 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         locationChanged: ({ pathname }) => {
-            // Redirect to pending deletion page if organization deletion is in progress
-            if (values.currentOrganization?.is_pending_deletion && pathname !== urls.organizationPendingDeletion()) {
-                router.actions.replace(urls.organizationPendingDeletion())
+            const block = organizationBlock(values.currentOrganization)
+            // The pathname can carry the router's `/project/<id>` prefix while the allowed pages
+            // are routes, so compare on the route. Otherwise the replace below never matches its
+            // own destination and the two keep redirecting to each other.
+            if (block === null || pageIsAllowed(block, removeProjectIdIfPresent(pathname))) {
                 return
             }
-            // Redirect to deactivated page if organization is inactive (client-side navigation)
-            if (values.currentOrganization?.is_active === false && pathname !== urls.organizationDeactivated()) {
-                router.actions.replace(urls.organizationDeactivated())
-            }
+            router.actions.replace(blockPage(block))
         },
         createOrganizationSuccess: () => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()

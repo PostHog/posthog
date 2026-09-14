@@ -2251,6 +2251,53 @@ class TestInviteSignupAPI(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            (
+                "deactivated",
+                {"is_active": False},
+                "organization_deactivated",
+                "This organization is deactivated, so you can't join it yet. "
+                "Ask the person who invited you to contact support.",
+            ),
+            (
+                "pending_deletion",
+                {"is_pending_deletion": True},
+                "organization_pending_deletion",
+                "This organization is scheduled for deletion, so you can't join it. "
+                "Ask the person who invited you to contact support if it should be restored.",
+            ),
+        ]
+    )
+    def test_api_invite_sign_up_prevalidate_blocked_organization(self, _name, blocking_state, code, detail):
+        blocked_org = Organization.objects.create(name="Blocked Org", **blocking_state)
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+blocked@posthog.com", organization=blocked_org
+        )
+
+        response = self.client.get(f"/api/signup/{invite.id}/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"type": "validation_error", "code": code, "detail": detail, "attr": None},
+        )
+
+    def test_cant_claim_an_invite_into_a_deactivated_organization(self):
+        blocked_org = Organization.objects.create(name="Blocked Org", is_active=False)
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+blockedclaim@posthog.com", organization=blocked_org
+        )
+        membership_count = OrganizationMembership.objects.count()
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "organization_deactivated")
+        self.assertEqual(OrganizationMembership.objects.count(), membership_count)
+
     def test_api_invite_sign_up_prevalidate_expired_invite(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+59@posthog.com", organization=self.organization

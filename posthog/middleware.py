@@ -47,13 +47,14 @@ from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
-from posthog.models import Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
     activity_storage,
 )
 from posthog.models.utils import generate_random_token
+from posthog.organization_access import BLOCK_PAGES, organization_block, page_is_allowed
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
@@ -1462,9 +1463,44 @@ class SocialAuthExceptionMiddleware:
         return error_detail
 
 
-class ActiveOrganizationMiddleware:
+def member_team_organization(user: User, team_ref: str) -> Optional[Organization]:
+    """The organization owning the team a URL names, when the user belongs to it.
+
+    Scoped to the user's own organizations so that the middleware cannot report a stranger's
+    organization state. A team the user cannot reach resolves to None.
     """
-    Middleware to verify that the current authenticated session is attached to an active organization (is_active = None or True)
+    teams = Team.objects.filter(organization__members=user).select_related("organization")
+    if team_ref.isdigit():
+        team = teams.filter(pk=int(team_ref)).first()
+    elif team_ref.startswith("phc_") or team_ref in PROJECT_SWITCHING_TOKEN_ALLOWLIST:
+        team = teams.filter(api_token=team_ref).first()
+    else:
+        return None
+    return team.organization if team is not None else None
+
+
+def page_target_organization(request: HttpRequest, user: User) -> Optional[Organization]:
+    """The organization a page request acts on, or None when it acts on none.
+
+    Most app routes carry no organization, so the current one is the target by construction.
+    `/project/<id>/...` names its own, and has to be resolved here: `AutoProjectMiddleware`
+    switches the user into that project's organization, but runs after this middleware.
+    """
+    path_parts = request.path.strip("/").split("/")
+
+    if len(path_parts) >= 2 and path_parts[0] == "project":
+        organization = member_team_organization(user, path_parts[1])
+        if organization is not None:
+            return organization
+
+    return user.current_organization
+
+
+class ActiveOrganizationMiddleware:
+    """Keep members out of an organization that is deactivated or pending deletion.
+
+    This is UX, not enforcement, because every `/api` path is skipped here.
+    `ActiveOrganizationPermission` holds the API, reading the same policy module.
     """
 
     _IGNORED_PATHS = ("/logout", "/api", "/admin")
@@ -1481,26 +1517,23 @@ class ActiveOrganizationMiddleware:
             return self.get_response(request)
 
         user = cast(User, request.user)
+        organization = page_target_organization(request, user)
 
-        if user.current_organization is None:
+        if organization is None:
             return self.get_response(request)
 
-        # Check pending deletion first — takes priority over is_active
-        if user.current_organization.is_pending_deletion:
-            return (
-                self.get_response(request)
-                if request.path == "/organization-pending-deletion"
-                else redirect("/organization-pending-deletion")
-            )
+        block = organization_block(organization)
 
-        if user.current_organization.is_active is not False:
-            return redirect("/") if request.path == "/organization-deactivated" else self.get_response(request)
+        if block is None:
+            # A user sitting on a block page has been let back in.
+            if request.path in BLOCK_PAGES.values():
+                return redirect("/")
+            return self.get_response(request)
 
-        return (
-            self.get_response(request)
-            if request.path == "/organization-deactivated"
-            else redirect("/organization-deactivated")
-        )
+        if page_is_allowed(block, request.path):
+            return self.get_response(request)
+
+        return redirect(BLOCK_PAGES[block])
 
 
 # Session key used to mark an impersonation session as read-only

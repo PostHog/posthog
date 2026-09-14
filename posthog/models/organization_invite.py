@@ -18,6 +18,7 @@ from posthog.models.onboarding_delegation import mark_delegators_accepted
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel, sane_repr
+from posthog.organization_access import block_invite_detail, organization_block
 from posthog.utils import absolute_uri
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -122,6 +123,12 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
 
         if self.is_expired():
             raise InviteExpiredException()
+
+        # Checked here rather than in the viewset because every accept path reaches this method,
+        # directly or through `use()`.
+        block = organization_block(self.organization)
+        if block is not None:
+            raise exceptions.ValidationError(block_invite_detail(block), code=block.value)
 
         if user is None and invite_email and EmailValidationHelper.user_exists(invite_email):
             raise exceptions.ValidationError(f"/login?next={request_path}", code="account_exists")

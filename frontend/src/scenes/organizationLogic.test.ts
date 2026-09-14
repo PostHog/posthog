@@ -1,12 +1,16 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { AppContext, OrganizationType } from '../types'
 import { organizationLogic } from './organizationLogic'
+import { urls } from './urls'
 
 describe('organizationLogic', () => {
     let logic: ReturnType<typeof organizationLogic.build>
@@ -115,6 +119,48 @@ describe('organizationLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
             expect(logic.values.currentOrganization).toBeNull()
+        })
+    })
+    describe('redirecting away from a blocked organization', () => {
+        const mountWith = (organization: Partial<OrganizationType>): void => {
+            window.POSTHOG_APP_CONTEXT = {
+                current_user: { organization: { id: 'WXYZ', ...organization } },
+            } as unknown as AppContext
+            initKeaTests()
+            logic = organizationLogic()
+            logic.mount()
+        }
+
+        test.each([
+            ['deactivated keeps billing', { is_active: false }, '/organization/billing', '/organization/billing'],
+            [
+                'deactivated keeps an invite link',
+                { is_active: false },
+                '/signup/0190a1b2-c3d4-0000-0000-000000000001',
+                '/signup/0190a1b2-c3d4-0000-0000-000000000001',
+            ],
+            ['deactivated drops the app', { is_active: false }, '/dashboard', urls.organizationDeactivated()],
+            [
+                'pending deletion drops billing',
+                { is_pending_deletion: true },
+                '/organization/billing',
+                urls.organizationPendingDeletion(),
+            ],
+            [
+                'pending deletion keeps an invite link',
+                { is_pending_deletion: true },
+                '/signup/0190a1b2-c3d4-0000-0000-000000000001',
+                '/signup/0190a1b2-c3d4-0000-0000-000000000001',
+            ],
+        ])('%s', async (_name, organization, pathname, expected) => {
+            mountWith(organization)
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+
+            router.actions.push(pathname)
+
+            await expectLogic(router).toDispatchActions(['push'])
+            // The router writes back a `/project/<id>` prefix, so compare on the route.
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(expected)
         })
     })
 })
