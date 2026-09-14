@@ -19,6 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cursor import (
     CURSOR_BASE_URL,
+    KEY_FORBIDDEN_MESSAGE,
+    KEY_REJECTED_MESSAGE,
     CursorResumeConfig,
     cursor_source,
     validate_credentials as validate_cursor_credentials,
@@ -82,8 +84,8 @@ You need a Cursor team plan (Business or Enterprise). A team admin can create an
             # An invalid or revoked Admin API key surfaces as a requests HTTPError when `_fetch`
             # calls `raise_for_status()`. Retrying can never satisfy a credential problem, so stop
             # the sync. Match the stable status text and base host, not the per-request path.
-            f"401 Client Error: Unauthorized for url: {CURSOR_BASE_URL}": "Your Cursor Admin API key is invalid or has been revoked. Create a new key in your Cursor dashboard settings, then reconnect.",
-            f"403 Client Error: Forbidden for url: {CURSOR_BASE_URL}": "Your Cursor Admin API key does not have access to this data. Admin API keys must be created by a team admin, and some endpoints require an Enterprise plan.",
+            f"401 Client Error: Unauthorized for url: {CURSOR_BASE_URL}": KEY_REJECTED_MESSAGE,
+            f"403 Client Error: Forbidden for url: {CURSOR_BASE_URL}": KEY_FORBIDDEN_MESSAGE,
         }
 
     def get_schemas(
@@ -120,10 +122,7 @@ You need a Cursor team plan (Business or Enterprise). A team admin can create an
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_cursor_credentials(config.api_key):
-            return True, None
-
-        return False, "Invalid Cursor Admin API key"
+        return validate_cursor_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CursorResumeConfig]:
         return ResumableSourceManager[CursorResumeConfig](inputs, CursorResumeConfig)

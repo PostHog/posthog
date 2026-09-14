@@ -37,7 +37,7 @@ import {
 } from '~/types'
 
 import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
-import { SYNC_FREQUENCY_ORDER, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
+import { SYNC_FREQUENCY_ORDER, SyncTypeLabelMap, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
@@ -85,6 +85,25 @@ function nextJobsPollDelay(softFailureCount: number): number {
 // Read-only/derived fields to keep out of bulk-update payloads. A denylist (not an allowlist of
 // writable fields) so new editable fields are sent automatically — a stale allowlist silently
 // dropped edits like sync_frequency.
+// Incremental is missing here on purpose: it merges on a primary key, which differs per table and
+// so cannot come from one batch choice.
+export type BulkSyncMethod = 'full_refresh' | 'append'
+
+// CDC and webhook tables are held back because moving them off their sync method drops changes
+// that only a full resync recovers.
+export function bulkSyncMethodDisabledReason(
+    schemas: readonly ExternalDataSourceSchema[],
+    syncType: BulkSyncMethod
+): string | undefined {
+    if (schemas.some((schema) => schema.sync_type === 'cdc' || schema.sync_type === 'webhook')) {
+        return 'Deselect the CDC and webhook tables first'
+    }
+    if (syncType === 'append' && schemas.some((schema) => !schema.incremental_field)) {
+        return 'Append needs an incremental field, which some selected tables have not got'
+    }
+    return undefined
+}
+
 const NON_WRITABLE_SCHEMA_FIELDS = new Set<keyof ExternalDataSourceSchema>([
     'id',
     'name',
@@ -443,6 +462,13 @@ export interface sourceSettingsLogicActions {
         frequency: DataWarehouseSyncInterval
         schemas: ExternalDataSourceSchema[]
     }
+    bulkSetSyncMethod: (
+        schemas: ExternalDataSourceSchema[],
+        syncType: BulkSyncMethod
+    ) => {
+        schemas: ExternalDataSourceSchema[]
+        syncType: BulkSyncMethod
+    }
     bulkSyncNow: (schemas: ExternalDataSourceSchema[]) => {
         schemas: ExternalDataSourceSchema[]
     }
@@ -704,6 +730,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         bulkSetFrequency: (schemas: ExternalDataSourceSchema[], frequency: DataWarehouseSyncInterval) => ({
             schemas,
             frequency,
+        }),
+        bulkSetSyncMethod: (schemas: ExternalDataSourceSchema[], syncType: BulkSyncMethod) => ({
+            schemas,
+            syncType,
         }),
         bulkSyncNow: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         bulkResync: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
@@ -1589,6 +1619,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 })
                 const base = `Updated sync frequency for ${pluralize(schemas.length, 'schema', 'schemas')}`
                 lemonToast.success(clamped > 0 ? `${base} (${clamped} kept at their 5 min minimum)` : base)
+            },
+            bulkSetSyncMethod: ({ schemas, syncType }) => {
+                // Reuse the debounced single-schema update — these coalesce into one bulk PATCH.
+                schemas.forEach((schema) => actions.updateSchema({ ...schema, sync_type: syncType }))
+                lemonToast.success(
+                    `Set ${pluralize(schemas.length, 'schema', 'schemas')} to ${SyncTypeLabelMap[syncType]}`
+                )
             },
             bulkSyncNow: async ({ schemas }) => {
                 // Only schemas that are enabled with a sync method can sync.
