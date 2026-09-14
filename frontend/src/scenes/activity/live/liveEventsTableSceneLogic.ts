@@ -60,6 +60,12 @@ export const liveEventsTableSceneLogic = kea<liveEventsTableSceneLogicType>([
     // too, and a stream that cannot connect yet is expected there rather than worth an error.
     listeners(() => ({
         streamErrored: ({ error }) => {
+            // A reconnect that fails for a new reason must change what the toast says, and a second
+            // error() under a live id is dropped as a duplicate.
+            if (lemonToast.isActive(ERROR_TOAST_ID)) {
+                lemonToast.updateToError(ERROR_TOAST_ID, error.message)
+                return
+            }
             lemonToast.error(error.message, { toastId: ERROR_TOAST_ID, autoClose: false })
         },
         streamConnected: () => {
