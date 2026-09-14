@@ -2473,3 +2473,26 @@ class TestSpecProblems(SimpleTestCase):
         problems = compute_spec_problems(name, description, paths)
 
         assert [problem.code for problem in problems] == expected_codes
+
+    @parameterized.expand(
+        [
+            ("bundled_pair", ["assets", "assets/logo.png"], "assets", "Rename 'assets'."),
+            # The skill generates `agents/openai.yaml`, so a bundled file named `agents` blocks it.
+            ("generated_child", ["agents"], "agents", "Rename 'agents'."),
+            (
+                "generated_parent",
+                ["SKILL.md/notes.txt"],
+                "SKILL.md/notes.txt",
+                "Move this file out of 'SKILL.md/'.",
+            ),
+        ]
+    )
+    def test_shadow_problem_reports_a_file_the_author_can_change(
+        self, _label: str, paths: list[str], expected_file_path: str, expected_instruction: str
+    ) -> None:
+        # SKILL.md and the Codex sidecar are generated for every skill, so the author has no row to
+        # rename for either one.
+        problems = compute_spec_problems("my-skill", "Does things.", paths)
+
+        assert [problem.file_path for problem in problems] == [expected_file_path]
+        assert problems[0].message.startswith(expected_instruction)

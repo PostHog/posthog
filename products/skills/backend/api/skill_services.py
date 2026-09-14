@@ -192,14 +192,22 @@ def compute_file_path_problems(file_paths: list[str]) -> list[SkillSpecProblem]:
         claimed[lowered] = path
     for path in claimed.values():
         parent = _shadowing_entry(path, claimed)
-        if parent is not None:
-            problems.append(
-                SkillSpecProblem(
-                    code=SPEC_PROBLEM_FILE_PATH_SHADOWS_DIRECTORY,
-                    message=f"Rename '{parent}'. It is a file, so this skill cannot also hold '{path}' under it.",
-                    file_path=path,
-                )
+        if parent is None:
+            continue
+        # Either side of the pair can be a generated entry, which the author has no row for and
+        # cannot rename. Report the bundled side, because that is the only name they can change.
+        if parent in _GENERATED_SKILL_ENTRIES:
+            message = (
+                f"Move this file out of '{parent}/'. Every skill generates '{parent}', so it cannot "
+                "also be a directory."
             )
+            culprit = path
+        else:
+            message = f"Rename '{parent}'. It is a file, so this skill cannot also hold '{path}' under it."
+            culprit = parent
+        problems.append(
+            SkillSpecProblem(code=SPEC_PROBLEM_FILE_PATH_SHADOWS_DIRECTORY, message=message, file_path=culprit)
+        )
     return problems
 
 
