@@ -34,7 +34,8 @@ It does not describe its own environment.
 Two further rules matter for us:
 
 - Approval is per skill. Approval of one skill never covers a skill nested in its file space.
-- Approval is content-bound. A host revokes it when the file set changes, then asks again.
+- Approval is content-bound. A host binds it to every file URI and digest it saw, so an edit to a file revokes it just as an added or removed file does.
+  A body edit is enough, because the set covers the `SKILL.md` digest. The host then asks again.
 
 ## What this means for us
 
