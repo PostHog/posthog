@@ -139,6 +139,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$event_count_map": DatabaseField(name="$event_count_map"),
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
+    "$screen_count": IntegerDatabaseField(name="$screen_count"),
     # Derived
     "$channel_type": StringDatabaseField(
         name="$channel_type",
@@ -273,6 +274,10 @@ def select_from_sessions_table_v1(
     }
     # Some fields are calculated from others. It'd be good to actually deduplicate common sub expressions in SQL, but
     # for now just remove the duplicate definitions from the code
+    # v1 has no dedicated screen column, so read the count out of the event map
+    aggregate_fields["$screen_count"] = ast.ArrayAccess(
+        array=aggregate_fields["$event_count_map"], property=ast.Constant(value="$screen")
+    )
     aggregate_fields["$entry_pathname"] = ast.Call(
         name="path",
         args=[aggregate_fields["$entry_current_url"]],

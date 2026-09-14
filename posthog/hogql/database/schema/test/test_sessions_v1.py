@@ -274,6 +274,26 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
             response.results or [],
         )
 
+    def test_screen_count(self):
+        session_id = "session_test_screen_count"
+
+        for event in ["$screen", "$screen", "$pageview"]:
+            _create_event(
+                event=event,
+                team=self.team,
+                distinct_id="d1",
+                properties={"$session_id": session_id},
+            )
+
+        response = self.__execute(
+            parse_select(
+                "select $pageview_count, $screen_count from sessions where session_id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        assert response.results == [(1, 2)]
+
     def test_can_use_v1_and_v2_fields(self):
         session_id = "session_test_can_use_v1_and_v2_fields"
 
@@ -313,7 +333,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
         results = get_lazy_session_table_properties_v1(None)
-        assert len(results) == 32
+        assert len(results) == 33
         self.assertEqual(
             results[0],
             {
