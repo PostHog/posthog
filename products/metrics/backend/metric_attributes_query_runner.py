@@ -17,6 +17,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
+from products.metrics.backend.metric_query_runner import time_range_expr
 from products.metrics.backend.search import ilike_pattern
 
 # The OTel service name is a first-class column on `metric_attributes` (extracted
@@ -86,7 +87,7 @@ class MetricAttributeKeysQueryRunner:
                   AND series_fingerprint IN (
                       SELECT series_fingerprint
                       FROM posthog.metrics
-                      WHERE timestamp >= {date_from} AND timestamp < {date_to}
+                      WHERE {time_range}
                   )
                   AND (attribute_key ILIKE {search_pattern}
                        OR (attribute_key = 'service_name' AND 'service.name' ILIKE {search_pattern}))
@@ -96,7 +97,7 @@ class MetricAttributeKeysQueryRunner:
             """,
             placeholders={
                 "date_from": ast.Constant(value=self.date_from),
-                "date_to": ast.Constant(value=self.date_to),
+                "time_range": time_range_expr(self.date_from, self.date_to),
                 "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
                 "limit": ast.Constant(value=self.limit),
             },
