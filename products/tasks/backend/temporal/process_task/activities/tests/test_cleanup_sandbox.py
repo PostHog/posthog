@@ -4,6 +4,7 @@ import uuid
 import threading
 
 import pytest
+from unittest.mock import call
 
 from asgiref.sync import async_to_sync
 
@@ -77,8 +78,23 @@ def test_cleanup_sandbox_requests_agent_server_shutdown_when_completing_stream(a
 
 
 @pytest.mark.django_db
-def test_cleanup_sandbox_retries_when_final_destroy_fails(activity_environment, mocker):
+@pytest.mark.parametrize("accounting_enabled", [False, True])
+def test_cleanup_sandbox_keeps_accounted_compute_open_when_destroy_fails(
+    activity_environment, mocker, accounting_enabled
+):
     run_id = str(uuid.uuid4())
+    if accounting_enabled:
+        run_objects = mocker.patch(
+            "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.TaskRun.objects"
+        )
+        run_objects.filter.return_value.values_list.return_value.first.return_value = 7
+        mocker.patch(
+            "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.has_gateway_credential",
+            return_value=True,
+        )
+        mocker.patch(
+            "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.retry_pending_gateway_usage"
+        )
     sandbox = mocker.Mock(id="sandbox-123")
     sandbox.read_cpu_usage_usec.return_value = 12_345_678
     sandbox.read_billed_cpu_usage_usec.return_value = 15_000_000
@@ -103,14 +119,107 @@ def test_cleanup_sandbox_retries_when_final_destroy_fails(activity_environment, 
 
     sandbox.destroy.assert_called_once_with()
     sandbox.execute.assert_not_called()
-    close_session.assert_called_once_with(
-        "sandbox-123",
-        reason="cleanup",
-        cpu_usage_usec=12_345_678,
-        billed_cpu_usage_usec=15_000_000,
-        cpu_usage_measured_at=mocker.ANY,
-    )
+    if accounting_enabled:
+        close_session.assert_not_called()
+    else:
+        close_session.assert_called_once_with(
+            "sandbox-123",
+            reason="cleanup",
+            cpu_usage_usec=12_345_678,
+            billed_cpu_usage_usec=15_000_000,
+            cpu_usage_measured_at=mocker.ANY,
+        )
     publish_complete.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_cleanup_sandbox_retries_and_persists_accounting_before_stream_completion(activity_environment, mocker):
+    run_id = str(uuid.uuid4())
+    sandbox = mocker.Mock(id="sandbox-123")
+    sandbox.stop_agent_server.return_value.exit_code = 0
+    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    run_objects = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.TaskRun.objects"
+    )
+    run_objects.filter.return_value.values_list.return_value.first.return_value = 7
+    has_credential = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.has_gateway_credential",
+        return_value=True,
+    )
+    retry_pending = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.retry_pending_gateway_usage"
+    )
+    close_session = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.close_sandbox_session"
+    )
+    refresh_spend = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.refresh_task_run_spend"
+    )
+    publish_complete = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_run_stream_completion"
+    )
+    call_order = mocker.Mock()
+    call_order.attach_mock(refresh_spend, "refresh_spend")
+    call_order.attach_mock(publish_complete, "publish_complete")
+
+    async_to_sync(activity_environment.run)(
+        cleanup_sandbox,
+        CleanupSandboxInput(sandbox_id="sandbox-123", run_id=run_id, complete_stream_on_cleanup=True),
+    )
+
+    sandbox.stop_agent_server.assert_called_once_with()
+    has_credential.assert_called_once_with(run_id=uuid.UUID(run_id), team_id=7)
+    retry_pending.assert_called_once_with(run_id=uuid.UUID(run_id), team_id=7)
+    close_session.assert_called_once()
+    refresh_spend.assert_called_once_with(run_id=uuid.UUID(run_id), team_id=7)
+    publish_complete.assert_called_once_with(run_id)
+    assert call_order.mock_calls == [
+        call.refresh_spend(run_id=uuid.UUID(run_id), team_id=7),
+        call.publish_complete(run_id),
+    ]
+
+
+@pytest.mark.django_db
+def test_cleanup_sandbox_destroys_when_gateway_usage_retry_fails(activity_environment, mocker):
+    run_id = str(uuid.uuid4())
+    sandbox = mocker.Mock(id="sandbox-123")
+    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    run_objects = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.TaskRun.objects"
+    )
+    run_objects.filter.return_value.values_list.return_value.first.return_value = 7
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.has_gateway_credential",
+        return_value=True,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.retry_pending_gateway_usage",
+        side_effect=RuntimeError("gateway unavailable"),
+    )
+    refresh_spend = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.refresh_task_run_spend"
+    )
+
+    async_to_sync(activity_environment.run)(
+        cleanup_sandbox,
+        CleanupSandboxInput(sandbox_id="sandbox-123", run_id=run_id),
+    )
+
+    sandbox.destroy.assert_called_once_with()
+    refresh_spend.assert_called_once_with(run_id=uuid.UUID(run_id), team_id=7)
+
+
+@pytest.mark.django_db
+def test_cleanup_sandbox_ignores_invalid_optional_run_id(activity_environment, mocker):
+    sandbox = mocker.Mock(id="sandbox-123")
+    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+
+    async_to_sync(activity_environment.run)(
+        cleanup_sandbox,
+        CleanupSandboxInput(sandbox_id="sandbox-123", run_id="not-a-uuid"),
+    )
+
+    sandbox.destroy.assert_called_once_with()
 
 
 @pytest.mark.django_db

@@ -349,6 +349,54 @@ class TestAiGatewayEnvVars:
         assert "AI_GATEWAY_PRODUCT" not in env
         assert env["AI_GATEWAY_URL"] == "https://ai-gateway.dev.posthog.dev"
 
+    def test_gateway_accounting_stays_off_by_default(self, mint_settings):
+        mint_settings.TASKS_GATEWAY_ACCOUNTING_ENABLED = False
+        with (
+            patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"),
+            patch("products.tasks.backend.temporal.process_task.utils.register_gateway_credential") as register,
+        ):
+            env = ai_gateway_env_vars(
+                run_id="00000000-0000-4000-8000-000000000001",
+                task_runtime="acp",
+                team_id=123,
+                origin_product="signals_scout",
+                ai_stage="scout:logs",
+            )
+        assert "TASK_RUN_GATEWAY_ACCOUNTING" not in env
+        register.assert_not_called()
+
+    def test_gateway_accounting_marks_non_pi_runs_after_credential_registration(self, mint_settings):
+        mint_settings.TASKS_GATEWAY_ACCOUNTING_ENABLED = True
+        with (
+            patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"),
+            patch("products.tasks.backend.temporal.process_task.utils.register_gateway_credential") as register,
+        ):
+            env = ai_gateway_env_vars(
+                run_id="00000000-0000-4000-8000-000000000001",
+                task_runtime="acp",
+                team_id=123,
+                origin_product="signals_scout",
+                ai_stage="scout:logs",
+            )
+        assert env["TASK_RUN_GATEWAY_ACCOUNTING"] == "1"
+        assert register.call_args.kwargs["team_id"] == 123
+
+    def test_pi_run_does_not_register_or_mark_gateway_accounting(self, mint_settings):
+        mint_settings.TASKS_GATEWAY_ACCOUNTING_ENABLED = True
+        with (
+            patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"),
+            patch("products.tasks.backend.temporal.process_task.utils.register_gateway_credential") as register,
+        ):
+            env = ai_gateway_env_vars(
+                run_id="00000000-0000-4000-8000-000000000001",
+                task_runtime="pi",
+                team_id=123,
+                origin_product="signals_scout",
+                ai_stage="scout:logs",
+            )
+        assert "TASK_RUN_GATEWAY_ACCOUNTING" not in env
+        register.assert_not_called()
+
     def test_no_run_context_still_sets_routing_pair(self, mint_settings):
         env = ai_gateway_env_vars()
         assert env == {
@@ -446,7 +494,9 @@ class TestProvisioningBoundaries:
 
     def _ctx(self):
         ctx = MagicMock()
+        ctx.run_id = "00000000-0000-4000-8000-000000000007"
         ctx.team_id = 7
+        ctx.task_runtime = "acp"
         ctx.origin_product = "signals_scout"
         ctx.state = {"ai_stage": "scout:logs"}
         ctx.distinct_id = "user-1"
@@ -465,6 +515,8 @@ class TestProvisioningBoundaries:
             out = utils.run_gateway_env_vars(self._ctx(), self._task())
         assert out == {"AI_GATEWAY_TOKEN": "phe"}
         env.assert_called_once_with(
+            run_id="00000000-0000-4000-8000-000000000007",
+            task_runtime="acp",
             team_id=7,
             origin_product="signals_scout",
             ai_stage="scout:logs",

@@ -68,6 +68,7 @@ SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODU
 # gateway-routed sandbox runs. Unset: runs get no token and the agent server keeps them
 # on the Python gateway, so the routing allowlist above is inert without it.
 SANDBOX_AI_GATEWAY_MINT_KEY: str | None = get_from_env("SANDBOX_AI_GATEWAY_MINT_KEY", None, optional=True)
+TASKS_GATEWAY_ACCOUNTING_ENABLED: bool = get_from_env("TASKS_GATEWAY_ACCOUNTING_ENABLED", False, type_cast=str_to_bool)
 # Per-run spend cap and token lifetime for minted scoped tokens. The cap bounds one
 # runaway run; the daily bound per team is cap x the scheduler's runs-per-day limit.
 # The cap must fit a run's real spend plus its in-flight admission holds: a cap near

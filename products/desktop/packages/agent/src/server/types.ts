@@ -72,5 +72,7 @@ export interface AgentServerConfig {
   serviceTier?: ServiceTier;
   contextWindow?: "200k" | "1m";
   fastMode?: boolean;
+  /** Backend-gated accounting marker for this Go-gateway run. */
+  gatewayAccountingEnabled?: boolean;
   resolveRtkSavings?: () => Promise<RtkSavingsSummary | null>;
 }

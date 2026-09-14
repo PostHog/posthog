@@ -19217,6 +19217,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `unavailable` - unavailable
+     * * `current` - current
+     * * `final` - final
+     */
+    export type ComputeStatusEnum = typeof ComputeStatusEnum[keyof typeof ComputeStatusEnum];
+
+
+    export const ComputeStatusEnum = {
+      Unavailable: 'unavailable',
+      Current: 'current',
+      Final: 'final',
+    } as const;
+
+    /**
      * * `won` - won
      * * `lost` - lost
      * * `inconclusive` - inconclusive
@@ -42566,6 +42580,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `start` - Start an accounting epoch
+     * * `request` - Record or bind a gateway request
+     * * `settle` - Settle a gateway request
+     * * `finish` - Seal an accounting epoch
+     */
+    export type GatewayUsageOperationEnum = typeof GatewayUsageOperationEnum[keyof typeof GatewayUsageOperationEnum];
+
+
+    export const GatewayUsageOperationEnum = {
+      Start: 'start',
+      Request: 'request',
+      Settle: 'settle',
+      Finish: 'finish',
+    } as const;
+
+    /**
      * The requesting user's own connection to a gateway server.
      */
     export interface GatewayYourConnection {
@@ -55435,20 +55465,6 @@ export namespace Schemas {
          */
       p50_seconds: number | null;
     }
-
-    /**
-     * * `quarantine` - QUARANTINE
-     * * `extend` - EXTEND
-     * * `remove` - REMOVE
-     */
-    export type OperationEnum = typeof OperationEnum[keyof typeof OperationEnum];
-
-
-    export const OperationEnum = {
-      Quarantine: 'quarantine',
-      Extend: 'extend',
-      Remove: 'remove',
-    } as const;
 
     /**
      * * `latest` - latest
@@ -74374,6 +74390,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `quarantine` - QUARANTINE
+     * * `extend` - EXTEND
+     * * `remove` - REMOVE
+     */
+    export type QuarantineRequestOperationEnum = typeof QuarantineRequestOperationEnum[keyof typeof QuarantineRequestOperationEnum];
+
+
+    export const QuarantineRequestOperationEnum = {
+      Quarantine: 'quarantine',
+      Extend: 'extend',
+      Remove: 'remove',
+    } as const;
+
+    /**
      * * `pytest` - PYTEST
      * * `jest` - JEST
      * * `playwright` - PLAYWRIGHT
@@ -74393,7 +74423,7 @@ export namespace Schemas {
        * * `quarantine` - QUARANTINE
        * * `extend` - EXTEND
        * * `remove` - REMOVE */
-      operation: OperationEnum;
+      operation: QuarantineRequestOperationEnum;
       /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
       selector: string;
       /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.
@@ -88359,6 +88389,76 @@ export namespace Schemas {
       reset_at?: string;
       /** Whether the team is on a Pro plan (drives the upgrade-prompt copy) */
       is_pro?: boolean;
+    }
+
+    export interface TaskRunGatewayUsageRequest {
+      /** Accounting operation to perform for this sandbox run.
+       *
+       * * `start` - Start an accounting epoch
+       * * `request` - Record or bind a gateway request
+       * * `settle` - Settle a gateway request
+       * * `finish` - Seal an accounting epoch */
+      operation: GatewayUsageOperationEnum;
+      /** Identifier for the agent process accounting epoch. */
+      epoch_id: string;
+      /** Identifier for one proxied gateway request attempt. Required for request and settle operations. */
+      attempt_id?: string;
+      /**
+         * Gateway request identifier returned by the gateway. Required when settling a request.
+         * @maxLength 255
+         */
+      request_id?: string;
+    }
+
+    /**
+     * * `unavailable` - unavailable
+     * * `partial` - partial
+     * * `current` - current
+     * * `final` - final
+     */
+    export type TokenStatusEnum = typeof TokenStatusEnum[keyof typeof TokenStatusEnum];
+
+
+    export const TokenStatusEnum = {
+      Unavailable: 'unavailable',
+      Partial: 'partial',
+      Current: 'current',
+      Final: 'final',
+    } as const;
+
+    export interface TaskRunGatewayUsageSpend {
+      /**
+         * Token cost in whole cents, if available.
+         * @nullable
+         */
+      token_cost: number | null;
+      /**
+         * Compute cost in whole cents, if available.
+         * @nullable
+         */
+      compute_cost: number | null;
+      /** Completeness of the token cost.
+       *
+       * * `unavailable` - unavailable
+       * * `partial` - partial
+       * * `current` - current
+       * * `final` - final */
+      token_status: TokenStatusEnum;
+      /** Completeness of the compute cost.
+       *
+       * * `unavailable` - unavailable
+       * * `current` - current
+       * * `final` - final */
+      compute_status: ComputeStatusEnum;
+      /** Whether both costs are final. */
+      is_final: boolean;
+    }
+
+    export interface TaskRunGatewayUsageResponse {
+      /** Whether the requested gateway receipt is settled. */
+      settled: boolean;
+      /** Current factual spend for the run. */
+      spend: TaskRunGatewayUsageSpend;
     }
 
     /**

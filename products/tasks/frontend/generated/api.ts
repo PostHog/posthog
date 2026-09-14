@@ -109,6 +109,8 @@ import type {
     TaskRunCommandResponseApi,
     TaskRunCreateRequestSchemaApi,
     TaskRunDetailDTOApi,
+    TaskRunGatewayUsageRequestApi,
+    TaskRunGatewayUsageResponseApi,
     TaskRunLivingArtifactChartRequestApi,
     TaskRunLivingArtifactChartResponseApi,
     TaskRunLivingArtifactCreateRequestApi,
@@ -2115,6 +2117,29 @@ export const tasksRunsConnectionTokenRetrieve = async (
     return apiMutator<ConnectionTokenResponseApi>(getTasksRunsConnectionTokenRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksRunsGatewayUsageCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/gateway_usage/`
+}
+
+/**
+ * Record gateway request lifecycle events for the current sandbox run.
+ * @summary Record gateway usage
+ */
+export const tasksRunsGatewayUsageCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunGatewayUsageRequestApi: TaskRunGatewayUsageRequestApi,
+    options?: RequestInit
+): Promise<TaskRunGatewayUsageResponseApi> => {
+    return apiMutator<TaskRunGatewayUsageResponseApi>(getTasksRunsGatewayUsageCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunGatewayUsageRequestApi),
     })
 }
 

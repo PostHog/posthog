@@ -40,6 +40,7 @@ const envSchema = z.object({
     .regex(/^\d+$/, "POSTHOG_PROJECT_ID must be a numeric string")
     .transform((val) => parseInt(val, 10)),
   POSTHOG_AGENT_RUNTIME: z.enum(["acp", "pi"]).optional(),
+  TASK_RUN_GATEWAY_ACCOUNTING: z.enum(["0", "1"]).optional(),
   POSTHOG_AGENT_LAUNCH_STARTED_AT_MS: z
     .string()
     .regex(/^\d+$/)
@@ -303,6 +304,7 @@ program
       serviceTier: env.POSTHOG_CODE_SERVICE_TIER,
       contextWindow: env.POSTHOG_CODE_CONTEXT_WINDOW,
       fastMode: env.POSTHOG_CODE_FAST_MODE,
+      gatewayAccountingEnabled: env.TASK_RUN_GATEWAY_ACCOUNTING === "1",
     };
     const server =
       env.POSTHOG_AGENT_RUNTIME === "pi"

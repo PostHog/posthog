@@ -271,6 +271,58 @@ class AgentDefinitionSerializer(serializers.Serializer):
     is_active = serializers.BooleanField(default=True)
 
 
+class GatewayUsageOperation(models.TextChoices):
+    START = "start", "Start an accounting epoch"
+    REQUEST = "request", "Record or bind a gateway request"
+    SETTLE = "settle", "Settle a gateway request"
+    FINISH = "finish", "Seal an accounting epoch"
+
+
+class TaskRunGatewayUsageRequestSerializer(serializers.Serializer):
+    operation = serializers.ChoiceField(
+        choices=GatewayUsageOperation.choices,
+        help_text="Accounting operation to perform for this sandbox run.",
+    )
+    epoch_id = serializers.UUIDField(help_text="Identifier for the agent process accounting epoch.")
+    attempt_id = serializers.UUIDField(
+        required=False,
+        help_text="Identifier for one proxied gateway request attempt. Required for request and settle operations.",
+    )
+    request_id = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=255,
+        help_text="Gateway request identifier returned by the gateway. Required when settling a request.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        operation = attrs["operation"]
+        if operation in (GatewayUsageOperation.REQUEST, GatewayUsageOperation.SETTLE) and "attempt_id" not in attrs:
+            raise serializers.ValidationError({"attempt_id": "This field is required for this operation."})
+        if operation == GatewayUsageOperation.SETTLE and "request_id" not in attrs:
+            raise serializers.ValidationError({"request_id": "This field is required for this operation."})
+        return attrs
+
+
+class TaskRunGatewayUsageSpendSerializer(serializers.Serializer):
+    token_cost = serializers.IntegerField(allow_null=True, help_text="Token cost in whole cents, if available.")
+    compute_cost = serializers.IntegerField(allow_null=True, help_text="Compute cost in whole cents, if available.")
+    token_status = serializers.ChoiceField(
+        choices=["unavailable", "partial", "current", "final"],
+        help_text="Completeness of the token cost.",
+    )
+    compute_status = serializers.ChoiceField(
+        choices=["unavailable", "current", "final"],
+        help_text="Completeness of the compute cost.",
+    )
+    is_final = serializers.BooleanField(help_text="Whether both costs are final.")
+
+
+class TaskRunGatewayUsageResponseSerializer(serializers.Serializer):
+    settled = serializers.BooleanField(help_text="Whether the requested gateway receipt is settled.")
+    spend = TaskRunGatewayUsageSpendSerializer(help_text="Current factual spend for the run.")
+
+
 class TaskRunUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],

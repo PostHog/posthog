@@ -135,6 +135,35 @@ export class PostHogAPIError extends Error {
   }
 }
 
+export type GatewayUsageOperation =
+  | { operation: "start"; epoch_id: string }
+  | {
+      operation: "request";
+      epoch_id: string;
+      attempt_id: string;
+      request_id?: string;
+    }
+  | {
+      operation: "settle";
+      epoch_id: string;
+      attempt_id: string;
+      request_id: string;
+    }
+  | { operation: "finish"; epoch_id: string };
+
+export interface GatewayUsageResponse {
+  settled: boolean;
+  spend: {
+    token_cost: number | null;
+    compute_cost: number | null;
+    token_status: "unavailable" | "partial" | "current" | "final";
+    compute_status: "unavailable" | "current" | "final";
+    is_final: boolean;
+  };
+}
+
+const GATEWAY_USAGE_TIMEOUT_MS = 5_000;
+
 export class PostHogAPIClient {
   private config: PostHogAPIConfig;
   private userNode: string | null | undefined;
@@ -352,6 +381,28 @@ export class PostHogAPIClient {
     } catch {
       return null;
     }
+  }
+
+  async gatewayUsage(
+    taskId: string,
+    runId: string,
+    operation: GatewayUsageOperation,
+    signal?: AbortSignal,
+  ): Promise<GatewayUsageResponse> {
+    const teamId = this.getTeamId();
+    return this.apiRequest<GatewayUsageResponse>(
+      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/gateway_usage/`,
+      {
+        method: "POST",
+        body: JSON.stringify(operation),
+        signal: signal
+          ? AbortSignal.any([
+              signal,
+              AbortSignal.timeout(GATEWAY_USAGE_TIMEOUT_MS),
+            ])
+          : AbortSignal.timeout(GATEWAY_USAGE_TIMEOUT_MS),
+      },
+    );
   }
 
   async getTaskRun(

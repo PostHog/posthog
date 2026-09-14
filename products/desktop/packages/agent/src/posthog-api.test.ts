@@ -43,6 +43,46 @@ describe("PostHogAPIClient", () => {
     expect(run.state).toEqual(expected);
   });
 
+  it("reports a gateway request with a bounded task-run API call", async () => {
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 1,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        settled: false,
+        spend: {
+          token_cost: null,
+          compute_cost: null,
+          token_status: "partial",
+          compute_status: "unavailable",
+          is_final: false,
+        },
+      }),
+    });
+
+    await expect(
+      client.gatewayUsage("task-1", "run-1", {
+        operation: "request",
+        epoch_id: "epoch-1",
+        attempt_id: "attempt-1",
+      }),
+    ).resolves.toMatchObject({ settled: false });
+
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(
+      "https://app.posthog.com/api/projects/1/tasks/task-1/runs/run-1/gateway_usage/",
+    );
+    expect(JSON.parse(init.body as string)).toEqual({
+      operation: "request",
+      epoch_id: "epoch-1",
+      attempt_id: "attempt-1",
+    });
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it("refreshes once when fetching task run logs gets an auth failure", async () => {
     const getApiKey = vi.fn().mockResolvedValue("stale-token");
     const refreshApiKey = vi.fn().mockResolvedValue("fresh-token");

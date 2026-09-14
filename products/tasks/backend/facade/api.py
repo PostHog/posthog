@@ -83,6 +83,7 @@ from products.tasks.backend.feature_flags import get_model_access_error, is_work
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
+from products.tasks.backend.logic.services.gateway_usage import has_gateway_credential, refresh_task_run_spend
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -462,6 +463,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "slack_artifact_delivery",
         "slack_chart_delivery",
         "slack_thread_url",
+        "spend",
     }
 )
 
@@ -2229,6 +2231,8 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "github_credential_source",
+        "spend",
+        "_spend_accounting",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
@@ -2878,6 +2882,8 @@ def update_task_run(
     # (consecutive_failures would double-count). The workflow's status-update activity
     # applies the same guard on its side.
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        if has_gateway_credential(run_id=run.id, team_id=run.team_id):
+            refresh_task_run_spend(run_id=run.id, team_id=run.team_id)
         handle_loop_run_terminal(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:

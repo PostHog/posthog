@@ -637,6 +637,23 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     expect(env.openaiApiKey).toBe(SCOPED_TOKEN);
   });
 
+  it("retains the scoped bearer across reinitialization after removing it from the process environment", () => {
+    const server = buildServer();
+    const first = server.configureEnvironment({
+      originProduct: "signals_scout",
+      aiStage: "scout",
+    });
+    delete process.env.AI_GATEWAY_TOKEN;
+    const second = server.configureEnvironment({
+      originProduct: "signals_scout",
+      aiStage: "scout",
+    });
+
+    expect(first.anthropicAuthToken).toBe(SCOPED_TOKEN);
+    expect(second.anthropicBaseUrl).toBe(GO_GATEWAY);
+    expect(second.anthropicAuthToken).toBe(SCOPED_TOKEN);
+  });
+
   it("falls back to the Python gateway when no scoped token is present", () => {
     delete process.env.AI_GATEWAY_TOKEN;
     const env = buildServer().configureEnvironment({

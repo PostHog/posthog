@@ -3896,6 +3896,104 @@ export interface ConnectionTokenResponseApi {
 }
 
 /**
+ * * `start` - Start an accounting epoch
+ * * `request` - Record or bind a gateway request
+ * * `settle` - Settle a gateway request
+ * * `finish` - Seal an accounting epoch
+ */
+export type GatewayUsageOperationEnumApi =
+    (typeof GatewayUsageOperationEnumApi)[keyof typeof GatewayUsageOperationEnumApi]
+
+export const GatewayUsageOperationEnumApi = {
+    Start: 'start',
+    Request: 'request',
+    Settle: 'settle',
+    Finish: 'finish',
+} as const
+
+export interface TaskRunGatewayUsageRequestApi {
+    /** Accounting operation to perform for this sandbox run.
+     *
+     * * `start` - Start an accounting epoch
+     * * `request` - Record or bind a gateway request
+     * * `settle` - Settle a gateway request
+     * * `finish` - Seal an accounting epoch */
+    operation: GatewayUsageOperationEnumApi
+    /** Identifier for the agent process accounting epoch. */
+    epoch_id: string
+    /** Identifier for one proxied gateway request attempt. Required for request and settle operations. */
+    attempt_id?: string
+    /**
+     * Gateway request identifier returned by the gateway. Required when settling a request.
+     * @maxLength 255
+     */
+    request_id?: string
+}
+
+/**
+ * * `unavailable` - unavailable
+ * * `partial` - partial
+ * * `current` - current
+ * * `final` - final
+ */
+export type TokenStatusEnumApi = (typeof TokenStatusEnumApi)[keyof typeof TokenStatusEnumApi]
+
+export const TokenStatusEnumApi = {
+    Unavailable: 'unavailable',
+    Partial: 'partial',
+    Current: 'current',
+    Final: 'final',
+} as const
+
+/**
+ * * `unavailable` - unavailable
+ * * `current` - current
+ * * `final` - final
+ */
+export type ComputeStatusEnumApi = (typeof ComputeStatusEnumApi)[keyof typeof ComputeStatusEnumApi]
+
+export const ComputeStatusEnumApi = {
+    Unavailable: 'unavailable',
+    Current: 'current',
+    Final: 'final',
+} as const
+
+export interface TaskRunGatewayUsageSpendApi {
+    /**
+     * Token cost in whole cents, if available.
+     * @nullable
+     */
+    token_cost: number | null
+    /**
+     * Compute cost in whole cents, if available.
+     * @nullable
+     */
+    compute_cost: number | null
+    /** Completeness of the token cost.
+     *
+     * * `unavailable` - unavailable
+     * * `partial` - partial
+     * * `current` - current
+     * * `final` - final */
+    token_status: TokenStatusEnumApi
+    /** Completeness of the compute cost.
+     *
+     * * `unavailable` - unavailable
+     * * `current` - current
+     * * `final` - final */
+    compute_status: ComputeStatusEnumApi
+    /** Whether both costs are final. */
+    is_final: boolean
+}
+
+export interface TaskRunGatewayUsageResponseApi {
+    /** Whether the requested gateway receipt is settled. */
+    settled: boolean
+    /** Current factual spend for the run. */
+    spend: TaskRunGatewayUsageSpendApi
+}
+
+/**
  * One peer agent run visible to the requesting run (agent peer messaging).
  */
 export interface TaskRunPeerApi {
