@@ -12,45 +12,32 @@ Importing this module registers the policy as a side effect — import it (direc
 ``consume_logodev_sync``) before using a ``logodev:...`` limiter key.
 """
 
-from django.conf import settings
-
 from posthog.egress.limiter.outbound import get_outbound_rate_limiter
-from posthog.egress.limiter.policies import Priority, RatePolicy, register_policy
+from posthog.egress.limiter.policies import Priority, per_minute_and_hourly_policy, register_policy
 
 LOGODEV_DOMAIN = "logodev"
 
 # One account per instance — the constant id for the instance-wide shared budget.
-_ACCOUNT_SCOPE_ID = "default"
-
-# Same reserved-floor ladder as the other egress domains: BATCH is denied first as the budget
-# fills, then NORMAL. All icon traffic runs NORMAL — the icon id is user-controlled, so nothing in
-# this domain should run CRITICAL (a never-shed lane would make the budget advisory).
-_RESERVE: dict[Priority, float] = {Priority.BATCH: 0.30, Priority.NORMAL: 0.10}
+ACCOUNT_SCOPE_ID = "default"
 
 # Operator ceilings, not observed provider limits (logo.dev exposes none to observe). The per-minute
 # rate smooths bursts (a catalog page fanning out cache misses), the hourly rate caps total spend.
-_DEFAULT_PER_MINUTE_BUDGET = 300
-_DEFAULT_HOURLY_BUDGET = 5_000
-
-
-# Registered as a provider so the budgets are read at acquire time — a settings override applies
-# without a process restart, matching the other egress domains.
-def _logodev_policy(key: str) -> RatePolicy:
-    per_minute = int(getattr(settings, "LOGODEV_EGRESS_PER_MINUTE_BUDGET", _DEFAULT_PER_MINUTE_BUDGET))
-    hourly = int(getattr(settings, "LOGODEV_EGRESS_HOURLY_BUDGET", _DEFAULT_HOURLY_BUDGET))
-    return RatePolicy(
-        limits=((per_minute, 60.0), (hourly, 3600.0)),
-        in_memory_divider=4,
-        reserve=_RESERVE,
-    )
-
-
-register_policy(LOGODEV_DOMAIN, _logodev_policy)
+# All icon traffic runs NORMAL — the icon id is user-controlled, so nothing in this domain should run
+# CRITICAL (a never-shed lane would make the budget advisory).
+register_policy(
+    LOGODEV_DOMAIN,
+    per_minute_and_hourly_policy(
+        per_minute_setting="LOGODEV_EGRESS_PER_MINUTE_BUDGET",
+        per_minute_default=300,
+        hourly_setting="LOGODEV_EGRESS_HOURLY_BUDGET",
+        hourly_default=5_000,
+    ),
+)
 
 
 def logodev_account_key() -> str:
     """Limiter key for the instance's single logo.dev account — the unit logo.dev meters."""
-    return f"{LOGODEV_DOMAIN}:account:{_ACCOUNT_SCOPE_ID}"
+    return f"{LOGODEV_DOMAIN}:account:{ACCOUNT_SCOPE_ID}"
 
 
 def consume_logodev_sync(n: int = 1, *, priority: Priority = Priority.NORMAL, source: str = "unknown") -> bool:

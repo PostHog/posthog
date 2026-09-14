@@ -9,6 +9,8 @@ rules:
       owners: clickhouse
     - match: '/data_freshness.py'
       owners: team-platform-features
+    - match: '/egress/'
+      owners: team-devex
     - match: '/email.py'
       owners: team-platform-features
     - match: '/heatmaps/'

@@ -7,16 +7,8 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from requests.structures import CaseInsensitiveDict
 
-from posthog.egress.github.observability import (
-    _normalize_github_endpoint,
-    record_github_api_exception,
-    record_github_api_response,
-)
-from posthog.egress.observability.observability import (
-    default_normalize_endpoint,
-    record_outbound_api_response,
-    resolve_egress_observability,
-)
+from posthog.egress.github.observability import _normalize_github_endpoint, github_egress
+from posthog.egress.observability.observability import default_normalize_endpoint
 
 _COUNTER = "github_integration_api_requests_total"
 _REMAINING = "github_integration_api_rate_limit_remaining"
@@ -86,10 +78,10 @@ class TestGithubObservability(SimpleTestCase):
                 "source": "unit-known",
             },
         )
-        record_github_api_response(
+        github_egress.record_requests_response(
             _response(headers={"X-RateLimit-Remaining": "4321", "X-RateLimit-Resource": "core"}),
             source="unit-known",
-            installation_id="42",
+            scope="42",
         )
 
         after = REGISTRY.get_sample_value(
@@ -111,7 +103,7 @@ class TestGithubObservability(SimpleTestCase):
     def test_skips_gauges_when_identity_unknown(self) -> None:
         # Identity-blind callers (raw-token sources) must not set the per-installation gauge — otherwise
         # many installations alias onto the empty installation_id and the last write wins, misleadingly.
-        record_github_api_response(
+        github_egress.record_requests_response(
             _response(headers={"X-RateLimit-Remaining": "10", "X-RateLimit-Resource": "core"}),
             source="unit-blind",
         )
@@ -130,38 +122,13 @@ class TestGithubObservability(SimpleTestCase):
             1,
         )
 
-    def test_generic_resolver_routes_to_github(self) -> None:
-        self.assertIs(resolve_egress_observability("github").domain, "github")
-        record_outbound_api_response(
-            _response(status=403, url="https://api.github.com/search/code"),
-            domain="github",
-            source="unit-generic",
-        )
-        self.assertEqual(
-            REGISTRY.get_sample_value(
-                _COUNTER,
-                {
-                    "installation_id": "",
-                    "method": "GET",
-                    "endpoint": "/search/code",
-                    "status_code": "403",
-                    "source": "unit-generic",
-                },
-            ),
-            1,
-        )
-
-    def test_unregistered_domain_raises(self) -> None:
-        with self.assertRaises(ValueError):
-            resolve_egress_observability("definitely-not-registered")
-
     def test_records_without_crashing_when_request_is_a_mock(self) -> None:
         # A MagicMock response auto-vivifies .request.url / .request.method as Mocks (non-str);
         # the recorder must coerce them to defaults, not raise urlparse(Mock) into the caller.
         response = MagicMock()
         response.status_code = 200
         response.headers = CaseInsensitiveDict({})
-        record_github_api_response(response, source="unit-mockreq")
+        github_egress.record_requests_response(response, source="unit-mockreq")
         self.assertEqual(
             REGISTRY.get_sample_value(
                 _COUNTER,
@@ -177,7 +144,7 @@ class TestGithubObservability(SimpleTestCase):
         )
 
     def test_exception_record_uppercases_method(self) -> None:
-        record_github_api_exception(source="unit-exc", method="get", endpoint="/foo")
+        github_egress.record_exception(source="unit-exc", method="get", endpoint="/foo")
         self.assertEqual(
             REGISTRY.get_sample_value(
                 _COUNTER,

@@ -13,7 +13,7 @@ from requests.structures import CaseInsensitiveDict
 
 from posthog.egress.firecrawl.client import FirecrawlNotConfigured, FirecrawlScrapeFailed, scrape
 from posthog.egress.firecrawl.limiter import consume_firecrawl_sync, firecrawl_account_key
-from posthog.egress.firecrawl.observability import record_firecrawl_api_response
+from posthog.egress.firecrawl.transport import firecrawl_request
 from posthog.egress.limiter.policies import Priority, resolve_policy
 
 _FAKE_API_KEY = "fake-key-for-tests"
@@ -134,13 +134,18 @@ class TestFirecrawlEgress(SimpleTestCase):
         # Firecrawl is the one domain whose gauge resource comes from the request url rather than a
         # curated endpoint label. Losing that wiring silently freezes every gauge under "unknown"
         # regardless of which endpoint was actually called.
-        record_firecrawl_api_response(
-            _response_with_rate_limit_headers(
-                {"X-RateLimit-Remaining": "7", "X-RateLimit-Limit": "60"},
-                "https://api.firecrawl.dev/v2/scrape",
-            ),
-            source="unit-test",
+        response = _response_with_rate_limit_headers(
+            {"X-RateLimit-Remaining": "7", "X-RateLimit-Limit": "60"},
+            "https://api.firecrawl.dev/v2/scrape",
         )
+        with _firecrawl_answers(response):
+            firecrawl_request(
+                "POST",
+                "https://api.firecrawl.dev/v2/scrape",
+                api_key=_FAKE_API_KEY,
+                source="unit-test",
+                endpoint="/v2/scrape",
+            )
         assert (
             REGISTRY.get_sample_value(
                 "firecrawl_api_rate_limit_remaining", {"account": "default", "resource": "/v2/scrape"}
