@@ -166,10 +166,17 @@ from posthog.query_cache.failures import (
     Budget,
     QueryFailureRecord,
 )
+from posthog.query_cache.single_flight import (
+    FLIGHT_LOCK_TTL,
+    FLIGHT_WAIT_SECONDS,
+    QUERY_SINGLE_FLIGHT_COUNTER,
+    QUERY_SINGLE_FLIGHT_FLAG,
+    QuerySingleFlight,
+)
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
-from posthog.slo.context import JsonValue, SloSpec, slo_operation
+from posthog.slo.context import JsonValue, SloSpec, slo_operation, tag_current_slo
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
@@ -2042,12 +2049,19 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     @cached_property
     def _query_failure_caching_enabled(self) -> bool:
+        return self._team_flag_enabled_locally(QUERY_FAILURE_CACHING_FLAG)
+
+    @cached_property
+    def _query_single_flight_enabled(self) -> bool:
+        return self._team_flag_enabled_locally(QUERY_SINGLE_FLIGHT_FLAG)
+
+    def _team_flag_enabled_locally(self, flag_key: str) -> bool:
         # only_evaluate_locally keeps this flag check off the network - this runs on the query
         # hot path, so an inconclusive local evaluation must mean "off", never an HTTP call.
         try:
             return bool(
                 posthoganalytics.feature_enabled(
-                    QUERY_FAILURE_CACHING_FLAG,
+                    flag_key,
                     str(self.team.uuid),
                     groups={
                         "organization": str(self.team.organization_id),
@@ -2389,9 +2403,84 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     ) -> CR:
         # The single gate for all blocking execution, forced refreshes included: an open
         # breaker that covers this run's execution budget forbids touching ClickHouse.
-        if self._query_failure_caching_enabled:
-            self._raise_if_failure_fresh_for(cache_manager.open_failure(), budget_for_limit_context(self.limit_context))
+        self._raise_if_breaker_forbids(cache_manager)
 
+        flight: Optional[QuerySingleFlight] = None
+        if self._query_single_flight_enabled:
+            flight = cache_manager.flight()
+            if flight.acquire():
+                QUERY_SINGLE_FLIGHT_COUNTER.labels(action="leader").inc()
+            else:
+                served = self._await_flight(flight, cache_manager, user=user, analytics_props=analytics_props)
+                if served is not None:
+                    return served
+                # The leader failed or vanished, so this run executes the query itself. The
+                # leader's failure may have just opened the breaker, hence the recheck.
+                self._raise_if_breaker_forbids(cache_manager)
+                flight = None
+        try:
+            return self._calculate_and_cache_blocking(
+                cache_key=cache_key,
+                cache_manager=cache_manager,
+                execution_mode=execution_mode,
+                insight_id=insight_id,
+                dashboard_id=dashboard_id,
+                trigger=trigger,
+                user=user,
+                start_time=start_time,
+                analytics_props=analytics_props,
+            )
+        finally:
+            if flight is not None:
+                flight.release()
+
+    def _raise_if_breaker_forbids(self, cache_manager: QueryCache) -> None:
+        if not self._query_failure_caching_enabled:
+            return
+        self._raise_if_failure_fresh_for(cache_manager.open_failure(), budget_for_limit_context(self.limit_context))
+
+    def _await_flight(
+        self,
+        flight: QuerySingleFlight,
+        cache_manager: QueryCache,
+        *,
+        user: Optional[User],
+        analytics_props: Optional["AnalyticsProps"],
+    ) -> Optional[CR]:
+        wait_started_at = datetime.now(UTC)
+        outcome = flight.wait(FLIGHT_WAIT_SECONDS)
+        served = self.handle_cache_and_async_logic(
+            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            cache_manager=cache_manager,
+            user=user,
+            analytics_props=analytics_props,
+        )
+        # The leader stamps last_refresh when it starts, and it holds the lock for at most
+        # FLIGHT_LOCK_TTL, so its entry is at most that old when the wait began. An older entry
+        # means the leader failed or vanished, and the follower must run the query itself so that
+        # failure is not masked by earlier data, even data still fresh for this request.
+        if isinstance(served, self.cached_response_type):
+            last_refresh = last_refresh_from_cached_result(served)
+            if last_refresh is not None and last_refresh >= wait_started_at - timedelta(seconds=FLIGHT_LOCK_TTL):
+                tag_current_slo(execution_path="single_flight_follower", cache_hit=True)
+                QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_served_cache").inc()
+                return served
+        QUERY_SINGLE_FLIGHT_COUNTER.labels(action=f"follower_fallback_{outcome}").inc()
+        return None
+
+    def _calculate_and_cache_blocking(
+        self,
+        *,
+        cache_key: str,
+        cache_manager: QueryCache,
+        execution_mode: ExecutionMode,
+        insight_id: Optional[int],
+        dashboard_id: Optional[int],
+        trigger: Optional[str],
+        user: Optional[User],
+        start_time: float,
+        analytics_props: Optional["AnalyticsProps"] = None,
+    ) -> CR:
         CachedResponse: type[CR] = self.cached_response_type
 
         last_refresh = datetime.now(UTC)
