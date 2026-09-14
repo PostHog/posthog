@@ -8,7 +8,6 @@ import {
 } from '~/cdp/utils/workflow-step-dispatch-key'
 import { capWorkflowStepResult } from '~/cdp/utils/workflow-step-result'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { logger } from '~/common/utils/logger'
 
 import {
     CyclotronJobInvocationHogFlow,
@@ -28,6 +27,14 @@ import { observeMissingVariableReferences } from '../hogflow-variable-usage'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
+type HogFlowActionBillingType = 'fetch' | 'email' | 'push' | 'sms'
+
+const WORKFLOW_USAGE_KEYS = {
+    fetch: 'workflow_billable_invocations',
+    email: 'workflow_emails_sent',
+    push: 'workflow_push_sent',
+    sms: 'workflow_sms_sent',
+} as const
 
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
@@ -80,13 +87,19 @@ const counterAwaitedStepStaleResume = new Counter({
     help: 'A parked step received a wake keyed to an earlier visit of the same step and kept waiting.',
 })
 
+const counterAwaitedStepFinished = new Counter({
+    name: 'cdp_hogflow_awaited_step_finished',
+    help: 'A parked step stopped waiting, by how: the job completed, failed or was cancelled, or the wait timed out.',
+    labelNames: ['outcome'],
+})
+
 export class HogFunctionHandler implements ActionHandler {
     constructor(
         private hogFlowFunctionsService: HogFlowFunctionsService,
         private recipientPreferencesService: RecipientPreferencesService,
         private emailValidationService: EmailValidationService,
-        private hogFlowActionBillingType: 'fetch' | 'email' | 'push',
-        private usageReporter?: CdpUsageReporterService,
+        private hogFlowActionBillingType: HogFlowActionBillingType,
+        private usageReporter?: Pick<CdpUsageReporterService, 'reportBillableInvocation'>,
         private options: { awaitedStepsEnabled?: boolean } = {}
     ) {}
 
@@ -109,7 +122,7 @@ export class HogFunctionHandler implements ActionHandler {
             observeMissingVariableReferences(invocation, action, result)
         }
 
-        const functionResult = await this.executeHogFunction(invocation, action, result, hogExecutorOptions)
+        const functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
 
         // Add all logs
         functionResult.logs.forEach((log: MinimalLogEntry) => {
@@ -167,6 +180,7 @@ export class HogFunctionHandler implements ActionHandler {
             // actionStepCount holds across a retry of this step but changes on a loop revisit.
             this.usageReporter?.reportBillableInvocation({
                 teamId: invocation.teamId,
+                usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
                 recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
             })
 
@@ -258,6 +272,7 @@ export class HogFunctionHandler implements ActionHandler {
         if (resume?.key === awaiting.key) {
             delete currentAction.awaitingResume
             delete currentAction.resumeResult
+            counterAwaitedStepFinished.labels({ outcome: resume.status }).inc()
             const payload = capWorkflowStepResult(
                 { ...awaiting.dispatch, status: resume.status },
                 resume.result ?? {},
@@ -298,6 +313,7 @@ export class HogFunctionHandler implements ActionHandler {
         }
         const deadline = DateTime.fromISO(awaiting.deadlineAt)
         if (DateTime.now() >= deadline) {
+            counterAwaitedStepFinished.labels({ outcome: 'timed_out' }).inc()
             throw new Error(`Timed out waiting for the ${label} to finish`)
         }
         // Woken early with nothing (clock skew): park again.
@@ -307,40 +323,12 @@ export class HogFunctionHandler implements ActionHandler {
     private async executeHogFunction(
         invocation: CyclotronJobInvocationHogFlow,
         action: Action,
-        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
         hogExecutorOptions?: HogExecutorExecuteAsyncOptions
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> & { skipped?: boolean }> {
         const hogFunction = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config)
         )
-        // A push subscription is resolved from person properties, and a delivered notification cannot
-        // be recalled. The person read at dequeue can predate an opt-out that landed while the flow
-        // waited, so re-read before resolving the token rather than sending to a revoked device.
-        if (this.hogFlowActionBillingType === 'push') {
-            // A failed read is treated like an empty one rather than allowed to throw. Letting it
-            // propagate fails the whole step, so the send neither happens nor is cleanly skipped, and
-            // every retry repeats it.
-            const refreshed = await invocation.refreshPerson?.().catch((error) => {
-                logger.warn('⚠️', '[HogFunctionHandler] Could not refresh person before a push send', {
-                    hogFlowId: invocation.hogFlow.id,
-                    actionId: action.id,
-                    error,
-                })
-                return undefined
-            })
-            // An empty refresh keeps the dequeue's read: a transient miss must not be read as an
-            // opt-out, which would drop a send the recipient still wants.
-            if (refreshed?.person) {
-                invocation.person = refreshed.person
-                invocation.filterGlobals = refreshed.filterGlobals
-                // The result carries a shallow clone, so rebinding only `invocation` would leave the
-                // next action in this dequeue reading the pre-refresh person.
-                result.invocation.person = refreshed.person
-                result.invocation.filterGlobals = refreshed.filterGlobals
-            }
-        }
-
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },
             () =>
