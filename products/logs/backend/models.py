@@ -412,9 +412,9 @@ MAX_METRIC_RULE_GROUP_BY_KEYS = 5
 METRIC_RULE_GROUP_BY_TOP_LEVEL_KEYS = ("service_name", "severity_text", "event_name")
 
 # Top-level span fields allowed as group-by dimensions for `source=spans` rules. Spans
-# carry no severity/event columns, so the log-only keys are excluded; `name` and
-# `status_code` are span columns.
-METRIC_RULE_GROUP_BY_SPAN_TOP_LEVEL_KEYS = ("service_name", "name", "status_code")
+# carry no severity/event columns, so the log-only keys are excluded; `name`,
+# `status_code` and `kind` are span columns.
+METRIC_RULE_GROUP_BY_SPAN_TOP_LEVEL_KEYS = ("service_name", "name", "status_code", "kind")
 
 
 class LogsMetricRule(ModelActivityMixin, TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):

@@ -27,9 +27,28 @@ func testCatalog() *catalog.Catalog {
 }
 
 func TestCompletionRejectsQueriesOutsideResourceLimits(t *testing.T) {
-	_, err := Complete(testCatalog(), strings.Repeat("x", 64<<10+1), 0, "")
+	_, err := Complete(testCatalog(), strings.Repeat("x", 64<<10+1), 0, PositionEncodingUTF8, "")
 	if err == nil {
 		t.Fatal("oversized query was accepted")
+	}
+}
+
+func TestUTF16OffsetToByteOffset(t *testing.T) {
+	tests := []struct {
+		value  string
+		offset int
+		expect int
+	}{
+		{value: "SELECT ", offset: 7, expect: 7},
+		{value: "SELECT '😀' FROM ", offset: 17, expect: 19},
+		{value: "😀", offset: 1, expect: 0},
+		{value: "😀", offset: 3, expect: 4},
+		{value: "SELECT ", offset: -1, expect: 7},
+	}
+	for _, test := range tests {
+		if actual := utf16OffsetToByteOffset(test.value, test.offset); actual != test.expect {
+			t.Errorf("utf16OffsetToByteOffset(%q, %d) = %d, want %d", test.value, test.offset, actual, test.expect)
+		}
 	}
 }
 
@@ -46,7 +65,7 @@ func TestCompletesPropertiesForGenericNamespaces(t *testing.T) {
 		{query: "SELECT group_0.properties.ind FROM events", position: len("SELECT group_0.properties.ind"), expect: "industry"},
 	}
 	for _, test := range tests {
-		result, err := Complete(testCatalog(), test.query, test.position, "")
+		result, err := Complete(testCatalog(), test.query, test.position, PositionEncodingUTF8, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -58,7 +77,7 @@ func TestCompletesPropertiesForGenericNamespaces(t *testing.T) {
 
 func TestCompletesFieldsForHogQLQualifiedTable(t *testing.T) {
 	query := "SELECT s. FROM postgres.synced.orders AS s"
-	result, err := Complete(testCatalog(), query, len("SELECT s."), "")
+	result, err := Complete(testCatalog(), query, len("SELECT s."), PositionEncodingUTF8, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +87,7 @@ func TestCompletesFieldsForHogQLQualifiedTable(t *testing.T) {
 }
 
 func TestCompletesTablesAfterFrom(t *testing.T) {
-	result, err := Complete(testCatalog(), "SELECT * FROM ord", len("SELECT * FROM ord"), "")
+	result, err := Complete(testCatalog(), "SELECT * FROM ord", len("SELECT * FROM ord"), PositionEncodingUTF8, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +98,7 @@ func TestCompletesTablesAfterFrom(t *testing.T) {
 
 func TestCompletesFieldsForAlias(t *testing.T) {
 	query := "SELECT o. FROM orders AS o"
-	result, err := Complete(testCatalog(), query, len("SELECT o."), "")
+	result, err := Complete(testCatalog(), query, len("SELECT o."), PositionEncodingUTF8, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +109,7 @@ func TestCompletesFieldsForAlias(t *testing.T) {
 
 func TestCompletesFieldsForMixedCaseTableReference(t *testing.T) {
 	query := "SELECT Orders. FROM Orders"
-	result, err := Complete(testCatalog(), query, len("SELECT Orders."), "")
+	result, err := Complete(testCatalog(), query, len("SELECT Orders."), PositionEncodingUTF8, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +125,7 @@ func TestCompletionPagesWithoutSkippingOrRepeatingTables(t *testing.T) {
 		schema.Tables[name] = catalog.Table{Name: name, Type: "data_warehouse", Fields: map[string]catalog.Field{}}
 	}
 	query := "SELECT * FROM table_"
-	first, err := Complete(schema, query, len(query), "")
+	first, err := Complete(schema, query, len(query), PositionEncodingUTF8, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +135,7 @@ func TestCompletionPagesWithoutSkippingOrRepeatingTables(t *testing.T) {
 	if first.Total != 30 {
 		t.Fatalf("total = %d", first.Total)
 	}
-	second, err := Complete(schema, query, len(query), first.NextCursor)
+	second, err := Complete(schema, query, len(query), PositionEncodingUTF8, first.NextCursor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +145,7 @@ func TestCompletionPagesWithoutSkippingOrRepeatingTables(t *testing.T) {
 	if first.Suggestions[24].Label != "table_24" || second.Suggestions[0].Label != "table_25" {
 		t.Fatalf("page boundary is %q then %q", first.Suggestions[24].Label, second.Suggestions[0].Label)
 	}
-	if _, err := Complete(schema, query, len(query), "not-a-cursor"); err == nil {
+	if _, err := Complete(schema, query, len(query), PositionEncodingUTF8, "not-a-cursor"); err == nil {
 		t.Fatal("invalid cursor was accepted")
 	}
 }

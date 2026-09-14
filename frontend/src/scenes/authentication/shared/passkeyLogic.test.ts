@@ -1,6 +1,7 @@
 import { browserSupportsWebAuthnAutofill, startAuthentication } from '@simplewebauthn/browser'
 import { expectLogic } from 'kea-test-utils'
 
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -94,6 +95,53 @@ describe('passkeyLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(beginHandler).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('re-authentication', () => {
+        let logic: ReturnType<typeof passkeyLogic.build>
+
+        beforeEach(() => {
+            ;(startAuthentication as jest.Mock).mockResolvedValue({ id: 'cred-1', response: {} })
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/webauthn/login/begin/': () => [
+                        200,
+                        {
+                            challenge: 'abc',
+                            timeout: 60000,
+                            rpId: 'localhost',
+                            allowCredentials: [{ id: 'cred-1', type: 'public-key' }],
+                            userVerification: 'required',
+                        },
+                    ],
+                    '/api/webauthn/login/complete/': () => [200, {}],
+                },
+            })
+            initKeaTests()
+            logic = passkeyLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.clearAllMocks()
+        })
+
+        it('signals the sensitive action waiting on re-authentication', async () => {
+            const onSuccess = jest.fn()
+            const onFailure = jest.fn()
+            // A sensitive action (e.g. inviting members) parks this pair while it awaits re-auth.
+            // Without the signal it stays pending forever and its button spins.
+            apiStatusLogic.actions.setTimeSensitiveAuthenticationRequired([onSuccess, onFailure])
+
+            logic.actions.beginPasskeyLogin(undefined, { reauth: 'true' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(onSuccess).toHaveBeenCalledTimes(1)
+            expect(onFailure).not.toHaveBeenCalled()
+            expect(apiStatusLogic.values.timeSensitiveAuthenticationRequired).toBe(false)
         })
     })
 })

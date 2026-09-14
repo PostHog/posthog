@@ -34,6 +34,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_IMPLEMENTATION
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -60,6 +61,7 @@ from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
     record_implementation_task,
 )
+from products.signals.backend.tracker_issues import create_tracker_issue_for_report
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -208,6 +210,7 @@ def _generate_self_driving_head_branch(title: str) -> str:
     can write (see tasks' ``find_signal_implementation_run``). The slug keeps branch names
     readable; the random suffix is only there to prevent collisions between runs off similarly
     titled reports.
+
     """
     slug = slugify(title)
     if len(slug) > 40:
@@ -404,6 +407,8 @@ def _create_implementation_task_if_absent(
     # Resolved outside the transaction: the flag read does network I/O and must not hold the row lock.
     agent_runtime = resolve_agent_runtime(team_id, STEP_IMPLEMENTATION)
 
+    # Create the task before the provider issue. A failed task creation must not leave an external
+    # issue that says Self-driving started work when no run exists.
     head_branch = _generate_self_driving_head_branch(title)
     description = description + _head_branch_instruction(head_branch)
 
@@ -412,6 +417,8 @@ def _create_implementation_task_if_absent(
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
+            return False
+        if get_active_claim(team_id=team_id, report_id=report_id) is not None:
             return False
         # The gate reads the unified task↔report view (`associated_task_runs` merges the legacy
         # `SignalReportTask` rows with the `task_run` artefact log). Unifying only *adds* sources,
@@ -466,6 +473,7 @@ def _create_implementation_task_if_absent(
             task_id=task_id,
             run_id=str(created.latest_run.id),
         )
+    create_tracker_issue_for_report(team_id=team_id, report_id=report_id, repository=repository)
     if exempt_reason and task_id:
         # After commit: the exempt report's implementation task exists — count it (includes a
         # best-effort ClickHouse lookup, so it must not run under the lock).

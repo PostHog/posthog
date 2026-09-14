@@ -77,21 +77,27 @@ if TYPE_CHECKING:
 
 
 def run_cached_trends_query(
-    *, query: dict[str, Any], team: Team, max_execution_time_seconds: int
+    *, query: dict[str, Any], team: Team, max_execution_time_seconds: int, cache_age_seconds: int
 ) -> TrendsQueryRunResult:
     """Run a Trends query through the blocking recent-cache path."""
 
     from posthog.hogql.constants import HogQLGlobalSettings
 
+    from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method
     from posthog.hogql_queries.query_runner import ExecutionMode
 
     from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
-    response = TrendsQueryRunner(
+    runner = TrendsQueryRunner(
         query=query,
         team=team,
         hogql_settings=HogQLGlobalSettings(max_execution_time=max_execution_time_seconds),
-    ).run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+    )
+    runner.is_query_service = is_api_key_access_method(get_query_tag_value("access_method"))
+    response = runner.run(
+        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        cache_age_seconds=cache_age_seconds,
+    )
     results = getattr(response, "results", None)
     if not isinstance(results, list) or any(not isinstance(result, dict) for result in results):
         raise ValueError("Trends query returned an invalid result set")

@@ -394,7 +394,7 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
 
     if is_turn_complete(event):
         await redis_stream.set_agent_active(False)
-        await _dispatch_turn_completed_if_interactive(run_id)
+        await _dispatch_turn_completed(run_id)
         return
 
     if _is_session_update(event):
@@ -445,11 +445,11 @@ def _signal_agent_boot_milestone(
     return task_run.signal_agent_boot_milestone(milestone)
 
 
-async def _dispatch_turn_completed_if_interactive(run_id: str) -> None:
-    await sync_to_async(_dispatch_turn_completed_if_interactive_sync, thread_sensitive=True)(run_id)
+async def _dispatch_turn_completed(run_id: str) -> None:
+    await sync_to_async(_dispatch_turn_completed_sync, thread_sensitive=True)(run_id)
 
 
-def _dispatch_turn_completed_if_interactive_sync(run_id: str) -> None:
+def _dispatch_turn_completed_sync(run_id: str) -> None:
     if not settings.TEST:
         close_old_connections()
 
@@ -459,6 +459,7 @@ def _dispatch_turn_completed_if_interactive_sync(run_id: str) -> None:
         logger.warning("task_run_event_ingest_turn_completed_run_missing", run_id=run_id)
         return
 
+    task_run.signal_agent_turn_completed()
     if task_run.mode != "interactive":
         return
 

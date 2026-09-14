@@ -18,6 +18,34 @@ Examples of use cases include:
 - How the properties of events vary using aggregation (sum, average, etc).
 - Users can also visualize the same data points in a variety of ways.
 
+# Input shape
+
+Send the query fields as the call arguments, at the top level. Do not wrap them in a `query`, `source`, or `events` object: this tool takes no such parameter, and a wrapped payload is rejected for a missing `series`.
+
+`series` is the only required field. Every other field is optional.
+
+## One series
+
+```json
+{
+  "series": [{ "kind": "EventsNode", "event": "$pageview" }],
+  "dateRange": { "date_from": "-7d" }
+}
+```
+
+## Two series
+
+```json
+{
+  "series": [
+    { "kind": "EventsNode", "event": "$pageview", "math": "dau" },
+    { "kind": "EventsNode", "event": "user signed up", "math": "dau" }
+  ],
+  "dateRange": { "date_from": "-30d" },
+  "interval": "day"
+}
+```
+
 CRITICAL: Be minimalist. Only include filters, breakdowns, and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.
 
 # Data narrowing
@@ -35,7 +63,7 @@ When using a property filter, you should:
 - After selecting a property, **validate that the property value accurately reflects the intended criteria**.
 - **Find the suitable operator for type** (e.g., `contains`, `is set`).
 - If the operator requires a value, use the `read-data-schema` tool to find the property values.
-- You set logical operators to combine multiple properties of a single series: AND or OR.
+- `properties` is a flat list of filters, combined with AND. There is no group object and no OR operator here.
 
 Infer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.
 
@@ -148,7 +176,6 @@ Examples of using aggregation types:
 
 ```json
 {
-  "kind": "TrendsQuery",
   "series": [
     {
       "kind": "GroupNode",
@@ -227,7 +254,6 @@ A period summary gets the `Metric` display: the headline plus how it moved again
 
 ```json
 {
-  "kind": "TrendsQuery",
   "series": [{ "kind": "EventsNode", "event": "user signed up", "math": "total" }],
   "dateRange": { "date_from": "-30d" },
   "interval": "day",
@@ -240,7 +266,6 @@ A period summary gets the `Metric` display: the headline plus how it moved again
 
 ```json
 {
-  "kind": "TrendsQuery",
   "series": [{ "kind": "EventsNode", "event": "$pageview", "math": "total" }],
   "dateRange": { "date_from": "-30d" },
   "interval": "day",
@@ -254,24 +279,19 @@ A period summary gets the `Metric` display: the headline plus how it moved again
 
 ```json
 {
-  "kind": "TrendsQuery",
   "series": [
     { "kind": "EventsNode", "event": "$pageview", "math": "dau" },
     { "kind": "EventsNode", "event": "$pageview", "math": "monthly_active" }
   ],
   "dateRange": { "date_from": "-7d" },
   "interval": "day",
-  "properties": {
-    "type": "AND",
-    "values": [
-      {
-        "type": "AND",
-        "values": [{ "key": "$geoip_country_name", "operator": "exact", "type": "event", "value": ["United States"] }]
-      }
-    ]
-  },
+  "properties": [{ "key": "$geoip_country_name", "operator": "exact", "type": "event", "value": ["United States"] }],
   "compareFilter": { "compare": true },
-  "trendsFilter": { "display": "ActionsLineGraph", "formula": "A/B", "aggregationAxisFormat": "percentage_scaled" }
+  "trendsFilter": {
+    "display": "ActionsLineGraph",
+    "formulaNodes": [{ "formula": "A/B" }],
+    "aggregationAxisFormat": "percentage_scaled"
+  }
 }
 ```
 
@@ -279,7 +299,6 @@ A period summary gets the `Metric` display: the headline plus how it moved again
 
 ```json
 {
-  "kind": "TrendsQuery",
   "series": [
     { "kind": "EventsNode", "event": "insight created", "math": "dau" },
     { "kind": "EventsNode", "event": "insight created", "math": "first_time_for_user" }
@@ -295,7 +314,6 @@ A period summary gets the `Metric` display: the headline plus how it moved again
 
 ```json
 {
-  "kind": "TrendsQuery",
   "series": [
     { "kind": "EventsNode", "event": "viewed dashboard", "math": "p99", "math_property": "refreshAge" },
     { "kind": "EventsNode", "event": "viewed dashboard", "math": "p95", "math_property": "refreshAge" },
@@ -312,7 +330,6 @@ A period summary gets the `Metric` display: the headline plus how it moved again
 
 ```json
 {
-  "kind": "TrendsQuery",
   "series": [
     {
       "kind": "EventsNode",
@@ -324,15 +341,7 @@ A period summary gets the `Metric` display: the headline plus how it moved again
   ],
   "dateRange": { "date_from": "-30d" },
   "interval": "day",
-  "properties": {
-    "type": "AND",
-    "values": [
-      {
-        "type": "OR",
-        "values": [{ "key": "$initial_utm_source", "operator": "exact", "type": "person", "value": ["google"] }]
-      }
-    ]
-  },
+  "properties": [{ "key": "$initial_utm_source", "operator": "exact", "type": "person", "value": ["google"] }],
   "trendsFilter": { "display": "ActionsLineGraph" }
 }
 ```

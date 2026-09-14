@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Optional, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -228,7 +228,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             deep=True,
         )
 
-        with freeze_time("2022-06-15T12:00:00.000Z"):
+        with time_machine.travel("2022-06-15T12:00:00.000Z", tick=False):
             self.assertEqual(
                 self._get_date_where_sql(trends_query=trends_query),
                 "greaterOrEquals(timestamp, toDateTime('2022-06-07 22:00:00.000000')), lessOrEquals(timestamp, toDateTime('2022-06-15 21:59:59.999999'))",
@@ -266,7 +266,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             deep=True,
         )
 
-        with freeze_time("2022-06-15T12:00:00.000Z"):
+        with time_machine.travel("2022-06-15T12:00:00.000Z", tick=False):
             self.assertEqual(
                 self._get_date_where_sql(trends_query=trends_query, compare_value=Compare.CURRENT),
                 "greaterOrEquals(timestamp, toDateTime('2022-06-07 22:00:00.000000')), lessOrEquals(timestamp, toDateTime('2022-06-15 21:59:59.999999'))",
@@ -287,7 +287,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             deep=True,
         )
 
-        with freeze_time("2022-06-15T12:00:00.000Z"):
+        with time_machine.travel("2022-06-15T12:00:00.000Z", tick=False):
             self.assertEqual(
                 self._get_date_where_sql(trends_query=trends_query, compare_value=Compare.CURRENT),
                 "greaterOrEquals(timestamp, toDateTime('2022-06-07 22:00:00.000000')), lessOrEquals(timestamp, toDateTime('2022-06-15 21:59:59.999999'))",
@@ -303,7 +303,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             update={"series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)]}, deep=True
         )
 
-        with freeze_time("2024-05-30T12:00:00.000Z"):
+        with time_machine.travel("2024-05-30T12:00:00.000Z", tick=False):
             self.assertEqual(
                 self._get_date_where_sql(trends_query=trends_query, time_frame="2024-05-27"),
                 "greaterOrEquals(timestamp, minus(toDateTime('2024-05-26 22:00:00.000000'), toIntervalDay(6))), less(timestamp, toDateTime('2024-05-27 22:00:00.000000'))",
@@ -319,7 +319,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             deep=True,
         )
 
-        with freeze_time("2024-05-30T12:00:00.000Z"):
+        with time_machine.travel("2024-05-30T12:00:00.000Z", tick=False):
             self.assertEqual(
                 self._get_date_where_sql(
                     trends_query=trends_query, time_frame="2024-05-27", compare_value=Compare.CURRENT
@@ -343,7 +343,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             deep=True,
         )
 
-        with freeze_time("2024-05-30T12:00:00.000Z"):
+        with time_machine.travel("2024-05-30T12:00:00.000Z", tick=False):
             self.assertEqual(
                 self._get_date_where_sql(
                     trends_query=trends_query, time_frame="2024-05-27", compare_value=Compare.CURRENT
@@ -367,7 +367,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             deep=True,
         )
 
-        with freeze_time("2024-05-30T12:00:00.000Z"):
+        with time_machine.travel("2024-05-30T12:00:00.000Z", tick=False):
             self.assertEqual(
                 self._get_date_where_sql(trends_query=trends_query),
                 "greaterOrEquals(timestamp, minus(toDateTime('2024-05-30 21:59:59.999999'), toIntervalDay(6))), lessOrEquals(timestamp, toDateTime('2024-05-30 21:59:59.999999'))",
@@ -384,7 +384,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             deep=True,
         )
 
-        with freeze_time("2024-05-30T12:00:00.000Z"):
+        with time_machine.travel("2024-05-30T12:00:00.000Z", tick=False):
             self.assertEqual(
                 self._get_date_where_sql(trends_query=trends_query, compare_value=Compare.PREVIOUS),
                 "greaterOrEquals(timestamp, minus(toDateTime('2024-05-23 21:59:59.999999'), toIntervalDay(6))), lessOrEquals(timestamp, toDateTime('2024-05-23 21:59:59.999999'))",
@@ -396,7 +396,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             update={"series": [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)]}, deep=True
         )
 
-        with freeze_time("2024-05-30T12:00:00.000Z"):
+        with time_machine.travel("2024-05-30T12:00:00.000Z", tick=False):
             self.assertEqual(
                 self._get_date_where_sql(trends_query=trends_query, time_frame="2024-05-27"),
                 "greaterOrEquals(timestamp, minus(toDateTime('2024-05-26 22:00:00.000000'), toIntervalDay(29))), less(timestamp, toDateTime('2024-05-27 22:00:00.000000'))",
@@ -409,7 +409,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             update={"dateRange": DateRange(date_from="2024-05-08T14:29:13.634000Z", date_to=None, explicitDate=True)},
             deep=True,
         )
-        with freeze_time("2024-05-08T15:32:00.000Z"):
+        with time_machine.travel("2024-05-08T15:32:00.000Z", tick=False):
             self.assertEqual(
                 self._get_date_where_sql(trends_query=trends_query, time_frame="2024-05-08"),
                 "greaterOrEquals(timestamp, toDateTime('2024-05-08 14:29:13.634000')), lessOrEquals(timestamp, toDateTime('2024-05-08 15:32:00.000000'))",
@@ -424,7 +424,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             },
             deep=True,
         )
-        with freeze_time("2024-05-08T15:32:00.000Z"):
+        with time_machine.travel("2024-05-08T15:32:00.000Z", tick=False):
             self.assertEqual(
                 self._get_date_where_sql(trends_query=trends_query, time_frame="2024-05-08"),
                 "greaterOrEquals(timestamp, toDateTime('2024-05-08 14:29:13.634000')), lessOrEquals(timestamp, toDateTime('2024-05-08 14:32:57.692000'))",
@@ -441,7 +441,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             },
             deep=True,
         )
-        with freeze_time("2024-05-08T15:32:00.000Z"):
+        with time_machine.travel("2024-05-08T15:32:00.000Z", tick=False):
             self.assertEqual(
                 self._get_date_where_sql(trends_query=trends_query, time_frame="2024-05-08"),
                 "greaterOrEquals(timestamp, greatest(minus(toDateTime('2024-05-07 22:00:00.000000'), toIntervalDay(29)), toDateTime('2024-05-08 14:29:13.634000'))), less(timestamp, least(toDateTime('2024-05-08 22:00:00.000000'), toDateTime('2024-05-08 14:32:57.692000')))",

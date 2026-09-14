@@ -5,13 +5,20 @@ import pytest
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
     SignalFinding,
+    _render_previous_metrics_context,
     _render_signal_for_research,
     build_initial_research_prompt,
     build_report_presentation_prompt,
     build_signal_investigation_prompt,
 )
-from products.signals.backend.report_metrics import MAX_LIVE_METRIC_QUERY_POINTS, MAX_LIVE_METRIC_QUERY_SERIES
+from products.signals.backend.report_metrics import (
+    DEFAULT_LIVE_METRIC_DATE_FROM,
+    MAX_LIVE_METRIC_QUERY_POINTS,
+    MAX_LIVE_METRIC_QUERY_SERIES,
+    ReportMetric,
+)
 from products.signals.backend.temporal.types import SignalData
+from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 
 
 def _make_signal(extra: dict) -> SignalData:
@@ -180,7 +187,11 @@ class TestBuildReportPresentationPrompt:
 
         assert "Measuring impact" in on
         assert '"metrics"' in on
-        assert 'Default the query to `dateRange.date_from: "-14d"` with `interval: "day"`' in on
+        assert (
+            f'Default the query to `dateRange.date_from: "{DEFAULT_LIVE_METRIC_DATE_FROM}"` with `interval: "day"`'
+            in on
+        )
+        assert "Do not author comparisons" in on
         assert f"at most {MAX_LIVE_METRIC_QUERY_POINTS} estimated interval points" in on
         assert "Every source series must be an `EventsNode` or `ActionsNode`" in on
         assert "Do not use a breakdown or compare mode on any report metric" in on
@@ -211,3 +222,24 @@ class TestBuildReportPresentationPrompt:
         assert "Charts this report already shows" in on
         assert "signups-drop" in on
         assert "Charts this report already shows" not in off
+
+    def test_previous_metric_context_omits_legacy_comparison(self):
+        metric = ReportMetric.model_validate(
+            {
+                "metric_id": "affected-users",
+                "title": "Affected users",
+                "kind": "affected_users",
+                "role": "primary",
+                "value": 17,
+                "value_at": "2026-08-29T12:00:00Z",
+                "value_format": "count",
+                "unit": "users",
+                "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}]),
+                "comparison": {"value": 11, "label": "Previous period"},
+            }
+        )
+
+        prompt = _render_previous_metrics_context([metric])
+
+        assert '"comparison"' not in prompt
+        assert "Previous period" not in prompt

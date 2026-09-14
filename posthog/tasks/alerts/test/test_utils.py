@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -21,7 +21,7 @@ from posthog.tasks.alerts.utils import (
     trigger_alert_hog_functions,
 )
 
-from products.alerts.backend.destinations import ActiveAlertDestination
+from products.alerts.backend.facade.contracts import ActiveAlertDestination
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
@@ -42,7 +42,7 @@ class TestAlertUtils:
         alert.schedule_restriction = None
         alert.skip_weekend = False
 
-        with freeze_time("2026-04-06T14:00:00Z"):
+        with time_machine.travel("2026-04-06T14:00:00Z", tick=False):
             assert next_check_time(alert) == datetime(2026, 4, 6, 14, 2, 0, tzinfo=UTC)
 
     @parameterized.expand(

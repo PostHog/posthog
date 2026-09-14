@@ -486,13 +486,13 @@ Scouts write them via `charts` on `emit_report` / `edit_report`. On an edit `cha
 
 The main **agentic research pipeline** authors charts too, so every signal source that funnels through it (not just scouts) can produce a visual report. The research agent's presentation step (`report_generation/research.py`) returns `charts` alongside the title and summary; the caller activity (`temporal/agentic/report.py`) replaces `SignalReport.charts` with them, and a re-research is shown the report's current charts to keep, refresh, or drop. It is gated per team by the `signals-report-charts` flag (`_team_report_charts_enabled`, on in DEBUG) so it ships dark on the fleet-wide path. Unlike the scout emit path, these charts are **not** safety-judged: the pipeline judge screens the input signals before research runs, so it never sees research-authored charts — the same as it never sees the research-authored title/summary, which are agent output from already-screened signals.
 
-**Report metrics.** `SignalReport.metrics` is typed report content, not an artefact log or a materialized time series. Its dependency-light schema lives in `report_metrics.py` (`ReportMetric`). Each entry has a stable id, title, semantic kind, primary or supporting role, display format, a required bounded live query, and optional caption, comparison, and latest cached `value` / `value_at` snapshot. A report accepts at most six metrics, at most one primary metric, and at most one `affected_users` metric.
+**Report metrics.** `SignalReport.metrics` is typed report content, not an artefact log or a materialized time series. Its dependency-light schema lives in `report_metrics.py` (`ReportMetric`). Each entry has a stable id, title, semantic kind, role, display format, a required bounded live query, and an optional cached snapshot. Legacy comparison data stays compatible in storage but is not exposed as a live comparison. A report accepts at most six metrics, at most one primary metric, and at most one `affected_users` metric.
 
-Every metric uses an `InsightVizNode` wrapping one `TrendsQuery` whose source series are only `EventsNode` or `ActionsNode`, with a relative window no longer than 366 days and no pinned end date. The stored definition remains the source of truth, but its authored display does not control report rendering. Consumers execute it in two derived shapes: `BoldNumber` provides the first output series' whole-window `aggregated_value`, while `ActionsBar` provides the longitudinal buckets. They never sum unique-user buckets because one person can appear in more than one bucket, and a time-series response does not provide the whole-window distinct-user total. The optional cached snapshot is seeded from an author-observed value and replaced when a person opens the inbox or the report; it must include both `value` and `value_at`, and null means no snapshot, not zero. Every metric rejects breakdown and compare mode and must produce exactly one output series. A query without formulas therefore has exactly one source; a conversion or rate may combine at most ten event/action source series through exactly one formula output. The longitudinal response is limited to 1,000 estimated interval points, including the current partial bucket. An `affected_users` metric must use count formatting and exactly one event or action Trends series with `math: dau`; group aggregation and formulas are also rejected so the label cannot silently mean organizations or transformed values. Authoring guidance narrows that envelope further: a metric defaults to a 14-day daily window, so the inbox row's 14-bucket strip and its whole-window figure describe the same period, and a comparison is the same query run over the 14 days before it. `unit` is one lowercase word printed next to the figure, so a rate names what the share means (`failure`, `conversion`) rather than repeating the `%` that formatting drops. Kind selection follows the same split the prompts teach: `affected_users` for what a person experiences, `occurrences` for noise and for backend failures with no person on the event, `error_rate` or `conversion_rate` for a flow that fails or stalls, and `duration`, `revenue`, or `custom` only when the source is that measurement.
+Every metric uses an `InsightVizNode` around one `TrendsQuery` over event or action sources. Consumers derive a `BoldNumber` for the whole-window value and an `ActionsBar` for longitudinal buckets. An `affected_users` metric uses exactly one series with `math: dau`. An `affected_sessions` metric uses exactly one series with `math: unique_session`. Neither kind uses formulas or group math. The default daily window starts at `-13d`, which gives 14 inclusive buckets including today. A longer window keeps only the trailing 14 buckets in the strip, while the whole-window value uses the full window. New authoring omits comparisons until the server can keep equal adjacent windows live. Non-currency units are lowercase. Revenue uses an uppercase ISO currency code such as `USD`.
 
-Report list serialization returns snapshot-only metric metadata: it omits live query definitions and authored comparisons, and never runs a query, avoiding both oversized list payloads and an N-query fan-out. Snapshots are refreshed on read, the way error tracking computes its counts: when a person opens the inbox list or a report, the frontend posts the ids on screen to `refresh_metrics` (`report_metric_refresh.py`), which re-runs each stale metric's stored query through the normal query cache and saves only `value`, `value_at`, and `series`. Report prose is point-in-time text and is never regenerated by a refresh. A snapshot measured in the last 15 minutes is served as is. One call accepts at most 20 reports and refreshes at most 20 metrics inside a 20-second budget, every report's row metric (affected users, else the primary metric) before any supporting metric, so an inbox page refreshes what its rows show first; whatever does not fit keeps its previous snapshot until the next open. There is no background job, so a report nobody opens costs no queries and the cost tracks page opens rather than the number of reports that exist. Full metric-state compare-and-swap persistence prevents an old query result from overwriting a concurrent report edit, an older cached measurement cannot replace a newer snapshot, and a result the metric's own validation rejects is dropped. Snapshot refreshes deliberately leave `updated_at` unchanged so the inbox does not reorder reports just because a metric refreshed.
+Report list serialization returns snapshot-only metric metadata. It omits live query definitions and legacy comparisons, and it never runs a query. When a person opens the inbox list or a report, the frontend posts the visible ids to `refresh_metrics`. A snapshot measured in the last 15 minutes is served as is through a query-cache override. One call runs at most 40 source series and stops on a best-effort 20-second deadline. Refresh writes `value`, `value_at`, and `series`, and clears `comparison`. The endpoint allows 10 requests per minute for each team. There is no background job, so a report nobody opens costs no queries. Full metric-state compare-and-swap persistence prevents an old query result from overwriting a concurrent report edit. Snapshot refreshes leave `updated_at` unchanged so the inbox does not reorder reports.
 
-Snapshots are materialized without a requesting user under the team's default property rules, so a refresh only runs for a metric the caller could read the snapshot of, and list and detail serialization re-check the reader's property, action, query, and event-definition access before exposing data-bearing fields. A reader whose access context is not equivalent to the materializer's receives null snapshot/comparison fields; an unsafe query definition is null on detail as well. Current authoring requires a query, so snapshot-only or queryless rows are legacy or malformed and are always redacted because they carry no query provenance from which to prove resource access. The policy fails closed for scoped tokens and unfamiliar Trends series, and caches its permission lookups once per response so paginated lists do not add a per-metric query fan-out.
+Snapshots are materialized without a requesting user under the team's default property rules. List and detail serialization re-check access before exposing data-bearing fields. Both response shapes omit legacy comparisons. An unsafe query definition is null on detail. Snapshot-only or queryless rows are legacy or malformed and are always redacted.
 
 Opening a report detail mounts every metric through the normal frontend Query path, so execution and caching follow the same query service used by insights. Consumers derive separate `BoldNumber` aggregate and `ActionsBar` longitudinal requests from each stored definition. If a query fails, the detail can show the latest cached snapshot instead. Longitudinal points remain in the analytics engine rather than being copied into a second time-series table.
 
@@ -502,7 +502,25 @@ Agentic research writes metrics atomically with the matching title, summary, and
 
 **Write surface.** `SignalReportArtefactViewSet` exposes POST / PATCH / DELETE for any type (a status write appends a new latest-wins row), the bespoke `suggested_reviewers` PUT, and a `diff` action that renders a `commit` artefact's branch against the repository default branch via `GitHubIntegration.get_diff` (GitHub compare API, validated repo/ref/sha). All gated by `scope_object = "task"` (`task:write`). Custom agents queue artefacts during a run via `CustomSignalAgent.register_artefact`, persisted in the report's transaction and attributed to the agent's task — except `commit` (written automatically by the signed-commit harness) and `task_run` (written by report persistence), which never need registering there.
 
-**Task↔report association.** A `task_run` artefact _is_ the association (no link table): its `task` FK is the task it records. Associating is just POSTing a `task_run` (its `content.task_id` defaults from the header — "associate me"); the reports list accepts `?task_id=`. Auto-start idempotency does **not** key on this freeform, API-mutable log — it uses a legacy `SignalReportTask` implementation row, which auto-start dual-writes alongside the `task_run` artefact (see Autonomy & Auto-Start).
+Claim content stores a server-generated `display_name`: a phase label for internal agents, or the user name plus external client (for example, "Alex's Codex").
+Unknown clients use "Alex's agent". The label is fixed at claim time and does not participate in ownership checks; older claims can omit it.
+
+**Claims and task association.** Agents use the claim endpoint to start or resume work, attach `pull_requests`, and release ownership.
+The returned `claim_id` identifies the work attempt; stale or foreign claims are rejected, and taking another actor's claim requires explicit `takeover=true`.
+The shared ownership helper derives the active owner from the latest `work_claim` artefact and its `work_release` entries.
+Internal task agents automatically receive a `task_run` association on claim; clients do not write task associations separately.
+Notes, commits, and PR links can reference the claim without mixing that context into actor attribution.
+Attribution identifies the authenticated user plus coding-agent name, or the internal task, and describes who attached the PR rather than its GitHub author.
+
+**Pull requests.** `SignalReportPullRequest` stores GitHub identity and state per team; `pull_request` artefacts link it to reports and optional claims.
+Reads combine these links with legacy assignments and task outputs, while all new writes use artefacts and shared PR state.
+The shared PR reader requires a team ID and excludes reports and links outside that team.
+Only legacy assignments are backfilled; task-output PRs remain readable without a full backfill.
+`SignalReportAssignment` is a read-only fallback until backfilled; once claim history exists it cannot restore a released owner.
+GitHub-verified state takes precedence over imported snapshots, and merged is terminal.
+A report completes when every linked PR is closed or merged: resolved if any merged, otherwise suppressed.
+Legacy single-PR fields select an active PR first, then merged before closed, with deterministic ordering.
+Auto-start retains its `SignalReportTask` implementation gate alongside task-run artefacts.
 
 Notes:
 
@@ -1045,7 +1063,7 @@ Telemetry is best-effort; failures are logged, not raised.
 
 ## LLM Integration
 
-Most direct LLM calls use Anthropic via the shared `call_llm()` helper in `backend/temporal/llm.py`, with model selection driven by `SIGNAL_MATCHING_LLM_MODEL` (default: `claude-sonnet-5`). The emission stage (summarization, actionability) uses its own `SIGNAL_EMISSION_LLM_MODEL` (default: `claude-sonnet-5`). Each model's request shape (assistant prefill, per-request temperature, extended thinking) is resolved from `MODEL_CAPABILITIES` in `backend/temporal/llm.py`, so swapping either default is a config change. Adaptive-thinking models run every call at `ADAPTIVE_MODEL_EFFORT` (`medium`), set through `effort_kwargs()` in the same module.
+Most direct LLM calls use Anthropic via the shared `call_llm()` helper in `backend/temporal/llm.py`, with model selection driven by `SIGNAL_MATCHING_LLM_MODEL` (default: `claude-sonnet-5`). The emission stage (summarization, actionability) uses its own `SIGNAL_EMISSION_LLM_MODEL`, and the two safety stages use `SIGNAL_SAFETY_LLM_MODEL` (both default to `claude-sonnet-5`). `call_llm()` takes a `model` argument so a stage can pin its own model; the safety stages pass `SAFETY_MODEL` so a matching-model swap can never silently retune the security gate. Each model's request shape (assistant prefill, per-request temperature, extended thinking) is resolved from `MODEL_CAPABILITIES` in `backend/temporal/llm.py`, so swapping either default is a config change. Adaptive-thinking models run every call at `ADAPTIVE_MODEL_EFFORT` (`medium`), set through `effort_kwargs()` in the same module.
 
 That said, **not all “LLM-ish” behavior in Signals goes through `call_llm()` anymore**:
 
@@ -1100,7 +1118,7 @@ A second grouping-time LLM check used before broadening an existing report too a
 
 Per-signal safety classifier that runs in the buffer workflow before signals are flushed to object storage.
 
-It classifies raw signal descriptions against a threat taxonomy including prompt injection, hidden instructions, encoded payloads, security weakening, data exfiltration, social engineering, and code injection.
+It blocks a signal only when the content tries to **manipulate the coding agent**: instruction override, hidden instructions, encoded payloads, secret exfiltration, or remote code execution. It does not block a signal for its topic. Security-sensitive tickets, the team's own risky changes, first-party monitoring reports, scanner traffic logged as errors, and vulnerability reports pass, because a human reviews every resulting pull request and the report judge and the agent's own rules sit downstream. The user prompt carries the signal's source and the current date, so the classifier applies the right trust context and reads an unfamiliar date or version as real rather than fabricated. One prompt serves every source; the source line, not a separate prompt, supplies the trust context.
 
 Returns:
 
@@ -1113,7 +1131,7 @@ This is the first line of defense; it prevents adversarial signals from consumin
 
 ### Report safety judge (`backend/temporal/report_safety_judge.py`)
 
-Report-level safety review that runs **before** repository selection and agentic research. It evaluates the underlying grouped signals for prompt injection or manipulation attempts that could steer a downstream coding agent toward malicious actions.
+Report-level safety review that runs **before** repository selection and agentic research. It evaluates the underlying grouped signals for manipulation attempts that could steer a downstream coding agent, under the same five-category definition the per-signal safety filter uses (instruction override, hidden instructions, encoded payload, secret exfiltration, remote code execution) and the same do-not-block list, so the two stages cannot disagree on a signal's topic. The rendered signals sit inside a `<signal_data>` block whose closing tag is neutralized in content, and the prompt treats everything inside the block as untrusted data.
 
 Returns `{"choice": bool, "explanation": "..."}` and stores the result as a `safety_judgment` artefact. Extended thinking is enabled.
 
@@ -1194,6 +1212,18 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 1. `Task.create_and_run(origin_product=SIGNAL_REPORT, ...)`
 2. `record_implementation_task` writes the legacy `SignalReportTask` implementation gate row (in the same transaction) and appends an `implementation` `task_run` artefact
 3. Errors are caught and logged but do not fail the report workflow
+
+**Tracker issue per pull request** (`backend/tracker_issues.py`, off by default).
+
+Some teams cannot merge a pull request unless a tracked work item points at it. `SignalTeamConfig.issue_tracking_integration` names the tracker (GitHub, GitLab, Linear, or Jira) and `issue_tracking_config` names the target inside it; a null integration means the team wants no tracker issues, so one field is both the switch and the target.
+
+`_create_implementation_task_if_absent` opens the issue after it creates the implementation task, outside the report lock because the call is network I/O. This order prevents an issue from outliving a task transaction that fails. A `SignalReportTrackerIssue` row per report keeps two evaluations from opening duplicate issues. Linear receives a direct attachment after the pull request opens, and the pull request body also links to the issue.
+
+The create never raises. A provider failure is stored on the row as `status=failed` with a short reason, which the report surfaces next to the pull request, and the run opens its pull request either way.
+
+Once the pull request exists, `link_report_tracker_issues` (scheduled from the task-run PR sync receiver) appends the reference to the pull request body, behind an HTML-comment marker so the append happens once. GitHub gets `Closes #n`; the other providers get the issue link. A Linear issue also gets the pull request as an attachment, best effort, because the scope for it may not be granted.
+
+An irreversible end closes the tracker issue: a resolve asked for through the state API, a merged pull request (closed as done), or a deleted report. A suppressed or snoozed report keeps its issue open, because both come back, and so does a failed run, because its report stays in the inbox and the work item is still real.
 
 **Fleet steering in the task description** (`load_report_steering` in `backend/report_steering.py`).
 
@@ -1306,6 +1336,7 @@ Gates, in pipeline order:
 **The billable event re-evaluates the quota immediately.**
 When a self-driving-origin run records its first PR URL (agent report, PATCH, or GitHub webhook backstop), the tasks facade queues `refresh_org_self_driving_quota` (Celery), which recomputes the org's live `signals_credits` usage and re-runs the Redis limiter — so the PR that crosses the limit flips the flag within seconds instead of at the next 15-minute quota cron tick.
 The cron remains the backstop.
+The cron writes its verdict by reconciling the Redis set against the snapshot it took at its start, so a limit the push refresh writes while a cron run is in flight survives that run instead of being wiped until the next tick.
 One timing edge: the live count is keyed to the implementation run's creation day (UTC), so a PR recorded just after midnight by a run created before midnight falls in the previous day's window and does not move the live counters.
 It reaches enforcement hours later, via that day's usage report; the charge itself still lands in the correct day.
 
@@ -1430,22 +1461,23 @@ Signal {index}:
 
 ## Key Configuration
 
-| Setting                                  | Default                       | Description                                                                                                                  |
-| ---------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `SIGNAL_WEIGHT_THRESHOLD`                | `1.0`                         | Total weight needed to promote a report to candidate                                                                         |
-| `SIGNAL_MATCHING_LLM_MODEL`              | `claude-sonnet-5`             | LLM model for matching, grouping, and safety-judge signal operations                                                         |
-| `SIGNAL_EMISSION_LLM_MODEL`              | `claude-sonnet-5`             | LLM model for emission-stage summarization and actionability checks                                                          |
-| `MAX_RESPONSE_TOKENS`                    | `4096`                        | Base max tokens for LLM responses (thinking uses 3× for max_tokens, 2× for budget)                                           |
-| Embedding model                          | `text-embedding-3-small-1536` | OpenAI embedding model used for signal content                                                                               |
-| Task queue                               | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for all workflows                                                                                        |
-| `BUFFER_MAX_SIZE`                        | `20`                          | Max signals buffered in memory before flush to S3                                                                            |
-| `BUFFER_FLUSH_TIMEOUT_SECONDS`           | `5`                           | Max seconds to wait for buffer to fill before flushing                                                                       |
-| S3 prefix                                | `signals/signal_batches/`     | Object storage path for signal batch files (cleaned up by S3 lifecycle policies)                                             |
-| `COORDINATOR_INTERVAL_MINUTES`           | `30`                          | Signals agent coordinator poll cadence (Temporal schedule, `SKIP` overlap policy)                                            |
-| `MAX_RUNS_PER_TICK`                      | `50`                          | Hard cap on planned runs per coordinator tick (most-overdue-first, truncated after sort)                                     |
-| `SignalScoutConfig.run_interval_minutes` | `1440`                        | Per-scout default schedule in minutes (daily); due-check, no sampling (`30`–`43200`)                                         |
-| `SignalScoutConfig.run_cron_schedule`    | `None`                        | Optional project-local cron schedule (overrides the interval); null keeps the rolling interval                               |
-| `SignalScoutConfig.emit`                 | `True`                        | Per-scout emit gate — defaults emit-on; flip to `False` for dry-run (scout runs and logs, but `emit_finding` writes nothing) |
+| Setting                                  | Default                       | Description                                                                                                                                                           |
+| ---------------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SIGNAL_WEIGHT_THRESHOLD`                | `1.0`                         | Total weight needed to promote a report to candidate                                                                                                                  |
+| `SIGNAL_MATCHING_LLM_MODEL`              | `claude-sonnet-5`             | LLM model for matching, grouping, and specificity signal operations                                                                                                   |
+| `SIGNAL_SAFETY_LLM_MODEL`                | `claude-sonnet-5`             | LLM model for both safety stages (per-signal filter, report judge). Not tied to the matching model, so a matching-model swap cannot silently retune the security gate |
+| `SIGNAL_EMISSION_LLM_MODEL`              | `claude-sonnet-5`             | LLM model for emission-stage summarization and actionability checks                                                                                                   |
+| `MAX_RESPONSE_TOKENS`                    | `4096`                        | Base max tokens for LLM responses (thinking uses 3× for max_tokens, 2× for budget)                                                                                    |
+| Embedding model                          | `text-embedding-3-small-1536` | OpenAI embedding model used for signal content                                                                                                                        |
+| Task queue                               | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for all workflows                                                                                                                                 |
+| `BUFFER_MAX_SIZE`                        | `20`                          | Max signals buffered in memory before flush to S3                                                                                                                     |
+| `BUFFER_FLUSH_TIMEOUT_SECONDS`           | `5`                           | Max seconds to wait for buffer to fill before flushing                                                                                                                |
+| S3 prefix                                | `signals/signal_batches/`     | Object storage path for signal batch files (cleaned up by S3 lifecycle policies)                                                                                      |
+| `COORDINATOR_INTERVAL_MINUTES`           | `30`                          | Signals agent coordinator poll cadence (Temporal schedule, `SKIP` overlap policy)                                                                                     |
+| `MAX_RUNS_PER_TICK`                      | `50`                          | Hard cap on planned runs per coordinator tick (most-overdue-first, truncated after sort)                                                                              |
+| `SignalScoutConfig.run_interval_minutes` | `1440`                        | Per-scout default schedule in minutes (daily); due-check, no sampling (`30`–`43200`)                                                                                  |
+| `SignalScoutConfig.run_cron_schedule`    | `None`                        | Optional project-local cron schedule (overrides the interval); null keeps the rolling interval                                                                        |
+| `SignalScoutConfig.emit`                 | `True`                        | Per-scout emit gate — defaults emit-on; flip to `False` for dry-run (scout runs and logs, but `emit_finding` writes nothing)                                          |
 
 ---
 

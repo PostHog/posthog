@@ -40,6 +40,7 @@ from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH,
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
+from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
 from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS
@@ -107,6 +108,7 @@ logger = structlog.get_logger(__name__)
             "network_access": {"type": "string"},
             "write_scopes": {"type": "array", "items": {"type": "string"}},
             "triggered_by": {"type": "string"},
+            "run_note": {"type": "string"},
             # Closed and fully required, unlike the parent: the region is written whole or not at
             # all, so every flag is present whenever the object is. Leaving it open would generate
             # a `[key: string]: boolean` index signature that the optional named flags cannot
@@ -1470,6 +1472,18 @@ class EditReportRequestSerializer(serializers.Serializer):
             "empty list is a no-op (existing reviewers are left untouched, never cleared)."
         ),
     )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional repository to point the report at, as `owner/repo` — the fix for a report that "
+            "surfaced against the wrong codebase, so you correct it in place instead of filing a "
+            "duplicate. It replaces the report's current target and re-runs autostart, so a report "
+            "that had no repository to open a PR against can now open a draft PR. Omit the field to "
+            "leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing "
+            "under version control could change."
+        ),
+    )
     charts = serializers.ListField(
         required=False,
         allow_null=True,
@@ -1509,6 +1523,19 @@ class EditReportRequestSerializer(serializers.Serializer):
         ),
     )
 
+    def validate(self, attrs: dict) -> dict:
+        """Reject a body field this serializer does not declare.
+
+        The tool definition the scout reads and this endpoint deploy separately, so a scout can send a
+        field a running backend does not know yet. DRF drops an undeclared key without a word, which
+        turns a correction the caller asked for into a call that reports success and changes nothing.
+        Failing the whole edit says so, and costs the caller a retry rather than a wrong report.
+        """
+        unknown = sorted(set(self.initial_data) - set(self.fields))
+        if unknown:
+            raise serializers.ValidationError(f"unknown fields: {', '.join(unknown)}")
+        return attrs
+
 
 class EditReportResponseSerializer(serializers.Serializer):
     report_id = serializers.CharField(help_text="Id of the edited report.")
@@ -1521,6 +1548,17 @@ class EditReportResponseSerializer(serializers.Serializer):
         help_text="How many observations this edit added to the report's evidence rail; 0 if none."
     )
     reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
+    repository_set = serializers.BooleanField(
+        help_text="Whether the report's repository was replaced (true for a cleared target too)."
+    )
+    repository = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The repository the report points at now, read back from the report rather than echoed "
+            "from the request; null when the report has no target. Compare it with the `repository` "
+            "you sent to confirm the correction landed."
+        ),
+    )
     charts_set = serializers.IntegerField(
         allow_null=True,
         help_text=(
@@ -2281,6 +2319,15 @@ SLACK_MEMBER_TARGET_ERROR = (
 )
 
 
+_SCOUT_SLACK_THREAD_REPORTS_HELP = (
+    "When true, post a report as a thread: a short lead in the channel and the rest split "
+    "into replies at the summary's section labels, which can be Markdown headings or bold "
+    "labels. Keeps a long summary from being clipped at Slack's section limit. On by "
+    "default; set it false to post a single message, which can truncate a long summary. "
+    "It does not change how findings post."
+)
+
+
 class SignalScoutSlackDestinationSerializer(serializers.Serializer):
     integration_id = serializers.IntegerField(
         min_value=1,
@@ -2324,13 +2371,8 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
 
     thread_reports = serializers.BooleanField(
         required=False,
-        default=False,
-        help_text=(
-            "When true, post a report as a thread: a short lead in the channel and the rest split "
-            "into replies at the summary's section labels, which can be Markdown headings or bold "
-            "labels. Keeps a long summary from being clipped at Slack's section limit. Off by "
-            "default, and it does not change how findings post."
-        ),
+        default=True,
+        help_text=_SCOUT_SLACK_THREAD_REPORTS_HELP,
     )
 
     def validate_users(self, value: list[str] | None) -> list[str] | None:
@@ -2357,6 +2399,13 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
         return attrs
 
 
+class SignalScoutSlackDestinationUpdateSerializer(SignalScoutSlackDestinationSerializer):
+    thread_reports = serializers.BooleanField(
+        required=False,
+        help_text=_SCOUT_SLACK_THREAD_REPORTS_HELP,
+    )
+
+
 class SignalScoutWebhookDestinationSerializer(serializers.Serializer):
     hog_function_id = serializers.CharField(
         help_text=(
@@ -2380,6 +2429,14 @@ class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
             "omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the "
             "reference lives here so the owning product can manage the destination's lifecycle."
         ),
+    )
+
+
+class SignalScoutOutputDestinationsUpdateSerializer(SignalScoutOutputDestinationsSerializer):
+    slack = SignalScoutSlackDestinationUpdateSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.",
     )
 
 
@@ -2935,7 +2992,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "apart. Set null to return to the rolling interval schedule."
         ),
     )
-    output_destinations = SignalScoutOutputDestinationsSerializer(
+    output_destinations = SignalScoutOutputDestinationsUpdateSerializer(
         required=False,
         help_text="Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.",
     )
@@ -2995,6 +3052,16 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         return _validate_write_scopes(value)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
+        output_destinations = validated_data.get("output_destinations")
+        current_slack = instance.output_destinations.get("slack") if instance.output_destinations else None
+        incoming_slack = output_destinations.get("slack") if output_destinations else None
+        if (
+            isinstance(current_slack, dict)
+            and current_slack.get("thread_reports") is False
+            and isinstance(incoming_slack, dict)
+            and "thread_reports" not in incoming_slack
+        ):
+            incoming_slack["thread_reports"] = False
         # Re-anchor the coordinator's cron due-check only when the schedule actually changes —
         # an emit/enabled-only save must not defer an already-overdue scheduled run.
         schedule_fields = ("run_interval_minutes", "run_cron_schedule")
@@ -3276,6 +3343,29 @@ class SignalScoutCreateResponseSerializer(serializers.Serializer):
     )
     skill = SignalScoutSkillSummarySerializer()
     config = SignalScoutConfigSerializer()
+
+
+class SignalScoutManualRunRequestSerializer(serializers.Serializer):
+    """Request body for an on-demand (`run now`) scout dispatch.
+
+    Every field is optional: a plain trigger sends no body at all.
+    """
+
+    note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_RUN_NOTE_CHARS,
+        help_text=(
+            "Optional steering for this run only, such as 'focus on the checkout regression' or "
+            "'skip the staging traffic today'. The agent reads it alongside the scout's durable "
+            "notes and weighs it the same way: it directs attention, it never forces a finding. "
+            "Use it instead of leaving a scout note that would also steer every later scheduled "
+            "run. The note is kept on the run for history and is never read by another run. "
+            "Because the agent reads it verbatim while holding privileged tools, a run that "
+            "carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor "
+            "access to skills, the same bar as leaving a note."
+        ),
+    )
 
 
 class SignalScoutManualRunSerializer(serializers.Serializer):

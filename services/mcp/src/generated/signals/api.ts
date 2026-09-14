@@ -189,7 +189,7 @@ export const SignalsReportsPartialUpdateBody = () => zod
     )
 
 /**
- * Claim a report for the current user, internal task, or external MCP agent. A later claim silently takes over ownership. Supply pr_url to attach or replace the report's pull request, or release=true to clear only ownership while preserving the pull request.
+ * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links.
  * @summary Claim or release a signal report
  */
 export const SignalsReportsClaimParams = () => zod.object({
@@ -201,13 +201,31 @@ export const SignalsReportsClaimParams = () => zod.object({
         ),
 })
 
+export const signalsReportsClaimBodyPullRequestsItemMax = 2048
+
+export const signalsReportsClaimBodyPullRequestsMax = 50
+
+export const signalsReportsClaimBodyTakeoverDefault = false
 export const signalsReportsClaimBodyReleaseDefault = false
 
 export const SignalsReportsClaimBody = () => zod.object({
+    claim_id: zod
+        .string()
+        .optional()
+        .describe('Active claim ID returned by an earlier call. Stale claims are rejected.'),
+    pull_requests: zod
+        .array(zod.url().max(signalsReportsClaimBodyPullRequestsItemMax))
+        .max(signalsReportsClaimBodyPullRequestsMax)
+        .optional()
+        .describe("GitHub PR URLs to add to this report's work. Additive and deduplicated; may span repositories."),
+    takeover: zod
+        .boolean()
+        .default(signalsReportsClaimBodyTakeoverDefault)
+        .describe("Explicitly end another actor's claim and take ownership."),
     pr_url: zod
         .url()
         .optional()
-        .describe('Optional GitHub pull request to attach to the claim. The report may be claimed without one.'),
+        .describe('Compatibility alias for adding one PR. Prefer pull_requests for new callers.'),
     release: zod
         .boolean()
         .default(signalsReportsClaimBodyReleaseDefault)
@@ -350,10 +368,14 @@ export const SignalsReportArtefactsCreateHeader = () => zod.object({
 
 export const SignalsReportArtefactsCreateBody = () => zod
     .object({
+        claim_id: zod
+            .string()
+            .optional()
+            .describe('Active claim to attribute this work to. Must belong to the caller and report.'),
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -543,7 +565,7 @@ export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersIt
 )
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax = 5
 
-export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = false
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const signalsScoutCreateBodyConfigOneModelMax = 200
@@ -649,7 +671,7 @@ export const SignalsScoutCreateBody = () => zod
                                             signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault
                                         )
                                         .describe(
-                                            "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                            "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post."
                                         ),
                                 }),
                                 zod.null(),
@@ -785,7 +807,7 @@ export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemR
 )
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax = 5
 
-export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigCreateBodyModelMax = 200
@@ -848,7 +870,7 @@ export const SignalsScoutConfigCreateBody = () => zod
                                 .boolean()
                                 .default(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
                                 .describe(
-                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post."
                                 ),
                         }),
                         zod.null(),
@@ -969,7 +991,6 @@ export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemR
 )
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersMax = 5
 
-export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutConfigUpdateBodyModelMax = 200
 
 export const signalsScoutConfigUpdateBodyTagsMax = 10
@@ -1043,9 +1064,9 @@ export const SignalsScoutConfigUpdateBody = () => zod
                                 ),
                             thread_reports: zod
                                 .boolean()
-                                .default(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
+                                .optional()
                                 .describe(
-                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post."
                                 ),
                         }),
                         zod.null(),
@@ -1138,7 +1159,7 @@ export const SignalsScoutConfigDestroyParams = () => zod.object({
 })
 
 /**
- * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if self-driving is paused at the project's pull request limit, or the project is over its daily report limit or daily run budget (429), or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Returns immediately with the workflow id — poll the scout's runs for the result.
+ * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if self-driving is paused at the project's pull request limit, or the project is over its daily report limit or daily run budget (429), or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Pass an optional `note` to steer this one run without leaving a scout note that would steer every later run too. Returns immediately with the workflow id: poll the scout's runs for the result.
  * @summary Run a scout now
  */
 export const SignalsScoutConfigRunParams = () => zod.object({
@@ -1149,6 +1170,22 @@ export const SignalsScoutConfigRunParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const signalsScoutConfigRunBodyNoteMax = 1000
+
+export const SignalsScoutConfigRunBody = () => zod
+    .object({
+        note: zod
+            .string()
+            .max(signalsScoutConfigRunBodyNoteMax)
+            .optional()
+            .describe(
+                "Optional steering for this run only, such as 'focus on the checkout regression' or 'skip the staging traffic today'. The agent reads it alongside the scout's durable notes and weighs it the same way: it directs attention, it never forces a finding. Use it instead of leaving a scout note that would also steer every later scheduled run. The note is kept on the run for history and is never read by another run. Because the agent reads it verbatim while holding privileged tools, a run that carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor access to skills, the same bar as leaving a note."
+            ),
+    })
+    .describe(
+        'Request body for an on-demand (`run now`) scout dispatch.\n\nEvery field is optional: a plain trigger sends no body at all.'
+    )
 
 /**
  * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
@@ -1412,7 +1449,7 @@ export const SignalsScoutRunsRetrieveParams = () => zod.object({
 })
 
 /**
- * Rewrite a report's title/summary, append a note or fresh evidence, and/or set its suggested reviewers. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them.
+ * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Title/summary edits are best-effort: the pipeline may later re-research them.
  * @summary Edit an existing report for a run
  */
 export const SignalsScoutEditReportParams = () => zod.object({
@@ -1546,6 +1583,12 @@ export const SignalsScoutEditReportBody = () => zod
             .optional()
             .describe(
                 'Optional reviewers to set on the report (each a `github_login` and\/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).'
+            ),
+        repository: zod
+            .string()
+            .nullish()
+            .describe(
+                "Optional repository to point the report at, as `owner\/repo` — the fix for a report that surfaced against the wrong codebase, so you correct it in place instead of filing a duplicate. It replaces the report's current target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Omit the field to leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing under version control could change."
             ),
         charts: zod
             .array(
@@ -1687,9 +1730,7 @@ export const SignalsScoutEditReportBody = () => zod
                                 zod.null(),
                             ])
                             .optional()
-                            .describe(
-                                'Optional baseline or previous-period value shown beside the current value; null when the viewer cannot read the shared snapshot.'
-                            ),
+                            .describe('Legacy optional comparison. New report metrics must omit it.'),
                     })
                     .describe('Authoring shape: unlike a read response, the live query cannot be absent or redacted.')
             )
@@ -2035,9 +2076,7 @@ export const SignalsScoutEmitReportBody = () => zod
                                 zod.null(),
                             ])
                             .optional()
-                            .describe(
-                                'Optional baseline or previous-period value shown beside the current value; null when the viewer cannot read the shared snapshot.'
-                            ),
+                            .describe('Legacy optional comparison. New report metrics must omit it.'),
                     })
                     .describe('Authoring shape: unlike a read response, the live query cannot be absent or redacted.')
             )

@@ -160,9 +160,7 @@ export const ValueFormatEnumApi = {
 /**
  * Snapshot-only metric shape for report lists.
  *
- * Query definitions and authored comparisons belong on detail. Omitting them keeps the paginated
- * inbox payload bounded and prevents a stale comparison from being presented beside a refreshed
- * materialized value.
+ * Omitting query definitions keeps the paginated inbox payload bounded.
  */
 export interface ReportMetricListApi {
     /**
@@ -241,16 +239,6 @@ export const SignalReportAssignmentPrStateEnumApi = {
     Merged: 'merged',
 } as const
 
-export type SignalReportWorkStateEnumApi =
-    (typeof SignalReportWorkStateEnumApi)[keyof typeof SignalReportWorkStateEnumApi]
-
-export const SignalReportWorkStateEnumApi = {
-    Unclaimed: 'unclaimed',
-    Working: 'working',
-    InReview: 'in_review',
-    Done: 'done',
-} as const
-
 export type SignalActorKindEnumApi = (typeof SignalActorKindEnumApi)[keyof typeof SignalActorKindEnumApi]
 
 export const SignalActorKindEnumApi = {
@@ -268,7 +256,76 @@ export interface _UserApi {
     readonly email: string
 }
 
+export interface SignalReportPullRequestAttachedByApi {
+    /** Kind of actor who attached the PR. Null when legacy attribution is unknown.
+     *
+     * * `user` - User
+     * * `task` - Task
+     * * `agent` - Agent
+     * * `system` - System */
+    kind: SignalActorKindEnumApi | null
+    /** Authenticated principal who attached the PR, when recorded. */
+    user: _UserApi | null
+    /**
+     * External agent client name, when recorded.
+     * @nullable
+     */
+    agent: string | null
+    /**
+     * Internal task that attached the PR, when recorded.
+     * @nullable
+     */
+    task_id: string | null
+}
+
+export interface SignalReportPullRequestApi {
+    /**
+     * PR selection ID. Task-output links use a deterministic ID until attached as an artefact.
+     * @nullable
+     */
+    id: string | null
+    /** GitHub pull request URL. */
+    url: string
+    /** Latest known GitHub state.
+     *
+     * * `unknown` - Unknown
+     * * `draft` - Draft
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged */
+    state: SignalReportAssignmentPrStateEnumApi
+    /** Whether this PR merged. */
+    merged: boolean
+    /** Who first attached this PR to the report, not necessarily its GitHub author. Task-output links identify the originating task. */
+    readonly attached_by: SignalReportPullRequestAttachedByApi | null
+    /**
+     * Originating work claim. Null for legacy links without a recorded claim.
+     * @nullable
+     */
+    claim_id: string | null
+    /**
+     * When the first PR link was recorded. For backfilled links this is the import time; null for an unmigrated link.
+     * @nullable
+     */
+    attached_at: string | null
+}
+
+export type SignalReportWorkStateEnumApi =
+    (typeof SignalReportWorkStateEnumApi)[keyof typeof SignalReportWorkStateEnumApi]
+
+export const SignalReportWorkStateEnumApi = {
+    Unclaimed: 'unclaimed',
+    Working: 'working',
+    InReview: 'in_review',
+    Done: 'done',
+} as const
+
 export interface SignalReportAssigneeApi {
+    /**
+     * Identifier for the active work attempt.
+     * @nullable
+     */
+    claim_id: string | null
     kind: SignalActorKindEnumApi
     user: _UserApi | null
     /** @nullable */
@@ -427,10 +484,27 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly implementation_pr_url: string | null
+    /** All distinct PRs linked to this report across work attempts. */
+    readonly pull_requests: readonly SignalReportPullRequestApi[]
     /** Latest known pull request state: unknown, draft, open, closed, or merged. */
     readonly implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
     /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
     readonly implementation_pr_merged: boolean
+    /**
+     * Link to the issue self-driving opened in the team's tracker for this report's pull request. Null when the team tracks no issues, or the issue could not be opened.
+     * @nullable
+     */
+    readonly tracker_issue_url: string | null
+    /**
+     * How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null when there is no tracker issue.
+     * @nullable
+     */
+    readonly tracker_issue_reference: string | null
+    /**
+     * Why the tracker issue could not be opened, for a team that wants one. Null when the issue exists or the team tracks no issues.
+     * @nullable
+     */
+    readonly tracker_issue_error: string | null
     /** Derived remediation state: unclaimed, working, in_review, or done. */
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
@@ -459,16 +533,6 @@ export interface PaginatedSignalReportListListApi {
     /** @nullable */
     previous?: string | null
     results: SignalReportListApi[]
-}
-
-export interface ReportMetricComparisonApi {
-    /** Baseline or previous value, formatted like the current value. */
-    value: number
-    /**
-     * Short context for the comparison, such as `Previous period`.
-     * @maxLength 40
-     */
-    label: string
 }
 
 /**
@@ -540,8 +604,6 @@ export interface ReportMetricApi {
      * @nullable
      */
     caption?: string | null
-    /** Optional baseline or previous-period value shown beside the current value; null when the viewer cannot read the shared snapshot. */
-    comparison?: ReportMetricComparisonApi | null
 }
 
 export interface SignalReportApi {
@@ -606,10 +668,27 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly implementation_pr_url: string | null
+    /** All distinct PRs linked to this report across work attempts. */
+    readonly pull_requests: readonly SignalReportPullRequestApi[]
     /** Latest known pull request state: unknown, draft, open, closed, or merged. */
     readonly implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
     /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
     readonly implementation_pr_merged: boolean
+    /**
+     * Link to the issue self-driving opened in the team's tracker for this report's pull request. Null when the team tracks no issues, or the issue could not be opened.
+     * @nullable
+     */
+    readonly tracker_issue_url: string | null
+    /**
+     * How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null when there is no tracker issue.
+     * @nullable
+     */
+    readonly tracker_issue_reference: string | null
+    /**
+     * Why the tracker issue could not be opened, for a team that wants one. Null when the issue exists or the team tracks no issues.
+     * @nullable
+     */
+    readonly tracker_issue_error: string | null
     /** Derived remediation state: unclaimed, working, in_review, or done. */
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
@@ -654,7 +733,17 @@ export interface PatchedSignalReportContentUpdateApi {
 }
 
 export interface SignalReportClaimApi {
-    /** Optional GitHub pull request to attach to the claim. The report may be claimed without one. */
+    /** Active claim ID returned by an earlier call. Stale claims are rejected. */
+    claim_id?: string
+    /**
+     * GitHub PR URLs to add to this report's work. Additive and deduplicated; may span repositories.
+     * @maxItems 50
+     * @items.maxLength 2048
+     */
+    pull_requests?: string[]
+    /** Explicitly end another actor's claim and take ownership. */
+    takeover?: boolean
+    /** Compatibility alias for adding one PR. Prefer pull_requests for new callers. */
     pr_url?: string
     /** Release ownership while preserving any attached pull request. */
     release?: boolean
@@ -2005,6 +2094,9 @@ export interface SignalReportStateRequestApi {
  * * `summary_change` - Summary Change
  * * `code_review` - Code Review
  * * `related_to` - Related To
+ * * `work_claim` - Work Claim
+ * * `work_release` - Work Release
+ * * `pull_request` - Pull Request
  */
 export type SignalReportArtefactArtefactTypeEnumApi =
     (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
@@ -2027,11 +2119,24 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     SummaryChange: 'summary_change',
     CodeReview: 'code_review',
     RelatedTo: 'related_to',
+    WorkClaim: 'work_claim',
+    WorkRelease: 'work_release',
+    PullRequest: 'pull_request',
 } as const
 
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
 
 export interface SignalReportArtefactApi {
+    /**
+     * Work claim that produced this artefact.
+     * @nullable
+     */
+    readonly claim_id: string | null
+    /**
+     * Shared PR record linked by this artefact.
+     * @nullable
+     */
+    readonly pull_request_id: string | null
     readonly id: string
     readonly type: SignalReportArtefactArtefactTypeEnumApi
     readonly content: SignalReportArtefactApiContent
@@ -2071,7 +2176,9 @@ export interface PaginatedSignalReportArtefactListApi {
  * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
  */
 export interface SignalReportArtefactLogCreateApi {
-    /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+    /** Active claim to attribute this work to. Must belong to the caller and report. */
+    claim_id?: string
+    /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
     artefact_type: string
     /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
     content: unknown
@@ -2083,6 +2190,11 @@ export interface SignalReportArtefactLogCreateApi {
 export interface SignalReportArtefactWriteResponseApi {
     /** The artefact's unique id. */
     readonly id: string
+    /**
+     * Claim that produced this artefact.
+     * @nullable
+     */
+    readonly claim_id: string | null
     /** The id of the report this artefact belongs to. */
     readonly report_id: string
     /** The artefact type. */
@@ -2252,7 +2364,7 @@ export interface SignalReportMetricSnapshotsApi {
 }
 
 export interface SignalReportMetricRefreshResponseApi {
-    /** One entry per requested report the caller can read, in request order. A metric whose snapshot was fresh, whose query failed, or whose budget ran out keeps its previous snapshot; merge by metric_id. */
+    /** One entry per requested report the caller can read whose status is ready or pending_input, in request order. A report in any other status has no entry. A metric whose snapshot was fresh, whose query failed, or whose budget ran out keeps its previous snapshot; merge by metric_id. */
     readonly reports: readonly SignalReportMetricSnapshotsApi[]
 }
 
@@ -2303,7 +2415,7 @@ export interface SignalScoutSlackDestinationApi {
      * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
      */
     users?: string[] | null
-    /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
+    /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post. */
     thread_reports?: boolean
 }
 
@@ -2755,6 +2867,38 @@ export interface SignalScoutConfigCreateApi {
  */
 export type PatchedSignalScoutConfigUpdateApiStructuredOutputSchema = { [key: string]: unknown } | null
 
+export interface SignalScoutSlackDestinationUpdateApi {
+    /**
+     * ID of the Slack integration whose bot posts this scout's findings and reports.
+     * @minimum 1
+     */
+    integration_id: number
+    /**
+     * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set.
+     * @maxLength 255
+     * @nullable
+     */
+    channel?: string | null
+    /**
+     * Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.
+     * @minItems 1
+     * @maxItems 5
+     * @nullable
+     * @items.maxLength 255
+     * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
+     */
+    users?: string[] | null
+    /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post. */
+    thread_reports?: boolean
+}
+
+export interface SignalScoutOutputDestinationsUpdateApi {
+    /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+    slack?: SignalScoutSlackDestinationUpdateApi | null
+    /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+    webhook?: SignalScoutWebhookDestinationApi | null
+}
+
 /**
  * Editable display name, schedule, enablement, and emit posture for one scout config.
  */
@@ -2781,7 +2925,7 @@ export interface PatchedSignalScoutConfigUpdateApi {
      */
     run_cron_schedule?: string | null
     /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
-    output_destinations?: SignalScoutOutputDestinationsApi
+    output_destinations?: SignalScoutOutputDestinationsUpdateApi
     /**
      * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
@@ -2815,6 +2959,19 @@ export interface PatchedSignalScoutConfigUpdateApi {
      * @maxItems 7
      */
     write_scopes?: string[]
+}
+
+/**
+ * Request body for an on-demand (`run now`) scout dispatch.
+ *
+ * Every field is optional: a plain trigger sends no body at all.
+ */
+export interface SignalScoutManualRunRequestApi {
+    /**
+     * Optional steering for this run only, such as 'focus on the checkout regression' or 'skip the staging traffic today'. The agent reads it alongside the scout's durable notes and weighs it the same way: it directs attention, it never forces a finding. Use it instead of leaving a scout note that would also steer every later scheduled run. The note is kept on the run for history and is never read by another run. Because the agent reads it verbatim while holding privileged tools, a run that carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor access to skills, the same bar as leaving a note.
+     * @maxLength 1000
+     */
+    note?: string
 }
 
 /**
@@ -3633,6 +3790,7 @@ export type SignalScoutRunSummaryApiMetadata = {
     network_access?: string
     write_scopes?: string[]
     triggered_by?: string
+    run_note?: string
     derived?: SignalScoutRunSummaryApiMetadataDerived
     [key: string]: unknown
 }
@@ -3750,6 +3908,7 @@ export type SignalScoutRunDetailApiMetadata = {
     network_access?: string
     write_scopes?: string[]
     triggered_by?: string
+    run_note?: string
     derived?: SignalScoutRunDetailApiMetadataDerived
     [key: string]: unknown
 }
@@ -3859,6 +4018,16 @@ export interface SuggestedReviewerApi {
     reason?: string | null
 }
 
+export interface ReportMetricComparisonApi {
+    /** Baseline or previous value, formatted like the current value. */
+    value: number
+    /**
+     * Short context for the comparison, such as `Previous period`.
+     * @maxLength 40
+     */
+    label: string
+}
+
 /**
  * Authoring shape: unlike a read response, the live query cannot be absent or redacted.
  */
@@ -3928,7 +4097,7 @@ export interface ReportMetricWriteApi {
      * @nullable
      */
     caption?: string | null
-    /** Optional baseline or previous-period value shown beside the current value; null when the viewer cannot read the shared snapshot. */
+    /** Legacy optional comparison. New report metrics must omit it. */
     comparison?: ReportMetricComparisonApi | null
 }
 
@@ -3968,6 +4137,11 @@ export interface EditReportRequestApi {
      */
     suggested_reviewers?: SuggestedReviewerApi[]
     /**
+     * Optional repository to point the report at, as `owner/repo` — the fix for a report that surfaced against the wrong codebase, so you correct it in place instead of filing a duplicate. It replaces the report's current target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Omit the field to leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing under version control could change.
+     * @nullable
+     */
+    repository?: string | null
+    /**
      * The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down.
      * @maxItems 20
      * @nullable
@@ -3999,6 +4173,13 @@ export interface EditReportResponseApi {
     evidence_appended: number
     /** Whether the report's suggested reviewers were replaced. */
     reviewers_set: boolean
+    /** Whether the report's repository was replaced (true for a cleared target too). */
+    repository_set: boolean
+    /**
+     * The repository the report points at now, read back from the report rather than echoed from the request; null when the report has no target. Compare it with the `repository` you sent to confirm the correction landed.
+     * @nullable
+     */
+    repository: string | null
     /**
      * How many charts the report now shows, or null if the edit left its charts as they were (the field omitted, or a re-send of what was already stored). 0 means the edit took the report's charts down.
      * @nullable
@@ -4859,6 +5040,11 @@ export interface SignalUserAutonomyConfigApi {
     slack_notification_min_priority?: AutonomyPriorityEnumApi | BlankEnumApi | null
     /** Whether to add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Assignment is additive, so turning it off never removes an assignee from a pull request that already has one. */
     github_assign_on_pull_request?: boolean
+    /**
+     * Whether implementation pull requests for reports that suggest this user as reviewer open ready for review instead of draft, so the full CI matrix starts right away. Null follows the project's default_open_pull_request_ready. Applies only when the pull request is created; a pull request somebody converts back to draft stays draft.
+     * @nullable
+     */
+    github_open_pull_request_ready?: boolean | null
     readonly created_at: string
     readonly updated_at: string
 }
@@ -4888,6 +5074,11 @@ export interface SignalUserAutonomyConfigCreateApi {
     slack_notification_min_priority?: AutonomyPriorityEnumApi | null
     /** Add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Turning it off stops future assignment and never removes an existing assignee. */
     github_assign_on_pull_request?: boolean
+    /**
+     * Open implementation pull requests for reports that suggest this user as reviewer ready for review instead of draft, so the full CI matrix runs without anybody clicking Ready. Null follows the project default. A ready pull request runs the full matrix on every push.
+     * @nullable
+     */
+    github_open_pull_request_ready?: boolean | null
 }
 
 export type SignalsProcessingListParams = {
@@ -5009,6 +5200,55 @@ export type SignalsReportsListAssignee = (typeof SignalsReportsListAssignee)[key
 export const SignalsReportsListAssignee = {
     Me: 'me',
 } as const
+
+export type SignalsReportPrChecksParams = {
+    /**
+     * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
+     */
+    pull_request_id?: string
+}
+
+export type SignalsReportPrCommentsParams = {
+    /**
+     * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
+     */
+    pull_request_id?: string
+}
+
+export type SignalsReportPrReviewCommentsCreateParams = {
+    /**
+     * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
+     */
+    pull_request_id?: string
+}
+
+export type SignalsReportPrReviewCommentUpdateParams = {
+    /**
+     * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
+     */
+    pull_request_id?: string
+}
+
+export type SignalsReportPrReviewCommentDestroyParams = {
+    /**
+     * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
+     */
+    pull_request_id?: string
+}
+
+export type SignalsReportPrReviewCommentReactionsCreateParams = {
+    /**
+     * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
+     */
+    pull_request_id?: string
+}
+
+export type SignalsReportPrReviewCommentReactionDestroyParams = {
+    /**
+     * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
+     */
+    pull_request_id?: string
+}
 
 export type SignalsReportArtefactsListParams = {
     /**

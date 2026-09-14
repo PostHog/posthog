@@ -230,16 +230,16 @@ def reconcile_trino_schemas(
 
         # Drop dead columns so the next projection doesn't reference `missing_col`.
         available_names = extract_available_column_names(schema_metadata)
-        pruned_enabled_columns, removed_columns = prune_enabled_columns(matched.enabled_columns, available_names)
-        if removed_columns:
+        pruned_columns = prune_enabled_columns(matched.enabled_columns, available_names)
+        if pruned_columns.removed:
             log.info(
                 "trino.reconcile_schemas.pruned_enabled_columns",
                 source_id=str(source.id),
                 schema_id=str(matched.id),
                 schema_name=matched.name,
-                removed_columns=removed_columns,
+                removed_columns=pruned_columns.removed,
             )
-            matched.enabled_columns = pruned_enabled_columns
+            matched.enabled_columns = pruned_columns.kept
             update_fields.append("enabled_columns")
         matched.save(update_fields=update_fields)
 

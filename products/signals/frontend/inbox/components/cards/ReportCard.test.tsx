@@ -1,8 +1,11 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -10,18 +13,22 @@ import { initKeaTests } from '~/test/init'
 
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { INBOX_EVENTS } from '../../inboxAnalytics'
+import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { SELECTION_HOLD_MS } from '../../utils/reportSelection'
 import { ReportCard } from './ReportCard'
 
+jest.mock('posthog-js')
 jest.mock('lib/components/TZLabel', () => ({
     TZLabel: ({ time }: { time: string }) => <span>{time}</span>,
 }))
 
-function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
+function makeReport(id: string, overrides: Partial<SignalReport> = {}): SignalReport {
     return {
-        id: 'report-1',
-        title: 'Hooli traffic is hammering the beta',
-        summary: 'Sign-ups from Hooli IP ranges jumped overnight.',
+        id,
+        title: `Report ${id}`,
+        summary: 'summary',
         status: SignalReportStatus.READY,
         total_weight: 0,
         signal_count: 1,
@@ -32,7 +39,7 @@ function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
         created_at: '2026-06-11T10:00:00Z',
         updated_at: '2026-06-11T10:00:00Z',
         ...overrides,
-    } as SignalReport
+    } satisfies SignalReport
 }
 
 function makeMetric(overrides: Partial<ReportMetricApi> = {}): ReportMetricApi {
@@ -58,59 +65,183 @@ function enableRedesign(enabled = true): void {
 }
 
 describe('ReportCard', () => {
+    let logic: ReturnType<typeof inboxBulkActionsLogic.build>
+
     beforeEach(() => {
         initKeaTests()
         featureFlagLogic.mount()
-    })
-    afterEach(cleanup)
-
-    // The redesign makes the linked row the only way in and leaves the status / actionability chips
-    // to the section headers; the legacy list keeps Dismiss, the Review button, and the chips.
-    it.each([[true], [false]])(
-        'with the redesign flag %p shows Review and Dismiss and chips only on the legacy list',
-        (redesign) => {
-            const legacyChrome = !redesign
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-                [FEATURE_FLAGS.INBOX_REDESIGN]: redesign,
-            })
-            const report = makeReport({
-                status: SignalReportStatus.CANDIDATE,
-                actionability: 'immediately_actionable',
-            })
-            const { queryByText } = render(<ReportCard report={report} />)
-            expect(queryByText('Review') !== null).toBe(legacyChrome)
-            expect(queryByText('View report')).toBeNull()
-            expect(queryByText('Dismiss') !== null).toBe(legacyChrome)
-            expect(queryByText('Queued') !== null).toBe(legacyChrome)
-            expect(queryByText('Actionable') !== null).toBe(legacyChrome)
-        }
-    )
-
-    it('links the card to the report detail by default', () => {
-        const { container } = render(<ReportCard report={makeReport()} />)
-        expect(container.querySelector('a')).toHaveAttribute('href', expect.stringContaining('report-1'))
+        logic = inboxBulkActionsLogic()
+        logic.mount()
+        render(<ReportCard report={makeReport('r-1')} selectable />)
     })
 
-    it('exposes no routable link in preview mode (the placeholder id 404s)', () => {
-        const { container, getByText } = render(<ReportCard report={makeReport()} preview />)
-        // Card still renders, but nothing navigates to the detail route.
-        expect(getByText('Hooli traffic is hammering the beta')).toBeInTheDocument()
-        expect(container.querySelector('a')).toBeNull()
+    afterEach(() => {
+        cleanup()
+        jest.useRealTimers()
+        logic.unmount()
     })
 
-    it('exposes no link on a preview PR card either (the PR badge url is fabricated)', () => {
-        const report = makeReport({
-            title: 'fix(compression): stop 4K streams dropping to single-threaded encode',
-            implementation_pr_url: 'https://github.com/PiedPiper/pipernet/pull/486',
+    /** True once a click has followed the card's link through to the report detail. */
+    function openedReport(): boolean {
+        return router.values.location.pathname.includes('r-1')
+    }
+
+    /**
+     * jsdom has no `PointerEvent`, and `fireEvent.pointerDown` drops the button and the
+     * coordinates the hold reads, so dispatch a `MouseEvent` under the pointer event's name.
+     */
+    function firePointer(type: string, init: MouseEventInit): void {
+        fireEvent(cardLink(), new MouseEvent(type, { bubbles: true, ...init }))
+    }
+
+    /** Properties of the last `Inbox selection mode entered` event, if one was captured. */
+    function lastSelectionEntry(): Record<string, unknown> | undefined {
+        const calls = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === INBOX_EVENTS.SELECTION_MODE_ENTERED
+        )
+        return calls[calls.length - 1]?.[1]
+    }
+
+    /** The card body, which is the link a plain click follows. */
+    function cardLink(): HTMLElement {
+        return screen.getByText('Report r-1').closest('a') as HTMLElement
+    }
+
+    it('opens the report on a plain click, leaving the selection empty', () => {
+        fireEvent.click(cardLink())
+
+        expect(openedReport()).toBe(true)
+        expect(logic.values.selectedReportIds).toEqual([])
+    })
+
+    test.each([
+        ['cmd-click', { metaKey: true }],
+        ['ctrl-click', { ctrlKey: true }],
+        ['cmd-shift-click', { metaKey: true, shiftKey: true }],
+        ['ctrl-shift-click', { ctrlKey: true, shiftKey: true }],
+    ])('leaves %s to the browser with or without a selection', (_name, modifiers) => {
+        expect(fireEvent.click(cardLink(), modifiers)).toBe(true)
+        expect(openedReport()).toBe(false)
+        expect(logic.values.selectedReportIds).toEqual([])
+        expect(lastSelectionEntry()).toBeUndefined()
+
+        act(() => logic.actions.setSelectedReportIds(['r-1']))
+
+        expect(fireEvent.click(cardLink(), modifiers)).toBe(true)
+        expect(openedReport()).toBe(false)
+        expect(logic.values.selectedReportIds).toEqual(['r-1'])
+        expect(lastSelectionEntry()).toBeUndefined()
+    })
+
+    it('toggles on a plain click once the list is in selection mode', () => {
+        act(() => logic.actions.setSelectedReportIds(['r-1']))
+        fireEvent.click(cardLink())
+
+        expect(openedReport()).toBe(false)
+        expect(logic.values.selectedReportIds).toEqual([])
+    })
+
+    it('selects on a press and hold, and swallows the click that ends it', () => {
+        jest.useFakeTimers()
+        firePointer('pointerdown', { button: 0, clientX: 10, clientY: 10 })
+        jest.advanceTimersByTime(SELECTION_HOLD_MS)
+        firePointer('pointerup', {})
+
+        expect(logic.values.selectedReportIds).toEqual(['r-1'])
+
+        fireEvent.click(cardLink())
+        expect(openedReport()).toBe(false)
+
+        // React queues its scheduler work in the fake timer queue, and leaving fake timers drops
+        // whatever is still queued. No state update in a later test would flush then.
+        act(() => {
+            jest.runOnlyPendingTimers()
         })
-        const { container } = render(<ReportCard report={report} preview />)
-        expect(container.querySelector('a')).toBeNull()
+    })
+
+    it('cancels the hold when the pointer travels, so a scroll never selects', () => {
+        jest.useFakeTimers()
+        firePointer('pointerdown', { button: 0, clientX: 10, clientY: 10 })
+        firePointer('pointermove', { clientX: 10, clientY: 60 })
+        jest.advanceTimersByTime(SELECTION_HOLD_MS)
+
+        expect(logic.values.selectedReportIds).toEqual([])
+
+        act(() => {
+            jest.runOnlyPendingTimers()
+        })
+    })
+
+    it('records the entry method when a shift-click starts the selection', () => {
+        // The rendered order, which a shift-range measures itself against.
+        logic.actions.setVisibleReportIds(['r-1'])
+
+        fireEvent.click(cardLink(), { shiftKey: true })
+
+        expect(logic.values.selectedReportIds).toEqual(['r-1'])
+        expect(lastSelectionEntry()).toMatchObject({ entry_method: 'shift_click' })
+    })
+
+    it('leaves a cmd-click on the nested scout link to the browser', () => {
+        // The card rendered for every other test names no scout, so it carries no nested link.
+        cleanup()
+        render(
+            <ReportCard
+                report={{
+                    ...makeReport('r-2'),
+                    source_products: ['signals_scout'],
+                    scout_name: 'signals-scout-web-vitals',
+                }}
+                selectable
+            />
+        )
+        const scoutLink = screen.getByText('Web vitals').closest('a') as HTMLElement
+
+        // `fireEvent` returns false once anything calls `preventDefault`, which is what would
+        // cancel the browser's open-in-a-new-tab gesture.
+        expect(fireEvent.click(scoutLink, { metaKey: true })).toBe(true)
+        expect(logic.values.selectedReportIds).toEqual([])
+    })
+
+    it('does not show a checkbox on hover or when selected', () => {
+        fireEvent.mouseEnter(cardLink())
+        expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+
+        act(() => logic.actions.setSelectedReportIds(['r-1']))
+        expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+
+        expect(logic.values.selectedReportIds).toEqual(['r-1'])
+    })
+
+    it('does not offer selection for a resolved report', () => {
+        cleanup()
+        render(<ReportCard report={makeReport('r-2', { status: SignalReportStatus.RESOLVED })} selectable />)
+
+        fireEvent.click(screen.getByText('Report r-2').closest('a') as HTMLElement, { metaKey: true })
+
+        expect(logic.values.selectedReportIds).toEqual([])
+    })
+
+    it('locks the selection while a bulk action is running', () => {
+        const setState = jest.spyOn(api.signalReports, 'setState').mockReturnValue(new Promise<never>(() => {}))
+        act(() => {
+            logic.actions.setSelectedReportIds(['r-1'])
+            logic.actions.bulkDismiss({ reason: 'other', note: '', correctedRepository: null })
+        })
+
+        expect(fireEvent.click(cardLink(), { metaKey: true })).toBe(true)
+        expect(fireEvent.click(cardLink(), { ctrlKey: true })).toBe(true)
+        expect(fireEvent.click(cardLink())).toBe(false)
+        expect(logic.values.selectedReportIds).toEqual(['r-1'])
+        setState.mockRestore()
     })
 
     it('shows the affected-user snapshot in a redesigned row and prefers it over the primary metric', async () => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
         enableRedesign()
         const user = userEvent.setup()
-        const report = makeReport({
+        const report = makeReport('r-2', {
             metrics: [
                 makeMetric({
                     metric_id: 'conversion',
@@ -153,8 +284,10 @@ describe('ReportCard', () => {
         ],
     ]
     it.each(rowPartCases)('prints %s as a figure above its unit word', (_label, metric, figure, unitWord) => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
         enableRedesign()
-        const { container } = render(<ReportCard report={makeReport({ metrics: [metric] })} />)
+        const { container } = render(<ReportCard report={makeReport('r-2', { metrics: [metric] })} />)
 
         const block = container.querySelector('[data-attr="report-card-impact-metric"]')
         expect(block).not.toBeNull()
@@ -163,10 +296,12 @@ describe('ReportCard', () => {
     })
 
     it('draws a rate strip as a line instead of bars', () => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
         enableRedesign()
         const { container } = render(
             <ReportCard
-                report={makeReport({
+                report={makeReport('r-2', {
                     metrics: [
                         makeMetric({
                             kind: 'error_rate',
@@ -186,24 +321,30 @@ describe('ReportCard', () => {
     })
 
     it('draws no strip for a single-bucket series but keeps the figure', () => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
         enableRedesign()
-        const { container } = render(<ReportCard report={makeReport({ metrics: [makeMetric({ series: [9] })] })} />)
+        const { container } = render(<ReportCard report={makeReport('r-2', { metrics: [makeMetric({ series: [9] })] })} />)
 
         expect(container.querySelector('[data-attr="report-card-impact-sparkline"]')).toBeNull()
         expect(screen.getByText('42')).toBeInTheDocument()
     })
 
     it('keeps the timestamp on a redesigned row that has no figure', () => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
         enableRedesign()
-        const { container } = render(<ReportCard report={makeReport({ metrics: [] })} />)
+        const { container } = render(<ReportCard report={makeReport('r-2', { metrics: [] })} />)
 
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
         expect(screen.getByText('2026-06-11T10:00:00Z')).toBeInTheDocument()
     })
 
     it('uses the primary snapshot when there is no affected-user snapshot', () => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
         enableRedesign()
-        const report = makeReport({
+        const report = makeReport('r-2', {
             metrics: [
                 makeMetric({
                     metric_id: 'conversion',
@@ -225,8 +366,10 @@ describe('ReportCard', () => {
     })
 
     it('does not show a list metric without a stored snapshot, under the legacy design, or with the metrics flag off', () => {
-        const report = makeReport({ metrics: [makeMetric({ value: null, value_at: null })] })
+        const report = makeReport('r-2', { metrics: [makeMetric({ value: null, value_at: null })] })
 
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
         enableRedesign()
         const { container, rerender } = render(<ReportCard report={report} />)
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
@@ -234,7 +377,7 @@ describe('ReportCard', () => {
         enableRedesign(false)
         rerender(
             <ReportCard
-                report={makeReport({
+                report={makeReport('r-2', {
                     metrics: [{ ...report.metrics![0], value: 42 }],
                 })}
             />
@@ -247,7 +390,7 @@ describe('ReportCard', () => {
         })
         rerender(
             <ReportCard
-                report={makeReport({
+                report={makeReport('r-2', {
                     metrics: [{ ...report.metrics![0], value: 42 }],
                 })}
             />

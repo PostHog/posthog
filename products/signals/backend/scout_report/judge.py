@@ -238,6 +238,7 @@ async def judge_edited_report_content(
     note: str | None = None,
     signals: Sequence[ScoutReportSignal] = (),
     charts: Sequence[ReportChart] = (),
+    metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
     reviewer_reasons: Sequence[str] = (),
 ) -> SafetyJudgment:
@@ -263,6 +264,9 @@ async def judge_edited_report_content(
     chart_signal = _chart_signal(charts)
     if chart_signal is not None:
         safety_input.append(chart_signal)
+    metric_signal = _metric_signal(metrics)
+    if metric_signal is not None:
+        safety_input.append(metric_signal)
     prompts_signal = _suggested_prompts_signal(suggested_prompts)
     if prompts_signal is not None:
         safety_input.append(prompts_signal)
