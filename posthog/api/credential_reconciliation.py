@@ -13,12 +13,14 @@ def reconcile_email_claim_credentials(
     trusted_password: bool = False,
     trusted_passkey_id: str | None = None,
     trusted_social_auth_id: int | None = None,
+    preserve_credentials_reviewed: bool = False,
+    preserve_second_factors: bool = False,
 ) -> User:
     """Reconcile credentials when an email address is claimed."""
     user = User.objects.select_for_update().get(pk=user.pk)
     update_fields: list[str] = []
 
-    if user.credentials_reviewed_at is not None:
+    if user.credentials_reviewed_at is not None and not preserve_credentials_reviewed:
         user.credentials_reviewed_at = None
         update_fields.append("credentials_reviewed_at")
 
@@ -42,8 +44,9 @@ def reconcile_email_claim_credentials(
     if trusted_social_auth_id is not None:
         social_auth = social_auth.exclude(id=trusted_social_auth_id)
     social_auth.delete()
-    TOTPDevice.objects.filter(user=user).delete()
-    StaticDevice.objects.filter(user=user).delete()
+    if not preserve_second_factors:
+        TOTPDevice.objects.filter(user=user).delete()
+        StaticDevice.objects.filter(user=user).delete()
 
     if update_fields:
         user.save(update_fields=update_fields)

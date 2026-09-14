@@ -220,7 +220,7 @@ class EmailVerificationPending(APIException):
         super().__init__(detail=user_uuid, code=self.default_code)
 
 
-def is_email_verified_for_login(user: User) -> bool:
+def is_email_verified_for_login(user: User, request: Request | None = None) -> bool:
     """
     Send a verification code when the login policy requires it.
 
@@ -236,6 +236,9 @@ def is_email_verified_for_login(user: User) -> bool:
     if is_email_verification_disabled(user):
         return True
 
+    if user.is_email_verified is False and request is not None:
+        # Validate CSRF before sending the verification email or recording the credential proof.
+        SessionAuthentication().enforce_csrf(request)
     email_verification_code_verifier.send_code(user)
     if user.is_email_verified is False:
         return False
@@ -348,7 +351,7 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
-        if not is_email_verified_for_login(user):
+        if not is_email_verified_for_login(user, request=request):
             # The proof this session stores decides which credential survives the email claim.
             # Cross-site form posts cannot read the CSRF cookie, so requiring it here stops an
             # unauthenticated page from planting the proof in the victim's browser.
@@ -1223,7 +1226,11 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
             # The reset token proves address ownership. Treat the new password as the
             # trusted credential when clearing credentials from an unverified account.
             if was_unverified:
-                user = reconcile_email_claim_credentials(user, trusted_password=True)
+                user = reconcile_email_claim_credentials(
+                    user,
+                    trusted_password=True,
+                    preserve_second_factors=True,
+                )
             else:
                 user = User.objects.select_for_update().get(pk=user.pk)
             # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validated above)

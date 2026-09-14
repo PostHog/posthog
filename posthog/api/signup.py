@@ -69,10 +69,20 @@ def _save_session_with_recovery(session: SessionBase) -> None:
 def _signup_requires_email_verification(user: User) -> bool:
     # Kept in this module so tests patching posthog.api.signup.is_email_available /
     # is_email_verification_disabled keep applying.
-    return is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user)
+    return (
+        is_email_available()
+        and not user.is_email_verified
+        and not is_email_verification_disabled(user)
+        and not settings.DEMO
+    )
 
 
-def verify_email_or_login(request: Request, user: User, passkey_credential_id: str | None = None) -> None:
+def verify_email_or_login(
+    request: Request,
+    user: User,
+    passkey_credential_id: str | None = None,
+    preserve_credentials_reviewed: bool = False,
+) -> None:
     if _signup_requires_email_verification(user):
         # The proof this session stores decides which credential survives the email claim.
         # Cross-site form posts cannot read the CSRF cookie, so requiring it here stops an
@@ -82,6 +92,7 @@ def verify_email_or_login(request: Request, user: User, passkey_credential_id: s
             "user_uuid": str(user.uuid),
             "credential_type": "passkey" if passkey_credential_id else "password",
             "credential_id": passkey_credential_id,
+            "preserve_credentials_reviewed": preserve_credentials_reviewed,
         }
         email_verification_code_verifier.send_code(user)
     else:
@@ -355,7 +366,12 @@ class SignupSerializer(serializers.Serializer):
             ip_address=get_trusted_client_ip(request),
         )
 
-        verify_email_or_login(request, user, signup_passkey_credential_id)
+        verify_email_or_login(
+            request,
+            user,
+            signup_passkey_credential_id,
+            preserve_credentials_reviewed=bool(signup_passkey_credential_id),
+        )
 
         return user
 
@@ -691,7 +707,12 @@ class InviteSignupSerializer(serializers.Serializer):
                 user.save(update_fields=["credentials_reviewed_at"])
 
         if is_new_user:
-            verify_email_or_login(self.context["request"], user, signup_passkey_credential_id)
+            verify_email_or_login(
+                self.context["request"],
+                user,
+                signup_passkey_credential_id,
+                preserve_credentials_reviewed=bool(signup_passkey_credential_id),
+            )
 
             report_user_signed_up(
                 user,

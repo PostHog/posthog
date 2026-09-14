@@ -252,6 +252,18 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_project")
 
+    @patch("posthog.api.cli_auth.cache.set", side_effect=RuntimeError("cache unavailable"))
+    def test_authorization_uses_durable_record_when_cache_write_fails(self, _mock_cache_set):
+        response = self.client.post(
+            "/api/cli-auth/authorize/",
+            {"user_code": self.user_code, "project_id": self.team.id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.post("/api/cli-auth/poll/", {"device_code": self.device_code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["personal_api_key"].startswith("phx_"))
+
     def test_authorization_updates_cache_with_api_key(self):
         """Test that authorization updates the cache with the API key"""
         submitted_scopes = ["error_tracking:write"]

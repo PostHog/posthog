@@ -1218,11 +1218,15 @@ class UserViewSet(
                 and isinstance(proof_passkey_id, str)
                 else None
             )
+            preserve_credentials_reviewed = bool(
+                trusted_passkey_id and signup_proof.get("preserve_credentials_reviewed") is True
+            )
             with transaction.atomic():
                 user = reconcile_email_claim_credentials(
                     user,
                     trusted_password=trusted_password,
                     trusted_passkey_id=trusted_passkey_id,
+                    preserve_credentials_reviewed=preserve_credentials_reviewed,
                 )
                 user.is_email_verified = True
                 user.save(update_fields=["is_email_verified"])

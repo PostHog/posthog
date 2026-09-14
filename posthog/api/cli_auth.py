@@ -13,11 +13,13 @@ Flow:
 
 import string
 import secrets
+from datetime import timedelta
 
 from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -27,6 +29,7 @@ from rest_framework.response import Response
 from posthog.api.personal_api_key import validate_personal_api_key_scopes
 from posthog.auth import SessionAuthentication
 from posthog.models import PersonalAPIKey, Team, User
+from posthog.models.cli_device_authorization import CLIDeviceAuthorization
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.scopes import UNPRIVILEGED_SCOPES
 from posthog.session.activity import request_session_is_live
@@ -43,6 +46,8 @@ CLI_SCOPES = [
     "property_definition:read",
     "error_tracking:write",
 ]
+
+logger = structlog.get_logger(__name__)
 
 
 def generate_user_code() -> str:
@@ -72,6 +77,13 @@ def get_validation_error_description(error: serializers.ValidationError) -> str:
     if isinstance(detail, list) and detail:
         return str(detail[0])
     return str(detail)
+
+
+def _cache_set(key: str, value: object, timeout: int) -> None:
+    try:
+        cache.set(key, value, timeout=timeout)
+    except Exception:
+        logger.warning("cli_device_authorization_cache_write_failed")
 
 
 class DeviceCodeResponseSerializer(serializers.Serializer):
@@ -155,9 +167,16 @@ class CLIAuthViewSet(viewsets.ViewSet):
         device_code = generate_device_code()
         user_code = generate_user_code()
 
-        # Store in cache with expiry
+        expires_at = timezone.now() + timedelta(seconds=DEVICE_CODE_EXPIRY_SECONDS)
+        CLIDeviceAuthorization.objects.create(
+            device_code=device_code,
+            user_code=user_code,
+            expires_at=expires_at,
+        )
+
+        # Keep the cache as a fast path. The database row remains authoritative if either write fails.
         device_cache_key = get_device_cache_key(device_code)
-        cache.set(
+        _cache_set(
             device_cache_key,
             {
                 "user_code": user_code,
@@ -167,9 +186,8 @@ class CLIAuthViewSet(viewsets.ViewSet):
             timeout=DEVICE_CODE_EXPIRY_SECONDS,
         )
 
-        # Also create reverse lookup (user_code -> device_code) for authorization
         user_code_cache_key = get_user_code_cache_key(user_code)
-        cache.set(user_code_cache_key, device_code, timeout=DEVICE_CODE_EXPIRY_SECONDS)
+        _cache_set(user_code_cache_key, device_code, timeout=DEVICE_CODE_EXPIRY_SECONDS)
 
         # Get the base URL for verification
         # In production this would be the actual domain
@@ -219,34 +237,27 @@ class CLIAuthViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Look up device code from user code
-        user_code_cache_key = get_user_code_cache_key(user_code)
-        device_code = cache.get(user_code_cache_key)
-        if not device_code:
+        try:
+            authorization = CLIDeviceAuthorization.objects.get(user_code=user_code)
+        except CLIDeviceAuthorization.DoesNotExist:
             return Response(
                 {"error": "invalid_code", "error_description": "User code not found or expired"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Get device code data
-        device_cache_key = get_device_cache_key(device_code)
-        device_data = cache.get(device_cache_key)
-        if not device_data:
+        if authorization.expires_at <= timezone.now():
             return Response(
-                {"error": "expired", "error_description": "Device code expired"}, status=status.HTTP_400_BAD_REQUEST
+                {"error": "invalid_code", "error_description": "User code not found or expired"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-
-        # Prevent duplicate authorization (race condition)
-        if device_data.get("status") == "authorized":
+        if authorization.status != CLIDeviceAuthorization.Status.PENDING:
             return Response(
                 {"error": "already_authorized", "error_description": "This code has already been authorized"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Verify user has access to the project
         try:
             team = Team.objects.get(id=project_id)
-            # Check if user has access to this team's organization
             if not user.organization_memberships.filter(organization=team.organization).exists():
                 return Response(
                     {"error": "access_denied", "error_description": "You do not have access to this project"},
@@ -258,28 +269,33 @@ class CLIAuthViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Create Personal API Key for the CLI
-        api_key_value = generate_random_token_personal()
-        mask_value = mask_key_value(api_key_value)
-        secure_value = hash_key_value(api_key_value)
-
-        # Label max length is 40 chars, so truncate if needed
-        timestamp = timezone.now().strftime("%Y-%m-%d %H:%M")
-        max_team_name_len = 40 - len("CLI - ") - len(f" - {timestamp}")
-        team_name_truncated = team.name[:max_team_name_len] if len(team.name) > max_team_name_len else team.name
-        label = f"CLI - {team_name_truncated} - {timestamp}"
-
-        # Same protocol as PersonalAPIKeySerializer.create: serialize with email-claim
-        # reconciliation and refuse when the claim revoked this request's session mid-flight, so
-        # a stale session cannot mint a key or stamp credentials_reviewed_at from its stale
-        # in-memory user.
         with transaction.atomic():
+            authorization = CLIDeviceAuthorization.objects.select_for_update().get(pk=authorization.pk)
+            if authorization.expires_at <= timezone.now():
+                return Response(
+                    {"error": "invalid_code", "error_description": "User code not found or expired"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if authorization.status != CLIDeviceAuthorization.Status.PENDING:
+                return Response(
+                    {"error": "already_authorized", "error_description": "This code has already been authorized"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             user = User.objects.select_for_update().get(pk=user.pk)
             if not request_session_is_live(request, user):
                 return Response(
                     {"error": "session_revoked", "error_description": "Your session ended. Start the CLI login again."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
+
+            api_key_value = generate_random_token_personal()
+            mask_value = mask_key_value(api_key_value)
+            secure_value = hash_key_value(api_key_value)
+            timestamp = timezone.now().strftime("%Y-%m-%d %H:%M")
+            max_team_name_len = 40 - len("CLI - ") - len(f" - {timestamp}")
+            team_name_truncated = team.name[:max_team_name_len] if len(team.name) > max_team_name_len else team.name
+            label = f"CLI - {team_name_truncated} - {timestamp}"
             had_prior_pat = PersonalAPIKey.objects.filter(user=user).exists()
 
             PersonalAPIKey.objects.create(
@@ -292,27 +308,43 @@ class CLIAuthViewSet(viewsets.ViewSet):
                 scoped_organizations=[],
             )
 
-            # User explicitly authorized this CLI via SessionAuthentication (see
-            # CLIAuthViewSet.get_authenticators - authorize is session-only). If they
-            # had no prior PATs, treat the CLI key as already-acknowledged so the
-            # review interstitial doesn't fire for the key they just minted. Skip
-            # when prior PATs exist - those may be partner-issued and still warrant
-            # the review.
+            # A user-authorized CLI key does not need a review prompt when it is the user's first key.
+            # Existing keys may come from a partner and still need review.
             if not had_prior_pat and user.credentials_reviewed_at is None:
                 user.credentials_reviewed_at = timezone.now()
                 user.save(update_fields=["credentials_reviewed_at"])
 
-            # Mark device as authorized and store the API key
-            device_data["status"] = "authorized"
-            device_data["personal_api_key"] = api_key_value
-            device_data["label"] = label
-            device_data["project_id"] = str(project_id)
-            device_data["scopes"] = scopes
-            device_data["authorized_at"] = timezone.now().isoformat()
-            device_data["user_id"] = user.id
+            authorization.status = CLIDeviceAuthorization.Status.AUTHORIZED
+            authorization.user_id = user.id
+            authorization.team_id = team.id
+            authorization.scopes = scopes
+            authorization.label = label
+            authorization.personal_api_key_value = api_key_value
+            authorization.authorized_at = timezone.now()
+            authorization.save(
+                update_fields=[
+                    "status",
+                    "user_id",
+                    "team_id",
+                    "scopes",
+                    "label",
+                    "personal_api_key_value",
+                    "authorized_at",
+                ]
+            )
 
-        # Update cache with longer TTL to ensure CLI can poll
-        cache.set(device_cache_key, device_data, timeout=60)  # 1 minute to retrieve
+            device_data = {
+                "user_code": user_code,
+                "status": "authorized",
+                "personal_api_key": api_key_value,
+                "label": label,
+                "project_id": str(team.id),
+                "scopes": scopes,
+                "authorized_at": authorization.authorized_at.isoformat(),
+                "user_id": user.id,
+            }
+
+        _cache_set(get_device_cache_key(authorization.device_code), device_data, timeout=60)
 
         return Response(
             {
@@ -339,42 +371,58 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         device_code = serializer.validated_data["device_code"]
 
-        # Look up device code
-        device_cache_key = get_device_cache_key(device_code)
-        device_data = cache.get(device_cache_key)
-
-        if not device_data:
+        try:
+            authorization = CLIDeviceAuthorization.objects.get(device_code=device_code)
+        except CLIDeviceAuthorization.DoesNotExist:
             return Response(
                 {"status": "expired", "error": "expired_token", "error_description": "Device code expired"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if device_data["status"] == "pending":
-            # Still waiting for authorization
+        if authorization.expires_at <= timezone.now():
             return Response(
-                {"status": "pending"},
-                status=status.HTTP_202_ACCEPTED,  # Indicates to keep polling
+                {"status": "expired", "error": "expired_token", "error_description": "Device code expired"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if device_data["status"] == "authorized":
-            # Success! Return the API key
+        if authorization.status == CLIDeviceAuthorization.Status.PENDING:
+            return Response({"status": "pending"}, status=status.HTTP_202_ACCEPTED)
+
+        if authorization.status == CLIDeviceAuthorization.Status.AUTHORIZED:
+            with transaction.atomic():
+                authorization = CLIDeviceAuthorization.objects.select_for_update().get(pk=authorization.pk)
+                if authorization.status != CLIDeviceAuthorization.Status.AUTHORIZED:
+                    return Response(
+                        {"status": "expired", "error": "expired_token", "error_description": "Device code expired"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                api_key_value = authorization.personal_api_key_value
+                if not api_key_value:
+                    return Response(
+                        {"status": "expired", "error": "expired_token", "error_description": "Device code expired"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                authorization.status = CLIDeviceAuthorization.Status.CONSUMED
+                authorization.save(update_fields=["status"])
+
             response_data = {
                 "status": "authorized",
-                "personal_api_key": device_data["personal_api_key"],
-                "label": device_data["label"],
-                "project_id": device_data["project_id"],
-                "scopes": device_data.get("scopes", []),
+                "personal_api_key": api_key_value,
+                "label": authorization.label,
+                "project_id": str(authorization.team_id),
+                "scopes": authorization.scopes,
             }
-
-            # Clean up - key has been retrieved
-            cache.delete(device_cache_key)
-            user_code_cache_key = get_user_code_cache_key(device_data["user_code"])
-            cache.delete(user_code_cache_key)
-
+            cache.delete(get_device_cache_key(device_code))
+            cache.delete(get_user_code_cache_key(authorization.user_code))
             response_serializer = DevicePollResponseSerializer(response_data)
             return Response(response_serializer.data, status=status.HTTP_200_OK)
 
-        # Unknown status
+        if authorization.status == CLIDeviceAuthorization.Status.CONSUMED:
+            return Response(
+                {"status": "expired", "error": "expired_token", "error_description": "Device code expired"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         return Response(
             {"error": "invalid_request", "error_description": "Invalid device code status"},
             status=status.HTTP_400_BAD_REQUEST,

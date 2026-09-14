@@ -2078,6 +2078,7 @@ class TestPasskeySignupAPI(APIBaseTest):
         self.assertFalse(StaticDevice.objects.filter(id=static_device.id).exists())
         user.refresh_from_db()
         self.assertTrue(user.is_email_verified)
+        self.assertIsNotNone(user.credentials_reviewed_at)
 
     @override_instance_config("EMAIL_HOST", "localhost")
     @pytest.mark.skip_on_multitenancy

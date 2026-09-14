@@ -632,6 +632,7 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertNotEqual(response.json().get("code"), "verify_email_pending")
         self.assertNotIn(SIGNUP_EMAIL_PROOF_SESSION_KEY, client.session)
+        mock_send_code.assert_not_called()
 
     @patch("posthog.ph_client.posthoganalytics.get_feature_flag", side_effect=RuntimeError("flags down"))
     @patch("posthog.ph_client.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags down"))
@@ -2109,8 +2110,8 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertFalse(WebauthnCredential.objects.filter(user=self.user).exists())
         self.assertFalse(UserSocialAuth.objects.filter(id=social_auth.id).exists())
         self.assertFalse(self.user.passkeys_enabled_for_2fa)
-        self.assertFalse(TOTPDevice.objects.filter(id=totp_device.id).exists())
-        self.assertFalse(StaticDevice.objects.filter(id=static_device.id).exists())
+        self.assertTrue(TOTPDevice.objects.filter(id=totp_device.id).exists())
+        self.assertTrue(StaticDevice.objects.filter(id=static_device.id).exists())
         self.assertTrue(PersonalAPIKey.objects.filter(id=personal_api_key.id).exists())
         self.assertIsNone(self.user.credentials_reviewed_at)
 

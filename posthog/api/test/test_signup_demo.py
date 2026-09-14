@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.contrib import auth
 from django.test import override_settings
@@ -49,6 +50,24 @@ class TestDemoSignupAPI(APIBaseTest):
         assert user.email == "charlie@tech-r-us.com"
         assert user.is_active is True
         assert user.is_staff is False
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.api.signup.email_verification_code_verifier.send_code")
+    def test_demo_signup_skips_email_verification(self, mock_send_code, _mock_email_available):
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "email": "demo-verification@tech-r-us.com",
+                "first_name": "Demo",
+                "organization_name": "Demo organization",
+                "role_at_organization": "product",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["redirect_url"], "/")
+        mock_send_code.assert_not_called()
+        self.assertIsInstance(auth.get_user(self.client), User)
 
     def test_demo_login(self, *args):
         assert not User.objects.exists()

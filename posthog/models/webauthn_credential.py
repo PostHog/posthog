@@ -65,7 +65,7 @@ class WebauthnCredential(UUIDModel):
 
     verified = models.BooleanField(
         default=False,
-        help_text="Whether the credential has been verified by the user after registration. Only verified credentials can be used for login.",
+        help_text="Whether the credential has been verified by the user after registration. Verified credentials can log in. An unverified credential can only start email verification for a pending signup.",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
