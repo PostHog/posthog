@@ -19,9 +19,7 @@ const meta: Meta<typeof CustomerTaskWorkflowReferenceInput> = {
                 },
             },
         },
-        // Both stories default to 'raw' mode, which mounts CodeEditorInline (Monaco). Monaco
-        // loads through a lazy Suspense facade, so without this the snapshot can be taken before
-        // or after it finishes mounting, producing two different layouts for the same code.
+        // Wait for Monaco to mount so raw-mode stories have a stable snapshot layout.
         testOptions: {
             waitForSelector: '.monaco-editor',
         },
