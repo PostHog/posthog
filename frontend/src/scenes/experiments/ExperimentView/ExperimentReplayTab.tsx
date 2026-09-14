@@ -15,6 +15,7 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -116,7 +117,7 @@ function metricFilterTriggerLabel(
     if (selectedUuids.length === 0) {
         // Never fall back to the neutral label for a non-default mode: the mode is on, and the
         // caption below is what explains why it isn't narrowing anything yet.
-        return mode === 'fired_all' ? 'Metric events' : mode === 'fired_any' ? 'Fired any' : 'No metric events'
+        return mode === 'fired_all' ? 'Metric events' : mode === 'fired_any' ? 'Fired any' : 'Fired none'
     }
     const metrics = pluralize(selectedUuids.length, 'metric')
     if (selectedUuids.length === 1) {
@@ -142,13 +143,23 @@ function unappliedModeReason(mode: ExperimentReplayMetricFilterMode): string {
 
 /**
  * States what the server-computed set does and doesn't cover. Every clause is load-bearing: the
- * list is capped, the scan window is clamped, and "in this session" is the honest unit — the
- * experiment analysis counts per person over the whole run window.
+ * list is capped, the scan window ends at the last exposure and reaches back only so far from
+ * there, and "in this session" is the honest unit — the experiment analysis counts per person over
+ * the whole run window.
  */
-function bucketCaption(bucket: ExperimentSessionBucket): string {
-    const { session_ids, truncated, considered_metrics, excluded_metrics, filter_test_accounts } = bucket.response
+function bucketCaption(bucket: ExperimentSessionBucket, experimentStartDate: string | null): string {
+    const { session_ids, truncated, considered_metrics, excluded_metrics, filter_test_accounts, date_from, date_to } =
+        bucket.response
+    // The backend clamps the window start to the experiment's start, so a scan that reached the
+    // whole run comes back with the two equal and leaves this null.
+    const scannedFrom =
+        date_from && experimentStartDate && dayjs(date_from).isAfter(dayjs(experimentStartDate))
+            ? dayjs(date_from).format('MMM D, YYYY')
+            : null
     if (session_ids.length === 0) {
-        return 'No recordings matched this filter.'
+        return scannedFrom
+            ? `No recordings matched this filter between ${scannedFrom} and ${dayjs(date_to).format('MMM D, YYYY')}. Earlier sessions weren't checked.`
+            : 'No recordings matched this filter.'
     }
     const sessions = truncated
         ? `Showing the ${session_ids.length} most recent recordings that`
@@ -168,7 +179,8 @@ function bucketCaption(bucket: ExperimentSessionBucket): string {
                   .join(', ')}`
             : null,
     ].filter(Boolean)
-    return `${sessions} ${what}.${caveats.length > 0 ? ` ${caveats.join('. ')}.` : ''}`
+    const scanNote = scannedFrom ? ` Sessions before ${scannedFrom} weren't checked.` : ''
+    return `${sessions} ${what}.${caveats.length > 0 ? ` ${caveats.join('. ')}.` : ''}${scanNote}`
 }
 
 /** A metric row: its name, plus the events a session actually has to have fired to match it. */
@@ -197,8 +209,7 @@ const METRIC_FILTER_MODE_OPTIONS: { value: ExperimentReplayMetricFilterMode; lab
     {
         value: 'no_metric_activity',
         label: 'Fired none',
-        tooltip:
-            'Sessions that fired no events for any of the selected metrics. Select nothing to use every metric that can be matched.',
+        tooltip: 'Sessions that fired no events for any of the selected metrics.',
     },
     {
         value: 'funnel_dropoff',
@@ -498,7 +509,9 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                 ) : sessionBucketLoading || !sessionBucket ? (
                     <span>Finding matching sessions…</span>
                 ) : (
-                    <span data-attr="experiment-recordings-bucket-caption">{bucketCaption(sessionBucket)}</span>
+                    <span data-attr="experiment-recordings-bucket-caption">
+                        {bucketCaption(sessionBucket, experiment.start_date ?? null)}
+                    </span>
                 )}
             </div>
             <ExperimentBehaviorComparison experiment={experiment} onWatchRecording={watchRecording} />

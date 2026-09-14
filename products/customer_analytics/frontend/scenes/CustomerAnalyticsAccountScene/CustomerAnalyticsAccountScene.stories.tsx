@@ -11,6 +11,7 @@ import type { CustomPropertyValueWriteApi, AccountRelationshipWriteApi } from '.
 const ACCOUNT_ID = '11111111-2222-4333-8444-555555555555'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
+const ACCOUNT_PRESENCE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/presence/'
 const ACCOUNT_ICON_ENDPOINT = 'api/projects/:team_id/accounts/icon/'
 const VALUES_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/custom_property_values/'
 const ASSIGNMENTS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/relationships/'
@@ -77,7 +78,11 @@ const meta: Meta = {
         ],
         pageUrl: urls.customerAnalyticsAccount(ACCOUNT_ID),
         testOptions: {
-            waitForSelector: ['[data-attr="customer-analytics-account-scene"]', '[data-attr="account-notes"]'],
+            waitForSelector: [
+                '[data-attr="customer-analytics-account-scene"]',
+                '[data-attr="account-notes"]',
+                '.ProfileBubbles',
+            ],
             viewport: { width: 1280, height: 900 },
         },
     },
@@ -130,6 +135,16 @@ const meta: Meta = {
             patch: {
                 [ACCOUNT_SIDEBAR_CONFIG_ENDPOINT]: async ({ request }) => [200, await request.json()],
             },
+            post: {
+                [ACCOUNT_PRESENCE_ENDPOINT]: [
+                    { user_id: 1, display_name: 'Alex Rivera' },
+                    { user_id: 2, display_name: 'Morgan Lee' },
+                    { user_id: 3, display_name: 'Sam Patel' },
+                    { user_id: 4, display_name: 'Jordan Kim' },
+                    { user_id: 5, display_name: 'Taylor Reed' },
+                    { user_id: 6, display_name: 'Casey Nguyen' },
+                ],
+            },
         }),
     ],
 }
@@ -145,7 +160,7 @@ export const Narrow: Story = {
     render: () => <App />,
     parameters: {
         testOptions: {
-            waitForSelector: '[data-attr="customer-analytics-account-scene"]',
+            waitForSelector: ['[data-attr="customer-analytics-account-scene"]', '.ProfileBubbles'],
             viewport: { width: 800, height: 900 },
         },
     },

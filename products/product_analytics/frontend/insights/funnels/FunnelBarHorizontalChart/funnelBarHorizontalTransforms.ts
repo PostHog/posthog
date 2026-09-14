@@ -1,10 +1,9 @@
 import type { Series, TooltipContext } from '@posthog/quill-charts'
 
-import { getStepBreakdownSeries, hasBreakdown } from 'scenes/funnels/funnelUtils'
-
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import { type FunnelStepWithConversionMetrics } from '~/types'
 
+import { getStepBreakdownSeries, hasBreakdown } from '../funnelUtils'
 import {
     buildFunnelBarHorizontalDropOff,
     buildFunnelBarHorizontalFiller,

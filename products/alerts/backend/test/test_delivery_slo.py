@@ -2,10 +2,10 @@ from unittest.mock import MagicMock, patch
 
 from posthog.slo.types import SloOperation, SloOutcome
 
-from products.alerts.backend.delivery_slo import alert_delivery_slo
+from products.alerts.backend.facade.delivery_slo import alert_delivery_slo
 
 
-@patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="EU")
+@patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="EU")
 @patch("posthog.slo.context.emit_slo_completed")
 @patch("posthog.slo.context.emit_slo_started")
 def test_alert_delivery_slo_emits_shared_dimensions(

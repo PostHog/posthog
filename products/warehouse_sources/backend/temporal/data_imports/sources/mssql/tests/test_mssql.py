@@ -314,6 +314,31 @@ def cursor() -> MagicMock:
     return c
 
 
+class TestBuildPipelineProjection:
+    def test_sync_all_projects_discovered_columns(self, impl, mocker):
+        mocker.patch.object(impl, "connect", return_value=MagicMock())
+        mocker.patch.object(impl, "get_primary_keys_for_table", return_value=["id"])
+        mocker.patch.object(
+            impl,
+            "get_table_metadata",
+            return_value=Table(
+                name="users",
+                parents=("dbo",),
+                columns=[
+                    MSSQLColumn(name="id", data_type="int", nullable=False),
+                    MSSQLColumn(name="email", data_type="varchar", nullable=True),
+                ],
+            ),
+        )
+        rows_to_sync = mocker.patch.object(impl, "get_rows_to_sync", return_value=0)
+        mocker.patch.object(impl, "get_chunk_size", return_value=1000)
+
+        impl.build_pipeline(_make_config(), _make_inputs(schema_name="users"))
+
+        query = rows_to_sync.call_args.args[1]
+        assert query.startswith("SELECT [id], [email] FROM")
+
+
 class TestGetPrimaryKeysForTable:
     def test_returns_none_when_no_rows(self, impl, cursor):
         cursor.fetchall.return_value = []
@@ -700,6 +725,21 @@ class TestMSSQLSourceNonRetryableErrors:
         ],
     )
     def test_invalid_column_name_is_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # SQL Server error 209 — a stale view whose body joins two tables that now share a
+            # column name. Real pymssql message shape, with the driver's trailing DB-Lib frame.
+            "(209, b\"Ambiguous column name 'modified_at'.DB-Lib error message 20018, severity 16:\\n"
+            'General SQL Server error: Check messages from the SQL Server\\n")',
+            # Different column name must still match the stable substring.
+            "Ambiguous column name 'order_id'.",
+        ],
+    )
+    def test_ambiguous_column_name_is_non_retryable(self, error_msg):
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
 

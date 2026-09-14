@@ -5,13 +5,19 @@ import {
   LOOPS_ORIGIN_PRODUCT,
 } from "@posthog/api-client/hogFlowLoops";
 import type { LoopSchemas } from "@posthog/api-client/loops";
-import { defaultLoopBehaviors, type LoopFormValues } from "./loopFormTypes";
+import {
+  defaultLoopBehaviors,
+  defaultLoopContextOutputs,
+  type LoopContextTargetDraft,
+  type LoopFormValues,
+} from "./loopFormTypes";
 import {
   hogFlowScheduleToScheduleConfig,
   scheduleConfigToHogFlowSchedule,
 } from "./loopScheduleRRule";
 
 export const CREATE_TASK_TEMPLATE_ID = "template-posthog-create-task";
+const SLACK_TEMPLATE_ID = "template-slack";
 const GITHUB_EVENT_RECEIVED_EVENT = "$github_event_received";
 
 const TRIGGER_ACTION_ID = "trigger";
@@ -66,6 +72,7 @@ const MANAGED_TASK_INPUTS: ReadonlySet<string> = new Set([
   "repository",
   "model",
   "skills",
+  "channel",
 ]);
 
 type Json = Record<string, unknown>;
@@ -159,7 +166,35 @@ function taskInputs(values: LoopFormValues): Json {
   if (values.teamSkills.length > 0) {
     inputs.skills = { value: [...values.teamSkills] };
   }
+  if (values.contextTarget) {
+    inputs.channel = { value: spaceInputValue(values.contextTarget) };
+  }
   return inputs;
+}
+
+/** The space attachment as the task step holds it: the space id, then the name
+ * after a pipe. The backend reads the id and files each run in that space's
+ * feed; the name rides along so the list and detail views can label the space
+ * without a second lookup. Same shape as the Slack step's `C123|#name`. */
+function spaceInputValue(contextTarget: LoopContextTargetDraft): string {
+  return contextTarget.name
+    ? `${contextTarget.folderId}|${contextTarget.name}`
+    : contextTarget.folderId;
+}
+
+/** The space a task step is attached to, or null when it names none. */
+function spaceFromTaskInputs(
+  inputs: Json,
+): LoopSchemas.LoopContextTarget | null {
+  const [folderId, ...rest] = readString(inputValue(inputs, "channel")).split(
+    "|",
+  );
+  if (!folderId) return null;
+  return {
+    folder_id: folderId,
+    name: rest.join("|"),
+    outputs: defaultLoopContextOutputs(),
+  };
 }
 
 /** Task inputs on an existing flow that the form does not manage, so a save
@@ -175,7 +210,7 @@ function preservedTaskInputs(existing: ParsedLoopActions | null): Json {
 
 /** One of the three steps the loop form draws, as the API holds it. */
 interface LoopAction extends Schemas.HogFlowAction {
-  type: "trigger" | "function" | "exit";
+  type: "trigger" | "function" | "function_email" | "exit";
   config: Json;
 }
 
@@ -187,6 +222,7 @@ function isLoopAction(value: unknown): value is LoopAction {
     isRecord(value.config) &&
     (value.type === "trigger" ||
       value.type === "function" ||
+      value.type === "function_email" ||
       value.type === "exit")
   );
 }
@@ -229,7 +265,13 @@ export function formValuesToHogFlowWrite(
     : null;
   const triggerAction = existing?.actions.trigger ?? DEFAULT_TRIGGER_ACTION;
   const taskAction = existing?.actions.task ?? DEFAULT_TASK_ACTION;
+  const notifyAction = existing?.actions.notify ?? null;
   const exitAction = existing?.actions.exit ?? DEFAULT_EXIT_ACTION;
+  const steps = [
+    taskAction,
+    ...(notifyAction ? [notifyAction] : []),
+    exitAction,
+  ];
   return {
     flow: {
       name: values.name.trim(),
@@ -250,11 +292,16 @@ export function formValuesToHogFlowWrite(
             },
           },
         },
+        ...(notifyAction ? [notifyAction] : []),
         exitAction,
       ],
       edges: [
         { from: triggerAction.id, to: taskAction.id, type: "continue" },
-        { from: taskAction.id, to: exitAction.id, type: "continue" },
+        ...steps.slice(1).map((step, index) => ({
+          from: steps[index].id,
+          to: step.id,
+          type: "continue" as const,
+        })),
       ],
     },
     schedule: trigger.schedule,
@@ -264,7 +311,21 @@ export function formValuesToHogFlowWrite(
 interface ParsedLoopActions {
   trigger: Json;
   taskInputs: Json;
-  actions: { trigger: LoopAction; task: LoopAction; exit: LoopAction | null };
+  actions: {
+    trigger: LoopAction;
+    task: LoopAction;
+    notify: LoopAction | null;
+    exit: LoopAction | null;
+  };
+}
+
+/** A Slack or email step after the task is the loop's notification; the form
+ * keeps it as-is on save. */
+function isNotifyAction(action: LoopAction): boolean {
+  return (
+    action.type === "function_email" ||
+    action.config.template_id === SLACK_TEMPLATE_ID
+  );
 }
 
 /** The trigger and task step of a loop-shaped graph, or null when the graph
@@ -273,17 +334,22 @@ function parseLoopActions(actions: unknown): ParsedLoopActions | null {
   if (!Array.isArray(actions)) return null;
   let trigger: LoopAction | null = null;
   let task: LoopAction | null = null;
+  let notify: LoopAction | null = null;
   let exit: LoopAction | null = null;
   for (const action of actions) {
     if (!isLoopAction(action)) return null;
     if (action.type === "trigger") {
       if (trigger) return null;
       trigger = action;
-    } else if (action.type === "function") {
-      if (task || action.config.template_id !== CREATE_TASK_TEMPLATE_ID) {
-        return null;
-      }
+    } else if (
+      action.type === "function" &&
+      action.config.template_id === CREATE_TASK_TEMPLATE_ID
+    ) {
+      if (task) return null;
       task = action;
+    } else if (action.type !== "exit") {
+      if (notify || !task || !isNotifyAction(action)) return null;
+      notify = action;
     } else {
       if (exit) return null;
       exit = action;
@@ -293,7 +359,7 @@ function parseLoopActions(actions: unknown): ParsedLoopActions | null {
   return {
     trigger: trigger.config,
     taskInputs: isRecord(task.config.inputs) ? task.config.inputs : {},
-    actions: { trigger, task, exit },
+    actions: { trigger, task, notify, exit },
   };
 }
 
@@ -306,15 +372,15 @@ function hasLoopShapedEdges(
 ): boolean {
   if (edges === undefined || edges === null) return true;
   if (!Array.isArray(edges)) return false;
-  const ids = {
-    trigger: actions.trigger.id,
-    task: actions.task.id,
-    exit: actions.exit?.id ?? null,
-  };
-  const expected = [
-    `${ids.trigger}>${ids.task}`,
-    ...(ids.exit ? [`${ids.task}>${ids.exit}`] : []),
+  const chain = [
+    actions.trigger,
+    actions.task,
+    ...(actions.notify ? [actions.notify] : []),
+    ...(actions.exit ? [actions.exit] : []),
   ];
+  const expected = chain
+    .slice(1)
+    .map((step, index) => `${chain[index].id}>${step.id}`);
   const actual = edges.map((edge) =>
     isRecord(edge) && edge.type === "continue"
       ? `${edge.from}>${edge.to}`
@@ -457,6 +523,30 @@ export function isLoopShapedHogFlow(flow: LoopHogFlowSource): boolean {
   );
 }
 
+/** The notify step as the notification summary the list and detail views read.
+ * A Slack channel is stored as its id, so the name is only known when the step
+ * carries the picker's `C123|#name` form. */
+function notificationsFromNotify(
+  notify: LoopAction | null,
+): LoopSchemas.LoopNotifications {
+  const off = (): LoopSchemas.LoopNotificationChannel => ({
+    enabled: false,
+    events: [],
+    params: {},
+  });
+  const notifications = { push: off(), email: off(), slack: off() };
+  if (!notify) return notifications;
+  if (notify.type === "function_email") {
+    notifications.email.enabled = true;
+    return notifications;
+  }
+  const inputs = isRecord(notify.config.inputs) ? notify.config.inputs : {};
+  const channelName = readString(inputValue(inputs, "channel")).split("|")[1];
+  notifications.slack.enabled = true;
+  if (channelName) notifications.slack.params = { channel_name: channelName };
+  return notifications;
+}
+
 /**
  * Projects a workflow onto the loop shape the list and detail views render. A
  * flow the form did not build still maps (name, status, dates) with no
@@ -474,7 +564,6 @@ export function hogFlowToLoop(
   const reasoningEffort = isRecord(model)
     ? readString(model.reasoning_effort)
     : "";
-  const off = { enabled: false, events: [], params: {} };
   return {
     id: flow.id,
     team_id: context.projectId,
@@ -497,8 +586,8 @@ export function hogFlowToLoop(
     overlap_policy: "skip",
     behaviors: defaultLoopBehaviors(),
     connectors: { mcp_installation_ids: [], posthog_mcp_scopes: "read_only" },
-    notifications: { push: { ...off }, email: { ...off }, slack: { ...off } },
-    context_target: null,
+    notifications: notificationsFromNotify(parsed?.actions.notify ?? null),
+    context_target: spaceFromTaskInputs(inputs),
     internal: false,
     origin_product: LOOPS_ORIGIN_PRODUCT,
     last_run_at: null,

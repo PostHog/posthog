@@ -108,7 +108,8 @@ Verdict: valid.
       <ChatMarkdown content="Review https://github.com/PostHog/posthog/pull/23985" />,
     );
 
-    expect(html).toContain("PostHog/posthog#23985");
+    expect(html).toContain(">PostHog/posthog</span>");
+    expect(html).toContain(">#23985</span>");
     expect(html).toContain('aria-label="Open"');
     expect(html).toContain(
       'data-github-ref-url="https://github.com/PostHog/posthog/pull/23985"',
@@ -120,7 +121,8 @@ Verdict: valid.
       "https://github.com/PostHog/posthog/pull/86811/changes#r3832262653";
     const html = renderStatic(<ChatMarkdown content={href} />);
 
-    expect(html).toContain("Comment on PR #86811");
+    expect(html).toContain(">Comment on PR </span>");
+    expect(html).toContain(">#86811</span>");
     expect(html).toContain(`data-github-ref-url="${href}"`);
   });
 });

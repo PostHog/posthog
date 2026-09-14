@@ -2172,9 +2172,9 @@ impl FeatureFlagMatcher {
             request_hash_key_override,
         )?;
         if hashed_identifier.is_empty() {
-            // Return a hash value that will make the flag evaluate to false; since we
-            // can't evaluate a flag without an identifier.
-            return Ok(0.0); // NB: A flag with 0.0 hash will always evaluate to false
+            // Nothing to hash. `check_rollout` compares `hash <= percentage / 100.0`, so a
+            // 0.0 hash matches every rollout threshold, including 0.
+            return Ok(0.0);
         }
 
         calculate_hash(&format!("{}.", feature_flag.key), &hashed_identifier, salt)

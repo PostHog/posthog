@@ -6,7 +6,7 @@ files are fetched and cached.
 """
 
 import random
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 from time import monotonic
@@ -18,13 +18,14 @@ import requests
 import structlog
 from posthog_owners import OwnershipSource, OwnersResolver
 from posthog_owners.matcher import normalize_path
+from posthog_owners.resolver import teams_registry
 from requests.adapters import HTTPAdapter
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import github_request
 from posthog.models.integration.github import _is_safe_github_repo_path
 
-from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
+from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
 
 logger = structlog.get_logger(__name__)
 
@@ -208,6 +209,35 @@ def resolve_test_ownership(
         # rather than attributing part of it.
         logger.exception("repo_ownership_unavailable", repository=repository)
         return RepoOwnershipResult(tests=[UNPLACED] * len(tests), resolved=False)
+
+
+def resolve_path_owners(repository: str, paths: Sequence[str], files: RepoFiles | None = None) -> PathOwnership:
+    """Name the team that owns each repository path, and hand back the repo's Slack registry.
+
+    The paths are resolved exactly as given. There is no candidate-path search: that exists because
+    a test suite reports a path relative to its own root, and a caller who already holds a
+    repo-relative path has nothing to guess at.
+    """
+    reader = files if files is not None else GitHubRepoFiles(repository)
+    try:
+        return _own_paths(repository, reader, list(dict.fromkeys(paths)))
+    except OwnershipUnavailable:
+        logger.exception("repo_path_ownership_unavailable", repository=repository)
+        return PathOwnership(team_by_path=dict.fromkeys(paths, UNOWNED_TEAM), registry={}, resolved=False)
+
+
+def _own_paths(repository: str, files: RepoFiles, paths: list[str]) -> PathOwnership:
+    root = files.read(_ROOT_OWNERS_FILE)
+    if root is None:
+        raise OwnershipUnavailable(f"{repository} has no root {_ROOT_OWNERS_FILE}")
+    resolver = OwnersResolver(source=files)
+    files.read_all(resolver.ownership_file_paths(paths))
+    owners = resolver.map(paths)
+    return PathOwnership(
+        team_by_path={path: _team(owners[path].owners) for path in paths},
+        registry=teams_registry(root),
+        resolved=True,
+    )
 
 
 def _place(repository: str, files: RepoFiles, tests: list[QuarantinedTestFile]) -> list[PlacedTest]:

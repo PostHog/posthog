@@ -90,6 +90,15 @@ export function stripScoutPrefix(skillName: string): string {
         : skillName
 }
 
+/** The prefix on a report-pipeline stage's writer identity, such as `pipeline:report-research`. A
+ * stage writes scout memory but is not a scout. */
+export const PIPELINE_WRITER_PREFIX = 'pipeline:'
+
+/** Whether a writer identity belongs to a report-pipeline stage rather than to a scout. */
+export function isPipelineWriter(skillName: string): boolean {
+    return skillName.startsWith(PIPELINE_WRITER_PREFIX)
+}
+
 /** "signals-scout-error-tracking" → "Error tracking" */
 export function prettifyScoutSkillName(skillName: string): string {
     const cleaned = stripScoutPrefix(skillName).replace(/[-_]/g, ' ').trim()
@@ -97,6 +106,10 @@ export function prettifyScoutSkillName(skillName: string): string {
         return skillName
     }
     return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
+}
+
+export function scoutDisplayName(config: Pick<SignalScoutConfig, 'skill_name' | 'display_name'>): string {
+    return config.display_name || prettifyScoutSkillName(config.skill_name)
 }
 
 // ── Run status / outcome ─────────────────────────────────────────────────────
@@ -152,6 +165,48 @@ export function formatRunDuration(seconds: number | null): string {
  */
 export function formatRunCost(costUsd: number): string {
     return humanFriendlyCurrency(costUsd, costUsd > 0 && costUsd < 0.01 ? 4 : 2)
+}
+
+/**
+ * The costs of the runs the roster holds right now. A cost batch that fails keeps the previous
+ * poll's entries, so the cost map can outlive the runs it priced. A run that has left the roster is
+ * invisible on the strip, so it must not move the cost line or count toward the minimum that turns
+ * the line on.
+ */
+export function rosterRunCosts(runs: SignalScoutRunSummary[], costs: Map<string, number>): Map<string, number> {
+    const onRoster = new Map<string, number>()
+    for (const run of runs) {
+        const cost = costs.get(run.run_id)
+        if (cost !== undefined) {
+            onRoster.set(run.run_id, cost)
+        }
+    }
+    return onRoster
+}
+
+// Below this many priced runs the top decile moves with every run that lands, so the marker would
+// point at a different box each poll and mean nothing.
+const MIN_PRICED_RUNS_FOR_COST_MARKER = 20
+
+/**
+ * What the fleet's priciest tenth of runs starts at, or null while too few runs are priced to rank
+ * them. Scout spend is heavily skewed: most runs cost about a cent, so a top-decile line is what
+ * separates a run worth opening from the cheap majority.
+ */
+export function expensiveRunCostThreshold(costs: Map<string, number>): number | null {
+    if (costs.size < MIN_PRICED_RUNS_FOR_COST_MARKER) {
+        return null
+    }
+    const sorted = [...costs.values()].sort((a, b) => a - b)
+    // The cheapest run inside the priciest tenth, so a line here marks that tenth and no more.
+    const decileStart = sorted[sorted.length - Math.ceil(sorted.length * 0.1)]
+    if (decileStart > sorted[0]) {
+        return decileStart
+    }
+    // More than nine tenths of the fleet costs the cheapest price, so a line at the decile would
+    // mark every box. Mark what costs more than that price instead, which is nothing at all when
+    // every run costs the same.
+    return sorted.find((cost) => cost > sorted[0]) ?? null
 }
 
 /**
@@ -306,6 +361,107 @@ export function scoutRunOutcomeLabel(run: SignalScoutRunSummary, now: Date): str
         case 'unknown':
             return run.status
     }
+}
+
+/**
+ * How reports were touched, in the words the page uses everywhere else: "Filed 1 report",
+ * "Filed 1 · added to 4", "Added to 2 reports". Returns null when no report was touched.
+ *
+ * A report both filed and later edited counts once, as filed. The run rows and the header health
+ * strip both come through here, so the two cannot word the same activity differently.
+ */
+export function filedOrAddedLabel(authored: Iterable<string>, edited: Iterable<string>): string | null {
+    const authoredIds = new Set(authored)
+    const addedTo = [...edited].filter((id) => !authoredIds.has(id))
+    if (authoredIds.size === 0) {
+        return addedTo.length > 0 ? `Added to ${pluralize(addedTo.length, 'report')}` : null
+    }
+    if (addedTo.length === 0) {
+        return `Filed ${pluralize(authoredIds.size, 'report')}`
+    }
+    return `Filed ${authoredIds.size} · added to ${addedTo.length}`
+}
+
+/** What one run did in the report channel. */
+export function scoutRunReportLabel(run: SignalScoutRunSummary): string | null {
+    const { authored, edited } = runReportActivity(run)
+    return filedOrAddedLabel(authored, edited)
+}
+
+/**
+ * The first sentence of a run's close-out, for a folded failure group where a full markdown preview
+ * per run would bury the group. Falls back to the recorded failure reason, then to the run's
+ * duration, when it never wrote one.
+ */
+export function scoutRunFailureLine(run: SignalScoutRunSummary, now: Date): string {
+    const summary = run.summary?.trim()
+    if (summary) {
+        // Markdown headings and list bullets read as punctuation in a one-line preview, so drop them.
+        // An ordered item's marker goes separately, because its own period ends the sentence match
+        // below and the line collapses to "1.". The trailing space is required, so a version or a
+        // decimal in ordinary prose is left alone.
+        const firstLine =
+            summary
+                .split('\n')
+                .find((line) => line.trim().length > 0)
+                ?.replace(/^[#>\-*\s]+/, '')
+                .replace(/^\d+[.)]\s+/, '') ?? ''
+        const firstSentence = firstLine.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? firstLine
+        if (firstSentence.trim()) {
+            return firstSentence.trim()
+        }
+    }
+    // `failure_reason` is the first line of the task's error message, or a placeholder the
+    // serializer derives when the task recorded none — and `error` is null in exactly that case. A
+    // run hard-killed at the deadline is the common failure here, and its elapsed time says more
+    // than "failed (no error message recorded)", so only a reason with a message behind it wins.
+    const reason = run.error ? run.failure_reason?.trim() : undefined
+    if (reason) {
+        return reason
+    }
+    const duration = formatRunDuration(runDurationSeconds(run, now))
+    return duration ? `Ended after ${duration} without a close-out.` : 'Ended without a close-out.'
+}
+
+/**
+ * A run list folded for reading: a productive or in-flight run stays its own row, while consecutive
+ * quiet runs and consecutive failures each collapse into one group. A scout's history is mostly
+ * quiet, so a flat list spends its first screen on runs that found nothing and pushes the failures
+ * — the reason anyone opens the list — out of sight.
+ *
+ * Order is preserved, so the caller decides newest-first or oldest-first.
+ */
+export type ScoutRunGroup =
+    | { kind: 'run'; run: SignalScoutRunSummary }
+    | { kind: 'quiet'; runs: SignalScoutRunSummary[] }
+    | { kind: 'failed'; runs: SignalScoutRunSummary[] }
+
+/**
+ * A group's React key. A folded group is keyed by its last run rather than its first, because the
+ * detail view passes runs newest-first: a poll that prepends a run, or an in-flight run that
+ * settles into the fold, changes the first run. That would remount the group and discard the
+ * expanded state it owns, closing it under the reader.
+ */
+export function scoutRunGroupKey(group: ScoutRunGroup): string {
+    return group.kind === 'run' ? group.run.run_id : group.runs[group.runs.length - 1].run_id
+}
+
+export function groupScoutRuns(runs: SignalScoutRunSummary[]): ScoutRunGroup[] {
+    const groups: ScoutRunGroup[] = []
+    for (const run of runs) {
+        const foldKind = runMatchesFilter(run, 'quiet') ? 'quiet' : runMatchesFilter(run, 'failed') ? 'failed' : null
+        if (!foldKind) {
+            groups.push({ kind: 'run', run })
+            continue
+        }
+        const last = groups[groups.length - 1]
+        if (last && last.kind === foldKind) {
+            last.runs.push(run)
+            continue
+        }
+        groups.push({ kind: foldKind, runs: [run] })
+    }
+    return groups
 }
 
 // ── Per-scout rollups ────────────────────────────────────────────────────────
@@ -731,7 +887,7 @@ export function sortConfigsForDisplay(configs: SignalScoutConfig[]): SignalScout
         if (a.enabled !== b.enabled) {
             return a.enabled ? -1 : 1
         }
-        return prettifyScoutSkillName(a.skill_name).localeCompare(prettifyScoutSkillName(b.skill_name))
+        return scoutDisplayName(a).localeCompare(scoutDisplayName(b))
     })
 }
 

@@ -1,3 +1,4 @@
+import { buildTaskSpaceContextProps } from "@posthog/core/canvas/canvasAnalytics";
 import { partitionLocalMcpServersForRun } from "@posthog/core/local-mcp/localMcpImport";
 import {
   getErrorTitle,
@@ -184,6 +185,12 @@ async function trackTaskCreated(
       adapter: input.adapter,
       codex_model_access: codexModelAccess,
       claude_model_access: claudeModelAccess,
+      ...buildTaskSpaceContextProps({
+        channelId: input.channelId,
+        channelContextId: input.channelContextId,
+        channelContext: input.channelContext,
+        channelContextPath: input.channelContextPath,
+      }),
     });
   } catch (error) {
     log.warn("Failed to track Task created event", { error });

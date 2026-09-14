@@ -15,11 +15,15 @@ from dateutil import parser as dateutil_parser
 from requests import Request, Response
 from requests.exceptions import HTTPError, JSONDecodeError, RequestException
 from tenacity import RetryCallState, retry, retry_if_exception_type, retry_if_result, stop_after_attempt
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
+    CLOUDFLARE_TRANSIENT_STATUSES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -54,7 +58,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.set
 _MAX_PAGES_PER_PARENT = 100
 _REQUEST_TIMEOUT = 30
 _MAX_RETRIES = 3
-_RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504)
+# Statuses tenacity retries as the single retry layer. Mirrors the adapter policy it replaces
+# (DEFAULT_RETRY) so disabling that policy on `_request_with_retry` keeps the Cloudflare 52x
+# coverage the adapter provided.
+_RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504, *CLOUDFLARE_TRANSIENT_STATUSES)
+# Upper bound on a server-provided 429 wait, so a misreported Retry-After or reset header cannot
+# park a worker. Matches the shared REST client's MAX_RETRY_AFTER_SECONDS.
+_MAX_RETRY_AFTER_SECONDS = 300.0
 # Safety bound for how many issues the issue_tag_values fan-out will skip while
 # fast-forwarding to a saved checkpoint issue. If the checkpoint issue was
 # deleted between runs, we'd otherwise skip every remaining issue and yield
@@ -270,34 +280,62 @@ class SentryPaginator(BasePaginator):
 # Low-level HTTP helpers (used only by issue_tag_values custom fan-out)
 # ---------------------------------------------------------------------------
 
+# Raised when Sentry keeps rate-limiting our requests (HTTP 429) until the request-level retry
+# budget runs out. The source classifies this as retryable (see `SentrySource.get_retryable_errors`)
+# so Temporal retries the whole activity and the next sync picks up the self-recovering limit. The
+# wording never interpolates the org, URL, or response body, so it stays safe for error tracking —
+# a raw `raise_for_status()` HTTPError would leak the org slug in its URL.
+SENTRY_RATE_LIMITED_MESSAGE = (
+    "Sentry rate-limited PostHog's API requests (HTTP 429) and the limit did not clear within the "
+    "retry window. This is temporary and the next scheduled sync retries automatically."
+)
+
+
+class SentryRateLimitedError(Exception):
+    """Sentry kept returning 429 until the request-level retry budget ran out."""
+
 
 def _is_retryable_response(response: Response) -> bool:
     return response.status_code in _RETRYABLE_STATUS_CODES
 
 
+def _rate_limit_wait_from_headers(response: Response) -> float | None:
+    """Seconds to wait before a 429 retry, read from Sentry's rate-limit headers.
+
+    `Retry-After` is the HTTP-standard delta in seconds and takes priority, so a custom-iterator
+    endpoint waits the same as every other Sentry endpoint, which syncs through the shared REST
+    client's Retry-After-first parser. `X-Sentry-Rate-Limit-Reset` is a UNIX epoch second and is
+    the fallback. The wait is capped so a misreported header cannot park a worker. None means
+    neither header gives a positive wait, so the caller uses exponential backoff.
+    """
+    retry_after = response.headers.get("Retry-After")
+    if retry_after and retry_after.strip().isdigit():
+        return min(float(retry_after.strip()), _MAX_RETRY_AFTER_SECONDS)
+
+    reset_header = response.headers.get("X-Sentry-Rate-Limit-Reset")
+    if reset_header:
+        try:
+            reset_epoch = int(reset_header)
+        except ValueError:
+            return None
+        wait_until_reset = reset_epoch - int(datetime.now(UTC).timestamp())
+        if wait_until_reset > 0:
+            return min(float(wait_until_reset), _MAX_RETRY_AFTER_SECONDS)
+
+    return None
+
+
 def _retry_wait_seconds(state: RetryCallState) -> float:
-    fallback_wait = min(2 ** (state.attempt_number - 1), 30)
+    fallback_wait = float(min(2 ** (state.attempt_number - 1), 30))
     if state.outcome is None or state.outcome.failed:
-        return float(fallback_wait)
+        return fallback_wait
 
     response = state.outcome.result()
     if response.status_code != 429:
-        return float(fallback_wait)
+        return fallback_wait
 
-    reset_header = response.headers.get("X-Sentry-Rate-Limit-Reset")
-    if not reset_header:
-        return float(fallback_wait)
-
-    try:
-        reset_epoch = int(reset_header)
-    except ValueError:
-        return float(fallback_wait)
-
-    wait_until_reset = reset_epoch - int(datetime.now(UTC).timestamp())
-    if wait_until_reset <= 0:
-        return float(fallback_wait)
-
-    return float(wait_until_reset)
+    header_wait = _rate_limit_wait_from_headers(response)
+    return header_wait if header_wait is not None else fallback_wait
 
 
 def _raise_on_failed_retry(state: RetryCallState) -> Response:
@@ -308,7 +346,17 @@ def _raise_on_failed_retry(state: RetryCallState) -> Response:
         if exc is None:
             raise RuntimeError("Unexpected request retry state")
         raise exc
-    return state.outcome.result()
+    response = state.outcome.result()
+    if response.status_code == 429:
+        # The rate limit did not clear within our retry budget. Raise a credential-safe error the
+        # source treats as retryable instead of returning the 429 to the caller, whose
+        # `raise_for_status()` would surface an HTTPError with the org slug in its URL.
+        raise SentryRateLimitedError(SENTRY_RATE_LIMITED_MESSAGE)
+    # A persistent 5xx is returned unchanged, not raised here: several callers read the status to
+    # skip a single (issue, tag) or endpoint slice and keep the sync going (see
+    # `_skip_issue_on_tags_server_error` and the issue_tag_values values loop), which needs the
+    # response in hand.
+    return response
 
 
 @retry(
@@ -323,7 +371,11 @@ def _request_with_retry(
     params: dict[str, Any] | None,
     timeout: int = _REQUEST_TIMEOUT,
 ) -> Response:
-    return make_tracked_session().get(url, headers=headers, params=params, timeout=timeout)
+    # The tenacity policy above is the single retry authority for these requests. Disable the
+    # session adapter's own retry policy (DEFAULT_RETRY) so a 429 or 5xx is not retried again
+    # beneath each tenacity attempt, which would multiply both the request count and the
+    # Retry-After sleeps against an endpoint that is already throttling us.
+    return make_tracked_session(retry=Retry(total=0)).get(url, headers=headers, params=params, timeout=timeout)
 
 
 def _iter_endpoint_rows(

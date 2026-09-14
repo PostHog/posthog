@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+import requests
 import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -284,6 +285,25 @@ class TestInstagramTransport:
             client.get(client.build_url(ACCOUNT_ID))
 
         assert len(session.requested_urls) == MAX_RETRY_ATTEMPTS
+
+    def test_a_connection_reset_mid_response_body_is_retried(self) -> None:
+        # A reset that lands while urllib3 is still reading a chunked body surfaces as
+        # ChunkedEncodingError rather than ConnectionError, but it's the same transient
+        # network blip and must be retried the same way.
+        session = FakeSession()
+        session.get = mock.Mock(  # type: ignore[method-assign]
+            side_effect=[
+                requests.exceptions.ChunkedEncodingError("Connection broken: ConnectionResetError(104, ...)"),
+                FakeResponse(200, {"id": ACCOUNT_ID}),
+            ]
+        )
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            client = InstagramClient("tok", "v23.0", LOGGER)
+
+        body = client.get(client.build_url(ACCOUNT_ID))
+
+        assert body == {"id": ACCOUNT_ID}
+        assert session.get.call_count == 2
 
     @pytest.mark.parametrize(
         "status_code,code,prefix",
@@ -834,6 +854,32 @@ class TestValidateCredentials:
 
         assert is_valid is False
         assert message is not None and expected_fragment in message
+
+    @pytest.mark.parametrize(
+        "error,expected_fragment",
+        [
+            (InstagramRetryableError("Instagram API error (retryable): status=503"), "temporarily unavailable"),
+            (
+                InstagramRequestBudgetError("Instagram API request budget of 1 requests spent"),
+                "temporarily unavailable",
+            ),
+            (InstagramBadRequestError("Instagram API error: status=400, code=100"), "professional account"),
+            (RuntimeError("boom"), "Reconnect your Instagram account"),
+        ],
+    )
+    def test_remaining_failures_get_actionable_messages(self, error: Exception, expected_fragment: str) -> None:
+        # These all used to collapse into one message that named no next step, and the unexpected
+        # case was swallowed without being recorded anywhere.
+        with (
+            mock.patch.object(InstagramClient, "get", side_effect=error),
+            mock.patch(f"{MODULE}.capture_exception") as capture,
+        ):
+            is_valid, message = validate_credentials("tok", "v23.0", LOGGER, instagram_account_id=ACCOUNT_ID)
+
+        assert is_valid is False
+        assert message is not None and expected_fragment in message
+        assert str(error) not in message
+        assert capture.called is isinstance(error, RuntimeError)
 
     def test_a_node_without_an_id_is_not_a_professional_account(self) -> None:
         session = FakeSession([(ACCOUNT_ID, FakeResponse(200, {}))])

@@ -18,6 +18,34 @@ Examples of use cases include:
 - How the properties of events vary using aggregation (sum, average, etc).
 - Users can also visualize the same data points in a variety of ways.
 
+# Input shape
+
+Send the query fields as the call arguments, at the top level. Do not wrap them in a `query`, `source`, or `events` object: this tool takes no such parameter, and a wrapped payload is rejected for a missing `series`.
+
+`series` is the only required field. Every other field is optional.
+
+## One series
+
+```json
+{
+  "series": [{ "kind": "EventsNode", "event": "$pageview" }],
+  "dateRange": { "date_from": "-7d" }
+}
+```
+
+## Two series
+
+```json
+{
+  "series": [
+    { "kind": "EventsNode", "event": "$pageview", "math": "dau" },
+    { "kind": "EventsNode", "event": "user signed up", "math": "dau" }
+  ],
+  "dateRange": { "date_from": "-30d" },
+  "interval": "day"
+}
+```
+
 CRITICAL: Be minimalist. Only include filters, breakdowns, and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.
 
 # Data narrowing
@@ -35,7 +63,7 @@ When using a property filter, you should:
 - After selecting a property, **validate that the property value accurately reflects the intended criteria**.
 - **Find the suitable operator for type** (e.g., `contains`, `is set`).
 - If the operator requires a value, use the `read-data-schema` tool to find the property values.
-- You set logical operators to combine multiple properties of a single series: AND or OR.
+- `properties` is a flat list of filters, combined with AND. There is no group object and no OR operator here.
 
 Infer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.
 
@@ -148,7 +176,6 @@ Examples of using aggregation types:
 
 ```json
 {
-  "kind": "TrendsQuery",
   "series": [
     {
       "kind": "GroupNode",
@@ -221,15 +248,17 @@ Examples of using breakdowns:
 
 # Examples
 
-## How many users signed up?
+## How many signups were there in the last 30 days?
+
+A period summary gets the `Metric` display: the headline plus how it moved against the previous period. Use a line chart instead when the question asks about change over time or a cadence.
 
 ```json
 {
-  "kind": "TrendsQuery",
   "series": [{ "kind": "EventsNode", "event": "user signed up", "math": "total" }],
   "dateRange": { "date_from": "-30d" },
-  "interval": "month",
-  "trendsFilter": { "display": "BoldNumber" }
+  "interval": "day",
+  "compareFilter": { "compare": true },
+  "trendsFilter": { "display": "Metric" }
 }
 ```
 
@@ -237,7 +266,6 @@ Examples of using breakdowns:
 
 ```json
 {
-  "kind": "TrendsQuery",
   "series": [{ "kind": "EventsNode", "event": "$pageview", "math": "total" }],
   "dateRange": { "date_from": "-30d" },
   "interval": "day",
@@ -251,24 +279,19 @@ Examples of using breakdowns:
 
 ```json
 {
-  "kind": "TrendsQuery",
   "series": [
     { "kind": "EventsNode", "event": "$pageview", "math": "dau" },
     { "kind": "EventsNode", "event": "$pageview", "math": "monthly_active" }
   ],
   "dateRange": { "date_from": "-7d" },
   "interval": "day",
-  "properties": {
-    "type": "AND",
-    "values": [
-      {
-        "type": "AND",
-        "values": [{ "key": "$geoip_country_name", "operator": "exact", "type": "event", "value": ["United States"] }]
-      }
-    ]
-  },
+  "properties": [{ "key": "$geoip_country_name", "operator": "exact", "type": "event", "value": ["United States"] }],
   "compareFilter": { "compare": true },
-  "trendsFilter": { "display": "ActionsLineGraph", "formula": "A/B", "aggregationAxisFormat": "percentage_scaled" }
+  "trendsFilter": {
+    "display": "ActionsLineGraph",
+    "formulaNodes": [{ "formula": "A/B" }],
+    "aggregationAxisFormat": "percentage_scaled"
+  }
 }
 ```
 
@@ -276,7 +299,6 @@ Examples of using breakdowns:
 
 ```json
 {
-  "kind": "TrendsQuery",
   "series": [
     { "kind": "EventsNode", "event": "insight created", "math": "dau" },
     { "kind": "EventsNode", "event": "insight created", "math": "first_time_for_user" }
@@ -292,7 +314,6 @@ Examples of using breakdowns:
 
 ```json
 {
-  "kind": "TrendsQuery",
   "series": [
     { "kind": "EventsNode", "event": "viewed dashboard", "math": "p99", "math_property": "refreshAge" },
     { "kind": "EventsNode", "event": "viewed dashboard", "math": "p95", "math_property": "refreshAge" },
@@ -309,7 +330,6 @@ Examples of using breakdowns:
 
 ```json
 {
-  "kind": "TrendsQuery",
   "series": [
     {
       "kind": "EventsNode",
@@ -321,15 +341,7 @@ Examples of using breakdowns:
   ],
   "dateRange": { "date_from": "-30d" },
   "interval": "day",
-  "properties": {
-    "type": "AND",
-    "values": [
-      {
-        "type": "OR",
-        "values": [{ "key": "$initial_utm_source", "operator": "exact", "type": "person", "value": ["google"] }]
-      }
-    ]
-  },
+  "properties": [{ "key": "$initial_utm_source", "operator": "exact", "type": "person", "value": ["google"] }],
   "trendsFilter": { "display": "ActionsLineGraph" }
 }
 ```
@@ -339,4 +351,4 @@ Examples of using breakdowns:
 - Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.
 - Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.
 - When using group aggregations (unique groups), always set `math_group_type_index` to the appropriate group type index from the group mapping.
-- Visualization settings (display type, axis format, etc.) should only be specified when explicitly requested or when they significantly improve the answer.
+- Visualization settings (display type, axis format, etc.) should only be specified when explicitly requested or when they significantly improve the answer. For a period summary or an explicit current-versus-previous-period comparison, set `trendsFilter.display` to `Metric` and `compareFilter.compare` to `true`. Keep `ActionsLineGraph` for change over time, a cadence, or a pattern. Use `BoldNumber` only when a trend is meaningless.
