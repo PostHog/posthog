@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 import datetime as dt
 from pathlib import Path
 
@@ -226,7 +227,9 @@ async def test_recheck_skips_deleted_organization():
 
 
 async def test_history_recorded_before_the_recheck_child_still_replays():
-    history = WorkflowHistory.from_json("signup-enrichment-org-1", _PRE_CHILD_HISTORY.read_text())
+    history = WorkflowHistory.from_json(
+        "signup-enrichment-org-1", await asyncio.to_thread(_PRE_CHILD_HISTORY.read_text)
+    )
 
     await Replayer(
         workflows=[SignupEnrichmentWorkflow, SignupEnrichmentRecheckWorkflow],
