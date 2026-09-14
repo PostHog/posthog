@@ -27,7 +27,6 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     _background_heartbeat,
     _flush_pending_text,
     _is_active_agent_update,
-    _is_end_of_turn,
     _is_keepalive_event,
     _is_session_update,
     _mark_error_unless_run_is_terminal,
@@ -44,14 +43,14 @@ from products.tasks.backend.temporal.process_task.workflow import (
     ProcessTaskWorkflow,
 )
 
-from ee.hogai.sandbox import TURN_COMPLETE_METHOD
+from ee.hogai.sandbox import TURN_COMPLETE_METHOD, is_turn_complete
 
 relay_sandbox_events_module = importlib.import_module(
     "products.tasks.backend.temporal.process_task.activities.relay_sandbox_events"
 )
 
 
-class TestIsEndOfTurn:
+class TestIsTurnComplete:
     @parameterized.expand(
         [
             (
@@ -81,8 +80,8 @@ class TestIsEndOfTurn:
             ),
         ]
     )
-    def test_is_end_of_turn(self, _name: str, event_data: dict, expected: bool):
-        assert _is_end_of_turn(event_data) == expected
+    def test_is_turn_complete(self, _name: str, event_data: dict, expected: bool):
+        assert is_turn_complete(event_data) == expected
 
 
 class TestIsSessionUpdate:
@@ -329,7 +328,7 @@ class TestAgentActiveReactivation:
     def _simulate_reactivation(event_data: dict, agent_active: bool) -> bool:
         """Replicate the inline re-activation logic from _relay_loop."""
         active = [agent_active]
-        if _is_end_of_turn(event_data):
+        if is_turn_complete(event_data):
             active[0] = False
         elif not active[0] and _is_session_update(event_data):
             active[0] = True
@@ -360,7 +359,7 @@ class TestAgentActiveReactivation:
 
         # Agent finishes turn
         end_turn = {"type": "notification", "notification": {"result": {"stopReason": "end_turn"}}}
-        if _is_end_of_turn(end_turn):
+        if is_turn_complete(end_turn):
             active[0] = False
         assert active[0] is False
 

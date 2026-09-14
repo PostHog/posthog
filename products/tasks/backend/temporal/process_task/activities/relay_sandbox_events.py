@@ -524,7 +524,7 @@ async def _relay_loop(
                             final_message_tracker.collect(event_data)
                             _track_tool_call(event_data, open_tool_calls)
 
-                            if _is_end_of_turn(event_data):
+                            if is_turn_complete(event_data):
                                 agent_active[0] = False
                                 open_tool_calls.clear()
                                 if workflow_handle is not None:
@@ -919,13 +919,6 @@ async def _signal_safely(
 
 def _is_keepalive_event(event_data: dict) -> bool:
     return event_data.get("type") == "keepalive"
-
-
-def _is_end_of_turn(event_data: dict) -> bool:
-    pi_event = _pi_conversation_event(event_data)
-    if pi_event is not None:
-        return pi_event.get("type") == "turn_completed"
-    return is_turn_complete(event_data)
 
 
 async def _emit_agentsh_events(sandbox_id: str, run_id: str, last_ts_ns: list[int]) -> None:

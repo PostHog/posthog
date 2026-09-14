@@ -420,14 +420,18 @@ class TestTaskRunEventIngest(TestCase):
         notify_turn_completed.assert_called_once()
         self.assertEqual(notify_turn_completed.call_args.args[0].id, self.task_run.id)
 
-    def test_turn_complete_ingest_signals_the_workflow_for_a_background_run(self) -> None:
+    @parameterized.expand(
+        [
+            ("acp", {"type": "notification", "notification": {"method": "_posthog/turn_complete"}}),
+            ("pi", {"type": "pi_event", "event": {"type": "turn_completed"}}),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_turn_complete_ingest_signals_the_workflow_for_a_background_run(self, _name: str, event: dict) -> None:
         token = self._create_token()
 
         with patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed:
-            status, _ = self._call_ingest(
-                token,
-                [{"seq": 1, "event": {"type": "notification", "notification": {"method": "_posthog/turn_complete"}}}],
-            )
+            status, _ = self._call_ingest(token, [{"seq": 1, "event": event}])
 
         self.assertEqual(status, 200)
         signal_turn_completed.assert_called_once()

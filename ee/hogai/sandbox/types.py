@@ -14,13 +14,21 @@ TURN_COMPLETE_METHOD = "_posthog/turn_complete"
 # Stop reasons
 STOP_REASON_END_TURN = "end_turn"
 
+# pi agent event shapes
+PI_EVENT_TYPE = "pi_event"
+PI_TURN_COMPLETED_TYPE = "turn_completed"
+
 
 def is_turn_complete(event: dict) -> bool:
-    """Check if an ACP event signals the agent finished a turn.
+    """Check if a sandbox event signals the agent finished a turn.
 
-    Matches both the raw ACP prompt response (``result.stopReason == "end_turn"``)
-    and the synthetic ``_posthog/turn_complete`` notification.
+    Matches the raw ACP prompt response (``result.stopReason == "end_turn"``), the synthetic
+    ``_posthog/turn_complete`` notification, and the pi-shaped ``turn_completed`` event. Every
+    plane that closes a turn shares this predicate, so a run ends on the same event everywhere.
     """
+    if event.get("type") == PI_EVENT_TYPE:
+        pi_event = event.get("event")
+        return isinstance(pi_event, dict) and pi_event.get("type") == PI_TURN_COMPLETED_TYPE
     if event.get("type") != ACP_NOTIFICATION_TYPE:
         return False
     notification = event.get("notification", {})
