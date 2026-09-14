@@ -76,10 +76,31 @@ export class ElectronSettingsBackupFiles implements ISettingsBackupFiles {
         mode: 0o600,
         flag: "wx",
       });
-      await rename(temporary, result.filePath);
+      await this.replace(temporary, result.filePath);
     } finally {
       await unlink(temporary).catch(() => {});
     }
     return true;
+  }
+
+  /**
+   * Windows can refuse to rename onto an existing file (EPERM/EEXIST) even
+   * though the save dialog already confirmed the overwrite; POSIX rename
+   * replaces the destination outright. Remove the destination first and
+   * retry so a re-export over an existing backup does not fail.
+   */
+  private async replace(temporary: string, destination: string): Promise<void> {
+    try {
+      await rename(temporary, destination);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (
+        process.platform !== "win32" ||
+        (code !== "EPERM" && code !== "EEXIST")
+      )
+        throw error;
+      await unlink(destination).catch(() => {});
+      await rename(temporary, destination);
+    }
   }
 }

@@ -1,5 +1,6 @@
 // @vitest-environment node
 import "reflect-metadata";
+import * as fsPromises from "node:fs/promises";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +15,10 @@ vi.mock("electron", () => ({
   dialog: dialogs,
   BrowserWindow: { getFocusedWindow: () => null, getAllWindows: () => [] },
 }));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, rename: vi.fn(actual.rename) };
+});
 
 import { ElectronSettingsBackupFiles } from "./electron-settings-backup-files";
 
@@ -52,6 +57,32 @@ describe("ElectronSettingsBackupFiles", () => {
     ).toBe(true);
     expect(await readFile(filePath, "utf8")).toBe(contents);
     expect(await files.open()).toBe(contents);
+  });
+
+  it("replaces an existing backup on Windows even when rename first refuses to overwrite it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "posthog-backup-test-"));
+    directories.push(directory);
+    const filePath = join(directory, "settings.json");
+    await writeFile(filePath, "old backup");
+    dialogs.showSaveDialog.mockResolvedValue({ canceled: false, filePath });
+    const rename = vi.mocked(fsPromises.rename);
+    rename.mockImplementationOnce(async () => {
+      throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+    });
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      const files = new ElectronSettingsBackupFiles();
+      expect(
+        await files.save({
+          contents: "new backup",
+          defaultName: "backup.json",
+        }),
+      ).toBe(true);
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform });
+    }
+    expect(await readFile(filePath, "utf8")).toBe("new backup");
   });
 
   it("leaves an existing backup untouched when the save dialog is canceled", async () => {
