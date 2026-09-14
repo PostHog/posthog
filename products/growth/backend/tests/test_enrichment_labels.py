@@ -477,12 +477,18 @@ class TestClassifyPayloadFetchUrlAllowlist(SimpleTestCase):
             ],
         )
 
-    def test_a_fetch_of_a_url_a_search_returned_is_executed(self):
+    @parameterized.expand(
+        [
+            ("as_presented", "https://techcrunch.com/acme"),
+            ("with_an_added_query_string", "https://techcrunch.com/acme?leak=Acme"),
+        ]
+    )
+    def test_a_fetch_of_a_url_a_search_returned_fetches_the_presented_url(self, _name, requested):
         config = self._config()
         url = "https://techcrunch.com/acme"
         client = _ScriptedClient(
             _FakeResponse(tool_calls=[_search_tool_call()]),
-            _FakeResponse(tool_calls=[_fetch_tool_call(url=url)]),
+            _FakeResponse(tool_calls=[_fetch_tool_call(url=requested)]),
             _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": url})),
         )
         found = FirecrawlSearch(query="Acme AI", results=(FirecrawlSearchResult(url=url),))
@@ -495,13 +501,20 @@ class TestClassifyPayloadFetchUrlAllowlist(SimpleTestCase):
             result = classify_payload(config, {"name": "Acme"}, "example.com", cast(OpenAI, client))
 
         scrape_mock.assert_called_once()
-        assert result["meta"]["tool_calls"][1]["error"] is None
+        assert scrape_mock.call_args.args[0] == url
+        assert result["meta"]["tool_calls"][1] == {"name": "fetch_page", "arguments": {"url": url}, "error": None}
 
-    def test_a_fetch_of_the_signup_domain_is_executed_without_a_prior_search(self):
+    @parameterized.expand(
+        [
+            ("as_requested", "https://acme.example/pricing"),
+            ("without_its_query_string_and_fragment", "https://acme.example/pricing?leak=Acme#top"),
+        ]
+    )
+    def test_a_fetch_of_the_signup_domain_is_executed_without_a_prior_search(self, _name, requested):
         config = self._config()
         url = "https://acme.example/pricing"
         client = _ScriptedClient(
-            _FakeResponse(tool_calls=[_fetch_tool_call(url=url)]),
+            _FakeResponse(tool_calls=[_fetch_tool_call(url=requested)]),
             _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": url})),
         )
         page = FirecrawlScrape(url=url, markdown="# Pricing", status_code=200)
@@ -510,11 +523,20 @@ class TestClassifyPayloadFetchUrlAllowlist(SimpleTestCase):
             result = classify_payload(config, {"name": "Acme"}, "acme.example", cast(OpenAI, client))
 
         scrape_mock.assert_called_once()
-        assert result["meta"]["tool_calls"][0]["error"] is None
+        assert scrape_mock.call_args.args[0] == url
+        assert result["meta"]["tool_calls"] == [{"name": "fetch_page", "arguments": {"url": url}, "error": None}]
+        assert result["meta"]["tool_urls"] == [url]
 
-    def test_a_fetch_of_an_unrelated_host_is_refused_without_calling_firecrawl(self):
+    @parameterized.expand(
+        [
+            ("an_unrelated_host", "https://attacker.example/steal?q=secret"),
+            ("a_backslash_before_the_signup_domain", r"https://attacker.example\.acme.example/steal"),
+            ("a_non_ascii_label_on_the_signup_domain", "https://\u00fcnicode.acme.example/steal"),
+            ("a_trailing_dot_on_the_signup_domain", "https://acme.example./steal"),
+        ]
+    )
+    def test_a_fetch_outside_the_allowlist_is_refused_without_calling_firecrawl(self, _name, url):
         config = self._config()
-        url = "https://attacker.example/steal?q=secret"
         client = _ScriptedClient(
             _FakeResponse(tool_calls=[_fetch_tool_call(url=url)]),
             _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": ""})),

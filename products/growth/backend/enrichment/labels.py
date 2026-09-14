@@ -328,23 +328,59 @@ def validate_output_fields(config: EnrichmentPromptConfig) -> None:
                 raise PromptConfigError(f"enrichment output field {key!r} has min {low} above max {high}")
 
 
+_PLAIN_HOST = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+")
+
+
 def _normalize_url(url: str) -> str:
     parts = urlsplit(url)
     normalized = urlunsplit(parts._replace(scheme=parts.scheme.lower(), netloc=parts.netloc.lower(), fragment=""))
     return normalized[:-1] if normalized.endswith("/") else normalized
 
 
+def _without_query(url: str) -> str:
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
+def _plain_host(url: str) -> str | None:
+    """Firecrawl's URL parser can split a host where urlsplit keeps it whole, so only a host both
+    read the same way is compared against the allowlist."""
+    if "\\" in url or not url.isascii() or not url.isprintable():
+        return None
+    host = urlsplit(url).hostname
+    if host is None:
+        return None
+    host = host.lower()
+    return host if _PLAIN_HOST.fullmatch(host) else None
+
+
+def _on_signup_domain(host: str, signup_domain: str | None) -> bool:
+    if signup_domain is None:
+        return False
+    domain = signup_domain.lower()
+    return host == domain or host.endswith(f".{domain}")
+
+
 def _url_is_trusted(url: str, presented: set[str], signup_domain: str | None) -> bool:
     """Whether url is one a tool call actually surfaced, or the company's own domain - never a
     URL a page's own text could have steered the model into asking for."""
-    if _normalize_url(url) in presented:
-        return True
-    host = urlsplit(url).hostname
-    if host is None or signup_domain is None:
+    host = _plain_host(url)
+    if host is None:
         return False
-    host = host.lower()
-    domain = signup_domain.lower()
-    return host == domain or host.endswith(f".{domain}")
+    return _normalize_url(url) in presented or _on_signup_domain(host, signup_domain)
+
+
+def _fetch_url_for(url: str, presented: set[str], signup_domain: str | None) -> str | None:
+    """Page text can steer the model into putting the organization's inputs in a query string, so the
+    fetched URL is the stored search result or the signup domain page with no query."""
+    host = _plain_host(url)
+    if host is None:
+        return None
+    presented_by_page = {_normalize_url(_without_query(candidate)): candidate for candidate in presented}
+    page = _normalize_url(_without_query(url))
+    if page in presented_by_page:
+        return presented_by_page[page]
+    return _without_query(url) if _on_signup_domain(host, signup_domain) else None
 
 
 def _parse_custom_output(config: EnrichmentPromptConfig, data: dict[str, Any]) -> dict[str, Any]:
@@ -385,23 +421,6 @@ def _accumulate_meta(combined: dict[str, Any], turn: dict[str, Any]) -> None:
             combined[key] = turn[key]
 
 
-def _reject_unsupported_fetch_url(
-    arguments: dict[str, Any], presented: set[str], signup_domain: str | None
-) -> ToolOutcome | None:
-    """None lets the normal fetch_page path handle a missing/non-string url as bad_arguments -
-    this only gates a url that parses but wasn't earned by a prior tool call or the signup domain."""
-    url = arguments.get("url")
-    if not isinstance(url, str) or _url_is_trusted(url, presented, signup_domain):
-        return None
-    return ToolOutcome(
-        name="fetch_page",
-        arguments=arguments,
-        result={"error": "url must come from a search result or the company's own domain"},
-        urls=(),
-        error="invalid_url",
-    )
-
-
 def _run_tool_call(call: Any, *, presented_urls: set[str], signup_domain: str | None) -> ToolOutcome:
     try:
         arguments = json.loads(call.function.arguments or "{}")
@@ -421,10 +440,18 @@ def _run_tool_call(call: Any, *, presented_urls: set[str], signup_domain: str | 
             urls=(),
             error="bad_arguments",
         )
-    if call.function.name == "fetch_page":
-        rejected = _reject_unsupported_fetch_url(arguments, presented_urls, signup_domain)
-        if rejected is not None:
-            return rejected
+    # A missing or non-string url falls through so fetch_page reports it as bad_arguments.
+    if call.function.name == "fetch_page" and isinstance(arguments.get("url"), str):
+        fetch_url = _fetch_url_for(arguments["url"], presented_urls, signup_domain)
+        if fetch_url is None:
+            return ToolOutcome(
+                name="fetch_page",
+                arguments=arguments,
+                result={"error": "url must come from a search result or the company's own domain"},
+                urls=(),
+                error="invalid_url",
+            )
+        arguments["url"] = fetch_url
     return run_tool(call.function.name, arguments)
 
 
