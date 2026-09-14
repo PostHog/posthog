@@ -71,7 +71,6 @@
 1 posthog/temporal/data_modeling/activities/fail_materialization.py
 1 posthog/temporal/data_modeling/activities/materialize_view.py
 1 posthog/temporal/data_modeling/activities/preempt_dag_run.py
-1 posthog/temporal/data_modeling/workflows/materialize_view.py
 1 posthog/temporal/exports/workflows.py
 1 posthog/temporal/ingestion_acceptance_test/test_cases_discovery.py
 1 posthog/temporal/mcp_analytics/intent_clustering/coordinator.py
@@ -1397,10 +1396,9 @@
 2 posthog/temporal/backfill_group_type_created_at/types.py
 2 posthog/temporal/common/heartbeat.py
 2 posthog/temporal/data_modeling/activities/get_dag_structure.py
-2 posthog/temporal/data_modeling/activities/materialize_view_duckgres.py
 2 posthog/temporal/data_modeling/activities/prepare_queryable_table.py
 2 posthog/temporal/data_modeling/activities/succeed_materialization.py
-2 posthog/temporal/data_modeling/workflows/execute_dag.py
+1 posthog/temporal/data_modeling/workflows/execute_dag.py
 2 posthog/temporal/dlq_replay/workflow.py
 2 posthog/temporal/ingestion_acceptance_test/client.py
 2 posthog/temporal/ingestion_acceptance_test/results.py

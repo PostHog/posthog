@@ -94,7 +94,29 @@ tools:
         feature_flag: visual-review
     visual-review-repos-partial-update:
         operation: visual_review_repos_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - visual_review:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Update visual review repo settings
+        description: >
+            Change one repo's settings. `enable_pr_comments` controls whether a run that finds visual changes posts a
+            pull request comment asking for a review. `debt_digest_enabled` controls whether the debt digest runs for
+            the repo, which posts expiring quarantines and piled-up variants to the Slack channels of the teams that own
+            the snapshots; it is off until somebody turns it on, and it runs Monday to Friday. `baseline_file_paths`
+            maps each run type to the file holding its committed baseline hashes, for example `{"storybook":
+            ".storybook/snapshots.yml"}`, and finalize reads and commits the path named there; a `default` key covers
+            every run type that has no entry of its own. Every field is optional, and a field you leave out keeps its
+            current value.
+        param_overrides:
+            id:
+                description: The repo's UUID, from `visual-review-repos-list`.
+                aliases:
+                    - repo_id
+        feature_flag: visual-review
     visual-review-repos-quarantine-create:
         operation: visual_review_repos_quarantine_create
         enabled: false
