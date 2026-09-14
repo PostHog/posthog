@@ -3,6 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { LogsAlertCreateModal } from './LogsAlertCreateModal'
+import { LogsAlertEditModal } from './LogsAlertEditModal'
 import { logsAlertingLogic } from './logsAlertingLogic'
 import { LogsAlertList } from './LogsAlertList'
 
@@ -15,8 +16,8 @@ export function LogsAlertingSection(): JSX.Element {
 }
 
 function LogsAlertingSectionContent(): JSX.Element {
-    const { isCreateAlertModalOpen } = useValues(logsAlertingLogic)
-    const { closeCreateAlertModal } = useActions(logsAlertingLogic)
+    const { isCreateAlertModalOpen, editingAlert } = useValues(logsAlertingLogic)
+    const { closeCreateAlertModal, closeEditAlertModal } = useActions(logsAlertingLogic)
 
     return (
         <>
@@ -34,6 +35,7 @@ function LogsAlertingSectionContent(): JSX.Element {
             </LemonBanner>
             <LogsAlertList />
             <LogsAlertCreateModal isOpen={isCreateAlertModalOpen} onClose={closeCreateAlertModal} />
+            <LogsAlertEditModal alert={editingAlert} onClose={closeEditAlertModal} />
         </>
     )
 }

@@ -1,3 +1,4 @@
+from dataclasses import field
 from typing import TYPE_CHECKING, Optional, cast
 
 if TYPE_CHECKING:
@@ -13,6 +14,8 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldSwitchGroupConfig,
 )
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
@@ -44,6 +47,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.slack.slac
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
+@frozen
+class SlackAccess:
+    """Resolved Slack credentials: the token, the user scoping private-channel discovery,
+    and the id keying the per-workspace channel-list cache."""
+
+    access_token: str = field(repr=False)  # secret: keep out of repr/logs
+    authed_user_id: str | None
+    cache_id: str
+
+
 @SourceRegistry.register
 class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], WebhookSource[SlackSourceConfig], OAuthMixin):
     api_docs_url = "https://api.slack.com/web"
@@ -73,11 +86,8 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
     def _get_authed_user_id(integration: "Integration") -> str | None:
         return (integration.config or {}).get("authed_user", {}).get("id")
 
-    def _resolve_access_token(self, config: SlackSourceConfig, team_id: int) -> tuple[str, str | None, str]:
+    def _resolve_access_token(self, config: SlackSourceConfig, team_id: int) -> SlackAccess:
         """Resolve credentials, preferring the bring-your-own bot token.
-
-        Returns ``(access_token, authed_user_id, cache_id)``. ``authed_user_id`` scopes private-channel
-        discovery to a single user; ``cache_id`` keys the per-workspace channel-list cache.
 
         - A ``slack_access_token`` means the customer's own Slack app. The token is stored on the
           source itself, so it stays within Slack's API terms for internal apps. ``auth.test`` gives
@@ -89,7 +99,11 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         """
         if config.slack_access_token:
             access_token = config.slack_access_token
-            return access_token, auth_test_user_id(access_token), manual_cache_id(access_token)
+            return SlackAccess(
+                access_token=access_token,
+                authed_user_id=auth_test_user_id(access_token),
+                cache_id=manual_cache_id(access_token),
+            )
 
         if not config.slack_integration_id:
             raise ValueError("Slack access token not found")
@@ -98,7 +112,11 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         oauth_token = integration.access_token
         if not oauth_token:
             raise ValueError("Slack access token not found")
-        return oauth_token, self._get_authed_user_id(integration), str(integration.id)
+        return SlackAccess(
+            access_token=oauth_token,
+            authed_user_id=self._get_authed_user_id(integration),
+            cache_id=str(integration.id),
+        )
 
     def create_webhook(
         self, config: SlackSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
@@ -287,13 +305,15 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
             for name, endpoint_config in ENDPOINTS.items()
         ]
 
-        access_token, authed_user, cache_id = self._resolve_access_token(config, team_id)
+        access = self._resolve_access_token(config, team_id)
         # Only the bring-your-own path can auto-join — the legacy shared app lacks channels:join.
         # Joining is idempotent and only touches public channels the bot isn't in, so running it on
         # each discovery/refresh also picks up channels created since the last pass.
         if config.slack_access_token and config.join_public_channels and config.join_public_channels.enabled:
-            join_public_channels(access_token, cache_id, authed_user)
-        channels = get_channels(cache_id, access_token, authed_user, force_refresh=force_refresh)
+            join_public_channels(access.access_token, access.cache_id, access.authed_user_id)
+        channels = get_channels(
+            access.cache_id, access.access_token, access.authed_user_id, force_refresh=force_refresh
+        )
         for ch in channels:
             if ch["id"] in ENDPOINTS:
                 continue
@@ -319,9 +339,9 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
         self, config: SlackSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
-            access_token, _authed_user, _cache_id = self._resolve_access_token(config, team_id)
+            access = self._resolve_access_token(config, team_id)
 
-            is_valid, error_code = validate_slack_credentials(access_token)
+            is_valid, error_code = validate_slack_credentials(access.access_token)
             if is_valid:
                 return True, None
 
@@ -346,7 +366,7 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
         resumable_source_manager: ResumableSourceManager[SlackResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        access_token, authed_user, cache_id = self._resolve_access_token(config, inputs.team_id)
+        access = self._resolve_access_token(config, inputs.team_id)
 
         # For channel schemas, the schema name is the channel ID itself
         channel_id = inputs.schema_name if inputs.schema_name not in ENDPOINTS else None
@@ -354,8 +374,8 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
         webhook_source_manager = self.get_webhook_source_manager(inputs)
 
         return slack_source(
-            access_token=access_token,
-            cache_id=cache_id,
+            access_token=access.access_token,
+            cache_id=access.cache_id,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
@@ -367,5 +387,5 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
             incremental_field=inputs.incremental_field,
             channel_id=channel_id,
             webhook_source_manager=webhook_source_manager,
-            authed_user=authed_user,
+            authed_user=access.authed_user_id,
         )

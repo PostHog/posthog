@@ -64,11 +64,11 @@ export interface FieldEditorMeta {
 // Labels mirror the scanner configuration tab so both surfaces read the same.
 const FIELD_EDITORS: Record<string, FieldEditorMeta> = {
     prompt: { kind: 'prompt', label: 'Prompt' },
-    tags: { kind: 'tags', label: 'Tag vocabulary' },
+    tags: { kind: 'tags', label: 'Categories' },
     scale: { kind: 'scale', label: 'Scale' },
     length: { kind: 'length', label: 'Summary length' },
-    multi_label: { kind: 'flag', label: 'Multiple tags per session' },
-    allow_freeform_tags: { kind: 'flag', label: 'Freeform tags' },
+    multi_label: { kind: 'flag', label: 'Multiple categories per session' },
+    allow_freeform_tags: { kind: 'flag', label: 'Freeform categories' },
     allow_inconclusive: { kind: 'flag', label: 'Allow inconclusive verdicts' },
 }
 

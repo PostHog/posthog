@@ -11,10 +11,11 @@ import { urls } from 'scenes/urls'
 
 import { DateMappingOption } from '~/types'
 
+import { VisionDocsLink } from '../../components/DocsLink'
 import { FilterPill } from '../../components/FilterPill'
+import { NumericRangeFilterPill } from '../../components/NumericRangeFilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import { ObservationRetryButton } from '../../components/ObservationRetryButton'
-import { ScoreRangeFilterPill } from '../../components/ScoreRangeFilterPill'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
 import {
@@ -132,12 +133,21 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             key: 'session',
             width: 300,
             render: (_, obs) => (
-                <Link
-                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
-                    className="font-mono text-xs text-primary truncate block"
-                >
-                    {obs.session_id}
-                </Link>
+                <div className="flex items-center gap-2 min-w-0">
+                    <span className="flex w-2 shrink-0">
+                        {!obs.viewed && (
+                            <Tooltip title="You haven't opened this observation yet.">
+                                <span className="size-2 rounded-full bg-danger" />
+                            </Tooltip>
+                        )}
+                    </span>
+                    <Link
+                        to={observationDetailUrl(obs.id, observationDetailLinkParams)}
+                        className="font-mono text-xs text-primary truncate block"
+                    >
+                        {obs.session_id}
+                    </Link>
+                </div>
             ),
         },
         {
@@ -289,17 +299,20 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                     />
                                 )}
                                 {scannerType === 'scorer' && (
-                                    <ScoreRangeFilterPill
+                                    <NumericRangeFilterPill
+                                        label="Score"
                                         min={observationMinScoreFilter}
                                         max={observationMaxScoreFilter}
                                         scaleMin={scoreScale?.min}
                                         scaleMax={scoreScale?.max}
                                         onChange={setObservationScoreRange}
+                                        dataAttr="vision-observations-score-filter"
                                     />
                                 )}
                                 {scannerType === 'classifier' && tagFilterOptions.length > 0 && (
                                     <FilterPill<string>
-                                        label="Tag"
+                                        label="Category"
+                                        searchPlaceholder="Search categories"
                                         options={tagFilterOptions}
                                         value={observationTagFilter}
                                         onChange={setObservationTagFilter}
@@ -394,8 +407,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     ) : (
                         <div className="p-6 flex flex-col items-center gap-3 text-center">
                             <div className="text-muted">
-                                No observations yet. They'll appear here once the scanner fires on its schedule — or
-                                scan a recording right now.
+                                No observations yet. They'll appear here once the scanner fires on its schedule, or you
+                                can scan a recording right now.
                             </div>
                             <LemonButton
                                 type="primary"
@@ -405,6 +418,9 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             >
                                 Scan a recording now
                             </LemonButton>
+                            <VisionDocsLink page="observations" dataAttr="vision-empty-docs-link-observations">
+                                Learn how observations work
+                            </VisionDocsLink>
                         </div>
                     )
                 }

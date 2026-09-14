@@ -1,8 +1,8 @@
 """Read the scoring inputs Clay still owns, off the organization group it writes.
 
-Two of the ICP score's inputs have no first-party source yet, so while Clay runs in parallel
-we read its own group properties back and score on them. That keeps `clay-parity-1` scores
-bit-comparable with Clay's on the orgs it also scores.
+The ICP score's revenue input has no first-party source, so while Clay runs in parallel we
+read its own group property back and score on it. That keeps our scores bit-comparable with
+Clay's on the orgs it also scores.
 
 The formula's third Clay-owned input, its GitHub profile lookup, is deliberately NOT read
 here: Clay never projects that column into PostHog at all (verified against live group and
@@ -14,6 +14,7 @@ simply has no properties (a real null, and Clay scored nothing for it either), w
 unreachable group store raises. Scoring an org on inputs we failed to fetch would write a
 silently-too-low score, which is worse than writing none — so callers degrade to writing
 firmographics without a score on a raise, and get another chance at the delayed recheck.
+
 """
 
 import dataclasses
@@ -21,6 +22,7 @@ from typing import Any, Optional
 
 from django.conf import settings
 
+from posthog.dataclasses import frozen
 from posthog.models.group.util import get_group_by_key
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team import Team
@@ -30,6 +32,7 @@ from products.growth.backend.enrichment.writer import ORGANIZATION_GROUP_TYPE
 
 CLAY_EST_REVENUE_PROPERTY = "icp_est_revenue"
 CLAY_COMPANY_TYPE_PROPERTY = "icp_company_type"
+WIZARD_AI_SDK_DETECTED_PROPERTY = "wizard_ai_sdk_detected"
 
 
 class OrganizationGroupTypeMissing(Exception):
@@ -41,10 +44,22 @@ class ClayBridgeInputs:
     """Clay-owned score inputs for one org. All None when Clay never processed it."""
 
     est_revenue: Optional[float] = None
-    company_type: Optional[str] = None
     # Presence of the company-type key, not its coerced value — Clay fills that column on
     # essentially every row it writes, making raw key-presence a reliable ran/didn't-run signal.
     clay_processed: bool = False
+
+
+@frozen
+class WizardBridgeInputs:
+    """The wizard's own AI-SDK detection stamp for one org. False when the wizard never reported it."""
+
+    ai_sdk_detected: bool = False
+
+
+@frozen
+class OrganizationBridgeInputs:
+    clay: ClayBridgeInputs = dataclasses.field(default_factory=ClayBridgeInputs)
+    wizard: WizardBridgeInputs = dataclasses.field(default_factory=WizardBridgeInputs)
 
 
 def _numeric(value: Any) -> Optional[float]:
@@ -62,10 +77,6 @@ def _numeric(value: Any) -> Optional[float]:
     return None
 
 
-def _text(value: Any) -> Optional[str]:
-    return value if isinstance(value, str) and value else None
-
-
 def _organization_group_type_index(team: Team) -> int:
     for group_type in get_group_types_for_project(team.project_id):
         if group_type["group_type"] == ORGANIZATION_GROUP_TYPE:
@@ -75,12 +86,12 @@ def _organization_group_type_index(team: Team) -> int:
     raise OrganizationGroupTypeMissing(f"no `{ORGANIZATION_GROUP_TYPE}` group type on project {team.project_id}")
 
 
-def read_clay_bridge_inputs(*, organization_id: str) -> ClayBridgeInputs:
-    """Fetch the Clay-written score inputs for one org. Raises if the group store can't be read."""
+def read_organization_bridge_inputs(*, organization_id: str) -> OrganizationBridgeInputs:
+    """Fetch score inputs from one organization-group read. Raises when the group store cannot be read."""
     # Clay only ever wrote to the US internal project, so outside US there is nothing to read —
     # skip the lookup entirely instead of querying a project the bridge never touched.
     if get_instance_region() != "US":
-        return ClayBridgeInputs()
+        return OrganizationBridgeInputs()
     # The internal project the enrichment group properties are projected onto, and the same one
     # the ProductLed_Outbound consumer reads them back from (ee/billing/dags/productled_outbound_targets.py).
     team = Team.objects.get(id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID)
@@ -90,11 +101,15 @@ def read_clay_bridge_inputs(*, organization_id: str) -> ClayBridgeInputs:
         group_key=organization_id,
     )
     if group is None:
-        return ClayBridgeInputs()
+        return OrganizationBridgeInputs()
 
     properties = group.group_properties or {}
-    return ClayBridgeInputs(
-        est_revenue=_numeric(properties.get(CLAY_EST_REVENUE_PROPERTY)),
-        company_type=_text(properties.get(CLAY_COMPANY_TYPE_PROPERTY)),
-        clay_processed=CLAY_COMPANY_TYPE_PROPERTY in properties,
+    return OrganizationBridgeInputs(
+        clay=ClayBridgeInputs(
+            est_revenue=_numeric(properties.get(CLAY_EST_REVENUE_PROPERTY)),
+            clay_processed=CLAY_COMPANY_TYPE_PROPERTY in properties,
+        ),
+        wizard=WizardBridgeInputs(
+            ai_sdk_detected=properties.get(WIZARD_AI_SDK_DETECTED_PROPERTY) is True,
+        ),
     )

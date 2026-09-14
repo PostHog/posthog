@@ -165,6 +165,20 @@ The lint command validates:
 > [!NOTE]
 > To migrate a product to full isolation (facade + contracts + selective testing), use the `isolating-product-facade-contracts` skill. See [products/architecture.md](architecture.md) for the target architecture.
 
+### New products must be isolated
+
+`products/isolation_baseline.txt` lists every product that is not isolated, and `hogli product:lint --all` fails when the tree and that file disagree in either direction.
+A new product not on the list must be isolated; a product that seals drops off it.
+
+`hogli product:bootstrap` scaffolds a product that is already sealed — real facade, contracts, tach `[[interfaces]]`, `backend:contract-check`, narrowed `turbo.json` — so a new product should never need a line.
+Adding one exempts the product from isolation and keeps the full Django backend suite running on every change it makes, which is why the file is owned by DevEx in `.github/CODEOWNERS`.
+
+Regenerate after sealing a product:
+
+```bash
+bin/hogli product:lint --regenerate-baseline
+```
+
 ### Manual setup
 
 - Create a new folder `products/your_product_name`, keep it underscore-cased.

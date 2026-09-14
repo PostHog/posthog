@@ -22,11 +22,25 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_list_costs
 
 _LIMIT = 1000
 # Sparkline cap: enough to read a PR's CI history at a glance without bloating a 1000-row page.
 _PUSH_HISTORY_LIMIT = 20
+
+
+def _visible_prs_where(prefix: str, author: str | None) -> str:
+    """The list's row predicate, buildable against the ``pr`` alias (outer WHERE) or
+    unqualified curated PR columns (the runs-rollup scope) — one definition so the
+    rollup scope can never drift narrower than the rows it must serve."""
+    author_clause = f"AND {prefix}author_handle = {{author}}" if author else ""
+    return f"""(
+            {prefix}state = 'open'
+            OR {prefix}merged_at >= {{date_from}}
+            OR {prefix}closed_at >= {{date_from}}
+        ) {author_clause}"""
+
 
 _SELECT = f"""
     SELECT
@@ -48,33 +62,10 @@ _SELECT = f"""
     LEFT JOIN runs_by_pr AS rp
         ON rp.repo_owner = pr.repo_owner AND rp.repo_name = pr.repo_name AND rp.pr_number = pr.number
     __READY_JOIN__
-    WHERE (
-            pr.state = 'open'
-            OR pr.merged_at >= {{date_from}}
-            OR pr.closed_at >= {{date_from}}
-        ) __AUTHOR__
+    WHERE __VISIBLE_PRS__
     ORDER BY pr.created_at DESC
     LIMIT {_LIMIT + 1}
 """
-
-# Per merged PR: last transition is a ready -> merged_at minus it; no transition rows and the
-# PR's whole open-to-merge life inside the observed window -> never left ready, so open-to-merge
-# IS ready-to-merge; otherwise NULL (re-drafted, or unobservable). Both window bounds are load-
-# bearing: created_at before the window means pre-window flips are possible, and merged_at past
-# the window means the transitions may simply not have synced yet (every merge lands a `merged`
-# issue event, so an in-range merge with no transition rows is proof of never drafting). The
-# coalesce guards normalize a missed join, which lands NULL or 0 depending on join_use_nulls.
-_READY_TO_MERGE = """
-        multiIf(
-            pr.merged_at IS NULL, NULL,
-            coalesce(re.last_is_ready, 0) = 1, dateDiff('second', re.last_transition_at, pr.merged_at),
-            coalesce(re.pr_number, 0) = 0
-                AND pr.created_at >= __READY_WINDOW_START__
-                AND pr.merged_at <= __READY_WINDOW_END__, pr.open_to_merge_seconds,
-            NULL
-        ) AS ready_to_merge_seconds
-"""
-_READY_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
 
 
 # Per-push CI rounds for the visible PRs, for the push-history sparkline. Verdicts collapse like
@@ -96,7 +87,7 @@ _PUSH_HISTORY_SELECT = """
         repo_owner, repo_name, pr_number, head_sha,
         min(first_start) AS started_at,
         if(countIf(last_end IS NOT NULL) = 0, NULL, dateDiff('second', min(first_start), max(last_end))) AS wall_seconds,
-        countIf(s = 'completed' AND c IN ('failure', 'timed_out')) > 0 AS failed,
+        countIf(s = 'completed' AND c IN (__DECISIVE_FAILURES__)) > 0 AS failed,
         countIf(s IS NULL OR s != 'completed') > 0 AS pending
     FROM (
         SELECT
@@ -124,8 +115,10 @@ def query_pr_push_history(
     the scan tracks the page (same shape as ``query_pr_list_costs``)."""
     if not pr_numbers:
         return {}
-    sql = _PUSH_HISTORY_SELECT.replace("__RUNS_SOURCE__", curated.run_source()).replace(
-        "__PUSH_HISTORY_LIMIT__", str(_PUSH_HISTORY_LIMIT)
+    sql = (
+        _PUSH_HISTORY_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+        .replace("__PUSH_HISTORY_LIMIT__", str(_PUSH_HISTORY_LIMIT))
+        .replace("__DECISIVE_FAILURES__", DECISIVE_FAILURE_CONCLUSIONS_SQL)
     )
     response = curated.run(
         sql,
@@ -152,28 +145,17 @@ def query_pull_request_list(
     *, curated: CuratedGitHubSource, date_from: datetime, author: str | None = None
 ) -> PullRequestList:
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
-    author_clause = ""
     if author:
-        author_clause = "AND pr.author_handle = {author}"
         placeholders["author"] = ast.Constant(value=author)
-    # Without the optional issue-events table the column degrades to NULL rather than
-    # referencing the absent ready_by_pr CTE.
-    window = curated.issue_events_window()
-    if window is not None:
-        ready_column = _READY_TO_MERGE.replace("__READY_WINDOW_START__", window.start).replace(
-            "__READY_WINDOW_END__", window.end
-        )
-        ready_join = _READY_JOIN
-    else:
-        ready_column = "NULL AS ready_to_merge_seconds"
-        ready_join = ""
+
+    ready = curated.ready_to_merge_sql()
     select = (
-        _SELECT.replace("__READY_TO_MERGE__", ready_column)
-        .replace("__READY_JOIN__", ready_join)
-        .replace("__AUTHOR__", author_clause)
+        _SELECT.replace("__READY_TO_MERGE__", f"{ready.expr} AS ready_to_merge_seconds")
+        .replace("__READY_JOIN__", ready.join)
+        .replace("__VISIBLE_PRS__", _visible_prs_where("pr.", author))
     )
     response = curated.run(
-        curated.pr_list_rollup_query(select),
+        curated.pr_list_rollup_query(select, pr_scope_where=_visible_prs_where("", author)),
         query_type="engineering_analytics.pull_request_list",
         placeholders=placeholders,
     )

@@ -104,6 +104,13 @@ export class PlayerController {
         timeoutMsg: string,
         resetOnProgress = false
     ): Promise<void> {
+        // An error emitted before this registers errorReject (e.g. NO_SNAPSHOTS arriving between
+        // load() and waitForStart()) was shelved in playbackError; without this check it would sit
+        // there while we idle out and misreport a retryable TIMEOUT over the real, possibly
+        // terminal, code.
+        if (this.playbackError) {
+            return Promise.reject(this.playbackError)
+        }
         return new Promise<void>((resolve, reject) => {
             const onTimeout = (): void => {
                 this.startedResolve = null
@@ -182,7 +189,16 @@ export class PlayerController {
             playerConfig
         )
 
-        await page.goto(this.capturePage.playerUrl, { waitUntil: 'load', timeout: 30000 })
+        try {
+            await page.goto(this.capturePage.playerUrl, { waitUntil: 'load', timeout: 30000 })
+        } catch (err) {
+            // Puppeteer's TimeoutError would classify as UNKNOWN downstream; it is the same failure
+            // mode as every other load stall, so give it the same retryable TIMEOUT code.
+            if ((err as Error)?.name === 'TimeoutError') {
+                throw new RasterizationError('player page load timed out', true, 'TIMEOUT', err)
+            }
+            throw err
+        }
         this.log.info({ origin: this.capturePage.playerUrl }, 'player loaded')
     }
 

@@ -525,7 +525,7 @@ class TestLoadIntegrationsAuthStateFilter:
         # to hit the real Slack API every time the cache is cold. Context
         # manager so a failure inside ``yield`` still cleans up (manual
         # ``start()/stop()`` would leak the patch into sibling tests).
-        with patch("posthog.models.integration.WebClient") as mock_webclient_class:
+        with patch("posthog.models.integration.slack.WebClient") as mock_webclient_class:
             mock_client = MagicMock()
             mock_webclient_class.return_value = mock_client
             mock_client.auth_test.return_value = {"user_id": "U_BOT"}

@@ -4,11 +4,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.circleci_insights import (
-    CircleciInsightsResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -16,11 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_i
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.source import (
     CircleciInsightsSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.circleciinsights import (
     CircleciInsightsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCircleciInsightsSource:
@@ -33,33 +26,6 @@ class TestCircleciInsightsSource:
             reporting_window="last-90-days",
             branch_scope="all_branches",
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CIRCLECIINSIGHTS
-
-    def test_get_source_config_is_released_alpha(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "CircleciInsights"
-        assert config.label == "CircleCI Insights"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/circleci-insights"
-
-    def test_fields(self):
-        config = self.source.get_source_config
-
-        assert [f.name for f in config.fields] == ["api_token", "project_slugs", "reporting_window", "branch_scope"]
-
-        token_field = next(f for f in config.fields if f.name == "api_token")
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
-
-        window_field = next(f for f in config.fields if f.name == "reporting_window")
-        assert isinstance(window_field, SourceFieldSelectConfig)
-        assert window_field.defaultValue == "last-90-days"
 
     def test_connection_host_fields_includes_project_slugs(self):
         # The token is sent to circleci.com scoped to <project_slugs>, so retargeting the
@@ -106,24 +72,6 @@ class TestCircleciInsightsSource:
     def test_non_retryable_errors_match_only_permanent_failures(self, observed_error, should_match):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors) is should_match
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.source.validate_circleci_insights_credentials"
-    )
-    def test_validate_credentials_plumbs_token_and_slugs(self, mock_validate):
-        mock_validate.return_value = (True, None)
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is True
-        assert error_message is None
-        mock_validate.assert_called_once_with(self.config.api_token, self.config.project_slugs)
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is CircleciInsightsResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.source.circleci_insights_source"

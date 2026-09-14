@@ -24,8 +24,8 @@ from posthog.errors import look_up_clickhouse_error_code_meta
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 
 MATCH_RATE_SAMPLE_SIZE = 10_000

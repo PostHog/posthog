@@ -35,10 +35,12 @@ pub struct Config {
     #[envconfig(default = "30000")]
     pub flush_interval_ms: u64,
 
-    /// Flush when a lane's buffer reaches this many entries. Sized to produce
-    /// multi-chunk batches that exercise the parallel chunk path. Clamped to
-    /// half the per-lane capacity (`buffer_capacity / writer_lanes`) so the
-    /// nonblocking size flush always fires before a lane's hard cap.
+    /// Flush when a lane's buffer reaches this many entries, and cap how
+    /// many rows a single flush drains: a backlogged lane empties as a
+    /// sequence of batches of roughly this size (whole partitions only)
+    /// instead of one giant batch. Clamped to half the per-lane capacity
+    /// (`buffer_capacity / writer_lanes`) so the nonblocking size flush
+    /// always fires before a lane's hard cap.
     #[envconfig(default = "10000")]
     pub flush_buffer_size: usize,
 
@@ -52,6 +54,13 @@ pub struct Config {
     /// executed as parallel statements.
     #[envconfig(default = "5000")]
     pub upsert_batch_size: usize,
+
+    /// Max concurrent upsert statements against PG, shared across all
+    /// writer lanes and both the chunk and per-row paths. Keep below
+    /// `pg_max_connections` so a burst of chunks queues at the semaphore
+    /// (a cheap, unbounded wait) instead of timing out pool acquires.
+    #[envconfig(default = "8")]
+    pub upsert_concurrency: usize,
 
     /// Max concurrent per-row upserts when a batch falls back to the
     /// per-row path. Size against `pg_max_connections`; pgbouncer handles

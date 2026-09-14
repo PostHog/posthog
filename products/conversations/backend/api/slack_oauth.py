@@ -6,12 +6,12 @@ from django.db import IntegrityError, transaction
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-import requests
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.egress.slack.transport import slack_request
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
@@ -170,8 +170,12 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
         return _error_response(next_path, "support_slack_not_configured", 503)
 
     try:
-        response = requests.post(
+        response = slack_request(
+            "POST",
             "https://slack.com/api/oauth.v2.access",
+            source="conversations_oauth",
+            endpoint="oauth.v2.access",
+            app_id="support",
             data={
                 "client_id": client_id,
                 "client_secret": client_secret,

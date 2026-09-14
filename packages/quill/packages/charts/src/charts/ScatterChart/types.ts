@@ -66,6 +66,9 @@ export interface ScatterChartConfig<Meta = unknown> {
     showAxisLines?: boolean
     showTickMarks?: boolean
     showCrosshair?: boolean
+    /** Draws a dashed least-squares fit line per series, spanning that series' own points. Fitted in
+     *  the axes' own space, so a log axis fits the log values. */
+    showBestFit?: boolean
     legend?: ChartLegendConfig
     tooltip?: ScatterTooltipConfig<Meta>
     /** Applied over the computed margins. Should be referentially stable (a module-level constant). */

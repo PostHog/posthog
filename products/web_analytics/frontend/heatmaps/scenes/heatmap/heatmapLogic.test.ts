@@ -1,6 +1,17 @@
-import { HeatmapType } from '~/types'
+import { HeatmapSource, HeatmapType } from '~/types'
 
-import { resolveHeatmapExportUrl } from './heatmapLogic'
+import { computeLockedWidth, resolveHeatmapExportUrl } from './heatmapLogic'
+
+describe('computeLockedWidth', () => {
+    it.each([
+        ['toolbar', [1440], 1440],
+        ['toolbar', [320, 768, 1440], null],
+        ['toolbar', [], null],
+        ['server', [1024], null],
+    ] as const)('computeLockedWidth(%s, %j) → %s', (source, capturedWidths, expected) => {
+        expect(computeLockedWidth(source as HeatmapSource, [...capturedWidths])).toBe(expected)
+    })
+})
 
 describe('resolveHeatmapExportUrl', () => {
     const origin = 'https://us.posthog.com'

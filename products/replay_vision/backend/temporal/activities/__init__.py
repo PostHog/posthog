@@ -10,6 +10,7 @@ from products.replay_vision.backend.temporal.activities.backfill import (
     reap_backfill_schedules_activity,
 )
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import call_scanner_provider_activity
+from products.replay_vision.backend.temporal.activities.check_scanner_budget import check_scanner_budget_activity
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
     count_in_flight_applies_activity,
@@ -31,6 +32,7 @@ from products.replay_vision.backend.temporal.activities.find_scanner_candidates 
 from products.replay_vision.backend.temporal.activities.list_stale_scanner_estimates import (
     list_stale_scanner_estimates_activity,
 )
+from products.replay_vision.backend.temporal.activities.meter_scanner_reads import meter_scanner_read_bytes_activity
 from products.replay_vision.backend.temporal.activities.observation_state import (
     mark_observation_failed_activity,
     mark_observation_ineligible_activity,
@@ -42,9 +44,6 @@ from products.replay_vision.backend.temporal.activities.reap_childless_inline_sc
 )
 from products.replay_vision.backend.temporal.activities.reap_orphaned_observations import (
     reap_orphaned_observations_activity,
-)
-from products.replay_vision.backend.temporal.activities.reap_stuck_vision_action_runs import (
-    reap_stuck_vision_action_runs_activity,
 )
 from products.replay_vision.backend.temporal.activities.reconciler_activities import (
     delete_scanner_schedule_activity,
@@ -70,6 +69,7 @@ __all__ = [
     "reap_backfill_schedules_activity",
     "refresh_prompt_suggestion_activity",
     "call_scanner_provider_activity",
+    "check_scanner_budget_activity",
     "cleanup_gemini_file_activity",
     "count_in_flight_applies_activity",
     "count_in_flight_by_team_activity",
@@ -86,13 +86,13 @@ __all__ = [
     "list_enabled_scanners_activity",
     "list_scanner_schedules_activity",
     "list_stale_scanner_estimates_activity",
+    "meter_scanner_read_bytes_activity",
     "mark_observation_failed_activity",
     "mark_observation_ineligible_activity",
     "mark_observation_running_activity",
     "mark_observation_succeeded_activity",
     "reap_childless_inline_scanners_activity",
     "reap_orphaned_observations_activity",
-    "reap_stuck_vision_action_runs_activity",
     "record_evaluation_result_activity",
     "refresh_scanner_estimate_activity",
     "select_evaluation_sessions_activity",

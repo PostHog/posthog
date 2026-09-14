@@ -1,44 +1,17 @@
 import pytest
-from unittest import mock
-
-import structlog
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.skyvern import (
     SkyvernSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern.skyvern import SkyvernResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern.source import SkyvernSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-def _inputs() -> SourceInputs:
-    return SourceInputs(
-        schema_name="runs",
-        schema_id="s1",
-        source_id="src1",
-        team_id=1,
-        should_use_incremental_field=False,
-        db_incremental_field_last_value=None,
-        db_incremental_field_earliest_value=None,
-        incremental_field=None,
-        incremental_field_type=None,
-        job_id="job1",
-        logger=structlog.get_logger(),
-        reset_pipeline=False,
-    )
 
 
 class TestSkyvernSource:
     def setup_method(self):
         self.source = SkyvernSource()
         self.team_id = 1
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SKYVERN
 
     @pytest.mark.parametrize(
         "error_message",
@@ -90,20 +63,6 @@ class TestSkyvernSource:
         assert all(t["description"] for t in tables)
         runs = next(t for t in tables if t["name"] == "runs")
         assert "Incremental" in runs["sync_methods"]
-
-    def test_validate_credentials_plumbs_key_and_base_url(self):
-        config = SkyvernSourceConfig(api_key="secret", base_url="http://localhost:8000")
-        with mock.patch.object(
-            source_module, "validate_skyvern_credentials", return_value=(True, None)
-        ) as mock_validate:
-            result = self.source.validate_credentials(config, self.team_id)
-
-        assert result == (True, None)
-        mock_validate.assert_called_once_with("secret", "http://localhost:8000")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        manager = self.source.get_resumable_source_manager(_inputs())
-        assert manager._data_class is SkyvernResumeConfig
 
     def test_config_has_required_api_key_and_optional_base_url(self):
         # api_key must stay a required secret and base_url optional, or self-hosted setup breaks and

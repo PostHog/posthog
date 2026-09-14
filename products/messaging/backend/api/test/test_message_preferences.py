@@ -599,6 +599,35 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         self.assertEqual(len(data["results"]), 1)
         self.assertEqual(data["results"][0]["identifier"], "user1@example.com")
 
+    def test_opt_outs_search_filters_by_identifier(self):
+        for identifier in ["alice@example.com", "bob@example.com", "Alice.Smith@other.io"]:
+            MessageRecipientPreference.objects.create(
+                team=self.team,
+                identifier=identifier,
+                preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
+            )
+        # Opted out of a category only, so a global-list search must not surface them
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="alice@category-only.com",
+            preferences={str(self.category.id): PreferenceStatus.OPTED_OUT.value},
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/", {"search": "ALICE"}
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["count"], 2)
+        identifiers = {item["identifier"] for item in data["results"]}
+        self.assertEqual(identifiers, {"alice@example.com", "Alice.Smith@other.io"})
+
+    def test_opt_outs_search_term_too_long(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/", {"search": "a" * 513}
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_add_opt_out_global(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/messaging_preferences/add_opt_out/",

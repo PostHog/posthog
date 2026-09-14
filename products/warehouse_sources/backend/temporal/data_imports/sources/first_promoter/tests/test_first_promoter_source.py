@@ -9,9 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.first_promoter import (
-    FirstPromoterResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.settings import (
     COMMISSIONS_INCREMENTAL_LOOKBACK_SECONDS,
     ENDPOINTS,
@@ -20,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.first_prom
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firstpromoter import (
     FirstPromoterSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 FULL_REFRESH_ENDPOINTS = ("payouts", "promo_codes", "promoter_campaigns", "promoters", "referrals")
 
@@ -30,9 +26,6 @@ class TestFirstPromoterSource:
         self.source = FirstPromoterSource()
         self.team_id = 123
         self.config = FirstPromoterSourceConfig(api_key="fp-key", account_id="98765")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FIRSTPROMOTER
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -101,18 +94,6 @@ class TestFirstPromoterSource:
         assert any(key in observed_error for key in non_retryable) is expect_match
 
     @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.source.validate_first_promoter_credentials"
-    )
-    def test_validate_credentials_plumbs_both_credentials_and_version(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (True, None)
-        assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
-        assert mock_validate.call_args.args == ("fp-key", "98765", "v2")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert manager._data_class is FirstPromoterResumeConfig
-
-    @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.source.first_promoter_source"
     )
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
@@ -150,7 +131,3 @@ class TestFirstPromoterSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_cover_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)

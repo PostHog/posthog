@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  resolveBulkTaskContextMenuIntent,
   resolveExternalAppPath,
   resolveTaskContextMenuIntent,
 } from "./contextMenuActions";
@@ -24,6 +25,9 @@ describe("resolveTaskContextMenuIntent", () => {
     expect(resolveTaskContextMenuIntent({ type: "stop" }, {})).toEqual({
       type: "stop",
     });
+    expect(resolveTaskContextMenuIntent({ type: "handoff" }, {})).toEqual({
+      type: "handoff",
+    });
     expect(resolveTaskContextMenuIntent({ type: "delete" }, {})).toEqual({
       type: "delete",
     });
@@ -42,6 +46,39 @@ describe("resolveTaskContextMenuIntent", () => {
       type: "external-app",
       action: { type: "copy-path" },
     });
+  });
+});
+
+describe("resolveBulkTaskContextMenuIntent", () => {
+  it.each([
+    { allPinned: true, expected: "unpin" },
+    { allPinned: false, expected: "pin" },
+    { allPinned: undefined, expected: "pin" },
+  ])(
+    "maps pin to $expected when allPinned=$allPinned",
+    ({ allPinned, expected }) => {
+      expect(
+        resolveBulkTaskContextMenuIntent({ type: "pin" }, { allPinned }),
+      ).toEqual({ type: expected });
+    },
+  );
+
+  it("passes through simple actions", () => {
+    expect(resolveBulkTaskContextMenuIntent({ type: "archive" }, {})).toEqual({
+      type: "archive",
+    });
+    expect(
+      resolveBulkTaskContextMenuIntent({ type: "add-to-command-center" }, {}),
+    ).toEqual({ type: "add-to-command-center" });
+  });
+
+  it("carries the channel id", () => {
+    expect(
+      resolveBulkTaskContextMenuIntent(
+        { type: "file-to-channel", channelId: "c1" },
+        {},
+      ),
+    ).toEqual({ type: "file-to-channel", channelId: "c1" });
   });
 });
 

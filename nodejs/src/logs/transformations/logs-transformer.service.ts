@@ -9,12 +9,11 @@ import { yieldEventLoopIfNeeded } from '~/common/utils/event-loop-yield'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 
+import { decodeLogAttributeValue, encodeLogAttributeValue } from '../attribute-value'
 import type { LogRecord } from '../log-record-avro'
 import {
     LogTransformationGlobals,
     buildLogRecordGlobals,
-    decodeLogAttributeValue,
-    encodeLogAttributeValue,
     executeLogTransformation,
     resolveLogTransformationInputs,
 } from './hog-log-exec'

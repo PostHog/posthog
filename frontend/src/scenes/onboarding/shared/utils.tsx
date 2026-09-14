@@ -2,10 +2,13 @@ import * as chart from '@posthog/brand/hoggies/png/chart'
 import * as construction from '@posthog/brand/hoggies/png/construction-1'
 import * as director from '@posthog/brand/hoggies/png/director'
 import * as experiment from '@posthog/brand/hoggies/png/experiment'
+import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
 import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as mailboxPng from '@posthog/brand/hoggies/png/mailbox'
 import * as readingIsMagic from '@posthog/brand/hoggies/png/reading-is-magic'
 import * as reporter from '@posthog/brand/hoggies/png/reporter'
 import * as robot from '@posthog/brand/hoggies/png/robot'
+import * as trafficController from '@posthog/brand/hoggies/png/traffic-controller'
 import {
     IconBolt,
     IconBuilding,
@@ -38,7 +41,6 @@ import {
 } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { ExplorerHog, FeatureFlagHog, MailHog } from 'lib/components/hedgehogs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -49,10 +51,13 @@ const HedgehogChart = pngHoggie(chart)
 const HedgehogConstruction = pngHoggie(construction)
 const HedgehogDirector = pngHoggie(director)
 const HedgehogExperiment = pngHoggie(experiment)
+const HedgehogExplorer = pngHoggie(explorerPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
+const HedgehogMailbox = pngHoggie(mailboxPng)
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagic)
 const HedgehogReporter = pngHoggie(reporter)
 const HedgehogRobot = pngHoggie(robot)
+const HedgehogTrafficController = pngHoggie(trafficController)
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?: string }>> = {
     IconBolt,
@@ -151,7 +156,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Page performance metrics', problem: 'Find slow pages that hurt conversion' },
             { title: 'Conversion funnels', problem: 'See where visitors leave before converting' },
         ],
-        hedgehog: ExplorerHog,
+        hedgehog: HedgehogExplorer,
         icon: 'IconPieChart',
         iconColor: 'rgb(54 196 111)',
         url: urls.webAnalytics(),
@@ -223,7 +228,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Release conditions', problem: 'Control who sees what based on properties or cohorts' },
             { title: 'Multivariate flags', problem: 'Test multiple variants without redeploying' },
         ],
-        hedgehog: FeatureFlagHog,
+        hedgehog: HedgehogTrafficController,
         icon: 'IconToggle',
         iconColor: 'rgb(48 171 198)',
         breadcrumbsName: 'Feature Flags',
@@ -296,7 +301,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Custom logic', problem: 'Build multi-step automations without a separate tool' },
             { title: 'Marketing Campaigns', problem: 'Send email campaigns on demand' },
         ],
-        hedgehog: MailHog,
+        hedgehog: HedgehogMailbox,
         icon: 'IconGear',
         iconColor: 'var(--color-product-workflows-light)',
         url: urls.workflows(),
@@ -351,7 +356,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         hedgehog: HedgehogRobot,
         icon: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
-        url: urls.mcpAnalyticsDashboard(),
+        url: urls.mcpAnalytics(),
         scene: Scene.MCPAnalytics,
         setupEffort: 'low',
     },

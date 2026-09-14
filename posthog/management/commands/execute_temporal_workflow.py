@@ -22,7 +22,6 @@ from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRIC
 from posthog.temporal.session_replay.delete_recordings import DELETE_RECORDINGS_WORKFLOWS
 from posthog.temporal.session_replay.enforce_max_replay_retention import ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
 from posthog.temporal.session_replay.rasterize_recording import RASTERIZE_RECORDING_WORKFLOWS
-from posthog.temporal.session_replay.summarization_sweep import SUMMARIZATION_SWEEP_WORKFLOWS
 from posthog.temporal.session_replay.surfacing_scoring_sweep import SURFACING_SCORING_SWEEP_WORKFLOWS
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
@@ -156,7 +155,6 @@ class Command(BaseCommand):
             + EVENT_SCREENSHOTS_WORKFLOWS
             + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
             + RASTERIZE_RECORDING_WORKFLOWS
-            + SUMMARIZATION_SWEEP_WORKFLOWS
             + WA_DIGEST_WORKFLOWS
             + ERROR_TRACKING_WORKFLOWS
             + SURFACING_SCORING_SWEEP_WORKFLOWS

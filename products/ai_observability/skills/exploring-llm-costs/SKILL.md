@@ -31,6 +31,7 @@ regression debugging, and materializing results as insights, dashboards, or aler
 | `posthog:insight-create`        | Materialize a cost chart as a saved insight                         |
 | `posthog:dashboard-create`      | Bundle cost insights into a dashboard                               |
 | `posthog:alert-create`          | Alert when cost crosses a threshold                                 |
+| `posthog:generate-app-url`      | Build region- and project-qualified links back to the UI            |
 
 ## Core rules
 
@@ -116,11 +117,25 @@ and `posthog:alert-create`.
 
 ## Constructing UI links
 
-- **Dashboard**: `https://app.posthog.com/ai-observability/dashboard`
-- **Traces list** (sort by cost): `https://app.posthog.com/ai-observability/traces`
-- **Generations list**: `https://app.posthog.com/ai-observability/generations`
-- **Users list** (per-user cost): `https://app.posthog.com/ai-observability/users`
-- **Single trace**: `https://app.posthog.com/ai-observability/traces/<trace_id>?timestamp=<url_encoded_iso>`
+Never hand-write `https://app.posthog.com/...` links. That host drops the region and the
+project prefix, so the user is redirected to login instead of the page you meant.
+
+- **Prefer the canonical URL the tool returns.** `query-llm-traces-list` and `query-llm-trace`
+  return `_posthogUrl` — surface that value. For a single trace, append
+  `?timestamp=<url_encoded_iso>` (the trace's earliest event time) to that URL; the returned link
+  carries no timestamp, and without one the trace page scans from a fixed early date instead of
+  the ten-minute window around the trace.
+- **Otherwise build the link with `generate-app-url`.** It resolves the correct region host and
+  `/project/<id>/` prefix (e.g. `https://us.posthog.com/project/2/ai-observability/traces`). Pass
+  concrete ids via `params`, never inline them into the path.
+  - **Dashboard**: `generate-app-url {url: "/ai-observability/dashboard"}`
+  - **Traces list** (sort by cost): `generate-app-url {url: "/ai-observability/traces"}`
+  - **Generations list**: `generate-app-url {url: "/ai-observability/generations"}`
+  - **Users list** (per-user cost): `generate-app-url {url: "/ai-observability/users"}`
+  - **Single trace**: `generate-app-url {url: "/ai-observability/traces/{id}", params: {id: "<trace_id>"}}`
+
+`generate-app-url` cannot express query params, so append the `?timestamp=<url_encoded_iso>`
+described above to a single-trace link yourself.
 
 Always surface a UI link so the user can verify visually.
 

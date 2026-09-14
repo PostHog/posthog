@@ -12,12 +12,7 @@ const DEFAULT_FLUSH_INTERVAL_MS = 2000;
 export type AttributeValue = string | number | boolean;
 export type Attributes = Record<string, AttributeValue>;
 
-export {
-  DEFAULT_FLUSH_INTERVAL_MS,
-  EXPORT_TIMEOUT_MS,
-  MAX_ATTR_CHARS,
-  MAX_BODY_CHARS,
-};
+export { DEFAULT_FLUSH_INTERVAL_MS, EXPORT_TIMEOUT_MS, MAX_BODY_CHARS };
 
 /**
  * extNotification() can double-prefix custom methods (see matchesExt in

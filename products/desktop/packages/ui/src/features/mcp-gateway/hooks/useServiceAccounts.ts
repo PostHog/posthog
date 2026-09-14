@@ -1,4 +1,5 @@
 import type {
+  McpAgentGrantScope,
   McpGatewayServer,
   McpGatewayUser,
   McpServiceAccount,
@@ -15,6 +16,10 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /** Project the current-user shape onto the UserBasic fields the gateway serves. */
 function toGatewayUser(user: {
   id: number;
@@ -24,7 +29,7 @@ function toGatewayUser(user: {
   last_name?: string;
   email: string;
   is_email_verified: boolean | null;
-  hedgehog_config?: McpGatewayUser["hedgehog_config"];
+  hedgehog_config?: unknown;
   role_at_organization?: McpGatewayUser["role_at_organization"];
 }): McpGatewayUser {
   return {
@@ -35,7 +40,9 @@ function toGatewayUser(user: {
     last_name: user.last_name,
     email: user.email,
     is_email_verified: user.is_email_verified,
-    hedgehog_config: user.hedgehog_config ?? null,
+    hedgehog_config: isRecord(user.hedgehog_config)
+      ? user.hedgehog_config
+      : null,
     role_at_organization: user.role_at_organization,
   };
 }
@@ -120,6 +127,8 @@ export function useServiceAccounts() {
         accountId: string;
         serverId: string;
         enabled: boolean;
+        /** Reach of the caller's own share; defaults to personal. */
+        scope?: McpAgentGrantScope;
         policies?: McpToolPolicyEntry[];
         /** Toast copy, e.g. "Support can now use Linear". */
         successMessage?: string;
@@ -128,14 +137,15 @@ export function useServiceAccounts() {
       client.setMcpServiceAccountAccess(vars.accountId, {
         gateway_server_id: vars.serverId,
         enabled: vars.enabled,
+        // Always sent on enable: an omitted scope makes the server reset an
+        // existing team share back to personal.
+        ...(vars.enabled ? { scope: vars.scope ?? "personal" } : {}),
         ...(vars.policies ? { policies: vars.policies } : {}),
       }),
     {
       onSuccess: (account, vars) => {
         // The response is the updated account, so keep both access views in
         // sync without racing it against a potentially stale list refetch.
-        // The backend stamps `granted_by` with the requesting user on every
-        // enable, so mirror that with the current user here.
         queryClient.setQueryData<McpServiceAccount[]>(
           gatewayKeys.accounts,
           (current) =>
@@ -143,37 +153,46 @@ export function useServiceAccounts() {
               entry.id === account.id ? account : entry,
             ),
         );
-        queryClient.setQueryData<McpGatewayServer[]>(
-          gatewayKeys.servers,
-          (current) =>
-            current?.map((server) => {
-              if (server.id !== vars.serverId) return server;
-              const currentAccess = server.agents.find(
-                (agent) => agent.service_account_id === account.id,
-              );
-              const withoutAccount = server.agents.filter(
-                (agent) => agent.service_account_id !== account.id,
-              );
-              return {
-                ...server,
-                agents: vars.enabled
-                  ? [
-                      ...withoutAccount,
-                      {
-                        service_account_id: account.id,
-                        name: account.name,
-                        handle: account.handle,
-                        status: account.status,
-                        last_active_at: account.last_active_at,
-                        granted_by: currentUser
-                          ? toGatewayUser(currentUser)
-                          : (currentAccess?.granted_by ?? null),
-                      },
-                    ]
-                  : withoutAccount,
-              };
-            }),
-        );
+        const you = currentUser ? toGatewayUser(currentUser) : null;
+        if (you) {
+          // Only the caller's own share changes; teammates' rows for the
+          // same agent stay. The backend stamps the requesting user as both
+          // credential owner and grantor on every enable.
+          queryClient.setQueryData<McpGatewayServer[]>(
+            gatewayKeys.servers,
+            (current) =>
+              current?.map((server) => {
+                if (server.id !== vars.serverId) return server;
+                const withoutYourShare = server.agents.filter(
+                  (agent) =>
+                    agent.service_account_id !== account.id ||
+                    agent.user.id !== you.id,
+                );
+                return {
+                  ...server,
+                  agents: vars.enabled
+                    ? [
+                        ...withoutYourShare,
+                        {
+                          service_account_id: account.id,
+                          user: you,
+                          scope: vars.scope ?? "personal",
+                          name: account.name,
+                          handle: account.handle,
+                          status: account.status,
+                          last_active_at: account.last_active_at,
+                          granted_by: you,
+                        },
+                      ]
+                    : withoutYourShare,
+                };
+              }),
+          );
+        } else {
+          // Without the session user there is no telling which share row is
+          // the caller's, so refetch instead of guessing.
+          queryClient.invalidateQueries({ queryKey: gatewayKeys.servers });
+        }
         if (vars.successMessage) {
           if (vars.enabled) toast.success(vars.successMessage);
           else toast.info(vars.successMessage);

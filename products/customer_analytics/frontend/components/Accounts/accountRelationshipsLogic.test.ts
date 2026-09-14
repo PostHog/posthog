@@ -1,8 +1,13 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import type { UserBasicType } from '~/types'
+import type { TeamPublicType, UserBasicType } from '~/types'
 
 import type {
     AccountRelationshipApi,
@@ -12,6 +17,7 @@ import type {
 import { accountRelationshipsLogic } from './accountRelationshipsLogic'
 
 const RELATIONSHIPS_URL = '/api/projects/:team_id/accounts/:account_id/relationships/'
+const RELATIONSHIP_URL = '/api/projects/:team_id/accounts/:account_id/relationships/:id/'
 
 const CSM: AccountRelationshipDefinitionApi = { id: 'def-1', name: 'CSM', description: null, is_single_holder: true }
 const AE: AccountRelationshipDefinitionApi = {
@@ -70,6 +76,19 @@ describe('accountRelationshipsLogic', () => {
         ])
     })
 
+    it.each([
+        [OrganizationMembershipLevel.Admin, true],
+        [OrganizationMembershipLevel.Member, false],
+    ])('allows membership level %s to delete assignments: %s', async (membershipLevel, expected) => {
+        await expectLogic(logic).toDispatchActions(['loadRelationshipsSuccess'])
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            effective_membership_level: membershipLevel,
+        } as TeamPublicType)
+
+        expect(logic.values.canDeleteRelationships).toBe(expected)
+    })
+
     it('assigning posts the definition and user, then reloads the timeline', async () => {
         let postedBody: Record<string, unknown> | null = null
         useMocks({
@@ -91,5 +110,22 @@ describe('accountRelationshipsLogic', () => {
             'relationshipSaveFinished',
         ])
         expect(postedBody).toEqual({ definition: AE.id, user: 7 })
+    })
+
+    it('deletes an assignment and closes the confirmation', async () => {
+        const relationship = buildRelationship()
+        useMocks({ delete: { [RELATIONSHIP_URL]: {} } })
+        await expectLogic(logic).toDispatchActions(['loadRelationshipsSuccess'])
+
+        logic.actions.openDeleteConfirmation(relationship)
+        logic.actions.deleteRelationship(relationship)
+        await expectLogic(logic).toDispatchActions([
+            'relationshipSaveStarted',
+            'closeDeleteConfirmation',
+            'loadRelationships',
+            'relationshipSaveFinished',
+        ])
+
+        expect(logic.values.relationshipToDelete).toBeNull()
     })
 })

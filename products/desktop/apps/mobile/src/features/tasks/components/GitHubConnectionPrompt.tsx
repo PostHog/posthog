@@ -13,14 +13,6 @@ interface GitHubConnectionPromptProps {
   mode?: "card" | "empty";
   title?: string;
   description?: string;
-  /**
-   * Which GitHub integration to create:
-   * - `"user"` (default): the per-user flow (matches desktop) for interactive
-   *   task creation — detected via `/api/users/@me/integrations/`.
-   * - `"team"`: the environment-level flow for automations, which run
-   *   server-side and need a team integration.
-   */
-  scope?: "user" | "team";
 }
 
 export function GitHubConnectionPrompt({
@@ -28,9 +20,8 @@ export function GitHubConnectionPrompt({
   mode = "card",
   title = "Connect GitHub to continue",
   description = "You need to connect your GitHub account before using this workflow.",
-  scope = "user",
 }: GitHubConnectionPromptProps) {
-  const { cloudRegion, projectId, getCloudUrlFromRegion } = useAuthStore();
+  const { cloudRegion, projectId } = useAuthStore();
   const themeColors = useThemeColors();
 
   const handleConnectGitHub = async () => {
@@ -38,24 +29,17 @@ export function GitHubConnectionPrompt({
       return;
     }
 
+    // Per-user flow (like desktop): the backend picks the right GitHub flow
+    // and, because we pass `connect_from: "posthog_mobile"`, redirects the
+    // callback to `posthog://github/callback` so this in-app browser closes.
     let authorizeUrl: string;
-    if (scope === "user") {
-      // Per-user flow (like desktop): the backend picks the right GitHub flow
-      // and, because we pass `connect_from: "posthog_mobile"`, redirects the
-      // callback to `posthog://github/callback` so this in-app browser closes.
-      try {
-        const { install_url } =
-          await getPostHogApiClient().startGithubUserIntegrationConnect();
-        authorizeUrl = install_url;
-      } catch (error) {
-        log.error("Failed to start GitHub connection", { error });
-        return;
-      }
-    } else {
-      // Team/environment flow for automations: creates an environment-scoped
-      // integration that `useIntegrations` detects.
-      const baseUrl = getCloudUrlFromRegion(cloudRegion);
-      authorizeUrl = `${baseUrl}/api/environments/${projectId}/integrations/authorize/?kind=github`;
+    try {
+      const { install_url } =
+        await getPostHogApiClient().startGithubUserIntegrationConnect();
+      authorizeUrl = install_url;
+    } catch (error) {
+      log.error("Failed to start GitHub connection", { error });
+      return;
     }
 
     const result = await WebBrowser.openAuthSessionAsync(

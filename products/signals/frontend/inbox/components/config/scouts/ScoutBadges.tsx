@@ -76,7 +76,7 @@ export function ScoutOriginBadge({ origin }: { origin: ScoutOriginEnumApi }): JS
             title={
                 origin === 'canonical'
                     ? 'Part of the standard scout troop built and maintained by PostHog'
-                    : 'A scout your team created as a signals-scout-* skill in this project'
+                    : 'A scout your team created as a skill in this project'
             }
         >
             <LemonTag type={origin === 'canonical' ? 'muted' : 'highlight'} size="small">
@@ -90,6 +90,39 @@ export function ScoutTagBadge({ tag }: { tag: string }): JSX.Element {
     return (
         <LemonTag type="highlight" size="small">
             {tag}
+        </LemonTag>
+    )
+}
+
+/** Where a scout stands right now, in one tag. Used on the scout page header and its settings modal. */
+export function ScoutStatusTag({ config }: { config: SignalScoutConfig }): JSX.Element {
+    if (config.status === 'paused_by_system') {
+        return (
+            <LemonTag type="danger" size="small">
+                Paused by the system
+            </LemonTag>
+        )
+    }
+    if (config.status === 'pending_pause') {
+        return (
+            <LemonTag type="warning" size="small">
+                {config.pause_reason === 'ignored' ? 'Pausing soon' : 'Warned'}
+            </LemonTag>
+        )
+    }
+    if (!config.enabled) {
+        return <LemonTag size="small">Off</LemonTag>
+    }
+    if (!config.emit) {
+        return (
+            <LemonTag type="option" size="small">
+                Dry run
+            </LemonTag>
+        )
+    }
+    return (
+        <LemonTag type="success" size="small">
+            On patrol
         </LemonTag>
     )
 }

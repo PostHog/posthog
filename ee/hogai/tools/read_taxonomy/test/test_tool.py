@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.event_usage import EventSource
+
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -110,7 +112,9 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
         result = execute_taxonomy_query(ReadEvents(), mock_toolkit_class.return_value, self.team, self.user)
 
         self.assertIn("events:", result)
-        mock_format_events.assert_called_once_with([], self.team, self.user, limit=500, offset=0)
+        mock_format_events.assert_called_once_with(
+            [], self.team, self.user, limit=500, offset=0, event_source=EventSource.POSTHOG_AI
+        )
 
     @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
     def test_person_entity_properties_include_dynamic_hint(self, mock_toolkit_class):

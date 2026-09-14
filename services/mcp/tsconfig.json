@@ -26,6 +26,8 @@
             "@posthog/mcp-ui/*": ["./src/ui-apps/lib/*"],
             "@posthog/quill": ["../../packages/quill/packages/quill/dist/index.d.ts"],
             "@posthog/quill-charts": ["../../packages/quill/packages/charts/dist/index.d.ts"],
+            "@posthog/llm-normalizer": ["../../packages/llm-normalizer/src/index.ts"],
+            "@posthog/llm-normalizer/*": ["../../packages/llm-normalizer/src/*"],
             "lucide-react": ["./node_modules/lucide-react"],
             "@common/*": ["../../common/*"]
         }

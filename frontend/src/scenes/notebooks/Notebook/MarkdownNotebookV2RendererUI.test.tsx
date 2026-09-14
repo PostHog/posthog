@@ -54,8 +54,8 @@ describe('MarkdownNotebookV2Renderer UI', () => {
     beforeEach(async () => {
         localStorage.clear()
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.NOTEBOOK_PYTHON], {
-            [FEATURE_FLAGS.NOTEBOOK_PYTHON]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS], {
+            [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true,
         })
         jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
 
@@ -128,6 +128,21 @@ describe('MarkdownNotebookV2Renderer UI', () => {
 
         expect(notebookElement?.classList.contains('Notebook--compact')).toBe(true)
         expect(notebookElement?.classList.contains('Notebook--expanded')).toBe(false)
+    })
+
+    it('puts the variables bar in the notebook column, above the blocks', () => {
+        // The bar takes its width from the column it sits in. Rendered anywhere else it either
+        // disappears from the notebook or stops lining up with the blocks below it.
+        act(() => {
+            settingsLogic.actions.setShowVariables(true)
+        })
+
+        const { container } = render(<Notebook shortId={SHORT_ID} mode="notebook" cachedNotebook={cachedNotebook} />)
+        const header = container.querySelector('.MarkdownNotebook__canvas-header')
+        const canvas = container.querySelector('.MarkdownNotebook__canvas')
+
+        expect(header?.querySelector('.NotebookVariables')).toBeInstanceOf(HTMLElement)
+        expect(header?.compareDocumentPosition(canvas as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     })
 
     it('collapses markdown content width', () => {

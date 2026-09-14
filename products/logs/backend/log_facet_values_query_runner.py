@@ -195,7 +195,7 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         # grouping the logs Map column, which reads the whole attribute column and blows past the
         # read cap at scale. The rollup carries severity_text and service_name, so severity levels,
         # service_name and resource-attribute filters re-scope the counts; body-search, log-attribute
-        # filters and personId scoping still aren't in the rollup.
+        # filters and personId / sessionId scoping still aren't in the rollup.
         date_range = self._attributes_query_date_range
         where_exprs: list[ast.Expr] = []
         if self.query.serviceNames:
@@ -227,6 +227,10 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
             date_range,
             exclude_resource_attribute=facet.key if facet.attribute_type == "resource" else None,
         )
+        # Level and service also arrive as `log` filters in filterGroup, which is where the viewer
+        # keeps a facet selection. Nothing is stripped here: an attribute facet never owns a column,
+        # and a column facet is served by _column_facet_query, which passes exclude_facet_field.
+        where_exprs.extend(filter_builder.column_filter_exprs())
         where_exprs.append(filter_builder.resource_filter(existing_filters=where_exprs))
 
         query = parse_select(

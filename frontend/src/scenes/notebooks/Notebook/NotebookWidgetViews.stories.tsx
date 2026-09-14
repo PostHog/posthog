@@ -51,7 +51,7 @@ const RECORDING_ID = String(recordings[0].id)
 const PLAYLIST_ID = 'widget-playlist'
 const PERSON_ID = '0198a76b-7d8b-7000-8fb2-a6f4d27b0811'
 const GROUP_KEY = 'example-company'
-const ERROR_TRACKING_ISSUE_ID = 'widget-issue'
+const ERROR_TRACKING_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
 const LLM_TRACE_ID = traceWithoutContent.id
 const DASHBOARD_ID = 5
 const ACTION_ID = 123
@@ -333,6 +333,12 @@ const meta: Meta = {
                 [`/api/projects/:team_id/feature_flags/${FEATURE_FLAG_ID}/status`]: {
                     status: 'active',
                     reason: 'Feature flag is active',
+                    rollout: {
+                        effectively_full_rollout: false,
+                        has_targeting_conditions: false,
+                        max_rollout_percentage: 50,
+                        is_multivariate: false,
+                    },
                 },
                 [`/api/projects/:team_id/surveys/${SURVEY_ID}/`]: survey,
                 '/api/projects/:team_id/surveys/responses_count/': { [SURVEY_ID]: 42 },

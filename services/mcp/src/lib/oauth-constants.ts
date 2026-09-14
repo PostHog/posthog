@@ -7,6 +7,9 @@ import type { CloudRegion } from '@/tools/types'
 
 import packageJson from '../../package.json'
 
+// posthog/auth.py mirrors the "posthog/mcp-server" prefix as MCP_USER_AGENT_MARKER.
+// PostHog matches it to apply the org-level MCP read-only policy. If the prefix
+// changes, the policy stops matching MCP traffic. Change both sides together.
 export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
 
 export interface GetUserAgentOptions {
@@ -86,7 +89,23 @@ export const isCloudApi = (): boolean => {
 
 export const isLocalApi = (): boolean => !!getCustomApiBaseUrl()?.includes('localhost')
 
+const isCloudHost = (url: string): boolean => {
+    try {
+        return CLOUD_HOSTS.has(new URL(url).hostname)
+    } catch {
+        return false
+    }
+}
+
 export const resolveAuthorizationServerUrl = (): string => {
+    // Every k8s deployment shares a cluster-internal `POSTHOG_API_BASE_URL` that a browser
+    // cannot reach, so it cannot double as the authorization server. Cloud sends clients to
+    // the region proxy, which only knows US and EU. Non-cloud environments (dev) authorize
+    // against their own public instance instead, named by `POSTHOG_PUBLIC_URL`.
+    const publicUrl = env.POSTHOG_PUBLIC_URL
+    if (publicUrl && !isCloudHost(publicUrl)) {
+        return publicUrl
+    }
     if (isCloudApi()) {
         return OAUTH_PROXY_URL
     }

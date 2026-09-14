@@ -11,9 +11,13 @@ export const sandboxEnvKeys = {
 export function useSandboxEnvironments() {
   const queryClient = useQueryClient();
 
-  const { data: environments, isLoading } = useAuthenticatedQuery(
-    sandboxEnvKeys.list,
-    (client) => client.listSandboxEnvironments(),
+  const {
+    data: environments,
+    isLoading,
+    isError,
+    refetch,
+  } = useAuthenticatedQuery(sandboxEnvKeys.list, (client) =>
+    client.listSandboxEnvironments(),
   );
 
   const createMutation = useAuthenticatedMutation(
@@ -62,6 +66,8 @@ export function useSandboxEnvironments() {
   return {
     environments: environments ?? [],
     isLoading,
+    isError,
+    refetch,
     createMutation,
     updateMutation,
     deleteMutation,

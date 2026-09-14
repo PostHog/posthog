@@ -53,6 +53,8 @@ CAMPAIGN_MONITOR_ENDPOINTS: dict[str, CampaignMonitorEndpointConfig] = {
         name="campaigns",
         path="clients/{client_id}/campaigns.json",
         primary_keys=["CampaignID"],
+        # Sent campaigns come back in the paged envelope, unlike the draft/scheduled endpoints.
+        paginated=True,
         partition_key="SentDate",
     ),
     "scheduled_campaigns": CampaignMonitorEndpointConfig(

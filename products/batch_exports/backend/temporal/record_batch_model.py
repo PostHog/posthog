@@ -25,7 +25,11 @@ from products.batch_exports.backend.hogql_source import (
 )
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.metrics import log_query_duration
-from products.batch_exports.backend.temporal.sql.common import HogQLQueryBatchExportSettings, get_s3_function_call
+from products.batch_exports.backend.temporal.sql.common import (
+    BatchExportQuerySettings,
+    get_s3_function_call,
+    get_user_hogql_batch_export_query_settings,
+)
 from products.batch_exports.backend.temporal.sql.sessions import SELECT_FROM_SESSIONS_HOGQL, SESSIONS_LOOKBACK_DAYS
 
 LOGGER = get_write_only_logger()
@@ -279,7 +283,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
             where=where_and,
-            settings=HogQLQueryBatchExportSettings(),
+            settings=BatchExportQuerySettings(),
         )
 
     async def get_backfill_info(
@@ -372,11 +376,20 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         """
         return parse_hogql_select_for_batch_export(self.hogql_query)
 
+    def get_count_hogql_query(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    ) -> ast.SelectQuery:
+        """Return a HogQL query counting the rows this model would export."""
+        return ast.SelectQuery(
+            select=[parse_expr("count() AS count")],
+            select_from=ast.JoinExpr(table=self.get_hogql_query(data_interval_start, data_interval_end)),
+        )
+
     def get_clickhouse_request_settings(self) -> dict[str, str]:
         # Sent with the request instead of set on the query AST, because the user query may
         # not parse to a simple `ast.SelectQuery` (e.g. a UNION parses to an
         # `ast.SelectSetQuery`, which has no `settings` field to attach these to).
-        return _as_clickhouse_request_settings(HogQLQueryBatchExportSettings())
+        return _as_clickhouse_request_settings(get_user_hogql_batch_export_query_settings())
 
 
 def resolve_batch_exports_model(

@@ -11,6 +11,11 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     category=["Advertisement"],
     code_language="hog",
     code="""
+if (empty(inputs.email)) {
+    print('No email set. Skipping...')
+    return
+}
+
 let body := {
     'data': {
         'values': {

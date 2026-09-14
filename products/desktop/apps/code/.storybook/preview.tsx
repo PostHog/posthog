@@ -1,4 +1,5 @@
 import "./mocks/electron-trpc";
+import "./mocks/renderer-storage";
 import { Theme } from "@radix-ui/themes";
 import "@radix-ui/themes/styles.css";
 import type { Preview } from "@storybook/react-vite";
@@ -39,6 +40,11 @@ const preview: Preview = {
     withAppProviders,
     (Story, context) => {
       const isDark = context.globals.theme !== "light";
+      // The app's themeStore puts this on the document, and quill's tokens hang
+      // off it. Anything portaled out of the story root (a popover, a dropdown)
+      // reads the document rather than the Theme below it, so without this a
+      // dark story opens a light popup.
+      document.documentElement.classList.toggle("dark", isDark);
       // Mirror the app's ThemeWrapper (packages/ui/src/primitives/ThemeWrapper.tsx)
       // so stories render with the shipped radius and accent colors.
       return (

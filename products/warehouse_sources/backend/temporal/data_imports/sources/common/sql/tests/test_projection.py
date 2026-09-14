@@ -15,12 +15,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     InvalidIdentifierError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    PrunedColumns,
     compute_projected_columns,
     filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns,
     format_projected_select_clause,
     project_arrow_columns,
     prune_enabled_columns,
+    resolve_table_projection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.types import Column, Table
 
@@ -78,6 +80,34 @@ class TestComputeProjectedColumns:
         expected: list[str] | None,
     ) -> None:
         assert compute_projected_columns(enabled_columns, primary_keys, incremental_field) == expected
+
+
+class TestResolveTableProjection:
+    @parameterized.expand(
+        [
+            ("sync_all_names_the_catalog", None, None, ["id", "email", "secret"], ["id", "email", "secret"]),
+            ("sync_all_without_a_catalog_keeps_star", None, [], None, ["id", "email", "secret"]),
+            ("explicit_selection_is_not_widened", ["email"], None, ["email"], ["id", "email"]),
+            ("empty_selection_keeps_the_primary_key", [], None, [], ["id"]),
+            ("available_columns_replace_the_catalog", None, ["id", "email"], ["id", "email"], ["id", "email"]),
+        ]
+    )
+    def test_resolve_table_projection(
+        self,
+        _name: str,
+        enabled_columns: list[str] | None,
+        available_columns: list[str] | None,
+        expected_enabled: list[str] | None,
+        expected_table: list[str],
+    ) -> None:
+        projection = resolve_table_projection(
+            _table_with("id", "email", "secret"),
+            enabled_columns=enabled_columns,
+            primary_keys=["id"],
+            available_columns=available_columns,
+        )
+        assert projection.enabled_columns == expected_enabled
+        assert [column.name for column in projection.table.columns] == expected_table
 
 
 class TestFormatProjectedSelectClause:
@@ -205,24 +235,24 @@ class TestFilterDwhColumnsByEnabledColumns:
 
 class TestPruneEnabledColumns:
     def test_none_passes_through(self) -> None:
-        assert prune_enabled_columns(None, {"id", "email"}) == (None, [])
+        assert prune_enabled_columns(None, {"id", "email"}) == PrunedColumns(kept=None, removed=[])
 
     def test_drops_missing_columns(self) -> None:
-        kept, removed = prune_enabled_columns(["id", "email", "ghost"], {"id", "email"})
-        assert kept == ["id", "email"]
-        assert removed == ["ghost"]
+        pruned = prune_enabled_columns(["id", "email", "ghost"], {"id", "email"})
+        assert pruned.kept == ["id", "email"]
+        assert pruned.removed == ["ghost"]
 
     def test_empty_list_passes_through(self) -> None:
-        assert prune_enabled_columns([], {"id", "email"}) == ([], [])
+        assert prune_enabled_columns([], {"id", "email"}) == PrunedColumns(kept=[], removed=[])
 
     def test_all_kept_when_all_present(self) -> None:
-        kept, removed = prune_enabled_columns(["id", "email"], {"id", "email", "name"})
-        assert kept == ["id", "email"]
-        assert removed == []
+        pruned = prune_enabled_columns(["id", "email"], {"id", "email", "name"})
+        assert pruned.kept == ["id", "email"]
+        assert pruned.removed == []
 
     def test_preserves_caller_order(self) -> None:
-        kept, _ = prune_enabled_columns(["email", "id", "name"], {"id", "email", "name"})
-        assert kept == ["email", "id", "name"]
+        pruned = prune_enabled_columns(["email", "id", "name"], {"id", "email", "name"})
+        assert pruned.kept == ["email", "id", "name"]
 
 
 class TestProjectArrowColumns:

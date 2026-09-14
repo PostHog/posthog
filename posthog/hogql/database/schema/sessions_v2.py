@@ -18,7 +18,12 @@ from posthog.hogql.database.models import (
     Table,
 )
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES, ChannelTypeExprs, create_channel_type_expr
-from posthog.hogql.database.schema.sessions_v1 import DEFAULT_BOUNCE_RATE_DURATION_SECONDS, null_if_empty
+from posthog.hogql.database.schema.sessions_v1 import (
+    DEFAULT_BOUNCE_RATE_DURATION_SECONDS,
+    finalize_aggregation,
+    null_if_empty,
+    select_session_property_values,
+)
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     SessionMinTimestampWhereClauseExtractorV2,
     build_session_id_literal_pushdown_predicate,
@@ -27,10 +32,10 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
 )
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import clone_expr
 
-from posthog.queries.insight import insight_sync_execute
-from posthog.schema_enums import BounceRatePageViewMode, SessionsV2JoinMode
+from posthog.schema_enums import BounceRatePageViewMode, SessionsV2JoinMode, SessionTableVersion
 
 if TYPE_CHECKING:
     from posthog.schema import CustomChannelRule
@@ -136,7 +141,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "duration": IntegerDatabaseField(
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
-    "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
+    "$is_bounce": BooleanDatabaseField(name="$is_bounce", nullable=True),
     "$last_external_click_url": StringDatabaseField(name="$last_external_click_url"),
     "$page_screen_autocapture_count_up_to": DatabaseField(name="$$page_screen_autocapture_count_up_to"),
     # some aliases for people upgrading from v1 to v2
@@ -777,44 +782,38 @@ def get_lazy_session_table_properties_v2(search: Optional[str]):
 
 
 # NOTE: Keep the AD IDs in sync with `products.web_analytics.backend.hogql_queries.session_attribution_explorer_query_runner.py`
-SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
-    "$entry_referring_domain": "finalizeAggregation(initial_referring_domain)",
-    "$entry_utm_source": "finalizeAggregation(initial_utm_source)",
-    "$entry_utm_campaign": "finalizeAggregation(initial_utm_campaign)",
-    "$entry_utm_medium": "finalizeAggregation(initial_utm_medium)",
-    "$entry_utm_term": "finalizeAggregation(initial_utm_term)",
-    "$entry_utm_content": "finalizeAggregation(initial_utm_content)",
-    "$entry_gclid": "finalizeAggregation(initial_gclid)",
-    "$entry_gad_source": "finalizeAggregation(initial_gad_source)",
-    "$entry_gclsrc": "finalizeAggregation(initial_gclsrc)",
-    "$entry_dclid": "finalizeAggregation(initial_dclid)",
-    "$entry_gbraid": "finalizeAggregation(initial_gbraid)",
-    "$entry_wbraid": "finalizeAggregation(initial_wbraid)",
-    "$entry_fbclid": "finalizeAggregation(initial_fbclid)",
-    "$entry_msclkid": "finalizeAggregation(initial_msclkid)",
-    "$entry_twclid": "finalizeAggregation(initial_twclid)",
-    "$entry_li_fat_id": "finalizeAggregation(initial_li_fat_id)",
-    "$entry_mc_cid": "finalizeAggregation(initial_mc_cid)",
-    "$entry_igshid": "finalizeAggregation(initial_igshid)",
-    "$entry_ttclid": "finalizeAggregation(initial_ttclid)",
-    "$entry__kx": "finalizeAggregation(initial__kx)",
-    "$entry_irclid": "finalizeAggregation(initial_irclid)",
-    "$entry_pathname": "path(finalizeAggregation(entry_url))",
-    "$entry_current_url": "finalizeAggregation(entry_url)",
-    "$end_current_url": "finalizeAggregation(end_url)",
-    "$end_pathname": "path(finalizeAggregation(end_url))",
-    "$last_external_click_url": "finalizeAggregation(last_external_click_url)",
-    "$vitals_lcp": "finalizeAggregation(vitals_lcp)",
+SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR: dict[str, ast.Expr] = {
+    "$entry_referring_domain": finalize_aggregation("initial_referring_domain"),
+    "$entry_utm_source": finalize_aggregation("initial_utm_source"),
+    "$entry_utm_campaign": finalize_aggregation("initial_utm_campaign"),
+    "$entry_utm_medium": finalize_aggregation("initial_utm_medium"),
+    "$entry_utm_term": finalize_aggregation("initial_utm_term"),
+    "$entry_utm_content": finalize_aggregation("initial_utm_content"),
+    "$entry_gclid": finalize_aggregation("initial_gclid"),
+    "$entry_gad_source": finalize_aggregation("initial_gad_source"),
+    "$entry_gclsrc": finalize_aggregation("initial_gclsrc"),
+    "$entry_dclid": finalize_aggregation("initial_dclid"),
+    "$entry_gbraid": finalize_aggregation("initial_gbraid"),
+    "$entry_wbraid": finalize_aggregation("initial_wbraid"),
+    "$entry_fbclid": finalize_aggregation("initial_fbclid"),
+    "$entry_msclkid": finalize_aggregation("initial_msclkid"),
+    "$entry_twclid": finalize_aggregation("initial_twclid"),
+    "$entry_li_fat_id": finalize_aggregation("initial_li_fat_id"),
+    "$entry_mc_cid": finalize_aggregation("initial_mc_cid"),
+    "$entry_igshid": finalize_aggregation("initial_igshid"),
+    "$entry_ttclid": finalize_aggregation("initial_ttclid"),
+    "$entry__kx": finalize_aggregation("initial__kx"),
+    "$entry_irclid": finalize_aggregation("initial_irclid"),
+    "$entry_pathname": ast.Call(name="path", args=[finalize_aggregation("entry_url")]),
+    "$entry_current_url": finalize_aggregation("entry_url"),
+    "$end_current_url": finalize_aggregation("end_url"),
+    "$end_pathname": ast.Call(name="path", args=[finalize_aggregation("end_url")]),
+    "$last_external_click_url": finalize_aggregation("last_external_click_url"),
+    "$vitals_lcp": finalize_aggregation("vitals_lcp"),
 }
 
 
 def get_lazy_session_table_values_v2(key: str, search_term: Optional[str], team: "Team"):
-    # lazy import keeps the raw-sessions SQL module (Django ORM) off this module's import path
-    from posthog.models.raw_sessions.sessions_v2 import (  # noqa: PLC0415
-        RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL,
-        RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
-    )
-
     # the sessions table does not have a properties json object like the events and person tables
 
     if key == "$channel_type":
@@ -835,23 +834,21 @@ def get_lazy_session_table_values_v2(key: str, search_term: Optional[str], team:
         return []
 
     if isinstance(field_definition, StringDatabaseField):
-        expr = SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP.get(key)
+        value_expr = SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR.get(key)
 
-        if not expr:
+        if value_expr is None:
             return []
 
-        if search_term:
-            return insight_sync_execute(
-                RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER.format(property_expr=expr),
-                {"team_id": team.pk, "key": key, "value": "%{}%".format(search_term)},
-                query_type="get_session_property_values_with_value",
-                team_id=team.pk,
-            )
-        return insight_sync_execute(
-            RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL.format(property_expr=expr),
-            {"team_id": team.pk, "key": key},
-            query_type="get_session_property_values",
-            team_id=team.pk,
+        return select_session_property_values(
+            team,
+            session_table_version=SessionTableVersion.V2,
+            table="raw_sessions",
+            value_expr=value_expr,
+            order_by="session_id_v7",
+            search_term=search_term,
+            recent_sessions_only=parse_expr(
+                "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(session_id_v7, 80)), 1000)) >= now() - INTERVAL 30 DAY"
+            ),
         )
     if isinstance(field_definition, BooleanDatabaseField):
         # ideally we'd be able to just send [[True], [False]]

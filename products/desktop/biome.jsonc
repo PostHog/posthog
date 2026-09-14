@@ -78,6 +78,8 @@
         "!apps/code/src/main/bootstrap.ts",
         "!apps/code/src/main/index.ts",
         "!apps/code/src/main/window.ts",
+        "!apps/code/src/main/quick-ask.ts",
+        "!apps/code/src/main/quick-ask-capture.ts",
         "!apps/code/src/main/external-links.ts",
         "!apps/code/src/main/menu.ts",
         "!apps/code/src/main/preload.ts",
@@ -211,6 +213,43 @@
       }
     },
     {
+      // The quick-ask feature package runs in any renderer. The replay
+      // fixture and the tests it feeds are the only node-touching files.
+      "includes": [
+        "packages/quick-ask/src/**/*.ts",
+        "packages/quick-ask/src/**/*.tsx",
+        "!packages/quick-ask/src/service/replay-fixture.ts",
+        "!packages/quick-ask/src/**/*.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "electron",
+                      "node:*",
+                      "@posthog/*",
+                      "!@posthog/core",
+                      "!@posthog/core/*",
+                      "!@posthog/shared",
+                      "!@posthog/shared/*",
+                      "!@posthog/ui",
+                      "!@posthog/ui/*"
+                    ],
+                    "message": "quick-ask is host-agnostic. Allowed @posthog deps: core, shared, ui. The Electron host lives in apps/code."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": [
         "packages/api-client/src/**/*.ts",
         "packages/api-client/src/**/*.tsx"
@@ -331,6 +370,27 @@
             "noRestrictedImports": {
               "level": "error",
               "options": {
+                "paths": {
+                  "@posthog/quill": {
+                    "importNames": ["Spinner"],
+                    "message": "Use Spinner or LoadingState from @posthog/ui/primitives so every loading indicator shares one glyph, size scale and compositor-only animation."
+                  },
+                  "@radix-ui/themes": {
+                    "importNames": ["Spinner"],
+                    "message": "Use Spinner or LoadingState from @posthog/ui/primitives so every loading indicator shares one glyph, size scale and compositor-only animation."
+                  },
+                  "@phosphor-icons/react": {
+                    "importNames": [
+                      "Spinner",
+                      "SpinnerIcon",
+                      "SpinnerGap",
+                      "SpinnerGapIcon",
+                      "CircleNotch",
+                      "CircleNotchIcon"
+                    ],
+                    "message": "Use Spinner from @posthog/ui/primitives/Spinner instead of spinning a phosphor glyph."
+                  }
+                },
                 "patterns": [
                   {
                     "group": [

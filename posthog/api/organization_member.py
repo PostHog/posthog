@@ -34,12 +34,14 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
     normalize_search_term,
 )
+from posthog.helpers.verified_domain_enforcement import verified_domain_email_q
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
-from posthog.rbac.user_access_control import get_project_scoped_visible_membership_ids
 from posthog.utils import posthoganalytics
+
+from products.access_control.backend.facade.subject_access_control import get_project_scoped_visible_membership_ids
 
 tracer = trace.get_tracer(__name__)
 
@@ -159,6 +161,21 @@ class OrganizationMemberGithubLoginSerializer(serializers.Serializer):
                 type=OpenApiTypes.STR,
                 description="Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.",
             ),
+            OpenApiParameter(
+                name="email_domain",
+                type=OpenApiTypes.STR,
+                description="Only return members whose email address is on this domain (case-insensitive).",
+            ),
+            OpenApiParameter(
+                name="outside_verified_domains",
+                type=OpenApiTypes.BOOL,
+                description="When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement.",
+            ),
+            OpenApiParameter(
+                name="levels",
+                type=OpenApiTypes.STR,
+                description="Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.",
+            ),
         ],
     ),
 )
@@ -241,6 +258,21 @@ class OrganizationMemberViewSet(
 
             if "email" in params:
                 queryset = queryset.filter(user__email=params["email"])
+
+            if "email_domain" in params:
+                queryset = queryset.filter(user__email__iendswith=f"@{params['email_domain']}")
+
+            if params.get("outside_verified_domains") == "true":
+                admitted = verified_domain_email_q(organization)
+                if admitted is not None:
+                    queryset = queryset.exclude(admitted)
+
+            if "levels" in params:
+                try:
+                    levels = [int(level) for level in params["levels"].split(",") if level]
+                except ValueError:
+                    raise serializers.ValidationError({"levels": "Must be a comma-separated list of integers."})
+                queryset = queryset.filter(level__in=levels)
 
             if "updated_after" in params:
                 queryset = queryset.filter(updated_at__gt=params["updated_after"])

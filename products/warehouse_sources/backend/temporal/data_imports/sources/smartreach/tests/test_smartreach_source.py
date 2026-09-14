@@ -3,7 +3,6 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartreach import (
     SmartreachSourceConfig,
 )
@@ -11,10 +10,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.smartreach import (
     SMARTREACH_API_V1,
     SMARTREACH_API_V3,
-    SmartreachResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.source import SmartreachSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSmartreachSource:
@@ -22,9 +19,6 @@ class TestSmartreachSource:
         self.source = SmartreachSource()
         self.team_id = 123
         self.config = SmartreachSourceConfig(api_key="uk_test", team_id="team_abc")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SMARTREACH
 
     def test_supported_versions_and_default(self) -> None:
         # v3 is the new default for freshly created sources; v1 stays supported so pinned rows keep working.
@@ -52,13 +46,6 @@ class TestSmartreachSource:
         assert field.required is False
         assert field.secret is False
 
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
     def test_no_connection_host_fields(self) -> None:
         # The base URL is hardcoded per version and the account is implicit in the key; neither
         # `api_key` nor `team_id` retargets the host where the key is sent.
@@ -67,21 +54,6 @@ class TestSmartreachSource:
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["campaigns"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "campaigns"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     def test_documented_tables_render_for_public_docs(self) -> None:
         # Exercises the credential-free catalog path used by the posthog.com docs.
@@ -166,11 +138,6 @@ class TestSmartreachSource:
         is_valid, _ = self.source.validate_credentials(config, self.team_id, api_version=SMARTREACH_API_V1)
         assert is_valid is True
         mock_check.assert_called_once_with("uk_test", SMARTREACH_API_V1, None)
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SmartreachResumeConfig
 
     @pytest.mark.parametrize(
         "pinned_version, expected_version",

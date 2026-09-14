@@ -1,3 +1,8 @@
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
+import {
+  formatBulkArchiveWarning,
+  sessionsLabel,
+} from "@posthog/core/sidebar/selection";
 import {
   CONTEXT_MENU_SERVICE,
   type ContextMenuItem,
@@ -118,6 +123,7 @@ export class ContextMenuService {
       isInCommandCenter,
       hasEmptyCommandCenterCell,
       showArchivePrior = true,
+      canHandoff,
       channels,
     } = input;
     const { apps, lastUsedAppId } = await this.getExternalAppsData();
@@ -129,8 +135,8 @@ export class ContextMenuService {
             {
               type: "submenu",
               label: "File to…",
-              items: channels.map((c) => ({
-                label: c.name,
+              items: this.starredFirst(channels).map((c) => ({
+                label: channelDisplayLabel(c.name, c.channelType),
                 action: {
                   type: "file-to-channel" as const,
                   channelId: c.id,
@@ -171,6 +177,12 @@ export class ContextMenuService {
           ]
         : []),
       ...fileToItems,
+      ...(canHandoff
+        ? [
+            this.separator(),
+            this.item("Hand off…", { type: "handoff" as const }),
+          ]
+        : []),
       this.separator(),
       this.item("Archive", { type: "archive" }),
       ...(showArchivePrior
@@ -183,7 +195,7 @@ export class ContextMenuService {
                   title: "Archive Prior Tasks",
                   message: "Archive all tasks older than this one?",
                   detail:
-                    "This will archive every task created before this one. You can unarchive them later.",
+                    "This will archive every task last active before this one. You can unarchive them later.",
                   confirmLabel: "Archive",
                 },
               },
@@ -196,17 +208,52 @@ export class ContextMenuService {
   async showBulkTaskContextMenu(
     input: BulkTaskContextMenuInput,
   ): Promise<{ action: BulkTaskAction | null }> {
-    const { taskCount } = input;
-    const label = `Archive ${taskCount} tasks`;
+    const {
+      taskCount,
+      allPinned,
+      runningCount = 0,
+      stopsCloudSandbox = false,
+      channels,
+    } = input;
+    const sessions = sessionsLabel(taskCount);
+
+    // Only archive confirms — pinning, tiling, and filing are all one click to undo.
     return this.showMenu<BulkTaskAction>([
+      this.item(allPinned ? `Unpin ${sessions}` : `Pin ${sessions}`, {
+        type: "pin",
+      }),
+      this.separator(),
+      this.item(`Add ${sessions} to Command Center`, {
+        type: "add-to-command-center",
+      }),
+      ...(channels && channels.length > 0
+        ? [
+            this.separator(),
+            {
+              type: "submenu" as const,
+              label: "File to…",
+              items: this.starredFirst(channels).map((c) => ({
+                label: channelDisplayLabel(c.name, c.channelType),
+                action: {
+                  type: "file-to-channel" as const,
+                  channelId: c.id,
+                },
+              })),
+            },
+          ]
+        : []),
+      this.separator(),
       this.item(
-        label,
+        `Archive ${sessions}`,
         { type: "archive" },
         {
           confirm: {
-            title: "Archive Tasks",
-            message: `Archive ${taskCount} tasks?`,
-            detail: "You can unarchive them later.",
+            title: "Archive sessions",
+            message: `Archive ${sessions}?`,
+            detail: formatBulkArchiveWarning({
+              running: runningCount,
+              stopsCloudSandbox,
+            }),
             confirmLabel: "Archive",
           },
         },
@@ -350,6 +397,16 @@ export class ContextMenuService {
 
   private separator(): SeparatorDef {
     return { type: "separator" };
+  }
+
+  /**
+   * "File to…" targets in the order the sidebar lists them: starred first. The
+   * sort is stable, so each group keeps the order the caller sent.
+   */
+  private starredFirst<C extends { starred?: boolean }>(channels: C[]): C[] {
+    return [...channels].sort(
+      (a, b) => Number(b.starred ?? false) - Number(a.starred ?? false),
+    );
   }
 
   private disabled(label: string): MenuItemDef<never> {

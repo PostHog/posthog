@@ -46,8 +46,7 @@ class PlainSource(SimpleSource[PlainSourceConfig]):
             name=SchemaExternalDataSourceType.PLAIN,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Plain",
-            releaseStatus=ReleaseStatus.ALPHA,
-            featureFlag="dwh_plain",
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Plain API key to automatically pull your Plain customer support data into the PostHog Data warehouse.
 
 You can create an API key in your [Plain workspace settings](https://app.plain.com/settings/api-keys).
@@ -92,6 +91,14 @@ Make sure to grant the following read permissions:
             # company (company:read), and machine-user actor (machineUser:read) data on top of the basics,
             # so name every required scope — retrying a key missing one never succeeds.
             "403 Client Error": "Access forbidden. Grant your Plain API key these read permissions, then reconnect: customer:read, thread:read, timeline:read, user:read, label:read, company:read, machineUser:read.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # Plain's API occasionally takes longer than the 60 s read timeout, which is a transient
+        # blip that Temporal retries at the activity level. Match the host so the pattern is
+        # scoped to Plain and doesn't suppress unrelated timeout messages.
+        return {
+            "HTTPSConnectionPool(host='core-api.uk.plain.com', port=443)",
         }
 
     def get_schemas(

@@ -15,10 +15,10 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 DASHBOARD_COLORS: list[str] = ["white", "blue", "green", "purple", "black"]
 
@@ -523,6 +523,7 @@ def create_from_template(
                 description=template_tile.get("description"),
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
+                tags=template_tile.get("tags"),
                 user=user,
             )
         elif tile_type == "TEXT":
@@ -655,6 +656,7 @@ def _create_tile_for_insight(
     layouts: dict,
     color: Optional[str],
     query: Optional[dict] = None,
+    tags: Optional[list[str]] = None,
     user=None,
 ) -> None:
     insight = Insight.objects.create(
@@ -666,6 +668,14 @@ def _create_tile_for_insight(
         created_by=user,
         last_modified_by=user,
     )
+    for tag_name in tags or []:
+        tag, _ = Tag.objects.get_or_create(
+            name=tag_name,
+            team_id=dashboard.team_id,
+            defaults={"team_id": dashboard.team_id},
+        )
+        insight.tagged_items.create(tag_id=tag.id)
+
     DashboardTile.objects.create(
         insight=insight,
         dashboard=dashboard,

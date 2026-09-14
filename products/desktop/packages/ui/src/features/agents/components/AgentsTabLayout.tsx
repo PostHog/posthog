@@ -1,114 +1,81 @@
-import { RobotIcon } from "@phosphor-icons/react";
-import { AgentBuilderHeaderControls } from "@posthog/ui/features/agent-applications/agent-builder/AgentBuilderHeaderControls";
-import type { AgentBuilderPageContext } from "@posthog/ui/features/agent-applications/agent-builder/agentBuilderStore";
-import { useSetAgentBuilderPage } from "@posthog/ui/features/agent-applications/agent-builder/useSetAgentBuilderPage";
-import { AGENT_PLATFORM_FLAG } from "@posthog/ui/features/agent-applications/featureFlag";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
-import { Flex, Text } from "@radix-ui/themes";
+import {
+  type AgentsTab,
+  useAgentsPageActions,
+} from "@posthog/ui/features/agents/agentsPageStore";
+import { leaveSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { TabStrip } from "@posthog/ui/primitives/TabStrip";
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useMemo } from "react";
+import type { ReactNode } from "react";
 
-export type AgentsTab = "scouts" | "applications";
+const TABS: readonly { key: AgentsTab; label: string }[] = [
+  { key: "agents", label: "Agents" },
+  { key: "memory", label: "Memory" },
+  { key: "setup", label: "Setup" },
+];
 
-/** Per-tab header copy so the chrome describes what you're actually looking at. */
-const TAB_DESCRIPTION: Record<AgentsTab, string> = {
-  scouts:
-    "Self-driving agents that watch your project and surface work for review — enroll in the canonical fleet or author your own.",
-  applications:
-    "Talk it through. Ship it. Watch it work. The Agent Builder turns ideas into production agents.",
+const TAB_DESCRIPTION: Record<AgentsTab, ReactNode> = {
+  agents: (
+    <>
+      Scheduled agents that watch this project and write reports in{" "}
+      <Link to="/inbox" onClick={leaveSettings} className="underline">
+        Self-driving
+      </Link>
+      .
+    </>
+  ),
+  memory:
+    "Notes your agents keep about this project as they scan it: what they classified, ruled out, or named.",
+  setup:
+    "What your agents watch, what they can reach, and where their reports land.",
 };
 
-/**
- * Shared chrome for the two top-level Agents tabs. Each tab view renders its
- * own content inside this layout and declares which tab is active, so the
- * header + tab bar stay identical across Scouts and Fleet while detail
- * pages (a scout, an agent, a session) keep their own focused chrome.
- */
+/** Page chrome shared by the tabs of the Agents settings page. */
 export function AgentsTabLayout({
-  activeTab,
+  tab,
+  actions,
+  fill = false,
   children,
 }: {
-  activeTab: AgentsTab;
+  tab: AgentsTab;
+  actions?: ReactNode;
+  /** The tab owns the height and scrolls its own list, as the agent table does. */
+  fill?: boolean;
   children: ReactNode;
 }) {
-  const headerContent = useMemo(
-    () => (
-      <Flex align="center" gap="2" className="w-full min-w-0">
-        <RobotIcon size={12} className="shrink-0 text-gray-10" />
-        <Text
-          className="truncate whitespace-nowrap font-medium text-[13px]"
-          title="Agents"
+  const { showTab } = useAgentsPageActions();
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-end gap-3 border-(--gray-5) border-b px-6">
+        <TabStrip
+          tabs={TABS}
+          value={tab}
+          onValueChange={showTab}
+          dataAttrPrefix="agents-tab"
+          className="min-w-0 flex-1 overflow-x-auto"
+        />
+        {actions ? (
+          <div className="flex shrink-0 items-center gap-2 pb-1.5">
+            {actions}
+          </div>
+        ) : null}
+      </div>
+
+      {/* A filling tab scrolls its own list, so the page itself must not scroll. */}
+      <div
+        className={
+          fill ? "flex min-h-0 flex-1 flex-col" : "min-h-0 flex-1 overflow-auto"
+        }
+      >
+        <div
+          className={`mx-auto flex w-full max-w-[90rem] flex-col gap-3 px-6 py-5 ${fill ? "min-h-0 flex-1" : ""}`}
         >
-          Agents
-        </Text>
-      </Flex>
-    ),
-    [],
-  );
-  useSetHeaderContent(headerContent);
-  const pageContext: AgentBuilderPageContext =
-    activeTab === "applications" ? { kind: "agent-list" } : { kind: "scouts" };
-  useSetAgentBuilderPage(pageContext);
-  // The Fleet tab is gated behind the agent-platform flag.
-  const applicationsEnabled = useFeatureFlag(AGENT_PLATFORM_FLAG);
-
-  return (
-    <Flex direction="column" className="h-full min-h-0">
-      <div className="relative cursor-default select-none border-(--gray-5) border-b px-6 pt-5">
-        <AgentBuilderHeaderControls />
-        <Flex direction="column" gap="0.5" className="pr-44 pb-3.5">
-          <Text className="font-bold text-[22px] text-gray-12 leading-tight tracking-tight">
-            Agents
-          </Text>
-          <Text className="max-w-3xl text-[12.5px] text-gray-11 leading-snug">
-            {applicationsEnabled
-              ? TAB_DESCRIPTION[activeTab]
-              : "Design, schedule, and deploy the agents that work on your product."}
-          </Text>
-        </Flex>
-        <Flex gap="5" align="center">
-          <TabLink
-            to="/code/agents/scouts"
-            label="Scouts"
-            active={activeTab === "scouts"}
-          />
-          {applicationsEnabled ? (
-            <TabLink
-              to="/code/agents/applications"
-              label="Fleet"
-              active={activeTab === "applications"}
-            />
-          ) : null}
-        </Flex>
+          <p className="max-w-3xl text-[12.5px] text-gray-11 leading-snug">
+            {TAB_DESCRIPTION[tab]}
+          </p>
+          {children}
+        </div>
       </div>
-
-      <div className="min-h-0 flex-1 overflow-auto">
-        <div className="mx-auto max-w-4xl px-6 py-6">{children}</div>
-      </div>
-    </Flex>
-  );
-}
-
-function TabLink({
-  to,
-  label,
-  active,
-}: {
-  to: string;
-  label: string;
-  active: boolean;
-}) {
-  return (
-    <Link
-      to={to}
-      className={`-mb-px border-b-2 px-0.5 pb-2.5 text-[13px] no-underline transition-colors ${
-        active
-          ? "border-(--accent-9) font-medium text-gray-12"
-          : "border-transparent text-gray-11 hover:text-gray-12"
-      }`}
-    >
-      {label}
-    </Link>
+    </div>
   );
 }

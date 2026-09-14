@@ -147,12 +147,14 @@ export type ExecCommandErrorReason =
     | 'unknown_command'
     | 'unknown_tool'
     | 'deprecated_tool'
+    | 'gated_tool'
     | 'missing_scope'
     | 'invalid_json'
     | 'usage'
     | 'invalid_regex'
     | 'unknown_learn_topic'
     | 'needs_confirmation'
+    | 'skills_gate'
 
 /**
  * Thrown by the `exec` dispatcher when it rejects a command before any inner
@@ -212,8 +214,20 @@ export class PostHogApiError extends Error {
     }
 }
 
+/** The request path without the upstream host. The host is not something an
+ *  agent can act on, and reading one makes a 4xx look like an infrastructure
+ *  fault; `client.ts` already logs the full URL server-side. */
+function requestPath(url: string): string {
+    try {
+        const parsed = new URL(url)
+        return `${parsed.pathname}${parsed.search}`
+    } catch {
+        return url
+    }
+}
+
 function buildDefaultApiErrorMessage(options: PostHogApiErrorOptions): string {
-    return `Request failed:\nURL: ${options.method} ${options.url}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
+    return `Request failed:\nPath: ${options.method} ${requestPath(options.url)}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
 }
 
 export interface PostHogRateLimitErrorOptions {

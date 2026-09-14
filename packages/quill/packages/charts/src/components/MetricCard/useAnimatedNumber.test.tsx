@@ -95,6 +95,21 @@ describe('useAnimatedNumber', () => {
         expect(raf.pendingCount()).toBe(0)
     })
 
+    it('snaps immediately when the OS asks for reduced motion', () => {
+        const originalMatchMedia = window.matchMedia
+        window.matchMedia = jest.fn().mockReturnValue({ matches: true }) as unknown as typeof window.matchMedia
+        try {
+            const { result, rerender } = renderHook(({ target }) => useAnimatedNumber(target, 350), {
+                initialProps: { target: 0 },
+            })
+            rerender({ target: 100 })
+            expect(result.current).toBe(100)
+            expect(raf.pendingCount()).toBe(0)
+        } finally {
+            window.matchMedia = originalMatchMedia
+        }
+    })
+
     it('does not schedule animation when target is unchanged', () => {
         const { rerender } = renderHook(({ target }) => useAnimatedNumber(target, 350), {
             initialProps: { target: 10 },

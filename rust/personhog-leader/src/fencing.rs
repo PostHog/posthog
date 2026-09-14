@@ -1181,6 +1181,11 @@ impl FencedChangelogProducers {
         // ordinary batching alongside its window-mates.
         let key = changelog_message_key(person.team_id, person.id);
         let payload = person.encode_to_vec();
+        // Same metric as the unfenced path in kafka.rs, so the size
+        // distribution covers all changelog produces regardless of the
+        // fencing rollout. Recorded before the send so a payload rejected
+        // by the broker (message.max.bytes) still shows up.
+        histogram!("personhog_leader_kafka_produce_bytes").record(payload.len() as f64);
         let record = FutureRecord::to(&self.topic)
             .partition(partition as i32)
             .key(&key)

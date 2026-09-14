@@ -15,7 +15,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import { AuditCountsApi } from '../generated/api.schemas'
 import { AUDIT_PAGE_SIZE, AuditQuickFilter, gatewayAuditLogic } from './gatewayAuditLogic'
-import { DecisionTag, toProfileUser } from './gatewayUtils'
+import { DecisionTag, credentialOwnerLabel, toProfileUser } from './gatewayUtils'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
 
 const FILTERS: { key: AuditQuickFilter; label: string; countKey: keyof AuditCountsApi }[] = [
@@ -125,25 +125,36 @@ export function GatewayAuditLog(): JSX.Element {
                         title: 'Caller',
                         key: 'caller',
                         render: (_, row) => (
-                            <div className="flex items-center gap-2 min-w-0">
-                                {row.actor_service_account ? (
-                                    <span className="flex items-center gap-1 min-w-0">
-                                        <IconSparkles />
-                                        <span className="truncate">{row.actor_service_account.name}</span>
-                                    </span>
-                                ) : row.actor_user ? (
-                                    <ProfilePicture user={toProfileUser(row.actor_user)} size="sm" showName />
-                                ) : (
-                                    <span className="text-secondary truncate">{row.actor_label || 'Unknown'}</span>
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    {row.actor_service_account ? (
+                                        <span className="flex items-center gap-1 min-w-0">
+                                            <IconSparkles />
+                                            <span className="truncate">{row.actor_service_account.name}</span>
+                                        </span>
+                                    ) : row.actor_user ? (
+                                        <ProfilePicture user={toProfileUser(row.actor_user)} size="sm" showName />
+                                    ) : (
+                                        <span className="text-secondary truncate">{row.actor_label || 'Unknown'}</span>
+                                    )}
+                                    <LemonTag
+                                        size="small"
+                                        type={
+                                            row.actor_service_account
+                                                ? 'completion'
+                                                : row.actor_user
+                                                  ? 'muted'
+                                                  : 'warning'
+                                        }
+                                    >
+                                        {row.actor_service_account ? 'Agent' : row.actor_user ? 'Human' : 'Deleted'}
+                                    </LemonTag>
+                                </div>
+                                {row.actor_service_account && row.credential_owner && (
+                                    <div className="text-xs text-secondary">
+                                        {credentialOwnerLabel(row.credential_owner, row.grant_scope)}
+                                    </div>
                                 )}
-                                <LemonTag
-                                    size="small"
-                                    type={
-                                        row.actor_service_account ? 'completion' : row.actor_user ? 'muted' : 'warning'
-                                    }
-                                >
-                                    {row.actor_service_account ? 'Agent' : row.actor_user ? 'Human' : 'Deleted'}
-                                </LemonTag>
                             </div>
                         ),
                     },

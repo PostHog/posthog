@@ -2,7 +2,7 @@ from collections.abc import Callable
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -11,10 +11,10 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.subscription import Subscription
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
-@freeze_time("2022-01-01")
+@time_machine.travel("2022-01-01", tick=False)
 class TestSubscriptionActivityLog(BaseTest):
     def _create_subscription(self, **kwargs) -> Subscription:
         params: dict = {
@@ -32,7 +32,7 @@ class TestSubscriptionActivityLog(BaseTest):
         return Subscription.objects.create(**params)
 
     def _subscription_logs(self):
-        # Every row shares one created_at under freeze_time, leaving order undefined. The UUIDT
+        # Every row shares one created_at under a frozen clock, leaving order undefined. The UUIDT
         # id's per-millisecond series counter increments per insert, so id tie-breaks in insertion order.
         return ActivityLog.objects.filter(scope="Subscription").order_by("created_at", "id")
 

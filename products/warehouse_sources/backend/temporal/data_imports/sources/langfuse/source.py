@@ -128,6 +128,20 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
             REPEATED_CURSOR_ERROR: "The Langfuse host repeated a pagination cursor, so the sync was stopped to avoid looping. Check that the host points at a real Langfuse instance.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `get_rows`'s tenacity retry already retries a 429/422/5xx (the "Langfuse API error
+        # (retryable)" sentinel), a dropped connection, and a read timeout up to MAX_RETRIES. Once
+        # that budget exhausts, urllib3 wraps the failure as "Max retries exceeded with url" (with
+        # the read timeout nested inside as its cause), and Temporal retries the whole activity from
+        # the saved pagination checkpoint, so the failure is transient and self-recovering. The host
+        # is customer-controlled (self-hosted Langfuse), so match only the stable, host-independent
+        # parts of the message.
+        return {
+            "Langfuse API error (retryable)",
+            "Read timed out",
+            "Max retries exceeded with url",
+        }
+
     def get_schemas(
         self,
         config: LangfuseSourceConfig,

@@ -45,9 +45,9 @@ impl DatabasePools {
     pub async fn from_config(config: &Config) -> Result<Self, FlagError> {
         // Validate acquire_timeout_secs - must be at least 1 second
         if config.acquire_timeout_secs == 0 {
-            return Err(FlagError::Internal(
-                "ACQUIRE_TIMEOUT_SECS must be at least 1 second".to_string(),
-            ));
+            return Err(FlagError::internal(anyhow::anyhow!(
+                "ACQUIRE_TIMEOUT_SECS must be at least 1 second"
+            )));
         }
 
         // Validate and fix max_connections if it's 0

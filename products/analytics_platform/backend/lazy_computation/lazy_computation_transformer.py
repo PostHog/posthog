@@ -12,9 +12,9 @@ from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationExecutor,
+    LazyComputationQuery,
     LazyComputationResult,
     LazyComputationTable,
-    QueryInfo,
 )
 
 PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME = DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()
@@ -463,11 +463,11 @@ def _run_daily_unique_persons_pageviews(
     Orchestrate lazy computation jobs for daily unique persons pageviews.
 
     This function:
-    1. Creates a QueryInfo object from the query
+    1. Creates a LazyComputationQuery object from the query
     2. Calls the executor to find/create lazy computation jobs
     3. Returns the result with job IDs for the combiner query
     """
-    query_info = QueryInfo(
+    query_info = LazyComputationQuery(
         query=query_to_insert, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone=team.timezone
     )
 

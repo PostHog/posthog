@@ -13,11 +13,14 @@ from posthog.temporal.ai.slack_app import (
 )
 
 
-def _make_inputs(integration_id: int, slack_team_id: str = "T_SLACK") -> PostHogCodeSlackMentionWorkflowInputs:
+def _make_inputs(
+    integration_id: int, user_id: int, slack_team_id: str = "T_SLACK"
+) -> PostHogCodeSlackMentionWorkflowInputs:
     return PostHogCodeSlackMentionWorkflowInputs(
         event={"channel": "C123", "ts": "1234.5678", "user": "U_ALICE", "text": "<@BOT> do something"},
         integration_id=integration_id,
         slack_team_id=slack_team_id,
+        user_id=user_id,
     )
 
 
@@ -34,7 +37,7 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         mock_slack_cls.return_value = mock_slack
 
         blocked = block_posthog_code_task_if_no_personal_github_activity(
-            _make_inputs(self.integration.id), "C123", "1234.5678", self.user.id
+            _make_inputs(self.integration.id, self.user.id), "C123", "1234.5678", self.user.id
         )
 
         assert blocked is True
@@ -70,7 +73,7 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         mock_slack_cls.return_value = mock_slack
 
         blocked = block_posthog_code_task_if_no_personal_github_activity(
-            _make_inputs(self.integration.id), "C123", "1234.5678", self.user.id
+            _make_inputs(self.integration.id, self.user.id), "C123", "1234.5678", self.user.id
         )
 
         assert blocked is False
@@ -83,7 +86,7 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         mock_slack_cls.return_value = mock_slack
 
         blocked = block_posthog_code_task_if_no_personal_github_activity(
-            _make_inputs(self.integration.id), "C123", "1234.5678", self.user.id
+            _make_inputs(self.integration.id, self.user.id), "C123", "1234.5678", self.user.id
         )
 
         assert blocked is True
@@ -105,7 +108,7 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         mock_slack_cls.return_value = mock_slack
 
         blocked = block_posthog_code_task_if_no_personal_github_activity(
-            _make_inputs(self.integration.id), "C123", "1234.5678", self.user.id
+            _make_inputs(self.integration.id, self.user.id), "C123", "1234.5678", self.user.id
         )
 
         assert blocked is True
@@ -125,7 +128,7 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         mock_slack_cls.return_value = mock_slack
 
         blocked = block_posthog_code_task_if_no_personal_github_activity(
-            _make_inputs(self.integration.id), "C123", "1234.5678", self.user.id
+            _make_inputs(self.integration.id, self.user.id), "C123", "1234.5678", self.user.id
         )
 
         assert blocked is True

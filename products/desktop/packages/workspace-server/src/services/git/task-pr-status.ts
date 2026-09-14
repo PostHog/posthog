@@ -34,10 +34,13 @@ export class TaskPrStatusService {
 
     void this.revalidateTaskPrStatus(taskId, cloudPrUrl);
 
-    if (cachedPrState) return { prState: cachedPrState, hasDiff: false };
+    const cachedPrUrl = cached?.prUrl ?? null;
+    if (cachedPrState) {
+      return { prState: cachedPrState, hasDiff: false, prUrl: cachedPrUrl };
+    }
 
     const hasDiff = await this.computeWorktreeHasDiff(taskId);
-    return { prState: null, hasDiff };
+    return { prState: null, hasDiff, prUrl: cachedPrUrl };
   }
 
   getCachedPrUrl(taskId: string): CachedPrUrlOutput {

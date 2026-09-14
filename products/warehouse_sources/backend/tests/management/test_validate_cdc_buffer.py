@@ -66,7 +66,7 @@ def _schema_mock(mode: str = "consolidated", cdc_mode: str = "streaming"):
 
 
 class TestValidateCDCBuffer:
-    def _run(self, schema, files, legacy: dict[tuple[str, str], int], runs: dict[str, int] | None = None):
+    def _run(self, schema, files, legacy: dict[tuple[str, str], int], retried: dict[str, int] | None = None):
         source = MagicMock()
         source.id = uuid.uuid4()
 
@@ -77,7 +77,7 @@ class TestValidateCDCBuffer:
             patch.object(
                 __import__(_CMD, fromlist=["Command"]).Command,
                 "_fetch_legacy_row_sums",
-                return_value=(legacy, runs or {}),
+                return_value=(legacy, retried or {}),
             ),
         ):
             MockSource.objects.get.return_value = source
@@ -106,12 +106,21 @@ class TestValidateCDCBuffer:
         with pytest.raises(CommandError, match="violation"):
             self._run(schema, files, {(str(schema.id), "scd2"): 5})
 
-    def test_scd2_mismatch_downgrades_to_warning_with_multiple_runs(self):
+    def test_scd2_mismatch_downgrades_to_warning_after_a_retry(self):
         # Legacy re-inserts replayed rows on activity retry while buffer files
-        # overwrite, so with >1 run in the window the exact match only warns.
+        # overwrite, so a re-dispatched batch makes the exact match only warn.
         schema = _schema_mock(mode="cdc_only")
         files = {self._key(schema, build_buffer_file_name(100, 200, 0)): _parquet_bytes(3)}
-        self._run(schema, files, {(str(schema.id), "scd2"): 5}, runs={str(schema.id): 2})
+        self._run(schema, files, {(str(schema.id), "scd2"): 5}, retried={str(schema.id): 1})
+
+    def test_scd2_mismatch_still_fails_when_no_batch_was_retried(self):
+        # Regression: the downgrade used to key on the count of distinct run_uuids, which a
+        # healthy 5-min source increments every tick — so any window longer than one tick
+        # waived the exact match entirely and the gate asserted nothing.
+        schema = _schema_mock(mode="cdc_only")
+        files = {self._key(schema, build_buffer_file_name(100, 200, 0)): _parquet_bytes(3)}
+        with pytest.raises(CommandError, match="violation"):
+            self._run(schema, files, {(str(schema.id), "scd2"): 5}, retried={str(schema.id): 0})
 
     def test_fails_when_buffer_below_consolidated(self):
         schema = _schema_mock(mode="consolidated")
@@ -222,7 +231,7 @@ class TestFetchLegacyRowSums:
 
         asyncio.run(seed())
 
-    def test_counts_only_cdc_dispatches_and_distinct_runs(self):
+    def test_counts_only_cdc_dispatches_and_reports_no_retry(self):
         command_module = __import__(_CMD, fromlist=["Command"])
         source = MagicMock()
         source.id = "source-1"
@@ -267,9 +276,47 @@ class TestFetchLegacyRowSums:
         )
 
         with patch.object(command_module, "WAREHOUSE_SOURCES_DATABASE_URL", self._url):
-            sums, run_counts = command_module.Command()._fetch_legacy_row_sums(
+            sums, retried_batches = command_module.Command()._fetch_legacy_row_sums(
                 source, datetime.now(UTC) - timedelta(hours=1)
             )
 
         assert sums == {(schema_id, "consolidated"): 15, (schema_id, "scd2"): 7}
-        assert run_counts[schema_id] == 2
+        # Two distinct runs, but every (run_uuid, batch_index) dispatched once: no retry.
+        assert retried_batches[schema_id] == 0
+
+    def test_detects_a_redispatched_batch_as_a_retry(self):
+        command_module = __import__(_CMD, fromlist=["Command"])
+        source = MagicMock()
+        source.id = "source-1"
+        schema_id = "schema-1"
+
+        self._seed(
+            [
+                {
+                    "schema_id": schema_id,
+                    "sync_type": "cdc",
+                    "resource_name": "users_cdc",
+                    "row_count": 7,
+                    "run_uuid": "r1",
+                    "batch_index": 0,
+                },
+                # Same (run_uuid, batch_index) dispatched again — the replay an activity
+                # retry produces, and the only thing that legitimately skews the exact match.
+                {
+                    "schema_id": schema_id,
+                    "sync_type": "cdc",
+                    "resource_name": "users_cdc",
+                    "row_count": 7,
+                    "run_uuid": "r1",
+                    "batch_index": 0,
+                },
+            ]
+        )
+
+        with patch.object(command_module, "WAREHOUSE_SOURCES_DATABASE_URL", self._url):
+            sums, retried_batches = command_module.Command()._fetch_legacy_row_sums(
+                source, datetime.now(UTC) - timedelta(hours=1)
+            )
+
+        assert sums == {(schema_id, "scd2"): 14}
+        assert retried_batches[schema_id] == 1

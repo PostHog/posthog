@@ -14,7 +14,7 @@ use crate::{
 
 const RELEASE_HASH_IN_USE_ERROR_CODE: &str = "release_hash_in_use";
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Release {
     pub id: Uuid,
     pub hash_id: String,

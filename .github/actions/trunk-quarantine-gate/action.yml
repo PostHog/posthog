@@ -1,0 +1,66 @@
+name: 'Trunk quarantine gate'
+description: 'Upload a shard JUnit report to Trunk, masking known flakes, retrying once on a transient upload failure'
+
+inputs:
+    junit-paths:
+        description: 'Comma-separated glob paths to the JUnit files this shard wrote'
+        required: true
+    previous-step-outcome:
+        description: 'steps.<test step>.outcome, so Trunk can tell a failed shard from a passing one'
+        required: true
+    token:
+        description: 'Trunk API token'
+        required: true
+    variant:
+        description: 'Trunk variant, for suites whose shards upload under one name'
+        required: false
+        default: ''
+
+runs:
+    using: 'composite'
+    steps:
+        - name: Upload to Trunk
+          id: upload
+          continue-on-error: true
+          uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+          with:
+              junit-paths: ${{ inputs.junit-paths }}
+              org-slug: posthog-inc
+              variant: ${{ inputs.variant }}
+              # Pinned rather than 'latest', which costs an extra github.com request to follow the release redirect.
+              cli-version: '0.13.7'
+              quarantine: true
+              previous-step-outcome: ${{ inputs.previous-step-outcome }}
+              token: ${{ inputs.token }}
+
+        # Randomized because a github.com release-asset rate limit or a Trunk outage fails every
+        # shard at once, and a fixed delay would retry them all in the same instant too.
+        - name: Back off before retrying
+          if: ${{ steps.upload.outcome == 'failure' && inputs.previous-step-outcome == 'success' }}
+          shell: bash
+          run: sleep $((15 + RANDOM % 46))
+
+        # Only a shard whose tests passed: the uploader exits non-zero by design when the report has
+        # failures it could not quarantine, and re-uploading those would double-count them in the
+        # flake statistics that decide what gets quarantined.
+        - name: Upload to Trunk (retry)
+          id: upload-retry
+          if: ${{ steps.upload.outcome == 'failure' && inputs.previous-step-outcome == 'success' }}
+          continue-on-error: true
+          uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+          with:
+              junit-paths: ${{ inputs.junit-paths }}
+              org-slug: posthog-inc
+              variant: ${{ inputs.variant }}
+              cli-version: '0.13.7'
+              quarantine: true
+              previous-step-outcome: ${{ inputs.previous-step-outcome }}
+              token: ${{ inputs.token }}
+
+        # Re-raise, so this action's own outcome still means what a bare uploader step meant and
+        # callers can keep gating their verdict on `steps.<gate>.outcome == 'success'`. Without it
+        # the swallowed attempts above would report success and mask every real failure.
+        - name: Fail if no attempt cleared the shard
+          if: ${{ steps.upload.outcome != 'success' && steps.upload-retry.outcome != 'success' }}
+          shell: bash
+          run: exit 1

@@ -1,0 +1,23 @@
+// A digest with a chart is tall enough to scroll, and the app-wide thumb (`--trace-3000` on a
+// surface-colored track) is near-invisible against the modal, so the content reads as clipped
+// rather than scrollable. Repaint it with the scroll-thumb token, which is defined for both
+// themes. Scrollbar pseudo-elements have no Tailwind equivalent, which is why this is SCSS.
+.ScannerScoutReportModal {
+    .LemonModal__content {
+        scrollbar-width: thin;
+        scrollbar-color: var(--color-bg-fill-scroll-thumb) transparent;
+
+        &::-webkit-scrollbar {
+            width: 0.5rem;
+        }
+
+        &::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        &::-webkit-scrollbar-thumb {
+            background: var(--color-bg-fill-scroll-thumb);
+            border-radius: var(--radius);
+        }
+    }
+}

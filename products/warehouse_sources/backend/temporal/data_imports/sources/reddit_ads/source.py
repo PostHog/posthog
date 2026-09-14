@@ -72,6 +72,11 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
             # request can never succeed without the user reconnecting, so stop retrying.
             "403 Client Error": "PostHog is not authorized to access this Reddit Ads account. Please make sure the connected Reddit account has access to the ad account, then reconnect.",
             "404 Client Error": None,
+            # `structured_posts` fans out over `profiles` (see REDDIT_ADS_FANOUT in settings.py), so
+            # this parent fetch runs for that schema too. Reddit rejects it with 400 for ad accounts
+            # that don't have the profiles feature enabled — every retry replays the same request
+            # against the same account, so it can never turn into data.
+            "/profiles?page.size=100": "Reddit Ads rejected the request for this account's profiles. This ad account may not have Reddit's community profiles feature enabled.",
             # Raised by OAuthMixin.get_oauth_integration when the connected Reddit Ads
             # account has been deleted or disconnected. The integration row is gone, so
             # retrying can never recover it — stop and ask the user to reconnect.

@@ -43,7 +43,12 @@ export function suggestedReviewerDisplayName(
     if (name) return name;
     if (reviewer.user.email) return reviewer.user.email;
   }
-  return reviewer.github_name ?? reviewer.github_login;
+  return (
+    reviewer.github_name ??
+    reviewer.github_login ??
+    reviewer.user?.email ??
+    "Reviewer"
+  );
 }
 
 export function extractSuggestedReviewers(
@@ -127,48 +132,10 @@ export function toSuggestedReviewerWriteContent(
 ): SuggestedReviewerWriteEntry[] {
   return reviewers
     .map((reviewer): SuggestedReviewerWriteEntry | null => {
+      const userUuid = reviewer.user_uuid ?? reviewer.user?.uuid;
+      if (userUuid) return { user_uuid: userUuid };
       if (reviewer.github_login) return { github_login: reviewer.github_login };
-      if (reviewer.user?.uuid) return { user_uuid: reviewer.user.uuid };
       return null;
     })
     .filter((entry): entry is SuggestedReviewerWriteEntry => entry !== null);
-}
-
-const AVATAR_PALETTE = [
-  "bg-(--orange-9) text-white",
-  "bg-(--blue-9) text-white",
-  "bg-(--purple-9) text-white",
-  "bg-(--green-9) text-white",
-  "bg-(--pink-9) text-white",
-  "bg-(--teal-9) text-white",
-] as const;
-
-export function reviewerAvatarToneClass(seed: string): string {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash + seed.charCodeAt(i) * (i + 1)) % 9973;
-  }
-  return AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
-}
-
-export function reviewerInitials(
-  name: string | null | undefined,
-  email: string | null | undefined,
-): string {
-  const trimmedName = name?.trim() ?? "";
-  if (trimmedName) {
-    const parts = trimmedName.split(/\s+/).filter(Boolean);
-    if (parts.length >= 2) {
-      return `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}`.toUpperCase();
-    }
-    return trimmedName.slice(0, 2).toUpperCase();
-  }
-
-  const trimmedEmail = email?.trim() ?? "";
-  if (trimmedEmail) {
-    const local = trimmedEmail.split("@")[0] ?? trimmedEmail;
-    return local.slice(0, 2).toUpperCase();
-  }
-
-  return "??";
 }

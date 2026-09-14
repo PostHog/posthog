@@ -3,11 +3,12 @@ import contextlib
 from datetime import UTC, datetime
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
@@ -22,27 +23,46 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
-from posthog.exceptions import ClickHouseAtCapacity
-from posthog.models import User
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+)
+from posthog.models import Team, User
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
     AlertEvaluationResult,
     get_alert_error_notification_recipients,
     send_notifications_for_errors,
 )
-from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
+from posthog.temporal.alerts.activities import (
+    cleanup_alert_checks,
+    evaluate_alert,
+    notify_alert,
+    prepare_alert,
+    record_failed_evaluation,
+    retrieve_due_alerts,
+)
+from posthog.temporal.alerts.retry_policy import alert_timeouts
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
     PrepareAction,
     PrepareAlertActivityInputs,
+    RecordFailedEvaluationActivityInputs,
+    ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
+from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
+
+
+def _email_delivery(target: str, at: str = "2026-08-11T00:00:00+00:00") -> AlertDelivery:
+    return AlertDelivery(channel="email", target=target, at=at)
 
 
 def _valid_trends_query() -> dict:
@@ -57,8 +77,14 @@ def _default_threshold_configuration() -> dict:
     return {"type": "absolute", "bounds": {"upper": 100.0}}
 
 
+def _memory_limit_error() -> ClickHouseQueryMemoryLimitExceeded:
+    error = ClickHouseQueryMemoryLimitExceeded()
+    error.is_per_query_limit = True
+    return error
+
+
 async def _create_alert(
-    ateam,
+    ateam: Team,
     *,
     query: dict | None = None,
     enabled: bool = True,
@@ -70,6 +96,7 @@ async def _create_alert(
     snoozed_until: datetime | None = None,
     skip_weekend: bool = False,
     schedule_restriction: dict | None = None,
+    schedule_start_time: str | None = None,
     insight_deleted: bool = False,
     state: str = AlertState.NOT_FIRING,
 ) -> AlertConfiguration:
@@ -99,11 +126,37 @@ async def _create_alert(
             snoozed_until=snoozed_until,
             skip_weekend=skip_weekend,
             schedule_restriction=schedule_restriction,
+            schedule_start_time=schedule_start_time,
             state=state,
         )
         return alert
 
     return await _create()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_retrieve_due_alerts_limits_each_schedule_run_without_starving_other_teams(
+    ateam: Team,
+) -> None:
+    max_alerts_per_run = 2
+    for _ in range(max_alerts_per_run):
+        await _create_alert(ateam, calculation_interval=AlertCalculationInterval.REAL_TIME.value)
+
+    other_team = await sync_to_async(Team.objects.create)(
+        organization_id=ateam.organization_id,
+        project_id=ateam.project_id,
+        name="Other team",
+    )
+    other_alert = await _create_alert(other_team)
+
+    alerts = await ActivityEnvironment().run(
+        retrieve_due_alerts,
+        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=max_alerts_per_run),
+    )
+
+    assert len(alerts) == max_alerts_per_run
+    assert str(other_alert.id) in {alert.alert_id for alert in alerts}
 
 
 @pytest_asyncio.fixture
@@ -168,6 +221,25 @@ async def _create_alert_check(
 
 
 @pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+class TestRetrieveDueAlerts:
+    @time_machine.travel("2026-09-09T12:00:00Z", tick=False)
+    async def test_records_metrics_for_due_alerts(self, ateam) -> None:
+        due_alert = await _create_alert(ateam, next_check_at=datetime(2026, 9, 9, 11, 0, tzinfo=UTC))
+        await _create_alert(ateam, next_check_at=datetime(2026, 9, 9, 13, 0, tzinfo=UTC))
+
+        with patch("posthog.temporal.alerts.activities.record_due_insight_alert_metrics") as record_metrics:
+            result = await ActivityEnvironment().run(retrieve_due_alerts)
+
+        assert [item.alert_id for item in result] == [str(due_alert.id)]
+        record_metrics.assert_called_once()
+        due_count, oldest_due_at, polled_at = record_metrics.call_args.args
+        assert due_count == 1
+        assert oldest_due_at == datetime(2026, 9, 9, 11, 0, tzinfo=UTC)
+        assert polled_at == datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
+
+
+@pytest.mark.asyncio
 @pytest.mark.django_db
 class TestPrepareAlert:
     async def test_skip_when_alert_not_found(self) -> None:
@@ -193,7 +265,7 @@ class TestPrepareAlert:
             ),
             pytest.param(
                 "2024-12-21T08:00:00Z",  # Saturday
-                {"skip_weekend": True},
+                {"skip_weekend": True, "schedule_start_time": "08:30"},
                 SkipReason.WEEKEND,
                 True,
                 id="weekend",
@@ -225,7 +297,7 @@ class TestPrepareAlert:
         expected_reason: SkipReason,
         advances_next_check_at: bool,
     ) -> None:
-        ctx = freeze_time(frozen_time) if frozen_time else contextlib.nullcontext()
+        ctx = time_machine.travel(frozen_time, tick=False) if frozen_time else contextlib.nullcontext()
         with ctx:
             a = await _create_alert(ateam, **setup_kwargs)
             env = ActivityEnvironment()
@@ -244,7 +316,7 @@ class TestPrepareAlert:
             # Non-advancing skip branches must leave next_check_at untouched.
             assert refreshed.next_check_at == setup_kwargs.get("next_check_at")
 
-    @freeze_time("2024-06-03T10:00:00Z")
+    @time_machine.travel("2024-06-03T10:00:00Z", tick=False)
     async def test_snoozed_future_preserves_snoozed_until(self, ateam) -> None:
         # Separate from the parameterized set because it asserts a DB field is UNCHANGED,
         # which doesn't fit the generic "next_check_at advanced" pattern.
@@ -257,7 +329,7 @@ class TestPrepareAlert:
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=a.pk)
         assert refreshed.snoozed_until == snoozed
 
-    @freeze_time("2024-06-03T10:00:00Z")
+    @time_machine.travel("2024-06-03T10:00:00Z", tick=False)
     async def test_snoozed_until_in_past_is_cleared_and_evaluation_proceeds(self, ateam) -> None:
         past = datetime(2024, 6, 3, 9, 0, tzinfo=UTC)
         a = await _create_alert(ateam, snoozed_until=past, state=AlertState.SNOOZED)
@@ -303,6 +375,24 @@ class TestPrepareAlert:
         assert check.calculated_value is None
         assert check.error is not None
         assert result.reason in check.error["message"]
+
+    async def test_auto_disable_email_alert_when_email_is_unavailable(self, alert_with_user) -> None:
+        with patch("posthog.temporal.alerts.activities.is_email_available", return_value=False):
+            env = ActivityEnvironment()
+            result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert_with_user.id)))
+
+        assert result.action == PrepareAction.AUTO_DISABLE
+        assert (
+            result.reason
+            == "Email delivery is unavailable on this instance. Configure email before re-enabling this alert."
+        )
+
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is False
+        assert refreshed.state == AlertState.ERRORED
+
+        check = await sync_to_async(AlertCheck.objects.get)(alert_configuration=refreshed)
+        assert check.error == {"message": result.reason, "code": "email_unavailable"}
 
     async def test_evaluate_for_valid_alert(self, alert) -> None:
         env = ActivityEnvironment()
@@ -421,7 +511,7 @@ class TestEvaluateAlert:
                 side_effect=AlertExtractionError("query returns 2 numeric columns — pick one"),
             ),
             patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
-            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled") as mock_notify,
+            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled", return_value=[]) as mock_notify,
         ):
             env = ActivityEnvironment()
             result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id)))
@@ -444,20 +534,41 @@ class TestEvaluateAlert:
         assert "2 numeric columns" in reason
         assert targets  # the subscribed owner's email
 
-    async def test_evaluate_reraises_ch_transient_error(self, alert) -> None:
-        # Transient CH errors bubble up so Temporal's retry policy handles them.
-        # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.
+    # Transient CH errors bubble up so Temporal's retry policy handles them.
+    # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.
+    # A server-wide or per-user memory limit is the same kind of cluster pressure: recording it as
+    # an error instead sends the alert silent until its next cadence slot, an hour for hourly ones.
+    @pytest.mark.parametrize(
+        "error_class",
+        [ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, SocketTimeoutError, NetworkError],
+    )
+    async def test_evaluate_reraises_ch_transient_error(self, alert, error_class) -> None:
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
-            side_effect=ClickHouseAtCapacity(),
+            side_effect=error_class(),
         ):
             env = ActivityEnvironment()
-            with pytest.raises(ClickHouseAtCapacity):
+            with pytest.raises(error_class):
                 await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
         # No AlertCheck should have been written
         count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
         assert count == 0
+
+    async def test_evaluate_records_error_when_the_query_ran_out_of_memory(self, alert) -> None:
+        # The query hit its own memory ceiling, so retrying it fails identically. It has to stay on
+        # the recorded-error path rather than joining the transient class above.
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            side_effect=_memory_limit_error(),
+        ):
+            env = ActivityEnvironment()
+            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+
+        assert result.new_state == AlertState.ERRORED
+
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.error is not None
 
     async def test_evaluate_non_retryable_when_alert_deleted_mid_workflow(self) -> None:
         env = ActivityEnvironment()
@@ -472,6 +583,29 @@ class TestEvaluateAlert:
         with pytest.raises(ApplicationError) as exc_info:
             await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
         assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+class TestRecordFailedEvaluation:
+    async def test_skips_disabled_alert_without_recording_or_notifying(self, alert_with_user) -> None:
+        # Disabling an alert mid-check makes evaluate_alert raise into this activity. A normal
+        # disable must not become an errored check or a "could not evaluate" email to subscribers.
+        await sync_to_async(AlertConfiguration.objects.filter(pk=alert_with_user.id).update)(enabled=False)
+
+        env = ActivityEnvironment()
+        result = await env.run(
+            record_failed_evaluation,
+            RecordFailedEvaluationActivityInputs(
+                alert_id=str(alert_with_user.id),
+                error_message="Alert disabled between prepare and evaluate",
+            ),
+        )
+
+        assert result.alert_check_id is None
+        assert result.should_notify is False
+        count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert_with_user).count)()
+        assert count == 0
 
 
 @pytest.mark.asyncio
@@ -493,15 +627,41 @@ class TestNotifyAlert:
         mock_breaches.assert_not_called()
         mock_errors.assert_not_called()
 
+    async def test_records_nothing_when_no_transport_accepts(self, alert_with_user) -> None:
+        # Zero accepted receipts must leave the check unstamped: stamping here would
+        # recreate the false "targets notified" rows the repair command exists to clear.
+        check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
+
+        with (
+            patch("posthog.slo.events.posthoganalytics"),
+            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
+            patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[]),
+            patch("posthog.tasks.alerts.utils.send_notifications_for_errors") as mock_errors,
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(
+                    alert_id=str(alert_with_user.id),
+                    alert_check_id=str(check.id),
+                    breaches=["value above threshold"],
+                ),
+            )
+
+        mock_errors.assert_not_called()
+        refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
+        assert refreshed.targets_notified == {}
+        assert refreshed.notification_sent_at is None
+
     async def test_sends_breach_notifications_when_firing(self, alert_with_user) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ) as mock_breaches,
             patch("posthog.tasks.alerts.utils.send_notifications_for_errors") as mock_errors,
         ):
@@ -519,7 +679,8 @@ class TestNotifyAlert:
         mock_errors.assert_not_called()
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
-        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
+        assert refreshed.notification_sent_at is not None
 
         refreshed_alert = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
         assert refreshed_alert.last_notified_at is not None
@@ -543,7 +704,7 @@ class TestNotifyAlert:
 
         with patch(
             "posthog.tasks.alerts.utils.send_notifications_for_breaches",
-            return_value=["alice@posthog.com"],
+            return_value=[_email_delivery("alice@posthog.com")],
         ) as mock_breaches:
             env = ActivityEnvironment()
             await env.run(
@@ -575,7 +736,7 @@ class TestNotifyAlert:
             patch("posthog.tasks.alerts.utils.send_notifications_for_breaches") as mock_breaches,
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_errors",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ) as mock_errors,
             patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
         ):
@@ -608,7 +769,7 @@ class TestNotifyAlert:
         assert "contact support" in notification.body
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
-        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
 
     @pytest.mark.parametrize("message", [None, "", "   "])
     async def test_error_notification_uses_fallback_for_missing_reason(self, alert_with_user, message) -> None:
@@ -617,7 +778,7 @@ class TestNotifyAlert:
         with (
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_errors",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ),
             patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
         ):
@@ -639,12 +800,12 @@ class TestNotifyAlert:
         alert_with_user.next_check_at = next_check_at
 
         with patch("posthog.tasks.alerts.utils.send_alert_email") as mock_send_alert_email:
-            recipients = await sync_to_async(send_notifications_for_errors)(
+            deliveries = await sync_to_async(send_notifications_for_errors)(
                 alert_with_user, {"message": "boom"}, "notification-key"
             )
 
         subscriber_email = await sync_to_async(lambda: alert_with_user.subscribed_users.get().email)()
-        assert recipients == [subscriber_email]
+        assert [(delivery.channel, delivery.target) for delivery in deliveries] == [("email", subscriber_email)]
         assert mock_send_alert_email.call_args.kwargs["template_context"]["next_check_at"] == next_check_at
 
     async def test_error_notification_does_not_include_an_unsubscribed_creator(self, alert, auser) -> None:
@@ -668,7 +829,7 @@ class TestNotifyAlert:
         with (
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_errors",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ),
             patch("posthog.temporal.alerts.activities.create_notification", side_effect=RuntimeError("kafka down")),
         ):
@@ -679,7 +840,7 @@ class TestNotifyAlert:
             )
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
-        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
 
     async def test_idempotent_when_already_notified(self, alert_with_user) -> None:
         # Simulate a previous successful notification by setting targets_notified.
@@ -728,7 +889,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 side_effect=RuntimeError("SMTP unavailable"),
@@ -763,7 +924,7 @@ class TestNotifyAlert:
         with (
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ),
             patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
         ):
@@ -794,7 +955,7 @@ class TestNotifyAlert:
         with (
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ) as mock_breaches,
             patch(
                 "posthog.temporal.alerts.activities.create_notification",
@@ -814,7 +975,16 @@ class TestNotifyAlert:
 
         mock_breaches.assert_called_once()
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
-        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
+
+
+@pytest.mark.parametrize("calculation_interval", [None, AlertCalculationInterval.REAL_TIME])
+def test_cluster_memory_limit_stays_retryable_for_the_evaluate_policy(calculation_interval) -> None:
+    # The evaluate policy takes its non-retryable list from the exports user-error class names, and
+    # the cluster class subclasses one of them. Listing it there too would stop every retry, so the
+    # re-raise out of evaluate_alert would fail the workflow on the first attempt instead.
+    policy = alert_timeouts(calculation_interval).evaluate_retry_policy
+    assert ClickHouseClusterMemoryLimitExceeded.__name__ not in (policy.non_retryable_error_types or [])
 
 
 @pytest.mark.asyncio

@@ -267,7 +267,7 @@ class TestInsightContext(BaseTest):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         context = InsightContext(team=self.team, query=query, user=self.user, insight_short_id="abc123")
 
-        self.assertEqual(context.insight_url, f"/project/{self.team.id}/insights/abc123")
+        self.assertEqual(context.insight_url, "/insights/abc123")
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_includes_insight_url(self, mock_execute):
@@ -285,7 +285,8 @@ class TestInsightContext(BaseTest):
 
         result = await context.execute_and_format()
 
-        self.assertIn(f"/project/{self.team.id}/insights/xyz789", result)
+        self.assertIn("/insights/xyz789", result)
+        self.assertIn("Insight ID: display-id", result)
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_shows_fallback_when_no_url(self, mock_execute):
@@ -297,8 +298,14 @@ class TestInsightContext(BaseTest):
             query=query,
             user=self.user,
             name="Test Insight",
+            insight_id="cJcS",
         )
 
         result = await context.execute_and_format()
 
-        self.assertIn("This insight cannot be accessed via a URL.", result)
+        self.assertIn("cannot be accessed via a URL", result)
+        # An artifact ID under an `Insight ID:` label is what led the model to compose `/insights/cJcS`, which 404s
+        self.assertIn("Artifact ID: cJcS", result)
+        self.assertNotIn("Insight ID:", result)
+        self.assertIn("/insights/", result)
+        self.assertIn("404", result)

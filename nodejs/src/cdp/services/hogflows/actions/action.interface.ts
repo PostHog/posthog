@@ -9,6 +9,8 @@ export interface ActionHandlerResult {
     nextAction?: HogFlowAction
     scheduledAt?: DateTime
     finished?: boolean
+    /** The action deliberately ended the invocation because its input did not match. */
+    skipped?: boolean
     result?: unknown
     error?: any
 }

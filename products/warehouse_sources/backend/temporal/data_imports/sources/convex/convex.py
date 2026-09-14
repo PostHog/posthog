@@ -130,12 +130,30 @@ def _convex_get(url: str, deploy_key: str, params: dict[str, Any], timeout: int)
     )
 
 
+class StreamingExportNotEnabledError(Exception):
+    """Raised when the Convex deployment's plan doesn't include streaming export access."""
+
+    pass
+
+
 def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
     url = f"{deploy_url.rstrip('/')}/api/json_schemas"
     # byComponent=true groups the response by component so non-default components are discoverable.
     response = _convex_get(
         url, deploy_key, {"deltaSchema": "true", "format": "json", "byComponent": "true"}, timeout=30
     )
+    if response.status_code == 400:
+        try:
+            error_data = response.json()
+        except ValueError:
+            error_data = {}
+        # A plain HTTPError's message never carries the response body, so without this the
+        # StreamingExportNotEnabled entry in get_non_retryable_errors can never match here -
+        # it only matched by accident via validate_credentials' own body parsing below.
+        if error_data.get("code") == "StreamingExportNotEnabled":
+            raise StreamingExportNotEnabledError(
+                "StreamingExportNotEnabled: streaming export requires the Convex Professional plan."
+            )
     response.raise_for_status()
     return response.json()
 
@@ -315,17 +333,13 @@ def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | 
     try:
         get_json_schemas(clean_url, deploy_key)
         return True, None
+    except StreamingExportNotEnabledError:
+        return (
+            False,
+            "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade.",
+        )
     except HTTPError as e:
         if e.response is not None:
-            try:
-                error_data = e.response.json()
-                if error_data.get("code") == "StreamingExportNotEnabled":
-                    return (
-                        False,
-                        "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade.",
-                    )
-            except Exception:
-                pass
             if e.response.status_code in (401, 403):
                 return False, "Invalid deploy key. Check your Convex deploy key and try again."
         # Any other status falls through to a generic message. Keep the raw error

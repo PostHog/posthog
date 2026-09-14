@@ -19,8 +19,8 @@ export interface GridDimensions {
   rows: number;
 }
 
-export const ZOOM_MIN = 0.5;
-export const ZOOM_MAX = 1.5;
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 1.5;
 export const ZOOM_STEP = 0.1;
 
 // Reserved cell value for the Brainrot video slot instead of a task. Real task
@@ -31,9 +31,26 @@ export function isBrainrotCell(value: string | null): boolean {
   return value === BRAINROT_CELL;
 }
 
+// Reserved prefix for canvas cells. Canvas and task ids are UUIDs, so this
+// cannot collide with either kind of real id.
+const CANVAS_CELL_PREFIX = "__canvas__:";
+
+export function isCanvasCell(value: string | null): value is string {
+  return value?.startsWith(CANVAS_CELL_PREFIX) ?? false;
+}
+
+export function makeCanvasCellValue(canvasId: string): string {
+  return `${CANVAS_CELL_PREFIX}${canvasId}`;
+}
+
+export function getCanvasCellId(value: string | null): string | null {
+  if (!isCanvasCell(value)) return null;
+  return value.slice(CANVAS_CELL_PREFIX.length) || null;
+}
+
 // Reserved prefix for standalone terminal cells. Never collides with a task id
 // (uuids) or with BRAINROT_CELL ("__brainrot__").
-export const TERMINAL_CELL_PREFIX = "__terminal__:";
+const TERMINAL_CELL_PREFIX = "__terminal__:";
 
 export function isTerminalCell(value: string | null): value is string {
   return value?.startsWith(TERMINAL_CELL_PREFIX) ?? false;
@@ -130,6 +147,43 @@ export function getOptimalLayout(count: number): LayoutPreset {
   return `${cols}x${rows}` as LayoutPreset;
 }
 
+/**
+ * Fewest tiles wins, then the squarer shape, then the wider one — matching
+ * `getOptimalLayout`, which is never taller than it is wide.
+ */
+function isBetterFit(a: GridDimensions, b: GridDimensions): boolean {
+  const [areaA, areaB] = [a.cols * a.rows, b.cols * b.rows];
+  if (areaA !== areaB) return areaA < areaB;
+  const [skewA, skewB] = [Math.abs(a.cols - a.rows), Math.abs(b.cols - b.rows)];
+  if (skewA !== skewB) return skewA < skewB;
+  return a.cols > b.cols;
+}
+
+/**
+ * The smallest layout holding `needed` tiles without shrinking either axis of
+ * `current`. Unlike `getOptimalLayout`, which picks the tightest shape for a
+ * count in isolation, this only ever grows: dropping from 1x3 to 3x2 would fit
+ * more tiles overall but `reflowCells` would discard whatever sat in row 3.
+ */
+export function getLayoutToFit(
+  current: LayoutPreset,
+  needed: number,
+): LayoutPreset {
+  const from = getGridDimensions(current);
+  if (needed <= from.cols * from.rows) return current;
+
+  let best: GridDimensions | null = null;
+  for (let cols = from.cols; cols <= MAX_SPAN; cols++) {
+    for (let rows = from.rows; rows <= MAX_SPAN; rows++) {
+      if (cols * rows < needed) continue;
+      if (!best || isBetterFit({ cols, rows }, best)) best = { cols, rows };
+    }
+  }
+  // Nothing within the 3x3 ceiling fits, so grow as far as the ceiling allows.
+  const { cols, rows } = best ?? { cols: MAX_SPAN, rows: MAX_SPAN };
+  return `${cols}x${rows}` as LayoutPreset;
+}
+
 export function resizeCells(
   current: (string | null)[],
   newCount: number,
@@ -166,10 +220,31 @@ export function reflowCells(
   return next;
 }
 
+export function resizeCellsForLayout(
+  cells: readonly (string | null)[],
+  from: LayoutPreset,
+  to: LayoutPreset,
+  occupiedCellIndices?: readonly number[],
+): (string | null)[] {
+  const newCount = getCellCount(to);
+  const isShrinking = newCount < getCellCount(from);
+  if (!occupiedCellIndices || !isShrinking) {
+    return reflowCells(cells, from, to);
+  }
+
+  const occupiedCells = occupiedCellIndices
+    .map((index) => cells[index])
+    .filter((cell): cell is string => cell != null);
+  return resizeCells(occupiedCells, newCount);
+}
+
 export function clampZoom(value: number): number {
   return Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value)) * 10) / 10;
 }
 
-export function getCellSessionId(cellIndex: number): string {
-  return `cc-cell-${cellIndex}`;
+// Composer draft key for a tile creating its own task. Deliberately outside the
+// "task-input" namespace: those ids drive the sidebar's unsent-draft dot, which
+// must not light up for a draft that lives in the grid.
+export function getCellSessionId(authScope: string, cellIndex: number): string {
+  return `cc-cell-${authScope}-${cellIndex}`;
 }

@@ -68,6 +68,7 @@ export class WorkspaceEventsContribution implements Contribution {
         this.queryClient.setQueriesData<{
           prState: typeof prState;
           hasDiff: boolean;
+          prUrl: string | null;
         }>(
           {
             ...options.workspace.getTaskPrStatus.pathFilter(),
@@ -79,7 +80,13 @@ export class WorkspaceEventsContribution implements Contribution {
               return params?.input?.taskId === taskId;
             },
           },
-          (prev) => (prev ? { ...prev, prState } : { prState, hasDiff: false }),
+          // The url travels with the state, because the badge it draws is a
+          // link: writing one without the other leaves a row pointing at the
+          // PR before last until the next refetch.
+          (prev) =>
+            prev
+              ? { ...prev, prState, prUrl: prUrl ?? null }
+              : { prState, hasDiff: false, prUrl: prUrl ?? null },
         );
         this.queryClient.setQueryData(
           options.workspace.getCachedPrUrl.queryKey({ taskId }),

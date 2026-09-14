@@ -7,7 +7,7 @@ import structlog
 from posthog.models.utils import RootTeamMixin, UUIDTModel
 from posthog.plugins.plugin_server_api import create_batch_hog_flow_job_invocation
 
-from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
+from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit, hog_flow_sends_email
 
 logger = structlog.get_logger(__name__)
 
@@ -52,7 +52,14 @@ def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
                 team_id=instance.team.id,
                 hog_flow_id=instance.hog_flow.id,
                 batch_job_id=instance.id,
-                max_audience_size=get_hogflow_batch_trigger_limit(instance.team.id),
+                max_audience_size=get_hogflow_batch_trigger_limit(
+                    instance.team.id,
+                    # The dispatch runs the live config, so the live actions decide the channel.
+                    # Adding an email step after this write does not re-cap the queued batch; that
+                    # gap is bounded by the send-time buckets, which cap every email at execution
+                    # regardless of the audience size dispatched here.
+                    sends_email=hog_flow_sends_email(instance.hog_flow.actions),
+                ),
                 # The audience snapshot the confirm check validated - the resolver dispatches from
                 # this, not the live trigger, so a trigger edit racing the dispatch can't widen it.
                 filters=instance.filters,

@@ -3,7 +3,7 @@ from products.dashboards.backend.models.dashboard_templates import DashboardTemp
 
 def get_ai_observability_default_template() -> DashboardTemplate:
     """Default dashboard template for AI observability."""
-    return DashboardTemplate(
+    template = DashboardTemplate(
         template_name="AI observability default",
         dashboard_description="Overview of your AI usage, costs, and performance",
         dashboard_filters={"date_from": "-7d"},
@@ -315,3 +315,9 @@ def get_ai_observability_default_template() -> DashboardTemplate:
         scope=DashboardTemplate.Scope.GLOBAL,
         availability_contexts=["llm-analytics"],
     )
+
+    for tile in template.tiles or []:
+        if tile.get("type") == "INSIGHT":
+            tile["tags"] = ["ai-observability"]
+
+    return template

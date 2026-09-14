@@ -63,7 +63,7 @@ export function ToolErrorRateChart({
             tooltip: { placement: 'cursor' },
             margins: { top: 4, right: 20, bottom: 22 },
             barCornerRadius: 4,
-            bars: { minBandSize: 30, valueDomain: [0, axisMax] },
+            bars: { minBandSize: 30, valueDomain: { min: 0, max: axisMax } },
         }
     }, [sorted])
     const byTool = useMemo(() => new Map(sorted.map((r) => [r.tool, r])), [sorted])

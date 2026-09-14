@@ -10,7 +10,6 @@ import type { SparklineEvent } from './types'
 export const EVENT_LABEL_BAR_GAP = 10
 export const EVENT_LABEL_HEIGHT = 20
 const EVENT_LABEL_MIN_GAP = 2
-const ANCHOR_RADIUS = 6
 const DEFAULT_EVENT_COLOR = 'black'
 
 export type EventMarkersProps = {
@@ -28,7 +27,7 @@ export const EventMarkers = memo(function EventMarkers({
     dates,
     onHover,
 }: EventMarkersProps): JSX.Element | null {
-    const { scales, dimensions, labels, theme } = useChartLayout()
+    const { scales, dimensions, labels } = useChartLayout()
     const labelRefs = useRef<(HTMLDivElement | null)[]>([])
     const [halfWidths, setHalfWidths] = useState<number[] | null>(null)
 
@@ -132,14 +131,7 @@ export const EventMarkers = memo(function EventMarkers({
                                 strokeWidth={2}
                             />
                             {/* The dot is a knockout against the chart surface, not literally white. */}
-                            <circle
-                                cx={anchorX}
-                                cy={plotBottom}
-                                r={ANCHOR_RADIUS}
-                                fill={theme.backgroundColor ?? 'white'}
-                                stroke={color}
-                                strokeWidth={2}
-                            />
+                            <circle cx={anchorX} cy={plotBottom} r={3} fill={color} />
                         </g>
                     )
                 })}
@@ -151,7 +143,7 @@ export const EventMarkers = memo(function EventMarkers({
                         labelRefs.current[index] = node
                     }}
                     data-attr="error-tracking-volume-event-label"
-                    className="absolute flex items-center px-[5px] rounded text-[10px] font-semibold text-white whitespace-nowrap cursor-default"
+                    className="absolute flex items-center px-2 rounded text-[10px] font-semibold text-white whitespace-nowrap cursor-default"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         top: labelTop,

@@ -10,6 +10,7 @@ use crate::{
     modes::processing::rules::assignment::AssignmentRule,
     modes::processing::rules::bypass::BypassRule, modes::processing::rules::grouping::GroupingRule,
     modes::processing::rules::rate_limit::RateLimitSettings,
+    modes::processing::rules::severity::SeverityRule,
     modes::processing::rules::spike::SpikeDetectionConfig,
     modes::processing::rules::suppression::SuppressionRule,
 };
@@ -18,6 +19,7 @@ use crate::{
 pub struct TeamManager {
     pub token_cache: Cache<String, Option<Team>>,
     pub assignment_rules: Cache<TeamId, Vec<AssignmentRule>>,
+    pub severity_rules: Cache<TeamId, Vec<SeverityRule>>,
     pub grouping_rules: Cache<TeamId, Vec<GroupingRule>>,
     pub suppression_rules: Cache<TeamId, Vec<SuppressionRule>>,
     pub bypass_rules: Cache<TeamId, Vec<BypassRule>>,
@@ -40,6 +42,16 @@ impl TeamManager {
             .time_to_live(Duration::from_secs(config.assignment_rule_cache_ttl_secs))
             .weigher(|_, v: &Vec<AssignmentRule>| {
                 v.iter()
+                    .map(|rule| rule.bytecode.as_array().map_or(0, Vec::len) as u32)
+                    .sum()
+            })
+            .build();
+
+        let severity_rules = CacheBuilder::new(config.max_severity_rule_cache_size)
+            .time_to_live(Duration::from_secs(config.severity_rule_cache_ttl_secs))
+            .weigher(|_, rules: &Vec<SeverityRule>| {
+                rules
+                    .iter()
                     .map(|rule| rule.bytecode.as_array().map_or(0, Vec::len) as u32)
                     .sum()
             })
@@ -83,6 +95,7 @@ impl TeamManager {
         Self {
             token_cache: cache,
             assignment_rules,
+            severity_rules,
             grouping_rules,
             suppression_rules,
             bypass_rules,
@@ -156,6 +169,26 @@ impl TeamManager {
         // If we have no rules for the team, we just put an empty vector in the cache
         let rules = GroupingRule::load_for_team(e, team_id).await?;
         self.grouping_rules.insert(team_id, rules.clone());
+        Ok(rules)
+    }
+
+    pub async fn get_severity_rules<'c, E>(
+        &self,
+        executor: E,
+        team_id: TeamId,
+    ) -> Result<Vec<SeverityRule>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        if let Some(rules) = self.severity_rules.get(&team_id) {
+            metrics::counter!(ANCILLARY_CACHE, "type" => "severity_rules", "outcome" => "hit")
+                .increment(1);
+            return Ok(rules.clone());
+        }
+        metrics::counter!(ANCILLARY_CACHE, "type" => "severity_rules", "outcome" => "miss")
+            .increment(1);
+        let rules = SeverityRule::load_for_team(executor, team_id).await?;
+        self.severity_rules.insert(team_id, rules.clone());
         Ok(rules)
     }
 

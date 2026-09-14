@@ -72,8 +72,7 @@ def suggest_retention_rule_name(retention_days: int, filter_group: Any, *, disti
 
     try:
         client = OpenAI(posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL)
-        # The posthoganalytics wrapper adds posthog_* kwargs that OpenAI's stubs don't know about.
-        response = client.chat.completions.create(  # type: ignore[call-overload]
+        response = client.chat.completions.create(
             model=SUGGESTION_MODEL,
             temperature=0.2,
             max_tokens=32,

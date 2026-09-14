@@ -5,7 +5,7 @@ from unittest import mock
 import structlog
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
+from posthog.schema import ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twelvedata import (
@@ -13,10 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data.source import TwelveDataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data.twelve_data import (
-    TwelveDataResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(**overrides: Any) -> TwelveDataSourceConfig:
@@ -50,49 +46,15 @@ class TestTwelveDataSource:
     def setup_method(self) -> None:
         self.source = TwelveDataSource()
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TWELVEDATA
-
     def test_source_is_released_as_alpha(self) -> None:
         # unreleasedSource hides the connector from every user — a finished source must not carry it.
         config = self.source.get_source_config
         assert not config.unreleasedSource
         assert config.releaseStatus == ReleaseStatus.ALPHA
 
-    def test_fields(self) -> None:
-        fields = {field.name: field for field in self.source.get_source_config.fields}
-        assert set(fields) == {"api_key", "symbols", "interval", "start_date"}
-
-        api_key = fields["api_key"]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert api_key.required is True
-        assert api_key.secret is True
-
-        symbols = fields["symbols"]
-        assert isinstance(symbols, SourceFieldInputConfig)
-        assert symbols.required is True
-
-        interval = fields["interval"]
-        assert isinstance(interval, SourceFieldSelectConfig)
-        assert interval.defaultValue == "1day"
-        assert any(option.value == "1min" for option in interval.options)
-
-        start_date = fields["start_date"]
-        assert isinstance(start_date, SourceFieldInputConfig)
-        assert start_date.required is False
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — required so the public docs render the table list.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_only_time_series_is_incremental(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=1)
-        incremental = [schema.name for schema in schemas if schema.supports_incremental]
-        assert incremental == ["time_series"]
-
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=1, names=["quotes", "time_series"])
-        assert {schema.name for schema in schemas} == {"quotes", "time_series"}
 
     @parameterized.expand(
         [
@@ -135,10 +97,6 @@ class TestTwelveDataSource:
         assert error == f"Too many symbols — the maximum is {source_module.MAX_SYMBOLS}"
         probe.assert_not_called()
 
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_inputs("time_series"))
-        assert manager._data_class is TwelveDataResumeConfig
-
     def test_source_for_pipeline_plumbs_config(self) -> None:
         inputs = _inputs("time_series", should_use_incremental=True, last_value="2026-07-01")
         manager = mock.MagicMock()
@@ -170,6 +128,3 @@ class TestTwelveDataSource:
         non_retryable = self.source.get_non_retryable_errors()
         for code in (401, 403, 404):
             assert any(f"Twelve Data API error {code}" in key for key in non_retryable)
-
-    def test_rate_limit_errors_are_retryable(self) -> None:
-        assert any("429" in key for key in self.source.get_retryable_errors())

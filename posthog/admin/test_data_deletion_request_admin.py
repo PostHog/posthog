@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -417,7 +417,7 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
         self.assertFalse(self._call_submit(property_removal, method="GET").context_data["auto_approve_candidate"])
 
 
-@freeze_time("2025-01-15 12:00:00")
+@time_machine.travel("2025-01-15 12:00:00", tick=False)
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
 class TestDataDeletionRequestAdminSaveModel(BaseTest):
     def setUp(self):
@@ -517,7 +517,7 @@ class TestDataDeletionRequestAdminSaveModel(BaseTest):
         self.assertIsNone(obj.property_removal_marker)
 
 
-@freeze_time("2025-01-15 12:00:00")
+@time_machine.travel("2025-01-15 12:00:00", tick=False)
 class TestDataDeletionRequestModelValidation(BaseTest):
     def test_person_removal_rejects_person_properties_field(self):
         from django.core.exceptions import ValidationError
@@ -917,7 +917,7 @@ class TestDataDeletionRequestAdminDuplicate(BaseTest):
             ("without_notes", ""),
         ]
     )
-    @freeze_time("2026-01-15")
+    @time_machine.travel("2026-01-15", tick=False)
     def test_duplicate_copies_criteria_into_a_fresh_draft_with_link_note(self, _name, original_notes):
         original = DataDeletionRequest.objects.create(
             team_id=self.team.id,
@@ -987,21 +987,29 @@ class TestDagsterRunLink(SimpleTestCase):
         self.assertEqual(admin_obj.last_dagster_run(DataDeletionRequest()), "—")
 
 
-class TestDataDeletionRequestFormHidesPersonRemoval(SimpleTestCase):
-    def test_person_removal_hidden_from_type_picker_and_fields(self):
+class TestDataDeletionRequestFormHidesUnsupportedTypes(SimpleTestCase):
+    @staticmethod
+    def _type_values(form) -> list[str]:
         from typing import cast
 
         from django import forms
 
-        from posthog.admin.admins.data_deletion_request_admin import PERSON_REMOVAL_FIELDS, DataDeletionRequestForm
-
-        form = DataDeletionRequestForm()
         request_type = form.fields["request_type"]
         assert isinstance(request_type, forms.ChoiceField)
         choices = cast("list[tuple[str, str]]", request_type.choices)
-        type_values = [value for value, _ in choices]
-        self.assertNotIn(RequestType.PERSON_REMOVAL, type_values)
-        self.assertIn(RequestType.EVENT_REMOVAL, type_values)
-        self.assertIn(RequestType.PROPERTY_REMOVAL, type_values)
+        return [value for value, _ in choices]
+
+    def test_only_event_removal_is_offered_on_a_new_request(self):
+        from posthog.admin.admins.data_deletion_request_admin import PERSON_REMOVAL_FIELDS, DataDeletionRequestForm
+
+        form = DataDeletionRequestForm()
+        self.assertEqual(self._type_values(form), [RequestType.EVENT_REMOVAL])
         for field in PERSON_REMOVAL_FIELDS:
             self.assertNotIn(field, form.fields)
+
+    @parameterized.expand([(RequestType.PROPERTY_REMOVAL,), (RequestType.PERSON_REMOVAL,)])
+    def test_existing_request_keeps_its_own_type_selectable(self, request_type):
+        from posthog.admin.admins.data_deletion_request_admin import DataDeletionRequestForm
+
+        form = DataDeletionRequestForm(instance=DataDeletionRequest(team_id=1, request_type=request_type))
+        self.assertIn(request_type, self._type_values(form))

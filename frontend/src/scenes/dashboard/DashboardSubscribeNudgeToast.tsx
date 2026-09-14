@@ -1,5 +1,3 @@
-import { router } from 'kea-router'
-
 import { IconBell } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -7,21 +5,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import {
     SUBSCRIPTION_PREFILL_PARAMS,
-    urlForSubscription,
-} from 'products/subscriptions/frontend/components/Subscriptions/utils'
+    openSubscriptionFromNudge,
+} from 'products/subscriptions/frontend/components/Subscriptions/subscriptionNudge'
 
 export function dashboardSubscribeNudgeToastId(dashboardId: number): string {
     return `dashboard-subscribe-nudge-${dashboardId}`
-}
-
-// Deliberately free of any kea logic dependency: the sticky toast can outlive the dashboard
-// scene (and its keyed logic), so the CTA only touches globals — the router and the toast itself.
-export function onDashboardSubscribeNudgeToastCta(dashboardId: number): void {
-    lemonToast.dismiss(dashboardSubscribeNudgeToastId(dashboardId))
-    router.actions.push(urlForSubscription('new', { dashboardId }), {
-        [SUBSCRIPTION_PREFILL_PARAMS.param]: SUBSCRIPTION_PREFILL_PARAMS.nudge,
-        [SUBSCRIPTION_PREFILL_PARAMS.viaParam]: SUBSCRIPTION_PREFILL_PARAMS.viaToast,
-    })
 }
 
 export function DashboardSubscribeNudgeToast({
@@ -47,7 +35,15 @@ export function DashboardSubscribeNudgeToast({
                 type="primary"
                 size="small"
                 data-attr="dashboard-subscribe-nudge-toast-cta"
-                onClick={() => onDashboardSubscribeNudgeToastCta(dashboardId)}
+                onClick={() =>
+                    openSubscriptionFromNudge(
+                        { dashboardId },
+                        {
+                            toastId: dashboardSubscribeNudgeToastId(dashboardId),
+                            via: SUBSCRIPTION_PREFILL_PARAMS.viaToast,
+                        }
+                    )
+                }
             >
                 Set up subscription
             </LemonButton>

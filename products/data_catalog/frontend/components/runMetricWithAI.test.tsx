@@ -30,11 +30,14 @@ describe('RunMetricWithAIButton', () => {
         cleanup()
     })
 
-    it('tells the agent to read the definition from the catalog and to stay read-only', () => {
-        const prompt = buildMetricRunPrompt('weekly_paying_customers')
+    it.each([
+        [false, "system.information_schema.metrics where name = 'weekly_paying_customers'"],
+        [true, 'data-catalog-metric-run'],
+    ])('keeps metric runs read-only when the metric is attached: %s', (metricAttached, expectedInstruction) => {
+        const prompt = buildMetricRunPrompt('weekly_paying_customers', { metricAttached })
 
         // Attached context only reaches the sandbox send path, so the prompt has to stand alone.
-        expect(prompt).toContain("system.information_schema.metrics where name = 'weekly_paying_customers'")
+        expect(prompt).toContain(expectedInstruction)
         // The definition is project-authored, so a stored-injection attempt must not read as intent.
         expect(prompt).toContain('untrusted data')
         expect(prompt).toContain('do not create, modify, or delete anything')

@@ -433,9 +433,8 @@ def mark_channel_joined(
     _maybe_complete(integration, slack_user_id)
 
 
-def apply_sources_selection(integration: Integration, slack_user_id: str, selected_keys: list[str]) -> list[str]:
-    """Sync the team's sources to the new selection. Returns the labels of any that couldn't be turned
-    on (AI data processing not approved yet)."""
+def apply_sources_selection(integration: Integration, slack_user_id: str, selected_keys: list[str]) -> None:
+    """Sync the team's sources to the new selection."""
     from products.signals.backend.facade.api import (
         set_sources,  # noqa: PLC0415 — keeps the signals stack off the slack import path
     )
@@ -443,13 +442,10 @@ def apply_sources_selection(integration: Integration, slack_user_id: str, select
     user_id = _resolve_onboarding_user(SlackIntegration(integration), integration, slack_user_id)
     if user_id is None:
         # Can't tie the clicker to an org member — don't mutate team state.
-        return []
-    blocked = set_sources(integration.team_id, user_id, selected_keys)
-    capture_slack_event(
-        integration, EVENT_SOURCE_ENABLED, slack_user_id=slack_user_id, selected=list(selected_keys), blocked=blocked
-    )
+        return
+    set_sources(integration.team_id, user_id, selected_keys)
+    capture_slack_event(integration, EVENT_SOURCE_ENABLED, slack_user_id=slack_user_id, selected=list(selected_keys))
     _maybe_complete(integration, slack_user_id, user_id)
-    return blocked
 
 
 def approve_ai_data_processing(integration: Integration, slack_user_id: str) -> bool:

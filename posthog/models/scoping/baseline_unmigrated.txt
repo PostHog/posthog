@@ -124,7 +124,6 @@ Notebook
 NotificationEvent
 ObjectMediaPreview
 OptOutSyncConfig
-PersistedFolder
 PluginConfig
 ProductTour
 ProjectSecretAPIKey
@@ -145,7 +144,6 @@ SandboxEnvironment
 SavedHeatmap
 ScheduledChange
 ScoreDefinition
-SessionGroupSummary
 SessionRecording
 SessionRecordingPlaylist
 SessionRecordingViewed
@@ -156,7 +154,6 @@ SignalReportArtefact
 SignalReportTask
 SignalSourceConfig
 SignalTeamConfig
-SingleSessionSummary
 SlackThreadTaskMapping
 SourceBatch
 SourceGroupLease
@@ -170,7 +167,6 @@ Task
 TaskRun
 TeamConversationsTeamsConfig
 TeamFeatureFlagDefaultsConfig
-TeamSessionSummariesConfig
 TeamWorkflowsConfig
 Text
 Threshold

@@ -6,6 +6,7 @@ from django.utils import timezone
 import structlog
 from celery import shared_task
 
+from posthog.ph_client import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     SYNC_DISABLED_JOB_ERROR,
     ExternalDataSchema,
 )
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 
@@ -112,3 +114,35 @@ def sweep_stopped_schema_syncs() -> None:
         )
     if stopped:
         logger.info("sweep_stopped_schema_syncs_dispatched", count=len(stopped))
+
+
+# Name pinned to where this task used to live in core: a rename would strand any message
+# already queued under the old name across a deploy.
+@shared_task(ignore_result=True, name="posthog.tasks.warehouse.validate_data_warehouse_table_columns")
+@skip_team_scope_audit
+def validate_data_warehouse_table_columns(team_id: int, table_id: str) -> None:
+    ph_client = get_client()
+
+    try:
+        table = DataWarehouseTable.objects.get(team_id=team_id, id=table_id)
+        columns = table.columns or {}
+        for column in columns.keys():
+            # Background validation is userless; validate table schema, not requester permissions.
+            columns[column]["valid"] = table.validate_column_type(column, bypass_warehouse_access_control=True)
+        table.columns = columns
+        table.save()
+
+        if ph_client:
+            ph_client.capture(distinct_id=team_id, event="validate_data_warehouse_table_columns succeeded")
+    except Exception as e:
+        logger.exception(
+            f"validate_data_warehouse_table_columns raised an exception for table: {table_id}",
+            exc_info=e,
+            team_id=team_id,
+        )
+
+        if ph_client:
+            ph_client.capture(distinct_id=team_id, event="validate_data_warehouse_table_columns errored")
+    finally:
+        if ph_client:
+            ph_client.shutdown()

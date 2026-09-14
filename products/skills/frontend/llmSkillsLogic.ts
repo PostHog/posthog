@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { objectsEqual } from 'lib/utils/objects'
 
+import { usersGithubLoginRetrieve } from '~/generated/core/api'
 import api, { ApiConfig } from '~/lib/api'
 import { downloadBlob } from '~/lib/components/ExportButton/exporter'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
@@ -21,12 +22,22 @@ import {
     llmSkillsMarketplaceInstallCommandRetrieve,
     llmSkillsNameArchiveCreate,
     llmSkillsNameDuplicateCreate,
+    llmSkillsNamePublishCommunityCreate,
 } from 'products/skills/frontend/generated/api'
 import type {
     LLMSkillListApi,
     LLMSkillMarketplaceCommandApi,
     PaginatedLLMSkillListListApi,
 } from 'products/skills/frontend/generated/api.schemas'
+
+import {
+    DEFAULT_SKILLS_TAB_KEY,
+    SKILL_CATEGORY_TABS,
+    skillCategoryForTabKey,
+    skillTabDescription,
+    skillTabUrl,
+    skillTabsLogic,
+} from './skillTabsLogic'
 
 /** Builds the `/plugin marketplace add` command. The token is embedded once minted; until then
  * a placeholder is shown. */
@@ -71,64 +82,13 @@ export const SKILLS_GROUP_LIMIT = 500
 export const SKILLS_GROUP_MAX_DEPTH = 4
 export const LLM_SKILLS_FORCE_RELOAD_PARAM = 'llm_skills_force_reload'
 
-/** URL/UI key for the default tab — the uncategorized skills (everything not pulled into a category tab). */
-export const DEFAULT_SKILLS_TAB_KEY: string = 'skills'
-
-/** Sub-title shown for the default "Skills" tab. Category tabs carry their own copy (below). */
-export const DEFAULT_SKILLS_TAB_DESCRIPTION = 'Manage versioned agent skills that any agent can discover and use.'
-
-export interface SkillCategoryTab {
-    /** Tab key, also the `/skills/<key>` URL segment. */
-    key: string
-    /** The `LLMSkill.category` value this tab filters to. */
-    category: string
-    label: string
-    /** Sub-title shown under the scene title while this tab is active. */
-    description: string
-}
-
-/**
- * Category-backed tabs shown alongside the default "Skills" tab. Each entry surfaces one
- * `LLMSkill.category` value as its own tab and removes it from the default list (which only shows
- * uncategorized skills). To add a tab — e.g. official AI-plugin skills — add an entry here, register
- * the matching `/skills/<key>` route in manifest.tsx, and have the producer stamp that `category`.
- */
-export const SKILL_CATEGORY_TABS: SkillCategoryTab[] = [
-    {
-        key: 'scouts',
-        category: 'scout',
-        label: 'Scouts',
-        description:
-            "Scouts — scheduled agents that scan your project and surface findings in your inbox. Includes PostHog's canonical scouts and any custom ones you author.",
-    },
-    {
-        key: 'review-hog',
-        category: 'review_hog',
-        label: 'Code review',
-        description:
-            "ReviewHog's code-review skills: the specialist perspectives applied in parallel when reviewing a pull request (logic & correctness, contracts & security, performance & reliability) and the validation criteria that decide which findings are worth surfacing. Edit a skill to retune it for your team.",
-    },
-]
-
-export function skillCategoryForTabKey(tabKey: string): string {
-    return SKILL_CATEGORY_TABS.find((tab) => tab.key === tabKey)?.category ?? ''
-}
-
-export function skillTabDescription(tabKey: string): string {
-    return SKILL_CATEGORY_TABS.find((tab) => tab.key === tabKey)?.description ?? DEFAULT_SKILLS_TAB_DESCRIPTION
-}
-
-/** The `/skills` or `/skills/<categoryKey>` path for a tab key. */
-export function skillTabUrl(tabKey: string): string {
-    return tabKey === DEFAULT_SKILLS_TAB_KEY ? urls.skills() : urls.skillsCategoryTab(tabKey)
-}
-
 export interface SkillFilters {
     page: number
     search: string
     order_by: string
     group_by_prefix: boolean
     created_by_id?: number
+    owner_id?: number
 }
 
 function parseBoolean(value: unknown): boolean {
@@ -148,6 +108,7 @@ function cleanFilters(values: Partial<SkillFilters>): SkillFilters {
         order_by: values.order_by || '-created_at',
         group_by_prefix: parseBoolean(values.group_by_prefix),
         created_by_id: values.created_by_id ? Number(values.created_by_id) : undefined,
+        owner_id: values.owner_id ? Number(values.owner_id) : undefined,
     }
 }
 
@@ -158,6 +119,7 @@ function cleanFilterUrlParams(filters: SkillFilters): Record<string, unknown> {
         order_by: filters.order_by === '-created_at' ? undefined : filters.order_by,
         group_by_prefix: filters.group_by_prefix ? 'true' : undefined,
         created_by_id: filters.created_by_id,
+        owner_id: filters.owner_id,
     }
 }
 
@@ -237,12 +199,12 @@ export interface llmSkillsLogicValues {
     activeCategory: string
     activeTabDescription: string
     activeTabKey: string
-    categoryCounts: Record<string, number>
-    categoryCountsLoading: boolean
     codexCommand: string
     connectModalOpen: boolean
     count: number
     filters: SkillFilters
+    githubLogin: string | null
+    githubLoginLoading: boolean
     groupedSkills: SkillGroupTree | null
     importing: boolean
     issuingCredential: boolean
@@ -250,12 +212,12 @@ export interface llmSkillsLogicValues {
     marketplaceLoading: boolean
     marketplaceState: LLMSkillMarketplaceCommandApi | null
     pagination: PaginationManual | undefined
+    publishingSkills: Record<string, boolean>
     rawFilters: Partial<SkillFilters> | null
     skillCountLabel: string
     skills: PaginatedLLMSkillListListApi
     skillsLoading: boolean
     sorting: Sorting | null
-    visibleCategoryTabs: SkillCategoryTab[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -279,30 +241,20 @@ export interface llmSkillsLogicActions {
     issueMarketplaceCommand: (rotate?: boolean) => {
         rotate: boolean
     }
-    loadCategoryCounts: () => {
-        value: true
-    }
-    loadCategoryCountsFailure: (
+    loadGithubLogin: () => any
+    loadGithubLoginFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadCategoryCountsSuccess: (
-        categoryCounts: {
-            [k: string]: number
-        },
-        payload?: {
-            value: true
-        }
+    loadGithubLoginSuccess: (
+        githubLogin: string | null,
+        payload?: any
     ) => {
-        categoryCounts: {
-            [k: string]: number
-        }
-        payload?: {
-            value: true
-        }
+        githubLogin: string | null
+        payload?: any
     }
     loadMarketplaceState: () => {
         value: true
@@ -327,6 +279,27 @@ export interface llmSkillsLogicActions {
         payload?: {
             debounce: boolean
         }
+    }
+    publishToCommunity: (
+        skillName: string,
+        options: {
+            author_handle?: string
+            display_name?: string
+            tags?: string[]
+        }
+    ) => {
+        options: {
+            author_handle?: string | undefined
+            display_name?: string | undefined
+            tags?: string[] | undefined
+        }
+        skillName: string
+    }
+    publishToCommunityFailure: (skillName: string) => {
+        skillName: string
+    }
+    publishToCommunitySuccess: (skillName: string) => {
+        skillName: string
     }
     setActiveTab: (tabKey: string) => {
         tabKey: string
@@ -363,7 +336,6 @@ export interface llmSkillsLogicMeta {
         filters: (rawFilters: Partial<SkillFilters> | null) => SkillFilters
         activeCategory: (activeTabKey: string) => string
         activeTabDescription: (activeTabKey: string) => string
-        visibleCategoryTabs: (categoryCounts: Record<string, number>, activeTabKey: string) => SkillCategoryTab[]
         count: (skills: PaginatedLLMSkillListListApi) => number
         marketplaceCommand: (marketplaceState: LLMSkillMarketplaceCommandApi | null) => string
         codexCommand: (marketplaceState: LLMSkillMarketplaceCommandApi | null) => string
@@ -392,10 +364,15 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             debounce,
         }),
         loadSkills: (debounce: boolean = true) => ({ debounce }),
-        loadCategoryCounts: true,
         setActiveTab: (tabKey: string) => ({ tabKey }),
         deleteSkill: (skillName: string) => ({ skillName }),
         duplicateSkill: (skillName: string, newName: string) => ({ skillName, newName }),
+        publishToCommunity: (
+            skillName: string,
+            options: { display_name?: string; tags?: string[]; author_handle?: string }
+        ) => ({ skillName, options }),
+        publishToCommunitySuccess: (skillName: string) => ({ skillName }),
+        publishToCommunityFailure: (skillName: string) => ({ skillName }),
         importSkill: (file: File) => ({ file }),
         setImporting: (importing: boolean) => ({ importing }),
         downloadSkillZip: (skillName: string) => ({ skillName }),
@@ -424,6 +401,15 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                         ...filters,
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
+            },
+        ],
+        // Per-skill publish-in-flight state so the trigger can guard against double-submission.
+        publishingSkills: [
+            {} as Record<string, boolean>,
+            {
+                publishToCommunity: (state, { skillName }) => ({ ...state, [skillName]: true }),
+                publishToCommunitySuccess: (state, { skillName }) => ({ ...state, [skillName]: false }),
+                publishToCommunityFailure: (state, { skillName }) => ({ ...state, [skillName]: false }),
             },
         ],
         importing: [
@@ -481,6 +467,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                               offset: 0,
                               limit: SKILLS_GROUP_LIMIT,
                               created_by_id: filters.created_by_id,
+                              owner_id: filters.owner_id,
                               category,
                           }
                         : {
@@ -489,6 +476,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                               offset: Math.max(0, (filters.page - 1) * SKILLS_PER_PAGE),
                               limit: SKILLS_PER_PAGE,
                               created_by_id: filters.created_by_id,
+                              owner_id: filters.owner_id,
                               category,
                           }
 
@@ -506,24 +494,17 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 },
             },
         ],
-        // Per-category skill counts, used to decide which category tabs to show. Loaded once on
-        // mount (and after a delete) with a cheap limit=1 probe per category — we only read `count`.
-        categoryCounts: [
-            {} as Record<string, number>,
+        // Resolved GitHub handle for the current user — used to prefill the publish dialog's
+        // author_handle so the common case (GitHub-SSO'd users) is correct by default. Null when
+        // no GitHub identity is linked; the dialog field then falls back to free text.
+        githubLogin: [
+            null as string | null,
             {
-                loadCategoryCounts: async () => {
-                    const teamId = String(ApiConfig.getCurrentTeamId())
-                    const entries = await Promise.all(
-                        SKILL_CATEGORY_TABS.map(async (tab) => {
-                            const { count } = await llmSkillsList(teamId, {
-                                category: tab.category,
-                                limit: 1,
-                                offset: 0,
-                            })
-                            return [tab.category, count] as const
-                        })
-                    )
-                    return Object.fromEntries(entries)
+                loadGithubLogin: async () => {
+                    // `@me` resolves to the current user server-side, so this doesn't race userLogic
+                    // loading the user object first.
+                    const response = await usersGithubLoginRetrieve('@me')
+                    return response.github_login ?? null
                 },
             },
         ],
@@ -543,17 +524,6 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         activeTabDescription: [
             (s) => [s.activeTabKey],
             (activeTabKey: string): string => skillTabDescription(activeTabKey),
-        ],
-
-        // A category tab is shown only once the team has at least one skill in that category.
-        // The active tab is always kept visible so direct navigation to /skills/<key> (or deleting
-        // the last skill while viewing the tab) doesn't strand the user on a tab that isn't listed.
-        visibleCategoryTabs: [
-            (s) => [s.categoryCounts, s.activeTabKey],
-            (categoryCounts: Record<string, number>, activeTabKey: string): SkillCategoryTab[] =>
-                SKILL_CATEGORY_TABS.filter(
-                    (tab) => (categoryCounts[tab.category] ?? 0) > 0 || tab.key === activeTabKey
-                ),
         ],
 
         count: [(s) => [s.skills], (skills: PaginatedLLMSkillListListApi) => skills.count],
@@ -648,7 +618,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 lemonToast.info(`${skillName || 'Skill'} has been archived.`)
                 await asyncActions.loadSkills(false)
                 // Archiving may have removed the last skill in a category — refresh tab visibility.
-                actions.loadCategoryCounts()
+                skillTabsLogic.findMounted()?.actions.loadCategoryCounts()
             } catch (e) {
                 console.error('Failed to archive skill', e)
                 lemonToast.error('Failed to archive skill')
@@ -665,6 +635,36 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             } catch (e) {
                 console.error('Failed to duplicate skill', e)
                 lemonToast.error('Failed to duplicate skill')
+            }
+        },
+
+        publishToCommunity: async ({ skillName, options }) => {
+            try {
+                const result = await llmSkillsNamePublishCommunityCreate(
+                    String(ApiConfig.getCurrentTeamId()),
+                    skillName,
+                    {
+                        display_name: options.display_name,
+                        tags: options.tags,
+                        author_handle: options.author_handle,
+                    }
+                )
+                lemonToast.success(
+                    `Opened a community pull request for "${skillName}" — a maintainer will review it.`,
+                    {
+                        button: { label: 'View PR', action: () => window.open(result.pr_url, '_blank', 'noopener') },
+                    }
+                )
+                actions.publishToCommunitySuccess(skillName)
+            } catch (e: any) {
+                console.error('Failed to publish skill to community', e)
+                const detail = e?.data?.detail || e?.detail
+                lemonToast.error(
+                    e?.status === 503
+                        ? 'Publishing to the community is not available on this instance yet.'
+                        : detail || 'Failed to publish skill to the community'
+                )
+                actions.publishToCommunityFailure(skillName)
             }
         },
 
@@ -784,6 +784,6 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadSkills()
-        actions.loadCategoryCounts()
+        actions.loadGithubLogin()
     }),
 ])

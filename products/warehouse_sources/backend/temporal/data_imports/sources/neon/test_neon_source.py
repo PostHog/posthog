@@ -38,13 +38,13 @@ def test_neon_schema_field_is_optional():
     assert schema_field.label == "Schema"
 
 
-def test_neon_is_visible_and_alpha():
+def test_neon_is_visible_and_beta():
     config = NeonSource().get_source_config
 
     # A finished source must not be hidden behind unreleasedSource or a gating flag.
     assert not config.unreleasedSource
     assert config.featureFlag is None
-    assert config.releaseStatus == ReleaseStatus.ALPHA
+    assert config.releaseStatus == ReleaseStatus.BETA
 
 
 def test_neon_host_field_guides_to_the_direct_host():
@@ -115,7 +115,8 @@ def test_cdc_prerequisites_delegate_for_direct_hosts(host):
     config = mock.MagicMock(host=host)
 
     with mock.patch.object(PostgresSource, "check_cdc_prerequisites", return_value=[]) as super_check:
-        errors = NeonSource().check_cdc_prerequisites(config, management_mode="posthog", tables=["users"])
+        errors = NeonSource().check_cdc_prerequisites(config, management_mode="posthog", tables=["users"], team_id=7)
 
     super_check.assert_called_once()
+    assert super_check.call_args.kwargs["team_id"] == 7
     assert errors == []

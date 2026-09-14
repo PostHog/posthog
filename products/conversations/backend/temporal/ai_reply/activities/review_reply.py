@@ -81,49 +81,33 @@ class ReplyReviewResult(BaseModel):
 async def support_review_reply_activity(input: ReviewReplyInput) -> ReviewReplyOutput:
     """Screen the final reply for data exfiltration / PII leakage before persisting."""
     async with Heartbeater():
-        return await _review_reply(
-            input.team_id,
-            input.ticket_context,
-            input.reply,
-            input.sources,
-            input.ticket_type,
-            input.trace_id,
-            input.ticket_id,
-        )
+        return await _review_reply(input)
 
 
-async def _review_reply(
-    team_id: int,
-    ticket_context: str,
-    reply: str,
-    sources: list[dict[str, str]] | None = None,
-    ticket_type: str = "how_to",
-    trace_id: str = "",
-    ticket_id: str = "",
-) -> ReviewReplyOutput:
+async def _review_reply(input: ReviewReplyInput) -> ReviewReplyOutput:
     sources_text = ""
-    for s in (sources or [])[:MAX_SOURCES]:
+    for s in (input.sources or [])[:MAX_SOURCES]:
         sources_text += f"\n[{s.get('ref', '')}] {s.get('excerpt', '')[:500]}"
 
     user_content = f"""TICKET CONTEXT:
-{ticket_context[:3000]}
+{input.ticket_context[:3000]}
 
 REPLY TO REVIEW:
-{reply}
+{input.reply}
 
 SOURCES THE AGENT USED:
 {sources_text[:4000]}
 
-TICKET TYPE: {ticket_type}"""
+TICKET TYPE: {input.ticket_type}"""
 
-    client = get_async_anthropic_gateway_client(product="conversations", team_id=team_id)
+    client = get_async_anthropic_gateway_client(product="conversations", team_id=input.team_id)
     message = await create_message(
         client,
         model=VALIDATOR_MODEL,
         max_tokens=512,
         system=REPLY_REVIEW_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
-        **tracing_kwargs(trace_id, ticket_id),
+        **tracing_kwargs(input.trace_id, input.ticket_id),
     )
     content = anthropic_text(message)
 

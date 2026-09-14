@@ -4,6 +4,8 @@ import { parseGithubUrl } from "@posthog/git/utils";
 import type { WorkspaceMode } from "@posthog/shared";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { TaskRunStatus } from "@posthog/shared/domain-types";
+import { writeTaskDragData } from "@posthog/ui/features/sidebar/taskDrag";
+import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { navigateToPullRequestView } from "@posthog/ui/router/navigationBridge";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DotsCircleSpinner } from "../../../../primitives/DotsCircleSpinner";
@@ -34,6 +36,7 @@ interface TaskItemProps {
   depth?: number;
   taskId: string;
   label: string;
+  subtitle?: React.ReactNode;
   isActive: boolean;
   isSelected?: boolean;
   /** Archive request in flight: show a spinner and suppress hover actions. */
@@ -57,6 +60,8 @@ interface TaskItemProps {
   onClick: (e: React.MouseEvent) => void;
   onDoubleClick?: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
   onArchive?: () => void;
   onTogglePin?: () => void;
   onEditSubmit?: (newTitle: string) => void;
@@ -108,6 +113,7 @@ export function TaskItem({
   depth = 0,
   taskId,
   label,
+  subtitle,
   isActive,
   isSelected = false,
   isArchiving = false,
@@ -130,13 +136,18 @@ export function TaskItem({
   onClick,
   onDoubleClick,
   onContextMenu,
+  onDragStart,
+  onDragEnd,
   onArchive,
   onTogglePin,
   onEditSubmit,
   onEditCancel,
 }: TaskItemProps) {
   const icon = isArchiving ? (
-    <DotsCircleSpinner size={ICON_SIZE} className="text-gray-10" />
+    <>
+      <DotsCircleSpinner size={ICON_SIZE} className="text-gray-10" />
+      <span className="sr-only">Archiving</span>
+    </>
   ) : (
     <TaskIcon
       workspaceMode={workspaceMode}
@@ -156,7 +167,7 @@ export function TaskItem({
 
   const prRef = useMemo(() => (prUrl ? parseGithubUrl(prUrl) : null), [prUrl]);
   const prBadge =
-    prUrl && prRef?.kind === "pr" ? (
+    !isArchiving && prUrl && prRef?.kind === "pr" ? (
       <PrBadge url={prUrl} number={prRef.number} />
     ) : null;
 
@@ -188,13 +199,17 @@ export function TaskItem({
 
   const handleDragStart = useCallback(
     (e: React.DragEvent) => {
-      e.dataTransfer.setData("text/x-task-id", taskId);
-      e.dataTransfer.effectAllowed = "copy";
+      writeTaskDragData(e.dataTransfer, taskId);
+      // Both, always. Command Center tiles ask for `copy` and the pinned run
+      // asks for `move`; a source that permits only one resolves the other
+      // pairing to no drop, and the tile silently stops accepting the row.
+      e.dataTransfer.effectAllowed = "copyMove";
+      onDragStart?.(e);
     },
-    [taskId],
+    [onDragStart, taskId],
   );
 
-  if (isEditing) {
+  if (isEditing && !isArchiving) {
     return (
       <InlineEditInput
         depth={depth}
@@ -212,14 +227,20 @@ export function TaskItem({
       depth={depth}
       icon={icon}
       label={label}
+      subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
+      aria-busy={isArchiving || undefined}
+      // Lets a drag-selection find the row and the session it stands for.
+      {...{ [SESSION_ROW_ATTRIBUTE]: taskId }}
       isDimmed={isArchiving}
+      disabled={isArchiving}
       draggable={!isArchiving}
       onDragStart={handleDragStart}
-      onClick={onClick}
-      onDoubleClick={onDoubleClick}
-      onContextMenu={onContextMenu}
+      onDragEnd={onDragEnd}
+      onClick={isArchiving ? undefined : onClick}
+      onDoubleClick={isArchiving ? undefined : onDoubleClick}
+      onContextMenu={isArchiving ? undefined : onContextMenu}
       endContent={endContent}
     />
   );

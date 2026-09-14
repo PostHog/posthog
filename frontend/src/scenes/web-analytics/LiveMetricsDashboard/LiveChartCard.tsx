@@ -1,13 +1,14 @@
 import clsx from 'clsx'
 import { type ReactNode } from 'react'
 
-import { Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 interface LiveChartCardProps {
     title: string
     subtitle?: string
     subtitleTooltip?: string
     isLoading: boolean
+    errorMessage?: string
     children: ReactNode
     className?: string
     contentClassName?: string
@@ -18,6 +19,7 @@ export const LiveChartCard = ({
     subtitle,
     subtitleTooltip,
     isLoading,
+    errorMessage,
     children,
     className = '',
     contentClassName = '',
@@ -38,6 +40,10 @@ export const LiveChartCard = ({
             {isLoading ? (
                 <div className="flex-1 flex items-center justify-center">
                     <Spinner className="text-2xl" />
+                </div>
+            ) : errorMessage ? (
+                <div className="flex-1 flex items-center justify-center">
+                    <LemonBanner type="error">{errorMessage}</LemonBanner>
                 </div>
             ) : (
                 <div className={clsx('flex-1 min-h-0', contentClassName)}>{children}</div>

@@ -14,7 +14,9 @@ import { BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { BatchExportLoadingSkeleton } from './BatchExportLoadingSkeleton'
+import { BatchExportRunsEmptyState } from './BatchExportRunsEmptyState'
 import { BatchExportRunsLogicProps, batchExportRunsLogic } from './batchExportRunsLogic'
+import { BatchExportRunStatusFilter } from './BatchExportRunStatusFilter'
 import { BatchExportContext } from './types'
 import { statusToLemonTagType } from './utils'
 
@@ -77,6 +79,7 @@ function BatchExportRunsFilters({ id }: { id: string }): JSX.Element {
                 onChange={switchLatestRuns}
                 size="small"
             />
+            <BatchExportRunStatusFilter id={id} />
             <DateFilter
                 dateTo={dateRange.to}
                 dateFrom={dateRange.from}
@@ -97,7 +100,7 @@ function BatchExportLatestRuns({ id, context }: BatchExportRunsLogicProps): JSX.
     const logic = batchExportRunsLogic({ id, context })
 
     const { batchExportConfig, latestRuns, loading, hasMoreRunsToLoad, recordLabel } = useValues(logic)
-    const { openBackfillModal, loadOlderRuns, retryRun, cancelRun } = useActions(logic)
+    const { loadOlderRuns, retryRun, cancelRun } = useActions(logic)
 
     if (!batchExportConfig) {
         return <NotFound object="batch export" />
@@ -204,16 +207,7 @@ function BatchExportLatestRuns({ id, context }: BatchExportRunsLogicProps): JSX.
                         },
                     },
                 ]}
-                emptyState={
-                    <div className="deprecated-space-y-2">
-                        <div>
-                            No runs in this time range. Your exporter runs every <b>{batchExportConfig.interval}</b>.
-                        </div>
-                        <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                            Start backfill
-                        </LemonButton>
-                    </div>
-                }
+                emptyState={<BatchExportRunsEmptyState id={id} interval={batchExportConfig.interval} />}
             />
         </>
     )
@@ -240,11 +234,16 @@ export function BatchExportRunsGrouped({
 }): JSX.Element {
     const logic = batchExportRunsLogic({ id, context })
 
-    const { openBackfillModal } = useActions(logic)
-    const { recordLabel } = useValues(logic)
+    const { recordLabel, statusFilterActive } = useValues(logic)
 
     return (
         <>
+            {statusFilterActive && (
+                <div className="text-secondary text-xs">
+                    Only the attempts that match the status filter are shown. An interval can have other attempts that
+                    are hidden.
+                </div>
+            )}
             <LemonTable<GroupedBatchExportRuns>
                 dataSource={groupedRuns}
                 loading={loading}
@@ -375,16 +374,7 @@ export function BatchExportRunsGrouped({
                         },
                     },
                 ]}
-                emptyState={
-                    <div className="deprecated-space-y-2">
-                        <div>
-                            No runs in this time range. Your exporter runs every <b>{interval}</b>.
-                        </div>
-                        <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                            Start backfill
-                        </LemonButton>
-                    </div>
-                }
+                emptyState={<BatchExportRunsEmptyState id={id} interval={interval} />}
             />
         </>
     )

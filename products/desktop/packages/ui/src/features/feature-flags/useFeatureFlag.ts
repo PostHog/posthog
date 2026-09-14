@@ -1,18 +1,24 @@
 import { useService } from "@posthog/di/react";
 import { useEffect, useState } from "react";
+import { isFlagForcedOff } from "./devFlagOverrides";
 import { FEATURE_FLAGS, type FeatureFlags } from "./identifiers";
 
 export function useFeatureFlag(flagKey: string, defaultValue = false): boolean {
   const flags = useService<FeatureFlags>(FEATURE_FLAGS);
+  // A dev-only kill switch, since a dev default beats both the flag's real
+  // value and posthog's override. See devFlagOverrides.
   const [enabled, setEnabled] = useState(
-    () => flags.isEnabled(flagKey) || defaultValue,
+    () =>
+      !isFlagForcedOff(flagKey) && (flags.isEnabled(flagKey) || defaultValue),
   );
 
   useEffect(() => {
-    setEnabled(flags.isEnabled(flagKey) || defaultValue);
+    const read = () =>
+      !isFlagForcedOff(flagKey) && (flags.isEnabled(flagKey) || defaultValue);
+    setEnabled(read());
 
     return flags.onFlagsLoaded(() => {
-      setEnabled(flags.isEnabled(flagKey) || defaultValue);
+      setEnabled(read());
     });
   }, [flags, flagKey, defaultValue]);
 

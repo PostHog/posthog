@@ -5,7 +5,7 @@ import { ApiError } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { tasksLogic } from '../../logics/tasksLogic'
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
@@ -18,7 +18,7 @@ const createMockTask = (id: string): Task => ({
     title: `Task ${id}`,
     description: 'A test task',
     origin_product: OriginProduct.USER_CREATED,
-    runtime: RuntimeEnumApi.Acp,
+    runtime: TaskRuntimeEnumApi.Acp,
     repository: 'test/repo',
     github_integration: null,
     signal_report: null,
@@ -37,6 +37,9 @@ const createMockRun = (id: string, status: TaskRunStatus): TaskRun => ({
     branch: null,
     status,
     environment: TaskRunEnvironment.CLOUD,
+    runtime_adapter: null,
+    model: null,
+    reasoning_effort: null,
     log_url: null,
     error_message: null,
     output: null,
@@ -194,6 +197,64 @@ describe('taskDetailSceneLogic', () => {
     })
 
     describe('progressive selected run loading', () => {
+        it('selects a successor before the refreshed list arrives and isolates historical selection', async () => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            const other = taskDetailSceneLogic({ taskId: 'task-other' })
+            logic.mount()
+            other.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const previous = createMockRun('run-previous', TaskRunStatus.COMPLETED)
+            logic.actions.loadTaskRunsSuccess([previous])
+            const run = {
+                ...createMockRun('run-successor', TaskRunStatus.QUEUED),
+                runtime_adapter: null,
+                reasoning_effort: null,
+                artifacts: [],
+            }
+
+            logic.actions.continueWithRun({ run, streamKey: previous.id, draft: 'A newer draft' })
+            expect(logic.values.selectedRun).toEqual(run)
+            expect(logic.values.isRunPending).toBe(false)
+            expect(other.values.runContinuation).toBe(null)
+            expect(other.values.selectedRunId).toBe(null)
+
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadTaskRunsSuccess([previous])
+            expect(logic.values.selectedRunId).toBe(run.id)
+            expect(logic.values.selectedRun).toEqual(run)
+            logic.actions.setSelectedRunId(previous.id, 'task-123')
+            expect(logic.values.runContinuation).toBe(null)
+            expect(logic.values.selectedRun).toEqual(previous)
+            logic.unmount()
+            other.unmount()
+        })
+
+        it('treats a queued successor as the latest run while the list still holds the failed predecessor', async () => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const previous = createMockRun('run-previous', TaskRunStatus.FAILED)
+            logic.actions.loadTaskRunsSuccess([previous])
+            expect(logic.values.latestRun).toEqual(previous)
+
+            const successor = {
+                ...createMockRun('run-successor', TaskRunStatus.QUEUED),
+                runtime_adapter: null,
+                reasoning_effort: null,
+                artifacts: [],
+            }
+            logic.actions.continueWithRun({ run: successor, streamKey: previous.id, draft: '' })
+            expect(logic.values.latestRun).toEqual(successor)
+
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadTaskRunsFailure('Could not load task runs', new ApiError('nope', 500))
+            expect(logic.values.latestRun).toEqual(successor)
+
+            logic.actions.loadTaskRunsSuccess([successor, previous])
+            expect(logic.values.latestRun).toEqual(successor)
+            logic.unmount()
+        })
+
         it('uses runs from the list without refetching selected run detail', async () => {
             const logic = taskDetailSceneLogic({ taskId: 'task-123' })
             logic.mount()

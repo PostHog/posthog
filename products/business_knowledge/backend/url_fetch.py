@@ -126,20 +126,20 @@ def _ssrf_safe_get(
     session.mount("https://", adapter)
     try:
         for _hop in range(URL_MAX_REDIRECTS + 1):
-            allowed, reason, pinned_ips = validate_url_and_pin_ips(current)
-            if not allowed:
+            verdict = validate_url_and_pin_ips(current)
+            if not verdict.allowed:
                 logger.warning(
                     "business_knowledge.url_fetch.ssrf_blocked",
                     url=current,
-                    reason=reason,
+                    reason=verdict.reason,
                 )
                 raise UrlFetchError("URL is not reachable from this environment.")
 
             # Pin the first validated IP so requests connects to it directly
             parsed = urlparse.urlparse(current)
             hostname = (parsed.hostname or "").lower()
-            if pinned_ips:
-                adapter.pin(hostname, next(iter(pinned_ips)))
+            if verdict.pinned_ips:
+                adapter.pin(hostname, next(iter(verdict.pinned_ips)))
 
             merged_headers = dict(headers)
             if etag:

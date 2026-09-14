@@ -35,9 +35,8 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks import image_exporter
 from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, InvalidExportContext
-from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
-from products.product_analytics.backend.models.insight import Insight
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.api import map_stale_to_latest
+from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 
 def make_insight_result(cache_key: str) -> InsightResult:
@@ -501,6 +500,28 @@ class TestImageExporter(APIBaseTest):
             }
         else:
             assert call_kwargs["variables_override"] is None
+
+    @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
+    def test_insight_export_without_a_query_skips_cache_warming(self, mock_calculate: Any, *args: Any) -> None:
+        # An insight that stores only legacy filters has no query to warm, and warming it would
+        # raise. The render converts the filters in the browser, so the export still produces one.
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Legacy insight",
+            filters={"events": [{"id": "$pageview"}]},
+        )
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            insight=insight,
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(exported_asset)
+
+        assert mock_calculate.call_count == 0
+        exported_asset.refresh_from_db()
+        assert exported_asset.content == b"image_data"
 
     @parameterized.expand(
         [

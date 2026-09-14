@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class UsBeaSourceConfig(config.Config):
-    pass
+    api_key: str
+    custom_dataset_name: str | None = None
+    custom_query_params: str | None = None

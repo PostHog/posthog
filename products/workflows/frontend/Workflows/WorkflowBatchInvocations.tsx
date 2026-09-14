@@ -1,9 +1,18 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { type ReactNode, useMemo } from 'react'
 
 import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { IconClock } from '@posthog/icons'
-import { LemonCollapse, LemonDivider, LemonTag, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCollapse,
+    LemonDialog,
+    LemonDivider,
+    LemonTag,
+    ProfilePicture,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
@@ -39,14 +48,50 @@ function SectionHeading({ children }: { children: ReactNode }): JSX.Element {
     return <h3 className="text-xs font-semibold uppercase tracking-wide text-muted mb-1">{children}</h3>
 }
 
-function BatchRunHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
+const STOPPABLE_STATUSES: HogFlowBatchJob['status'][] = ['waiting', 'queued', 'active']
+
+function BatchRunHeader({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlowId: string }): JSX.Element {
+    const { cancellingJobIds } = useValues(batchWorkflowJobsLogic({ id: hogFlowId }))
+    const { cancelBatchJob } = useActions(batchWorkflowJobsLogic({ id: hogFlowId }))
+
     return (
         <div className="flex gap-2 w-full justify-between">
             <div className="flex items-center gap-2 min-w-0">
                 <strong className="truncate">{job.id}</strong>
-                <LemonTag type={STATUS_TAG_TYPE[job.status] ?? 'default'}>{job.status}</LemonTag>
+                <LemonTag type={STATUS_TAG_TYPE[job.status] ?? 'default'}>
+                    {/* The stored enum value is 'cancelled'; display American spelling. */}
+                    {job.status === 'cancelled' ? 'canceled' : job.status}
+                </LemonTag>
             </div>
             <div className="flex items-center gap-2">
+                {STOPPABLE_STATUSES.includes(job.status) ? (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        status="danger"
+                        loading={cancellingJobIds.includes(job.id)}
+                        onClick={(e) => {
+                            // The header row toggles the collapse panel; stopping a run shouldn't.
+                            e.stopPropagation()
+                            LemonDialog.open({
+                                title: 'Stop this batch run?',
+                                // Two sentences of copy; the default dialog width spans the screen.
+                                maxWidth: '30rem',
+                                content:
+                                    'No more of the audience will receive this workflow, and every run ' +
+                                    'still in flight is canceled. Messages already sent are not recalled.',
+                                primaryButton: {
+                                    children: 'Stop run',
+                                    status: 'danger',
+                                    onClick: () => cancelBatchJob(job.id),
+                                },
+                                secondaryButton: { children: 'Keep running' },
+                            })
+                        }}
+                    >
+                        Stop
+                    </LemonButton>
+                ) : null}
                 <TZLabel title="Created at" time={job.created_at} />
                 <LemonDivider vertical className="h-full" />
                 {job.created_by ? (
@@ -186,7 +231,7 @@ export function WorkflowBatchInvocations({ id }: { id: string }): JSX.Element {
                 <LemonCollapse
                     panels={jobs.map((job) => ({
                         key: job.id,
-                        header: <BatchRunHeader job={job} />,
+                        header: <BatchRunHeader job={job} hogFlowId={id} />,
                         content: <BatchRunInvocations job={job} hogFlowId={id} />,
                     }))}
                 />

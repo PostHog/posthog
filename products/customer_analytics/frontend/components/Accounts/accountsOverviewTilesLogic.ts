@@ -12,7 +12,6 @@ import {
     AccountsTableCustomPropertyOperator,
     AccountsTableMetric,
     AccountsTableQueryResponse,
-    AccountsQueryResponse,
     AccountsTableThresholdOperator,
     DataNode,
 } from '~/queries/schema/schema-general'
@@ -88,8 +87,7 @@ export interface AccountsOverviewTile {
 
 export interface TileFilter {
     tileId: string
-    expression: string
-    filter?: AccountsTableCustomPropertyFilter
+    filter: AccountsTableCustomPropertyFilter
 }
 
 // Saved column expressions include an alias for table rendering, while saved
@@ -119,25 +117,6 @@ export function numericColumnOptions(groups: AccountColumnGroup[]): AccountColum
                 }
             })
     )
-}
-
-export function applyScale(expression: string, scale: number | undefined): string {
-    if (scale === undefined || !Number.isFinite(scale) || scale === 1) {
-        return expression
-    }
-    return `${expression} * ${scale}`
-}
-
-export function tileMetricExpression(tile: AccountsOverviewTile): string {
-    const { metric } = tile
-    switch (metric.type) {
-        case 'count':
-            return 'count()'
-        case 'count_threshold':
-            return `countIf(${metric.columnExpression} ${metric.operator} ${metric.value})`
-        default:
-            return applyScale(`${metric.type}(${metric.columnExpression})`, metric.scale)
-    }
 }
 
 export function scaleSuffix(scale: number | undefined): string {
@@ -233,14 +212,8 @@ export function isTileClickable(tile: AccountsOverviewTile): boolean {
 }
 
 export function tileFilterFor(tile: AccountsOverviewTile): TileFilter | null {
-    if (tile.metric.type !== 'count_threshold') {
-        return null
-    }
-    return {
-        tileId: tile.id,
-        expression: `${tile.metric.columnExpression} ${tile.metric.operator} ${tile.metric.value}`,
-        filter: tileToRowFilter(tile) ?? undefined,
-    }
+    const filter = tileToRowFilter(tile)
+    return filter ? { tileId: tile.id, filter } : null
 }
 
 function readNumeric(raw: unknown): number | null {
@@ -252,7 +225,7 @@ function readNumeric(raw: unknown): number | null {
 }
 
 export function parseTileValues(
-    response: AccountsQueryResponse | AccountsTableQueryResponse | null,
+    response: AccountsTableQueryResponse | null,
     tiles: AccountsOverviewTile[]
 ): Record<string, number | null> {
     const values: Record<string, number | null> = {}
@@ -272,7 +245,7 @@ function reconcileTilesAgainstSchema(
         if (tile.metric.type === 'count') {
             return true
         }
-        return numericExpressions.has(tile.metric.columnExpression)
+        return numericExpressions.has(tile.metric.columnExpression) && tileQueryMetric(tile) !== null
     })
 }
 
@@ -336,10 +309,9 @@ export interface accountsOverviewTilesLogicValues {
         | null // dataNodeLogic
     accountsResponseLoading: boolean // dataNodeLogic
     editorVisible: boolean
-    metrics: string[]
+    metrics: AccountsTableMetric[]
     numericColumnExpressions: Set<string>
     numericColumns: AccountColumnOption[]
-    postgresMetrics: AccountsTableMetric[]
     reconciledTiles: AccountsOverviewTile[]
     selectedTileId: string | null
     tileFilter: TileFilter | null
@@ -405,8 +377,7 @@ export interface accountsOverviewTilesLogicMeta {
             tiles: AccountsOverviewTile[],
             numericColumnExpressions: Set<string>
         ) => AccountsOverviewTile[]
-        metrics: (reconciledTiles: AccountsOverviewTile[]) => string[]
-        postgresMetrics: (reconciledTiles: AccountsOverviewTile[]) => AccountsTableMetric[]
+        metrics: (reconciledTiles: AccountsOverviewTile[]) => AccountsTableMetric[]
         tileValues: (
             accountsResponse:
                 | ErrorTrackingQueryResponse
@@ -521,17 +492,13 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
         ],
         metrics: [
             (s) => [s.reconciledTiles],
-            (tiles: AccountsOverviewTile[]): string[] => tiles.map(tileMetricExpression),
-        ],
-        postgresMetrics: [
-            (s) => [s.reconciledTiles],
             (tiles: AccountsOverviewTile[]): AccountsTableMetric[] =>
                 tiles.map(tileQueryMetric).filter((metric): metric is AccountsTableMetric => metric !== null),
         ],
         tileValues: [
             (s) => [s.accountsResponse, s.reconciledTiles],
             (
-                response: AccountsQueryResponse | AccountsTableQueryResponse | null,
+                response: AccountsTableQueryResponse | null,
                 tiles: AccountsOverviewTile[]
             ): Record<string, number | null> => parseTileValues(response, tiles),
         ],

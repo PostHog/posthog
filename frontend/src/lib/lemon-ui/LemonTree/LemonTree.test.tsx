@@ -18,7 +18,7 @@ const cancelAnimationFrameMock = (handle: number): void => {
     window.clearTimeout(handle)
 }
 
-describe('LemonTree virtualization', () => {
+describe('LemonTree', () => {
     let requestAnimationFrameSpy: jest.SpyInstance<number, [FrameRequestCallback]>
     let cancelAnimationFrameSpy: jest.SpyInstance<void, [number]>
 
@@ -68,6 +68,18 @@ describe('LemonTree virtualization', () => {
         })
         await flushAnimationFrame()
     }
+
+    it('renders a standalone side action without dropdown content', () => {
+        render(
+            <LemonTree
+                data={[{ id: 'properties', name: 'properties' }]}
+                itemSideAction={() => null}
+                itemSideActionButton={() => <button>Filter properties</button>}
+            />
+        )
+
+        expect(screen.getByText('Filter properties')).toBeInTheDocument()
+    })
 
     it('renders only the visible window while scrolling', async () => {
         const data: TreeDataItem[] = [

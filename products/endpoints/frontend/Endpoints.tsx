@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -14,7 +14,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -96,7 +96,13 @@ export const EndpointsTable = (): JSX.Element => {
                                 </LemonTag>
                             </>
                         }
-                        description={record.description}
+                        description={
+                            record.description ? (
+                                <Tooltip title={record.description}>
+                                    <span className="line-clamp-1 max-w-[30rem] break-all">{record.description}</span>
+                                </Tooltip>
+                            ) : undefined
+                        }
                     />
                 )
             },
@@ -129,10 +135,7 @@ export const EndpointsTable = (): JSX.Element => {
                 <LemonButton
                     type="secondary"
                     size="xsmall"
-                    onClick={() => {
-                        navigator.clipboard.writeText(record.endpoint_path)
-                        lemonToast.success('Endpoint URL copied to clipboard')
-                    }}
+                    onClick={() => void copyToClipboard(record.endpoint_path, 'endpoint URL')}
                     className="font-mono text-xs"
                 >
                     {record.endpoint_path}

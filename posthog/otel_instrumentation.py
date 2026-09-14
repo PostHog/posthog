@@ -2,6 +2,7 @@ import os
 import atexit
 import typing
 import logging
+from collections.abc import Sequence
 
 from django.http import HttpRequest, HttpResponse
 
@@ -46,6 +47,45 @@ def _otel_django_response_hook(span: Span, request: HttpRequest, response: HttpR
 
     http_method = sanitize_method((request.method or "").strip())
     span.update_name("HTTP" if http_method == "_OTHER" else f"{http_method} {route}")
+
+
+def _otel_redis_request_hook(span: Span, instance: object, args: Sequence[object], kwargs: dict[str, object]) -> None:
+    """Tag cluster-client spans with the connection attributes the instrumentor leaves off.
+
+    opentelemetry-instrumentation-redis reads `db.system` and `net.peer.*` off
+    `client.connection_pool.connection_kwargs`, and returns early for any client that has no
+    `connection_pool`. `redis.cluster.RedisCluster` keeps per-node pools under `nodes_manager`
+    instead, so its spans arrive carrying a command name and nothing else, which hides them from
+    every query that selects Redis spans by `db.system` or groups them by host.
+
+    A command's shard is chosen inside `execute_command`, after this hook runs, so `net.peer.name`
+    is a node from the client's own topology: it identifies the cluster, not the hop that served
+    the command. `db.redis.cluster` marks that distinction.
+    """
+    # This runs inside the traced Redis call, and the instrumentor does not guard hook calls, so a
+    # raise here would fail the command itself. An unfamiliar client shape degrades to an untagged
+    # span instead, which is the behavior without this hook.
+    try:
+        if not span or not span.is_recording() or hasattr(instance, "connection_pool"):
+            return
+
+        startup_nodes = getattr(getattr(instance, "nodes_manager", None), "startup_nodes", None)
+        if not startup_nodes:
+            return
+
+        span.set_attribute("db.system", "redis")
+        span.set_attribute("db.redis.cluster", True)
+        span.set_attribute("net.transport", "ip_tcp")
+
+        node = next(iter(startup_nodes.values()), None)
+        host = getattr(node, "host", None)
+        port = getattr(node, "port", None)
+        if host:
+            span.set_attribute("net.peer.name", host)
+        if port:
+            span.set_attribute("net.peer.port", port)
+    except Exception:
+        logger.debug("otel_redis_request_hook_failed", exc_info=True)
 
 
 def initialize_otel():
@@ -165,7 +205,7 @@ def instrument_celery(provider: trace.TracerProvider):
 
 def instrument_redis(provider: trace.TracerProvider):
     try:
-        RedisInstrumentor().instrument(tracer_provider=provider)
+        RedisInstrumentor().instrument(tracer_provider=provider, request_hook=_otel_redis_request_hook)
         logger.info("otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="success")
     except Exception as e:
         logger.exception("otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="error", exc_info=e)

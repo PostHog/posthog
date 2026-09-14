@@ -116,7 +116,11 @@ def _summarize(*, comments: list[str], team_id: int, distinct_id: str) -> _LlmFe
             config=config,
             posthog_distinct_id=distinct_id,
             posthog_trace_id=str(uuid.uuid4()),
-            posthog_properties={"ai_product": "replay_vision", "feature": "feedback_themes"},
+            posthog_properties={
+                "ai_product": "replay_vision",
+                "feature": "feedback_themes",
+                "team_id": team_id,
+            },
             posthog_groups={"project": str(team_id)},
         )
     except Exception as e:

@@ -7,7 +7,11 @@ import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventProperties } from 'lib/components/Errors/types'
-import { SessionTimeline, SessionTimelineHandle } from 'lib/components/SessionTimeline/SessionTimeline'
+import {
+    SessionTimeline,
+    SessionTimelineHandle,
+    type TimelineMarkerColor,
+} from 'lib/components/SessionTimeline/SessionTimeline'
 import { ItemCategory, ItemCollector } from 'lib/components/SessionTimeline/timeline'
 import { CombinedEventLoader } from 'lib/components/SessionTimeline/timeline/items/combined'
 import { customItemRenderer } from 'lib/components/SessionTimeline/timeline/items/custom'
@@ -19,95 +23,81 @@ import {
 import { ConsoleLogLoader, consoleLogRenderer } from 'lib/components/SessionTimeline/timeline/items/logs'
 import { pageRenderer } from 'lib/components/SessionTimeline/timeline/items/page'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import {
-    TabsPrimitive,
-    TabsPrimitiveContent,
-    TabsPrimitiveContentProps,
-    TabsPrimitiveList,
-    TabsPrimitiveTrigger,
-} from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { cn } from 'lib/utils/css-classes'
-
-import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
+import { TabsContent } from 'lib/ui/quill'
 
 import { exceptionCardLogic } from '../../exceptionCardLogic'
-import { SubHeader } from '../SubHeader'
 import { SessionRecordingTab } from './SessionRecordingTab'
 import { sessionTabLogic } from './sessionTabLogic'
 
-export interface SessionTabProps extends TabsPrimitiveContentProps {
+export interface SessionTabProps {
     timestamp?: string
+    eventMarkerColor?: TimelineMarkerColor
 }
 
-export function SessionTab({ timestamp, className, ...props }: SessionTabProps): JSX.Element {
+export function SessionTab({ timestamp, eventMarkerColor }: SessionTabProps): JSX.Element {
     const { sessionId } = useValues(errorPropertiesLogic)
-    const { loading, currentSessionTab } = useValues(exceptionCardLogic)
-    const { setCurrentSessionTab } = useActions(exceptionCardLogic)
+    const { loading } = useValues(exceptionCardLogic)
 
-    return (
-        <TabsPrimitiveContent {...props} className={cn('flex min-w-0 flex-col overflow-hidden', className)}>
-            {match([loading, sessionId])
-                .with([true, P.any], () => (
+    return match([loading, sessionId])
+        .with([true, P.any], () => (
+            <>
+                <TabsContent value="timeline" className="min-h-0 min-w-0 flex-1 overflow-hidden text-sm">
                     <div className="flex justify-center items-center h-[300px]">
                         <Spinner />
                     </div>
-                ))
-                .with([false, P.nullish], () => <NoSessionStepsView timestamp={timestamp} />)
-                .with([false, P.string], ([_, sessionId]) => (
-                    <BindLogic logic={sessionTabLogic} props={{ timestamp, sessionId }}>
-                        <TabsPrimitive
-                            value={currentSessionTab}
-                            onValueChange={setCurrentSessionTab}
-                            className="flex min-h-0 min-w-0 flex-1 flex-col"
-                        >
-                            <SubHeader className="p-0 shrink-0">
-                                <TabsPrimitiveList className="flex justify-start gap-2 w-full h-full items-center">
-                                    <TabsPrimitiveTrigger className="px-2 h-full" value="timeline">
-                                        Timeline
-                                    </TabsPrimitiveTrigger>
-                                    <TabsPrimitiveTrigger className="px-2 h-full" value="recording">
-                                        Recording
-                                    </TabsPrimitiveTrigger>
-                                    <div className="ml-auto pr-1">
-                                        <ViewLogsButton
-                                            sessionId={sessionId}
-                                            timestamp={timestamp}
-                                            size="xsmall"
-                                            data-attr="error-tracking-session-view-logs"
-                                        />
-                                    </div>
-                                </TabsPrimitiveList>
-                            </SubHeader>
-                            <SessionTimelineTab />
-                            <SessionRecordingTab />
-                        </TabsPrimitive>
-                    </BindLogic>
-                ))
-                .exhaustive()}
-        </TabsPrimitiveContent>
-    )
+                </TabsContent>
+                <TabsContent value="recording" className="min-h-0 min-w-0 flex-1 overflow-hidden">
+                    <div className="flex justify-center items-center h-[300px]">
+                        <Spinner />
+                    </div>
+                </TabsContent>
+            </>
+        ))
+        .with([false, P.nullish], () => (
+            <>
+                <TabsContent value="timeline" className="min-h-0 min-w-0 flex-1 overflow-hidden text-sm">
+                    <NoSessionStepsView timestamp={timestamp} eventMarkerColor={eventMarkerColor} />
+                </TabsContent>
+                <TabsContent value="recording" className="min-h-0 min-w-0 flex-1 overflow-hidden">
+                    <NoSessionIdFound />
+                </TabsContent>
+            </>
+        ))
+        .with([false, P.string], ([_, sessionId]) => (
+            <BindLogic logic={sessionTabLogic} props={{ timestamp, sessionId }}>
+                <SessionTimelineTab timestamp={timestamp} eventMarkerColor={eventMarkerColor} />
+                <SessionRecordingTab />
+            </BindLogic>
+        ))
+        .exhaustive()
 }
 
-export function SessionTimelineTab(): JSX.Element {
+export function SessionTimelineTab({
+    timestamp,
+    eventMarkerColor,
+}: {
+    timestamp?: string
+    eventMarkerColor?: TimelineMarkerColor
+}): JSX.Element {
     const { properties, uuid } = useValues(errorPropertiesLogic)
     const sessionTimelineRef = useRef<SessionTimelineHandle>(null)
-    const { currentSessionTab } = useValues(exceptionCardLogic)
-    const { sessionId, timestamp } = useValues(sessionTabLogic)
+    const { currentTab } = useValues(exceptionCardLogic)
+    const { sessionId } = useValues(sessionTabLogic)
     const { setRecordingTimestamp } = useActions(sessionTabLogic)
-    const { setCurrentSessionTab } = useActions(exceptionCardLogic)
+    const { setCurrentTab } = useActions(exceptionCardLogic)
 
     useEffect(() => {
-        if (currentSessionTab == 'timeline' && sessionTimelineRef.current) {
+        if (currentTab === 'timeline' && sessionTimelineRef.current) {
             sessionTimelineRef.current.scrollToItem(uuid)
         }
-    }, [currentSessionTab, uuid])
+    }, [currentTab, uuid])
 
     const onTimeClick = useCallback(
         (time: Dayjs) => {
             setRecordingTimestamp(time, 1000)
-            setCurrentSessionTab('recording')
+            setCurrentTab('recording')
         },
-        [setRecordingTimestamp, setCurrentSessionTab]
+        [setRecordingTimestamp, setCurrentTab]
     )
 
     const collector = useMemo<ItemCollector | undefined>(() => {
@@ -118,20 +108,28 @@ export function SessionTimelineTab(): JSX.Element {
     }, [properties, sessionId, timestamp, uuid])
 
     return (
-        <TabsPrimitiveContent value="timeline" className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <TabsContent value="timeline" className="min-h-0 min-w-0 flex-1 overflow-y-auto text-sm">
             {collector && (
                 <SessionTimeline
                     ref={sessionTimelineRef}
                     collector={collector}
                     selectedItemId={uuid}
+                    selectedItemMarkerColor={eventMarkerColor}
                     onTimeClick={onTimeClick}
+                    categoryControlsPosition="header"
                 />
             )}
-        </TabsPrimitiveContent>
+        </TabsContent>
     )
 }
 
-function NoSessionStepsView({ timestamp }: { timestamp?: string }): JSX.Element {
+function NoSessionStepsView({
+    timestamp,
+    eventMarkerColor,
+}: {
+    timestamp?: string
+    eventMarkerColor?: TimelineMarkerColor
+}): JSX.Element {
     const { properties, uuid } = useValues(errorPropertiesLogic)
     const hasSteps = Array.isArray(properties?.$exception_steps) && properties.$exception_steps.length > 0
 
@@ -155,7 +153,12 @@ function NoSessionStepsView({ timestamp }: { timestamp?: string }): JSX.Element 
                 </Link>
             </LemonBanner>
             <div className="flex-1 min-h-0 overflow-y-auto">
-                <SessionTimeline collector={collector} selectedItemId={uuid} />
+                <SessionTimeline
+                    collector={collector}
+                    selectedItemId={uuid}
+                    selectedItemMarkerColor={eventMarkerColor}
+                    categoryControlsPosition="header"
+                />
             </div>
         </div>
     )

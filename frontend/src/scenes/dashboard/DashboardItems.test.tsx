@@ -9,7 +9,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardMode, DashboardPlacement } from '~/types'
+import { DashboardPlacement } from '~/types'
 
 import { DashboardItems } from './DashboardItems'
 
@@ -22,6 +22,7 @@ jest.mock('kea', () => ({
 
 jest.mock('scenes/dashboard/dashboardLogic', () => ({
     dashboardLogic: { __mock: 'dashboardLogic' },
+    DashboardLoadAction: { Update: 'update' },
 }))
 
 jest.mock('~/models/dashboardsModel', () => ({
@@ -62,50 +63,58 @@ jest.mock('scenes/surveys/utils/opportunityDetection', () => ({
 }))
 
 jest.mock('scenes/insights/EmptyStates', () => ({
-    InsightErrorState: ({ title, supportOnly }: { title: string; supportOnly?: boolean }) => (
-        <div data-attr="insight-error-state" data-support-only={supportOnly ? 'true' : undefined}>
+    InsightErrorState: ({ title, onRetry }: { title: string; onRetry?: () => void }) => (
+        <div data-attr="insight-error-state" data-has-retry={onRetry ? 'true' : undefined}>
             {title}
+            {onRetry && <button onClick={onRetry}>Retry error tile</button>}
         </div>
     ),
 }))
 
 jest.mock('~/exporter/exporterViewLogic', () => ({
     getCurrentExporterData: () => null,
+    isSharedView: () => false,
 }))
 
 jest.mock('scenes/urls', () => ({
     ...jest.requireActual('scenes/urls'),
     urls: {
         ...jest.requireActual('scenes/urls').urls,
-        dashboardTextTile: () => '/dashboard/5/text/1',
+        dashboardTile: () => '/dashboard/5/tiles/1/text',
     },
 }))
 
 jest.mock('lib/components/Cards/InsightCard', () => ({
-    InsightCard: ({
-        tile,
-        showResizeHandles,
-        apiErrored,
-        apiError,
-    }: {
+    InsightCard: (props: {
         tile: { id: number }
         showResizeHandles: boolean
         apiErrored?: boolean
-        apiError?: Error & { status?: number; detail?: string | null; code?: string | null }
-    }) => (
-        <div
-            data-attr="insight-card"
-            data-tile-id={String(tile.id)}
-            data-show-resize-handles={String(showResizeHandles)}
-            data-api-errored={apiErrored ? 'true' : undefined}
-            data-api-error-status={apiError?.status}
-            data-api-error-detail={apiError?.detail ?? undefined}
-            data-api-error-code={apiError?.code ?? undefined}
-        />
-    ),
+        queryId?: string
+        apiError?: Error & {
+            status?: number
+            detail?: string | null
+            code?: string | null
+            data?: { queryId?: string }
+        }
+        refresh?: () => void
+    }): JSX.Element => {
+        mockInsightCard(props)
+        const { tile, showResizeHandles, apiErrored, apiError } = props
+        return (
+            <div
+                data-attr="insight-card"
+                data-tile-id={String(tile.id)}
+                data-show-resize-handles={String(showResizeHandles)}
+                data-api-errored={apiErrored ? 'true' : undefined}
+                data-api-error-status={apiError?.status}
+                data-api-error-detail={apiError?.detail ?? undefined}
+                data-api-error-code={apiError?.code ?? undefined}
+            />
+        )
+    },
 }))
 
-jest.mock('./items/DashboardTextItem', () => ({
+jest.mock('products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem', () => ({
     DashboardTextItem: ({ tile, showResizeHandles }: { tile: { id: number }; showResizeHandles: boolean }) => (
         <div
             data-attr="text-card"
@@ -117,11 +126,17 @@ jest.mock('./items/DashboardTextItem', () => ({
 
 jest.mock('react-grid-layout', () => {
     return {
+        cloneLayoutItem: (item: Record<string, unknown>) => ({ ...item }),
         useContainerWidth: () => ({
             width: 1200,
             containerRef: { current: null },
             mounted: true,
         }),
+        verticalCompactor: {
+            type: 'vertical',
+            allowOverlap: false,
+            compact: (layout: unknown[]) => layout,
+        },
         Responsive: ({
             className,
             rowHeight,
@@ -165,10 +180,15 @@ const mockedUseValues = useValues as jest.Mock
 const mockedUseActions = useActions as jest.Mock
 const mockedUseAsyncActions = useAsyncActions as jest.Mock
 const mockRemoveTile = jest.fn()
+const mockTriggerDashboardRefresh = jest.fn()
+const mockInsightCard = jest.fn()
+let canEditDashboard = true
 
 describe('DashboardItems', () => {
     beforeEach(() => {
+        mockInsightCard.mockClear()
         jest.clearAllMocks()
+        canEditDashboard = true
 
         mockedUseValues.mockImplementation((logic) => {
             if (logic === dashboardLogic) {
@@ -183,7 +203,7 @@ describe('DashboardItems', () => {
                     layouts: {
                         sm: [{ i: '1', x: 0, y: 0, w: 6, h: 5 }],
                     },
-                    dashboardMode: DashboardMode.Edit,
+                    dashboardEditing: { filters: true, layout: true },
                     layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
@@ -193,10 +213,10 @@ describe('DashboardItems', () => {
                     itemsLoading: false,
                     dashboardStreaming: false,
                     effectiveEditBarFilters: {},
-                    effectiveDashboardVariableOverrides: {},
+                    currentDashboardVariables: {},
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
-                    canEditDashboard: true,
+                    canEditDashboard,
                     layoutZoom: 0.75,
                 }
             }
@@ -220,6 +240,7 @@ describe('DashboardItems', () => {
                     removeTile: mockRemoveTile,
                     duplicateTile: jest.fn(),
                     refreshDashboardItem: jest.fn(),
+                    loadDashboard: mockTriggerDashboardRefresh,
                     refreshDashboardWidgets: jest.fn(),
                     moveToDashboard: jest.fn(),
                     copyToDashboard: jest.fn(),
@@ -265,6 +286,95 @@ describe('DashboardItems', () => {
         expect(container.firstChild).toMatchSnapshot()
     })
 
+    it('disables layout controls for read-only viewers', () => {
+        canEditDashboard = false
+
+        const { container } = render(<DashboardItems />)
+
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-drag-enabled', 'false')
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute(
+            'data-resize-enabled',
+            'false'
+        )
+        expect(container.querySelector('[data-attr="insight-card"]')).toHaveAttribute(
+            'data-show-resize-handles',
+            'false'
+        )
+    })
+
+    it.each([
+        ['tight', '8,8'],
+        ['condensed', '12,12'],
+        ['relaxed', '32,32'],
+    ] as const)('uses %s tile spacing for tiles and the edit grid', (tileSpacing, margin) => {
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    dashboard: { id: 5, customization: { tile_spacing: tileSpacing } },
+                    tiles: [],
+                    layouts: { sm: [] },
+                    dashboardEditing: { filters: true, layout: true },
+                    layoutEditMode: true,
+                    placement: DashboardPlacement.Dashboard,
+                    isRefreshingQueued: () => false,
+                    isRefreshing: () => false,
+                    highlightedInsightId: null,
+                    refreshStatus: {},
+                    dashboardStreaming: false,
+                    effectiveEditBarFilters: {},
+                    currentDashboardVariables: {},
+                    dataColorThemeId: null,
+                    canEditDashboard: true,
+                    layoutZoom: 1,
+                    widgetResultsByTileId: {},
+                    widgetRefreshStatus: {},
+                }
+            }
+            if (logic === dashboardsModel) {
+                return { nameSortedDashboards: [] }
+            }
+            return {}
+        })
+
+        const { container } = render(<DashboardItems />)
+        expect(container.querySelector('[data-attr="grid-background"]')).toHaveAttribute('data-margin', margin)
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-margin', margin)
+    })
+
+    it('uses standard spacing when persisted customization is invalid', () => {
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    dashboard: { id: 5, customization: { tile_spacing: 'unknown' } },
+                    tiles: [],
+                    layouts: { sm: [] },
+                    dashboardEditing: { filters: true, layout: true },
+                    layoutEditMode: true,
+                    placement: DashboardPlacement.Dashboard,
+                    isRefreshingQueued: () => false,
+                    isRefreshing: () => false,
+                    highlightedInsightId: null,
+                    refreshStatus: {},
+                    dashboardStreaming: false,
+                    effectiveEditBarFilters: {},
+                    currentDashboardVariables: {},
+                    dataColorThemeId: null,
+                    canEditDashboard: true,
+                    layoutZoom: 1,
+                    widgetResultsByTileId: {},
+                    widgetRefreshStatus: {},
+                }
+            }
+            if (logic === dashboardsModel) {
+                return { nameSortedDashboards: [] }
+            }
+            return {}
+        })
+
+        const { container } = render(<DashboardItems />)
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-margin', '16,16')
+    })
+
     it('shows widget tiles on public dashboards', () => {
         const widgetTile = {
             id: 2,
@@ -287,7 +397,7 @@ describe('DashboardItems', () => {
                     itemsLoading: false,
                     dashboardStreaming: false,
                     effectiveEditBarFilters: {},
-                    effectiveDashboardVariableOverrides: {},
+                    currentDashboardVariables: {},
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: false,
@@ -325,7 +435,7 @@ describe('DashboardItems', () => {
                     refreshStatus: {},
                     dashboardStreaming: false,
                     effectiveEditBarFilters: {},
-                    effectiveDashboardVariableOverrides: {},
+                    currentDashboardVariables: {},
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: true,
@@ -345,10 +455,10 @@ describe('DashboardItems', () => {
 
         const { findByText, getByTestId, getByText } = render(<DashboardItems />)
         expect(getByText('Tile')).toBeInTheDocument()
-        expect(getByText('There is a problem loading this dashboard tile.')).toHaveAttribute(
-            'data-support-only',
-            'true'
-        )
+        expect(getByText('There is a problem loading this dashboard tile.')).toHaveAttribute('data-has-retry', 'true')
+
+        fireEvent.click(getByText('Retry error tile'))
+        expect(mockTriggerDashboardRefresh).toHaveBeenCalled()
 
         fireEvent.click(getByTestId('more-button'))
         fireEvent.click(await findByText('Remove from dashboard'))
@@ -378,7 +488,7 @@ describe('DashboardItems', () => {
                     refreshStatus: {},
                     dashboardStreaming: false,
                     effectiveEditBarFilters: {},
-                    effectiveDashboardVariableOverrides: {},
+                    currentDashboardVariables: {},
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: true,
@@ -435,7 +545,7 @@ describe('DashboardItems', () => {
                     refreshStatus,
                     dashboardStreaming: false,
                     effectiveEditBarFilters: {},
-                    effectiveDashboardVariableOverrides: {},
+                    currentDashboardVariables: {},
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: true,
@@ -459,6 +569,12 @@ describe('DashboardItems', () => {
         expect(insightCard).toHaveAttribute('data-api-errored', 'true')
         expect(insightCard).toHaveAttribute('data-api-error-status', '400')
         expect(insightCard).toHaveAttribute('data-api-error-code', 'query_memory_limit')
+        expect(mockInsightCard).toHaveBeenCalledWith(
+            expect.objectContaining({
+                refresh: expect.any(Function),
+                queryId: 'failed-query-id',
+            })
+        )
         expect(insightCard).toHaveAttribute(
             'data-api-error-detail',
             'This query ran out of memory before it could finish'

@@ -5,7 +5,10 @@ from rest_framework.exceptions import APIException
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level, get_team_kill_switch_level
+from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.exceptions import (
+    ClickHouseBytesLimitExceeded,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
@@ -21,10 +24,11 @@ FAILURE_KIND_EXCEPTIONS: dict[FailureKind, type[APIException]] = {
     "timeout": ClickHouseQueryTimeOut,
     "too_slow": ClickHouseEstimatedQueryExecutionTimeTooLong,
     "query_size": ClickHouseQuerySizeExceeded,
+    "too_many_bytes": ClickHouseBytesLimitExceeded,
 }
 
 
-def classify_failure(error: Exception) -> Optional[FailureKind]:
+def classify_failure(error: Exception, team_id: Optional[int] = None) -> Optional[FailureKind]:
     """Return the failure kind for errors that will repeat on retry, None for everything else."""
     if isinstance(error, ClickHouseQueryMemoryLimitExceeded):
         return "memory_limit" if error.is_per_query_limit else None
@@ -34,6 +38,14 @@ def classify_failure(error: Exception) -> Optional[FailureKind]:
         return "too_slow"
     if isinstance(error, ClickHouseQuerySizeExceeded):
         return "query_size"
+    if isinstance(error, CHQueryErrorTooManyBytes):
+        # Under an active kill switch (global or team-scoped) the bytes cap is temporary
+        # cluster protection, so the failure says nothing about the query once it lifts.
+        if get_kill_switch_level() != KillSwitchLevel.OFF:
+            return None
+        if team_id is not None and get_team_kill_switch_level(team_id) != KillSwitchLevel.OFF:
+            return None
+        return "too_many_bytes"
     return None
 
 
@@ -41,7 +53,9 @@ def budget_for_limit_context(limit_context: Optional[LimitContext]) -> Budget:
     """Interactive requests get 60s of ClickHouse execution time while async workers and other
     elevated contexts get 10x that, so a failure only proves anything about the budget it ran
     under."""
-    return BUDGET_INTERACTIVE if limit_context in (None, LimitContext.QUERY) else BUDGET_EXTENDED
+    if limit_context in (None, LimitContext.QUERY, LimitContext.DATA_CATALOG):
+        return BUDGET_INTERACTIVE
+    return BUDGET_EXTENDED
 
 
 def _approximate_wait(open_until: datetime) -> str:

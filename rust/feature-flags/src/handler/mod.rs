@@ -272,6 +272,7 @@ async fn process_request_inner(
                         // Interpret naive datetime filter values in the team timezone so flag
                         // evaluation matches HogQL/ClickHouse cohort membership.
                         team.parsed_timezone(),
+                        team.property_matching_version.uses_explicit_matching(),
                         distinct_id.clone(),
                         device_id.clone(),
                         filtered_flags.clone(),
@@ -578,7 +579,7 @@ mod metrics_tests {
     fn test_record_metrics_with_5xx_error() {
         clear_recorded_metrics();
 
-        let result = Err(FlagError::Internal("test error".to_string()));
+        let result = Err(FlagError::internal(anyhow::anyhow!("test error")));
         let data = MetricsData {
             team_id: Some(456),
             flags_disabled: Some(true),

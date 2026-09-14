@@ -3,7 +3,6 @@ import uuid
 import typing as t
 import asyncio
 import datetime as dt
-from dataclasses import dataclass
 
 from django.db import connection
 
@@ -13,6 +12,7 @@ from asgiref.sync import sync_to_async
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 
+from posthog.dataclasses import frozen
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
@@ -20,6 +20,7 @@ from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
     delete_custom_hostname,
     get_custom_hostname_by_domain,
+    update_cloudflare_proxy_root_redirect,
 )
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
@@ -34,7 +35,7 @@ from posthog.temporal.proxy_service.proto import DeleteRequest
 LOGGER = get_logger(__name__)
 
 
-@dataclass
+@frozen
 class DeleteProxyRecordInputs:
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
@@ -47,7 +48,7 @@ class DeleteProxyRecordInputs:
         }
 
 
-@dataclass
+@frozen
 class DeleteManagedProxyInputs:
     """Inputs for the DeleteManagedProxy Workflow and Activity."""
 
@@ -55,6 +56,7 @@ class DeleteManagedProxyInputs:
     proxy_record_id: uuid.UUID
     domain: str
     target_cname: str = ""  # Used to determine if proxy is Cloudflare or legacy
+    root_redirect_url: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, t.Any]:
@@ -152,6 +154,12 @@ async def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
     except CloudflareAPIError as e:
         logger.warning("Failed to delete Cloudflare Custom Hostname for domain %s: %s", inputs.domain, e)
         errors.append(f"Custom Hostname deletion failed: {e}")
+
+    try:
+        await asyncio.to_thread(update_cloudflare_proxy_root_redirect, inputs.domain, None)
+    except CloudflareAPIError as e:
+        logger.warning("Failed to delete root redirect for domain %s: %s", inputs.domain, e)
+        errors.append(f"Root redirect deletion failed: {e}")
 
     if errors:
         raise NonRetriableException(f"Cloudflare API errors: {'; '.join(errors)}")

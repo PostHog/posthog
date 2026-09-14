@@ -35,7 +35,6 @@ WORKFLOWS = [DeleteTeamsDataWorkflow, DeleteProjectDataWorkflow, DeleteOrganizat
 CORE_ACTIVITY_ORDER = [
     "queue_recording_deletions_activity",
     "delete_misc_small_tables_activity",
-    "delete_personless_distinct_ids_activity",
     "delete_cohort_members_activity",
     "delete_groups_activity",
     "delete_team_persons_activity",

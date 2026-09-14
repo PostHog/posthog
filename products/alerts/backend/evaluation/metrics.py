@@ -13,7 +13,7 @@ from products.alerts.backend.evaluation.contract import (
     zero_sentinel_series,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 _SUBJECT = "The metric value"
 

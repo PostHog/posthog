@@ -9,7 +9,7 @@ from sqlparse import tokens as sqlparse_tokens
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
-from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
+from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
@@ -170,7 +170,7 @@ class SnowflakeAdapter:
             raise ExposedHogQLError("Invalid direct Snowflake connection.")
 
         snowflake_source = cast(SnowflakeSource, SourceRegistry.get_source(ExternalDataSourceType.SNOWFLAKE))
-        config = snowflake_source.parse_config(source.job_inputs or {})
+        config = parse_direct_source_config(snowflake_source, source)
 
         # Snowflake has no host/SSH-tunnel config to validate (the Postgres/MySQL SSRF check),
         # but the account identifier flows into the host the connector dials, so it gets the

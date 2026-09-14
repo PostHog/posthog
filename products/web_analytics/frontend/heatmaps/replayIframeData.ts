@@ -13,6 +13,12 @@ export interface ReplayIframeData {
 
 export const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
 
+// Recordings with no captured href get the synthesized 'unknown', which a heatmap query cannot use.
+export function isUsableHeatmapUrl(url: string | undefined | null): url is string {
+    const trimmed = url?.trim()
+    return !!trimmed && trimmed !== 'unknown'
+}
+
 // Serializing the replayed DOM allocates several full copies of this on the main thread, in a tab
 // that is already holding a decoded recording. Past roughly this size that spike is what kills the
 // renderer.

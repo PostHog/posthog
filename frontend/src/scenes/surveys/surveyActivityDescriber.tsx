@@ -3,12 +3,12 @@ import { P, match } from 'ts-pattern'
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
     detectBoolean,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
 import { truncate } from 'lib/utils/strings'
@@ -336,7 +336,7 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
         return { description: null }
     }
 
-    const user = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const user = <ActivityLogUserName logItem={logItem} />
     const surveyLink = nameOrLinkToSurvey(logItem?.item_id, logItem?.detail.name, logItem.activity)
 
     if (logItem.activity === 'created') {

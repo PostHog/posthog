@@ -1,17 +1,16 @@
 /**
  * Canonical channel sub-sections shown in the channel header nav
  * ({@link ChannelTabs}) and surfaced as browser-tab names. The `key` is both the
- * route segment (`/website/$channelId/<key>`) and the value persisted on a tab's
+ * route segment (`/spaces/$channelId/<key>`) and the value persisted on a tab's
  * `channelSection`; `label` is the tab + nav text.
  */
 export interface ChannelSection {
-  key: "loops" | "artifacts" | "history" | "context";
+  key: "loops" | "history" | "context";
   label: string;
 }
 
 export const CHANNEL_SECTIONS: readonly ChannelSection[] = [
   { key: "loops", label: "Loops" },
-  { key: "artifacts", label: "Artifacts" },
   { key: "history", label: "Recents" },
   { key: "context", label: "CONTEXT.md" },
 ] as const;

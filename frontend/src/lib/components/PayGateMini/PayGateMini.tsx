@@ -21,6 +21,12 @@ export type PayGateMiniProps = PayGateMiniLogicProps & {
      * The content to show when the feature is available. Will show nothing if children is undefined.
      */
     children?: React.ReactNode
+    /**
+     * A human-readable identifier for the specific UI surface being gated.
+     * This is included in pay gate analytics to distinguish multiple surfaces
+     * that use the same billing feature.
+     */
+    featureDetail?: string
     overrideShouldShowGate?: boolean
     className?: string
     background?: boolean
@@ -43,6 +49,7 @@ export type PayGateMiniProps = PayGateMiniLogicProps & {
  */
 export function PayGateMini({
     feature,
+    featureDetail,
     currentUsage,
     className,
     children,
@@ -66,11 +73,12 @@ export function PayGateMini({
             posthog.capture('pay gate shown', {
                 product_key: productWithFeature?.type,
                 feature: feature,
+                feature_detail: featureDetail,
                 gate_variant: gateVariant,
                 cta_label: ctaLabel,
             })
         }
-    }, [gateVariant, ctaLabel]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [feature, featureDetail, gateVariant, ctaLabel, productWithFeature?.type])
 
     const handleCtaClick = (): void => {
         if (handleSubmit) {
@@ -79,6 +87,7 @@ export function PayGateMini({
         posthog.capture('pay gate CTA clicked', {
             product_key: productWithFeature?.type,
             feature: feature,
+            feature_detail: featureDetail,
             gate_variant: gateVariant,
             cta_label: ctaLabel,
         })

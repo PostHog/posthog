@@ -401,6 +401,10 @@ class TestDiscoverCanonicalSkills:
             # Companion (non-scout) skill, seeded so store-only agents can read the
             # authoring guide via llma-skill-get.
             "authoring-scouts",
+            # Companion owned by another product, resolved by file path. Moving or renaming
+            # that directory drops it from every team's store, and a scout told to read it
+            # would report it missing instead of failing.
+            "exploring-replay-vision-observations",
         }
         assert expected.issubset(names), f"missing canonical skills: {expected - names}"
 

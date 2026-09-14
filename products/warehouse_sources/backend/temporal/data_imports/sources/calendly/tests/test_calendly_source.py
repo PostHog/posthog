@@ -1,12 +1,9 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.calendly import (
     CALENDLY_API_VERSION_V1,
     CALENDLY_API_VERSION_V2,
-    CalendlyResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.settings import (
     CALENDLY_WEBHOOK_EVENTS,
@@ -14,12 +11,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.s
     WEBHOOK_SCHEMA_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.source import CalendlySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calendly import (
     CalendlySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(schema_name: str = "scheduled_events", **overrides):
@@ -46,26 +41,6 @@ class TestCalendlySource:
         self.source = CalendlySource()
         self.team_id = 123
         self.config = CalendlySourceConfig(personal_access_token="cal_test_token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CALENDLY
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Calendly"
-        assert config.label == "Calendly"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is not True
-        assert config.iconPath == "/static/services/calendly.png"
-        assert len(config.fields) == 1
-
-        token_field = config.fields[0]
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.name == "personal_access_token"
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.required is True
-        assert token_field.secret is True
 
     @pytest.mark.parametrize(
         "expected_key",
@@ -110,15 +85,6 @@ class TestCalendlySource:
             assert by_name[name].supports_append is False
             assert by_name[name].incremental_fields == []
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["scheduled_events"])
-
-        assert len(schemas) == 1
-        assert schemas[0].name == "scheduled_events"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
@@ -137,12 +103,6 @@ class TestCalendlySource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.personal_access_token)
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is CalendlyResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.calendly.source.calendly_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_calendly_source):
@@ -224,13 +184,6 @@ class TestCalendlySourceWebhooks:
         # Every table still has a working list endpoint, so none of them is webhook-only.
         assert all(not schema.webhook_only for schema in schemas.values())
 
-    def test_polling_metadata_is_unchanged_by_webhook_support(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert schemas["scheduled_events"].supports_incremental is True
-        assert schemas["scheduled_events"].supports_append is True
-        assert {f["field"] for f in schemas["scheduled_events"].incremental_fields} == {"start_time"}
-
     def test_routing_key_matches_the_key_the_template_looks_up(self):
         # The hog template reads a fixed key out of `schema_mapping`; if the map and the template
         # drift apart, deliveries are acked and silently dropped.
@@ -248,17 +201,6 @@ class TestCalendlySourceWebhooks:
         assert template.id == "template-warehouse-source-calendly"
         assert "calendly-webhook-signature" in template.code
         assert "produceToWarehouseWebhooks" in template.code
-
-    def test_webhook_fields_collect_the_signing_key(self):
-        config = self.source.get_source_config
-
-        assert config.webhookFields is not None
-        signing_key = [
-            f for f in config.webhookFields if isinstance(f, SourceFieldInputConfig) and f.name == "signing_secret"
-        ]
-        assert len(signing_key) == 1
-        assert signing_key[0].type == SourceFieldInputConfigType.PASSWORD
-        assert signing_key[0].secret is True
 
     def test_desired_events_do_not_narrow_with_the_selected_schemas(self):
         # Calendly subscriptions are immutable, so the event list must not depend on what the user

@@ -1,7 +1,26 @@
 import hashlib
+from datetime import timedelta
 from typing import Literal
 
 from pydantic import BaseModel, model_validator
+
+# Retry envelope for the Node rasterize activity (scheduled in workflow._run). Shared so the relayed
+# recording-api token's TTL (rasterize.py) is derived from the same numbers and can't silently drift.
+RASTERIZE_RENDER_TIMEOUT = timedelta(minutes=30)
+RASTERIZE_RENDER_MAX_ATTEMPTS = 2
+
+# Envelope for the whole workflow: the render's retry budget plus room for the prep and finalize
+# activities and queue wait. The exports API uses this both as the workflow's execution_timeout and
+# as the age at which it reports an export stuck, so the two can't drift and start calling a render
+# that is still legitimately working a failure. A tighter caller timeout silently converts the second
+# render attempt into an untyped WorkflowExecutionTimeout, bypassing error-code-based failure
+# classification downstream.
+RASTERIZE_WORKFLOW_TIMEOUT = RASTERIZE_RENDER_TIMEOUT * RASTERIZE_RENDER_MAX_ATTEMPTS + timedelta(minutes=15)
+
+# execution_timeout that funds exactly one render attempt plus prep/finalize headroom, for callers
+# with their own phase budget (the replay_vision sweep and evaluation). It still exceeds the render
+# start-to-close, so a fast first failure leaves room to schedule a retry that fits the budget.
+RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT = RASTERIZE_RENDER_TIMEOUT + timedelta(minutes=10)
 
 
 class RasterizeRecordingInputs(BaseModel, frozen=True):
@@ -20,6 +39,10 @@ class RasterizationActivityInput(BaseModel, frozen=True):
 
     session_id: str
     team_id: int
+    # Team-scoped read token the rasterizer relays to recording-api (it cannot mint its own).
+    # Defaults to "" so a workflow that recorded build_rasterization_input's result under an older
+    # release (before this field existed) still deserializes on replay instead of failing validation.
+    recording_api_token: str = ""
     s3_bucket: str
     s3_key_prefix: str
     playback_speed: float = 4
@@ -73,8 +96,22 @@ class FinalizeRasterizationInput(BaseModel, frozen=True):
     render_fingerprint: str
 
 
+class RecordRasterizationFailureInput(BaseModel, frozen=True):
+    """The renderer's own error code and message, resolved in the workflow before the activity runs.
+
+    The code is the rasterizer's `RasterizationErrorCode`, which Temporal carries as the failure
+    type. Without persisting it the reason lives only in workflow history, where neither the user nor
+    a failure-rate breakdown can reach it.
+    """
+
+    exported_asset_id: int
+    error_code: str
+    error_message: str
+
+
 # Output destination fields — excluded so bucket/prefix changes don't invalidate caches.
-_FINGERPRINT_EXCLUDE: set[str] = {"team_id", "session_id", "s3_bucket", "s3_key_prefix"}
+# recording_api_token is per-run and ephemeral, so it must never participate in the cache key.
+_FINGERPRINT_EXCLUDE: set[str] = {"team_id", "session_id", "s3_bucket", "s3_key_prefix", "recording_api_token"}
 
 
 def compute_params_fingerprint(activity_input: "RasterizationActivityInput") -> str:

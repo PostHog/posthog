@@ -170,10 +170,5 @@ def handle_inbox_sources(payload: dict) -> HttpResponse:
         None,
     )
     selected = [o.get("value") for o in (action or {}).get("selected_options", []) if o.get("value")]
-    blocked = onboarding.apply_sources_selection(integration, slack_user_id, selected)
-    if blocked:
-        _post_ephemeral_via_response_url(
-            payload.get("response_url", ""),
-            f":warning: Approve AI data processing first to turn on *{', '.join(blocked)}*.",
-        )
+    onboarding.apply_sources_selection(integration, slack_user_id, selected)
     return HttpResponse(status=200)

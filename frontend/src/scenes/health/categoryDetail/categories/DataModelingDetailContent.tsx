@@ -1,8 +1,10 @@
-import { IconCheck, IconEllipsis, IconRefresh, IconRevert, IconServer, IconX } from '@posthog/icons'
+import { IconCheck, IconEllipsis, IconRefresh, IconServer } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
+import { HealthIssueActions } from '../../components/HealthIssueActions'
+import { HealthIssueSnoozedTag } from '../../components/HealthIssueSnoozedTag'
 import { severityToTagType } from '../../healthUtils'
 import type { HealthIssue } from '../../types'
 import { getErrorLabelForMaterializedView } from '../../utils/materializedViewErrors'
@@ -12,6 +14,7 @@ export default function DataModelingDetailContent({
     issues,
     statusSummary,
     isLoading,
+    onSnooze,
     onDismiss,
     onUndismiss,
     onRefresh,
@@ -71,6 +74,7 @@ export default function DataModelingDetailContent({
                             <MaterializedViewCard
                                 key={issue.id}
                                 issue={issue}
+                                onSnooze={onSnooze}
                                 onDismiss={onDismiss}
                                 onUndismiss={onUndismiss}
                             />
@@ -90,10 +94,12 @@ export default function DataModelingDetailContent({
 
 function MaterializedViewCard({
     issue,
+    onSnooze,
     onDismiss,
     onUndismiss,
 }: {
     issue: HealthIssue
+    onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
 }): JSX.Element {
@@ -110,13 +116,15 @@ function MaterializedViewCard({
                         {issue.severity}
                     </LemonTag>
                 </div>
-                <LemonButton
-                    size="xsmall"
-                    type="tertiary"
-                    icon={issue.dismissed ? <IconRevert /> : <IconX />}
-                    tooltip={issue.dismissed ? 'Undismiss' : 'Dismiss'}
-                    onClick={() => (issue.dismissed ? onUndismiss(issue.id) : onDismiss(issue.id))}
-                />
+                <div className="flex items-center gap-1 shrink-0">
+                    <HealthIssueSnoozedTag issue={issue} />
+                    <HealthIssueActions
+                        issue={issue}
+                        onSnooze={onSnooze}
+                        onDismiss={onDismiss}
+                        onUndismiss={onUndismiss}
+                    />
+                </div>
             </div>
             {error && (
                 <pre className="mt-2 whitespace-pre-wrap break-all text-xs bg-surface-secondary rounded p-2">

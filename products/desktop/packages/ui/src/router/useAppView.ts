@@ -1,22 +1,31 @@
+import type { EditorContent } from "@posthog/core/message-editor/content";
 import {
   type TaskInputReportAssociation,
   useTaskInputPrefillStore,
 } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
+import {
+  isReportPath,
+  reportSourceHrefFromLocation,
+} from "@posthog/ui/router/reportNavigation";
 import { useRouterState } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { getCurrentMatches } from "./navigationBridge";
 
 export type AppViewType =
   | "task-detail"
-  | "task-pending"
   | "task-input"
   | "folder-settings"
   | "activity"
+  | "home"
   | "inbox"
+  | "report"
+  // The Agents page moved into Settings, so no route yields this view any
+  // more. It stays for tabs that were opened on the old page.
   | "agents"
   | "loops"
   | "archived"
   | "command-center"
+  | "context"
   | "skills"
   | "mcp-servers"
   | "settings";
@@ -26,77 +35,70 @@ export interface AppView {
   taskId?: string;
   folderId?: string;
   folderRepository?: string;
-  pendingTaskKey?: string;
   taskInputRequestId?: string;
   initialPrompt?: string;
-  initialCloudRepository?: string;
+  initialContent?: EditorContent;
+  recoveredFromKey?: string;
+  initialCloudRepository?: string | null;
   initialModel?: string;
   initialMode?: string;
   folderRunEnvironment?: "local" | "cloud";
   reportAssociation?: TaskInputReportAssociation;
 }
 
-type Match = { routeId: string; params: Record<string, string | undefined> };
+type Match = { fullPath: string; params: Record<string, string | undefined> };
 
 function deriveFromMatches(matches: Match[]): AppView {
   const last = matches[matches.length - 1];
   if (!last) return { type: "task-input" };
 
-  switch (last.routeId) {
-    // Both the /code task detail and the channels-space task detail render the
-    // same task-detail view, so consumers (active-state highlighting, archive's
-    // navigate-away-if-active check) treat them identically.
-    case "/code/tasks/$taskId":
-    case "/website/$channelId/tasks/$taskId": {
+  switch (last.fullPath) {
+    // The unscoped task detail and the space-scoped one render the same view, so
+    // consumers (active-state highlighting, archive's navigate-away-if-active
+    // check) treat them identically.
+    case "/tasks/$taskId":
+    case "/spaces/$channelId/tasks/$taskId": {
       const taskId = last.params.taskId;
       if (!taskId) return { type: "task-input" };
       // Intentionally no `data` snapshot: consumers read live task state via
       // their own query hooks (e.g. useTasks) keyed on `taskId`.
       return { type: "task-detail", taskId };
     }
-    case "/code/tasks/pending/$key":
-      return { type: "task-pending", pendingTaskKey: last.params.key };
-    // Channels-space new-task screen — same task-input view (and prefill merge
-    // below) as the /code/ index, so the New task item highlights identically.
-    case "/website/new":
+    case "/new":
       return { type: "task-input" };
     case "/folders/$folderId":
       return { type: "folder-settings", folderId: last.params.folderId };
-    case "/website/activity":
+    case "/activity":
       return { type: "activity" };
-    case "/code/inbox":
+    case "/":
+      return { type: "home" };
+    case "/inbox":
       return { type: "inbox" };
-    case "/code/agents":
-      return { type: "agents" };
-    case "/code/loops":
+    case "/reports/$reportId":
+      return { type: "report" };
+    case "/loops":
       return { type: "loops" };
-    case "/code/archived":
+    case "/archived":
       return { type: "archived" };
     case "/command-center":
-    case "/website/command-center":
       return { type: "command-center" };
+    case "/context":
+    case "/spaces/context":
+      return { type: "context" };
     case "/skills":
-    case "/website/skills":
       return { type: "skills" };
     case "/mcp-servers":
-    case "/website/mcp-servers":
       return { type: "mcp-servers" };
     case "/settings/$category":
     case "/settings/":
       return { type: "settings" };
     default:
-      if (last.routeId.startsWith("/code/inbox")) {
+      if (last.fullPath.startsWith("/inbox")) {
         return { type: "inbox" };
       }
-      // /code/agents is now an Outlet layout; the view lives at the index
-      // child (/code/agents/) and scout detail routes nest deeper, so match
-      // the whole subtree rather than only the bare layout route.
-      if (last.routeId.startsWith("/code/agents")) {
-        return { type: "agents" };
-      }
-      // /code/loops covers the list, create form, and the per-loop detail /
-      // edit subtree ($loopId is an Outlet layout), so match the prefix.
-      if (last.routeId.startsWith("/code/loops")) {
+      // /loops covers the list, create form, and the per-loop detail / edit
+      // subtree ($loopId is an Outlet layout), so match the prefix.
+      if (last.fullPath.startsWith("/loops")) {
         return { type: "loops" };
       }
       return { type: "task-input" };
@@ -120,7 +122,7 @@ export function useAppView(): AppView {
       const m = s.matches[s.matches.length - 1];
       return m
         ? {
-            routeId: m.routeId,
+            fullPath: m.fullPath,
             params: m.params as Record<string, string | undefined>,
           }
         : null;
@@ -128,7 +130,7 @@ export function useAppView(): AppView {
   });
   const prefill = useTaskInputPrefillStore((s) => s.prefill);
 
-  const routeId = last?.routeId ?? "";
+  const fullPath = last?.fullPath ?? "";
   const taskId = last?.params.taskId;
   const pendingKey = last?.params.key;
   const folderId = last?.params.folderId;
@@ -136,8 +138,8 @@ export function useAppView(): AppView {
   return useMemo(() => {
     // Rebuild the match from primitives so the memo depends only on stable
     // values — the `last` selector returns a fresh object every render.
-    const match = routeId
-      ? { routeId, params: { taskId, key: pendingKey, folderId } }
+    const match = fullPath
+      ? { fullPath, params: { taskId, key: pendingKey, folderId } }
       : null;
     const view = deriveFromMatches(match ? [match] : []);
 
@@ -148,6 +150,8 @@ export function useAppView(): AppView {
         folderId: prefill.folderId,
         folderRepository: prefill.folderRepository,
         initialPrompt: prefill.initialPrompt,
+        initialContent: prefill.initialContent,
+        recoveredFromKey: prefill.recoveredFromKey,
         initialCloudRepository: prefill.initialCloudRepository,
         initialModel: prefill.initialModel,
         initialMode: prefill.initialMode,
@@ -157,7 +161,36 @@ export function useAppView(): AppView {
       };
     }
     return view;
-  }, [routeId, taskId, pendingKey, folderId, prefill]);
+  }, [fullPath, taskId, pendingKey, folderId, prefill]);
+}
+
+/**
+ * The legacy navigation row a report's source path belongs to. Only the types
+ * the legacy sidebar highlights; settings, tasks and other non-row surfaces
+ * return null.
+ */
+export function legacyNavTypeForPath(path: string): AppViewType | null {
+  if (/^\/inbox(\/|$)/.test(path)) return "inbox";
+  if (/^\/activity(\/|$)/.test(path)) return "activity";
+  if (/^\/loops(\/|$)/.test(path)) return "loops";
+  if (/^\/command-center(\/|$)/.test(path)) return "command-center";
+  return null;
+}
+
+/**
+ * On a report, the legacy navigation row its source names; null on any other
+ * route (or a report with no row-shaped source). Lets the legacy sidebar keep
+ * "you are here" while a report is open, matching what the rail does with the
+ * same `?from=`.
+ */
+export function useReportSourceNavType(): AppViewType | null {
+  return useRouterState({
+    select: (s) => {
+      if (!isReportPath(s.location.pathname)) return null;
+      const source = reportSourceHrefFromLocation(s.location);
+      return source ? legacyNavTypeForPath(source.split(/[?#]/)[0]) : null;
+    },
+  });
 }
 
 /**
@@ -165,6 +198,6 @@ export function useAppView(): AppView {
  * Components should prefer `useAppView()` for proper subscription.
  */
 export function getAppViewSnapshot(): AppView {
-  const matches = getCurrentMatches() as unknown as Match[];
+  const matches = getCurrentMatches() as Match[];
   return deriveFromMatches(matches);
 }

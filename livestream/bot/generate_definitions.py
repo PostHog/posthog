@@ -10,6 +10,7 @@ Run from repo root:
 
 from __future__ import annotations
 
+import re
 import sys
 import json
 from pathlib import Path
@@ -19,9 +20,19 @@ sys.path.insert(0, str(repo_root))
 
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS  # noqa: E402
 
+# ClickHouse evaluates the patterns as regexes, but the Go classifier matches them as
+# Aho-Corasick substrings, where a backslash is just another character to look for. So a
+# pattern like `bne\.es_bot` would never match the user agent it was written for.
+_REGEX_ESCAPE = re.compile(r"\\(.)")
+
+
+def as_literal(pattern: str) -> str:
+    return _REGEX_ESCAPE.sub(r"\1", pattern)
+
+
 entries = [
     {
-        "pattern": pattern,
+        "pattern": as_literal(pattern),
         "name": bot_def.name,
         "category": bot_def.category,
         "traffic_type": bot_def.traffic_type,

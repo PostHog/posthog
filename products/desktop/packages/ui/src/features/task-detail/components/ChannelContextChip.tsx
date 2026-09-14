@@ -1,3 +1,4 @@
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import {
   Chip,
   ChipClose,
@@ -42,7 +43,7 @@ export function ChannelContextChip({
           right padding, so a width that changes under the cursor would reflow
           the text being typed. */}
       <ChipClose
-        aria-label={`Remove ${channelName ? `#${channelName} ` : ""}CONTEXT.md`}
+        aria-label={`Remove ${channelName ? `${channelDisplayLabel(channelName)} ` : ""}CONTEXT.md`}
         className="mr-[-2.5px]"
         onClick={(event) => {
           // The chip itself opens the file; removing it must not also do that.

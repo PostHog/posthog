@@ -116,24 +116,22 @@ class SafetyFilterResult(BaseModel):
 async def support_safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Screen ticket for prompt injection / data exfiltration before the draft loop."""
     async with Heartbeater():
-        return await _safety_filter(input.team_id, input.ticket_context, input.trace_id, input.ticket_id)
+        return await _safety_filter(input)
 
 
-async def _safety_filter(
-    team_id: int, ticket_context: str, trace_id: str = "", ticket_id: str = ""
-) -> SafetyFilterOutput:
+async def _safety_filter(input: SafetyFilterInput) -> SafetyFilterOutput:
     # The workflow pre-slices ticket_context to MAX_SAFETY_REVIEWED_CHARS before passing it
     # here and to _draft_async, so both always see the same bytes. Cap again defensively.
-    user_content = f"Ticket to review:\n<ticket>\n{ticket_context[:MAX_SAFETY_REVIEWED_CHARS]}\n</ticket>"
+    user_content = f"Ticket to review:\n<ticket>\n{input.ticket_context[:MAX_SAFETY_REVIEWED_CHARS]}\n</ticket>"
 
-    client = get_async_anthropic_gateway_client(product="conversations", team_id=team_id)
+    client = get_async_anthropic_gateway_client(product="conversations", team_id=input.team_id)
     message = await create_message(
         client,
         model=UTILITY_MODEL,
         max_tokens=512,
         system=SAFETY_FILTER_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
-        **tracing_kwargs(trace_id, ticket_id),
+        **tracing_kwargs(input.trace_id, input.ticket_id),
     )
     content = anthropic_text(message)
 

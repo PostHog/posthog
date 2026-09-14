@@ -547,7 +547,7 @@ describe('LineChart', () => {
             expect(legendButtons(container).map((b) => b.textContent)).toEqual(['A', 'B'])
         })
 
-        it('hides a series on legend click and shows it again on a second click', () => {
+        it('isolates a series on legend click and shows them all again on a second click', () => {
             const { container, chart } = renderHogChart(
                 <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
             )
@@ -555,11 +555,26 @@ describe('LineChart', () => {
 
             fireEvent.click(legendButtons(container)[1])
             expect(getHogChart(container).seriesCount).toBe(1)
-            // The toggled-off row stays in the legend (dimmed) so it can be restored.
+            // The isolated-away row stays in the legend (dimmed) so it can be restored.
+            const dimmed = legendButtons(container).filter((b) => b.className.includes('opacity-40'))
+            expect(dimmed.map((b) => b.textContent)).toEqual(['A'])
+
+            fireEvent.click(legendButtons(container)[1])
+            expect(getHogChart(container).seriesCount).toBe(2)
+        })
+
+        it('hides just one series on a meta-click and shows it again on a second one', () => {
+            const { container, chart } = renderHogChart(
+                <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
+            )
+            expect(chart.seriesCount).toBe(2)
+
+            fireEvent.click(legendButtons(container)[1], { metaKey: true })
+            expect(getHogChart(container).seriesCount).toBe(1)
             const dimmed = legendButtons(container).filter((b) => b.className.includes('opacity-40'))
             expect(dimmed.map((b) => b.textContent)).toEqual(['B'])
 
-            fireEvent.click(legendButtons(container)[1])
+            fireEvent.click(legendButtons(container)[1], { metaKey: true })
             expect(getHogChart(container).seriesCount).toBe(2)
         })
 

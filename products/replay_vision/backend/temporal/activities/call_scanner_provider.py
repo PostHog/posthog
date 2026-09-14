@@ -3,15 +3,17 @@
 Each scan is a shared preamble plus the scanner's ordered `mission_steps` (one structured turn each). The video
 is cached once so the steps don't re-process it; the model pulls analytics events on demand via `get_events_around`.
 Each step validates its own output and re-prompts once on failure; required steps abort the scan, best-effort steps
-(facets, signals) just contribute nothing.
+(signals) just contribute nothing.
 """
 
 import re
+import math
 import time
 import asyncio
 import functools
 from collections import Counter
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, TypeVar
 from uuid import UUID, uuid4
@@ -28,6 +30,7 @@ from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.common.heartbeat import Heartbeater
 
@@ -40,9 +43,15 @@ from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import build_events_index, dispatch_events_tool, events_tool
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
-from products.replay_vision.backend.temporal.metrics import record_mission_pass, record_provider_call
+from products.replay_vision.backend.temporal.metrics import (
+    record_mission_pass,
+    record_provider_call,
+    record_verification_outcome,
+)
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
+    STEP_CORE,
+    STEP_SIGNALS,
     TIMESTAMP_CITATION_RE,
     BaseScanner,
     BaseScannerOutput,
@@ -50,15 +59,18 @@ from products.replay_vision.backend.temporal.scanners.base import (
     MissionStep,
     Segment,
     SignalFinding,
+    SignalsResponse,
     TextSegment,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorScanner
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
     ScannerCallOutput,
     ScannerLlmInputs,
     ScannerSnapshot,
+    VerificationRecord,
 )
 
 logger = structlog.get_logger(__name__)
@@ -67,6 +79,10 @@ _MAX_LLM_ATTEMPTS = 2  # one initial call + one re-prompt with the validation er
 # One clean re-ask after a validation failure. The per-step re-prompt above retries inside the same conversation,
 # where the model stays anchored on the answer it just got wrong; a fresh conversation is an independent draw.
 _MAX_MISSION_ATTEMPTS = 2
+# Snapshot `verify_positives` values that draw; anything else (including a typo) behaves as `off`.
+_VERIFY_MODES = ("shadow", "enforce")
+# Activity time kept free of verify draws, so assembling and returning the result never races the timeout.
+_VERIFY_BUDGET_RESERVE_SECONDS = 60.0
 # Cache TTL: a scan is a handful of turns and finishes in minutes; well under this.
 _VIDEO_CACHE_TTL = "900s"
 
@@ -79,6 +95,15 @@ class _StepResult:
 
     output: BaseModel | None
     provider_refused: bool = False
+
+
+@frozen
+class _MissionOutcome:
+    """What one scan produced: the finalized output, the side-mission findings, and the verify-positives audit."""
+
+    finalized: BaseScannerOutput
+    signals: list[SignalFinding]
+    verification: VerificationRecord | None = None
 
 
 @activity.defn
@@ -127,30 +152,62 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         )
     scanner: BaseScanner = scanner_from_snapshot(snapshot)
     scanner = await _inject_known_freeform_tags(scanner, inputs)
+    return await run_scan(
+        snapshot=snapshot,
+        scanner=scanner,
+        llm_inputs=llm_inputs,
+        team_name=team_name,
+        file_uri=inputs.file_uri,
+        mime_type=inputs.mime_type,
+        team_id=inputs.team_id,
+        trace_id=_scan_trace_id(inputs),
+    )
 
+
+async def run_scan(
+    *,
+    snapshot: ScannerSnapshot,
+    scanner: BaseScanner,
+    llm_inputs: ScannerLlmInputs,
+    team_name: str,
+    file_uri: str,
+    mime_type: str,
+    team_id: int,
+    trace_id: str | None = None,
+) -> ScannerCallOutput:
+    """Run the scanner conversation over an already-uploaded video, independent of where the inputs came from.
+
+    The activity path above loads the snapshot and inputs from the observation row and Redis; the golden-dataset
+    eval suite (products/replay_vision/evals) feeds this same function from files on disk so prompt changes are
+    tested against the exact production pipeline. `scanner` is required (no snapshot fallback) so no caller can
+    silently skip the known-freeform-tags injection. The production activity checks AI data-processing consent
+    before calling this; any other caller must do the same before recording data reaches the provider (the eval
+    suite is covered because dataset collection is consent-gated and time-boxed).
+    """
     preamble_text = scanner.preamble(
         team_name=team_name,
         session_metadata=llm_inputs.metadata.as_prompt_dict(),
+        session_identity=llm_inputs.identity.as_prompt_dict(),
         navigation=[entry.model_dump() for entry in llm_inputs.navigation],
         navigation_dropped=llm_inputs.navigation_dropped,
         events_truncated=llm_inputs.events_truncated,
         product_context=llm_inputs.product_context,
         event_descriptions=llm_inputs.event_descriptions,
     )
-    video_part = types.Part(file_data=types.FileData(file_uri=inputs.file_uri, mime_type=inputs.mime_type))
+    video_part = types.Part(file_data=types.FileData(file_uri=file_uri, mime_type=mime_type))
 
-    finalized, signals = await _run_mission(
+    outcome = await _run_mission(
         scanner=scanner,
         snapshot=snapshot,
         video_part=video_part,
         preamble_text=preamble_text,
-        team_id=inputs.team_id,
+        team_id=team_id,
         llm_inputs=llm_inputs,
-        trace_id=_scan_trace_id(inputs),
+        trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
-    finalized = _resolve_citations(finalized, scanner, duration_ms)
-    return ScannerCallOutput(model_output=finalized, signals=signals)
+    finalized = _resolve_citations(outcome.finalized, scanner, duration_ms)
+    return ScannerCallOutput(model_output=finalized, signals=outcome.signals, verification=outcome.verification)
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
@@ -227,6 +284,13 @@ def _is_taglike(slug: str) -> bool:
     )
 
 
+def apply_known_freeform_tags(scanner: BaseScanner, tags: list[str]) -> BaseScanner:
+    """No-op unless `scanner` is a freeform-emitting classifier and there are tags to inject."""
+    if not tags or not isinstance(scanner, ClassifierScanner) or not scanner.allow_freeform_tags:
+        return scanner
+    return scanner.model_copy(update={"known_freeform_tags": tags})
+
+
 async def _inject_known_freeform_tags(scanner: BaseScanner, inputs: CallScannerProviderInputs) -> BaseScanner:
     """Give a freeform-emitting classifier the freeform tags it recently coined, so it reuses established
     names instead of inventing synonyms per scan. Best effort: a lookup failure must not fail the scan."""
@@ -237,9 +301,20 @@ async def _inject_known_freeform_tags(scanner: BaseScanner, inputs: CallScannerP
     except Exception:
         logger.warning("replay_vision.call_scanner_provider.known_freeform_tags_failed", exc_info=True)
         return scanner
-    if not known:
-        return scanner
-    return scanner.model_copy(update={"known_freeform_tags": known})
+    return apply_known_freeform_tags(scanner, known)
+
+
+def rank_freeform_tags(tag_lists: Iterable[Any]) -> list[str]:
+    """Slug-normalized freeform tags ranked most frequent first, capped to bound prompt size."""
+    counts: Counter[str] = Counter()
+    for tags in tag_lists:
+        if not isinstance(tags, list):
+            continue
+        # Stored values are already slugified at emission; re-slugify so nothing unnormalized reaches the prompt.
+        counts.update(slug for tag in tags if isinstance(tag, str) and _is_taglike(slug := slugify_tag(tag)))
+    # Alphabetical tie-break so equal-count tags keep a stable order across scans.
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [tag for tag, _ in ranked[:_KNOWN_FREEFORM_TAGS_MAX]]
 
 
 def _load_known_freeform_tags(observation_id: UUID, team_id: int) -> list[str]:
@@ -261,15 +336,7 @@ def _load_known_freeform_tags(observation_id: UUID, team_id: int) -> list[str]:
         .order_by("-created_at")
         .values_list("scanner_result__model_output__tags_freeform", flat=True)[:_KNOWN_FREEFORM_TAGS_MAX_ROWS]
     )
-    counts: Counter[str] = Counter()
-    for tags in recent:
-        if not isinstance(tags, list):
-            continue
-        # Stored values are already slugified at emission; re-slugify so nothing unnormalized reaches the prompt.
-        counts.update(slug for tag in tags if isinstance(tag, str) and _is_taglike(slug := slugify_tag(tag)))
-    # Alphabetical tie-break so equal-count tags keep a stable order across scans.
-    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
-    return [tag for tag, _ in ranked[:_KNOWN_FREEFORM_TAGS_MAX]]
+    return rank_freeform_tags(recent)
 
 
 def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:
@@ -310,7 +377,7 @@ async def _run_mission(
     team_id: int,
     llm_inputs: ScannerLlmInputs,
     trace_id: str,
-) -> tuple[BaseScannerOutput, list[SignalFinding]]:
+) -> _MissionOutcome:
     """Cache the video, run every mission step as a tool-using turn, then assemble the output + side-mission findings.
 
     Caching is best-effort: a video too short to cache (or any cache hiccup) falls back to sending it inline, and a
@@ -324,6 +391,7 @@ async def _run_mission(
             "ai_product": "replay_vision",
             "feature": "scanner",
             "scanner_type": snapshot.scanner_type.value,
+            "team_id": team_id,
         },
     )
     cache_client = GoogleGenAIClient(api_key=api_key)
@@ -340,11 +408,22 @@ async def _run_mission(
         return dispatch_events_tool(call, events_index)
 
     cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text)
+    steps = [
+        replace(
+            step,
+            validate=functools.partial(
+                _validate_signal_timestamps, duration_seconds=llm_inputs.metadata.duration_seconds
+            ),
+        )
+        if step.name == STEP_SIGNALS
+        else step
+        for step in scanner.mission_steps()
+    ]
     run = functools.partial(
         _run_steps,
         client=client,
         model=model,
-        steps=scanner.mission_steps(),
+        steps=steps,
         video_part=video_part,
         preamble_text=preamble_text,
         dispatch=dispatch,
@@ -352,13 +431,125 @@ async def _run_mission(
         metric_labels=metric_labels,
         trace_id=trace_id,
     )
+    verification: VerificationRecord | None = None
     try:
         step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
+        core = step_outputs.get(STEP_CORE)
+        if (
+            isinstance(scanner, MonitorScanner)
+            and isinstance(core, MonitorLlmResponse)
+            and snapshot.verify_positives in _VERIFY_MODES
+            and core.verdict == "yes"
+        ):
+            # Verification re-draws over the cache, so it has to finish before the `finally` below deletes it.
+            served, verification = await _verify_positive_verdict(
+                scanner=scanner,
+                mode=snapshot.verify_positives,
+                core_step=next(step for step in steps if step.name == STEP_CORE),
+                first=core,
+                run=run,
+                cache=cache,
+                model=snapshot.model,
+            )
+            step_outputs = {**step_outputs, STEP_CORE: served}
     finally:
         if cache is not None:
             await _delete_video_cache(cache_client, cache.name)
 
-    return scanner.assemble(step_outputs)
+    finalized, signals = scanner.assemble(step_outputs)
+    return _MissionOutcome(finalized=finalized, signals=signals, verification=verification)
+
+
+async def _verify_positive_verdict(
+    *,
+    scanner: MonitorScanner,
+    mode: str,
+    core_step: MissionStep,
+    first: MonitorLlmResponse,
+    run: Any,
+    cache: Any | None,
+    model: str,
+) -> tuple[MonitorLlmResponse, VerificationRecord]:
+    """Re-draw the core step once; a `yes` is served only when the second draw agrees.
+
+    Replay Vision optimizes for precision, not recall: a finding it presents must hold up, and a missed one costs
+    less than a wrong one. So a single dissenting draw is enough to drop the `yes`, and the dissent (its verdict and
+    its reasoning) is what gets served. No third draw breaks the tie in favour of the finding.
+
+    Every draw is a fresh conversation over the same cached video and preamble, so it never sees the first pass or
+    its reasoning. Verification only ever tightens a scan that already succeeded: without a cache, without time left
+    in the activity budget, or when the draw fails for any reason, the first verdict stands and the record says why.
+    """
+    draws = [first]
+    skipped_reason: str | None = None
+    if cache is None:
+        skipped_reason = "no_cache"
+    else:
+        # An activity timeout fires outside the `except` below and fails the whole scan, first verdict included.
+        # Capping the draw at the remaining budget turns that into a `draw_failed` the first pass survives.
+        budget = _remaining_verify_budget_seconds()
+        if budget is not None and budget <= 0:
+            skipped_reason = "no_budget"
+        else:
+            verify_step = replace(core_step, name=f"{STEP_CORE}_verify_2")
+            try:
+                outputs = await asyncio.wait_for(run(steps=[verify_step], cache_name=cache.name), timeout=budget)
+                draw = outputs[verify_step.name]
+                if not isinstance(draw, MonitorLlmResponse):
+                    raise TypeError(f"verify draw returned {type(draw).__name__}")
+                draws.append(draw)
+            except Exception as exc:
+                # No traceback or message: a provider error body can quote the prompt, as at the activity boundary.
+                logger.warning(
+                    "replay_vision.call_scanner_provider.verify_draw_failed",
+                    model=model,
+                    error_type=type(exc).__name__,
+                    code=getattr(exc, "code", None),
+                    status=getattr(exc, "status", None),
+                )
+                skipped_reason = "draw_failed"
+
+    # The dissent, when there is one, is the last draw; otherwise the first pass stands.
+    resolved_draw = draws[-1]
+    served = resolved_draw if mode == "enforce" else first
+    if skipped_reason:
+        outcome = skipped_reason
+    else:
+        outcome = "agreed" if resolved_draw.verdict == first.verdict else "flipped"
+    record_verification_outcome(scanner_type=scanner.scanner_type.value, mode=mode, outcome=outcome)
+    record = VerificationRecord(
+        mode=mode,
+        draws=[draw.verdict for draw in draws],
+        resolved_verdict=resolved_draw.verdict,
+        served_verdict=served.verdict,
+        skipped_reason=skipped_reason,
+    )
+    return served, record
+
+
+def _remaining_verify_budget_seconds() -> float | None:
+    """Seconds a verify draw may take before the activity's start-to-close timeout, or None when there is no timeout
+    (the eval suite calls `run_scan` outside an activity)."""
+    if not activity.in_activity():
+        return None
+    info = activity.info()
+    if info.start_to_close_timeout is None:
+        return None
+    elapsed = (timezone.now() - info.started_time).total_seconds()
+    return info.start_to_close_timeout.total_seconds() - elapsed - _VERIFY_BUDGET_RESERVE_SECONDS
+
+
+def _validate_signal_timestamps(output: BaseModel, *, duration_seconds: float | None) -> str | None:
+    if not isinstance(output, SignalsResponse) or not output.signals:
+        return None
+    if duration_seconds is None or not math.isfinite(duration_seconds) or duration_seconds <= 0:
+        return "Recording duration is unavailable. Return an empty signals list."
+    if any(signal.end_time > duration_seconds for signal in output.signals):
+        return (
+            f"Signal timestamps must not exceed REC_T {math.floor(duration_seconds)}. "
+            "Use timestamps visible in the recording, or omit the finding. Do not clamp timestamps."
+        )
+    return None
 
 
 async def _run_mission_attempts(*, run: Any, cache: Any | None, model: str) -> dict[str, BaseModel]:
@@ -679,4 +870,4 @@ async def _delete_video_cache(cache_client: GoogleGenAIClient, name: str) -> Non
         logger.info("replay_vision.video_cache.delete_failed", error=str(e))
 
 
-__all__ = ["call_scanner_provider_activity"]
+__all__ = ["apply_known_freeform_tags", "call_scanner_provider_activity", "rank_freeform_tags", "run_scan"]

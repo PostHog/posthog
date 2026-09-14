@@ -25,7 +25,7 @@ export function steerQueueTooltip(
     return `Queue: holds messages until the current turn ends. ${shortcut} to switch to Steer.`;
   }
   return supportsNativeSteer
-    ? `Steer: injects your message mid-turn at the next tool boundary. ${shortcut} to switch to Queue.`
+    ? `Steer: applies your message at the next safe boundary. The current command may keep running until then. ${shortcut} to switch to Queue.`
     : `Steer: interrupts the current turn and resends with your message. ${shortcut} to switch to Queue.`;
 }
 

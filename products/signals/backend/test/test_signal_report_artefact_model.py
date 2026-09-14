@@ -17,7 +17,7 @@ from products.signals.backend.models import ArtefactAttribution, SignalReport, S
 from products.signals.backend.temporal.agentic.report import _AGENTIC_ARTEFACT_TYPES
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
-from products.tasks.backend.models import Task  # tach-ignore
+from products.tasks.backend.models import Task
 
 
 class TestSignalReportArtefactHelpers(BaseTest):

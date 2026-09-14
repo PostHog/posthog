@@ -10,6 +10,8 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
+from posthog.exceptions_capture import capture_exception
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -34,6 +36,15 @@ MAX_RETRY_ATTEMPTS = 5
 # Instagram account node IDs are plain integers. Anything else spliced into the Graph path
 # risks retargeting the request at a different object or injecting path/query segments.
 _NUMERIC_ACCOUNT_ID = re.compile(r"^[0-9]+$")
+
+# The account field accepts an ID typed by hand, which is the only way to reach an account a
+# Business portfolio owns (see `list_professional_accounts`). Someone typing there usually reaches
+# for the username, so name the value the Graph API needs instead of sending them back to a list
+# their account is missing from.
+_ACCOUNT_ID_NOT_NUMERIC_ERROR = (
+    "Instagram professional accounts use a numeric ID, not a username. Pick the account from the "
+    "list, or enter its numeric ID from your Meta business settings."
+)
 
 # The media edge tops out at 10K posts; at PAGE_SIZE per page that is 100 pages. The cap
 # is a runaway guard for a paginator that never signals the end, not a real limit.
@@ -220,7 +231,17 @@ class InstagramClient:
         return False
 
     @retry(
-        retry=retry_if_exception_type((InstagramRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+        retry=retry_if_exception_type(
+            (
+                InstagramRetryableError,
+                requests.ReadTimeout,
+                requests.ConnectionError,
+                # Raised instead of ConnectionError when the reset lands mid-body on a
+                # chunked response (see requests.models.Response.generate) — the same
+                # transient network blip, just caught at a different layer of urllib3.
+                requests.exceptions.ChunkedEncodingError,
+            )
+        ),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=2, max=120),
         reraise=True,
@@ -626,6 +647,11 @@ def list_professional_accounts(
 
     A page with no linked professional account is skipped rather than offered as a choice that
     can never sync.
+
+    Accounts owned by a Business portfolio stay invisible here even when the page really is linked:
+    Meta omits `instagram_business_account` rather than erroring unless the token carries
+    `business_management`, which this integration deliberately does not request. Syncing such an
+    account works once its ID is known, so the account field also accepts an ID typed by hand.
     """
     client = InstagramClient(access_token=access_token, api_version=api_version, logger=logger)
     url = client.build_url("me/accounts", {"fields": PAGE_FIELDS, "limit": str(PAGE_SIZE)})
@@ -661,7 +687,7 @@ def validate_credentials(
     # The account ID is spliced straight into the Graph API path, so anything but the plain
     # numeric node ID could select a different object or inject extra path/query segments.
     if not _NUMERIC_ACCOUNT_ID.match(account_id):
-        return False, "That is not a valid Instagram account. Pick the account again from the list."
+        return False, _ACCOUNT_ID_NOT_NUMERIC_ERROR
 
     client = InstagramClient(access_token=access_token, api_version=api_version, logger=logger)
 
@@ -674,8 +700,21 @@ def validate_credentials(
             "The Instagram connection is missing permissions this source needs. Reconnect it and grant "
             "access to your page, Instagram insights and comments."
         )
-    except Exception:
-        return False, "Could not reach the Instagram API with this connection."
+    except (InstagramRetryableError, InstagramRequestBudgetError):
+        return False, "Instagram is busy or temporarily unavailable. Wait a few minutes and try again."
+    except InstagramBadRequestError:
+        return False, (
+            "Instagram rejected the request for that account. Check the account is an Instagram "
+            "professional account linked to your Facebook page, then try again."
+        )
+    except Exception as e:
+        # Anything left is a transport failure or a bug on our side. The probe returns a message
+        # rather than raising, so nothing above the source would record it otherwise.
+        capture_exception(e)
+        return (
+            False,
+            "PostHog couldn't check this Instagram connection. Reconnect your Instagram account and try again.",
+        )
 
     if not body.get("id"):
         return False, "That account is not an Instagram professional account. Pick a different account."

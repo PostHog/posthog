@@ -21,14 +21,21 @@ import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { Workflow } from './Workflow'
-import { WORKFLOW_AGENT_HEADLINES, buildWorkflowAgentContext } from './workflowAgentContext'
+import {
+    EMAIL_EDITOR_AGENT_HEADLINES,
+    WORKFLOW_AGENT_HEADLINES,
+    buildWorkflowAgentContext,
+    isEditingEmailAction,
+} from './workflowAgentContext'
 import { WorkflowAssets } from './WorkflowAssets'
+import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
-import { workflowLogic } from './workflowLogic'
+import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
+import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
@@ -50,10 +57,17 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
+    const triggerPrefill = searchParams[TRIGGER_PREFILL_PARAM] as string | undefined
+    const workflowProps: WorkflowLogicProps = {
+        id: workflowSceneProps.id,
+        templateId,
+        editTemplateId,
+        triggerPrefill,
+    }
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 
-    const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
+    const logic = workflowLogic(workflowProps)
     // The save/auto-save indicators moved into the WorkflowStatusBar; the scene only needs the
     // workflow itself (for the agent context) and the load state.
     const { workflow, workflowLoading, originalWorkflow, hogFunctionTemplatesById } = useValues(logic)
@@ -70,6 +84,13 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         500
     )
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    // The email takeover reflects its state into the URL (?editor=email beside the step's ?node=);
+    // while it is open the panel's framing follows the email being edited, not the graph. Both
+    // swaps update the same provider registrations in place, so they keep their first-registered
+    // priority in the panel's first-writer-wins registries. Validated against the workflow's
+    // actions, since a lingering param must not flip the framing on a workflow without that email.
+    const editingEmail = isEditingEmailAction(workflow, searchParams)
+    const editingEmailActionId: string | null = editingEmail ? ((searchParams.node as string) ?? null) : null
     // Serializing the whole graph is real work on large workflows, so skip building the context
     // entirely for users the integration flag hasn't reached.
     const agentContextItems = useMemo(
@@ -78,15 +99,16 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                 ? buildWorkflowAgentContext(
                       debouncedAgentSource.workflow,
                       debouncedAgentSource.id,
-                      hogFunctionTemplatesById
+                      hogFunctionTemplatesById,
+                      editingEmailActionId
                   )
                 : null,
-        [sceneIntegrationEnabled, debouncedAgentSource, hogFunctionTemplatesById]
+        [sceneIntegrationEnabled, debouncedAgentSource, hogFunctionTemplatesById, editingEmailActionId]
     )
     useSceneAgentPanel({
         sceneKey: 'workflow',
         contextItems: agentContextItems,
-        headlines: WORKFLOW_AGENT_HEADLINES,
+        headlines: editingEmail ? EMAIL_EDITOR_AGENT_HEADLINES : WORKFLOW_AGENT_HEADLINES,
         active: !!originalWorkflow || workflowSceneProps.id === 'new',
     })
 
@@ -102,7 +124,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         {
             label: 'Workflow',
             key: 'workflow',
-            content: <Workflow {...workflowSceneProps} />,
+            content: <Workflow {...workflowProps} />,
         },
 
         {
@@ -151,11 +173,12 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     return (
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
-            <BindLogic logic={workflowLogic} props={{ id: props.id, templateId, editTemplateId }}>
+            <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
+                <WorkflowEmailPauseBanner />
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
-                    <Workflow {...props} />
+                    <Workflow {...workflowProps} />
                 ) : (
                     <LemonTabs
                         activeKey={currentTab}

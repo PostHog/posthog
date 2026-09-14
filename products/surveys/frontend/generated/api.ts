@@ -107,14 +107,14 @@ export const getSurveysUpdateUrl = (projectId: string, id: string) => {
 export const surveysUpdate = async (
     projectId: string,
     id: string,
-    surveyApi: NonReadonly<SurveyApi>,
+    surveySerializerCreateUpdateOnlySchemaApi: NonReadonly<SurveySerializerCreateUpdateOnlySchemaApi>,
     options?: RequestInit
-): Promise<SurveyApi> => {
-    return apiMutator<SurveyApi>(getSurveysUpdateUrl(projectId, id), {
+): Promise<SurveySerializerCreateUpdateOnlyApi> => {
+    return apiMutator<SurveySerializerCreateUpdateOnlyApi>(getSurveysUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(surveyApi),
+        body: JSON.stringify(surveySerializerCreateUpdateOnlySchemaApi),
     })
 }
 

@@ -16,6 +16,8 @@ logger = structlog.get_logger(__name__)
 
 SOURCE_PRODUCT = "health_checks"
 SOURCE_TYPE = "health_issue"
+# Concurrent emissions per batch. Matches the signals pipeline's own emit fan-out.
+EMIT_CONCURRENCY_LIMIT = 50
 
 
 @dataclass(frozen=True)
@@ -72,9 +74,9 @@ def emit_health_check_signals(issues: list[HealthIssue]) -> int:
     """Emit Signals-inbox signals for a batch of newly-firing health issues.
 
     Returns the number of signals queued. Resolves every issue up front, fetches all
-    teams in one query, then fires the emissions concurrently rather than blocking the
-    processing thread on each one's serial IO. Never raises — a single bad issue must
-    not break the orchestrator batch.
+    teams in one query, then fires the emissions concurrently (bounded) rather than
+    blocking the processing thread on each one's serial IO. Never raises — a single bad
+    issue must not break the orchestrator batch.
     """
     # Deferred import: keeps the signals product off the core import path and
     # avoids the facade's circular import back into the temporal stack.
@@ -108,7 +110,16 @@ def emit_health_check_signals(issues: list[HealthIssue]) -> int:
         return True
 
     async def _emit_all() -> list[bool | BaseException]:
-        return await asyncio.gather(*(_emit_one(signal) for signal in prepared), return_exceptions=True)
+        # A batch spans every team a check swept, and a team that steers this source has `emit_signal`
+        # run an LLM gate before queueing. Unbounded, one sweep could put hundreds of concurrent calls
+        # on the AI gateway. The semaphore is built here so it binds to the loop `async_to_sync` made.
+        semaphore = asyncio.Semaphore(EMIT_CONCURRENCY_LIMIT)
+
+        async def _bounded_emit(signal: _PreparedSignal) -> bool:
+            async with semaphore:
+                return await _emit_one(signal)
+
+        return await asyncio.gather(*(_bounded_emit(signal) for signal in prepared), return_exceptions=True)
 
     queued = 0
     for signal, result in zip(prepared, async_to_sync(_emit_all)()):

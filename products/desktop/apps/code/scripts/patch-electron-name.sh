@@ -3,7 +3,9 @@
 
 set -e
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+# Resolve by path: git rev-parse --show-toplevel returns the monorepo root,
+# which has no electron install.
+REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 PLIST_FILE="$REPO_ROOT/node_modules/electron/dist/Electron.app/Contents/Info.plist"
 
 if [ ! -f "$PLIST_FILE" ]; then

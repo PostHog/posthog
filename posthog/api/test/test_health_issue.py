@@ -5,14 +5,19 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.health_issue import HealthIssueSerializer
+from posthog.constants import AvailableFeature
 from posthog.models.health_issue import HealthIssue
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.redis import get_client
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.growth.backend.constants import github_sdk_versions_key
 
 
@@ -253,19 +258,114 @@ class TestHealthIssueAPI(APIBaseTest):
         response = self.client.get(self._url("/summary"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        data = response.json()
+        data = response.json()["unsnoozed"]
         self.assertEqual(data["total"], 3)
         self.assertEqual(data["by_severity"], {"critical": 1, "warning": 2})
         self.assertEqual(data["by_kind"], {"sdk_outdated": 2, "missing_events": 1})
+
+    def test_summary_reports_snoozed_counts_separately(self):
+        self._create_issue(severity=HealthIssue.Severity.CRITICAL, kind="sdk_outdated", unique_hash="h1")
+        self._create_issue(
+            severity=HealthIssue.Severity.WARNING,
+            kind="missing_events",
+            unique_hash="h2",
+            snoozed_until=datetime.now(UTC) + timedelta(days=7),
+        )
+        self._create_issue(
+            severity=HealthIssue.Severity.INFO,
+            kind="expired_snooze_kind",
+            unique_hash="h3",
+            snoozed_until=datetime.now(UTC) - timedelta(minutes=1),
+        )
+
+        response = self.client.get(self._url("/summary"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data["unsnoozed"]["total"], 2)
+        self.assertEqual(data["unsnoozed"]["by_severity"], {"critical": 1, "info": 1})
+        self.assertEqual(data["snoozed"]["total"], 1)
+        self.assertEqual(data["snoozed"]["by_severity"], {"warning": 1})
+        self.assertEqual(data["snoozed"]["by_kind"], {"missing_events": 1})
+
+    def test_list_includes_snoozed_issues(self):
+        snoozed = self._create_issue(snoozed_until=datetime.now(UTC) + timedelta(days=7))
+
+        response = self.client.get(self._url("/?status=active&dismissed=false"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+        self.assertEqual([result["id"] for result in results], [str(snoozed.id)])
+        self.assertIsNotNone(results[0]["snoozed_until"])
+
+    def test_patch_snooze_sets_and_clears(self):
+        issue = self._create_issue()
+
+        response = self.client.patch(self._url(f"/{issue.id}/"), {"snoozed_until": "7d"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        issue.refresh_from_db()
+        assert issue.snoozed_until is not None
+        self.assertAlmostEqual(issue.snoozed_until, datetime.now(UTC) + timedelta(days=7), delta=timedelta(minutes=1))
+
+        response = self.client.patch(self._url(f"/{issue.id}/"), {"snoozed_until": None})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        issue.refresh_from_db()
+        self.assertIsNone(issue.snoozed_until)
+
+    @parameterized.expand(
+        [
+            ("dismiss", {}, {"dismissed": True}, "health issue dismissed", {}),
+            ("undismiss", {"dismissed": True}, {"dismissed": False}, "health issue undismissed", {}),
+            ("snooze", {}, {"snoozed_until": "7d"}, "health issue snoozed", {"snooze_duration": "7d"}),
+            (
+                "unsnooze",
+                {"snoozed_until": datetime.now(UTC) + timedelta(days=7)},
+                {"snoozed_until": None},
+                "health issue unsnoozed",
+                {},
+            ),
+            ("dismiss_unchanged", {}, {"dismissed": False}, None, {}),
+            ("unsnooze_unsnoozed", {}, {"snoozed_until": None}, None, {}),
+        ]
+    )
+    @patch("posthog.api.health_issue.report_user_action")
+    def test_patch_reports_triage_action(
+        self, _name, initial, payload, expected_event, expected_properties, mock_report
+    ):
+        issue = self._create_issue(**initial)
+
+        response = self.client.patch(self._url(f"/{issue.id}/"), payload, content_type="application/json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        if expected_event is None:
+            mock_report.assert_not_called()
+            return
+
+        mock_report.assert_called_once()
+        _user, event, properties = mock_report.call_args.args
+        self.assertEqual(event, expected_event)
+        self.assertEqual(properties["issue_kind"], "sdk_outdated")
+        self.assertEqual(properties["issue_severity"], HealthIssue.Severity.WARNING)
+        for key, value in expected_properties.items():
+            self.assertEqual(properties[key], value)
+
+    def test_patch_invalid_snooze_returns_400(self):
+        issue = self._create_issue()
+
+        response = self.client.patch(self._url(f"/{issue.id}/"), {"snoozed_until": "garbage"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "snoozed_until")
+        issue.refresh_from_db()
+        self.assertIsNone(issue.snoozed_until)
 
     def test_summary_empty(self):
         response = self.client.get(self._url("/summary"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
-        self.assertEqual(data["total"], 0)
-        self.assertEqual(data["by_severity"], {})
-        self.assertEqual(data["by_kind"], {})
+        self.assertEqual(data["unsnoozed"], {"total": 0, "by_severity": {}, "by_kind": {}})
+        self.assertEqual(data["snoozed"], {"total": 0, "by_severity": {}, "by_kind": {}})
 
     def test_sdk_issue_visible_even_when_latest_release_is_fresh(self):
         # A fresh upstream release (<7 days old) must not hide sdk_outdated issues — fast-releasing
@@ -291,8 +391,8 @@ class TestHealthIssueAPI(APIBaseTest):
         summary_response = self.client.get(self._url("/summary"))
         self.assertEqual(summary_response.status_code, status.HTTP_200_OK)
         summary = summary_response.json()
-        self.assertEqual(summary["total"], 1)
-        self.assertEqual(summary["by_kind"], {"sdk_outdated": 1})
+        self.assertEqual(summary["unsnoozed"]["total"], 1)
+        self.assertEqual(summary["unsnoozed"]["by_kind"], {"sdk_outdated": 1})
 
     def test_resolve_already_resolved_returns_400(self):
         issue = self._create_issue(status=HealthIssue.Status.RESOLVED)
@@ -362,3 +462,122 @@ class TestHealthIssueAPI(APIBaseTest):
     def test_forbidden_methods(self, method, path):
         response = getattr(self.client, method.lower())(self._url(path))
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+
+class TestHealthIssueAccessControl(APIBaseTest):
+    def _url(self, path: str = "") -> str:
+        return f"/api/environments/{self.team.id}/health_issues{path}"
+
+    def _create_issue(self, kind: str, unique_hash: str) -> HealthIssue:
+        return HealthIssue.objects.create(
+            team=self.team,
+            kind=kind,
+            severity=HealthIssue.Severity.WARNING,
+            payload={"pipeline_name": "salesforce sync", "error": "credentials expired"},
+            unique_hash=unique_hash,
+        )
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+    @parameterized.expand(
+        [
+            ("external_data_failure", "external_data_source"),
+            ("materialized_view_failure", "warehouse_objects"),
+        ]
+    )
+    def test_restricted_member_does_not_see_kind_in_list(self, kind, resource):
+        self._create_issue(kind=kind, unique_hash="h1")
+        self._create_issue(kind="sdk_outdated", unique_hash="h2")
+        AccessControl.objects.create(team=self.team, resource=resource, access_level="none")
+
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([result["kind"] for result in response.json()["results"]], ["sdk_outdated"])
+
+    def test_restricted_member_summary_excludes_hidden_kind(self):
+        self._create_issue(kind="external_data_failure", unique_hash="h1")
+        self._create_issue(kind="sdk_outdated", unique_hash="h2")
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+
+        response = self.client.get(self._url("/summary"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["unsnoozed"]["total"], 1)
+        self.assertEqual(response.json()["unsnoozed"]["by_kind"], {"sdk_outdated": 1})
+
+    @parameterized.expand(
+        [
+            ("retrieve", lambda client, url: client.get(url)),
+            ("resolve", lambda client, url: client.post(f"{url}/resolve")),
+            ("dismiss", lambda client, url: client.patch(url, {"dismissed": True})),
+            ("snooze", lambda client, url: client.patch(url, {"snoozed_until": "P7D"})),
+        ]
+    )
+    def test_restricted_member_object_action_returns_403(self, _name, request):
+        issue = self._create_issue(kind="external_data_failure", unique_hash="h1")
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+
+        response = request(self.client, self._url(f"/{issue.id}"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "You do not have viewer access to this resource.")
+
+    @parameterized.expand([("system_default", None), ("explicit_viewer", "viewer")])
+    def test_member_with_viewer_access_sees_declared_kind(self, _name, access_level):
+        issue = self._create_issue(kind="external_data_failure", unique_hash="h1")
+        if access_level:
+            AccessControl.objects.create(team=self.team, resource="external_data_source", access_level=access_level)
+
+        list_response = self.client.get(self._url())
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([result["id"] for result in list_response.json()["results"]], [str(issue.id)])
+
+        retrieve_response = self.client.get(self._url(f"/{issue.id}"))
+        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(retrieve_response.json()["summary"], "salesforce sync is failing to sync")
+
+    def test_org_admin_sees_hidden_kind_despite_none_default(self):
+        issue = self._create_issue(kind="external_data_failure", unique_hash="h1")
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        list_response = self.client.get(self._url())
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([result["id"] for result in list_response.json()["results"]], [str(issue.id)])
+
+        retrieve_response = self.client.get(self._url(f"/{issue.id}"))
+        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
+
+
+class TestSnoozeDurationField(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unparseable", "garbage"),
+            ("empty_string", ""),
+            ("zero_length", "0d"),
+            ("beyond_cap", "120d"),
+            ("absolute_past_date", "2020-01-01"),
+            ("unanchored_substring", "prefix7dsuffix"),
+            ("overflows_date_arithmetic", "9999y"),
+            ("non_string", {"value": "7d"}),
+        ]
+    )
+    def test_rejects_duration(self, _name: str, value: object):
+        serializer = HealthIssueSerializer(data={"snoozed_until": value}, partial=True)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("snoozed_until", serializer.errors)
+
+    def test_accepts_relative_duration(self):
+        serializer = HealthIssueSerializer(data={"snoozed_until": "7d"}, partial=True)
+
+        self.assertTrue(serializer.is_valid())
+        self.assertAlmostEqual(
+            serializer.validated_data["snoozed_until"],
+            datetime.now(UTC) + timedelta(days=7),
+            delta=timedelta(minutes=1),
+        )

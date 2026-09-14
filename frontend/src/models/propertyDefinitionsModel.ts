@@ -80,6 +80,12 @@ const localOptions: Record<string, PropValue[]> = {
         { id: 1, name: 'warn' },
         { id: 2, name: 'error' },
     ],
+    'resource/severity': [
+        { id: 0, name: 'low' },
+        { id: 1, name: 'medium' },
+        { id: 2, name: 'high' },
+        { id: 3, name: 'critical' },
+    ],
 }
 
 export type FormatPropertyValueForDisplayFunction = (

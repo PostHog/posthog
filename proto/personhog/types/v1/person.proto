@@ -170,6 +170,10 @@ message UpdatePersonPropertiesRequest {
   // flooring bounds record volume at one per person-hour regardless of
   // the caller's precision.
   optional int64 last_seen_at = 8;
+  // The event kind warrants a write regardless of which properties changed.
+  // Computed by the caller from the event alone; when false, filtered-only
+  // changes answer updated=false and write nothing.
+  bool force_update = 9;
 }
 
 message UpdatePersonPropertiesResponse {
@@ -204,20 +208,6 @@ message DeletePersonsBatchForTeamRequest {
 
 message DeletePersonsBatchForTeamResponse {
   // Number of persons deleted. 0 means no more persons to delete.
-  int64 deleted_count = 1;
-}
-
-// DeletePersonlessDistinctIdsBatchForTeamRequest deletes up to batch_size
-// posthog_personlessdistinctid rows for a team. These rows have no person FK, so
-// they aren't covered by person deletion. Callers should loop until deleted_count is 0.
-message DeletePersonlessDistinctIdsBatchForTeamRequest {
-  int64 team_id = 1;
-  // Max rows to delete per call. Must be > 0 and <= 50000.
-  int64 batch_size = 2;
-}
-
-message DeletePersonlessDistinctIdsBatchForTeamResponse {
-  // Number of rows deleted. 0 means no more rows to delete.
   int64 deleted_count = 1;
 }
 
@@ -338,11 +328,12 @@ message ReleaseFenceRequest {
   // from it.
   optional int64 sealed_version = 6;
   // The person's creation time as sealed at fence time, in epoch
-  // seconds — the unit Person.created_at carries end to end (the leader
-  // loads `timestamp()`, the writer binds via `epoch_secs_to_datetime`).
-  // The death document carries it verbatim — a cold leader has nothing
-  // to re-derive it from, and the writer projects it onto the tombstone
-  // row. Required when outcome = COMMITTED.
+  // milliseconds — the unit Person.created_at carries end to end (the
+  // leader loads `timestamp_millis()`, the writer binds via
+  // `epoch_ms_to_datetime`). The death document carries it verbatim — a
+  // cold leader has nothing to re-derive it from, and the writer
+  // projects it onto the tombstone row. Required when outcome =
+  // COMMITTED.
   int64 created_at = 7;
 }
 

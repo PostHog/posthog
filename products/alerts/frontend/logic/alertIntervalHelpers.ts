@@ -35,6 +35,31 @@ export function isSubDailyAlertInterval(interval: AlertCalculationInterval): boo
     return SUB_DAILY_INTERVALS.includes(interval)
 }
 
+export function canSetAlertScheduleStartTime(interval: AlertCalculationInterval): boolean {
+    return interval === AlertCalculationInterval.HOURLY
+}
+
+export function scheduleStartTimeForInterval(
+    interval: AlertCalculationInterval,
+    scheduleStartTime: string | null | undefined
+): string | null {
+    return canSetAlertScheduleStartTime(interval) ? (scheduleStartTime ?? null) : null
+}
+
+export function getAlertScheduleStartMinute(scheduleStartTime: string | null | undefined): number | undefined {
+    if (!scheduleStartTime) {
+        return undefined
+    }
+    return Number(scheduleStartTime.split(':')[1])
+}
+
+export function scheduleStartTimeForMinute(minute: number | null | undefined): string | null {
+    if (minute === null || minute === undefined || !Number.isInteger(minute) || minute < 0 || minute > 59) {
+        return null
+    }
+    return `00:${String(minute).padStart(2, '0')}`
+}
+
 const INTERVAL_DISPLAY_LABELS: Record<AlertCalculationInterval, string> = {
     [AlertCalculationInterval.REAL_TIME]: 'Real time',
     [AlertCalculationInterval.EVERY_15_MINUTES]: 'Every 15 minutes',
@@ -59,6 +84,10 @@ const CADENCE_DURATION_MINUTES: Record<AlertCalculationInterval, number> = {
     [AlertCalculationInterval.MONTHLY]: 60 * 24 * 30,
 }
 
+export function alertCadenceMinutes(interval: AlertCalculationInterval): number {
+    return CADENCE_DURATION_MINUTES[interval]
+}
+
 const INSIGHT_INTERVAL_DURATION_MINUTES: Record<IntervalType, number> = {
     second: 1 / 60,
     minute: 1,
@@ -80,7 +109,7 @@ export function cadenceFinerThanInsightInterval(
     const insightMinutes =
         INSIGHT_INTERVAL_DURATION_MINUTES[(insightInterval as IntervalType | null) ?? 'day'] ??
         INSIGHT_INTERVAL_DURATION_MINUTES.day
-    return CADENCE_DURATION_MINUTES[cadence] < insightMinutes
+    return alertCadenceMinutes(cadence) < insightMinutes
 }
 
 type EntitlementResult =

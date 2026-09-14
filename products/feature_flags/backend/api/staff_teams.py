@@ -51,6 +51,13 @@ class StaffTeamResultSerializer(serializers.Serializer):
     organization_id = serializers.CharField(help_text="Organization uuid that owns the team.")
     organization_name = serializers.CharField(help_text="Organization name that owns the team.")
     project_id = serializers.IntegerField(help_text="Project id the team belongs to.")
+    parent_team_id = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Project root team id when this team is an environment, or null when it is the root. "
+            "The flag limit is set on the root, so a team with this set cannot take an override."
+        ),
+    )
 
 
 @extend_schema_serializer(many=False)
@@ -101,7 +108,9 @@ class FeatureFlagsStaffTeamSearchViewSet(viewsets.ViewSet):
             Team.objects.filter(query)
             .annotate(organization_name=F("organization__name"))
             .order_by("id")
-            .values("id", "name", "api_token", "organization_id", "organization_name", "project_id")[:limit]
+            .values("id", "name", "api_token", "organization_id", "organization_name", "project_id", "parent_team_id")[
+                :limit
+            ]
         )
 
         return response.Response(StaffTeamSearchResponseSerializer({"results": list(teams)}).data)

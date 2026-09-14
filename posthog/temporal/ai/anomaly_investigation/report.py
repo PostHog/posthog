@@ -151,6 +151,14 @@ class InvestigationReport(BaseModel):
             "evidence to decide."
         ),
     )
+    metric_meaning: str = Field(
+        default="",
+        description=(
+            "One sentence, read off the metric definition in the context: what the alerted number "
+            "counts — the event, the aggregation, and the filters that scope it. Write this before "
+            "reasoning about causes, and never infer it from the insight's name."
+        ),
+    )
     summary: str = Field(description="1-3 sentence plain-English summary of what happened.")
     hypotheses: list[InvestigationHypothesis] = Field(
         default_factory=list,
@@ -200,4 +208,7 @@ def salvage_report(args: Any) -> InvestigationReport | None:
     recommendations = data.get("recommendations")
     if isinstance(recommendations, list):
         report.recommendations = [item for item in recommendations if isinstance(item, str)]
+    metric_meaning = data.get("metric_meaning")
+    if isinstance(metric_meaning, str):
+        report.metric_meaning = metric_meaning
     return report

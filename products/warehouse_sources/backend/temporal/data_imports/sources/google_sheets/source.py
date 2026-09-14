@@ -80,6 +80,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         # reword. Temporal then retries the whole activity, so the failure is transient and
         # self-recovering.
         return {
+            "APIError: [409]",
             "APIError: [429]",
             "APIError: [500]",
             "APIError: [502]",
@@ -92,6 +93,14 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             # connection, read timeout, dropped socket), so match that stable prefix rather than
             # the per-request URL or nested error detail.
             "Max retries exceeded with url",
+            # `_retry_on_transient_api_error` also retries a `RefreshError`/`TransportError` raised
+            # while refreshing our own service-account token, when its message carries Google's
+            # stable "Error 5xx (...)" frontend-outage page (see `_is_transient_refresh_error`),
+            # before re-raising once that budget is exhausted.
+            "Error 500 (",
+            "Error 502 (",
+            "Error 503 (",
+            "Error 504 (",
         }
 
     def get_schemas(

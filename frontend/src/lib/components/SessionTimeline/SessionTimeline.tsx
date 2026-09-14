@@ -16,6 +16,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 import { cn } from 'lib/utils/css-classes'
 
 import { ItemCategory, ItemCollector, ItemRenderer, RendererProps, TimelineItem, TimelineMenuItem } from './timeline'
@@ -25,15 +26,26 @@ export interface SessionTimelineHandle {
     scrollToItem: (itemId: string) => void
 }
 
+export type TimelineMarkerColor = 'blue' | 'yellow' | 'red'
+
 export interface SessionTimelineProps {
     collector: ItemCollector
     selectedItemId?: string
+    selectedItemMarkerColor?: TimelineMarkerColor
     className?: string
     onTimeClick?: (time: Dayjs) => void
+    categoryControlsPosition?: 'sidebar' | 'header'
 }
 
 export const SessionTimeline = forwardRef<SessionTimelineHandle, SessionTimelineProps>(function SessionTimeline(
-    { collector, selectedItemId, className, onTimeClick }: SessionTimelineProps,
+    {
+        collector,
+        selectedItemId,
+        selectedItemMarkerColor = 'yellow',
+        className,
+        onTimeClick,
+        categoryControlsPosition = 'sidebar',
+    }: SessionTimelineProps,
     ref
 ): JSX.Element {
     const [activeCategories, setActiveCategories] = useState<ItemCategory[]>(() => collector.getAllCategories())
@@ -102,7 +114,7 @@ export const SessionTimeline = forwardRef<SessionTimelineHandle, SessionTimeline
         if (activeCategories.length === 0) {
             return {
                 title: 'No categories selected',
-                description: 'Select at least one category from the left to show timeline items.',
+                description: 'Select at least one category to show timeline items.',
             }
         }
 
@@ -119,37 +131,103 @@ export const SessionTimeline = forwardRef<SessionTimelineHandle, SessionTimeline
         }
     }, [activeCategories.length, items.length])
 
-    return (
-        <div className={cn('flex h-full', className)}>
-            <div className="flex flex-col justify-between items-center p-1 border-r border-gray-3 shrink-0">
-                <CategoryToggleGroup>
-                    {allCategories.map((cat) => (
-                        <ItemCategoryToggle
-                            active={activeCategories.includes(cat)}
-                            key={cat}
-                            category={cat}
-                            onClick={() => toggleCategory(cat)}
-                        >
-                            {collector.getRenderer(cat)?.categoryIcon}
-                        </ItemCategoryToggle>
-                    ))}
-                </CategoryToggleGroup>
-                {hasVisibleSelectedItem && (
-                    <ButtonPrimitive
-                        tooltip="Scroll to item"
-                        tooltipPlacement="right"
-                        iconOnly
-                        size="xs"
-                        onClick={() => selectedItemId && scrollToItem(selectedItemId)}
+    const sidebarCategoryToggles = (
+        <CategoryToggleGroup>
+            {allCategories.map((cat) => (
+                <ItemCategoryToggle
+                    active={activeCategories.includes(cat)}
+                    key={cat}
+                    category={cat}
+                    onClick={() => toggleCategory(cat)}
+                >
+                    {collector.getRenderer(cat)?.categoryIcon}
+                </ItemCategoryToggle>
+            ))}
+        </CategoryToggleGroup>
+    )
+
+    const headerCategoryToggles = (
+        <div
+            className="flex h-7 min-w-0 max-w-full items-center gap-1 overflow-x-auto overflow-y-hidden"
+            role="group"
+            aria-label="Timeline categories"
+        >
+            {allCategories.map((cat) => {
+                const active = activeCategories.includes(cat)
+                const categoryLabel = getCategoryLabel(cat)
+
+                return (
+                    <Button
+                        key={cat}
+                        variant="default"
+                        size="sm"
+                        aria-pressed={active}
+                        title={active ? `Hide ${categoryLabel.toLowerCase()}` : `Show ${categoryLabel.toLowerCase()}`}
+                        className={cn(
+                            'shrink-0 gap-1.5 px-1.5 [&_svg]:size-3',
+                            active ? 'text-[var(--primary)]' : 'text-[var(--muted-foreground)] opacity-60'
+                        )}
+                        data-attr={`session-timeline-category-toggle-${cat.replaceAll(' ', '-')}`}
+                        onClick={() => toggleCategory(cat)}
                     >
-                        <IconVerticalAlignCenter />
-                    </ButtonPrimitive>
-                )}
-            </div>
+                        {collector.getRenderer(cat)?.categoryIcon}
+                        {categoryLabel}
+                    </Button>
+                )
+            })}
+        </div>
+    )
+
+    const sidebarScrollToSelectedItemButton = hasVisibleSelectedItem ? (
+        <ButtonPrimitive
+            tooltip="Scroll to item"
+            tooltipPlacement="right"
+            iconOnly
+            size="xs"
+            onClick={() => selectedItemId && scrollToItem(selectedItemId)}
+        >
+            <IconVerticalAlignCenter />
+        </ButtonPrimitive>
+    ) : null
+
+    const headerScrollToSelectedItemButton = hasVisibleSelectedItem ? (
+        <Tooltip>
+            <TooltipTrigger
+                render={
+                    <Button
+                        variant="default"
+                        size="icon-sm"
+                        aria-label="Scroll to item"
+                        onClick={() => selectedItemId && scrollToItem(selectedItemId)}
+                    />
+                }
+            >
+                <IconVerticalAlignCenter />
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Scroll to item</TooltipContent>
+        </Tooltip>
+    ) : null
+
+    return (
+        <div className={cn('flex h-full', categoryControlsPosition === 'header' && 'min-h-0 flex-col', className)}>
+            {categoryControlsPosition === 'header' ? (
+                <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b-1 bg-[var(--gray-1)] px-2">
+                    {headerCategoryToggles}
+                    {headerScrollToSelectedItemButton}
+                </div>
+            ) : (
+                <div className="flex flex-col justify-between items-center p-1 border-r border-gray-3 shrink-0">
+                    {sidebarCategoryToggles}
+                    {sidebarScrollToSelectedItemButton}
+                </div>
+            )}
             <div
                 ref={setContainerRef}
                 data-attr="session-timeline-scroll-container"
-                className="SessionTimeline__scroll-container h-full w-full overflow-y-auto relative"
+                className={cn(
+                    'SessionTimeline__scroll-container h-full w-full overflow-y-auto relative',
+                    categoryControlsPosition === 'header' && 'min-h-0 flex-1'
+                )}
                 style={{ scrollbarGutter: 'stable both-edges' }}
             >
                 <div className="pr-3">
@@ -166,6 +244,7 @@ export const SessionTimeline = forwardRef<SessionTimelineHandle, SessionTimeline
                                 item={item}
                                 sessionId={collector.sessionId}
                                 selected={item.id === selectedItemId}
+                                selectedMarkerColor={selectedItemMarkerColor}
                                 onTimeClick={onTimeClick}
                             />
                         )
@@ -181,11 +260,16 @@ export const SessionTimeline = forwardRef<SessionTimelineHandle, SessionTimeline
 })
 
 const itemContainer = cva({
-    base: 'w-full',
+    base: "relative w-full border-b border-[var(--gray-2)] before:absolute before:inset-y-0 before:left-0 before:w-1 before:content-['']",
     variants: {
         selected: {
-            true: 'bg-[var(--gray-1)] border-1 border-accent',
-            false: 'border-b border-[var(--gray-2)]',
+            true: 'bg-fill-button-tertiary-active',
+            false: null,
+        },
+        markerColor: {
+            blue: 'before:bg-brand-blue',
+            yellow: 'before:bg-brand-yellow',
+            red: 'before:bg-brand-red',
         },
     },
 })
@@ -202,6 +286,21 @@ function getCategoryTooltip(category: ItemCategory): string {
             return 'Page view'
         case ItemCategory.CONSOLE_LOGS:
             return 'Console log'
+    }
+}
+
+function getCategoryLabel(category: ItemCategory): string {
+    switch (category) {
+        case ItemCategory.ERROR_TRACKING:
+            return 'Exceptions'
+        case ItemCategory.EXCEPTION_STEPS:
+            return 'Exception steps'
+        case ItemCategory.CUSTOM_EVENTS:
+            return 'Custom events'
+        case ItemCategory.PAGE_VIEWS:
+            return 'Pageviews'
+        case ItemCategory.CONSOLE_LOGS:
+            return 'Logs'
     }
 }
 
@@ -287,12 +386,13 @@ function TimelineRowMenu({ menuItems }: { menuItems: TimelineMenuItem[] }): JSX.
 type SessionTimelineItemContainerProps = RendererProps<TimelineItem> & {
     renderer: ItemRenderer<TimelineItem>
     selected: boolean
+    selectedMarkerColor: TimelineMarkerColor
     onTimeClick?: (timestamp: Dayjs) => void
 }
 
 const SessionTimelineItemContainer = forwardRef<HTMLDivElement, SessionTimelineItemContainerProps>(
     function SessionTimelineItemContainer(
-        { renderer, item, sessionId, selected, onTimeClick }: SessionTimelineItemContainerProps,
+        { renderer, item, sessionId, selected, selectedMarkerColor, onTimeClick }: SessionTimelineItemContainerProps,
         ref
     ): JSX.Element {
         const [expanded, setExpanded] = useState(false)
@@ -318,7 +418,11 @@ const SessionTimelineItemContainer = forwardRef<HTMLDivElement, SessionTimelineI
         }
 
         return (
-            <div ref={ref} className={itemContainer({ selected })} data-item-id={item.id}>
+            <div
+                ref={ref}
+                className={itemContainer({ selected, markerColor: selected ? selectedMarkerColor : undefined })}
+                data-item-id={item.id}
+            >
                 <div className="flex justify-between pr-0 w-full h-[2rem] items-center">
                     <TimelineTimestampCell item={item} onTimeClick={onTimeClick} SourceIcon={renderer.sourceIcon} />
                     <div

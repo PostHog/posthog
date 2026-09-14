@@ -10,6 +10,7 @@ import pyarrow.parquet as pq
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
+    BufferFileSpan,
     CDCBufferWriter,
     build_buffer_file_name,
     get_buffer_prefix,
@@ -20,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
 class TestBufferFileName:
     def test_roundtrip(self):
         name = build_buffer_file_name(256, 512, 3)
-        assert parse_buffer_file_name(name) == (256, 512, 3)
+        assert parse_buffer_file_name(name) == BufferFileSpan(start_seq=256, end_seq=512, file_index=3)
 
     def test_rejects_foreign_names(self):
         assert parse_buffer_file_name("part-0000.parquet") is None

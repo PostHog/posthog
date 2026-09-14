@@ -1,58 +1,41 @@
-import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
-import { match } from 'ts-pattern'
+import { useValues } from 'kea'
 
-import { LemonBanner, Spinner } from '@posthog/lemon-ui'
+import { IconExternal } from '@posthog/icons'
+import { LemonBanner } from '@posthog/lemon-ui'
 
-import { TabsPrimitiveContent } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { Button, TabsContent } from 'lib/ui/quill'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { urls } from 'scenes/urls'
 
-import { exceptionCardLogic } from '../../exceptionCardLogic'
+import { SubHeader } from '../SubHeader'
 import { sessionTabLogic } from './sessionTabLogic'
 
 export function SessionRecordingTab(): JSX.Element {
-    const { loading } = useValues(exceptionCardLogic)
     return (
-        <TabsPrimitiveContent value="recording" className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-            {match(loading)
-                .with(true, () => <SessionRecordingLoading />)
-                .with(false, () => <SessionRecordingContent />)
-                .exhaustive()}
-        </TabsPrimitiveContent>
-    )
-}
-
-export function SessionRecordingLoading(): JSX.Element {
-    return (
-        <div className="flex justify-center w-full h-[300px] items-center">
-            <Spinner />
-        </div>
+        <TabsContent value="recording" className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+            <SessionRecordingContent />
+        </TabsContent>
     )
 }
 
 export function SessionRecordingContent(): JSX.Element {
-    const {
-        recordingProps,
-        recordingTimestamp,
-        isNotFound,
-        sessionPlayerMetaDataLoading,
-        isTimestampOutsideRecording,
-    } = useValues(sessionTabLogic)
-    const { seekToTimestamp, setPlay } = useActions(sessionTabLogic)
+    const { recordingProps, recordingTimestamp, isTimestampOutsideRecording, sessionId } = useValues(sessionTabLogic)
 
-    useEffect(() => {
-        if (sessionPlayerMetaDataLoading || isNotFound) {
-            return
-        }
-        if (recordingTimestamp) {
-            seekToTimestamp(recordingTimestamp)
-        }
-        setPlay()
-    }, [seekToTimestamp, recordingTimestamp, setPlay, isNotFound, sessionPlayerMetaDataLoading])
+    const replayUrl = urls.replaySingle(
+        sessionId,
+        recordingTimestamp === null ? undefined : { unixTimestampMillis: recordingTimestamp }
+    )
 
     return (
         <div className="flex h-full min-w-0 flex-col overflow-hidden">
+            <SubHeader className="shrink-0 justify-end">
+                <Button variant="default" size="sm" render={<LinkPrimitive to={replayUrl} target="_blank" />}>
+                    Open in session replay
+                    <IconExternal />
+                </Button>
+            </SubHeader>
             {isTimestampOutsideRecording && (
                 <LemonBanner type="info" className="m-2">
                     The exception occurred outside the recorded session timeframe. It is attached to a session but not

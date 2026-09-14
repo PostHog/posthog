@@ -10,6 +10,9 @@ from unittest.mock import MagicMock, Mock, patch
 from parameterized import parameterized
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.tiktok_ads import (
     TikTokAdsResumeConfig,
     get_tiktok_resource,
@@ -58,7 +61,6 @@ class TestTikTokAdsHelpers:
     """Test suite for TikTok Ads helper functions."""
 
     def test_flatten_tiktok_report_record_nested(self):
-        """Test flattening nested TikTok report structure."""
         nested_record = {
             "dimensions": {"campaign_id": "123456", "stat_time_day": "2025-09-27"},
             "metrics": {"clicks": "947", "impressions": "23241", "spend": "125.50"},
@@ -77,7 +79,6 @@ class TestTikTokAdsHelpers:
         assert result == expected
 
     def test_flatten_tiktok_report_record_flat(self):
-        """Test flattening already flat record (entity endpoints)."""
         flat_record = {"campaign_id": "123456", "campaign_name": "Test Campaign", "status": "ENABLE"}
 
         result = TikTokReportResource.transform_entity_reports([flat_record])[0]
@@ -86,7 +87,6 @@ class TestTikTokAdsHelpers:
         assert result == expected
 
     def test_flatten_tiktok_reports(self):
-        """Test batch flattening of TikTok reports."""
         reports = [
             {"dimensions": {"campaign_id": "123"}, "metrics": {"clicks": "100"}},
             {"dimensions": {"campaign_id": "456"}, "metrics": {"clicks": "200"}},
@@ -108,7 +108,6 @@ class TestTikTokAdsHelpers:
         ]
     )
     def test_get_incremental_date_range(self, name, should_use_incremental, last_value, expected_days_back):
-        """Test incremental date range calculation."""
         start_date, end_date = TikTokDateRangeManager.get_incremental_range(should_use_incremental, last_value)
 
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
@@ -118,7 +117,6 @@ class TestTikTokAdsHelpers:
         assert days_diff <= expected_days_back + 1
 
     def test_get_incremental_date_range_parse_error(self):
-        """Test date range calculation with invalid last value."""
         start_date, end_date = TikTokDateRangeManager.get_incremental_range(True, "invalid_date")
 
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
@@ -160,7 +158,6 @@ class TestTikTokAdsHelpers:
         ]
     )
     def test_generate_date_chunks(self, name, start_date, end_date, chunk_days, expected_chunks):
-        """Test date chunk generation."""
         chunks = TikTokDateRangeManager.generate_chunks(start_date, end_date, chunk_days)
 
         assert len(chunks) == expected_chunks
@@ -603,3 +600,66 @@ class TestTikTokAdsReportChunkResumeBehavior:
         assert saved.page == 2
         assert saved.chunk_start_date == chunk0_start
         assert saved.chunk_end_date == chunk0_end
+
+
+class TestTikTokAdsTransientErrorRetry:
+    """TikTok signals rate limits with HTTP 200 + a body `code`, so the request has to be
+    reissued from inside the rest client — the paginator can't re-request a page."""
+
+    def setup_method(self):
+        self.advertiser_id = "123456789"
+
+    def _run_campaigns(self, responses: list[Response]) -> tuple[list[Any], MagicMock]:
+        with (
+            patch("tenacity.nap.time.sleep"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+            ) as MockSession,
+        ):
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = responses
+
+            response = tiktok_ads_source(
+                advertiser_id=self.advertiser_id,
+                endpoint="campaigns",
+                team_id=123,
+                job_id="test_job",
+                access_token="test_access_token",
+                db_incremental_field_last_value=None,
+                resumable_source_manager=_make_manager(can_resume=False),
+                should_use_incremental_field=False,
+            )
+            rows = list(cast(Iterable[Any], response.items()))
+            return rows, mock_session
+
+    def test_qps_limit_mid_pagination_is_reissued(self):
+        responses = [
+            _page_response(page=1, total_pages=2, items=[{"campaign_id": "c1"}]),
+            _make_response({"code": 40100, "message": "App reaches the QPS limit 10, current QPS is 11."}),
+            _page_response(page=2, total_pages=2, items=[{"campaign_id": "c2"}]),
+        ]
+
+        rows, mock_session = self._run_campaigns(responses)
+
+        assert mock_session.send.call_count == 3
+        assert [row["campaign_id"] for row in rows] == ["c1", "c2"]
+
+    def test_persistent_qps_limit_surfaces_transient_message(self):
+        responses = [
+            _make_response({"code": 40100, "message": "App reaches the QPS limit 10, current QPS is 11."})
+        ] * 20
+
+        with pytest.raises(RESTClientRetryableError, match="rate-limiting"):
+            self._run_campaigns(responses)
+
+    def test_non_retryable_code_is_not_reissued(self):
+        responses = [
+            _make_response(
+                {"code": 40001, "message": "advertiser does not grant you /file/video/ad/search/:GET permission"}
+            )
+        ]
+
+        with pytest.raises(ValueError, match="non-retryable"):
+            self._run_campaigns(responses)

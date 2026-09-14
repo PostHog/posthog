@@ -17,6 +17,8 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     github_api_request,
     is_app_bot_author,
 )
+from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
+from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,14 @@ class PublishOutcome:
 
     posted: bool
     review_url: str | None = None
+
+
+def _mark_report_idle(team_id: int, report_id: str) -> None:
+    """Return the report to rest. Publishing runs defer finalize's idle write to this stage, and
+    the reviews API reads ACTIVE as in-progress, so every publish outcome (posted, already-posted
+    skip, nothing publishable) must end with the report IDLE or the UI shows a finished run as
+    running until the staleness cutoff."""
+    ReviewReport.objects.for_team(team_id).filter(id=report_id).update(status=ReviewReport.Status.IDLE)
 
 
 def publish_persisted_review(
@@ -74,6 +84,7 @@ def publish_persisted_review(
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
     if report.published_head_sha == head_sha:
         logger.info(f"Review for {owner}/{repo}#{pr_number} already published at {head_sha}; skipping")
+        _mark_report_idle(team_id, report_id)
         return PublishOutcome(posted=False)
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
     pr_files = snapshot.pr_files if snapshot is not None else []
@@ -115,14 +126,20 @@ def publish_persisted_review(
         # The base a later sweep compares this turn's findings against. Without it every finding is
         # compared from the newest publish, so a fix landing between two turns falls outside the diff.
         report.published_head_shas = {**(report.published_head_shas or {}), str(run_index): head_sha}
+        # Idle lands in the same save as the watermark, so no reader can see the published head
+        # with the report still counting as in-progress.
+        report.status = ReviewReport.Status.IDLE
         report.save(
             update_fields=[
                 "published_head_sha",
                 "published_urgency_thresholds",
                 "published_head_shas",
+                "status",
                 "updated_at",
             ]
         )
+    else:
+        _mark_report_idle(team_id, report_id)
     return outcome
 
 
@@ -161,7 +178,7 @@ def publish_review(
     from this turn's valid finding/verdict rows (`run_index`-scoped, so a prior turn's findings are
     never replayed), positioned against the PR's diff. `token` is the team's GitHub App installation
     token; `head_sha` pins the review to the exact reviewed commit so a force-push between review and
-    post can't misattribute comments. `post_promo` posts the one-time "ReviewHog Alpha" feedback
+    post can't misattribute comments. `post_promo` posts the one-time "PostHog Review alpha" feedback
     comment (the caller passes it only on the first publish for the report, so it isn't re-posted
     every turn). Reads the DB, so callers run it off the event loop.
 
@@ -242,9 +259,9 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
     """Format a finding + its verdict as an inline comment body.
 
     Leads with the title, then a line of colored severity/category badges (replacing the old
-    `Priority | Category | Lines` text meta); four collapsed sections follow, the validator's verdict
-    first — it is the human-facing evidence, so the reading order is claim (title) → why it's real
-    (validation) → description / fix / AI prompt for whoever wants more. Line refs are omitted from
+    `Priority | Category | Lines` text meta); four collapsed sections follow, the issue description
+    first — the reading order is claim (title) → what the issue is (description) → why it's real
+    (validation) → fix / AI prompt for whoever wants more. Line refs are omitted from
     the top — the comment is anchored inline and the lines live in the AI prompt.
     """
     priority = effective_priority(finding.priority, verdict.adjusted_priority)
@@ -255,18 +272,18 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
         _finding_badge_line(priority, verdict.category),
         "",
         "<details>",
-        "<summary><strong>Why we think it's a valid issue</strong></summary>",
-        "<br>",
-        "",
-        verdict.argumentation,
-        "",
-        "</details>",
-        "",
-        "<details>",
         "<summary><strong>Issue description</strong></summary>",
         "<br>",
         "",
         finding.body,
+        "",
+        "</details>",
+        "",
+        "<details>",
+        "<summary><strong>Why we think it's a valid issue</strong></summary>",
+        "<br>",
+        "",
+        verdict.argumentation,
         "",
         "</details>",
         "",
@@ -313,6 +330,8 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
             "",
             "</details>",
             "",
+            # Hidden marker so the resolution stage recognizes this as one of ReviewHog's own threads.
+            REVIEW_HOG_FINDING_MARKER,
         ]
     )
 
@@ -441,7 +460,7 @@ def _post_github_review(
             installation_id=installation_id,
             endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
             json={
-                "body": "ReviewHog Alpha \U0001f994 "
+                "body": "PostHog Review alpha \U0001f994 "
                 "If you find any issues helpful - "
                 'please reply "valid", "invalid", etc., '
                 f"for evaluation purposes \U0001f64f\n\n{promo_marker}"
@@ -452,6 +471,17 @@ def _post_github_review(
     # head, so a force-push between review and post would misplace the inline comments. Best-effort:
     # the probe isolates an unresolvable commit (stale/unreachable head) from a comment-positioning
     # failure, so we post unpinned rather than failing (or dropping the inline comments).
+    # The review and validation sandboxes hold live tokens, and the model text arrives here unfiltered.
+    body, redacted = redact_secrets(body)
+    scrubbed: list[ReviewComment] = []
+    for comment in comments:
+        comment_body, count = redact_secrets(comment["body"])
+        redacted += count
+        scrubbed.append({**comment, "body": comment_body})
+    comments = scrubbed
+    if redacted:
+        logger.warning(f"Redacted {redacted} value(s) from the review for {owner}/{repo}#{pr_number} before posting")
+
     review_payload: dict[str, Any] = {"body": body, "event": "COMMENT"}
     if head_sha:
         try:

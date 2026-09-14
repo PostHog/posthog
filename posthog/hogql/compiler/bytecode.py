@@ -49,11 +49,15 @@ ARITHMETIC_OPERATIONS = {
 }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class Local:
     name: str
     depth: int
     is_captured: bool
+    # False between declaring a variable and compiling its initializer. The slot is reserved in
+    # self.locals but nothing has pushed a value onto the stack for it yet, so resolving a name to
+    # it emits a GET_LOCAL the VM cannot satisfy. See _reject_uninitialized_local.
+    initialized: bool = True
 
 
 @dataclasses.dataclass
@@ -162,15 +166,28 @@ class BytecodeCompiler(Visitor):
                 response.append(Operation.POP)
         return response
 
-    def _declare_local(self, name: str) -> int:
+    def _declare_local(self, name: str, initialized: bool = True) -> int:
         for local in reversed(self.locals):
             if local.depth < self.scope_depth:
                 break
             if local.name == name:
                 raise QueryError(f"Variable `{name}` already declared in this scope")
 
-        self.locals.append(Local(name=name, depth=self.scope_depth, is_captured=False))
+        self.locals.append(Local(name=name, depth=self.scope_depth, is_captured=False, initialized=initialized))
         return len(self.locals) - 1
+
+    def _reject_uninitialized_local(self, local: Local):
+        # Reached when a name inside a variable's own initializer resolves to that variable, as in
+        # `let output := lower(output)` where `output` is also a global. The local shadows the outer
+        # name from the moment it is declared, so the reference compiles to its slot rather than to
+        # the global, and that slot holds no value yet. At runtime the VM then reads whatever sits
+        # at that stack position: past the top of the stack it raises IndexError, and within it an
+        # unrelated intermediate value is scored as if it were the variable. Neither is recoverable
+        # once compiled, so refuse it here instead.
+        if not local.initialized:
+            raise QueryError(
+                f"Variable `{local.name}` cannot be used inside its own declaration. Rename the new variable."
+            )
 
     def _declare_iife_local(self) -> int:
         # Clear it manually by running self.locals.pop()
@@ -350,6 +367,7 @@ class BytecodeCompiler(Visitor):
 
         for index, local in reversed(list(enumerate(self.enclosing.locals))):
             if local.name == name:
+                self._reject_uninitialized_local(local)
                 local.is_captured = True
                 return self._add_upvalue(index, True)
 
@@ -363,6 +381,7 @@ class BytecodeCompiler(Visitor):
         ops: list[str | int] = []
         for index, local in reversed(list(enumerate(self.locals))):
             if local.name == node.chain[0]:
+                self._reject_uninitialized_local(local)
                 ops = [Operation.GET_LOCAL, index]
                 break
 
@@ -818,10 +837,12 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration):
-        self._declare_local(node.name)
-        if node.expr:
-            return self.visit(node.expr)
-        return [Operation.NULL]
+        # A lambda body runs after the assignment completes, so it may refer to the variable it is
+        # being assigned to and recurse. Any other initializer runs before the slot is filled.
+        index = self._declare_local(node.name, initialized=isinstance(node.expr, ast.Lambda))
+        response = self.visit(node.expr) if node.expr else [Operation.NULL]
+        self.locals[index].initialized = True
+        return response
 
     def visit_variable_assignment(self, node: ast.VariableAssignment):
         if isinstance(node.left, ast.TupleAccess):

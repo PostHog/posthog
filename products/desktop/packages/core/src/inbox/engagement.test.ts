@@ -27,12 +27,16 @@ function fakeReport(overrides: Partial<SignalReport> = {}): SignalReport {
   };
 }
 
+const DEFAULT_REPORT_STATE_FILTER = ["review_and_merge", "needs_decision"];
+
 const NO_FILTERS = {
   surface: "desktop" as const,
   sourceProductFilter: [],
   priorityFilter: [],
   searchQuery: "",
-  isDefaultScope: true,
+  scope: "for-you" as const,
+  reportStateFilter: DEFAULT_REPORT_STATE_FILTER,
+  defaultReportStateFilter: DEFAULT_REPORT_STATE_FILTER,
 };
 
 describe("buildBulkActionEvents", () => {
@@ -79,25 +83,23 @@ describe("buildBulkActionEvents", () => {
     expect(events.every((e) => e.dismissal_reason === undefined)).toBe(true);
   });
 
-  it("attaches dismissal reason/note only for dismiss, truncating the note", () => {
-    const longNote = "x".repeat(600);
+  it("attaches only the dismissal category for dismiss", () => {
     const [dismissed] = buildBulkActionEvents({
       reports: [fakeReport({ id: "a" })],
       actionType: "dismiss",
       surface: "toolbar",
-      dismissal: { reason: "not_relevant", note: longNote },
+      dismissalReason: "not_relevant",
     });
     expect(dismissed.dismissal_reason).toBe("not_relevant");
-    expect(dismissed.dismissal_note).toHaveLength(500);
+    expect(dismissed).not.toHaveProperty("dismissal_note");
 
     const [snoozed] = buildBulkActionEvents({
       reports: [fakeReport({ id: "a" })],
       actionType: "snooze",
       surface: "toolbar",
-      dismissal: { reason: "not_relevant", note: longNote },
+      dismissalReason: "not_relevant",
     });
     expect(snoozed.dismissal_reason).toBeUndefined();
-    expect(snoozed.dismissal_note).toBeUndefined();
   });
 });
 
@@ -113,10 +115,11 @@ describe("buildInboxViewedProperties", () => {
     expect(props.report_count).toBe(2);
     expect(props.total_count).toBe(65);
     expect(props.ready_count).toBe(2);
-    expect(props.pulls_count).toBe(38);
-    expect(props.reports_count).toBe(62);
+    expect(props.pulls_tab_count).toBe(38);
+    expect(props.reports_tab_count).toBe(62);
     expect(props.is_empty).toBe(false);
-    expect(props.status_filter_count).toBe(0);
+    // Desktop now reports the report-state filter count (the two default buckets).
+    expect(props.status_filter_count).toBe(2);
   });
 
   it("breaks visible reports down by priority and actionability", () => {
@@ -171,7 +174,7 @@ describe("buildInboxViewedProperties", () => {
     ["source product", { sourceProductFilter: ["error_tracking"] }],
     ["priority", { priorityFilter: ["P0"] }],
     ["search", { searchQuery: "  crash  " }],
-    ["non-default scope", { isDefaultScope: false }],
+    ["non-default scope", { scope: "entire-project" as const }],
   ])("flags has_active_filters for a %s filter", (_label, partial) => {
     const props = buildInboxViewedProperties({
       visibleReports: [fakeReport()],
@@ -183,6 +186,17 @@ describe("buildInboxViewedProperties", () => {
     expect(props.has_active_filters).toBe(true);
   });
 
+  it("flags has_active_filters and counts a non-default report-state filter", () => {
+    const props = buildInboxViewedProperties({
+      visibleReports: [fakeReport()],
+      totalCount: 1,
+      filters: { ...NO_FILTERS, reportStateFilter: ["dismissed"] },
+    });
+
+    expect(props.has_active_filters).toBe(true);
+    expect(props.status_filter_count).toBe(1);
+  });
+
   it("does not flag has_active_filters for a whitespace-only search", () => {
     const props = buildInboxViewedProperties({
       visibleReports: [fakeReport()],
@@ -192,6 +206,18 @@ describe("buildInboxViewedProperties", () => {
     });
 
     expect(props.has_active_filters).toBe(false);
+  });
+
+  it("omits legacy tab counts for the sectioned reports inbox", () => {
+    const props = buildInboxViewedProperties({
+      visibleReports: [fakeReport()],
+      totalCount: 1,
+      filters: NO_FILTERS,
+    });
+
+    expect(props.pulls_tab_count).toBeUndefined();
+    expect(props.reports_tab_count).toBeUndefined();
+    expect(props.scope).toBe("for-you");
   });
 });
 

@@ -14,13 +14,16 @@ function makeDeps(overrides: {
   deps: FileEnrichmentDeps;
   parseSpy: ReturnType<typeof vi.fn>;
   enrichFromApiSpy: ReturnType<typeof vi.fn>;
+  toInlineCommentsSpy: ReturnType<typeof vi.fn>;
   getApiKeySpy: ReturnType<typeof vi.fn>;
   findImportsSpy: ReturnType<typeof vi.fn>;
   getWrappersSpy: ReturnType<typeof vi.fn>;
 } {
+  const toInlineCommentsSpy = vi.fn(
+    () => overrides.toInlineCommentsReturn ?? "enriched content",
+  );
   const enrichFromApiSpy = vi.fn(async () => ({
-    toInlineComments: () =>
-      overrides.toInlineCommentsReturn ?? "enriched content",
+    toInlineComments: toInlineCommentsSpy,
   }));
 
   const parseSpy = vi.fn(async () => {
@@ -58,6 +61,7 @@ function makeDeps(overrides: {
     deps,
     parseSpy,
     enrichFromApiSpy,
+    toInlineCommentsSpy,
     getApiKeySpy,
     findImportsSpy,
     getWrappersSpy,
@@ -277,7 +281,7 @@ describe("enrichFileForAgent", () => {
   });
 
   test("returns enriched string when happy path completes", async () => {
-    const { deps, enrichFromApiSpy } = makeDeps({
+    const { deps, enrichFromApiSpy, toInlineCommentsSpy } = makeDeps({
       toInlineCommentsReturn: "posthog.capture('x'); // [PostHog] Event: \"x\"",
     });
     const result = await enrichFileForAgent(
@@ -286,6 +290,10 @@ describe("enrichFileForAgent", () => {
       "posthog.capture('x');",
     );
     expect(result).toBe("posthog.capture('x'); // [PostHog] Event: \"x\"");
+    expect(toInlineCommentsSpy).toHaveBeenCalledWith({
+      includeEventDescriptions: false,
+      includeExperimentNames: false,
+    });
     expect(enrichFromApiSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         apiKey: "phx_test",

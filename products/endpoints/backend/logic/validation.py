@@ -39,7 +39,7 @@ from products.endpoints.backend.models import (
     _breakdown_property_names,
     can_materialize_query,
 )
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.api import insight_variables_by_code_names, insight_variables_by_ids
 
 
 def validate_data_freshness(data_freshness_seconds: int | None) -> None:
@@ -150,7 +150,7 @@ def sync_hogql_query_variables(query: HogQLQuery, team: Team) -> None:
             continue
         existing_variable_ids.append(variable.variableId)
 
-    team_variables = InsightVariable.objects.filter(team=team, id__in=existing_variable_ids)
+    team_variables = insight_variables_by_ids(team.pk, existing_variable_ids)
     team_variables_by_id = {str(variable.id): variable for variable in team_variables}
 
     synced_variables: dict[str, HogQLVariable] = {}
@@ -168,16 +168,16 @@ def sync_hogql_query_variables(query: HogQLQuery, team: Team) -> None:
 
     missing_code_names = placeholder_names - existing_code_names
     if missing_code_names:
-        missing_variables = InsightVariable.objects.filter(team=team, code_name__in=missing_code_names)
+        missing_variables = insight_variables_by_code_names(team.pk, missing_code_names)
 
-        for variable in missing_variables:
-            if not variable.code_name:
+        for definition in missing_variables:
+            if not definition.code_name:
                 continue
-            synced_variables[str(variable.id)] = HogQLVariable(
-                variableId=str(variable.id),
-                code_name=variable.code_name,
-                value=variable.default_value,
-                isNull=variable.default_value is None,
+            synced_variables[str(definition.id)] = HogQLVariable(
+                variableId=str(definition.id),
+                code_name=definition.code_name,
+                value=definition.default_value,
+                isNull=definition.default_value is None,
             )
 
     query.variables = synced_variables or None
@@ -223,10 +223,7 @@ def validate_variable_placeholders(node: ast.AST, variables: Optional[dict[str, 
             raise ValidationError({"query": f"Variable ID(s) not valid UUIDs: {', '.join(sorted(invalid_uuids))}. "})
 
         if valid_uuids:
-            existing_ids = {
-                str(id)
-                for id in InsightVariable.objects.filter(team=team, id__in=valid_uuids).values_list("id", flat=True)
-            }
+            existing_ids = {str(variable.id) for variable in insight_variables_by_ids(team.pk, valid_uuids)}
             invalid_ids = valid_uuids - existing_ids
 
         if invalid_ids:

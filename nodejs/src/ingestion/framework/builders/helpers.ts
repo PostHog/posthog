@@ -31,6 +31,7 @@ export function newBatchingPipeline<
     COutput = CInput,
     R extends string = never,
     D = DebugContextOf<CInput>,
+    CFeed extends object = Record<never, never>,
 >(
     beforeBatch: (
         builder: StartPipelineBuilder<BeforeBatchInput<TInput, CInput>, Record<string, never>>
@@ -61,7 +62,7 @@ export function newBatchingPipeline<
     >,
     options?: Partial<BatchingPipelineOptions>,
     builderContext?: PipelineBuilderContext<D>
-): BatchingPipeline<TInput, TOutput, CInput, CBatch, COutput & BatchingContext, R> {
+): BatchingPipeline<TInput, TOutput, CInput, CBatch, COutput & BatchingContext, R, CFeed> {
     const startBuilder = new ChunkPipelineBuilder<
         TInput & CBatch,
         TInput & CBatch,

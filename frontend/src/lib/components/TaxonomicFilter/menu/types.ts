@@ -12,9 +12,6 @@ import {
     TaxonomicFilterValue,
 } from '../types'
 
-/** Stamped on the legacy `taxonomic filter *` telemetry events so the A/B arms
- *  are distinguishable by an explicit property rather than a feature-flag join.
- *  Legacy emits `legacy-control` / `legacy-pill`. */
 export const TAXONOMIC_FILTER_SURFACE = 'rebuild-menu'
 
 /** A single selectable entry — what the picker commits when chosen. */
@@ -22,6 +19,7 @@ export interface MenuFilterEntry {
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
     name: string
+    canonicalValue?: TaxonomicFilterValue
     friendlyLabel?: string
     recentPropertyFilter?: AnyPropertyFilter
     recentLabel?: string

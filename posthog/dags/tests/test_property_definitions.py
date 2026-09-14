@@ -4,12 +4,15 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
+import pytest
+
 import dagster
 
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 from posthog.dags.property_definitions import (
     DetectPropertyTypeExpression,
     PropertyDefinitionsConfig,
+    TimeRange,
     property_definitions_ingestion_job,
     setup_job,
 )
@@ -235,3 +238,15 @@ def test_ingestion_job(cluster: ClickhouseCluster) -> None:
         (1, 1, "property", "Numeric", None, 2, int(PropertyDefinition.Type.GROUP), start_at),
         (1, 1, "property", "Numeric", None, None, int(PropertyDefinition.Type.PERSON), start_at + duration / 2),
     ]
+
+
+def test_time_range_accepts_ordered_and_equal_bounds() -> None:
+    start = datetime(2026, 1, 1)
+    assert TimeRange(start, start).end_time == start
+    assert TimeRange(start, start + timedelta(hours=1)).start_time == start
+
+
+def test_time_range_rejects_reversed_bounds() -> None:
+    start = datetime(2026, 1, 1)
+    with pytest.raises(ValueError, match="start_time"):
+        TimeRange(start, start - timedelta(seconds=1))

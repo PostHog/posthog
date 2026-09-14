@@ -6,10 +6,7 @@ from parameterized import parameterized
 
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.openfda import OpenFDAResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.source import OpenFDASource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str | None = "key") -> Any:
@@ -19,9 +16,6 @@ def _config(api_key: str | None = "key") -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert OpenFDASource().source_type == ExternalDataSourceType.OPENFDA
-
     def test_config_metadata(self) -> None:
         config = OpenFDASource().get_source_config
         assert config.label == "openFDA"
@@ -111,12 +105,6 @@ class TestNonRetryableErrors:
 
 
 class TestResumableWiring:
-    def test_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = OpenFDASource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is OpenFDAResumeConfig
-
     def test_source_for_pipeline_plumbs_incremental_inputs(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}
 

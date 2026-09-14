@@ -25,6 +25,8 @@ from urllib.parse import urlparse
 
 import psycopg
 
+from posthog.dataclasses import frozen
+
 from products.managed_warehouse.backend.common import (
     _get_org_id_for_team,
     default_bucket_region,
@@ -50,7 +52,14 @@ def _get_django_settings():
         return None
 
 
-def _get_boto3_credentials() -> tuple[str, str, str | None]:
+@frozen
+class AwsCredentials:
+    access_key: str
+    secret_key: str = dataclasses.field(repr=False)
+    session_token: str | None = dataclasses.field(default=None, repr=False)
+
+
+def _get_boto3_credentials() -> AwsCredentials:
     """Fetch AWS credentials via boto3.
 
     This is a workaround for DuckDB's CREDENTIAL_CHAIN not supporting
@@ -60,8 +69,7 @@ def _get_boto3_credentials() -> tuple[str, str, str | None]:
     See: https://github.com/duckdb/duckdb-aws/issues/31
 
     Returns:
-        Tuple of (access_key, secret_key, session_token).
-        session_token may be None for static credentials.
+        AwsCredentials; session_token may be None for static credentials.
     """
     import boto3
 
@@ -72,10 +80,10 @@ def _get_boto3_credentials() -> tuple[str, str, str | None]:
     frozen = credentials.get_frozen_credentials()
     if frozen.access_key is None or frozen.secret_key is None:
         raise RuntimeError("AWS credentials missing access_key or secret_key")
-    return frozen.access_key, frozen.secret_key, frozen.token
+    return AwsCredentials(access_key=frozen.access_key, secret_key=frozen.secret_key, session_token=frozen.token)
 
 
-def _get_cross_account_credentials(role_arn: str, external_id: str | None = None) -> tuple[str, str, str]:
+def _get_cross_account_credentials(role_arn: str, external_id: str | None = None) -> AwsCredentials:
     """Assume a cross-account IAM role and return temporary credentials.
 
     Args:
@@ -83,7 +91,7 @@ def _get_cross_account_credentials(role_arn: str, external_id: str | None = None
         external_id: Optional external ID for the role assumption (recommended for security)
 
     Returns:
-        Tuple of (access_key, secret_key, session_token)
+        AwsCredentials with a session token from the assumed role.
     """
     import boto3
 
@@ -98,7 +106,9 @@ def _get_cross_account_credentials(role_arn: str, external_id: str | None = None
 
     response = sts.assume_role(**assume_role_kwargs)
     creds = response["Credentials"]
-    return creds["AccessKeyId"], creds["SecretAccessKey"], creds["SessionToken"]
+    return AwsCredentials(
+        access_key=creds["AccessKeyId"], secret_key=creds["SecretAccessKey"], session_token=creds["SessionToken"]
+    )
 
 
 def normalize_endpoint(endpoint: str) -> tuple[str, bool]:
@@ -140,7 +150,7 @@ class DuckLakeStorageConfig:
     """
 
     access_key: str
-    secret_key: str
+    secret_key: str = dataclasses.field(repr=False)
     region: str
     endpoint: str
     use_ssl: bool
@@ -224,14 +234,14 @@ class DuckLakeStorageConfig:
             # Workaround: DuckDB's CREDENTIAL_CHAIN doesn't support IRSA (Web Identity Token).
             # Fetch credentials via boto3 which properly supports IRSA.
             # See: https://github.com/duckdb/duckdb-aws/issues/31
-            access_key, secret_key, session_token = _get_boto3_credentials()
+            creds = _get_boto3_credentials()
             secret_parts = [
                 "TYPE S3",
-                f"KEY_ID '{ducklake_escape(access_key)}'",
-                f"SECRET '{ducklake_escape(secret_key)}'",
+                f"KEY_ID '{ducklake_escape(creds.access_key)}'",
+                f"SECRET '{ducklake_escape(creds.secret_key)}'",
             ]
-            if session_token:
-                secret_parts.append(f"SESSION_TOKEN '{ducklake_escape(session_token)}'")
+            if creds.session_token:
+                secret_parts.append(f"SESSION_TOKEN '{ducklake_escape(creds.session_token)}'")
             if self.region:
                 secret_parts.append(f"REGION '{ducklake_escape(self.region)}'")
             return f"CREATE OR REPLACE SECRET {secret_name} ({', '.join(secret_parts)})"
@@ -254,9 +264,8 @@ class DuckLakeStorageConfig:
         self,
         secret_name: str,
         scope: str,
-        access_key: str,
-        secret_key: str,
-        session_token: str | None = None,
+        *,
+        credentials: AwsCredentials,
         region: str | None = None,
     ) -> str:
         """Generate a scoped DuckDB CREATE SECRET statement.
@@ -267,9 +276,7 @@ class DuckLakeStorageConfig:
         Args:
             secret_name: Unique name for this secret
             scope: S3 bucket scope (e.g., 's3://bucket-name')
-            access_key: AWS access key
-            secret_key: AWS secret key
-            session_token: Optional session token for temporary credentials
+            credentials: AWS credentials for the scoped secret
             region: AWS region (defaults to self.region)
 
         Returns:
@@ -281,11 +288,11 @@ class DuckLakeStorageConfig:
 
         secret_parts = [
             "TYPE S3",
-            f"KEY_ID '{ducklake_escape(access_key)}'",
-            f"SECRET '{ducklake_escape(secret_key)}'",
+            f"KEY_ID '{ducklake_escape(credentials.access_key)}'",
+            f"SECRET '{ducklake_escape(credentials.secret_key)}'",
         ]
-        if session_token:
-            secret_parts.append(f"SESSION_TOKEN '{ducklake_escape(session_token)}'")
+        if credentials.session_token:
+            secret_parts.append(f"SESSION_TOKEN '{ducklake_escape(credentials.session_token)}'")
         secret_parts.append(f"REGION '{ducklake_escape(effective_region)}'")
         secret_parts.append(f"SCOPE '{ducklake_escape(scope)}'")
 
@@ -420,16 +427,14 @@ def configure_cross_account_connection(
     # Set up destination credentials (via cross-account role assumption)
     if destinations:
         for i, dest in enumerate(destinations):
-            access_key, secret_key, session_token = _get_cross_account_credentials(
+            creds = _get_cross_account_credentials(
                 dest.role_arn,
                 external_id=dest.external_id,
             )
             secret_sql = source_storage_config.to_duckdb_scoped_secret_sql(
                 secret_name=f"ducklake_s3_dest_{i}",
                 scope=f"s3://{dest.bucket_name}",
-                access_key=access_key,
-                secret_key=secret_key,
-                session_token=session_token,
+                credentials=creds,
                 region=dest.region,
             )
             conn.execute(secret_sql)
@@ -771,8 +776,21 @@ def create_staging_read_secret(conn: psycopg.Connection, catalog_bucket: str) ->
     )
 
 
-def connect_to_duckgres(server: DuckgresServer) -> psycopg.Connection:
-    """Open a psycopg connection to a duckgres server."""
+def connect_to_duckgres(
+    server: DuckgresServer,
+    *,
+    application_name: str = "posthog",
+    options: str | None = None,
+) -> psycopg.Connection:
+    """Open a psycopg connection to a duckgres server.
+
+    ``application_name`` is a caller-identifying slug echoed into duckgres's
+    analytics events, so callers should pass one instead of relying on the
+    ``"posthog"`` default.
+
+    ``options`` is forwarded as the libpq startup options for caller-specific
+    Duckgres settings.
+    """
     return psycopg.connect(
         host=server.host,
         port=server.port,
@@ -780,6 +798,8 @@ def connect_to_duckgres(server: DuckgresServer) -> psycopg.Connection:
         user=server.username,
         password=server.password,
         autocommit=True,
+        application_name=application_name,
+        options=options,
     )
 
 

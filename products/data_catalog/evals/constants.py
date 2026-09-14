@@ -114,6 +114,21 @@ PROPOSED_METRIC_DEFINITION: dict = {
     ),
 }
 
+# Proactive-offer arm: a saved insight is the only place the measure is written down, so the
+# agent has to reconstruct the definition from it and then offer to catalog it. No metric is
+# seeded — the catalog is empty for this measure.
+DEFINITION_INSIGHT_NAME = "Active uploaders (weekly)"
+DEFINITION_INSIGHT_DESCRIPTION = "Users who uploaded at least one file in the trailing 7 days."
+DEFINITION_INSIGHT_QUERY: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT count(DISTINCT person_id) AS active_uploaders\n"
+        "FROM events\n"
+        "WHERE event = 'uploaded_file'\n"
+        "  AND timestamp >= now() - INTERVAL 7 DAY"
+    ),
+}
+
 # Listing arm decoys: saved insights whose names a lazy `system.insights ILIKE '%metric%'`
 # search would surface — the trap the listing case must not fall into.
 DECOY_INSIGHT_NAMES = ("Key metrics overview", "Revenue metrics by plan")
@@ -151,6 +166,44 @@ OPERATIONAL_METRIC_DEFINITION: dict = {
         "    round(100 * countIf(event = '$exception') / nullIf(countIf(event = '$pageview'), 0), 2) AS error_rate_pct\n"
         "FROM events\n"
         "WHERE event IN ('$pageview', '$exception')\n"
+        "  AND timestamp >= now() - INTERVAL 30 DAY\n"
+        "GROUP BY day\n"
+        "ORDER BY day DESC"
+    ),
+}
+
+DAILY_ACTIVE_ORGS_METRIC_NAME = "daily_active_orgs"
+DAILY_ACTIVE_ORGS_METRIC_DISPLAY_NAME = "Daily active organizations"
+DAILY_ACTIVE_ORGS_METRIC_DESCRIPTION = "Daily count of Hedgebox organizations with at least one event on that day, over the trailing 30 days, using the account group attached to the event."
+DAILY_ACTIVE_ORGS_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT\n"
+        "    toStartOfDay(timestamp) AS day,\n"
+        "    uniq(toString(properties.$group_0)) AS active_organizations\n"
+        "FROM events\n"
+        "WHERE notEmpty(toString(properties.$group_0))\n"
+        "  AND timestamp >= now() - INTERVAL 30 DAY\n"
+        "GROUP BY day\n"
+        "ORDER BY day DESC"
+    ),
+}
+
+MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME = "mcp_tool_call_fail_pct"
+MCP_TOOL_CALL_FAIL_PCT_METRIC_DISPLAY_NAME = "MCP tool-call failure rate"
+MCP_TOOL_CALL_FAIL_PCT_METRIC_DESCRIPTION = (
+    "Daily percentage of PostHog's hosted MCP tool calls that failed, measured from canonical $mcp_tool_call events "
+    "whose $mcp_server_name is PostHog, so calls to separately instrumented MCP servers are excluded."
+)
+MCP_TOOL_CALL_FAIL_PCT_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT\n"
+        "    toStartOfDay(timestamp) AS day,\n"
+        "    round(100 * countIf(toBool(properties.$mcp_is_error)) / nullIf(count(), 0), 2) AS failure_rate_pct\n"
+        "FROM events\n"
+        "WHERE event = '$mcp_tool_call'\n"
+        "  AND toString(properties.$mcp_server_name) = 'PostHog'\n"
         "  AND timestamp >= now() - INTERVAL 30 DAY\n"
         "GROUP BY day\n"
         "ORDER BY day DESC"

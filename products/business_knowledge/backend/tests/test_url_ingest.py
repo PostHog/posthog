@@ -17,6 +17,8 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.security.url_validation import PinnedUrlVerdict
+
 from products.business_knowledge.backend import url_fetch
 from products.business_knowledge.backend.html_parse import _bs4_fallback, parse_html
 from products.business_knowledge.backend.logic import (
@@ -82,7 +84,10 @@ class TestNormalizeUrl(BaseTest):
 
 
 class TestFetchUrl(BaseTest):
-    @patch("products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips", return_value=(True, None, set()))
+    @patch(
+        "products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips",
+        return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set()),
+    )
     @patch("products.business_knowledge.backend.url_fetch.requests.Session")
     def test_happy_path_returns_body(self, mock_session_cls: MagicMock, _ssrf: MagicMock) -> None:
         session = mock_session_cls.return_value
@@ -92,7 +97,10 @@ class TestFetchUrl(BaseTest):
         assert result.body == b"<html>hi</html>"
         assert result.etag == '"abc"'
 
-    @patch("products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips", return_value=(True, None, set()))
+    @patch(
+        "products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips",
+        return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set()),
+    )
     @patch("products.business_knowledge.backend.url_fetch.requests.Session")
     def test_conditional_get_returns_304(self, mock_session_cls: MagicMock, _ssrf: MagicMock) -> None:
         session = mock_session_cls.return_value
@@ -101,7 +109,10 @@ class TestFetchUrl(BaseTest):
         assert result.status == 304
         assert result.body is None
 
-    @patch("products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips", return_value=(True, None, set()))
+    @patch(
+        "products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips",
+        return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set()),
+    )
     @patch("products.business_knowledge.backend.url_fetch.requests.Session")
     def test_size_cap_aborts(self, mock_session_cls: MagicMock, _ssrf: MagicMock) -> None:
         session = mock_session_cls.return_value
@@ -118,7 +129,10 @@ class TestFetchUrl(BaseTest):
     def test_redirect_revalidates_ssrf(self, mock_session_cls: MagicMock, mock_ssrf: MagicMock) -> None:
         # First hop allowed (public), second hop blocked (internal). If the
         # client blindly followed, the second Location would be fetched.
-        mock_ssrf.side_effect = [(True, None, set()), (False, "Loopback", set())]
+        mock_ssrf.side_effect = [
+            PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set()),
+            PinnedUrlVerdict(allowed=False, reason="Loopback", pinned_ips=set()),
+        ]
         session = mock_session_cls.return_value
         session.get.return_value = _mock_response(status_code=302, body=b"", location="http://127.0.0.1/admin")
         with self.assertRaises(url_fetch.UrlFetchError):
@@ -128,7 +142,7 @@ class TestFetchUrl(BaseTest):
 
     @patch(
         "products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips",
-        return_value=(False, "Loopback", set()),
+        return_value=PinnedUrlVerdict(allowed=False, reason="Loopback", pinned_ips=set()),
     )
     def test_ssrf_blocked_upfront(self, _ssrf: MagicMock) -> None:
         with self.assertRaises(url_fetch.UrlFetchError):

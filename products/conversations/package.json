@@ -19,6 +19,7 @@
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
         "@storybook/react": "catalog:",
@@ -33,6 +34,7 @@
         "@tiptap/extension-link": "*",
         "@tiptap/extension-underline": "*",
         "@tiptap/extensions": "*",
+        "@tiptap/html": "*",
         "@tiptap/pm": "*",
         "@tiptap/react": "*",
         "@tiptap/starter-kit": "*",

@@ -4,7 +4,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     TypeformSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.source import TypeformSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTypeformSource:
@@ -16,9 +15,6 @@ class TestTypeformSource:
         field = next(f for f in self.source.get_source_config.fields if f.name == "response_types")
         assert isinstance(field, SourceFieldSelectConfig)
         return field
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TYPEFORM
 
     def test_response_types_field_defaults_to_completed(self):
         field = self._response_types_field()

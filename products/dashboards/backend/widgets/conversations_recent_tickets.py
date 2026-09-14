@@ -4,8 +4,8 @@ from typing import Any
 
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.conversations.backend.api.ticket_filters import apply_ticket_filters, parse_stored_view_filters
 from products.conversations.backend.models import Ticket, TicketView
 from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT

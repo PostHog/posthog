@@ -37,6 +37,14 @@ describe('BoxPlot', () => {
         expect(chart.seriesCount).toBe(2)
     })
 
+    it('renders a legend when requested', () => {
+        const { container } = renderHogChart(
+            <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
+        )
+        const buttons = container.querySelectorAll('[data-attr="hog-chart-box-plot-legend"] button')
+        expect(Array.from(buttons, (button) => button.textContent)).toEqual(['A', 'B'])
+    })
+
     it('renders y-axis ticks for the value range that spans whiskers', () => {
         const series: BoxPlotSeries[] = [
             {

@@ -24,8 +24,8 @@ Known windows where sums legitimately diverge:
   began streaming (or spans the entire snapshot phase).
 - After a mid-run activity retry: the legacy lane re-inserts the replayed prefix
   of an in-flight transaction (accepted duplicate scd2 rows) while the buffer's
-  same-named files overwrite. Multiple run_uuids in the window therefore
-  downgrade the scd2 exact-match to a warning.
+  same-named files overwrite. A `(run_uuid, batch_index)` dispatched more than
+  once in the window therefore downgrades the scd2 exact-match to a warning.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_COMPANION_SUFFIX
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
+    BufferFileSpan,
     get_buffer_prefix,
     parse_buffer_file_name,
 )
@@ -69,7 +70,7 @@ class Command(BaseCommand):
         if not schemas:
             raise CommandError(f"Source {source.id} has no CDC schemas")
 
-        legacy_rows, run_counts = self._fetch_legacy_row_sums(source, cutoff)
+        legacy_rows, retried_batches = self._fetch_legacy_row_sums(source, cutoff)
         s3 = get_s3_client()
         violations: list[str] = []
 
@@ -105,13 +106,15 @@ class Command(BaseCommand):
 
             if scd2_rows is not None and scd2_rows != buffer_rows:
                 # Legacy re-inserts replayed rows on activity retry while buffer
-                # files overwrite — with multiple runs in the window the exact
-                # match is expected to skew, so it warns instead of failing.
-                if run_counts.get(str(schema.id), 0) > 1:
+                # files overwrite, so a re-dispatched batch is expected to skew the
+                # exact match — that case warns instead of failing.
+                retried = retried_batches.get(str(schema.id), 0)
+                if retried > 0:
                     self.stdout.write(
                         self.style.WARNING(
                             f"WARNING: {schema.name}: scd2 rows ({scd2_rows}) != buffer rows ({buffer_rows}) "
-                            "with multiple runs in the window — likely retry-replay skew, verify manually"
+                            f"with {retried} re-dispatched batch(es) in the window — likely retry-replay skew, "
+                            "verify manually"
                         )
                     )
                 else:
@@ -143,7 +146,7 @@ class Command(BaseCommand):
         entries = ls_result.values() if isinstance(ls_result, dict) else ls_result
 
         violations: list[str] = []
-        named: list[tuple[str, tuple[int, int, int]]] = []
+        named: list[tuple[str, BufferFileSpan]] = []
         for entry in entries:
             if entry.get("type") == "directory":
                 continue
@@ -163,12 +166,12 @@ class Command(BaseCommand):
         named.sort(key=lambda item: item[0].rsplit("/", 1)[-1])
         row_sum = 0
         prev_end: int | None = None
-        for key, (start_seq, end_seq, _file_index) in named:
-            if start_seq > end_seq:
+        for key, span in named:
+            if span.start_seq > span.end_seq:
                 violations.append(f"{schema.name}: inverted range in {key}")
-            if prev_end is not None and start_seq < prev_end:
+            if prev_end is not None and span.start_seq < prev_end:
                 violations.append(f"{schema.name}: overlapping range in {key} (starts before previous end {prev_end})")
-            prev_end = end_seq
+            prev_end = span.end_seq
 
             # A failed shadow write can leave a truncated object; report it as a
             # violation instead of crashing the whole validation run.
@@ -183,32 +186,46 @@ class Command(BaseCommand):
     def _fetch_legacy_row_sums(
         self, source: ExternalDataSource, cutoff: datetime
     ) -> tuple[dict[tuple[str, str], int], dict[str, int]]:
-        """Sum sourcebatch row_count per (schema_id, lane) since cutoff, plus the
-        distinct run count per schema (for retry-replay downgrades).
+        """Sum sourcebatch row_count per (schema_id, lane) since cutoff, plus the number of
+        re-dispatched batches per schema (for retry-replay downgrades).
 
         Only `sync_type = 'cdc'` dispatches count: snapshots and resyncs flow into
         the same table as full_refresh/incremental and would otherwise inflate the
         consolidated lane into a guaranteed false violation. Lane is derived from
         resource_name via the shared companion suffix.
+
+        A retry is a `(run_uuid, batch_index)` pair dispatched more than once — that is the
+        replay the scd2 exact-match cannot survive. Counting distinct run_uuids instead (as this
+        did originally) counts *scheduled ticks*: a healthy 5-min source mints a fresh run_uuid
+        every tick, so any window longer than one tick looked like a retry and permanently
+        downgraded the exact match to a warning, which is precisely the check this gate exists to
+        make.
         """
         companion_pattern = "%" + CDC_COMPANION_SUFFIX.replace("_", r"\_")
         with psycopg.connect(WAREHOUSE_SOURCES_DATABASE_URL) as conn:
             rows = conn.execute(
                 f"""
-                SELECT schema_id,
-                       CASE WHEN resource_name LIKE %(companion_pattern)s THEN 'scd2' ELSE 'consolidated' END AS lane,
-                       COALESCE(SUM(row_count), 0),
-                       COUNT(DISTINCT run_uuid)
-                FROM {BATCH_TABLE}
-                WHERE source_id = %(source_id)s AND created_at >= %(cutoff)s AND sync_type = 'cdc'
+                SELECT schema_id, lane, COALESCE(SUM(batch_rows), 0), COUNT(*) FILTER (WHERE dispatches > 1)
+                FROM (
+                    SELECT schema_id,
+                           CASE WHEN resource_name LIKE %(companion_pattern)s
+                                THEN 'scd2' ELSE 'consolidated' END AS lane,
+                           run_uuid,
+                           batch_index,
+                           SUM(row_count) AS batch_rows,
+                           COUNT(*) AS dispatches
+                    FROM {BATCH_TABLE}
+                    WHERE source_id = %(source_id)s AND created_at >= %(cutoff)s AND sync_type = 'cdc'
+                    GROUP BY schema_id, lane, run_uuid, batch_index
+                ) per_batch
                 GROUP BY schema_id, lane
                 """,
                 {"source_id": str(source.id), "cutoff": cutoff, "companion_pattern": companion_pattern},
             ).fetchall()
 
         sums: dict[tuple[str, str], int] = {}
-        run_counts: dict[str, int] = {}
-        for schema_id, lane, total, runs in rows:
+        retried_batches: dict[str, int] = {}
+        for schema_id, lane, total, retried in rows:
             sums[(str(schema_id), lane)] = int(total)
-            run_counts[str(schema_id)] = max(run_counts.get(str(schema_id), 0), int(runs))
-        return sums, run_counts
+            retried_batches[str(schema_id)] = max(retried_batches.get(str(schema_id), 0), int(retried))
+        return sums, retried_batches

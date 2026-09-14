@@ -1,13 +1,12 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getReactRouterSteps as getReactRouterStepsPA } from '../product-analytics/react-router'
+import { getReactRouterInstallSteps } from '../product-analytics/react-router'
 import { StepDefinition } from '../steps'
 
 export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
 
-    const installationSteps = getReactRouterStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
     const experimentSteps: StepDefinition[] = [
         {
             title: 'Implement your experiment',
@@ -38,7 +37,7 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
         },
     ]
 
-    return [...installationSteps, ...experimentSteps]
+    return [...getReactRouterInstallSteps(ctx), ...experimentSteps]
 }
 
 export const ReactRouterInstallation = createInstallation(getReactRouterSteps)

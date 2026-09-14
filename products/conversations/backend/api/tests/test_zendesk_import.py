@@ -7,7 +7,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_secret
 
-from products.conversations.backend.models import ZendeskImportJob
+from products.conversations.backend.models import EmailChannel, EmailChannelKind, ZendeskImportJob
 
 
 class TestZendeskImportAPI(APIBaseTest):
@@ -71,6 +71,31 @@ class TestZendeskImportAPI(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_customer_communication_channel_cannot_be_import_default(self) -> None:
+        customer_channel = EmailChannel.objects.create(
+            team=self.team,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            owner=self.user,
+            inbound_token="customer-zendesk-token",
+            from_email="csm@example.com",
+            from_name="Customer success",
+            domain="example.com",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/zendesk_imports/",
+            {
+                "subdomain": "acme",
+                "email_address": "agent@example.com",
+                "api_token": generate_random_token_secret(),
+                "default_email_channel_id": str(customer_channel.id),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(ZendeskImportJob.objects.unscoped().filter(team_id=self.team.id).exists())
 
     def test_non_admin_member_cannot_start_or_poll(self):
         # A plain member of the routed team must not be able to start an import or read status —

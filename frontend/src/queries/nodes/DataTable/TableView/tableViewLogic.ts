@@ -8,9 +8,6 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { GROUPS_LIST_DEFAULT_QUERY } from 'scenes/groups/groupsListLogic'
-import { PERSON_EVENTS_CONTEXT_KEY } from 'scenes/persons/personsLogic'
-import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'scenes/persons/personsSceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
@@ -18,6 +15,9 @@ import { ActorsQuery, EventsQuery, GroupsQuery, NodeKind } from '~/queries/schem
 import { isEventsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyOperator } from '~/types'
 
+import { GROUPS_LIST_DEFAULT_QUERY } from 'products/groups/frontend/logics/groupsListLogic'
+import { PERSON_EVENTS_CONTEXT_KEY } from 'products/persons/frontend/logics/personsLogic'
+import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'products/persons/frontend/logics/personsSceneLogic'
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import type { UserType } from '../../../../types'
@@ -536,7 +536,11 @@ export const tableViewLogic = kea<tableViewLogicType>([
             lemonToast.success(`View "${newViewForm.name}" saved`)
         },
 
-        submitNewViewFormFailure: (error) => {
+        submitNewViewFormFailure: ({ error }) => {
+            // Kea-forms emits this when client validation fails; fields already show errors.
+            if (error instanceof Error && error.message === 'Validation Failed') {
+                return
+            }
             posthog.captureException(error)
             lemonToast.error('Error creating view')
         },

@@ -8,7 +8,6 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { SCOUT_AUTHOR_PROMPT } from '../../../utils/scoutRunsWindow'
 
 export interface ScoutSuggestButtonProps {
     children?: React.ReactNode
@@ -27,9 +26,9 @@ export function ScoutSuggestButton({
     'data-attr': dataAttr,
 }: ScoutSuggestButtonProps): JSX.Element {
     const { startScoutChatTask } = useActions(scoutFleetLogic)
-    const { runningChatPrompt, aiConsentDisabledReason } = useValues(scoutFleetLogic)
-    const isStarting = runningChatPrompt === SCOUT_AUTHOR_PROMPT
-    const anotherTaskIsStarting = runningChatPrompt !== null && !isStarting
+    const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
+    const isStarting = runningChatType === 'author_scout'
+    const anotherTaskIsStarting = runningChatType !== null && !isStarting
     const creationDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.LlmSkill,
         AccessControlLevel.Editor
@@ -46,7 +45,7 @@ export function ScoutSuggestButton({
                     ? 'Starting another task…'
                     : (creationDisabledReason ?? aiConsentDisabledReason ?? undefined)
             }
-            onClick={() => startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')}
+            onClick={() => startScoutChatTask('author_scout', 'scout authoring task')}
             className={className}
             data-attr={dataAttr}
         >

@@ -1,0 +1,171 @@
+import { useActions, useValues } from 'kea'
+import { Suspense } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { BoldNumber } from 'scenes/insights/views/BoldNumber'
+import { BoxPlotChart } from 'scenes/insights/views/BoxPlot'
+import { TrendsCalendarHeatMap } from 'scenes/insights/views/CalendarHeatMap'
+import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
+import { MetricCard } from 'scenes/insights/views/Metric/Metric'
+
+import { InsightVizNode } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
+import { ChartDisplayType, InsightType } from '~/types'
+
+import { StickinessBarChart } from 'products/product_analytics/frontend/insights/stickiness/StickinessBarChart/StickinessBarChart'
+import { StickinessLineChart } from 'products/product_analytics/frontend/insights/stickiness/StickinessLineChart/StickinessLineChart'
+import { TrendsBarChart } from 'products/product_analytics/frontend/insights/trends/TrendsBarChart/TrendsBarChart'
+import { TrendsLifecycleChart } from 'products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/TrendsLifecycleChart'
+import { TrendsLineChart } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChart'
+import { TrendsPieChart } from 'products/product_analytics/frontend/insights/trends/TrendsPieChart/TrendsPieChart'
+import { TrendsSlopeChart } from 'products/product_analytics/frontend/insights/trends/TrendsSlopeChart/TrendsSlopeChart'
+
+import { trendsDataLogic } from './trendsDataLogic'
+// Maps carry ~1 MB of d3-geo + topojson data only the map display needs; kept lazy.
+const WorldMap = lazyWithRetry(() => import('scenes/insights/views/WorldMap').then((m) => ({ default: m.WorldMap })))
+const RegionMap = lazyWithRetry(() => import('scenes/insights/views/RegionMap').then((m) => ({ default: m.RegionMap })))
+
+interface Props {
+    view: InsightType
+    context?: QueryContext<InsightVizNode>
+    embedded?: boolean
+    inSharedMode?: boolean
+    editMode?: boolean
+}
+
+export function TrendInsight({ view, context, embedded, inSharedMode, editMode }: Props): JSX.Element {
+    const { insightProps, showPersonsModal: insightLogicShowPersonsModal } = useValues(insightLogic)
+    const showPersonsModal = insightLogicShowPersonsModal && !inSharedMode
+
+    const { display, series, breakdownFilter, hasBreakdownMore, breakdownValuesLoading, isLifecycle, isStickiness } =
+        useValues(trendsDataLogic(insightProps))
+    const { updateBreakdownFilter } = useActions(trendsDataLogic(insightProps))
+
+    const commonProps = {
+        showPersonsModal,
+        context,
+        // Fill the card in every embedded surface (dashboard tiles and shared/exported insights alike) so the
+        // Metric sparkline stretches and hugs the bottom instead of collapsing to a fixed height mid-card.
+        inCardView: embedded,
+        inSharedMode,
+    }
+
+    const renderViz = (): JSX.Element => {
+        if (isLifecycle) {
+            return <TrendsLifecycleChart context={context} inSharedMode={inSharedMode} />
+        }
+        if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
+            if (isStickiness) {
+                return <StickinessBarChart context={context} />
+            }
+            return <TrendsBarChart context={context} inSharedMode={inSharedMode} embedded={embedded} />
+        }
+        if (display === ChartDisplayType.BoldNumber) {
+            return <BoldNumber {...commonProps} />
+        }
+        if (display === ChartDisplayType.Metric) {
+            return <MetricCard {...commonProps} />
+        }
+        if (display === ChartDisplayType.ActionsTable) {
+            return (
+                <InsightsTable
+                    embedded
+                    filterKey={`trends_${view}`}
+                    canEditSeriesNameInline={editMode}
+                    editMode={editMode}
+                    isMainInsightView={true}
+                />
+            )
+        }
+        if (display && PIE_DISPLAY_TYPES.includes(display)) {
+            return <TrendsPieChart context={context} inSharedMode={inSharedMode} showPersonsModal={showPersonsModal} />
+        }
+        if (display === ChartDisplayType.ActionsBarValue) {
+            return <TrendsBarChart context={context} inSharedMode={inSharedMode} embedded={embedded} />
+        }
+        if (display === ChartDisplayType.WorldMap) {
+            const hasSubdivisionBreakdown =
+                breakdownFilter?.breakdowns &&
+                breakdownFilter.breakdowns.length >= 2 &&
+                breakdownFilter.breakdowns.some(
+                    (b) => b.property === '$geoip_subdivision_1_code' || b.property === '$geoip_subdivision_1_name'
+                )
+
+            if (hasSubdivisionBreakdown) {
+                return <RegionMap {...commonProps} />
+            }
+
+            return <WorldMap {...commonProps} />
+        }
+        if (display === ChartDisplayType.CalendarHeatmap) {
+            return <TrendsCalendarHeatMap {...commonProps} />
+        }
+        if (display === ChartDisplayType.BoxPlot) {
+            return <BoxPlotChart {...commonProps} inCardView={embedded} />
+        }
+        if (display === ChartDisplayType.SlopeGraph) {
+            return <TrendsSlopeChart context={context} />
+        }
+        // Line/area/cumulative displays land here, and so does any display value without a trends
+        // renderer (e.g. Auto, reachable via the API) — the default chart beats a blank tile.
+        if (isStickiness) {
+            return <StickinessLineChart context={context} />
+        }
+        return <TrendsLineChart context={context} inSharedMode={inSharedMode} embedded={embedded} />
+    }
+
+    return (
+        <>
+            {series && (
+                <div
+                    className={
+                        embedded
+                            ? `InsightCard__viz InsightCard__viz--${display}`
+                            : `TrendsInsight TrendsInsight--${display}`
+                    }
+                >
+                    <Suspense
+                        fallback={
+                            <WrappingLoadingSkeleton fullWidth>
+                                <span className="block w-full h-72" />
+                            </WrappingLoadingSkeleton>
+                        }
+                    >
+                        {renderViz()}
+                    </Suspense>
+                </div>
+            )}
+            {!embedded &&
+                display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
+                display !== ChartDisplayType.CalendarHeatmap && // the heatmap doesn't need this cta
+                display !== ChartDisplayType.BoxPlot && // box plot doesn't support breakdowns
+                breakdownFilter &&
+                hasBreakdownMore && (
+                    <div className="p-4">
+                        <div className="text-secondary">
+                            Breakdown limited to {breakdownFilter.breakdown_limit || 25} - more available
+                            <LemonButton
+                                onClick={() =>
+                                    updateBreakdownFilter({
+                                        ...breakdownFilter,
+                                        breakdown_limit: (breakdownFilter.breakdown_limit || 25) * 2,
+                                    })
+                                }
+                                loading={breakdownValuesLoading}
+                                size="xsmall"
+                                type="secondary"
+                                className="inline-block ml-2"
+                            >
+                                Set to {(breakdownFilter.breakdown_limit || 25) * 2}
+                            </LemonButton>
+                        </div>
+                    </div>
+                )}
+        </>
+    )
+}

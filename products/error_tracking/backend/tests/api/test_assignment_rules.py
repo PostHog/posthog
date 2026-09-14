@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
-from products.error_tracking.backend.logic import match_all_bytecode
+from products.error_tracking.backend.logic.rules import match_all_bytecode
 from products.error_tracking.backend.models import ErrorTrackingAssignmentRule
 
 VALID_FILTERS = {

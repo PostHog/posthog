@@ -2,12 +2,13 @@ import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
 
+import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature } from '~/types'
 
-import { isSecureURL, verifiedDomainsLogic } from './verifiedDomainsLogic'
+import { getIdentityProviderConfigForDomain, isSecureURL, verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 describe('verifiedDomainsLogic', () => {
     let logic: ReturnType<typeof verifiedDomainsLogic.build>
@@ -17,6 +18,37 @@ describe('verifiedDomainsLogic', () => {
         useAvailableFeatures([AvailableFeature.SSO_ENFORCEMENT, AvailableFeature.SAML])
         useMocks({
             get: {
+                '/api/organizations/:organization/identity_provider_configs/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'config_will_be_deleted',
+                            config_scope: null,
+                            organization_domain_ids: ['id_will_be_deleted'],
+                        },
+                    ],
+                },
+                '/api/organizations/:organization/identity_provider_configs/:id/scim/logs/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'log-id',
+                            request_method: 'GET',
+                            request_path: '/scim/v2/config/Users',
+                            request_headers: {},
+                            request_body: null,
+                            response_status: 200,
+                            response_body: null,
+                            identity_provider: 'okta',
+                            duration_ms: 12,
+                            created_at: '2026-08-01T00:00:00Z',
+                        },
+                    ],
+                },
                 '/api/organizations/:organization/domains': {
                     count: 1,
                     next: null,
@@ -50,9 +82,26 @@ describe('verifiedDomainsLogic', () => {
                     is_verified: false,
                     verified_at: '',
                 },
+                '/api/organizations/:organization/identity_provider_configs/': {
+                    id: '4aa1f0dc-a0ab-490a-9037-14f3358a81bc',
+                    name: 'my.posthog.com',
+                    saml_relay_state: '6969b120-a0ab-490a-9037-14f3358a81bc',
+                    scim_enabled: false,
+                },
+            },
+            patch: {
+                '/api/organizations/:organization/domains/:id/': {
+                    id: '8db3b0c2-a0ab-490a-9037-14f3358a81bc',
+                    domain: 'my.posthog.com',
+                    jit_provisioning_enabled: true,
+                    sso_enforcement: 'google-oauth2',
+                    is_verified: true,
+                    verified_at: '2022-01-01T23:59:59',
+                },
             },
             delete: {
                 '/api/organizations/:organization/domains/:id/': {},
+                '/api/organizations/:organization/identity_provider_configs/:id/': {},
             },
         })
         initKeaTests()
@@ -84,11 +133,90 @@ describe('verifiedDomainsLogic', () => {
         })
     })
 
+    describe('identity provider config resolution', () => {
+        it('selects the config matching the domain', () => {
+            const configs = [
+                {
+                    id: 'other-domain-config',
+                    config_scope: null,
+                    organization_domain_ids: ['other-domain'],
+                    created_at: '2024-01-01',
+                    updated_at: '2024-01-01',
+                    saml_relay_state: 'relay-state',
+                    has_saml: false,
+                    has_scim: true,
+                    scim_base_url: 'https://example.com/scim/v2/other',
+                    scim_bearer_token: null,
+                    has_id_jag: false,
+                },
+                {
+                    id: 'selected-config',
+                    config_scope: ConfigScopeEnumApi.Saml,
+                    organization_domain_ids: ['domain-id'],
+                    created_at: '2024-01-01',
+                    updated_at: '2024-01-01',
+                    saml_relay_state: 'relay-state',
+                    has_saml: true,
+                    has_scim: false,
+                    scim_base_url: 'https://example.com/scim/v2/saml',
+                    scim_bearer_token: null,
+                    has_id_jag: false,
+                },
+                {
+                    id: 'selected-scim-config',
+                    config_scope: ConfigScopeEnumApi.Scim,
+                    organization_domain_ids: ['domain-id'],
+                    created_at: '2024-01-01',
+                    updated_at: '2024-01-01',
+                    saml_relay_state: 'relay-state',
+                    has_saml: false,
+                    has_scim: true,
+                    scim_base_url: 'https://example.com/scim/v2/scim',
+                    scim_bearer_token: null,
+                    has_id_jag: false,
+                },
+            ]
+
+            expect(getIdentityProviderConfigForDomain(configs, 'domain-id', ConfigScopeEnumApi.Saml)?.id).toBe(
+                'selected-config'
+            )
+            expect(getIdentityProviderConfigForDomain(configs, 'domain-id', ConfigScopeEnumApi.Scim)?.id).toBe(
+                'selected-scim-config'
+            )
+            expect(getIdentityProviderConfigForDomain(configs, 'other-domain', ConfigScopeEnumApi.Xaa)?.id).toBe(
+                'other-domain-config'
+            )
+        })
+    })
+
     describe('values', () => {
         it('has proper defaults', async () => {
             await expectLogic(userlogic).toFinishAllListeners()
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values).toMatchSnapshot()
+        })
+
+        it.each(['setConfigureSAMLModalId', 'setConfigureSCIMModalId', 'setConfigureIdJagModalId'] as const)(
+            'creates and links an IdP config when %s opens',
+            async (openModal) => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                logic.actions[openModal]('8db3b0c2-a0ab-490a-9037-14f3358a81bc')
+                await expectLogic(logic).toFinishAllListeners()
+
+                if (openModal === 'setConfigureSAMLModalId') {
+                    expect(logic.values.samlConfig.saml_relay_state).toEqual('6969b120-a0ab-490a-9037-14f3358a81bc')
+                }
+            }
+        )
+
+        it('loads SCIM logs by identity provider config', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setScimConfigLogsModalId('config-id')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.scimLogs?.results[0].request_path).toBe('/scim/v2/config/Users')
         })
 
         it('creates domain correctly', async () => {

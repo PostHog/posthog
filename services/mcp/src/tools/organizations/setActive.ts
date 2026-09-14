@@ -32,7 +32,12 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     const user = (await context.cache.get(`cachedUser:${distinctId}` as const)) as CachedUser | undefined
     const project = (await context.cache.get(`cachedProject:${projectId}` as const)) as CachedProject | undefined
 
-    const metadata = buildActiveEnvironmentContextPrompt(user, org, project, context.api.publicBaseUrl)
+    const integrationKinds = project
+        ? await context.stateManager.getOrFetchIntegrationKinds(String(project.id)).catch(() => undefined)
+        : undefined
+    const metadata = buildActiveEnvironmentContextPrompt(user, org, project, context.api.publicBaseUrl, {
+        integrationKinds,
+    })
     const text = metadata
         ? `Switched to organization ${orgId}.\n\nCurrent context:\n${metadata}`
         : `Switched to organization ${orgId}`

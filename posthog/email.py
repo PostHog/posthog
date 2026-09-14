@@ -65,6 +65,15 @@ def is_smtp_email_service_available() -> bool:
     return bool(get_instance_setting("EMAIL_HOST"))
 
 
+def single_line(value: str) -> str:
+    """Flatten CR/LF to spaces so a user-set value is safe in an email Subject.
+
+    A CR or LF in a Subject makes Django raise BadHeaderError, which the send path swallows, so
+    the whole notification would be dropped.
+    """
+    return value.replace("\r", " ").replace("\n", " ")
+
+
 def is_email_available(with_absolute_urls: bool = False) -> bool:
     """
     Returns whether email services are available on this instance (i.e. settings are in place).
@@ -122,13 +131,13 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "password_reset": "32",
     "invite": "33",
     "member_join": "34",
-    "email_verification": "35",
     "email_change_old_address": "36",
     "email_change_new_address": "37",
     "password_changed": "42",
     "login_notification": "44",
     "personal_api_key_exposed": "45",
     "code_based_verification": "75",
+    "email_verification_code": "79",
     "feature_flags_secure_api_key_exposed": "49",
     "project_secret_api_key_exposed": "76",
     "oauth_token_exposed": "50",

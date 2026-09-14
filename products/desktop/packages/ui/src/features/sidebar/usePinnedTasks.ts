@@ -65,6 +65,62 @@ export function usePinnedTasks() {
     });
   }, []);
 
+  // Shares the mutation scope with togglePin so a bulk write and a single-row
+  // toggle queue behind each other instead of racing on the same cache entry.
+  const setPinnedManyMutation = useMutation({
+    scope: { id: "task-pins" },
+    mutationFn: async ({
+      taskIds,
+      pinned,
+    }: {
+      taskIds: string[];
+      pinned: boolean;
+    }) => {
+      const results = await Promise.allSettled(
+        taskIds.map((taskId) => pinnedTasksApi.setPinned(taskId, pinned)),
+      );
+      return {
+        succeeded: taskIds.filter((_, i) => results[i].status === "fulfilled"),
+        failed: taskIds.filter((_, i) => results[i].status === "rejected"),
+      };
+    },
+    onMutate: async ({ taskIds, pinned }) => {
+      await queryClient.cancelQueries({ queryKey: pinnedQueryKey });
+      queryClient.setQueryData<string[]>(pinnedQueryKey, (old) => {
+        const batch = new Set(taskIds);
+        const rest = old?.filter((id) => !batch.has(id)) ?? [];
+        return pinned ? [...rest, ...taskIds] : rest;
+      });
+    },
+    // No onError rollback: the mutationFn settles every request itself and
+    // never rejects, so partial failure is reconciled here instead — undo the
+    // optimistic write for whichever ids didn't make it.
+    onSuccess: ({ failed }, { pinned }) => {
+      if (failed.length === 0) return;
+      const rolledBack = new Set(failed);
+      queryClient.setQueryData<string[]>(pinnedQueryKey, (old) => {
+        const rest = old?.filter((id) => !rolledBack.has(id)) ?? [];
+        return pinned ? rest : [...rest, ...failed];
+      });
+    },
+  });
+
+  const setPinnedManyMutationRef = useRef(setPinnedManyMutation);
+  setPinnedManyMutationRef.current = setPinnedManyMutation;
+
+  const setPinnedMany = useCallback(
+    async (taskIds: string[], pinned: boolean) => {
+      const nextPinnedSet = new Set(pinnedSetRef.current);
+      for (const taskId of taskIds) {
+        if (pinned) nextPinnedSet.add(taskId);
+        else nextPinnedSet.delete(taskId);
+      }
+      pinnedSetRef.current = nextPinnedSet;
+      return setPinnedManyMutationRef.current.mutateAsync({ taskIds, pinned });
+    },
+    [],
+  );
+
   const unpin = useCallback(
     async (taskId: string) => {
       if (!pinnedSetRef.current.has(taskId)) return;
@@ -85,6 +141,8 @@ export function usePinnedTasks() {
     pinnedTaskIds: pinnedSet,
     isLoading,
     togglePin,
+    setPinnedMany,
+    isSettingPinnedMany: setPinnedManyMutation.isPending,
     unpin,
     isPinned,
   };

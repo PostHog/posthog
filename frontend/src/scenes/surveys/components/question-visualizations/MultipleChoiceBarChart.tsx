@@ -71,7 +71,7 @@ export function MultipleChoiceBarChart({
             barCornerRadius: 3,
             bars: {
                 minBandSize: 32,
-                valueDomain: [0, 100],
+                valueDomain: { min: 0, max: 100 },
             },
             tooltip: { placement: 'cursor' },
         }),

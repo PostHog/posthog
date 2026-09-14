@@ -2,10 +2,12 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class RegionHosts:
     api_base_url: str
     iam_base_url: str

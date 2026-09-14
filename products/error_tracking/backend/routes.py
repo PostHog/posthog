@@ -1,6 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 from products.error_tracking.backend.presentation.views import (
+    ErrorTrackingAlertViewSet,
     ErrorTrackingAssignmentRuleViewSet,
     ErrorTrackingBypassRuleViewSet,
     ErrorTrackingExternalReferenceViewSet,
@@ -11,6 +12,7 @@ from products.error_tracking.backend.presentation.views import (
     ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
     ErrorTrackingSettingsViewSet,
+    ErrorTrackingSeverityRuleViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingSpikeEventViewSet,
     ErrorTrackingStackFrameViewSet,
@@ -34,6 +36,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"error_tracking/assignment_rules",
         ErrorTrackingAssignmentRuleViewSet,
         "project_error_tracking_assignment_rule",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"error_tracking/severity_rules",
+        ErrorTrackingSeverityRuleViewSet,
+        "project_error_tracking_severity_rule",
         ["team_id"],
     )
     routers.projects.register(
@@ -103,5 +111,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"error_tracking/git-provider-file-links",
         GitProviderFileLinksViewSet,
         "project_error_tracking_git_provider_file_links",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"error_tracking/alerts",
+        ErrorTrackingAlertViewSet,
+        "project_error_tracking_alerts",
         ["team_id"],
     )

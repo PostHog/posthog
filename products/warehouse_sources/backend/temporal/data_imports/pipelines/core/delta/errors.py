@@ -1,5 +1,6 @@
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError
 
+import psycopg.errors
 import botocore.exceptions
 import deltalake.exceptions
 
@@ -11,6 +12,8 @@ from posthog.temporal.common.errors import NonReportableError
 #   (IMDS/STS blips, dispatch timeouts)
 # - "Please reduce your request rate" is S3's SlowDown throttling response, surfaced by s3fs/aiobotocore
 #   when a bulk operation (e.g. `_purge_s3_prefix`'s list-then-delete) outruns the bucket's request-rate limit
+# - "We encountered an internal error. Please try again." is S3's fixed message for its InternalError
+#   (500) response, surfaced by s3fs/aiobotocore as an OSError once its own request retries are exhausted
 # A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
 # bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
@@ -18,6 +21,7 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "the credential provider was not enabled",
     "Generic S3 error",
     "Please reduce your request rate",
+    "We encountered an internal error. Please try again.",
 )
 
 
@@ -141,7 +145,15 @@ def is_transient_maintenance_error(error: BaseException) -> bool:
     `is_transient_delta_maintenance_error` above), and app-DB connection blips (DNS, pooler drops) hit
     while resolving `job.folder_path()` on a pooled connection — the same `OperationalError`/`InterfaceError`
     classification used for this failure class in `repartition_table.py`'s `_is_transient_infra_error`.
+
+    Also covers a primary-DB failover briefly routing the watermark's `select_for_update()` onto a
+    connection that has become a read-only standby: Postgres raises `ReadOnlySqlTransaction`
+    (SQLSTATE 25006) for that, which psycopg classifies under `InternalError` rather than
+    `OperationalError`, so it needs its own check — a bare `InternalError` isinstance check would be
+    too broad and swallow real corruption errors (e.g. `DataCorrupted`) that share the same base class.
     """
     if isinstance(error, OperationalError | InterfaceError):
+        return True
+    if isinstance(error, InternalError) and isinstance(error.__cause__, psycopg.errors.ReadOnlySqlTransaction):
         return True
     return is_transient_object_store_error(error) or is_transient_delta_maintenance_error(error)

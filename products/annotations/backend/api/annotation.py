@@ -12,13 +12,27 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    dashboard_id = serializers.IntegerField(required=False, allow_null=True)
-    dashboard_item = TeamScopedPrimaryKeyRelatedField(queryset=Insight.objects.all(), required=False, allow_null=True)
+    # Soft-deleted parents resolve here because the frontend echoes both FKs back on every write. A
+    # project-scoped annotation whose dashboard was deleted would otherwise be impossible to edit or
+    # delete. Only the pointer the annotation already stores may be echoed. Every other deleted
+    # parent answers as if it does not exist. validate() then rejects a write whose own scope points
+    # at a soft-deleted parent.
+    dashboard_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Optional dashboard ID to attach this annotation to. Must belong to the current project.",
+    )
+    dashboard_item = TeamScopedPrimaryKeyRelatedField(
+        queryset=Insight.objects_including_soft_deleted.all(),
+        required=False,
+        allow_null=True,
+        help_text="Optional insight ID to attach this annotation to. Must belong to the current project.",
+    )
 
     class Meta:
         model = Annotation
@@ -61,12 +75,6 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "creation_type": {
                 "help_text": "Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.",
             },
-            "dashboard_id": {
-                "help_text": "Optional dashboard ID to attach this annotation to. Must belong to the current project.",
-            },
-            "dashboard_item": {
-                "help_text": "Optional insight ID to attach this annotation to. Must belong to the current project.",
-            },
             "deleted": {
                 "help_text": "Soft-delete flag. Set to true to hide the annotation, or false to restore it.",
             },
@@ -97,6 +105,13 @@ class AnnotationSerializer(serializers.ModelSerializer):
         # Normalise blank strings to None so the DB has a single canonical "no emoji" state.
         return value or None
 
+    def validate_dashboard_item(self, value: Insight | None) -> Insight | None:
+        # A deleted insight answers exactly as an unknown one does unless the annotation already
+        # points at it, so a guessed ID cannot report back its name.
+        if value is not None and value.deleted and value.pk != getattr(self.instance, "dashboard_item_id", None):
+            self.fields["dashboard_item"].fail("does_not_exist", pk_value=value.pk)
+        return value
+
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]
         return super().update(instance, validated_data)
@@ -104,14 +119,46 @@ class AnnotationSerializer(serializers.ModelSerializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()
 
-        dashboard_id = attrs.get("dashboard_id")
-        if dashboard_id is not None:
-            if not Dashboard.objects.filter(id=dashboard_id, team_id=team.id).exists():
-                raise serializers.ValidationError({"dashboard_id": "Dashboard not found."})
-
         scope = attrs.get("scope", None)
         if scope == Annotation.Scope.RECORDING.value:
             raise serializers.ValidationError("Recording scope is deprecated")
+
+        # Resolve the parents the annotation will have after this write. A key absent from `attrs`
+        # keeps the stored value, while a key present but null clears it, so membership is what
+        # distinguishes the two on a PATCH.
+        dashboard = None
+        if "dashboard_id" in attrs:
+            if attrs["dashboard_id"] is not None:
+                dashboard = Dashboard.objects_including_soft_deleted.filter(
+                    id=attrs["dashboard_id"], team_id=team.id
+                ).first()
+                # A deleted dashboard answers exactly as an unknown one does unless the annotation
+                # already points at it, so a guessed ID cannot report back its name.
+                if dashboard is None or (
+                    dashboard.deleted and dashboard.id != getattr(self.instance, "dashboard_id", None)
+                ):
+                    raise serializers.ValidationError({"dashboard_id": "Dashboard not found."})
+        elif self.instance is not None:
+            dashboard = self.instance.dashboard
+
+        if "dashboard_item" in attrs:
+            insight = attrs["dashboard_item"]
+        else:
+            insight = getattr(self.instance, "dashboard_item", None)
+
+        # AnnotationsViewSet.safely_get_queryset hides an annotation whose own scope points at a
+        # soft-deleted parent, so accepting one here would strand a row that nothing can list, edit
+        # or delete. Project- and organization-scoped rows keep their pointers, which are only used
+        # to show where the annotation was created.
+        effective_scope = scope or getattr(self.instance, "scope", Annotation.Scope.INSIGHT.value)
+        if effective_scope == Annotation.Scope.INSIGHT.value and insight is not None and insight.deleted:
+            raise serializers.ValidationError(
+                {"dashboard_item": "This insight is deleted. Restore it, or pick a different scope."}
+            )
+        if effective_scope == Annotation.Scope.DASHBOARD.value and dashboard is not None and dashboard.deleted:
+            raise serializers.ValidationError(
+                {"dashboard_id": "This dashboard is deleted. Restore it, or pick a different scope."}
+            )
 
         return attrs
 
@@ -138,7 +185,9 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
     """
 
     scope_object = "annotation"
-    queryset = Annotation.objects.select_related("dashboard_item").select_related("created_by")
+    queryset = (
+        Annotation.objects.select_related("dashboard_item").select_related("dashboard").select_related("created_by")
+    )
     serializer_class = AnnotationSerializer
     filter_backends = [filters.SearchFilter]
     pagination_class = AnnotationsLimitOffsetPagination
@@ -151,14 +200,16 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
             # We never want deleted items to be included in the queryset… except when we want to restore an annotation
             # That's because annotations are restored with a PATCH request setting `deleted` to `False`
             queryset = queryset.filter(deleted=False)
-        # Annotations attached to a soft-deleted insight or dashboard are hidden
-        # across all actions — including `partial_update`, so they cannot be
+        # Annotations scoped to a soft-deleted insight or dashboard are hidden
+        # across all actions, including `partial_update`, so they cannot be
         # individually edited or restored while their parent is soft-deleted.
         # They reappear automatically when the parent is restored. Mirrors how
         # alerts behave (see posthog/temporal/alerts/activities.py).
-        queryset = queryset.filter(
-            Q(dashboard_item__isnull=True) | Q(dashboard_item__deleted=False),
-            Q(dashboard__isnull=True) | Q(dashboard__deleted=False),
+        # Gated on scope: every annotation records the insight and dashboard it was
+        # created from, so a project- or organization-scoped one would otherwise
+        # disappear project-wide once that parent is deleted.
+        queryset = queryset.exclude(scope=Annotation.Scope.INSIGHT, dashboard_item__deleted=True).exclude(
+            scope=Annotation.Scope.DASHBOARD, dashboard__deleted=True
         )
 
         scope = self.request.query_params.get("scope")

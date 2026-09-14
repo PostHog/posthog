@@ -58,6 +58,11 @@ urlpatterns = [
         name="agentic_provisioning_resource_detail",
     ),
     path(
+        "api/agentic/provisioning/limits",
+        csrf_exempt(views.LimitsView.as_view()),
+        name="agentic_provisioning_limits",
+    ),
+    path(
         "api/agentic/provisioning/deep_links",
         csrf_exempt(views.DeepLinksView.as_view()),
         name="agentic_provisioning_deep_links",

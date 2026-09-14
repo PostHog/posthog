@@ -16,6 +16,7 @@ from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
 from posthog.models.team.team import Team
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.scopes import scopes_within_ceiling
 from posthog.tasks.email import send_provisioning_welcome
@@ -265,6 +266,12 @@ def handle_new_user(
         region=region,
         team_id=team.id,
     )
+
+    # Attribute the bootstrap team to the creating partner. The row already exists
+    # (the Team extension signal created it inside bootstrap), so this is an update.
+    # Without it the mapping stays unclaimed, and resource removal treats unclaimed as
+    # fair game for any partner whose token happens to scope the team.
+    TeamProvisioningConfig.objects.filter(team_id=team.id, application__isnull=True).update(application=partner)
 
     # Every provisioned account is treated as already onboarded — apply the flags at
     # bootstrap so the account is covered regardless of which follow-up blocks (if any)

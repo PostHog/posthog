@@ -2,7 +2,16 @@ import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } fro
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconClock, IconCopy, IconInfo, IconRefresh, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
+import {
+    IconClock,
+    IconCopy,
+    IconInfo,
+    IconRefresh,
+    IconSend,
+    IconTrash,
+    IconUpload,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -48,7 +57,7 @@ import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
-import { createCohortDataNodeLogicKey } from './cohortUtils'
+import { createCohortDataNodeLogicKey, urlForCohortWorkflow } from './cohortUtils'
 import { PersonSelectList } from './PersonSelectList'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 
@@ -114,6 +123,24 @@ function UsedInBanner({ usedIn }: { usedIn: CohortUsedInResponseApi }): JSX.Elem
                     </div>
                 ))}
             </div>
+        </LemonBanner>
+    )
+}
+
+function UnmatchedImportBanner({ cohort }: { cohort: CohortType }): JSX.Element | null {
+    const unmatched = cohort.last_import_unmatched_count
+    const total = cohort.last_import_total_count
+    if (!unmatched || !total) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="warning">
+            <h4 className="font-semibold mb-1">Some IDs in the last import didn't match a person</h4>
+            <p className="mb-0">
+                {unmatched.toLocaleString()} of {total.toLocaleString()} IDs weren't added to this cohort because they
+                don't match a person in this project. Check that the IDs are correct and come from this project.
+            </p>
         </LemonBanner>
     )
 }
@@ -224,6 +251,18 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                     <ScenePanelDivider />
 
                     <ScenePanelActionsSection>
+                        <ButtonPrimitive
+                            onClick={() => router.actions.push(urlForCohortWorkflow(cohort))}
+                            disabledReasons={{
+                                'Save the cohort first': isNewCohort,
+                            }}
+                            data-attr={`${RESOURCE_TYPE}-message-with-workflow`}
+                            tooltip="Start a workflow that emails everyone in this cohort"
+                            menuItem
+                        >
+                            <IconSend /> Message this cohort
+                        </ButtonPrimitive>
+
                         <SceneAddToNotebookDropdownMenu
                             dataAttrKey={RESOURCE_TYPE}
                             disabledReasons={{
@@ -526,6 +565,11 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                     </div>
                                 </div>
                             </SceneSection>
+                            {!isNewCohort && (
+                                <div aria-live="polite">
+                                    <UnmatchedImportBanner cohort={cohort} />
+                                </div>
+                            )}
                             {!isNewCohort && usedIn && <UsedInBanner usedIn={usedIn} />}
                             {cohort.is_static && staticCohortMode === 'criteria' ? (
                                 <>

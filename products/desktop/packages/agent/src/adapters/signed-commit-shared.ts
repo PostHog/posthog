@@ -9,10 +9,7 @@ import {
   type SignedRewriteInput,
 } from "@posthog/git/signed-commit";
 import { z } from "zod";
-import {
-  reportCommitArtefacts,
-  reportTaskRunBranch,
-} from "../signed-commit-artefacts";
+import { reportSignedCommitActivity } from "../signed-commit-artefacts";
 import { qualifiedLocalToolName } from "./local-tools/registry";
 
 /**
@@ -72,14 +69,21 @@ export const SIGNED_REWRITE_TOOL_DESCRIPTION =
   "of `git push --force`. First rebase locally with normal `git` (resolving conflicts and " +
   "finishing with `git rebase --continue`, NOT `git commit`); then call this to republish the " +
   "branch's commits as Verified and atomically move the remote branch onto them. Use this to " +
-  "update an existing PR after a rebase or conflict fix. Rewrites the current branch by default. " +
+  "update an existing PR after a rebase or conflict fix. The commits always come from your " +
+  "local HEAD, so check out the branch you are rewriting first: `branch` only picks which " +
+  "remote ref moves, and calling this from another checkout publishes that checkout's history " +
+  "to `branch`. Defaults to the current branch. " +
   "Histories containing merge commits are refused — rebase (which flattens merges) first.";
 
 export const signedRewriteToolSchema = {
   branch: z
     .string()
     .optional()
-    .describe("Branch to rewrite; defaults to the current branch."),
+    .describe(
+      "Remote branch to move; defaults to the current branch. This picks the ref to update, " +
+        "NOT the history to publish — the commits come from your local HEAD either way, so " +
+        "check the branch out before rewriting it.",
+    ),
   onto: z
     .string()
     .optional()
@@ -180,29 +184,12 @@ export function runSignedCommitTool(
     SIGNED_COMMIT_TOOL_NAME,
     async (c, a: SignedCommitInput) => {
       const result = await createSignedCommit(c, a);
-      // TaskRun.branch is the branch that provisioning checks out in the task's
-      // repository on resume. A task can also commit to sibling repositories by
-      // passing `cwd`; persisting one of those branches here makes the next run
-      // try to clone the task repository at a branch that only exists elsewhere.
-      await reportTaskRunBranch({
+      await reportSignedCommitActivity({
         taskId: ctx.taskId,
         taskRunId: ctx.taskRunId,
-        repository: result.repository,
-        branch: result.branch,
-        // Only the task repository branch controls the next checkout. The
-        // reported head branch still lets PR webhooks bind commits made from a
-        // workspace root or a sibling repository to this run.
-        updateCheckoutBranch: ctx.cwd === ctx.taskRepositoryCwd,
-      });
-      // The "commit hook": every pushed commit becomes a `commit` artefact on the signal
-      // reports this task is associated with. Best-effort and awaited inside the tool's
-      // try/catch-free success path — reportCommitArtefacts never throws, so a failed
-      // artefact post can't fail a commit that already landed. git_signed_rewrite is
-      // intentionally not hooked (it republishes existing history).
-      await reportCommitArtefacts({
-        taskId: c.taskId,
         result,
         message: a.message,
+        updateCheckoutBranch: ctx.cwd === ctx.taskRepositoryCwd,
       });
       return result;
     },

@@ -1,6 +1,7 @@
 import "reflect-metadata";
 
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
+import { join } from "node:path";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
 import {
@@ -20,6 +21,7 @@ import {
 import { canvasCoreModule } from "@posthog/core/canvas/canvas.module";
 import { cloudTaskModule } from "@posthog/core/cloud-task/cloud-task.module";
 import {
+  CLAUDE_SUBSCRIPTION_TOKEN_STORE,
   CLOUD_TASK_AUTH,
   CLOUD_TASK_SERVICE,
   MCP_RELAY_EXECUTOR,
@@ -29,6 +31,7 @@ import {
   CONTEXT_MENU_CONTROLLER,
   CONTEXT_MENU_EXTERNAL_APPS_SERVICE,
 } from "@posthog/core/context-menu/identifiers";
+import { CUSTOM_CLOUD_STORE } from "@posthog/core/custom-cloud/identifiers";
 import { FocusHostService } from "@posthog/core/focus/focus-service";
 import { FocusServiceEvent } from "@posthog/core/focus/identifiers";
 import { gitHostModule } from "@posthog/core/git/git-host.module";
@@ -43,14 +46,10 @@ import {
 } from "@posthog/core/git/identifiers";
 import { gitPrModule } from "@posthog/core/git-pr/git-pr.module";
 import { GIT_DIFF_SOURCE } from "@posthog/core/git-pr/identifiers";
-import { handoffModule } from "@posthog/core/handoff/handoff.module";
-import { HANDOFF_HOST } from "@posthog/core/handoff/identifiers";
 import { integrationsModule } from "@posthog/core/integrations/integrations.module";
-import { ApprovalLinkService } from "@posthog/core/links/approval-link";
 import { CanvasLinkService } from "@posthog/core/links/canvas-link";
 import { ChannelLinkService } from "@posthog/core/links/channel-link";
 import {
-  APPROVAL_LINK_SERVICE,
   CANVAS_LINK_SERVICE,
   CHANNEL_LINK_SERVICE,
   INBOX_LINK_SERVICE,
@@ -96,6 +95,7 @@ import { USAGE_HOST } from "@posthog/core/usage/identifiers";
 import { usageMonitorModule } from "@posthog/core/usage/usage-monitor.module";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import { listFilesContainingText } from "@posthog/git/queries";
+import { CONNECTIVITY_CLIENT } from "@posthog/host-router/ports/connectivity-client";
 import {
   GIT_PR_STATUS_PROVIDER,
   type IGitPrStatus,
@@ -111,6 +111,7 @@ import { CRYPTO_SERVICE } from "@posthog/platform/crypto";
 import { DEEP_LINK_SERVICE } from "@posthog/platform/deep-link";
 import { DEV_HOST_ACTIONS_SERVICE } from "@posthog/platform/dev-host-actions";
 import { DIALOG_SERVICE } from "@posthog/platform/dialog";
+import { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
 import { FILE_ICON_SERVICE } from "@posthog/platform/file-icon";
 import { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
@@ -121,6 +122,11 @@ import { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import { UPDATER_SERVICE } from "@posthog/platform/updater";
 import { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
+import {
+  QUICK_ASK_FETCH,
+  QUICK_ASK_RUN_DEFAULTS,
+} from "@posthog/quick-ask/service/quick-ask";
+import { quickAskCoreModule } from "@posthog/quick-ask/service/quick-ask.module";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import { databaseModule } from "@posthog/workspace-server/db/db.module";
 import {
@@ -135,7 +141,10 @@ import {
   WORKTREE_REPOSITORY,
 } from "@posthog/workspace-server/db/identifiers";
 import { repositoriesModule } from "@posthog/workspace-server/db/repositories.module";
-import { GIT_SERVICE as WS_GIT_SERVICE } from "@posthog/workspace-server/di/tokens";
+import {
+  CONNECTIVITY_SERVICE as WS_CONNECTIVITY_SERVICE,
+  GIT_SERVICE as WS_GIT_SERVICE,
+} from "@posthog/workspace-server/di/tokens";
 import { additionalDirectoriesModule } from "@posthog/workspace-server/services/additional-directories/additional-directories.module";
 import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
 import { agentModule } from "@posthog/workspace-server/services/agent/agent.module";
@@ -157,6 +166,7 @@ import { authProxyModule } from "@posthog/workspace-server/services/auth-proxy/a
 import { AUTH_PROXY_AUTH } from "@posthog/workspace-server/services/auth-proxy/identifiers";
 import { browserTabsModule } from "@posthog/workspace-server/services/browser-tabs/browser-tabs.module";
 import { claudeCliSessionsModule } from "@posthog/workspace-server/services/claude-cli-sessions/claude-cli-sessions.module";
+import { ConnectivityService } from "@posthog/workspace-server/services/connectivity/service";
 import { enrichmentModule } from "@posthog/workspace-server/services/enrichment/enrichment.module";
 import {
   ENRICHMENT_AUTH,
@@ -171,12 +181,6 @@ import type { ExternalAppsPreferences } from "@posthog/workspace-server/services
 import { foldersModule } from "@posthog/workspace-server/services/folders/folders.module";
 import { GitService } from "@posthog/workspace-server/services/git/service";
 import { TaskPrStatusService } from "@posthog/workspace-server/services/git/task-pr-status";
-import {
-  HANDOFF_GIT_GATEWAY,
-  HANDOFF_LOG_GATEWAY,
-} from "@posthog/workspace-server/services/handoff/identifiers";
-import type { HandoffGitGateway } from "@posthog/workspace-server/services/handoff/ports";
-import { HandoffHostService } from "@posthog/workspace-server/services/handoff/service";
 import { LOGS_SERVICE } from "@posthog/workspace-server/services/local-logs/identifiers";
 import { localMcpModule } from "@posthog/workspace-server/services/local-mcp/local-mcp.module";
 import { mcpCallbackModule } from "@posthog/workspace-server/services/mcp-callback/mcp-callback.module";
@@ -186,7 +190,6 @@ import { MCP_RELAY_SERVICE } from "@posthog/workspace-server/services/mcp-relay/
 import { mcpRelayModule } from "@posthog/workspace-server/services/mcp-relay/mcp-relay.module";
 import { OAUTH_CALLBACK_SERVER } from "@posthog/workspace-server/services/oauth-callback/identifiers";
 import { oauthCallbackModule } from "@posthog/workspace-server/services/oauth-callback/oauth-callback.module";
-import { onboardingImportModule } from "@posthog/workspace-server/services/onboarding-import/onboarding-import.module";
 import { osModule } from "@posthog/workspace-server/services/os/os.module";
 import {
   PI_RPC_CLIENT_FACTORY,
@@ -238,15 +241,18 @@ import { ElectronAppLifecycle } from "../platform-adapters/electron-app-lifecycl
 import { ElectronAppMeta } from "../platform-adapters/electron-app-meta";
 import { ElectronAppMetrics } from "../platform-adapters/electron-app-metrics";
 import { ElectronBundledResources } from "../platform-adapters/electron-bundled-resources";
+import { ElectronClaudeSubscriptionTokenStore } from "../platform-adapters/electron-claude-subscription-token-store";
 import { ElectronClipboard } from "../platform-adapters/electron-clipboard";
 import { ElectronContextMenu } from "../platform-adapters/electron-context-menu";
 import { ElectronCrypto } from "../platform-adapters/electron-crypto";
+import { ElectronCustomCloudStore } from "../platform-adapters/electron-custom-cloud-store";
 import { ElectronDevHostActions } from "../platform-adapters/electron-dev-host-actions";
 import { ElectronDialog } from "../platform-adapters/electron-dialog";
 import { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import { ElectronMainWindow } from "../platform-adapters/electron-main-window";
 import { MissionControlService } from "../platform-adapters/electron-mission-control";
+import { electronNetFetch } from "../platform-adapters/electron-net-fetch";
 import { ElectronNotifier } from "../platform-adapters/electron-notifier";
 import { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
 import { ElectronSecureStorage } from "../platform-adapters/electron-secure-storage";
@@ -260,7 +266,6 @@ import { AppLifecycleService } from "../services/app-lifecycle/service";
 import {
   AuthPreferencePortAdapter,
   AuthSessionPortAdapter,
-  ConnectivityPortAdapter,
   OAuthFlowPortAdapter,
   TokenCipherPortAdapter,
 } from "../services/auth/port-adapters";
@@ -271,6 +276,7 @@ import { DevLogsService } from "../services/dev-logs/service";
 import { DevMetricsService } from "../services/dev-metrics/service";
 import { DevNetworkService } from "../services/dev-network/service";
 import { DiscordPresenceService } from "../services/discord-presence/service";
+import { DiskCache } from "../services/disk-cache/service";
 import { EncryptionService } from "../services/encryption/service";
 import { SecureStoreService } from "../services/secure-store/service";
 import { settingsStore } from "../services/settingsStore";
@@ -278,11 +284,10 @@ import { ElevenLabsSpeechService } from "../services/speech/service";
 import { WorkspaceServerService } from "../services/workspace-server/service";
 import { getUserDataDir, isDevBuild } from "../utils/env";
 import { logger } from "../utils/logger";
-import { rendererStore } from "../utils/store";
+import { quickAskStore, rendererStore } from "../utils/store";
 import type { MainBindings } from "./bindings";
 import {
   APP_LIFECYCLE_SERVICE as MAIN_APP_LIFECYCLE_SERVICE,
-  APPROVAL_LINK_SERVICE as MAIN_APPROVAL_LINK_SERVICE,
   ARCHIVE_REPOSITORY as MAIN_ARCHIVE_REPOSITORY,
   AUTH_PREFERENCE_REPOSITORY as MAIN_AUTH_PREFERENCE_REPOSITORY,
   AUTH_SERVICE as MAIN_AUTH_SERVICE,
@@ -365,6 +370,9 @@ container.bind(CONTEXT_MENU_SERVICE).to(ElectronContextMenu);
 container.bind(BUNDLED_RESOURCES_SERVICE).to(ElectronBundledResources);
 container.bind(IMAGE_PROCESSOR_SERVICE).to(ElectronImageProcessor);
 container.bind(WORKSPACE_SETTINGS_SERVICE).to(ElectronWorkspaceSettings);
+container
+  .bind(CUSTOM_CLOUD_STORE)
+  .toConstantValue(new ElectronCustomCloudStore());
 container.bind(APP_METRICS_SERVICE).to(ElectronAppMetrics);
 container.bind(DEV_HOST_ACTIONS_SERVICE).to(ElectronDevHostActions);
 
@@ -401,7 +409,12 @@ container.bind(AUTH_SESSION_STORE).to(AuthSessionPortAdapter);
 container.bind(AUTH_PREFERENCE_STORE).to(AuthPreferencePortAdapter);
 container.bind(AUTH_OAUTH_FLOW_SERVICE).to(OAuthFlowPortAdapter);
 container.bind(AUTH_TOKEN_CIPHER).to(TokenCipherPortAdapter);
-container.bind(AUTH_CONNECTIVITY).to(ConnectivityPortAdapter);
+container
+  .bind(WS_CONNECTIVITY_SERVICE)
+  .to(ConnectivityService)
+  .inSingletonScope();
+container.bind(AUTH_CONNECTIVITY).toService(WS_CONNECTIVITY_SERVICE);
+container.bind(CONNECTIVITY_CLIENT).toService(WS_CONNECTIVITY_SERVICE);
 container
   .bind(AUTH_TOKEN_OVERRIDE)
   .toConstantValue(process.env.VITE_POSTHOG_ACCESS_TOKEN_OVERRIDE ?? null);
@@ -463,11 +476,19 @@ container.bind(CLOUD_TASK_AUTH).toDynamicValue((ctx) => ({
     ctx
       .get<AuthService>(MAIN_AUTH_SERVICE)
       .authenticatedFetch(fetch, url, init),
-  getCloudContext: async () => {
+  getCloudContext: async (options?: { includeAccount?: boolean }) => {
     const auth = ctx.get<AuthService>(MAIN_AUTH_SERVICE);
     const { apiHost } = await auth.getValidAccessToken();
     const teamId = auth.getState().currentProjectId;
-    return teamId === null ? null : { apiHost, teamId };
+    return teamId === null
+      ? null
+      : {
+          apiHost,
+          teamId,
+          ...(options?.includeAccount && {
+            accountKey: await auth.getAccountKey(),
+          }),
+        };
   },
 }));
 container.bind(MAIN_CLOUD_TASK_SERVICE).toService(CLOUD_TASK_SERVICE);
@@ -597,44 +618,6 @@ container
   .bind<IGitPrStatus>(GIT_PR_STATUS_PROVIDER)
   .to(TaskPrStatusService)
   .inSingletonScope();
-container.load(handoffModule);
-container.bind(HANDOFF_HOST).to(HandoffHostService).inSingletonScope();
-container.bind(HANDOFF_GIT_GATEWAY).toDynamicValue((ctx): HandoffGitGateway => {
-  const workspace = ctx.get<WorkspaceClient>(MAIN_WORKSPACE_CLIENT);
-  return {
-    async getChangedFiles(repoPath) {
-      const files = await workspace.git.getChangedFilesHead.query({
-        directoryPath: repoPath,
-      });
-      return files.map((f) => ({
-        path: f.path,
-        status: f.status,
-        linesAdded: f.linesAdded,
-        linesRemoved: f.linesRemoved,
-      }));
-    },
-    getLocalGitState: (repoPath) =>
-      workspace.git.readHandoffLocalGitState.query({
-        directoryPath: repoPath,
-      }),
-    cleanupAfterCloudHandoff: (repoPath, branchName) =>
-      workspace.git.cleanupAfterCloudHandoff.mutate({
-        directoryPath: repoPath,
-        branchName,
-      }),
-  };
-});
-container.bind(HANDOFF_LOG_GATEWAY).toDynamicValue((ctx) => {
-  const ws = ctx.get<WorkspaceClient>(MAIN_WORKSPACE_CLIENT);
-  return {
-    seedLocalLogs: (taskRunId: string, content: string) =>
-      ws.localLogs.seed.mutate({ taskRunId, content }),
-    countLocalLogEntries: (taskRunId: string) =>
-      ws.localLogs.count.query({ taskRunId }),
-    deleteLocalLogCache: (taskRunId: string) =>
-      ws.localLogs.delete.mutate({ taskRunId }),
-  };
-});
 container.load(mcpCallbackModule);
 container.bind(NOTIFICATION_SERVICE).to(NotificationService);
 container.load(oauthCallbackModule);
@@ -659,15 +642,24 @@ container.bind(MAIN_POSTHOG_PLUGIN_SERVICE).toService(POSTHOG_PLUGIN_SERVICE);
 container.load(skillsModule);
 container.load(skillsMarketplaceModule);
 container.load(releaseFeedModule);
-container.load(onboardingImportModule);
 container.load(localMcpModule);
 container.load(mcpRelayModule);
 // Core's cloud-task service executes MCP relay requests through this seam;
 // the workspace relay service satisfies the core executor interface
-// structurally (docs/cloud-mcp-relay.md).
+// structurally (docs/CLOUD-MCP-RELAY.md).
 container
   .bind(MCP_RELAY_EXECUTOR)
   .toDynamicValue((ctx) => ctx.get(MCP_RELAY_SERVICE))
+  .inSingletonScope();
+container
+  .bind(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
+  .toDynamicValue(
+    (ctx) =>
+      new ElectronClaudeSubscriptionTokenStore(
+        join(getUserDataDir(), "claude-subscriptions"),
+        () => ctx.get<AuthService>(MAIN_AUTH_SERVICE).getAccountKey(),
+      ),
+  )
   .inSingletonScope();
 container.load(claudeCliSessionsModule);
 container.load(additionalDirectoriesModule);
@@ -706,8 +698,6 @@ container.bind(MAIN_SCOUT_LINK_SERVICE).to(ScoutLinkService);
 container.bind(SCOUT_LINK_SERVICE).toService(MAIN_SCOUT_LINK_SERVICE);
 container.bind(MAIN_NEW_TASK_LINK_SERVICE).to(NewTaskLinkService);
 container.bind(NEW_TASK_LINK_SERVICE).toService(MAIN_NEW_TASK_LINK_SERVICE);
-container.bind(MAIN_APPROVAL_LINK_SERVICE).to(ApprovalLinkService);
-container.bind(APPROVAL_LINK_SERVICE).toService(MAIN_APPROVAL_LINK_SERVICE);
 container.bind(MAIN_OPEN_TARGET_LINK_SERVICE).to(OpenTargetLinkService);
 container
   .bind(OPEN_TARGET_LINK_SERVICE)
@@ -751,10 +741,9 @@ container
     };
   });
 container.bind(WORKSPACE_FOCUS).toDynamicValue((ctx): WorkspaceFocus => {
-  const focus = ctx.get(FocusHostService);
   return {
     onBranchRenamed: (handler) =>
-      focus.on(FocusServiceEvent.BranchRenamed, handler),
+      ctx.get(FocusHostService).on(FocusServiceEvent.BranchRenamed, handler),
   };
 });
 container
@@ -781,6 +770,21 @@ container
   .to(SecureStoreService)
   .inSingletonScope();
 container.bind(SECURE_STORE_SERVICE).toService(MAIN_SECURE_STORE_SERVICE);
+container
+  .bind(DISK_CACHE_SERVICE)
+  .toDynamicValue(
+    (ctx) =>
+      new DiskCache({
+        // Not "cache": userData already holds Chromium's "Cache" directory, and
+        // case-insensitive file systems (default macOS, Windows) treat the two
+        // as one path, so clear() would delete the live browser cache.
+        rootDir: join(
+          ctx.get<ElectronStoragePaths>(STORAGE_PATHS_SERVICE).appDataPath,
+          "disk-cache",
+        ),
+      }),
+  )
+  .inSingletonScope();
 container
   .bind(SPEECH_SYNTHESIZER_SERVICE)
   .to(ElevenLabsSpeechService)
@@ -816,6 +820,23 @@ container.bind(MAIN_MISSION_CONTROL_SERVICE).to(MissionControlService);
 // live in @posthog/core (bound via canvasCoreModule) and resolve through
 // ctx.container in the host-router routers.
 container.load(canvasCoreModule);
+container.load(quickAskCoreModule);
+// Chromium's network stack, not Node's undici: it honors system proxies and
+// VPN routing, which undici intermittently fails against ("fetch failed").
+container.bind(QUICK_ASK_FETCH).toConstantValue(electronNetFetch);
+container.bind(QUICK_ASK_RUN_DEFAULTS).toConstantValue(() => {
+  const repositories = quickAskStore.get("defaultRepositories");
+  const integrationId = quickAskStore.get("defaultGithubIntegrationId");
+  return {
+    channelId: quickAskStore.get("defaultChannelId") || null,
+    repositories,
+    githubIntegrationId:
+      repositories.length > 0 && integrationId ? integrationId : null,
+    adapter: quickAskStore.get("defaultAdapter") || null,
+    model: quickAskStore.get("defaultModel") || null,
+    reasoningEffort: quickAskStore.get("defaultEffort") || null,
+  };
+});
 
 // Browser tabs for the Channels canvas surface. Authoritative sqlite-backed
 // service in the main process; resolved by the host-router browserTabs router.

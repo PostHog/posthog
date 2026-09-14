@@ -27,6 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.set
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     SHOULD_SYNC_DEFAULT,
+    TWILIO_API_HOST,
+    TWILIO_VERIFY_HOST,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio import (
     TwilioAuth,
@@ -137,13 +139,26 @@ Create the key in the same Twilio account as the Account SID above, in Twilio's 
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {
+        # Each pattern is scoped to a Twilio host so an unrelated 401 elsewhere in the same job can't
+        # false-match. The catalog spans two hosts, so both need covering.
+        unauthorized = (
             # Twilio returns 401 both for a bad secret and for a valid credential that isn't allowed to
             # read the resource (error 20003), and the two are indistinguishable from the status alone,
             # so this message has to cover both rather than asserting the credentials are invalid.
-            "401 Client Error: Unauthorized for url: https://api.twilio.com": "Twilio rejected these credentials for this table. Either the Account SID and secret are wrong, or the credential can't read this resource. A Restricted API key needs read access granted for it, and the keys table needs your Auth token or a Main API key. Fix the credential, then reconnect the source.",
-            "403 Client Error: Forbidden for url: https://api.twilio.com": "Your Twilio credentials lack permission for this resource. Please check the credential's permissions and try again.",
-        }
+            "Twilio rejected these credentials for this table. Either the Account SID and secret are wrong, "
+            "or the credential can't read this resource. A Restricted API key needs read access granted for "
+            "it, and the keys table needs your Auth token or a Main API key. Fix the credential, then "
+            "reconnect the source."
+        )
+        forbidden = (
+            "Your Twilio credentials lack permission for this resource. Please check the credential's "
+            "permissions and try again."
+        )
+        errors: dict[str, str | None] = {}
+        for host in (TWILIO_API_HOST, TWILIO_VERIFY_HOST):
+            errors[f"401 Client Error: Unauthorized for url: {host}"] = unauthorized
+            errors[f"403 Client Error: Forbidden for url: {host}"] = forbidden
+        return errors
 
     def _get_auth(self, config: TwilioSourceConfig) -> TwilioAuth:
         if config.auth_method.selection == "auth_token":

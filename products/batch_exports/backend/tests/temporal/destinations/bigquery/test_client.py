@@ -108,6 +108,63 @@ async def test_create_table(fields, time_partitioning, bigquery_client, bigquery
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
 @pytest.mark.asyncio
+async def test_merge_tables_with_multiple_stage_tables(bigquery_client, bigquery_dataset):
+    fields = (
+        BigQueryField("id", BigQueryType("INT64", False), False),
+        BigQueryField("version", BigQueryType("INT64", False), False),
+        BigQueryField("value", BigQueryType("STRING", False), True),
+    )
+    suffix = "".join(random.choices(string.ascii_letters, k=10))
+    parents = (bigquery_client.project, bigquery_dataset.dataset_id)
+    final_table = BigQueryTable(
+        f"test_merge_final_{suffix}", fields, parents, primary_key=("id",), version_key=("version",)
+    )
+    stage_tables = [
+        BigQueryTable(
+            f"test_merge_stage_{index}_{suffix}", fields, parents, primary_key=("id",), version_key=("version",)
+        )
+        for index in range(2)
+    ]
+
+    client = BigQueryClient(bigquery_client)
+    for table in (final_table, *stage_tables):
+        await client.create_table(table)
+
+    try:
+        # Key 1 exists in final and in both stage tables: the highest version across all
+        # stage tables must win. Key 4 is newer in final than in stage: it must not be
+        # overwritten.
+        await client.execute_query(
+            f"INSERT INTO `{final_table.fully_qualified_name}` (id, version, value)"
+            " VALUES (1, 1, 'final-v1'), (4, 5, 'final-v5')"
+        )
+        await client.execute_query(
+            f"INSERT INTO `{stage_tables[0].fully_qualified_name}` (id, version, value)"
+            " VALUES (1, 2, 'stage0-v2'), (2, 1, 'stage0-only'), (4, 1, 'stage0-v1')"
+        )
+        await client.execute_query(
+            f"INSERT INTO `{stage_tables[1].fully_qualified_name}` (id, version, value)"
+            " VALUES (1, 3, 'stage1-v3'), (3, 1, 'stage1-only')"
+        )
+
+        await client.merge_tables(final=final_table, stage=stage_tables)
+
+        result = await client.execute_query(f"SELECT id, version, value FROM `{final_table.fully_qualified_name}`")
+        rows = {row["id"]: (row["version"], row["value"]) for row in result}
+
+        assert rows == {
+            1: (3, "stage1-v3"),
+            2: (1, "stage0-only"),
+            3: (1, "stage1-only"),
+            4: (5, "final-v5"),
+        }
+    finally:
+        for table in (final_table, *stage_tables):
+            await client.delete_table(table)
+
+
+@SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
+@pytest.mark.asyncio
 @pytest.mark.parametrize("integration", ["impersonated", "key_file"], indirect=True)
 async def test_from_service_account_integration(
     integration,

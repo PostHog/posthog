@@ -15,6 +15,7 @@ import {
   parseSandboxEnv,
   reportCommitArtefacts,
   reportTaskRunBranch,
+  reportTaskRunCommits,
   resolveSandboxPosthogApi,
 } from "./signed-commit-artefacts";
 
@@ -435,5 +436,88 @@ describe("reportTaskRunBranch", () => {
         },
       }),
     });
+  });
+});
+
+describe("reportTaskRunCommits", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("stores the successful push on the task run", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await reportTaskRunCommits({
+      taskId: "task-1",
+      taskRunId: "run-1",
+      result: RESULT,
+      message: "feat(desktop): show commits",
+      env: ENV,
+      envFilePath: NO_ENV_FILE,
+      oauthEnvFilePath: TEST_OAUTH_ENV_FILE,
+    });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe(
+      "https://us.posthog.com/api/projects/7/tasks/task-1/runs/run-1/",
+    );
+    expect(init).toMatchObject({
+      method: "PATCH",
+      body: JSON.stringify({
+        output: {
+          commit_push: {
+            branch: "posthog-code/fix-foo",
+            repository: "posthog/posthog",
+            commits: RESULT.commits.map((commit) => ({
+              ...commit,
+              subject: "feat(desktop): show commits",
+            })),
+          },
+        },
+      }),
+    });
+  });
+
+  it("abandons a stalled report and cancels its request", async () => {
+    vi.useFakeTimers();
+    try {
+      // A connection that never answers: the commit already landed, so the
+      // report must give up on its own rather than wedge the tool call.
+      fetchMock.mockImplementation(() => new Promise(() => {}));
+      const pending = reportTaskRunCommits({
+        taskId: "task-1",
+        taskRunId: "run-1",
+        result: RESULT,
+        message: "feat(desktop): show commits",
+        env: ENV,
+        envFilePath: NO_ENV_FILE,
+        oauthEnvFilePath: TEST_OAUTH_ENV_FILE,
+      });
+      await vi.advanceTimersByTimeAsync(20_000);
+      await expect(pending).resolves.toBeUndefined();
+
+      // The deadline must also abort the request so it releases its socket
+      // rather than dangling after the reporter gives up.
+      const [, init] = fetchMock.mock.calls[0];
+      const signal = (init as RequestInit).signal;
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(signal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

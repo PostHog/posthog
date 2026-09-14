@@ -1,4 +1,5 @@
 import type {
+  McpAgentGrantScope,
   McpApprovalState,
   McpAuditDecision,
   McpGatewayScopeType,
@@ -280,6 +281,27 @@ export const AUDIT_DECISION_LABELS: Record<McpAuditDecision, string> = {
   pending: "Awaiting approval",
   blocked: "Blocked",
 };
+
+/** Audit-row attribution: whose connection an agent call used. */
+export function credentialOwnerLabel(
+  ownerName: string,
+  grantScope: McpAgentGrantScope | "",
+): string {
+  return grantScope === "team"
+    ? `via ${ownerName}'s connection (team share)`
+    : `via ${ownerName}'s connection`;
+}
+
+/** Toast confirming a share of the caller's connection and how far it reaches. */
+export function agentShareMessage(
+  serverName: string,
+  agentName: string,
+  scope: McpAgentGrantScope,
+): string {
+  return scope === "team"
+    ? `${serverName} shared with ${agentName}. Every ${agentName} run in this project can use your connection.`
+    : `${serverName} shared with ${agentName}. Only your own ${agentName} runs use your connection.`;
+}
 
 // Mirrors the backend's destructive-tool heuristic; only used to seed the
 // per-tool defaults when sharing a server with an agent.

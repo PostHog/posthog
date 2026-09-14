@@ -1,12 +1,12 @@
 name: Backend CI shadow drift check
 
-# Fails when .github/workflows/ci-backend.yml changes without a matching update
-# to .depot/workflows/ci-backend.yml. The depot file is a hand-maintained shadow
-# of canonical (see header comment in the depot file for the intentional deltas);
-# without this check, canonical drifts silently and the depot timing trial stops
+# Fails when the canonical backend workflow or a mirrored local action changes
+# without a matching update to the Depot shadow. The workflow is hand-maintained
+# (see its header comment for intentional deltas), while the actions are vendored;
+# without this check, canonical drifts silently and the Depot timing trial stops
 # measuring the same work.
 #
-# Cheap to run — only triggers when one of the two files changes, so it costs ~nothing.
+# Cheap to run — only triggers when one of the mirrored paths changes, so it costs ~nothing.
 # Always enforced (no variable gate): keeping the depot mirror in sync with canonical is
 # a structural invariant worth holding whether or not the shadow is currently sampling —
 # you want them already in sync the moment the shadow is switched on. The sampling rate
@@ -18,6 +18,20 @@ on:
         paths:
             - .github/workflows/ci-backend.yml
             - .depot/workflows/ci-backend.yml
+            - .github/actions/paths-filter/**
+            - .depot/actions/paths-filter/**
+            - .github/actions/pnpm-install/**
+            - .depot/actions/pnpm-install/**
+            - .github/actions/setup-pnpm/**
+            - .depot/actions/setup-pnpm/**
+            - .github/actions/setup-python-cached/**
+            - .depot/actions/setup-python-cached/**
+            - .github/actions/setup-sqlx-cli/**
+            - .depot/actions/setup-sqlx-cli/**
+            - .github/actions/setup-turbo/**
+            - .depot/actions/setup-turbo/**
+            - .github/actions/setup-uv/**
+            - .depot/actions/setup-uv/**
 
 permissions:
     contents: read
@@ -28,7 +42,7 @@ concurrency:
 
 jobs:
     check:
-        name: Both ci-backend files updated together
+        name: Backend CI shadows remain synchronized
         runs-on: ubuntu-latest
         # 5 min absorbs cold-runner startup + the explicit depth=100 fetch of BASE_SHA below.
         # `actions/checkout` defaults to depth=1 (HEAD only); a full-history clone is unnecessary
@@ -45,18 +59,40 @@ jobs:
                   # is the merge commit — diffing BASE_SHA..HEAD gives the PR's effective
                   # changes. We only need to fetch BASE_SHA (HEAD is already local).
                   git fetch --no-tags --depth=100 origin "$BASE_SHA"
+                  # Every local action the depot workflow uses has a mirror under .depot/actions.
+                  # The first group is kept byte-identical to canonical; the second carries
+                  # intentional deltas documented in each mirror's header.
+                  equal_mirrors="paths-filter setup-python-cached setup-sqlx-cli setup-turbo setup-uv"
+                  delta_mirrors="pnpm-install setup-pnpm"
                   changed=$(git diff --name-only "$BASE_SHA" HEAD -- \
                       .github/workflows/ci-backend.yml \
-                      .depot/workflows/ci-backend.yml)
-                  if echo "$changed" | grep -q '^.github/workflows/ci-backend.yml$' && \
-                     ! echo "$changed" | grep -q '^.depot/workflows/ci-backend.yml$'; then
+                      .depot/workflows/ci-backend.yml \
+                      .github/actions .depot/actions)
+                  if echo "$changed" | grep -Fxq '.github/workflows/ci-backend.yml' && \
+                     ! echo "$changed" | grep -Fxq '.depot/workflows/ci-backend.yml'; then
                       echo "::error::Canonical .github/workflows/ci-backend.yml changed without a matching update to .depot/workflows/ci-backend.yml."
                       echo "The depot shadow must stay apples-to-apples with canonical. Mirror the change into the depot file"
                       echo "(or, if the change is one of the intentional deltas listed in the depot file header, document why it is depot-exempt)."
                       exit 1
                   fi
-                  if echo "$changed" | grep -q '^.depot/workflows/ci-backend.yml$' && \
-                     ! echo "$changed" | grep -q '^.github/workflows/ci-backend.yml$'; then
+                  if echo "$changed" | grep -Fxq '.depot/workflows/ci-backend.yml' && \
+                     ! echo "$changed" | grep -Fxq '.github/workflows/ci-backend.yml'; then
                       echo "::notice::Only the depot shadow changed. That is allowed (e.g. tuning a depot-only knob), but worth a glance from the reviewer."
                   fi
+                  for action in $equal_mirrors $delta_mirrors; do
+                      for canonical_file in $(echo "$changed" | grep "^\.github/actions/$action/" || true); do
+                          mirror_file=".depot/actions/$action/${canonical_file#".github/actions/$action/"}"
+                          if ! echo "$changed" | grep -Fxq "$mirror_file"; then
+                              echo "::error::Canonical $canonical_file changed without a matching update to $mirror_file."
+                              echo "Mirror the action change so the Depot workflow runs the same steps."
+                              exit 1
+                          fi
+                      done
+                  done
+                  for action in $equal_mirrors; do
+                      if ! diff -qr ".github/actions/$action" ".depot/actions/$action"; then
+                          echo "::error::The Depot $action action differs from its canonical copy."
+                          exit 1
+                      fi
+                  done
                   echo "Shadow drift check passed."

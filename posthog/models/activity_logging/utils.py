@@ -7,6 +7,8 @@ from django.db.models import Q, QuerySet
 import structlog
 from asgiref.local import Local
 
+from posthog.dataclasses import frozen
+
 if TYPE_CHECKING:
     from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
 
@@ -14,6 +16,13 @@ logger = structlog.get_logger(__name__)
 
 ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
 ACTIVITY_LOG_CLIENT_MAX_LENGTH = 32
+
+
+@frozen
+class CreatedByInfo:
+    user_id: str | None
+    email: str | None
+    name: str | None
 
 
 class ActivityLoggingStorage:

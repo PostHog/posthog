@@ -1,21 +1,10 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
+import { textLoader } from './tests/vitest-text-loader'
+
 export default defineConfig({
-    plugins: [
-        tsconfigPaths({ root: '.' }),
-        {
-            name: 'text-loader',
-            transform(code, id) {
-                if (id.endsWith('.md') || id.endsWith('.html')) {
-                    return {
-                        code: `export default ${JSON.stringify(code)}`,
-                        map: null,
-                    }
-                }
-            },
-        },
-    ],
+    plugins: [tsconfigPaths({ root: '.' }), textLoader],
     test: {
         globals: true,
         environment: 'node',

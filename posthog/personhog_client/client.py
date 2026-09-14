@@ -38,8 +38,6 @@ from posthog.personhog_client.proto import (
     DeleteGroupTypeMappingsBatchForTeamResponse,
     DeleteHashKeyOverridesByTeamsRequest,
     DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonlessDistinctIdsBatchForTeamRequest,
-    DeletePersonlessDistinctIdsBatchForTeamResponse,
     DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse,
     DeletePersonsRequest,
@@ -217,11 +215,6 @@ class PersonHogClient:
         self, request: DeletePersonsBatchForTeamRequest, timeout: float | None = None
     ) -> DeletePersonsBatchForTeamResponse:
         return self._stub.DeletePersonsBatchForTeam(request, timeout=timeout or self._timeout)
-
-    def delete_personless_distinct_ids_batch_for_team(
-        self, request: DeletePersonlessDistinctIdsBatchForTeamRequest, timeout: float | None = None
-    ) -> DeletePersonlessDistinctIdsBatchForTeamResponse:
-        return self._stub.DeletePersonlessDistinctIdsBatchForTeam(request, timeout=timeout or self._timeout)
 
     # -- Person split --
 

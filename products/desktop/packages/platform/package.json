@@ -99,6 +99,10 @@
     "./dev-host-actions": {
       "types": "./dist/dev-host-actions.d.ts",
       "import": "./dist/dev-host-actions.js"
+    },
+    "./disk-cache": {
+      "types": "./dist/disk-cache.d.ts",
+      "import": "./dist/disk-cache.js"
     }
   },
   "scripts": {

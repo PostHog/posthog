@@ -6,6 +6,7 @@ import { LemonMenu, LemonTable, LemonTableColumns, LemonTag, LemonTagType, Link,
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { SDK_DOCS_LINKS, SDK_TYPE_READABLE_NAME } from './sdkConstants'
@@ -122,7 +123,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
         title: '# events, last 7 days',
         dataIndex: 'count',
         render: function RenderCount(_, record) {
-            return <div className="text-xs text-muted-alt">{record.count}</div>
+            return <div className="text-xs text-muted-alt">{humanFriendlyNumber(record.count)}</div>
         },
     },
 ]
@@ -143,7 +144,7 @@ export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                     <Tooltip
                         title={
                             <>
-                                Version number cached once a day.
+                                Version number refreshed hourly.
                                 <br />
                                 Click 'Releases ↗' to check for any since.
                             </>

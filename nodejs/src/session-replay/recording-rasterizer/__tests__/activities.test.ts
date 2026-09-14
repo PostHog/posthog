@@ -15,6 +15,7 @@ jest.mock('@temporalio/activity', () => ({
                 workflowExecution: { workflowId: 'test-workflow-1', runId: 'test-run-1' },
             },
             heartbeat: jest.fn(),
+            cancellationSignal: new AbortController().signal,
         }),
     },
 }))
@@ -66,15 +67,13 @@ function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeR
     }
 }
 
-function baseRecordingResult(videoPath: string, overrides: Partial<RecordingResult> = {}): RecordingResult {
+function baseRecordingResult(_videoPath: string, overrides: Partial<RecordingResult> = {}): RecordingResult {
     return {
-        video_path: videoPath,
         playback_speed: 4,
         capture_duration_s: 3.0,
         frame_count: 72,
         truncated: false,
         inactivity_periods: [{ ts_from_s: 0, ts_to_s: 10, active: true }],
-        custom_fps: 3,
         timings: { setup_s: 1.5, capture_s: 3.2 },
         ...overrides,
     }
@@ -105,7 +104,6 @@ describe('rasterizeRecordingActivity', () => {
         ]
         mockSuccessfulRecording({
             playback_speed: 1,
-            custom_fps: 24,
             inactivity_periods: inactivityPeriods,
         })
 
@@ -132,10 +130,11 @@ describe('rasterizeRecordingActivity', () => {
             expect.stringContaining('ph-video-'),
             playerHtml,
             expect.any(Function),
-            // Progress object — phase transitions to 'upload' after capture completes.
-            { phase: 'upload', frame: 0, estimatedTotalFrames: 0 },
-            undefined,
-            expect.any(Object)
+            expect.objectContaining({
+                // Progress object — phase transitions to 'upload' after capture completes.
+                progress: { phase: 'upload', frame: 0, estimatedTotalFrames: 0 },
+                signal: expect.any(AbortSignal),
+            })
         )
     })
 
@@ -235,6 +234,24 @@ describe('rasterizeRecordingActivity', () => {
                 'No snapshots after processing',
                 'NO_SNAPSHOTS',
                 error
+            )
+            expect(ApplicationFailure.nonRetryable).not.toHaveBeenCalled()
+        })
+
+        it('classifies a raw puppeteer "Target closed" as a retryable TARGET_CLOSED failure', async () => {
+            // The Chrome target dying mid-render rejects the in-flight CDP call untyped; the activity
+            // boundary must turn it into one retryable code so it stops fragmenting into a fresh
+            // error-tracking issue per CDP method.
+            mockedRasterizeRecording.mockRejectedValue(
+                new Error('Protocol error (Page.captureScreenshot): Target closed')
+            )
+
+            await expect(rasterizeRecordingActivity(baseInput())).rejects.toThrow('chrome target closed mid-render')
+
+            expect(ApplicationFailure.retryable).toHaveBeenCalledWith(
+                'chrome target closed mid-render',
+                'TARGET_CLOSED',
+                expect.objectContaining({ code: 'TARGET_CLOSED' })
             )
             expect(ApplicationFailure.nonRetryable).not.toHaveBeenCalled()
         })

@@ -1,0 +1,44 @@
+rules:
+    - id: slack-api-calls-go-through-egress
+      message: |
+          Outbound Slack Web API calls must go through the recorded egress clients.
+
+          Use `posthog.egress.slack.client.SlackWebClient` (or `SlackAsyncWebClient`) for
+          Slack SDK calls and `posthog.egress.slack.transport.slack_request` for direct HTTP.
+          Incoming webhooks and interactivity response URLs are outside this rule because their
+          secret URL, not a workspace ID, owns the budget. See `posthog/egress/README.md`.
+
+          The direct-HTTP half only catches literal/f-string URLs on the `requests` module, so
+          keep URLs inline at the call site. Any `WebClient` / `AsyncWebClient` construction is
+          caught regardless of URL shape. Suppress a legitimate exception with
+          `# nosemgrep: slack-api-calls-go-through-egress -- <reason>`.
+      languages: [python]
+      severity: ERROR
+      pattern-either:
+          - patterns:
+                - pattern-either:
+                      - pattern: requests.$METHOD($URL, ...)
+                      - pattern: requests.request($METHOD, $URL, ...)
+                - metavariable-regex:
+                      metavariable: $URL
+                      regex: .*slack\.com/api.*
+          - patterns:
+                - pattern-inside: |
+                      from slack_sdk import WebClient
+                      ...
+                - pattern: WebClient(...)
+          - patterns:
+                - pattern-inside: |
+                      from slack_sdk.web.async_client import AsyncWebClient
+                      ...
+                - pattern: AsyncWebClient(...)
+      paths:
+          include:
+              - common/**/*.py
+              - ee/**/*.py
+              - posthog/**/*.py
+              - products/**/*.py
+          exclude:
+              - posthog/egress/**
+              - '**/test/**'
+              - '**/tests/**'

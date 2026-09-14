@@ -1,5 +1,6 @@
 import os
 import time
+import warnings
 import subprocess
 from collections.abc import Callable
 from functools import partial
@@ -20,6 +21,7 @@ from django.core.management.commands.flush import Command as FlushCommand
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
+from posthog.cloud_utils import is_ci
 from posthog.test import flush_lock_guard
 
 
@@ -89,6 +91,7 @@ def create_clickhouse_tables():
 def reset_clickhouse_tables():
     # Truncate clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
+    from posthog.clickhouse.cleanup_snapshots import TRUNCATE_CLEANUP_SNAPSHOT_TABLES_SQL
     from posthog.clickhouse.dead_letter_queue import TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL
     from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
     from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
@@ -149,6 +152,7 @@ def reset_clickhouse_tables():
         TRUNCATE_HEATMAPS_TABLE_SQL(),
         TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_AI_EVENTS_TABLE_SQL(),
+        *TRUNCATE_CLEANUP_SNAPSHOT_TABLES_SQL(),
     ]
 
     # Drop created Kafka tables because some tests don't expect it.
@@ -190,6 +194,15 @@ def reset_clickhouse_tables():
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES()))
 
 
+def _sqlx_error_output(error: subprocess.CalledProcessError) -> str:
+    output = "\n".join(
+        stream.decode(errors="replace") if isinstance(stream, bytes) else stream
+        for stream in (error.stdout, error.stderr)
+        if stream
+    )
+    return output or str(error)
+
+
 def run_persons_sqlx_migrations(keepdb: bool = False):
     """Run sqlx migrations for persons tables in separate test_posthog_persons database.
 
@@ -204,6 +217,11 @@ def run_persons_sqlx_migrations(keepdb: bool = False):
     db_config = settings.DATABASES["default"]
     # Use separate persons database name to mirror production
     persons_db_name = db_config["NAME"] + "_persons"
+    if not persons_db_name.startswith("test_"):
+        raise RuntimeError(
+            f"Refusing to run persons migrations against '{persons_db_name}', which is not a test database. "
+            "Add a pytest.mark.django_db marker to the test module."
+        )
     db_user = db_config["USER"]
     db_password = db_config["PASSWORD"]
     db_host = db_config["HOST"]
@@ -246,7 +264,7 @@ def run_persons_sqlx_migrations(keepdb: bool = False):
         if not keepdb:
             raise RuntimeError(
                 f"Failed to create test database with sqlx. "
-                f"Ensure sqlx-cli is installed. Error: {e.stderr.decode() if e.stderr else str(e)}"
+                f"Ensure sqlx-cli is installed. Error: {_sqlx_error_output(e)}"
             ) from e
 
     # Run migrations (idempotent - sqlx tracks which migrations have run)
@@ -259,7 +277,7 @@ def run_persons_sqlx_migrations(keepdb: bool = False):
         )
     except subprocess.CalledProcessError as e:
         raise RuntimeError(
-            f"Failed to run sqlx migrations from {migrations_path}. Error: {e.stderr.decode() if e.stderr else str(e)}"
+            f"Failed to run sqlx migrations from {migrations_path}. Error: {_sqlx_error_output(e)}"
         ) from e
 
 
@@ -369,6 +387,23 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
     create_clickhouse_tables()
 
+    # Seed default data that historically lived in RunPython migrations. Squashed
+    # migrations drop those ops, so without this tests relying on the defaults
+    # (Billing Team auth group, Default DataColorTheme, starter DashboardTemplates)
+    # would fail on a fresh test DB. Tolerated: in some shards (e.g. temporal
+    # async tests that only need the persons DB) the default DB schema isn't
+    # fully migrated yet — skip seeding rather than break setup.
+    with django_db_blocker.unblock():
+        from django.core.management import call_command
+
+        try:
+            call_command("ensure_migration_defaults", verbosity=0)
+        except Exception as exc:
+            warnings.warn(
+                f"ensure_migration_defaults skipped during test DB setup: {exc}",
+                stacklevel=2,
+            )
+
     yield
 
     if django_db_keepdb:
@@ -422,7 +457,7 @@ def _patched_flush_handle(self, **options: Any) -> None:
 
 
 _original_flush_handle = FlushCommand.handle
-FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]
 
 
 @pytest.fixture
@@ -607,6 +642,41 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
         pytest.skip("Skipping test that requires internal secrets on external PRs")
 
 
+def _vendor_credentials_present(marker: pytest.Mark) -> bool:
+    check: Callable[[], bool] | None = marker.kwargs.get("check")
+    return all(name in os.environ for name in marker.args) and (check is None or check())
+
+
+def _describe_vendor_credentials(marker: pytest.Mark) -> str:
+    check: Callable[[], bool] | None = marker.kwargs.get("check")
+    return ", ".join([*marker.args, *([check.__name__] if check is not None else [])])
+
+
+def _gate_vendor_credential_tests(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Deselect vendor credential tests in CI, where they can only skip and a skip with no recorded
+    pass reads as a broken test. Locally they stay collected, because a developer may export the
+    credentials, and skip with a reason naming what is missing.
+    """
+    gated = [
+        (item, marker)
+        for item in items
+        if (marker := item.get_closest_marker("requires_vendor_credentials")) is not None
+    ]
+    if not gated:
+        return
+    if is_ci():
+        deselected = {id(item) for item, _ in gated}
+        config.hook.pytest_deselected(items=[item for item, _ in gated])
+        items[:] = [item for item in items if id(item) not in deselected]
+        return
+    for item, marker in gated:
+        if not _vendor_credentials_present(marker):
+            item.add_marker(
+                pytest.mark.skip(reason=f"vendor credentials not available: {_describe_vendor_credentials(marker)}")
+            )
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     if apply_quarantine_markers is not None:
         apply_quarantine_markers(items)
+    _gate_vendor_credential_tests(config, items)

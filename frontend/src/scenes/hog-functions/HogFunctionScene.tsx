@@ -56,6 +56,7 @@ import {
 import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
 import { humanizeHogFunctionType } from './hog-function-utils'
 import { HogInvocations } from './invocations/HogInvocations'
+import { TransformationInvocations } from './invocations/TransformationInvocations'
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 import { HogFunctionRuns } from './runs/HogFunctionRuns'
@@ -535,7 +536,14 @@ export function HogFunctionScene(): JSX.Element {
             : {
                   label: 'Invocations',
                   key: 'invocations',
-                  content: <HogInvocations id={id} functionKind="hog_function" hogFunctionType={type} />,
+                  // Transformations never write `hog_invocation_results`, so show their per-run logs
+                  // instead of the always-empty table (see TransformationInvocations).
+                  content:
+                      type === 'transformation' ? (
+                          <TransformationInvocations id={id} onViewMetrics={() => setCurrentTab('metrics')} />
+                      ) : (
+                          <HogInvocations id={id} functionKind="hog_function" hogFunctionType={type} />
+                      ),
               },
 
         supportsBackfills && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]

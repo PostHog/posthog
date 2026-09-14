@@ -14,6 +14,8 @@ from posthog.temporal.ai.slack_app.types import (
 )
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
+
 logger = structlog.get_logger(__name__)
 
 POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE = (
@@ -37,7 +39,8 @@ def post_posthog_code_no_repos_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
-    slack.client.chat_postMessage(
+    post_slack_thread_reply(
+        slack.client,
         channel=channel,
         thread_ts=thread_ts,
         text=(
@@ -58,26 +61,10 @@ def post_posthog_code_repo_picker_activity(
     workflow_id: str,
     guidance: str,
     allow_no_repo: bool,
-    user_id: int | None = None,
+    user_id: int,
 ) -> None:
-    """Post the repository picker block in the Slack thread.
-
-    ``user_id`` is appended last and defaults to ``None`` so a worker draining an
-    activity task scheduled by a pre-2026-06 workflow (recorded with 8 positional
-    args) still binds: the eight legacy slots align by position and ``user_id``
-    falls through to the default. The body short-circuits in that case rather than
-    posting a picker with a missing ``mentioning_user_id``, which would break the
-    downstream external-select handler. New workflows go through the patched call
-    site at the workflow body and pass ``user_id`` as the final positional arg.
-    """
+    """Post the repository picker block in the Slack thread."""
     inputs = coerce_mention_workflow_inputs(inputs)
-    if user_id is None:
-        logger.warning(
-            "posthog_code_picker_legacy_call_skipped",
-            integration_id=inputs.integration_id,
-            slack_team_id=inputs.slack_team_id,
-        )
-        return
 
     from products.slack_app.backend.api import _post_repo_picker_message
 
@@ -132,7 +119,8 @@ def _post_connect_personal_github_prompt(
             "the pull request as you. Connect it, then mention me again."
         )
         button_text = "Connect GitHub"
-    slack.client.chat_postMessage(
+    post_slack_thread_reply(
+        slack.client,
         channel=channel,
         thread_ts=thread_ts,
         text=text,
@@ -254,7 +242,8 @@ def post_posthog_code_picker_timeout_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
-    slack.client.chat_postMessage(
+    post_slack_thread_reply(
+        slack.client,
         channel=channel,
         thread_ts=thread_ts,
         text="Repository selection expired. Please mention PostHog again to retry.",
@@ -284,7 +273,8 @@ def post_posthog_code_internal_error_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
-    slack.client.chat_postMessage(
+    post_slack_thread_reply(
+        slack.client,
         channel=channel,
         thread_ts=thread_ts,
         text="Sorry, I hit an internal error while processing that request. Please try again.",
@@ -342,3 +332,77 @@ def mark_slack_app_message_queued_activity(input: SlackAppMessageReactionInput) 
             message_ts=input.message_ts,
             error=str(e),
         )
+
+
+@activity.defn
+@close_db_connections
+def request_untagged_followup_confirmation_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+) -> bool:
+    """Apply the thread creator's `ask` mode to a reply the classifier just passed.
+
+    Returns ``True`` when the reply must not be forwarded: either the prompt is
+    now waiting on its author's answer, or the creator switched the thread off
+    while this run was in flight. ``False`` lets the workflow carry on.
+
+    Every untagged reply is asked about, the creator's own included — nobody
+    tagged the app, which is the ambiguity the mode exists to settle.
+
+    Running here rather than in the webhook handler is the point of the mode:
+    the classifier has already judged the reply worth the agent's attention, so
+    the prompt only interrupts someone over a message that would otherwise have
+    started work.
+    """
+    from products.slack_app.backend.api import (
+        _post_untagged_followup_prompt,  # noqa: PLC0415 — keeps the webhook module off the worker import path
+    )
+    from products.slack_app.backend.models import SlackThreadTaskMapping, UntaggedFollowupMode  # noqa: PLC0415
+    from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode  # noqa: PLC0415
+
+    inputs = coerce_mention_workflow_inputs(inputs)
+    mapping = (
+        SlackThreadTaskMapping.objects.select_related("integration")
+        .filter(integration_id=inputs.integration_id, channel=channel, thread_ts=thread_ts)
+        .first()
+    )
+    if mapping is None:
+        # The thread lost its mapping mid-run; the forward activity would drop this
+        # anyway, and there is nobody left to attribute a prompt to.
+        return True
+
+    integration = mapping.integration
+    mode = resolve_untagged_followup_mode(integration, mapping.mentioning_slack_user_id)
+    if mode == UntaggedFollowupMode.AUTO:
+        return False
+    if mode == UntaggedFollowupMode.NEVER:
+        logger.info(
+            "slack_app_untagged_followup_switched_off_mid_run",
+            integration_id=integration.id,
+            channel=channel,
+            thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
+        )
+        return True
+
+    prompted = _post_untagged_followup_prompt(
+        SlackIntegration(integration),
+        integration,
+        inputs.event,
+        is_ext_shared_channel=inputs.is_ext_shared_channel,
+    )
+    if not prompted:
+        # Still held back: forwarding a reply we failed to ask about would break the
+        # creator's setting. Logged loudly because the replier sees nothing at all —
+        # no prompt, no answer — and that is otherwise indistinguishable from the
+        # classifier dropping their message.
+        logger.warning(
+            "slack_app_untagged_followup_prompt_not_delivered",
+            integration_id=integration.id,
+            channel=channel,
+            thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
+        )
+    return True

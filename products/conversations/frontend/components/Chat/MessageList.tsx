@@ -39,6 +39,8 @@ export interface MessageListProps {
     canEditTicket?: boolean
     onEditMessage?: (message: ChatMessage) => void
     onDeleteMessage?: (messageId: string) => void
+    fullEmailLoadingMessageId?: string | null
+    onViewFullEmail?: (messageId: string) => void
 }
 
 /** A non-message entry in the thread, e.g. an agent's findings. `at` is what orders it among the
@@ -71,6 +73,8 @@ export function MessageList({
     canEditTicket = false,
     onEditMessage,
     onDeleteMessage,
+    fullEmailLoadingMessageId = null,
+    onViewFullEmail,
 }: MessageListProps): JSX.Element {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -231,6 +235,12 @@ export function MessageList({
                         }
                         onEdit={canModify && onEditMessage ? () => onEditMessage(message) : undefined}
                         onDelete={canModify && onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
+                        fullEmailLoading={fullEmailLoadingMessageId === message.id}
+                        onViewFullEmail={
+                            onViewFullEmail && message.hasFullEmailContent
+                                ? () => onViewFullEmail(message.id)
+                                : undefined
+                        }
                     />
                 ),
             }
@@ -247,7 +257,7 @@ export function MessageList({
         // hold: it takes the caller's className and the height bounds, and stays the flex child
         // callers lay out against. Without that, a caller's spacing (e.g. `mb-3`) would land inside
         // the wrapper and stop separating the thread from whatever follows it.
-        <div className={`relative flex flex-col flex-1 ${className}`} style={{ minHeight, maxHeight }}>
+        <div className={`relative flex flex-col flex-1 min-h-0 ${className}`} style={{ minHeight, maxHeight }}>
             <div
                 ref={containerRef}
                 onScroll={handleScroll}

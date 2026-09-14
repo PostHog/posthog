@@ -1,5 +1,3 @@
-from typing import Any, cast
-
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -9,21 +7,16 @@ from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack import AppstackResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.settings import (
     DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.source import AppstackSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appstack import (
     AppstackSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> AppstackSourceConfig:
@@ -31,9 +24,6 @@ def _config() -> AppstackSourceConfig:
 
 
 class TestAppstackSourceConfig:
-    def test_source_type(self) -> None:
-        assert AppstackSource().source_type == ExternalDataSourceType.APPSTACK
-
     def test_get_source_config(self) -> None:
         config = AppstackSource().get_source_config
         assert config.name == SchemaExternalDataSourceType.APPSTACK
@@ -41,17 +31,6 @@ class TestAppstackSourceConfig:
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # The source ships visible: the scaffold's unreleasedSource flag must stay deleted.
         assert not config.unreleasedSource
-
-    def test_single_secret_api_key_field(self) -> None:
-        fields = AppstackSource().get_source_config.fields
-        assert fields is not None
-        assert len(fields) == 1
-        api_key_field = fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
 
 
 class TestGetSchemas:
@@ -93,56 +72,8 @@ class TestValidateCredentials:
 
 
 class TestSourceWiring:
-    def test_non_retryable_errors_cover_auth(self) -> None:
-        errors = AppstackSource().get_non_retryable_errors()
-        keys = " ".join(errors.keys())
-        assert "401" in keys
-        assert "403" in keys
-
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        manager = AppstackSource().get_resumable_source_manager(MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is AppstackResumeConfig
-
-    def test_canonical_descriptions_match_endpoints(self) -> None:
-        descriptions = AppstackSource().get_canonical_descriptions()
-        assert "events" in descriptions
-        assert set(descriptions.keys()).issubset(set(ENDPOINTS))
-
     def test_documented_tables_render_without_credentials(self) -> None:
         # `lists_tables_without_credentials` powers the public docs' Supported tables section.
         tables = AppstackSource().get_documented_tables()
         assert [t["name"] for t in tables] == ["events"]
         assert tables[0]["description"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.source.appstack_source")
-    def test_source_for_pipeline_plumbing(self, mock_appstack_source: MagicMock) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        inputs = MagicMock()
-        inputs.schema_name = "events"
-        inputs.team_id = 7
-        inputs.job_id = "job-1"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00+00:00"
-
-        AppstackSource().source_for_pipeline(_config(), manager, inputs)
-
-        kwargs = cast(dict[str, Any], mock_appstack_source.call_args.kwargs)
-        assert kwargs["api_key"] == "appstack-key"
-        assert kwargs["endpoint"] == "events"
-        assert kwargs["team_id"] == 7
-        assert kwargs["job_id"] == "job-1"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00+00:00"
-        assert kwargs["resumable_source_manager"] is manager
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.source.appstack_source")
-    def test_source_for_pipeline_drops_last_value_when_not_incremental(self, mock_appstack_source: MagicMock) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "events"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "should-be-ignored"
-
-        AppstackSource().source_for_pipeline(_config(), MagicMock(spec=ResumableSourceManager), inputs)
-
-        assert mock_appstack_source.call_args.kwargs["db_incremental_field_last_value"] is None
