@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 import { Meta, StoryObj } from '@storybook/react'
 import { HttpResponse } from 'msw'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import dashboardFixture from 'scenes/dashboard/__mocks__/dashboard.json'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
@@ -349,6 +350,7 @@ const meta: Meta = {
                 [`/api/projects/:team_id/cohorts/${COHORT_ID}/`]: cohort,
                 [`/api/environments/:team_id/insights/${INSIGHT_ID}/`]: insight,
                 [`/api/projects/:team_id/insights/${INSIGHT_ID}/`]: insight,
+                '/api/environments/:team_id/insights/': { results: [insight], count: 1, next: null, previous: null },
                 '/api/environments/:team_id/session_recordings/:id': recording,
                 '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
                     if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
@@ -416,6 +418,9 @@ const meta: Meta = {
                     }
                     const query = body.query
 
+                    if (query?.kind === NodeKind.TrendsQuery) {
+                        return { results: insight.result, hogql: 'SELECT event, count() FROM events GROUP BY event' }
+                    }
                     if (query?.kind === NodeKind.TraceQuery) {
                         return { results: [traceWithoutContent] }
                     }
@@ -463,7 +468,10 @@ export const EarlyAccessFeatureViews: Story = {
 }
 export const CohortViews: Story = { parameters: { pageUrl: urls.notebook('cohort-widget-views') } }
 export const InsightViews: Story = {
-    parameters: { pageUrl: urls.notebook('insight-widget-views') },
+    parameters: {
+        pageUrl: urls.notebook('insight-widget-views'),
+        featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS],
+    },
     play: async ({ canvasElement }) => {
         await waitFor(() => {
             expect(

@@ -42,7 +42,8 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
         notebookShortId: mountedNotebookLogic.props.shortId,
         updateAttributes,
         runId: typeof node.props.runId === 'string' ? node.props.runId : null,
-        hasResult: !!node.props.result,
+        hasResult: !!node.props.result && typeof node.props.result === 'object' && 'first_page' in node.props.result,
+        hasResultMetadata: !!node.props.result,
         getContent: () => mountedNotebookLogic.values.content ?? null,
     })
     const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)

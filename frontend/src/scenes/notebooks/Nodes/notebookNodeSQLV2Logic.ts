@@ -150,8 +150,10 @@ export interface NotebookNodeSQLV2LogicProps {
     // Current node attributes, so a fresh mount can recover an in-flight/finished run by its runId.
     runId?: string | null
     hasResult?: boolean
+    hasResultMetadata?: boolean
     updateAttributes: (attrs: {
         nodeId?: string
+        returnVariable?: string
         runId?: string | null
         result?: NotebookNodeSQLV2Result | null
         runStatus?: NotebookNodeRunTerminalStatus | null
@@ -184,6 +186,7 @@ export interface notebookNodeSQLV2LogicValues {
     pageResult: NotebookNodeSQLV2Page | null
     pageSize: number
     pendingKernelStart: boolean
+    result: NotebookNodeSQLV2Result | null
     runError: string | null
     staleDownstreamCount: number
     staleReason: NotebookStaleReason | null
@@ -276,6 +279,9 @@ export interface notebookNodeSQLV2LogicActions {
     setPendingKernelStart: (pendingKernelStart: boolean) => {
         pendingKernelStart: boolean
     }
+    setResult: (result: NotebookNodeSQLV2Result | null) => {
+        result: NotebookNodeSQLV2Result | null
+    }
     setRunError: (runError: string | null) => {
         runError: string | null
     }
@@ -329,6 +335,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         ],
     })),
     actions({
+        setResult: (result: NotebookNodeSQLV2Result | null) => ({ result }),
         // refs maps each named sibling cell's dataframe name to {node id, kind}. A SQL node
         // inlines referenced hogql refs as CTEs (Journey 3) — or runs locally in DuckDB when
         // it references a local frame (Journey 5); a python node materializes the hogql refs
@@ -360,6 +367,13 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         announceSandboxStart: (hourlyPrice: number | null) => ({ hourlyPrice }),
     }),
     reducers({
+        result: [
+            null as NotebookNodeSQLV2Result | null,
+            {
+                runQuery: () => null,
+                setResult: (_, { result }) => result,
+            },
+        ],
         // Tracks the run being in progress; driven by the run's status, not a socket lifecycle.
         isRunning: [
             false,
@@ -533,6 +547,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
             setPage: loadCurrentPage,
             setPageSize: loadCurrentPage,
             runQuery: async ({ code, refs, opts }) => {
+                cache.isRestoringResult = false
                 if (!code.trim()) {
                     actions.setRunError('Nothing to run — type some code first.')
                     actions.setIsRunning(false)
@@ -601,6 +616,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     // would orphan this run's node_id and break refs to this cell.
                     props.updateAttributes({
                         nodeId: props.nodeId,
+                        ...(opts.outputName !== undefined ? { returnVariable: opts.outputName } : {}),
                         runId: run_id,
                         result: null,
                         runStatus: null,
@@ -653,7 +669,9 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
             },
             startPolling: ({ runId }) => {
                 // Idempotent re-register: also covers a remount resuming a persisted in-flight run.
-                actions.startOperation(runOperation)
+                if (!cache.isRestoringResult) {
+                    actions.startOperation(runOperation)
+                }
                 cache.activeRunId = runId
                 cache.pollWaitedMs = 0
                 actions.pollResult(runId)
@@ -727,6 +745,14 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                               media: result.media ?? [],
                           }
                         : null
+                    const resultMetadata = envelopeResult
+                        ? {
+                              columns: envelopeResult.columns,
+                              types: envelopeResult.types,
+                              row_count: envelopeResult.row_count,
+                              has_more: envelopeResult.has_more,
+                          }
+                        : null
                     if (status === 'done') {
                         // A direct run's full capped row set arrives with the result — keep it
                         // in memory for client-side paging (kernel runs return no rows here).
@@ -741,17 +767,25 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                         )
                         // The outcome rides along with the result so a reload can tell a completed
                         // run from an interrupted one — both leave a result behind.
-                        props.updateAttributes({ result: envelopeResult, runStatus: 'done' })
+                        actions.setResult(envelopeResult)
+                        if (!cache.isRestoringResult) {
+                            props.updateAttributes({ result: resultMetadata, runStatus: 'done' })
+                        }
                         // A fresh envelope replaces whatever page the user had drilled into.
                         actions.resetPaging()
                         actions.stopPolling()
                         // Downstream cells now derive from outdated data — mark them stale
                         // against the document as it stands now (Journey 10).
-                        actions.nodeRunFinished(props.nodeId, 'done', props.getContent?.() ?? null)
+                        if (!cache.isRestoringResult) {
+                            actions.nodeRunFinished(props.nodeId, 'done', props.getContent?.() ?? null)
+                        }
                     } else if (status === 'interrupted') {
                         // A user-requested stop: the envelope still carries whatever stdout,
                         // stderr, and figures the cell produced before the interrupt landed.
-                        props.updateAttributes({ result: envelopeResult, runStatus: 'interrupted' })
+                        actions.setResult(envelopeResult)
+                        if (!cache.isRestoringResult) {
+                            props.updateAttributes({ result: resultMetadata, runStatus: 'interrupted' })
+                        }
                         actions.setRunError(error ?? 'Run interrupted.')
                         actions.resetPaging()
                         actions.stopPolling()
@@ -832,13 +866,14 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 lastRunNodeId === props.nodeId ? lastRunStaleDownstreamNodeIds.length : 0,
         ],
     })),
-    afterMount(({ props, actions }) => {
+    afterMount(({ props, actions, cache }) => {
         // Only registered cells are eligible for chain dispatch — a dispatch to an unmounted
         // cell would be picked up by nobody and wedge the chain.
         actions.registerChainNode(props.nodeId)
         // Recover after a reload/remount: a persisted runId with no result means the run may still be
         // in flight or already finished — poll to catch up rather than lose the result.
         if (props.runId && !props.hasResult) {
+            cache.isRestoringResult = !!props.hasResultMetadata
             actions.startPolling(props.runId)
         }
     }),

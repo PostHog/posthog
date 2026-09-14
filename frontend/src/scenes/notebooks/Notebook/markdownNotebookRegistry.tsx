@@ -254,11 +254,15 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         ToolbarComponent: NotebookCodeCellRunButton,
         insertCommand: {
             aliases: ['python', 'py'],
-            defaultProps: () => ({
-                ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),
-                ...INPUT_PANEL_OPEN_PROPS,
-                nodeId: uuid(),
-            }),
+            defaultProps: () => {
+                const nodeId = uuid()
+                return {
+                    ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),
+                    ...INPUT_PANEL_OPEN_PROPS,
+                    nodeId,
+                    returnVariable: `df_${nodeId.slice(0, 8)}`,
+                }
+            },
         },
     },
     // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
@@ -350,6 +354,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             ToolbarComponent: definition.ToolbarComponent,
             exclusiveEditPanel: definition.exclusiveEditPanel,
             editableTitle: options?.editableTitle,
+            persistNodeId: ['Widget', 'SQLV2', 'PythonV2'].includes(definition.tagName),
             // Nodes with a Settings panel keep their filters toggle on read-only canvases
             // (customer profiles), where the panel is the only way to configure them.
             viewModeFilters: !!options?.Settings,

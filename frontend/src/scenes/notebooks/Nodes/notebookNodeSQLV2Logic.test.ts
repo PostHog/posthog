@@ -330,27 +330,33 @@ describe('notebookNodeSQLV2Logic', () => {
         })
     })
 
-    it('maps a done envelope into the node result and stops the spinner', async () => {
+    it.each([false, true])('loads a completed result (restoring metadata: %s)', async (hasResultMetadata) => {
         resultSpy.mockResolvedValue({
             status: 'done',
             result: { columns: ['a'], first_page: [[1]], row_count: 1, has_more: false },
             error: null,
         })
-        mount({ runId: 'r1', hasResult: false })
+        mount({ runId: 'r1', hasResult: false, hasResultMetadata })
         await expectLogic(logic).toFinishAllListeners()
-        expect(updateAttributes).toHaveBeenCalledWith({
-            result: {
-                columns: ['a'],
-                types: [],
-                row_count: 1,
-                first_page: [[1]],
-                has_more: false,
-                stdout: '',
-                stderr: '',
-                media: [],
-            },
-            runStatus: 'done',
+        expect(logic.values.result).toEqual({
+            columns: ['a'],
+            types: [],
+            row_count: 1,
+            first_page: [[1]],
+            has_more: false,
+            stdout: '',
+            stderr: '',
+            media: [],
         })
+        if (hasResultMetadata) {
+            expect(updateAttributes).not.toHaveBeenCalled()
+            expect(logic.values.lastRunNodeId).toBeNull()
+        } else {
+            expect(updateAttributes).toHaveBeenCalledWith({
+                result: { columns: ['a'], types: [], row_count: 1, has_more: false },
+                runStatus: 'done',
+            })
+        }
         expect(logic.values.isRunning).toBe(false)
     })
 
@@ -372,10 +378,9 @@ describe('notebookNodeSQLV2Logic', () => {
         })
         mount({ runId: 'r1', hasResult: false })
         await expectLogic(logic).toFinishAllListeners()
-        // The outcome is persisted with the partial result: without it a reload can't tell this
-        // apart from a completed run, since both leave a result behind.
+        expect(logic.values.result).toEqual(expect.objectContaining({ stdout: 'partial output' }))
         expect(updateAttributes).toHaveBeenCalledWith({
-            result: expect.objectContaining({ stdout: 'partial output' }),
+            result: { columns: [], types: [], row_count: 0, has_more: false },
             runStatus: 'interrupted',
         })
         expect(logic.values.runError).toBe('Run interrupted.')
@@ -450,8 +455,7 @@ describe('notebookNodeSQLV2Logic', () => {
         runSpy.mockResolvedValueOnce({ run_id: 'r2' })
         logic.actions.runQuery('select 2')
         await expectLogic(logic).toFinishAllListeners()
-        const resultWrites = updateAttributes.mock.calls.map((c) => c[0]).filter((a) => a.result)
-        expect(resultWrites.at(-1).result).toEqual(expect.objectContaining({ columns: ['b'], first_page: [[2]] }))
+        expect(logic.values.result).toEqual(expect.objectContaining({ columns: ['b'], first_page: [[2]] }))
     })
 
     it('ignores a stale poll from a previous run', async () => {
@@ -482,6 +486,7 @@ describe('notebookNodeSQLV2Logic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         // The stale result must not overwrite the node, and r2's run must keep polling (not stopped).
+        expect(logic.values.result).toBeNull()
         expect(updateAttributes).not.toHaveBeenCalledWith(
             expect.objectContaining({ result: expect.objectContaining({ columns: ['old'] }) })
         )

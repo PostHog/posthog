@@ -25,6 +25,20 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 
 ## Agent access
 
+New widgets default to Claude Sonnet 5. An explicitly selected model stays selected.
+Widget IDs are saved when their settings, title, or panel visibility change, so editing a widget keeps its generation history attached.
+
+SQL cells start with `sql_df`; Python cells receive a unique name beginning with `df_`.
+You can rename a dataframe in its result panel.
+For an insight that exposes SQL, **Use as dataframe** adds a SQL cell named `insight_df` (with a numeric suffix when needed).
+Run that cell before referencing its dataframe from SQL, Python, or a generated widget.
+The added cell holds a copy of the insight's query; later changes to the saved insight do not update that copy.
+
+SQL and Python cells save their run ID, column metadata, and row count in the notebook.
+Result rows, console output, and images load from the saved run instead of being embedded in notebook markdown.
+Existing embedded results remain readable and are replaced with metadata when the cell runs again.
+If a saved run is no longer available, run the cell again to restore its results.
+
 New notebooks place the typing caret in the title, including when opened through the command menu. Enter continues into the notebook body.
 The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions when `notebook-generated-widgets` is enabled for the user.
 The bookmark toggle **Keep question with answer** is on by default, retaining the question and the submitting user's name above the answer. Turning it off saves `keepQuestion={false}` on that prompt.

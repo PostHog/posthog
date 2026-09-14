@@ -29,6 +29,8 @@ import {
 } from '~/queries/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
+import { NotebookInsightDataframeButton } from 'products/notebooks/frontend/NotebookInsightDataframeButton'
+
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import {
     getSqlEditorSourceQuery,
@@ -103,6 +105,10 @@ const Component = ({
         : {
               dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
           }
+    const dataframeInsightProps: InsightLogicProps =
+        query.kind === NodeKind.SavedInsightNode
+            ? insightLogicProps
+            : { dashboardItemId: `new-AdHoc.notebook.${notebookLogic.props.shortId}.${nodeId}`, query }
     const { insightName } = useValues(insightLogic(insightLogicProps))
     const isOutputPaneOpen = componentPanelState?.showViewPanel ?? expanded
     const showSqlOutputToolbar = getNotebookSqlOutputToolbarVisibility({
@@ -233,6 +239,7 @@ const Component = ({
         <Query
             uniqueKey={nodeId + '-component'}
             query={modifiedQuery}
+            context={isInsightVizNode(modifiedQuery) ? { insightProps: dataframeInsightProps } : undefined}
             attachTo={notebookLogic}
             setQuery={(t) => {
                 updateAttributes({
@@ -250,6 +257,7 @@ const Component = ({
     return (
         <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
             <BindLogic logic={insightLogic} props={insightLogicProps}>
+                {isInsightViz ? <NotebookInsightDataframeButton insightProps={dataframeInsightProps} /> : null}
                 {isInsightViz ? (
                     <div className="flex flex-1 flex-col overflow-hidden">{queryComponent}</div>
                 ) : (

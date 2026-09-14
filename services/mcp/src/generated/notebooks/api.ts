@@ -299,7 +299,7 @@ export const NotebooksWidgetGenerateParams = () => zod.object({
 
 export const notebooksWidgetGenerateBodyPromptMax = 50000
 
-export const notebooksWidgetGenerateBodyModelDefault = `claude-sonnet-4-6`
+export const notebooksWidgetGenerateBodyModelDefault = `claude-sonnet-5`
 export const notebooksWidgetGenerateBodyGenerationOperationDefault = `regenerate`
 
 export const NotebooksWidgetGenerateBody = () => zod.object({

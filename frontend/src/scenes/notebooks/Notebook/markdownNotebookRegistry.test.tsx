@@ -9,7 +9,9 @@ import {
 import {
     type ComponentPanelVisibility,
     getInsertedComponentPanelVisibility,
+    withPersistedComponentPanelProps,
 } from 'lib/components/MarkdownNotebook/componentPanels'
+import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { NotebookComponentShell } from 'lib/components/MarkdownNotebook/NotebookComponentShell'
 import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -68,6 +70,18 @@ function getInsertCommandsByLabel(featureFlags: FeatureFlagsSet, label: string):
 }
 
 describe('markdownNotebookRegistry', () => {
+    it.each([undefined, 'saved-widget'])('pins widget identity when opening filters (explicit ID: %s)', (nodeId) => {
+        const node = parseMarkdownNotebook(`<Widget prompt="Draw a chart"${nodeId ? ` nodeId="${nodeId}"` : ''} />`)
+            .nodes[0] as NotebookComponentBlockNode
+        const updated = withPersistedComponentPanelProps(node, NOTEBOOK_MARKDOWN_REGISTRY.components.Widget, {
+            filters: true,
+            results: true,
+        })
+
+        expect(updated.props.nodeId).toBe(nodeId ?? node.id)
+        expect(updated.props.showFilters).toBe(true)
+    })
+
     describe('getMarkdownRegistryForFeatureFlags', () => {
         it('offers a single SQL and Python cell, gated by the revamped notebooks flag', () => {
             // The unified insert surface: SQLV2 ("SQL") and PythonV2 ("Python") are the only
@@ -126,6 +140,9 @@ describe('markdownNotebookRegistry', () => {
 
             expect(insertedNodes).toHaveLength(1)
             expect(getInsertedComponentPanelVisibility(insertedNodes[0]).filters).toBe(true)
+            if (_label !== 'Widget') {
+                expect(insertedNodes[0].props.returnVariable).toMatch(/^[A-Za-z_][A-Za-z0-9_]*$/)
+            }
         })
     })
 

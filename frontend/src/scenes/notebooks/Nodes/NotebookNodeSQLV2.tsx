@@ -30,7 +30,7 @@ export type NotebookNodeSQLV2Result = {
     columns: string[]
     types?: [string, string][]
     row_count: number
-    first_page: (string | number | null)[][]
+    first_page?: (string | number | null)[][]
     has_more?: boolean
     // Python node output: captured streams and rich media (e.g. matplotlib PNGs).
     stdout?: string
@@ -100,9 +100,7 @@ const inferTypes = (result: NotebookNodeSQLV2Result): [string, string][] =>
         return [column, typeof sample === 'number' ? 'Float64' : 'String']
     })
 
-// A notebook stores the whole result envelope, and a cell the sandbox kernel ran can hold raw
-// pandas dtypes ('float64', 'str'). The chart layer reads ClickHouse names to decide which
-// columns can go on a numeric axis, so map those over rather than make a saved cell re-run.
+// Kernel results can contain pandas dtypes. Charts need ClickHouse type names to select numeric axes.
 const PANDAS_DTYPE_NAMES: Record<string, string> = {
     bool: 'Bool',
     boolean: 'Bool',
@@ -150,7 +148,8 @@ const Component = ({
         notebookShortId,
         updateAttributes,
         runId: attributes.runId ?? null,
-        hasResult: !!attributes.result,
+        hasResult: Array.isArray(attributes.result?.first_page),
+        hasResultMetadata: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
         getVariables: () => notebookLogic.values.runnableVariables,
     })
@@ -167,13 +166,14 @@ const Component = ({
         isChainRunning,
         staleDownstreamCount,
         pendingKernelStart,
+        result: runResult,
     } = useValues(dataLogic)
     const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
 
     const usageLabel = (nodeIndex: number | undefined, title: string): string =>
         title.trim() || getCellLabel(nodeIndex) || 'SQL'
 
-    const result = attributes.result ?? null
+    const result = runResult ?? attributes.result ?? null
     const returnVariableError = returnVariableValidationError(attributes.returnVariable ?? '')
     // Page 1 at the default size comes straight from the envelope; other pages re-query CH.
     const dataframeResult = useMemo(() => {
@@ -397,7 +397,8 @@ const Settings = ({
         notebookShortId,
         updateAttributes,
         runId: attributes.runId ?? null,
-        hasResult: !!attributes.result,
+        hasResult: Array.isArray(attributes.result?.first_page),
+        hasResultMetadata: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
         getVariables: () => notebookLogic.values.runnableVariables,
     })
@@ -432,10 +433,8 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
         code: {
             default: '',
         },
-        // Optional: empty means the cell binds no dataframe (display-only). Existing cells
-        // carry their persisted name ('sql_df' was the old default) and keep exporting it.
         returnVariable: {
-            default: '',
+            default: 'sql_df',
         },
         connectionId: {
             default: null,

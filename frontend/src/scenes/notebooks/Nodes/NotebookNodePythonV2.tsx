@@ -62,7 +62,8 @@ const Component = ({
         notebookShortId,
         updateAttributes,
         runId: attributes.runId ?? null,
-        hasResult: !!attributes.result,
+        hasResult: Array.isArray(attributes.result?.first_page),
+        hasResultMetadata: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
         getVariables: () => notebookLogic.values.runnableVariables,
     })
@@ -79,10 +80,11 @@ const Component = ({
         isChainRunning,
         staleDownstreamCount,
         pendingKernelStart,
+        result: runResult,
     } = useValues(dataLogic)
     const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
 
-    const result = attributes.result ?? null
+    const result = runResult ?? attributes.result ?? null
     const dataframeResult = useMemo(() => {
         if (pageResult) {
             return toDataframeResult({
@@ -246,7 +248,8 @@ const Settings = ({
         notebookShortId,
         updateAttributes,
         runId: attributes.runId ?? null,
-        hasResult: !!attributes.result,
+        hasResult: Array.isArray(attributes.result?.first_page),
+        hasResultMetadata: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
         getVariables: () => notebookLogic.values.runnableVariables,
     })
@@ -294,10 +297,8 @@ export const NotebookNodePythonV2 = createPostHogWidgetNode<NotebookNodePythonV2
         code: {
             default: '',
         },
-        // Optional: empty means the cell binds no dataframe, so nothing downstream can read it.
-        // A cell that predates the optional name carries its persisted name and keeps exporting it.
         returnVariable: {
-            default: '',
+            default: 'df',
         },
         runId: {
             default: null,
