@@ -41141,6 +41141,19 @@ export namespace Schemas {
       results: FeatureFlagRequestUsageItem[];
     }
 
+    export interface FeatureFlagRollOutToEveryoneRequest {
+      /**
+         * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version.
+         * @minimum 0
+         */
+      version: number;
+      /**
+         * The variant every user gets. Required for a multivariate flag and rejected for any other flag, because a release condition decides who the flag serves and not which variant they get.
+         * @nullable
+         */
+      variant_key?: string | null;
+    }
+
     export interface FeatureFlagRolloutSummary {
       /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
       effectively_full_rollout: boolean;
@@ -41153,6 +41166,25 @@ export namespace Schemas {
       max_rollout_percentage: number | null;
       /** True if the flag serves multiple variants (has a multivariate variant set). */
       is_multivariate: boolean;
+    }
+
+    export interface FeatureFlagSetReleaseConditionRolloutRequest {
+      /**
+         * Zero-based position of the release condition in `filters.groups`, counted from the read that produced `version`.
+         * @minimum 0
+         */
+      condition_index: number;
+      /**
+         * Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them.
+         * @minimum 0
+         * @maximum 100
+         */
+      rollout_percentage: number;
+      /**
+         * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version.
+         * @minimum 0
+         */
+      version: number;
     }
 
     export interface FeatureFlagStatusResponse {

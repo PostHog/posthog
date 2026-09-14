@@ -33,9 +33,11 @@ from products.feature_flags.backend.facade.filters import (
     replace_release_conditions,
     replace_variant_distribution,
     restrict_groups_to_cohort,
+    roll_out_to_everyone,
     set_feature_enrollment,
     set_first_release_condition_rollout,
     set_holdout,
+    set_release_condition_rollout,
     strip_group_cohort_restriction,
 )
 from products.feature_flags.backend.facade.rules import ExperimentRuleConfig, HoldoutRef, experiment_rule_from_filters
@@ -708,6 +710,129 @@ class TestReleaseConditionTransforms:
     def test_set_first_release_condition_rollout_raises_without_a_group(self, _name, filters, expected_error):
         with pytest.raises(expected_error):
             set_first_release_condition_rollout(filters, 20)
+
+    @parameterized.expand([("first", 0), ("second", 1), ("last", 2)])
+    def test_set_release_condition_rollout_changes_only_the_indexed_condition(self, _name, condition_index):
+        filters: dict[str, Any] = {
+            "groups": [
+                {"properties": [{"key": "email", "type": "person"}], "rollout_percentage": 10, "variant": "control"},
+                {"properties": [], "rollout_percentage": 20},
+                {"properties": [{"key": "$os", "type": "person"}], "rollout_percentage": 30},
+            ],
+            "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+            "payloads": {"control": "{}"},
+            "aggregation_group_type_index": 1,
+            "holdout": {"id": 7, "exclusion_percentage": 5},
+        }
+        original = deepcopy(filters)
+
+        result = set_release_condition_rollout(filters, condition_index, 55)
+
+        assert result["groups"][condition_index]["rollout_percentage"] == 55
+        result["groups"][condition_index]["rollout_percentage"] = original["groups"][condition_index][
+            "rollout_percentage"
+        ]
+        assert result == original
+        assert filters == original
+
+    @parameterized.expand(
+        [
+            ("past_the_end", {"groups": [{"properties": [], "rollout_percentage": 10}]}, 1),
+            # Python would resolve -1 to the last condition, which is a rule the caller never named.
+            ("negative", {"groups": [{"properties": [], "rollout_percentage": 10}]}, -1),
+            ("no_conditions", {"groups": []}, 0),
+            ("missing_groups_key", {}, 0),
+        ]
+    )
+    def test_set_release_condition_rollout_raises_for_an_index_the_flag_has_no_condition_at(
+        self, _name, filters, condition_index
+    ):
+        with pytest.raises(IndexError):
+            set_release_condition_rollout(filters, condition_index, 55)
+
+    def test_roll_out_to_everyone_prepends_a_catch_all_and_preserves_the_rest(self):
+        filters: dict[str, Any] = {
+            "groups": [{"properties": [{"key": "email", "type": "person"}], "rollout_percentage": 10}],
+            "payloads": {"true": '"on"'},
+            "aggregation_group_type_index": 1,
+            "holdout": {"id": 7, "exclusion_percentage": 5},
+            "super_groups": [{"properties": [], "rollout_percentage": 15}],
+        }
+        original = deepcopy(filters)
+
+        result = roll_out_to_everyone(filters)
+
+        assert result["groups"] == [{"properties": [], "rollout_percentage": 100}, *original["groups"]]
+        assert {key: value for key, value in result.items() if key != "groups"} == {
+            key: value for key, value in original.items() if key != "groups"
+        }
+        assert filters == original
+
+    def test_roll_out_to_everyone_gives_the_named_variant_the_whole_distribution(self):
+        filters: dict[str, Any] = {
+            "groups": [{"properties": [{"key": "email", "type": "person"}], "rollout_percentage": 10}],
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 60, "name": "Control"},
+                    {"key": "test", "rollout_percentage": 40},
+                ]
+            },
+            "payloads": {"control": "{}"},
+        }
+        original = deepcopy(filters)
+
+        result = roll_out_to_everyone(filters, variant_key="test")
+
+        assert result["multivariate"]["variants"] == [
+            {"key": "control", "rollout_percentage": 0, "name": "Control"},
+            {"key": "test", "rollout_percentage": 100},
+        ]
+        assert result["groups"] == [{"properties": [], "rollout_percentage": 100}, *original["groups"]]
+        assert result["payloads"] == original["payloads"]
+        assert filters == original
+
+    @parameterized.expand(
+        [
+            ("boolean", None),
+            ("multivariate", "test"),
+        ]
+    )
+    def test_roll_out_to_everyone_adds_no_second_catch_all(self, _name, variant_key):
+        filters: dict[str, Any] = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "multivariate": {
+                "variants": [{"key": "control", "rollout_percentage": 0}, {"key": "test", "rollout_percentage": 100}]
+            },
+        }
+
+        result = roll_out_to_everyone(roll_out_to_everyone(filters, variant_key=variant_key), variant_key=variant_key)
+
+        assert result["groups"] == [{"properties": [], "rollout_percentage": 100}]
+
+    def test_roll_out_to_everyone_replaces_a_leading_condition_that_pins_a_variant(self):
+        # A `variant` override at 100% serves that variant to everyone whatever the distribution
+        # says, so keeping it would silently ignore the variant the caller asked to roll out.
+        filters: dict[str, Any] = {
+            "groups": [{"properties": [], "rollout_percentage": 100, "variant": "control"}],
+            "multivariate": {
+                "variants": [{"key": "control", "rollout_percentage": 100}, {"key": "test", "rollout_percentage": 0}]
+            },
+        }
+
+        result = roll_out_to_everyone(filters, variant_key="test")
+
+        assert result["groups"][0] == {"properties": [], "rollout_percentage": 100}
+        assert result["groups"][1] == {"properties": [], "rollout_percentage": 100, "variant": "control"}
+
+    @parameterized.expand(
+        [
+            ("unknown_variant", {"multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]}}),
+            ("flag_has_no_variants", {"groups": []}),
+        ]
+    )
+    def test_roll_out_to_everyone_raises_for_a_variant_the_flag_does_not_define(self, _name, filters):
+        with pytest.raises(ValueError):
+            roll_out_to_everyone(filters, variant_key="test")
 
     def test_replace_release_conditions_swaps_groups_and_preserves_the_rest(self):
         filters: dict[str, Any] = {
