@@ -18,12 +18,22 @@ export default meta
 
 type StepSpec = HogFlowAction['type'] | [HogFlowAction['type'], string]
 
-function triggerConfig(type: string): Record<string, unknown> {
-    return type === 'event' ? { type, filters: {} } : { type }
+type TemplateTrigger = 'event' | 'schedule' | 'internal-event'
+
+function triggerConfig(type: TemplateTrigger): Record<string, unknown> {
+    switch (type) {
+        case 'event':
+            return { type, filters: {} }
+        case 'internal-event':
+            return {
+                type,
+                filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_created' }] },
+            }
+        case 'schedule':
+            return { type }
+    }
 }
 
-// Each step carries the config its type requires in HogFlowActionSchema, so the card is drawn from
-// the same shape the API returns rather than from a stub the schema would reject
 function stepConfig(type: HogFlowAction['type'], templateId?: string): Record<string, unknown> {
     switch (type) {
         case 'delay':
@@ -47,7 +57,7 @@ function stepConfig(type: HogFlowAction['type'], templateId?: string): Record<st
 function template(
     name: string,
     description: string,
-    trigger: string,
+    trigger: TemplateTrigger,
     steps: StepSpec[],
     tags: string[] = []
 ): HogFlowTemplate {
