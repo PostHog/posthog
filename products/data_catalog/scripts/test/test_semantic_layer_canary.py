@@ -188,19 +188,21 @@ async def test_execute_canary_rejects_dataset_without_enabled_cases() -> None:
 
 
 @pytest.mark.parametrize(
-    "malformed_path,expected_code",
+    "malformed_path,content,expected_code",
     [
-        ("/datasets/", "invalid_dataset_response"),
-        ("/dataset_items/", "invalid_dataset_item_response"),
+        ("/datasets/", b"<html>gateway error</html>", "invalid_dataset_response"),
+        ("/dataset_items/", b"<html>gateway error</html>", "invalid_dataset_item_response"),
+        ("/datasets/", b'{"results": "caf\xe9"}', "invalid_dataset_response"),
     ],
+    ids=["dataset_page_not_json", "item_page_not_json", "dataset_page_not_utf8"],
 )
 @pytest.mark.asyncio
 async def test_execute_canary_reports_an_unparseable_dataset_response_as_a_canary_error(
-    malformed_path: str, expected_code: str
+    malformed_path: str, content: bytes, expected_code: str
 ) -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith(malformed_path):
-            return httpx.Response(200, text="<html>gateway error</html>")
+            return httpx.Response(200, content=content)
         if request.url.path.endswith("/datasets/"):
             return _dataset_response()
         return _items_response([_dataset_item("ambiguous")])

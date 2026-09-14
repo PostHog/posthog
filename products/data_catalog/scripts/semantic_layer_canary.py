@@ -254,7 +254,7 @@ class PostHogCanaryClient:
         dataset_response.raise_for_status()
         try:
             dataset = select_dataset(dataset_response.json(), dataset_name)
-        except (json.JSONDecodeError, ValidationError) as error:
+        except ValueError as error:
             raise RetryableCanaryError("invalid_dataset_response") from error
         selected_revision = revision if revision is not None else dataset.current_revision
         if selected_revision is None:
@@ -281,7 +281,7 @@ class PostHogCanaryClient:
             response.raise_for_status()
             try:
                 page = parse_dataset_item_page(response.json(), seen_case_ids)
-            except (json.JSONDecodeError, ValidationError) as error:
+            except ValueError as error:
                 raise RetryableCanaryError("invalid_dataset_item_response") from error
             cases.extend(page.cases)
             if page.next_page is None:
@@ -312,7 +312,7 @@ class PostHogCanaryClient:
         _raise_for_api_error(response)
         try:
             opened = _ConversationOpenResponse.model_validate(response.json())
-        except (json.JSONDecodeError, ValidationError) as error:
+        except ValueError as error:
             raise RetryableCanaryError("invalid_open_response") from error
         if opened.trace_id != trace_id:
             raise RetryableCanaryError("invalid_open_response")
@@ -376,7 +376,7 @@ class PostHogCanaryClient:
         _raise_for_api_error(response)
         try:
             return _TaskRunResponse.model_validate(response.json()).status
-        except (json.JSONDecodeError, ValidationError) as error:
+        except ValueError as error:
             raise RetryableCanaryError("invalid_task_run_response") from error
 
     async def _confirm_terminal_status(self, opened: _ConversationOpenResponse) -> None:
