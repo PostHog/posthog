@@ -111,9 +111,9 @@ def _bind_role_locked(
     team_id = config.team_id
     current_definition_id = getattr(config, _DEFINITION_FIELD[role])
     if current_definition_id != definition_id and current_definition_id is not None:
-        managed_count = (
-            Account.objects.for_team(team_id).filter(**{f"{_CONTROLLED_AT_FIELD[role]}__isnull": False}).count()
-        )
+        # nosemgrep: orm-field-injection -- role literal, fixed field map
+        managed = Account.objects.for_team(team_id).filter(**{f"{_CONTROLLED_AT_FIELD[role]}__isnull": False})
+        managed_count = managed.count()
         if managed_count:
             raise InvalidRoleBindingError(
                 f"{managed_count} account(s) manage the {role.upper()} role; the binding cannot change while they do"
