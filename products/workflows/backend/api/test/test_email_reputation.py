@@ -17,7 +17,7 @@ from posthog.models.user import User
 from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models import HogFlow, HogFlowBatchJob
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.providers.ses import IspDailyPoint, IspSendingMetrics
+from products.workflows.backend.providers.ses import IspSendingMetrics
 
 
 class TestEmailReputationAPI(APIBaseTest):
@@ -310,16 +310,16 @@ class TestEmailReputationAPI(APIBaseTest):
                     emails_sent=900,
                     delivery_rate=0.97,
                     bounce_rate=0.01,
+                    transient_bounce_rate=0.02,
                     complaint_rate=None,
-                    daily=(IspDailyPoint(date="2026-08-01", emails_sent=900, delivery_rate=0.97, bounce_rate=0.01),),
                 ),
                 IspSendingMetrics(
                     isp="Yahoo",
                     emails_sent=100,
                     delivery_rate=0.99,
                     bounce_rate=0.0,
+                    transient_bounce_rate=0.0,
                     complaint_rate=0.002,
-                    daily=(),
                 ),
             ],
         )
@@ -330,27 +330,20 @@ class TestEmailReputationAPI(APIBaseTest):
                 "emails_sent": 900,
                 "delivery_rate": 0.97,
                 "bounce_rate": 0.01,
-                # Null rather than 0 — Gmail runs no feedback loop, so a complaint rate would be
+                "transient_bounce_rate": 0.02,
+                # Null rather than 0: Gmail runs no feedback loop, so a complaint rate would be
                 # a number we can't actually measure.
                 "complaint_rate": None,
                 "unavailable": [],
-                "daily": [
-                    {
-                        "date": "2026-08-01",
-                        "emails_sent": 900,
-                        "delivery_rate": 0.97,
-                        "bounce_rate": 0.01,
-                    }
-                ],
             },
             {
                 "isp": "Yahoo",
                 "emails_sent": 100,
                 "delivery_rate": 0.99,
                 "bounce_rate": 0.0,
+                "transient_bounce_rate": 0.0,
                 "complaint_rate": 0.002,
                 "unavailable": [],
-                "daily": [],
             },
         ]
 
@@ -426,8 +419,8 @@ class TestEmailReputationAPI(APIBaseTest):
                     emails_sent=900,
                     delivery_rate=0.97,
                     bounce_rate=0.01,
+                    transient_bounce_rate=0.0,
                     complaint_rate=None,
-                    daily=(),
                 )
             ],
         )
@@ -479,8 +472,8 @@ class TestEmailReputationAPI(APIBaseTest):
                     emails_sent=90,
                     delivery_rate=0.99,
                     bounce_rate=0.01,
+                    transient_bounce_rate=0.0,
                     complaint_rate=None,
-                    daily=(),
                 )
             ],
             isp_flag_enabled=False,
@@ -537,8 +530,8 @@ class TestEmailReputationAccessControl(APIBaseTest):
                 emails_sent=100,
                 delivery_rate=0.9,
                 bounce_rate=0.05,
+                transient_bounce_rate=0.0,
                 complaint_rate=None,
-                daily=(),
             )
         ]
         with (
