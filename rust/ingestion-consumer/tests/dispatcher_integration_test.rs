@@ -515,3 +515,44 @@ async fn purging_a_just_submitted_key_table_batch_is_not_fatal() {
         Ok(None) => panic!("batcher error channel closed unexpectedly"),
     }
 }
+
+#[tokio::test]
+async fn dropping_an_idle_key_table_batcher_closes_its_outputs() {
+    let registry = Arc::new(WorkerRegistry::new(&[], fast_config()));
+    let dispatcher = Arc::new(Dispatcher::with_scheduler(
+        registry,
+        RoutingStrategy::BinPack,
+        SchedulerKind::KeyTable,
+    ));
+    let transport = Arc::new(GrpcTransport::new(
+        GrpcPort::OffsetFromHttp(0),
+        1,
+        Duration::from_secs(30),
+    ));
+    let mut manager = Manager::builder("batcher-drop-test")
+        .with_trap_signals(false)
+        .build();
+    let handle = manager.register("batcher", ComponentOptions::new());
+    let _monitor = manager.monitor_background();
+    let (batcher, mut outputs) = Batcher::new(
+        dispatcher,
+        transport,
+        handle,
+        Duration::from_secs(10),
+        Duration::from_millis(20),
+    );
+
+    drop(batcher);
+
+    let completion = tokio::time::timeout(Duration::from_millis(100), outputs.completions.recv())
+        .await
+        .expect("dropping the batcher must not leave an idle retry task retaining its senders");
+    assert!(
+        completion.is_none(),
+        "an idle dropped batcher cannot produce a completion"
+    );
+    assert!(
+        outputs.errors.recv().await.is_none(),
+        "all output senders close with the dropped batcher"
+    );
+}
