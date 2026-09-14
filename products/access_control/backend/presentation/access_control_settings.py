@@ -57,6 +57,7 @@ from .serializers import (
     AccessControlMembersResponseSerializer,
     AccessControlObjectRulesResponseSerializer,
     AccessControlPropertyRulesResponseSerializer,
+    AccessControlResolutionAcceptResponseSerializer,
     AccessControlRolesResponseSerializer,
 )
 
@@ -234,7 +235,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         if not organization.uses_most_specific_access_resolution:
             organization.uses_most_specific_access_resolution = True
             organization.save(update_fields=["uses_most_specific_access_resolution", "updated_at"])
-        return Response({"uses_most_specific_access_resolution": True})
+        return Response(
+            AccessControlResolutionAcceptResponseSerializer({"uses_most_specific_access_resolution": True}).data
+        )
 
     @extend_schema(
         description="The project's default access. Returns the level that applies to the project and to each "
