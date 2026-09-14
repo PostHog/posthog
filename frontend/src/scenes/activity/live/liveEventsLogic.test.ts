@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -100,6 +101,10 @@ describe('liveEventsLogic', () => {
             return calls[calls.length - 1][1]
         }
 
+        function streamErrorCaptures(): unknown[] {
+            return jest.mocked(posthog.capture).mock.calls.filter(([name]) => name === 'livestream_sse_error')
+        }
+
         it.each([
             [401, 'This project cannot read the live event stream.'],
             [504, 'The live event stream failed with error 504.'],
@@ -133,6 +138,28 @@ describe('liveEventsLogic', () => {
 
             expect(toastSpy).toHaveBeenCalledTimes(sceneMounted ? 1 : 0)
             sceneLogic?.unmount()
+        })
+
+        it('reports a repeating reconnect failure once, and reports a different one again', () => {
+            const options = lastStreamOptions()
+
+            options.onError(new TypeError('Failed to fetch'))
+            options.onError(new TypeError('Failed to fetch'))
+            options.onError(new TypeError('Failed to fetch'))
+            expect(streamErrorCaptures()).toHaveLength(1)
+
+            options.onError(new ApiError(undefined, 502))
+            expect(streamErrorCaptures()).toHaveLength(2)
+        })
+
+        it('reports a reconnect failure again once the stream has recovered', () => {
+            const options = lastStreamOptions()
+
+            options.onError(new TypeError('Failed to fetch'))
+            options.onOpen?.()
+            options.onError(new TypeError('Failed to fetch'))
+
+            expect(streamErrorCaptures()).toHaveLength(2)
         })
 
         it('does not connect without a live events token, and says so', async () => {

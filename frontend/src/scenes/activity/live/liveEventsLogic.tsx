@@ -234,6 +234,7 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
         },
         updateEventsConnection: () => {
             cache.disposables.dispose('eventsConnection')
+            cache.reportedStreamError = null
 
             if (values.streamPaused) {
                 return
@@ -331,6 +332,7 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                     },
                     signal: controller.signal,
                     onOpen: () => {
+                        cache.reportedStreamError = null
                         actions.streamConnected()
                     },
                     onMessage: (event) => {
@@ -349,6 +351,13 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                     },
                     onError: (error) => {
                         const streamError = describeStreamError(error)
+                        // fetch-event-source calls this on every reconnect attempt, about once a
+                        // second, so report only the first failure of an episode. A different
+                        // message means a different failure, and is worth reporting again.
+                        if (cache.reportedStreamError === streamError.message) {
+                            return
+                        }
+                        cache.reportedStreamError = streamError.message
                         posthog.capture('livestream_sse_error', {
                             endpoint: EVENTS_ENDPOINT,
                             error_name: (error as Error | undefined)?.name,
