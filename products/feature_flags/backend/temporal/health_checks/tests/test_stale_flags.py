@@ -234,6 +234,69 @@ class TestStaleFlagsDetect(BaseTest):
                 None,
                 False,
             ),
+            # A targeted condition declared before the blanket one decides the result for the users
+            # it matches, so the cohort it pins to "test" never receives the named winner.
+            (
+                "constant_but_targeted_variant_override_first",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 100},
+                                {"key": "test", "rollout_percentage": 0},
+                            ]
+                        },
+                        "groups": [
+                            {
+                                "properties": [{"key": "email", "value": "x"}],
+                                "rollout_percentage": 100,
+                                "variant": "test",
+                            },
+                            {"properties": [], "rollout_percentage": 100},
+                        ],
+                    },
+                },
+                None,
+                False,
+            ),
+            # Variants take cumulative slices in order, so the 40 still owns the low hashes and the
+            # flag serves two variants despite the 100.
+            (
+                "constant_but_variants_overallocated",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 40},
+                                {"key": "test", "rollout_percentage": 100},
+                            ]
+                        },
+                        "groups": [{"properties": [], "rollout_percentage": 100}],
+                    },
+                },
+                None,
+                False,
+            ),
+            # The same pair the other way round is constant: nothing takes a hash before the 100.
+            (
+                "constant_when_the_hundred_comes_first",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 100},
+                                {"key": "test", "rollout_percentage": 40},
+                            ]
+                        },
+                        "groups": [{"properties": [], "rollout_percentage": 100}],
+                    },
+                },
+                None,
+                True,
+            ),
             # `early_exit` returns false on a failed rollout check instead of falling through to the
             # blanket group, so the configuration can serve two results.
             (

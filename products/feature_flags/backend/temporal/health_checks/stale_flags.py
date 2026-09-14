@@ -151,7 +151,7 @@ class StaleFeatureFlagsCheck(HealthCheck):
             flag
             for flag in filter_effectively_full_rollout_flags(reportable_flags, stale_threshold=stale_threshold)
             if flag.id not in stale_ids
-            and not _evaluates_outside_release_conditions(flag)
+            and not _serves_more_than_one_result(flag)
             and FeatureFlagStatusChecker(feature_flag=flag).get_rollout_summary(flag).effectively_full_rollout
         ]
         candidates = stale_candidates + full_rollout_candidates
@@ -191,22 +191,80 @@ class StaleFeatureFlagsCheck(HealthCheck):
         return issues
 
 
-def _evaluates_outside_release_conditions(flag: FeatureFlag) -> bool:
-    """Whether the matcher can return a result that the release conditions do not describe.
+def _serves_more_than_one_result(flag: FeatureFlag) -> bool:
+    """Whether the matcher can return more than the one result the checker named.
 
-    A holdout is resolved before the release conditions and returns `holdout-<id>` to its share,
-    legacy super groups short-circuit the same way, and `early_exit` returns false on a failed
-    rollout check instead of falling through to a later blanket condition. `FeatureFlagStatusChecker`
-    reads `groups` and `multivariate` only, so it sees none of them, and this class reports the
-    configuration itself as the evidence. `group_cohort_restriction_blocker` in
-    `products/feature_flags/backend/facade/filters.py` and `is_unconditionally_fully_rolled_out` in
-    `products/feature_flags/backend/persisted_flags.py` keep the same list for the same reason.
+    `FeatureFlagStatusChecker` reads `groups` and `multivariate` and asks whether some release
+    condition is at 100% with no properties. That is necessary for a fixed result and not
+    sufficient, so this class needs the rest of the runtime model before it calls a flag constant.
+    The checker stays as it is: it backs the flag status endpoint, the stale badge, bulk delete and
+    Max, and the raw SQL behind the public `active=STALE` filter mirrors it. A follow-up has to
+    reconcile the two meanings of full rollout; until then this guard holds the stricter one and
+    only the effectively-full-rollout class reads it.
 
     The other candidate source is left alone. Its evidence is that PostHog stopped receiving calls,
-    which a holdout does not contradict.
+    which none of this contradicts.
     """
     filters = flag.filters or {}
-    return any(filters.get(key) for key in ("holdout", "holdout_groups", "super_groups", "early_exit"))
+    # A holdout is resolved before the release conditions and returns `holdout-<id>` to its share,
+    # legacy super groups short-circuit the same way, and `early_exit` returns false on a failed
+    # rollout check instead of falling through to a later blanket condition.
+    # `group_cohort_restriction_blocker` in `products/feature_flags/backend/facade/filters.py` and
+    # `is_unconditionally_fully_rolled_out` in `products/feature_flags/backend/persisted_flags.py`
+    # keep the same list for the same reason.
+    if any(filters.get(key) for key in ("holdout", "holdout_groups", "super_groups", "early_exit")):
+        return True
+    return not _multivariate_results_agree(flag)
+
+
+def _multivariate_results_agree(flag: FeatureFlag) -> bool:
+    """Whether every user a multivariate flag can reach receives the same variant.
+
+    The matcher reads the release conditions in declaration order and stops at the first one that
+    matches, so a condition declared before the blanket one decides the result for the users it
+    matches. A condition carrying a `variant` override serves that variant, and any other condition
+    serves whatever the variant distribution gives. The flag is constant only when every one of
+    those paths lands on the same variant.
+
+    Boolean flags are constant by this test, because every condition that matches returns true.
+    """
+    filters = flag.filters or {}
+    variants = ((filters.get("multivariate") or {}).get("variants")) or []
+    if not variants:
+        return True
+
+    groups = filters.get("groups") or []
+    checker = FeatureFlagStatusChecker(feature_flag=flag)
+    decider = next((index for index, group in enumerate(groups) if checker.is_group_fully_rolled_out(group)), None)
+    if decider is None:
+        return False
+
+    distributed = _sole_reachable_variant(variants)
+    results = set()
+    for group in groups[: decider + 1]:
+        # A missing rollout_percentage evaluates to 100% at runtime, matching `get_rollout_summary`.
+        percentage = group.get("rollout_percentage")
+        if percentage is not None and percentage <= 0:
+            continue
+        results.add(group.get("variant") or distributed)
+    # `None` is in the set when a path falls through to a distribution that is not itself constant.
+    return len(results) == 1 and None not in results
+
+
+def _sole_reachable_variant(variants: list[dict]) -> str | None:
+    """The only variant the distribution can serve, or None when a user can land on more than one.
+
+    Variants take cumulative slices of the hash space in declaration order, so the first variant
+    with a non-zero rollout takes the low hashes. Only that variant exists when it takes the whole
+    space. A list such as `[40, 100]` is overallocated: the 100 does not make the flag constant,
+    because the 40 still owns the low hashes.
+    """
+    for variant in variants:
+        percentage = variant.get("rollout_percentage") or 0
+        if percentage <= 0:
+            continue
+        return variant.get("key") if percentage >= 100 else None
+    return None
 
 
 def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
