@@ -14,7 +14,7 @@ const hasValue = (input: WebhookInputValue | undefined): boolean => {
 
 /**
  * Required webhook credentials the user has not given yet. While one is missing, the webhook
- * accepts every delivery and drops it, so the provider stops retrying but no data arrives.
+ * accepts every delivery and drops it. The provider stops retrying, but no data arrives.
  */
 export function missingWebhookCredentials(
     webhookInfo: WebhookInfo | null,

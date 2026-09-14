@@ -73,9 +73,9 @@ export const getCustomHttpResponse = (
     return null
 }
 
-// Metric names a webhook template is allowed to raise from its own code. A template signals one by
-// returning `appMetric` beside `httpResponse`, which lets it answer 200 to a delivery it cannot
-// process and still have the failure counted against the function.
+// Metric names a webhook template may raise from its own code. A template signals one with
+// `appMetric`, beside `httpResponse`. This lets a template answer 200 to a delivery it cannot
+// process, and still record the failure against the function.
 const TEMPLATE_APP_METRIC_NAMES = ['missing_credential'] as const satisfies readonly MinimalAppMetric['metric_name'][]
 
 export const getCustomAppMetricName = (
@@ -416,8 +416,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 }
 
                 if (customHttpResponse) {
-                    // A template that drops a delivery answers 200 so the provider stops retrying, so the
-                    // status alone no longer says whether the delivery was processed.
+                    // A template that drops a delivery answers 200, to stop the provider retrying.
+                    // The status alone therefore no longer shows whether we processed the delivery.
                     const level = customHttpResponse.status >= 400 || customAppMetricName ? 'warn' : 'info'
                     if (level === 'warn') {
                         const bodyStr =

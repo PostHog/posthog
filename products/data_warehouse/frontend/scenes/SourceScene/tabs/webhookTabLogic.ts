@@ -266,8 +266,8 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
                 webhookInfo: WebhookInfo | null,
                 missingCredentialFields: SourceFieldConfig[]
             ): { label: string; tagType: 'success' | 'warning' | 'danger' | 'default' } => {
-                // The hog watcher never sees this fault: a dropped delivery is a healthy run, so
-                // without this the tab reports "Healthy" while no data arrives.
+                // The hog watcher never sees this fault, because a dropped delivery is a healthy
+                // run. Without this branch the tab reports "Healthy" while no data arrives.
                 if (missingCredentialFields.length > 0) {
                     return { label: 'Needs setup', tagType: 'warning' }
                 }
