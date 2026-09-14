@@ -102,7 +102,6 @@ export interface supportSettingsLogicValues {
     notificationRecipients: number[]
     placeholderTextValue: string | null
     settingDefaultEmailConfigId: string | null
-    updatingRelaySenderConfigIds: string[]
     slackAlertChannelId: string | null
     slackBotDisplayName: string | null
     slackBotDisplayNameValue: string | null
@@ -153,6 +152,7 @@ export interface supportSettingsLogicValues {
         name: string
     }[]
     teamsTeamsLoading: boolean
+    updatingRelaySenderConfigIds: string[]
     widgetEnabledLoading: boolean
 }
 
@@ -442,6 +442,12 @@ export interface supportSettingsLogicActions {
     setDefaultEmailFailed: () => {
         value: true
     }
+    setDomainInputValue: (value: string) => {
+        value: string
+    }
+    setEditingDomainIndex: (index: number | null) => {
+        index: number | null
+    }
     setEmailRelaySender: (
         configId: string,
         relaySender: string
@@ -458,12 +464,6 @@ export interface supportSettingsLogicActions {
     }
     setEmailRelaySenderFailed: (configId: string) => {
         configId: string
-    }
-    setDomainInputValue: (value: string) => {
-        value: string
-    }
-    setEditingDomainIndex: (index: number | null) => {
-        index: number | null
     }
     setGithubRepos: (repos: string[]) => {
         repos: string[]
