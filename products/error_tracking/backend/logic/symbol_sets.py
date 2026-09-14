@@ -40,9 +40,8 @@ PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 # `last_used` writes over the same window for the same reason.
 LAST_USED_UPLOAD_REFRESH_INTERVAL = datetime.timedelta(hours=12)
 
-# Each ordering has to match a column order `et_symset_team_created_idx` or
-# `et_symset_team_used_idx` can walk, so the `id` tiebreak that keeps LIMIT/OFFSET paging stable
-# follows the direction of the column it disambiguates. `ref` is unique per team, so it needs none.
+# The ID tiebreak keeps LIMIT/OFFSET paging stable when rows share a timestamp.
+# The reference is unique within a team, so it does not need a tiebreak.
 SYMBOL_SET_ORDERINGS: dict[str, tuple[str, ...]] = {
     "created_at": ("created_at", "id"),
     "-created_at": ("-created_at", "-id"),
