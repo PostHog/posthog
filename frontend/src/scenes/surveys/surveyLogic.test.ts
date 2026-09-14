@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
@@ -12,7 +14,6 @@ import {
 import { OpenEndedColumnMap } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { MOCK_DEFAULT_TEAM } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -234,7 +235,7 @@ describe('translation validation', () => {
         ).toBe(false)
     })
 
-    it.each([
+    const defaultLinkCases: [string, string, boolean][] = [
         ['a scheme-only https link', 'https:not-valid', true],
         ['a script link', 'javascript:alert(1)', true],
         ['a network share link', 'smb://attacker.example/share', true],
@@ -243,28 +244,33 @@ describe('translation validation', () => {
         ['a registered app scheme deep link', 'example-mobile://home', false],
         ['a registered app scheme with only a fragment', 'example-mobile://#promo', false],
         ['an https link', 'https://posthog.com/docs', false],
-    ])('validates default link URLs without requiring translations: %s', async (_name, link, expectsError) => {
-        teamLogic.actions.loadCurrentTeamSuccess({
-            ...MOCK_DEFAULT_TEAM,
-            survey_config: { allowed_link_schemes: ['example-mobile'] },
-        })
-        const survey = createSurveyWithLinkQuestion({ link })
+    ]
 
-        await expectLogic(logic, () => {
-            logic.actions.loadSurveySuccess(survey)
-        }).toMatchValues({
-            translationValidationErrors: expectsError
-                ? [
-                      {
-                          language: 'default',
-                          questionIndex: 0,
-                          field: 'link',
-                          error: 'Must start with https://, mailto:, or an app scheme this project allows',
-                      },
-                  ]
-                : [],
-        })
-    })
+    it.each(defaultLinkCases)(
+        'validates default link URLs without requiring translations: %s',
+        async (_name, link, expectsError) => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                survey_config: { allowed_link_schemes: ['example-mobile'] },
+            })
+            const survey = createSurveyWithLinkQuestion({ link })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(survey)
+            }).toMatchValues({
+                translationValidationErrors: expectsError
+                    ? [
+                          {
+                              language: 'default',
+                              questionIndex: 0,
+                              field: 'link',
+                              error: 'Must start with https://, mailto:, or an app scheme this project allows',
+                          },
+                      ]
+                    : [],
+            })
+        }
+    )
 
     it('does not validate survey root description translations', async () => {
         const survey = {
