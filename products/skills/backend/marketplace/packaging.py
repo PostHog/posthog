@@ -15,6 +15,7 @@ the spec serialization and tree assembly unit-testable without booting the app.
 import io
 import re
 import json
+import hashlib
 import zipfile
 import mimetypes
 from dataclasses import dataclass, field
@@ -100,6 +101,16 @@ def render_frontmatter(skill: SkillExport) -> str:
 
 def render_skill_md(skill: SkillExport) -> str:
     return render_frontmatter(skill) + "\n" + skill.body
+
+
+def utf8_digest(content: str) -> tuple[str, int]:
+    """Return the bare hex SHA-256 and the byte length of ``content`` encoded as UTF-8.
+
+    Bytes, not characters: the MCP Skills extension makes a host reject any file whose bytes do not
+    match the reported digest and size, so one multibyte character must count as its several bytes.
+    """
+    encoded = content.encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest(), len(encoded)
 
 
 @dataclass(frozen=True)

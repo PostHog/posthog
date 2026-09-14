@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
@@ -18,6 +18,8 @@ from ..models.skills import (
     annotate_llm_skill_version_history_metadata,
     category_for_skill_name,
 )
+
+_DigestModel = TypeVar("_DigestModel", LLMSkill, LLMSkillFile)
 
 MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
@@ -906,3 +908,43 @@ def set_skill_owners(team: Team, skill_name: str, users: list[User]) -> list[Use
             # write context-independent (works outside a request too).
             _owner_qs(team).create(team=team, skill_name=skill_name, user=user)
     return resolve_skill_owners(team, skill_name)
+
+
+@frozen
+class SkillDigestBackfillCounts:
+    skills: int
+    files: int
+
+
+def backfill_skill_digests(*, batch_size: int = 500, recompute: bool = False) -> SkillDigestBackfillCounts:
+    """Stamp `sha256`/`size` on rows written before digests existed. Safe to re-run.
+
+    Every write path stamps its own digest, so this only has to reach the history. It walks in
+    primary-key order and writes fixed-size batches, so a team with a long skill history cannot
+    pull the whole table into memory. `recompute` re-stamps rows that already carry a digest,
+    for when the rendered form of a SKILL.md changes.
+    """
+    return SkillDigestBackfillCounts(
+        skills=_backfill_digests(LLMSkill, batch_size, recompute),
+        files=_backfill_digests(LLMSkillFile, batch_size, recompute),
+    )
+
+
+def _backfill_digests(model: type[_DigestModel], batch_size: int, recompute: bool) -> int:
+    digest_field, _ = model.DIGEST_FIELDS
+    queryset = model.objects.all() if recompute else model.objects.filter(**{f"{digest_field}__isnull": True})
+    # Cursor on the primary key rather than re-running the "needs a digest" filter: under
+    # `recompute` that filter matches every row, so a fixed `[:batch_size]` slice would never
+    # advance and the walk would never end.
+    cursor: Any = None
+    stamped = 0
+    while True:
+        page = queryset.filter(pk__gt=cursor) if cursor is not None else queryset
+        rows = list(page.order_by("pk")[:batch_size])
+        if not rows:
+            return stamped
+        for row in rows:
+            row.stamp_digest()
+        model.objects.bulk_update(rows, list(model.DIGEST_FIELDS))
+        stamped += len(rows)
+        cursor = rows[-1].pk
