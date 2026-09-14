@@ -88,6 +88,7 @@ import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
+import { FeatureFlagFormLoadError } from './FeatureFlagFormLoadError'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagOverview } from './FeatureFlagOverview'
 import FeatureFlagProjects from './FeatureFlagProjects'
@@ -137,6 +138,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         earlyAccessFeaturesList,
         featureFlagActiveUpdateLoading,
         dependentFlags,
+        isFormDirty,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -239,7 +241,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             return <FeatureFlagFormSkeleton />
         }
         return (
-            <ChunkLoadErrorBoundary>
+            <ChunkLoadErrorBoundary
+                holdsUnsavedWork={isFormDirty}
+                fallback={(_error, retry) => <FeatureFlagFormLoadError onRetry={retry} />}
+            >
                 <Suspense fallback={<FeatureFlagFormSkeleton />}>
                     <FeatureFlagForm id={id} />
                 </Suspense>

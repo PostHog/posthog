@@ -20,7 +20,18 @@ interface State {
 interface ChunkLoadErrorBoundaryProps {
     children: ReactNode
     reload?: () => void
-    fallback?: (error: unknown) => ReactNode
+    /**
+     * `retry` clears the caught error and re-renders `children`, which re-requests the
+     * missing chunk. State held outside this subtree survives that, so a fallback that
+     * offers `retry` lets the person carry on rather than start over.
+     */
+    fallback?: (error: unknown, retry: () => void) => ReactNode
+    /**
+     * Set when the subtree holds state the person has typed and not yet saved, so a
+     * scripted reload would discard it. The boundary then renders `fallback` straight
+     * away and leaves the reload to the person.
+     */
+    holdsUnsavedWork?: boolean
 }
 
 export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProps, State> {
@@ -32,6 +43,12 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
 
     override componentDidCatch(error: unknown): void {
         if (!isChunkLoadError(error)) {
+            return
+        }
+        // Reloading cannot recover this subtree: its own chunk already loaded, so only a chunk it
+        // asked for later is missing. It would just discard what the person has typed since.
+        if (this.props.holdsUnsavedWork && this.props.fallback) {
+            this.setState({ surface: true })
             return
         }
         let lastReload = 0
@@ -60,10 +77,14 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
         }
     }
 
+    private retry = (): void => {
+        this.setState({ error: null, surface: false })
+    }
+
     override render(): ReactNode {
         const { error, surface } = this.state
         if (error && surface && isChunkLoadError(error) && this.props.fallback) {
-            return this.props.fallback(error)
+            return this.props.fallback(error, this.retry)
         }
         if (error && (!isChunkLoadError(error) || surface)) {
             throw error

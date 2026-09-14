@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Component, type ReactNode } from 'react'
 
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
@@ -27,6 +27,16 @@ function ThrowChunkError(): JSX.Element {
     throw new TypeError('Failed to fetch dynamically imported module: /static/react-json-view.js')
 }
 
+let chunkArrived = false
+
+// A chunk the mounted subtree requests later, like the Monaco editor inside the feature flag form.
+function ThrowChunkErrorUntilItArrives(): JSX.Element {
+    if (!chunkArrived) {
+        throw new TypeError('Failed to fetch dynamically imported module: /static/monaco.js')
+    }
+    return <div>editor loaded</div>
+}
+
 function ThrowRegularError(): JSX.Element {
     throw new Error('regular render failure')
 }
@@ -41,6 +51,7 @@ describe('ChunkLoadErrorBoundary', () => {
     let consoleWarnSpy: jest.SpyInstance
 
     beforeEach(() => {
+        chunkArrived = false
         window.localStorage.clear()
         consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
         consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
@@ -108,6 +119,42 @@ describe('ChunkLoadErrorBoundary', () => {
         expect(
             screen.queryByText('Failed to fetch dynamically imported module: /static/react-json-view.js')
         ).not.toBeInTheDocument()
+    })
+
+    it('renders the fallback instead of reloading when the subtree holds unsaved work', () => {
+        const reload = jest.fn()
+
+        render(
+            <TestErrorBoundary>
+                <ChunkLoadErrorBoundary reload={reload} holdsUnsavedWork fallback={() => <div>keep editing</div>}>
+                    <ThrowChunkErrorUntilItArrives />
+                </ChunkLoadErrorBoundary>
+            </TestErrorBoundary>
+        )
+
+        expect(reload).not.toHaveBeenCalled()
+        expect(screen.getByText('keep editing')).toBeInTheDocument()
+        // Nothing reloaded, so the guard window must stay free for a later genuine reload.
+        expect(window.localStorage.getItem(RELOAD_GUARD_KEY)).toBeNull()
+    })
+
+    it('re-renders children when the fallback retries', () => {
+        render(
+            <TestErrorBoundary>
+                <ChunkLoadErrorBoundary
+                    reload={jest.fn()}
+                    holdsUnsavedWork
+                    fallback={(_error, retry) => <button onClick={retry}>try again</button>}
+                >
+                    <ThrowChunkErrorUntilItArrives />
+                </ChunkLoadErrorBoundary>
+            </TestErrorBoundary>
+        )
+
+        chunkArrived = true
+        fireEvent.click(screen.getByText('try again'))
+
+        expect(screen.getByText('editor loaded')).toBeInTheDocument()
     })
 
     it('lets non-chunk errors bubble to the parent error boundary', () => {
