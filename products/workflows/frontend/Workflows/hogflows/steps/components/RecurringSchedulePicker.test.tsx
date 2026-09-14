@@ -50,6 +50,7 @@ describe('RecurringSchedulePicker', () => {
         renderWithSchedule('FREQ=HOURLY;INTERVAL=6;BYHOUR=9,12')
 
         expect(screen.getByText(/stays as it is/)).toBeInTheDocument()
+        expect(screen.getByText('Runs on a custom schedule, starting April 10.')).toBeInTheDocument()
         expect(logic.values.hasUnsavedChanges).toBe(false)
     })
 })

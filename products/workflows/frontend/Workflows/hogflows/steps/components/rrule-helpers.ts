@@ -343,12 +343,36 @@ export function parseNaturalLanguage(text: string, startsAt?: string | null): Sc
     }
 }
 
+/** A canonical form of a rule string, so that two spellings of the same rule compare equal. */
+function canonicalRRule(rruleStr: string): string {
+    return Object.entries(RRule.parseString(rruleStr))
+        .filter(([, value]) => value !== null && value !== undefined)
+        .map(([key, value]) => `${key}=${String(value)}`)
+        .sort()
+        .join(';')
+}
+
+/**
+ * True when RRule reads the text back into the same rule. RRule.toText() drops the clauses
+ * it cannot say, for example BYHOUR on an hourly rule, and puts no marker in the text, so
+ * the text alone does not show that part of the rule is missing.
+ */
+function textRebuildsRule(text: string, rruleStr: string): boolean {
+    return canonicalRRule(RRule.fromText(text).toString()) === canonicalRRule(rruleStr)
+}
+
 /** Convert a ScheduleState to a human-readable text like "every week on Monday, Wednesday". */
 export function scheduleToText(state: ScheduleState, startsAt: string | null): string {
     try {
         const options = buildRRuleOptions(state, startsAt)
         const rule = new RRule(options as ConstructorParameters<typeof RRule>[0])
-        return rule.toText()
+        const text = rule.toText()
+        // A kept rule has no other description in the picker, and the text also prefills the
+        // natural language field, so state the rule in words only when the words hold it all.
+        if (state.rawRRule && !textRebuildsRule(text, state.rawRRule)) {
+            return ''
+        }
+        return text
     } catch {
         return ''
     }

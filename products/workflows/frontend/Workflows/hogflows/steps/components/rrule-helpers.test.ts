@@ -351,9 +351,12 @@ describe('rrule-helpers', () => {
             expect(buildSummary(state, null)).toContain('Runs every hour')
         })
 
-        it('describes a kept rule with its own wording', () => {
-            const state = parseRRuleToState('FREQ=MINUTELY;INTERVAL=30', null)
-            expect(buildSummary(state, null)).toBe('Runs every 30 minutes.')
+        it.each([
+            ['FREQ=MINUTELY;INTERVAL=30', 'Runs every 30 minutes.'],
+            ['FREQ=HOURLY;INTERVAL=6;BYHOUR=9,12', 'Runs on a custom schedule.'],
+            ['FREQ=HOURLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR', 'Runs on a custom schedule.'],
+        ])('describes the kept rule %s as "%s"', (rrule, expected) => {
+            expect(buildSummary(parseRRuleToState(rrule, null), null)).toBe(expected)
         })
 
         it('returns interval string for daily interval 2', () => {
@@ -472,6 +475,11 @@ describe('rrule-helpers', () => {
             ],
         ])('converts state to "%s"', (_label, state, expected) => {
             expect(scheduleToText(state, null)).toBe(expected)
+        })
+
+        it('returns no text for a kept rule the text cannot rebuild', () => {
+            const state = parseRRuleToState('FREQ=HOURLY;INTERVAL=6;BYHOUR=9,12', null)
+            expect(scheduleToText(state, null)).toBe('')
         })
     })
 })
