@@ -1,6 +1,7 @@
 import posthog, { BeforeSendFn, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dropUnhandledAbortExceptions } from 'lib/exception-filters'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
@@ -32,6 +33,7 @@ export interface LoadPostHogJSOptions {
      * Hook posthog-js's `before_send` so the caller can mutate or drop events before they leave
      * the browser. Used by the exporter app to redact the SharingConfiguration access token from
      * URL-shaped properties on the interview share page — see `frontend/src/exporter/index.tsx`.
+     * Runs after `dropUnhandledAbortExceptions`, which every app gets.
      */
     beforeSend?: BeforeSendFn | BeforeSendFn[]
     /**
@@ -42,6 +44,8 @@ export interface LoadPostHogJSOptions {
 }
 
 export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
+    const beforeSend: BeforeSendFn[] = [dropUnhandledAbortExceptions].concat(options.beforeSend ?? [])
+
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(window.JS_POSTHOG_API_KEY, {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
@@ -61,7 +65,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            before_send: beforeSend,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
