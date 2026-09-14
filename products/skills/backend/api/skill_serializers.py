@@ -659,8 +659,8 @@ class LLMSkillSerializer(serializers.ModelSerializer):
     @extend_schema_field(LLMSkillSpecProblemSerializer(many=True))
     def get_spec_problems(self, instance: LLMSkill) -> list[dict[str, Any]]:
         # Like owners: the list endpoint pre-resolves paths for the whole page (one query) and passes
-        # them via context to avoid N+1; a single-skill fetch reads them on demand. Paths only —
-        # loading the relation would carry every bundled file's content the response never returns.
+        # them via context to avoid N+1; a single-skill fetch reads them on demand. Paths only,
+        # because loading the relation would carry every bundled file's content the response drops.
         paths_by_skill_id = self.context.get("file_paths_by_skill_id")
         if paths_by_skill_id is not None:
             paths = paths_by_skill_id.get(instance.id, [])
