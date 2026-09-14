@@ -1136,6 +1136,54 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.hasUnrenderableWindow).toBe(true)
         })
 
+        // The leading span reports everything up to its handover point, so a later window that is
+        // blank before that point is time the banner and the telemetry already count.
+        it.each([
+            {
+                description: 'drops a later window span the leading span already covers',
+                firstSourceSnapshots: [idle(START)],
+                secondSourceSnapshots: [
+                    w2inc(START + 61000),
+                    w2inc(START + 62000),
+                    w2fs(LATE_FS_TS),
+                    w2inc(LATE_FS_TS + 1000),
+                ],
+                expectedLeadingUnplayableMs: LATE_FS_TS - START,
+                expectedUnrenderableWindowMs: 0,
+                expectedHasUnrenderable: false,
+            },
+            {
+                // window 1 recovers on its own late full snapshot, and window 2 stays blank across it
+                description: 'keeps only the part of a later window span that follows the handover',
+                firstSourceSnapshots: [idle(START)],
+                secondSourceSnapshots: [
+                    ...w2moves(START + 61000, START + 111000),
+                    fs(START + 116000),
+                    w1move(START + 117000),
+                    w1move(START + 122000),
+                    ...w2moves(START + 127000, START + 177000),
+                ],
+                expectedLeadingUnplayableMs: 116000,
+                expectedUnrenderableWindowMs: 55000,
+                expectedHasUnrenderable: true,
+            },
+        ])(
+            '$description',
+            ({
+                firstSourceSnapshots,
+                secondSourceSnapshots,
+                expectedLeadingUnplayableMs,
+                expectedUnrenderableWindowMs,
+                expectedHasUnrenderable,
+            }) => {
+                seedRecording(firstSourceSnapshots, secondSourceSnapshots)
+
+                expect(logic.values.leadingUnplayableMs).toBe(expectedLeadingUnplayableMs)
+                expect(logic.values.unrenderableWindowMs).toBe(expectedUnrenderableWindowMs)
+                expect(logic.values.hasUnrenderableWindow).toBe(expectedHasUnrenderable)
+            }
+        )
+
         it('leaves a recording with no full snapshot at all to the unplayable takeover', () => {
             // the full-screen error replaces the player here, so a banner behind it would count
             // recordings this warning never helped

@@ -2055,7 +2055,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         if (blankSegment.windowId !== windowId) {
                             continue
                         }
-                        const spanStart = Math.max(blankSegment.startTimestamp, segment.startTimestamp)
+                        // The leading span already claims every millisecond before the handover, so a
+                        // blank stretch that starts earlier keeps only the part after it. Without this
+                        // the banner and the telemetry report the same lost time twice.
+                        const spanStart = Math.max(
+                            blankSegment.startTimestamp,
+                            segment.startTimestamp,
+                            handoverTimestamp
+                        )
                         const spanEnd = Math.min(blankSegment.endTimestamp, endTimestamp)
                         if (spanEnd <= spanStart) {
                             continue
