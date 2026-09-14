@@ -8,8 +8,6 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -81,7 +79,7 @@ class DecagonResumeConfig:
     timestamp_filter: Optional[str] = None
 
 
-@frozen
+@dataclasses.dataclass(frozen=True)
 class _IncrementalWindow:
     """The server-side bound a walk sends on every request."""
 
@@ -101,7 +99,7 @@ class _IncrementalWindow:
         return params
 
 
-@frozen
+@dataclasses.dataclass(frozen=True)
 class _Batch:
     """One page of a walk: the response envelope, the rows it carried, and the rows to emit."""
 
