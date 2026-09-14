@@ -27,6 +27,7 @@ const TILE_SPACING_OPTIONS: { value: DashboardTileSpacing; label: string }[] = [
 const GRID_COMPACTION_OPTIONS: {
     value: DashboardGridCompactionType
     label: JSX.Element
+    description: string
 }[] = [
     {
         value: DashboardGridCompaction.Vertical,
@@ -39,6 +40,7 @@ const GRID_COMPACTION_OPTIONS: {
                 <DashboardTileMovementPreview mode={DashboardGridCompaction.Vertical} />
             </span>
         ),
+        description: 'Tiles move up to fill empty space. Tiles you drop on move down.',
     },
     {
         value: DashboardGridCompaction.Horizontal,
@@ -50,6 +52,7 @@ const GRID_COMPACTION_OPTIONS: {
                 <DashboardTileMovementPreview mode={DashboardGridCompaction.Horizontal} />
             </span>
         ),
+        description: 'Tiles move left to fill empty space. Tiles you drop on move right.',
     },
     {
         value: DashboardGridCompaction.Stable,
@@ -61,6 +64,7 @@ const GRID_COMPACTION_OPTIONS: {
                 <DashboardTileMovementPreview mode={DashboardGridCompaction.Stable} />
             </span>
         ),
+        description: 'Tiles stay where you put them. Tiles you drop on move down.',
     },
 ]
 
@@ -111,7 +115,7 @@ export function DashboardCustomizeMenu(): JSX.Element | null {
                     onChange={setGridCompaction}
                     options={GRID_COMPACTION_OPTIONS}
                     radioPosition="top"
-                    className="flex-1"
+                    className="flex-1 max-w-80"
                     aria-label="How moving a tile rearranges other tiles"
                 />
             </div>
