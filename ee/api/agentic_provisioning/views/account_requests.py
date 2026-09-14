@@ -74,7 +74,9 @@ class AccountRequestsView(ProvisioningAPIView):
         configuration = data["configuration"]
 
         if not partner.provisioning.can_create_accounts:
-            capture_provisioning_event("account_request", "error", error_code="account_creation_disabled")
+            capture_provisioning_event(
+                "account_request", "error", partner=partner, error_code="account_creation_disabled"
+            )
             raise ProvisioningError("forbidden", "Account creation is not enabled for this partner", status=403)
 
         self.charge_rate_limit(request, partner)

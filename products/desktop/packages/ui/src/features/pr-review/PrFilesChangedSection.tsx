@@ -1,5 +1,5 @@
 import { CheckIcon, GitBranchIcon, GitDiffIcon } from "@phosphor-icons/react";
-import { Button, Spinner, ToggleGroup, ToggleGroupItem } from "@posthog/quill";
+import { Button, ToggleGroup, ToggleGroupItem } from "@posthog/quill";
 import {
   useDiffViewerStore,
   type ViewMode,
@@ -9,6 +9,7 @@ import { useDiffOptions } from "@posthog/ui/features/code-review/reviewShellPart
 import { usePrChangedFiles } from "@posthog/ui/features/git-interaction/useGitQueries";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
 import { NestedButton } from "@posthog/ui/primitives/NestedButton";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import {

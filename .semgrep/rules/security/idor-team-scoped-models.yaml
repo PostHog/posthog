@@ -74,6 +74,7 @@ rules:
                               |AgentTransportBinding
                               |AgentUser
                               |AIObservabilityChecklistItemState
+                              |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -115,6 +116,7 @@ rules:
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
                               |Conversation
+                              |ConversationInboundEvent
                               |ConversationRestoreToken
                               |CoreMemory
                               |CustomerJourney
@@ -242,6 +244,7 @@ rules:
                               |KnowledgeChunk
                               |KnowledgeDocument
                               |KnowledgeGapSuggestion
+                              |KnowledgeLearningRun
                               |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
@@ -307,6 +310,7 @@ rules:
                               |ReplayObservation
                               |ReplayObservationLabel
                               |ReplayObservationUsage
+                              |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
                               |ReplayScannerPromptSuggestion
@@ -331,9 +335,11 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportPullRequest
                               |SignalReportAssignment
                               |SignalReportRefund
                               |SignalReportTask
+                              |SignalReportTrackerIssue
                               |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
@@ -374,6 +380,7 @@ rules:
                               |ChannelFeedMessage
                               |EmailChannel
                               |EvaluationReport
+                              |EvaluationBackfill
                               |Text
                               |Threshold
                               |ToleratedHash
@@ -394,6 +401,7 @@ rules:
                               |UserRepoPreference
                               |VisionAlertConfiguration
                               |VisionAlertMatch
+                              |WikiPageProposal
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
@@ -479,6 +487,7 @@ rules:
                         |AgentTransportBinding
                         |AgentUser
                         |AIObservabilityChecklistItemState
+                        |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -520,6 +529,7 @@ rules:
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
                         |Conversation
+                        |ConversationInboundEvent
                         |ConversationRestoreToken
                         |CoreMemory
                         |CustomerJourney
@@ -644,6 +654,7 @@ rules:
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeGapSuggestion
+                        |KnowledgeLearningRun
                         |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
@@ -702,6 +713,7 @@ rules:
                         |ReplayObservation
                         |ReplayObservationLabel
                         |ReplayObservationUsage
+                        |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
                         |ReplayScannerPromptSuggestion
@@ -726,9 +738,11 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportPullRequest
                         |SignalReportAssignment
                         |SignalReportRefund
                         |SignalReportTask
+                        |SignalReportTrackerIssue
                         |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
@@ -768,6 +782,7 @@ rules:
                         |ChannelFeedMessage
                         |EmailChannel
                         |EvaluationReport
+                        |EvaluationBackfill
                         |Text
                         |Threshold
                         |ToleratedHash
@@ -788,6 +803,7 @@ rules:
                         |UserRepoPreference
                         |VisionAlertConfiguration
                         |VisionAlertMatch
+                        |WikiPageProposal
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
@@ -1223,7 +1239,6 @@ rules:
                               |InsightViewed
                               |KernelRuntime
                               |MCPServerInstallation
-                              |PersistedFolder
                               |Reminder
                               |SessionRecordingViewed
                               |UserFacetSettings
@@ -1297,7 +1312,6 @@ rules:
                         |FileSystemViewLog
                         |InsightViewed
                         |KernelRuntime
-                        |PersistedFolder
                         |Reminder
                         |SessionRecordingViewed
                         |UserFacetSettings

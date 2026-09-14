@@ -1,17 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheck, IconChevronDown, IconX } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCheckbox,
-    LemonDivider,
-    LemonDropdown,
-    LemonInput,
-    LemonInputSelect,
-    LemonSnack,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonInputSelect, LemonSnack } from '@posthog/lemon-ui'
 
-import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
+import { AccountAssignmentFilter } from 'lib/components/AccountAssignmentFilter/AccountAssignmentFilter'
 
 import { tagsModel } from '~/models/tagsModel'
 
@@ -22,7 +14,7 @@ export function AnnouncementAccountFilters(): JSX.Element {
         accountSearch,
         accountTags,
         assignedTo,
-        allUnassigned,
+        assignmentStatus,
         assignedToCurrentUser,
         filtersActive,
         filteredChannels,
@@ -33,7 +25,7 @@ export function AnnouncementAccountFilters(): JSX.Element {
         setAccountSearch,
         setAccountTags,
         setAssignedTo,
-        setAllUnassigned,
+        setAssignmentStatus,
         setMyAccounts,
         clearAccountFilters,
         selectAllFilteredChannels,
@@ -43,14 +35,6 @@ export function AnnouncementAccountFilters(): JSX.Element {
 
     const tagsButtonLabel =
         accountTags.length === 0 ? 'All tags' : accountTags.length === 1 ? accountTags[0] : `${accountTags.length} tags`
-    const assignedButtonLabel = allUnassigned
-        ? 'Unassigned'
-        : assignedTo.length === 0
-          ? 'Assigned to anyone'
-          : assignedTo.length === 1
-            ? 'Assigned to 1 person'
-            : `Assigned to ${assignedTo.length} people`
-
     const matchCountLabel = filteredAccountChannelIdsLoading
         ? 'Finding matching channels…'
         : `${filteredChannels.length} ${filteredChannels.length === 1 ? 'channel matches' : 'channels match'}`
@@ -87,29 +71,17 @@ export function AnnouncementAccountFilters(): JSX.Element {
                         {tagsButtonLabel}
                     </LemonButton>
                 </LemonDropdown>
-                <LemonDropdown
-                    closeOnClickInside={false}
-                    overlay={
-                        <div className="p-2 min-w-64 flex flex-col gap-2">
-                            <LemonCheckbox
-                                checked={allUnassigned}
-                                onChange={setAllUnassigned}
-                                label="Unassigned only"
-                                data-attr="announcement-accounts-unassigned-filter"
-                            />
-                            <LemonDivider className="my-0" />
-                            <MemberSelectMultiple
-                                idKey="id"
-                                value={assignedTo}
-                                onChange={(users) => setAssignedTo(users.map((user) => user.id))}
-                            />
-                        </div>
-                    }
-                >
-                    <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                        {assignedButtonLabel}
-                    </LemonButton>
-                </LemonDropdown>
+                <AccountAssignmentFilter
+                    assignedToUserIds={assignedTo}
+                    status={assignmentStatus}
+                    onAssignedToUserIdsChange={setAssignedTo}
+                    onStatusChange={setAssignmentStatus}
+                    dataAttrs={{
+                        unassigned: 'announcement-accounts-unassigned-filter',
+                        assigned: 'announcement-accounts-assigned-filter',
+                        all: 'announcement-accounts-all-assignment-filter',
+                    }}
+                />
                 <LemonCheckbox
                     checked={assignedToCurrentUser}
                     onChange={setMyAccounts}

@@ -5,7 +5,6 @@ import { LemonButton, LemonSegmentedButton, SpinnerOverlay } from '@posthog/lemo
 import {
     BarChart,
     type BarChartConfig,
-    createXAxisTickCallback,
     type DateRangeZoomData,
     DefaultTooltip,
     type HeatmapBrushData,
@@ -105,11 +104,9 @@ export function TracingSparkline({
     // Duration mode is categorical (1ms, 2ms, ...); activity mode is a time axis keyed on ISO dates.
     const timeConfig = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
-            xAxis: {
-                tickFormatter: createXAxisTickCallback({ allDays: sparklineData.dates, timezone: displayTimezone }),
-            },
+            xAxis: { timezone: displayTimezone },
         }),
-        [sparklineData.dates, displayTimezone]
+        [displayTimezone]
     )
     const durationConfig = useChartConfig<BarChartConfig>(() => ({}), [])
 

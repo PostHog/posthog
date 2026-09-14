@@ -121,4 +121,59 @@ describe("groupToolRuns", () => {
     ]);
     expect(out[1]).toMatchObject({ id: "action" });
   });
+
+  it("keeps a chart-rendering tool call out of the chip so its UI app never hides behind it", () => {
+    // The group collapses to "Thinking…" while a later call in the run is live,
+    // hiding the already-rendered chart.
+    const chartCall = toolItem("chart", { toolCallId: "chart" });
+    chartCall.turnContext.toolCalls.set("chart", {
+      toolCallId: "chart",
+      title: "chart",
+      kind: "execute",
+      status: "completed",
+      rawOutput: {
+        _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+      },
+    });
+
+    const out = groupToolRuns([
+      toolItem("before-1"),
+      toolItem("before-2"),
+      chartCall,
+      toolItem("after-1"),
+      toolItem("after-2"),
+    ]);
+
+    expect(out.map((row) => row.type)).toEqual([
+      "tool_group",
+      "session_update",
+      "tool_group",
+    ]);
+    expect(out[1]).toMatchObject({ id: "chart" });
+  });
+
+  it("still groups an MCP tool call whose result has no UI app", () => {
+    const execCall = toolItem("exec", {
+      toolCallId: "exec",
+      _meta: posthogToolMeta({
+        toolName: "mcp__posthog__exec",
+        mcp: { server: "posthog", tool: "exec" },
+      }),
+    });
+    execCall.turnContext.toolCalls.set("exec", {
+      toolCallId: "exec",
+      title: "exec",
+      kind: "execute",
+      status: "completed",
+      rawOutput: { content: [{ type: "text", text: "no chart here" }] },
+    });
+
+    const out = groupToolRuns([
+      toolItem("before"),
+      execCall,
+      toolItem("after"),
+    ]);
+
+    expect(out.map((row) => row.type)).toEqual(["tool_group"]);
+  });
 });

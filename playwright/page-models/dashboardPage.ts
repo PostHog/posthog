@@ -12,7 +12,6 @@ export class DashboardPage {
     readonly insightCards: Locator
     readonly textCards: Locator
     readonly dateFilter: Locator
-    readonly overridesBanner: Locator
     readonly variableButtons: Locator
 
     constructor(page: Page) {
@@ -23,7 +22,6 @@ export class DashboardPage {
         this.insightCards = page.locator('.InsightCard')
         this.textCards = page.getByTestId('text-card')
         this.dateFilter = page.getByTestId('date-filter')
-        this.overridesBanner = page.getByText('You are viewing this dashboard with filter overrides.')
         this.variableButtons = page.locator('.DataVizVariable_Button')
     }
 

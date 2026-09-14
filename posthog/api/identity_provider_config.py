@@ -352,7 +352,9 @@ class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
                 code="unscoped_config",
             )
 
-        return super().destroy(request, *args, **kwargs)
+        with transaction.atomic():
+            self.perform_destroy(config)
+        return response.Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(parameters=[SCIMRequestLogQuerySerializer], responses=PaginatedSCIMRequestLogSerializer)
     @action(methods=["GET"], detail=True, url_path="scim/logs")

@@ -73,6 +73,34 @@ export const ExternalDataJobsSchemasSchema = z
     .array(z.string())
     .describe('Filter jobs by table schema names (e.g. ["users", "orders"]). Only returns jobs for these tables.')
 
+export const BillingTeamIdsSchema = z
+    .array(z.number().int().positive())
+    .nullish()
+    .describe(
+        'Project IDs to filter by, e.g. `[1,2]`. Omit for every project this request can see: all organization projects for full billing access, or the member-visible and token-scoped projects for member read-only access.'
+    )
+
+export const BillingUsageTypesSchema = z
+    .array(z.string().min(1))
+    .nullish()
+    .describe(
+        'Usage type identifiers to filter by, e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
+    )
+
+export const BillingSpendBreakdownsSchema = z
+    .array(z.enum(['type', 'team']))
+    .nullish()
+    .describe(
+        'Dimensions to break spend down by. Pass `["type"]` for per-product series, `["team"]` for one series per project summed across products, or `["type","team"]` for per-project series within each product. Omit for one aggregate series.'
+    )
+
+export const BillingUsageBreakdownsSchema = z
+    .array(z.enum(['type', 'team']))
+    .nullish()
+    .describe(
+        'Dimensions to break usage down by. Pass `["type"]` for per-usage-type series or `["type","team"]` for per-project series within each usage type. Team breakdowns require `"type"`; do not pass `["team"]` by itself. Omit for one aggregate series.'
+    )
+
 export const ExternalDataSourcePayloadSchema = z
     .record(z.string(), z.unknown())
     .describe(
@@ -214,43 +242,6 @@ export const PromptListInputSchema = z.object({
             "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely."
         ),
 })
-
-export const ReportInboxInputSchema = z
-    .object({
-        view: z
-            .enum(['actionable', 'needs_input', 'monitoring', 'resolved', 'dismissed', 'not_actionable', 'all'])
-            .default('actionable')
-            .describe('Inbox section to return. Defaults to actionable reports that are ready to pick up.'),
-        scope: z
-            .enum(['for_me', 'entire_project', 'teammate'])
-            .default('entire_project')
-            .describe('Limit results by suggested reviewer, or search the entire project.'),
-        teammate_uuid: z.string().uuid().optional().describe('PostHog user UUID required when scope is teammate.'),
-        priorities: z
-            .array(z.enum(['P0', 'P1', 'P2', 'P3', 'P4']))
-            .optional()
-            .describe(
-                "Priorities to include. When omitted, uses the requesting user's personal PR-generation threshold, falling back to the project threshold."
-            ),
-        source_products: z.array(z.string()).optional(),
-        scouts: z.array(z.string()).optional().describe('Scout skill_name slugs to include.'),
-        search: z.string().optional().describe('Case-insensitive substring match against report title and summary.'),
-        sort: z.enum(['priority', 'last_updated', 'newest', 'oldest']).default('priority'),
-        limit: z.number().int().min(1).max(10).default(10),
-        offset: z.number().int().min(0).optional(),
-    })
-    .superRefine((data, context) => {
-        if (data.scope === 'teammate' && !data.teammate_uuid) {
-            context.addIssue({ code: 'custom', path: ['teammate_uuid'], message: 'Required when scope is teammate.' })
-        }
-    })
-    .transform(({ priorities, source_products, scouts, ...query }) => ({
-        ...query,
-        priority: priorities?.join(','),
-        use_priority_preference: priorities === undefined ? true : undefined,
-        source_product: source_products?.join(','),
-        scout: scouts?.join(','),
-    }))
 
 export const FeedbackSubmitSchema = z
     .object({

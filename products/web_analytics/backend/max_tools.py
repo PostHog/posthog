@@ -26,8 +26,8 @@ from posthog.models.health_issue import HealthIssue
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from posthog.temporal.health_checks.processing import _process_batch_detection
-from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded, get_detect_fn
+from posthog.temporal.health_checks.processing import run_check_for_team
+from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.replay_vision.backend.facade.api import fetch_page_session_observations
@@ -328,8 +328,7 @@ class WebAnalyticsDoctorTool(MaxTool):
 
 
 def _reevaluate_one_check(team_id: int, kind: str) -> None:
-    detect_fn = get_detect_fn(kind)
-    _process_batch_detection(team_ids=[team_id], kind=kind, detect_fn=detect_fn)
+    run_check_for_team(kind=kind, team_id=team_id)
 
 
 def _load_active_web_issues(team_id: int, kinds: list[str]) -> list[HealthIssue]:

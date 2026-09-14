@@ -3,7 +3,10 @@ from enum import StrEnum
 
 from posthog.schema import AlertState
 
+from posthog.dataclasses import frozen
 from posthog.slo.types import SloConfig
+
+DEFAULT_MAX_DUE_ALERTS_PER_SCHEDULE_RUN = 300
 
 
 class PrepareAction(StrEnum):
@@ -29,6 +32,11 @@ class AlertInfo:
     distinct_id: str
     calculation_interval: str | None
     insight_id: int
+
+
+@frozen
+class ScheduleDueAlertChecksWorkflowInputs:
+    max_alerts_per_run: int = DEFAULT_MAX_DUE_ALERTS_PER_SCHEDULE_RUN
 
 
 @dataclasses.dataclass(frozen=True)

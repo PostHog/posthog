@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { Writable } from "node:stream";
+import type { Readable, Writable } from "node:stream";
 import type {
   CanUseTool,
   McpServerConfig,
@@ -105,6 +105,7 @@ export interface BuildOptionsParams {
   onModeChange?: OnModeChange;
   onProcessSpawned?: (info: ProcessSpawnedInfo) => void;
   onProcessExited?: (pid: number) => void;
+  onStartupOutput?: (stdout: Readable) => void;
   effort?: EffortLevel;
   enrichmentDeps?: FileEnrichmentDeps;
   enrichedReadCache?: EnrichedReadCache;
@@ -486,6 +487,7 @@ function buildSpawnWrapper(
   onProcessExited?: (pid: number) => void,
   logger?: Logger,
   oauthToken?: string,
+  onStartupOutput?: (stdout: Readable) => void,
 ): (options: SpawnOptions) => SpawnedProcess {
   return (spawnOpts: SpawnOptions): SpawnedProcess => {
     const command = oauthToken ? "/bin/bash" : spawnOpts.command;
@@ -509,6 +511,8 @@ function buildSpawnWrapper(
         ? ["pipe", "pipe", "pipe", "pipe"]
         : ["pipe", "pipe", "pipe"],
     });
+
+    if (child.stdout) onStartupOutput?.(child.stdout);
 
     if (oauthToken) {
       const tokenPipe = child.stdio[3] as Writable;
@@ -657,8 +661,9 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     },
     // Surfaces the traceparent hook's output as `hook_response` messages.
     includeHookEvents:
-      params.userProvidedOptions?.includeHookEvents ??
-      traceparentHookSettings !== undefined,
+      !!params.onStartupOutput ||
+      (params.userProvidedOptions?.includeHookEvents ??
+        traceparentHookSettings !== undefined),
     mcpServers: buildMcpServers(
       params.userProvidedOptions?.mcpServers,
       params.mcpServers,
@@ -695,13 +700,16 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     abortController: getAbortController(
       params.userProvidedOptions?.abortController,
     ),
-    ...((params.onProcessSpawned || params.machineAuth?.oauthToken) && {
+    ...((params.onProcessSpawned ||
+      params.machineAuth?.oauthToken ||
+      params.onStartupOutput) && {
       spawnClaudeCodeProcess: buildSpawnWrapper(
         params.sessionId,
         params.onProcessSpawned,
         params.onProcessExited,
         params.logger,
         params.machineAuth?.oauthToken,
+        params.onStartupOutput,
       ),
     }),
   };

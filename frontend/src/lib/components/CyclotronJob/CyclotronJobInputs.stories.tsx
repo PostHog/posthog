@@ -72,7 +72,7 @@ const meta: Meta<StoryArgs> = {
     render: ({ scope }) => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/integrations': {
+                '/api/projects/:team_id/integrations': {
                     results: [slackIntegration(scope)],
                 },
                 '/api/environments/:team_id/integrations/:intId/channels': {

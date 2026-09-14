@@ -9998,6 +9998,7 @@ describe("SessionService", () => {
 
     it("does not restore persisted options unsupported by the resumed session", async () => {
       const service = getSessionService();
+      mockTrpcAgent.setConfigOption.mutate.mockResolvedValue(undefined);
       const modelOption: SessionConfigOption = {
         id: "model",
         name: "Model",
@@ -10246,13 +10247,13 @@ describe("SessionService", () => {
       expect(mockTrpcAgent.start.mutate).toHaveBeenCalled();
     });
 
-    it("handles missing session gracefully", async () => {
+    it("rejects a retry when no session remains", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
 
       await expect(
         service.clearSessionError("task-123", "/repo"),
-      ).resolves.not.toThrow();
+      ).rejects.toThrow("Failed to reconnect to session");
     });
   });
 

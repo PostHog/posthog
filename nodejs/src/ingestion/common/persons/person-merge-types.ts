@@ -38,10 +38,9 @@ export class PersonMergeResponseMismatchError extends PersonMergeError {
 }
 
 /**
- * A merge call that failed with no verdict at all, so the saga's state is
- * unknowable from here. The batch must fail and redeliver: the saga replays
- * recorded outcomes idempotently, so redelivery converges where an ack
- * would lose the merge. Personhog-only; the Postgres merge never throws it.
+ * A merge call that failed with no verdict at all. Retried in-process
+ * under the same op id; exhaustion gives up the way the Postgres path
+ * does. Personhog-only; the Postgres merge never throws it.
  */
 export class PersonMergeCallFailedError extends PersonMergeError {
     readonly type = 'CALL_FAILED' as const
@@ -52,6 +51,15 @@ export class PersonMergeCallFailedError extends PersonMergeError {
     ) {
         super(message)
     }
+}
+
+/**
+ * The merge backend answered an unsettled verdict: a retry under the same
+ * op id may change the answer. Retried in-process; exhaustion drops the
+ * merge with the race warning, as Postgres drops a persistent conflict.
+ */
+export class PersonMergeUnsettledError extends PersonMergeError {
+    readonly type = 'UNSETTLED' as const
 }
 
 /**

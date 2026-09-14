@@ -181,3 +181,32 @@ function removeAtPath(obj: unknown, segments: string[]): void {
         removeAtPath(record[head], rest)
     }
 }
+
+/**
+ * Remove keys whose value is `null`, recursing through objects and arrays. Array element
+ * positions are kept.
+ *
+ * PostHog serializers write every unset optional field as an explicit `null`, so a response
+ * that echoes a nested schema (a dashboard tile's query, for example) spends most of its size
+ * on keys that carry no information. An absent key and a `null` key read the same to an agent,
+ * which makes the removal lossless.
+ */
+export function stripNullFields<T>(obj: T): T {
+    return stripNulls(obj) as T
+}
+
+function stripNulls(value: unknown): unknown {
+    if (Array.isArray(value)) {
+        return value.map(stripNulls)
+    }
+    if (value === null || typeof value !== 'object') {
+        return value
+    }
+    const result: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+        if (item !== null) {
+            result[key] = stripNulls(item)
+        }
+    }
+    return result
+}

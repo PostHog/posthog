@@ -25,7 +25,7 @@ longer classifies — `products/mcp_analytics/frontend/dashboard/harnessRegistry
 only a label-to-logo/colour map (`HARNESS_BY_LABEL`), keyed by the labels this module
 emits, and a cross-language test pins those keys to `HARNESS_LABELS`. Two documented
 copies must move in lockstep: the query in the `querying-posthog-data` skill's
-`models-mcp.md`, and the vocabulary table in this product's `debugging-mcp-analytics`
+`models-mcp.md`, and the vocabulary table in `.agents/skills/debugging-mcp-analytics/`
 skill.
 
 Because the token appears many times in the bucketing `multiIf`, callers compute

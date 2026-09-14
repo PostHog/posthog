@@ -15,7 +15,6 @@ from typing import Any, Optional, Union, cast
 
 import pytest
 import unittest
-import freezegun
 from unittest.mock import patch
 
 from django.apps import apps
@@ -27,9 +26,6 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
-# we have to import pendulum for the side effect of importing it
-# freezegun.FakeDateTime and pendulum don't play nicely otherwise
-import pendulum  # noqa F401
 import sqlparse
 from clickhouse_pool import ChPool
 from clickhouse_pool.pool import TooManyConnections
@@ -243,12 +239,6 @@ from products.event_definitions.backend.models.property_definition import (
     PROPERTY_DEFINITIONS_TABLE_SQL,
 )
 from products.product_analytics.backend.facade.models import Insight
-
-# Make sure freezegun ignores our utils class that times functions, and heavy optional
-# deps (e.g. transformers) that can break when freezegun walks sys.modules.
-cast(Any, freezegun).configure(
-    extend_ignore_list=["posthog.test.assert_faster_than", "transformers"],
-)
 
 events_cache_tests: list[dict[str, Any]] = []
 
@@ -1778,7 +1768,7 @@ def _create_event(**kwargs):
     stored with timestamp `2022-11-24T19:00:00` - because America/Pheonix is UTC-7, and Phoenix noon occurs at 7 PM UTC.
     If a `timestamp` WITH an explicit timezone is provided (in the case of ISO strings, this can be the "Z" suffix
     signifying UTC), we use that timezone instead of the project timezone.
-    If NO `timestamp` is provided, we use the current system time (which can be mocked with `freeze_time()`)
+    If NO `timestamp` is provided, we use the current system time (which can be mocked with `time_machine.travel()`)
     and treat that as local to the project.
 
     NOTE: All events get batched and only created when sync_execute is called.

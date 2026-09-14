@@ -4,7 +4,6 @@ import { useCallback, useMemo, useState } from 'react'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 import {
-    createXAxisTickCallback,
     type DateRangeZoomData,
     DefaultTooltip,
     type Series,
@@ -55,9 +54,9 @@ export function InvocationsSparkline({
     const theme = useChartTheme()
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
-            xAxis: { tickFormatter: createXAxisTickCallback({ allDays: dates, timezone: projectTimezone }) },
+            xAxis: { timezone: projectTimezone },
         }),
-        [dates, projectTimezone]
+        [projectTimezone]
     )
 
     const onDateRangeZoom = useCallback(

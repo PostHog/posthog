@@ -12,6 +12,7 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.cloudzero import (
+    KEY_REJECTED_MESSAGE,
     CloudzeroResumeConfig,
     cloudzero_source,
     validate_credentials as validate_cloudzero_credentials,
@@ -59,8 +60,8 @@ class CloudzeroSource(ResumableSource[CloudzeroSourceConfig, CloudzeroResumeConf
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "403 Client Error: Forbidden": "CloudZero authentication failed. Please check your API key and its assigned scopes.",
-            "Unauthorized": "CloudZero authentication failed. Please check your API key and its assigned scopes.",
+            "403 Client Error: Forbidden": KEY_REJECTED_MESSAGE,
+            "Unauthorized": KEY_REJECTED_MESSAGE,
             "410 Client Error: Gone": (
                 "CloudZero's paged result cache expired (results are only valid for 24 hours). "
                 "Please retry the sync to start a fresh query."
@@ -92,10 +93,7 @@ class CloudzeroSource(ResumableSource[CloudzeroSourceConfig, CloudzeroResumeConf
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_cloudzero_credentials(config.api_key):
-            return True, None
-
-        return False, "Invalid credentials"
+        return validate_cloudzero_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CloudzeroResumeConfig]:
         return ResumableSourceManager[CloudzeroResumeConfig](inputs, CloudzeroResumeConfig)

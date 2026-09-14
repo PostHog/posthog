@@ -5,7 +5,7 @@ from io import BytesIO
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 from unittest import mock
 from unittest.mock import ANY, MagicMock, Mock, patch
@@ -467,6 +467,22 @@ class TestCSVExporter(APIBaseTest):
             assert patched_make_api_call.call_count == 2
             assert exported_asset.content is not None
             assert b"abc" in exported_asset.content
+
+    @patch("products.exports.backend.tasks.csv_exporter.logger")
+    def test_404_on_the_first_page_raises(self, _mock_logger: MagicMock) -> None:
+        # A stored path that no longer resolves 404s before any row is fetched. Breaking
+        # there would publish an empty file as a successful export.
+        with patch("products.exports.backend.tasks.csv_exporter.make_api_call") as patched_make_api_call:
+            exported_asset = self._create_asset()
+
+            not_found_error = HTTPError("404 Client Error")  # type: ignore[call-arg]
+            not_found_error.response = Mock()
+            not_found_error.response.status_code = 404
+            not_found_error.response.text = "Not found."
+            patched_make_api_call.side_effect = not_found_error
+
+            with pytest.raises(HTTPError):
+                csv_exporter.export_tabular(exported_asset)
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")
     def test_non_404_http_error_still_raises(self, _mock_logger: MagicMock) -> None:
@@ -1035,7 +1051,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_actors(
         self,
     ) -> None:
-        with freeze_time("2022-06-01T12:00:00.000Z"):
+        with time_machine.travel("2022-06-01T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=[f"user_1"], team=self.team, uuid="725f10a7-26dd-fa38-f973-757866a10ad4")
 
         events_by_person = {
@@ -1104,7 +1120,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_query_with_formula(
         self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
     ) -> None:
-        with freeze_time("2024-05-15T12:00:00.000Z"):
+        with time_machine.travel("2024-05-15T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["formula_test_user_xyz"], team=self.team)
 
         events_by_person = {
@@ -1161,7 +1177,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_query_with_formula_and_single_breakdown(
         self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
     ) -> None:
-        with freeze_time("2024-06-10T12:00:00.000Z"):
+        with time_machine.travel("2024-06-10T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["breakdown_user_single"], team=self.team)
 
         _create_event(
@@ -1239,7 +1255,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_query_with_formula_and_multiple_breakdowns(
         self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
     ) -> None:
-        with freeze_time("2024-07-20T12:00:00.000Z"):
+        with time_machine.travel("2024-07-20T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["multi_breakdown_user_1"], team=self.team)
             _create_person(distinct_ids=["multi_breakdown_user_2"], team=self.team)
 
@@ -1330,7 +1346,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_with_breakdown(self, mocked_uuidt: Any) -> None:
-        with freeze_time("2025-05-22T12:00:00.000Z"):
+        with time_machine.travel("2025-05-22T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["user_1"], team=self.team)
             _create_person(distinct_ids=["user_2"], team=self.team)
 
@@ -1400,7 +1416,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_with_breakdown_and_action(self, mocked_uuidt: Any) -> None:
-        with freeze_time("2025-05-22T12:00:00.000Z"):
+        with time_machine.travel("2025-05-22T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["user_1"], team=self.team)
             _create_person(distinct_ids=["user_2"], team=self.team)
 
