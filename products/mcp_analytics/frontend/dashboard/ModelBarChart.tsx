@@ -1,20 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import {
-    BarChart,
-    type BarChartConfig,
-    type ChartTheme,
-    type Series,
-    type TooltipContext,
-    useChartLayout,
-} from '@posthog/quill-charts'
+import { IconGraph } from '@posthog/icons'
+import { BarChart, type ChartTheme, type Series, type TooltipContext, useChartLayout } from '@posthog/quill-charts'
 
-import { useChartConfig } from 'lib/charts/hooks'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -27,6 +20,7 @@ import { buildModelExplorationQuery, summarizeModelBreakdown } from './modelBrea
 import { modelBreakdownLogic } from './modelBreakdownLogic'
 import { ModelBreakdownTable } from './ModelBreakdownTable'
 import { modelColor } from './modelColors'
+import { useShareBarChartConfig } from './useShareBarChartConfig'
 
 function modelLabel(model: string): string {
     return model === 'Other' ? 'Other models' : model
@@ -84,12 +78,7 @@ export function ModelBarChart({
     const logic = modelBreakdownLogic({ filters })
     const { expanded, modelPageLoading } = useValues(logic)
     const { setExpanded } = useActions(logic)
-    const {
-        totalCalls,
-        unknownCalls,
-        identifiedShare,
-        rankedModels: sortedRows,
-    } = useMemo(() => summarizeModelBreakdown(rows), [rows])
+    const { totalCalls, unknownCalls, rankedModels: sortedRows } = useMemo(() => summarizeModelBreakdown(rows), [rows])
     const labels = useMemo(() => sortedRows.map((row) => row.model), [sortedRows])
     const series = useMemo<Series<ModelRow & { share: number }>[]>(
         () => [
@@ -106,48 +95,64 @@ export function ModelBarChart({
         ],
         [sortedRows, theme, totalCalls]
     )
-    const config = useChartConfig<BarChartConfig>(
-        () => ({
-            axisOrientation: 'horizontal',
-            barLayout: 'grouped',
-            hideXAxis: true,
-            hideYAxis: true,
-            showGrid: false,
-            showAxisLines: false,
-            showTickMarks: false,
-            margins: { left: 0, right: 0, top: 20, bottom: 0 },
-            barCornerRadius: 4,
-            bars: {
-                bandPadding: 0.65,
-                maxBandRange: sortedRows.length * 40,
-                valueDomain: { min: 0, max: totalCalls || 1 },
-                track: true,
-                minBarSize: 6,
-                minBarSizeScope: 'hover',
-            },
-        }),
-        [sortedRows.length, totalCalls]
-    )
+    const config = useShareBarChartConfig(sortedRows.length, totalCalls)
 
     return (
         <LemonCard
             className="flex min-w-0 flex-1 flex-col overflow-hidden bg-surface-secondary p-0"
             hoverEffect={false}
         >
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
                 <h3 className="mb-0 text-sm font-medium">Share of calls by model</h3>
-                <LemonButton
-                    type="tertiary"
-                    size="xsmall"
-                    to={urls.insightNew({ query: buildModelExplorationQuery(filters) })}
-                >
-                    Explore models
-                </LemonButton>
+                <div className="flex items-center gap-1">
+                    {expanded || sortedRows.some((row) => row.model === 'Other') ? (
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            loading={modelPageLoading}
+                            data-attr="mcp-dashboard-show-all-models"
+                            onClick={() => setExpanded(true)}
+                        >
+                            Show all models
+                        </LemonButton>
+                    ) : null}
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        icon={<IconGraph />}
+                        tooltip="Explore models"
+                        aria-label="Explore models"
+                        to={urls.insightNew({ query: buildModelExplorationQuery(filters) })}
+                    />
+                </div>
             </div>
             <div className="flex flex-col gap-3 p-3">
                 <div>
-                    <div className="text-xs text-secondary" translate="no">
-                        {formatNumber(totalCalls)} {totalCalls === 1 ? 'call' : 'calls'}
+                    <div
+                        className="flex flex-wrap justify-between gap-2 text-xs text-secondary tabular-nums"
+                        translate="no"
+                    >
+                        <span>
+                            {formatNumber(totalCalls)} {totalCalls === 1 ? 'call' : 'calls'}
+                        </span>
+                        <Tooltip
+                            title={
+                                <>
+                                    {formatNumber(unknownCalls)} calls have no model identifier. Model names are
+                                    reported by clients or agents.
+                                    {sortedRows.some((row) => row.model === 'Other')
+                                        ? ' Other models includes identified models outside the top six.'
+                                        : ''}
+                                </>
+                            }
+                        >
+                            <span tabIndex={0} className="cursor-help decoration-dotted underline underline-offset-2">
+                                {formatPercentage(totalCalls > 0 ? (unknownCalls / totalCalls) * 100 : 0, {
+                                    compact: true,
+                                })}{' '}
+                                unknown
+                            </span>
+                        </Tooltip>
                     </div>
                     {sortedRows.length > 0 ? (
                         <div
@@ -177,47 +182,6 @@ export function ModelBarChart({
                         </p>
                     )}
                 </div>
-                <div className="flex flex-col gap-2 border-t pt-3">
-                    <span className="text-xs font-medium">Model coverage</span>
-                    <LemonProgress
-                        percent={identifiedShare}
-                        smoothing={false}
-                        bgColor="var(--color-border-primary)"
-                        role="progressbar"
-                        aria-label="Model identification coverage"
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={identifiedShare}
-                    />
-                    <div className="flex flex-wrap justify-between gap-x-3 gap-y-1 text-xs tabular-nums">
-                        <span>{formatPercentage(identifiedShare, { compact: true })} identified</span>
-                        <span className="text-secondary">
-                            {formatNumber(unknownCalls)} unknown
-                            {totalCalls > 0
-                                ? ` (${formatPercentage((unknownCalls / totalCalls) * 100, { compact: true })})`
-                                : ''}
-                        </span>
-                    </div>
-                </div>
-                <p className="mb-0 text-xs text-secondary">
-                    {sortedRows.some((row) => row.model === 'Other')
-                        ? 'Other models includes identified models outside the top six. '
-                        : ''}
-                    Unknown means no model identifier was captured. Model names are reported by clients or agents.
-                </p>
-                {expanded || sortedRows.some((row) => row.model === 'Other') ? (
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        fullWidth
-                        center
-                        loading={modelPageLoading}
-                        data-attr="mcp-dashboard-show-all-models"
-                        onClick={() => setExpanded(true)}
-                    >
-                        Show all models
-                    </LemonButton>
-                ) : null}
                 <LemonModal title="All models" isOpen={expanded} onClose={() => setExpanded(false)} width={640}>
                     <ModelBreakdownTable filters={filters} totalCalls={totalCalls} />
                 </LemonModal>

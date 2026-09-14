@@ -1,16 +1,8 @@
 import { useMemo } from 'react'
 
-import {
-    BarChart,
-    type BarChartConfig,
-    type ChartTheme,
-    type Series,
-    type TooltipContext,
-    useChartLayout,
-} from '@posthog/quill-charts'
+import { BarChart, type ChartTheme, type Series, type TooltipContext, useChartLayout } from '@posthog/quill-charts'
 import { Skeleton } from '@posthog/quill-primitives'
 
-import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { type HarnessRow } from '../mcpDashboardOverviewLogic'
@@ -19,6 +11,7 @@ import { ChartTooltip } from './ChartTooltip'
 import { formatNumber } from './formatters'
 import { HarnessLogo } from './harness'
 import { harnessColor } from './harnessRegistry'
+import { useShareBarChartConfig } from './useShareBarChartConfig'
 
 function HarnessBarLabels({ rows, totalCalls }: { rows: HarnessRow[]; totalCalls: number }): JSX.Element {
     const { scales } = useChartLayout()
@@ -90,28 +83,7 @@ export function HarnessBarChart({
         ],
         [sortedRows, theme, totalCalls]
     )
-    const config = useChartConfig<BarChartConfig>(
-        () => ({
-            axisOrientation: 'horizontal',
-            barLayout: 'grouped',
-            hideXAxis: true,
-            hideYAxis: true,
-            showGrid: false,
-            showAxisLines: false,
-            showTickMarks: false,
-            margins: { left: 0, right: 0, top: 20, bottom: 0 },
-            barCornerRadius: 4,
-            bars: {
-                bandPadding: 0.65,
-                maxBandRange: rows.length * 40,
-                valueDomain: { min: 0, max: totalCalls || 1 },
-                track: true,
-                minBarSize: 6,
-                minBarSizeScope: 'hover',
-            },
-        }),
-        [rows.length, totalCalls]
-    )
+    const config = useShareBarChartConfig(sortedRows.length, totalCalls)
 
     return (
         <Card className="flex min-w-0 flex-1 flex-col" title="Share of calls by harness">

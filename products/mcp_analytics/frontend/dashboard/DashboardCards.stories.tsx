@@ -304,12 +304,9 @@ export const ShareByModel: Story = {
 }
 
 export const ShareByModelExpandedNarrow: Story = {
-    play: ({ canvasElement }): void => {
-        const button = canvasElement.querySelector<HTMLButtonElement>('[data-attr="mcp-dashboard-show-all-models"]')
-        if (!button) {
-            throw new Error('Show all models button is missing')
-        }
-        button.click()
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonModal', waitForSelector: '.LemonModal' } },
+    play: async ({ canvas, userEvent }): Promise<void> => {
+        await userEvent.click(await canvas.findByRole('button', { name: 'Show all models' }))
     },
     decorators: [modelPagesDecorator],
     render: () => (
@@ -408,5 +405,9 @@ export const OverviewUnknownModels: Story = {
             },
         }),
     ],
-    render: () => <MCPAnalyticsDashboardOverview />,
+    render: () => (
+        <div className="w-[960px]">
+            <MCPAnalyticsDashboardOverview />
+        </div>
+    ),
 }

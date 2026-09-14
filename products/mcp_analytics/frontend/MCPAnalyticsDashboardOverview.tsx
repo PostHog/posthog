@@ -107,21 +107,23 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             <section className="flex min-w-0 flex-col gap-4" data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Usage</h2>
                 <div className="flex min-w-0 flex-col gap-4">
-                    <ActivityChart
-                        daily={dailyActivity}
-                        loading={activityRowsLoading}
-                        theme={theme}
-                        timezone={timezone}
-                        interval={interval}
-                        incompleteTail={activityIncompleteTail}
-                    />
-                    <ToolUsageChart
-                        data={toolDailySeries}
-                        loading={toolDailyRowsLoading}
-                        theme={theme}
-                        timezone={timezone}
-                        interval={interval}
-                    />
+                    <div className="grid min-w-0 grid-cols-1 gap-4 @min-[64rem]/mcp-overview:grid-cols-2">
+                        <ActivityChart
+                            daily={dailyActivity}
+                            loading={activityRowsLoading}
+                            theme={theme}
+                            timezone={timezone}
+                            interval={interval}
+                            incompleteTail={activityIncompleteTail}
+                        />
+                        <ToolUsageChart
+                            data={toolDailySeries}
+                            loading={toolDailyRowsLoading}
+                            theme={theme}
+                            timezone={timezone}
+                            interval={interval}
+                        />
+                    </div>
                     <div
                         className={cn(
                             'grid min-w-0 grid-cols-1 gap-4',
