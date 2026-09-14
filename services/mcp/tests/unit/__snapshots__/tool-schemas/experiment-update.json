@@ -9229,6 +9229,10 @@
             "maxLength": 400,
             "type": "string"
         },
+        "only_count_matured_users": {
+            "description": "Whether to count only participants whose conversion or retention window has fully elapsed (\"Require completed conversion or retention window\" in the experiment's settings tab). New experiments inherit the environment default, so set this per experiment to override it. Set it to false when a long conversion window (for example 14 days) makes a young experiment report 0 exposures and \"not-enough-exposures\" on every metric: with it enabled, nobody counts until their window closes.",
+            "type": "boolean"
+        },
         "parameters": {
             "anyOf": [
                 {
