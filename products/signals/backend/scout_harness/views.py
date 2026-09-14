@@ -47,6 +47,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 # password-only user in a 2FA-enforced org read scout runs/scratchpad without
 # completing 2FA.
 from posthog.dataclasses import frozen
+from posthog.models.integration.github import GitHubIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -124,6 +125,7 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutManualRunSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
+    normalize_scout_repository,
 )
 from products.signals.backend.scout_harness.skill_loader import (
     REPORT_CHANNEL_TOOLS,
@@ -1842,6 +1844,13 @@ def _reject_if_enabled_cap_reached(team_id: int, skill_name: str) -> None:
         )
 
 
+def _assert_scout_repository_access(team_id: int, repository: str) -> None:
+    if GitHubIntegration.first_for_team_repository(team_id, repository, source="signals_scout_config") is None:
+        raise exceptions.ValidationError(
+            {"repository": "Connect a GitHub installation that can access this repository first."}
+        )
+
+
 def _upsert_scout_config(
     *,
     team_id: int,
@@ -2465,6 +2474,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             context={**self.get_serializer_context(), "project_id": self.team.project_id},
         )
         serializer.is_valid(raise_exception=True)
+        if repository := serializer.validated_data.get("repository"):
+            _assert_scout_repository_access(team_id, repository)
         skill_name = serializer.validated_data["skill_name"]
         # Upsert, so the grant is compared against whatever row already exists — registering a
         # config for an existing scout is the same widening as patching one. The row stays locked
@@ -2532,6 +2543,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if self._sets_structured_output_schema(request):
             self._assert_can_author_structured_output_schema()
         config_id = _parse_run_id_or_404(kwargs)
+        raw_repository = request.data.get("repository") if isinstance(request.data, Mapping) else None
+        if isinstance(raw_repository, str):
+            _assert_scout_repository_access(team_id, normalize_scout_repository(raw_repository))
         # The row stays locked from the grant comparison to the save. A whole-config resend that
         # compared against the grant before a concurrent revoke would otherwise write it back,
         # because a model save writes every column off the instance it loaded.

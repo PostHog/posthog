@@ -228,6 +228,7 @@ async def arun_signals_scout(
         team, skill_name, version=skill_version, include_authors=True
     )
     config = await database_sync_to_async(_resolve_config, thread_sensitive=False)(team, skill.name)
+    repository = repository or config.repository
 
     # Stale-run recovery, before the skip-if-running guard below. A scout run writes its own
     # terminal `task_run.status` from inside the activity; if the worker/sandbox dies hard
@@ -700,10 +701,6 @@ async def _spawn_and_run(
     # falling back). Repo-backed runs (the management command's `--repository` escape hatch) are
     # excluded too: they take the full-credential provisioning path, and the section's read-only
     # framing would misdescribe the token they actually hold.
-    # `repository` is None on the cadence path — v1 doesn't clone a repo into the
-    # sandbox. The kwarg stays wired so the management command can still pass
-    # `--repository` for ad-hoc local investigations; productionised repo access
-    # is deferred (see implementation plan).
     context = CustomPromptSandboxContext(
         team_id=team.id,
         user_id=user_id,

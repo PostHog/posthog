@@ -1776,6 +1776,12 @@ export interface SignalScoutConfigOptionsApi {
      * * `trusted` - Trusted domains only
      * * `full` - Full */
     network_access?: SignalScoutConfigNetworkAccessEnumApi
+    /**
+     * Optional GitHub repository this scout can inspect during its runs, in owner/repo format. Set null to remove repository access.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
     /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
     auto_pause_exempt?: boolean
     /**
@@ -1944,6 +1950,11 @@ export interface SignalScoutConfigApi {
      * * `trusted` - Trusted domains only
      * * `full` - Full */
     readonly network_access: SignalScoutConfigNetworkAccessEnumApi
+    /**
+     * Optional GitHub repository this scout can inspect during its runs. Null keeps the scout in the project-only sandbox.
+     * @nullable
+     */
+    readonly repository: string | null
     /**
      * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
      * @nullable

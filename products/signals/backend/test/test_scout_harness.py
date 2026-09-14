@@ -1743,6 +1743,35 @@ async def test_sandbox_env_matches_config_network_access(
     assert (bridge.metadata or {}).get("network_access") == ("full" if network_access == "full" else None)
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_scout_uses_its_configured_repository(ateam, aerrors_skill):
+    await database_sync_to_async(SignalScoutConfig.objects.create, thread_sensitive=False)(
+        team=ateam, skill_name="signals-scout-errors", repository="posthog/posthog"
+    )
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch("products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", return_value="env-id"),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert run_result.status == apps.get_model("tasks", "TaskRun").Status.COMPLETED.value
+    assert captured["context"].repository == "posthog/posthog"
+
+
 def _resolved_failure_threshold(cron_schedule: str | None, interval_minutes: int) -> int:
     config = SignalScoutConfig(run_cron_schedule=cron_schedule, run_interval_minutes=interval_minutes)
     return failure_streak_pause_threshold(_failure_streak_runs_in_window(config))

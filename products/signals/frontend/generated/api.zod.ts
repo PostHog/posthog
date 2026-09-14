@@ -427,6 +427,8 @@ export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersIt
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax = 5
 
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
+export const signalsScoutCreateBodyConfigOneRepositoryMax = 255
+
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const signalsScoutCreateBodyConfigOneModelMax = 200
@@ -568,6 +570,13 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
                     ),
+                repository: zod
+                    .string()
+                    .max(signalsScoutCreateBodyConfigOneRepositoryMax)
+                    .nullish()
+                    .describe(
+                        'Optional GitHub repository this scout can inspect during its runs, in owner\/repo format. Set null to remove repository access.'
+                    ),
                 auto_pause_exempt: zod
                     .boolean()
                     .optional()
@@ -672,6 +681,8 @@ export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemR
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax = 5
 
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = true
+export const signalsScoutConfigCreateBodyRepositoryMax = 255
+
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigCreateBodyModelMax = 200
@@ -768,6 +779,13 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .describe(
                 "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
             ),
+        repository: zod
+            .string()
+            .max(signalsScoutConfigCreateBodyRepositoryMax)
+            .nullish()
+            .describe(
+                'Optional GitHub repository this scout can inspect during its runs, in owner\/repo format. Set null to remove repository access.'
+            ),
         auto_pause_exempt: zod
             .boolean()
             .optional()
@@ -845,6 +863,8 @@ export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemR
     '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
 )
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersMax = 5
+
+export const signalsScoutConfigUpdateBodyRepositoryMax = 255
 
 export const signalsScoutConfigUpdateBodyModelMax = 200
 
@@ -962,6 +982,13 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers. Applies from the scout's next run.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
+            ),
+        repository: zod
+            .string()
+            .max(signalsScoutConfigUpdateBodyRepositoryMax)
+            .nullish()
+            .describe(
+                'Optional GitHub repository this scout can inspect during its runs, in owner\/repo format. Set null to remove repository access.'
             ),
         model: zod
             .string()

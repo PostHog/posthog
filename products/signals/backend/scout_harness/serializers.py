@@ -2591,6 +2591,15 @@ _SCOUT_MODEL_HELP = (
     "enrolled in the scout model preview, and only takes effect there. Set null to clear it."
 )
 
+_SCOUT_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
+def normalize_scout_repository(value: str) -> str:
+    normalized = value.strip().lower()
+    if not _SCOUT_REPOSITORY_RE.fullmatch(normalized):
+        raise serializers.ValidationError("Enter the repository as owner/repo.")
+    return normalized
+
 
 def _validate_scout_model(value: str | None, context: dict, current: str | None = None) -> str | None:
     """Normalize a scout model pin, gate setting one on the `scouts-model-config` dogfood flag, and
@@ -2803,6 +2812,14 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "external sources such as documentation or papers."
         ),
     )
+    repository = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Optional GitHub repository this scout can inspect during its runs. Null keeps the scout "
+            "in the project-only sandbox."
+        ),
+    )
     model = serializers.CharField(
         read_only=True,
         allow_null=True,
@@ -2898,6 +2915,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "output_destinations",
             "structured_output_schema",
             "network_access",
+            "repository",
             "model",
             "mcp_gateway_server_ids",
             "write_scopes",
@@ -3007,6 +3025,15 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "next run."
         ),
     )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=255,
+        help_text=(
+            "Optional GitHub repository this scout can inspect during its runs, in owner/repo format. "
+            "Set null to remove repository access."
+        ),
+    )
     auto_pause_exempt = serializers.BooleanField(
         required=False,
         help_text=(
@@ -3032,6 +3059,9 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
+
+    def validate_repository(self, value: str | None) -> str | None:
+        return normalize_scout_repository(value) if value is not None else None
 
     def validate_output_destinations(self, value: dict) -> dict:
         return _validate_output_destinations(value, self.context)
@@ -3134,6 +3164,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "output_destinations",
             "structured_output_schema",
             "network_access",
+            "repository",
             "model",
             "auto_pause_exempt",
             "tags",
@@ -3176,6 +3207,15 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
             "external sources such as documentation or papers."
         ),
     )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=255,
+        help_text=(
+            "Optional GitHub repository this scout can inspect during its runs, in owner/repo format. "
+            "Set null to remove repository access."
+        ),
+    )
     auto_pause_exempt = serializers.BooleanField(
         required=False,
         help_text=(
@@ -3213,6 +3253,9 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
+
+    def validate_repository(self, value: str | None) -> str | None:
+        return normalize_scout_repository(value) if value is not None else None
 
     def validate_tags(self, value: list[str]) -> list[str]:
         return _validate_scout_tags(value)

@@ -961,6 +961,8 @@ export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOn
 export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax = 5
 
 export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
+export const visionScannersScoutsCreateBodyConfigOneRepositoryMax = 255
+
 export const visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const visionScannersScoutsCreateBodyConfigOneModelMax = 200
@@ -1084,6 +1086,13 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
+                    ),
+                repository: zod
+                    .string()
+                    .max(visionScannersScoutsCreateBodyConfigOneRepositoryMax)
+                    .nullish()
+                    .describe(
+                        'Optional GitHub repository this scout can inspect during its runs, in owner\/repo format. Set null to remove repository access.'
                     ),
                 auto_pause_exempt: zod
                     .boolean()

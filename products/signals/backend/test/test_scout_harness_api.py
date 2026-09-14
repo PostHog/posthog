@@ -2584,6 +2584,25 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # The JSON column must hold canonical strings, or the row save crashes on UUID instances.
         assert config.mcp_gateway_server_ids == [server_id]
 
+    @patch("products.signals.backend.scout_harness.views.GitHubIntegration.first_for_team_repository")
+    def test_partial_update_sets_a_repository_for_the_scout(self, repository_access) -> None:
+        repository_access.return_value = object()
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"repository": "PostHog/PostHog"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["repository"] == "posthog/posthog"
+        config.refresh_from_db()
+        assert config.repository == "posthog/posthog"
+        repository_access.assert_called_once_with(
+            self.team.id, "posthog/posthog", source="signals_scout_config"
+        )
+
     def test_partial_update_disable_records_a_user_pause(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
 

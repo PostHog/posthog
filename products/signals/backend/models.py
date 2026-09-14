@@ -1803,6 +1803,12 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         default=NetworkAccess.TRUSTED,
         db_default=NetworkAccess.TRUSTED,
     )
+    repository = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Optional GitHub repository that this scout can inspect during its runs.",
+    )
     # Optional agent-model pin for this scout's runs, e.g. `claude-opus-4-5`. Null keeps the
     # normal resolution chain (the `scouts-model-selection` experiment gate, then the pipeline
     # runtime pin, then the agent-server default). Honored at dispatch only while the
