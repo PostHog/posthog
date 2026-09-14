@@ -27,7 +27,7 @@ use crate::cache::{
 use crate::emitted::{EmittedVersionGuard, EmittedVersions};
 use crate::fence::{
     fenced_status, mark_status, semantic_refusal, target_mark_status, FenceHealer, FenceMap,
-    FenceState,
+    FenceState, MarkVerifier,
 };
 use crate::fencing::{FencedChangelogProducers, FencedProduceError};
 use crate::inflight::InflightTracker;
@@ -106,6 +106,9 @@ pub struct PersonHogLeaderService {
     /// construction. Absent without one (dev fixtures) — ghost fences
     /// then last until the partition changes hands, as before.
     fence_healer: Option<Arc<FenceHealer>>,
+    /// The committed-release mark check, one query per op per pod. Absent
+    /// without a fallback pool, in which case a release is refused.
+    mark_verifier: Option<Arc<MarkVerifier>>,
     /// Memory fuse for the fence map (see `fence_map_max_entries` in the
     /// config for the full policy): at this many live fences, FencePerson
     /// sheds new fences with RESOURCE_EXHAUSTED.
@@ -208,6 +211,9 @@ impl PersonHogLeaderService {
             fence_healer: fallback
                 .as_ref()
                 .map(|f| Arc::new(FenceHealer::new(f.pool.clone(), Arc::clone(&fences)))),
+            mark_verifier: fallback
+                .as_ref()
+                .map(|f| Arc::new(MarkVerifier::new(f.pool.clone()))),
             fallback,
             inflight,
             num_partitions,
@@ -1847,8 +1853,19 @@ impl PersonHogLeader for PersonHogLeaderService {
                         "no-lifecycle-db",
                     ));
                 };
+                // A fence this pod installed for the op means no release of
+                // this person has run here yet, so the op's snapshot answers
+                // for it. Without a fence the release may be a retry after
+                // the op settled, or a cold leader replaying one, and a
+                // snapshot could report a mark that has since settled as
+                // deleted; that path reads the person's own row.
                 let verify_started = Instant::now();
-                let mark = mark_status(&fallback.pool, op_id, req.team_id, req.person_id).await;
+                let mark = match &self.mark_verifier {
+                    Some(verifier) if self.fences.contains_key(&cache_key) => {
+                        verifier.status(op_id, req.team_id, req.person_id).await
+                    }
+                    _ => mark_status(&fallback.pool, op_id, req.team_id, req.person_id).await,
+                };
                 record_release_phase("verify_mark", verify_started);
                 match mark {
                     // A live mark: the op holds the person; proceed.
