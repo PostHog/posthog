@@ -673,6 +673,27 @@ class TestFormatTraceWithinBudget:
         assert len(result) <= self.BUDGET
         assert "OUT_MIDDLE" in result
 
+    def test_trace_whose_events_exceed_the_budget_at_the_floor_stays_within_it(self) -> None:
+        hierarchy = [
+            {
+                "event": {
+                    "id": f"gen{index}",
+                    "event": "$ai_generation",
+                    "properties": {
+                        "$ai_input": [{"role": "user", "content": f"m{number} " + "x" * 2_000} for number in range(5)],
+                        "$ai_output_choices": [{"role": "assistant", "content": "answer " + "o" * 2_000}],
+                    },
+                },
+                "children": [],
+            }
+            for index in range(30)
+        ]
+        trace = {"properties": {"$ai_span_name": "oversized"}}
+        options: FormatterOptions = {"include_markers": False, "include_line_numbers": True}
+        result = format_trace_within_budget(trace, hierarchy, self.BUDGET, options)
+
+        assert len(result) <= self.BUDGET
+
 
 class TestEdgeCases:
     """Test edge cases and error handling."""

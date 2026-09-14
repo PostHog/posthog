@@ -678,14 +678,20 @@ def format_trace_within_budget(
     allocation = budget
     text = ""
     for attempt in range(_MAX_BUDGET_ATTEMPTS):
-        is_last_attempt = attempt == _MAX_BUDGET_ATTEMPTS - 1
+        buffers = _allocate_event_buffers(hierarchy, allocation, base)
+        # Every event at the floor means the allocation had nothing spare to hand out, and a
+        # smaller allocation cannot take an event below the floor. The map is final, so this render
+        # takes the cap now instead of repeating the same render twice more to reach it.
+        is_final_render = attempt == _MAX_BUDGET_ATTEMPTS - 1 or all(
+            buffer == MIN_EVENT_TRUNCATE_BUFFER for buffer in buffers.values()
+        )
         attempt_options: FormatterOptions = {
             **base,
-            "event_truncate_buffers": _allocate_event_buffers(hierarchy, allocation, base),
-            "max_length": budget if is_last_attempt else None,
+            "event_truncate_buffers": buffers,
+            "max_length": budget if is_final_render else None,
         }
         text, _ = format_trace_text_repr(trace, hierarchy, attempt_options)
-        if len(text) <= budget:
+        if is_final_render or len(text) <= budget:
             break
         allocation = max(MIN_EVENT_TRUNCATE_BUFFER, int(allocation * budget / len(text) * _BUDGET_REDUCTION_FACTOR))
     return text
