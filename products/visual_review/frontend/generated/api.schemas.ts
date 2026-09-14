@@ -16,6 +16,7 @@ export interface RepoApi {
     repo_full_name: string
     baseline_file_paths: RepoApiBaselineFilePaths
     enable_pr_comments: boolean
+    debt_digest_enabled: boolean
     created_at: string
 }
 
@@ -42,8 +43,16 @@ export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]:
 export interface PatchedUpdateRepoRequestInputApi {
     /** @nullable */
     baseline_file_paths?: PatchedUpdateRepoRequestInputApiBaselineFilePaths
-    /** @nullable */
+    /**
+     * Post a pull request comment when a run finds visual changes to review.
+     * @nullable
+     */
     enable_pr_comments?: boolean | null
+    /**
+     * Post the visual review debt digest to the Slack channels of the teams that own the snapshots. Off by default. The digest goes out every Monday morning.
+     * @nullable
+     */
+    debt_digest_enabled?: boolean | null
 }
 
 export interface UserBasicInfoApi {

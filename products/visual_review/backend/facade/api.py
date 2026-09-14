@@ -260,6 +260,7 @@ def _to_repo(repo) -> contracts.Repo:
         repo_full_name=repo.repo_full_name,
         baseline_file_paths=repo.baseline_file_paths,
         enable_pr_comments=repo.enable_pr_comments,
+        debt_digest_enabled=repo.debt_digest_enabled,
         created_at=repo.created_at,
     )
 
