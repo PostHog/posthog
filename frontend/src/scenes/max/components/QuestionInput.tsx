@@ -20,7 +20,7 @@ import { ConversationQueueMessage } from '~/types'
 
 import { ContextDisplay } from '../Context'
 import { handsFreeLogic } from '../handsFreeLogic'
-import { MAX_MESSAGE_LENGTH, messageLength, messageTooLongError } from '../max-constants'
+import { MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, messageLength } from '../max-constants'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
@@ -34,21 +34,9 @@ import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
  * Show the character counter only once the message gets close to the limit. A permanent counter
  * under every composer would be noise: almost every message is a couple of hundred characters.
  */
-const LENGTH_COUNTER_RATIO = 0.9
+const LENGTH_COUNTER_THRESHOLD = MAX_MESSAGE_LENGTH * 0.9
 
 interface QuestionInputProps {
-    submission?: {
-        onSend: (prompt: string) => void
-        loading: boolean
-        disabledReason?: string
-        dataAttr: string
-        context: ReactNode
-        /**
-         * Longest prompt this submission's endpoint accepts, when it is stricter than
-         * `MAX_MESSAGE_LENGTH`. Without it an over-limit prompt only fails at the API.
-         */
-        maxLength?: number
-    }
     isSticky?: boolean
     placeholder?: string
     children?: ReactNode
@@ -152,7 +140,6 @@ function QueuedMessageItem({
 
 export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps>(function BaseQuestionInput(
     {
-        submission,
         isSticky,
         placeholder,
         children,
@@ -248,24 +235,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         }
     }
 
-    const lengthLimit = submission?.maxLength ?? MAX_MESSAGE_LENGTH
-    // Counting code points is O(n), so only pay for it near the limit. A string's UTF-16 length is
-    // never below its code point count, so a shorter one can't be over the limit.
-    const promptLength = useMemo(
-        () => (inputValue.length >= lengthLimit * LENGTH_COUNTER_RATIO ? messageLength(inputValue) : null),
-        [inputValue, lengthLimit]
-    )
-    const isOverLengthLimit = promptLength !== null && promptLength > lengthLimit
-
     const submit = (prompt: string): void => {
-        if (submission) {
-            if (!submission.loading && !submission.disabledReason && !isOverLengthLimit && prompt.trim()) {
-                debouncedSetQuestion.cancel()
-                setQuestion(prompt)
-                submission.onSend(prompt)
-            }
-            return
-        }
         // askMax reads the prompt arg directly and clears `question` afterwards, so drop any
         // pending debounce to stop it from re-populating the just-sent text.
         debouncedSetQuestion.cancel()
@@ -282,29 +252,29 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         askMax(content)
     }
 
+    // Counting code points is O(n), so only pay for it near the limit. A string's UTF-16 length is
+    // never below its code point count, so a shorter one can't be over the limit.
+    const promptLength = useMemo(
+        () => (inputValue.length >= LENGTH_COUNTER_THRESHOLD ? messageLength(inputValue) : null),
+        [inputValue]
+    )
+    const isOverLengthLimit = promptLength !== null && promptLength > MAX_MESSAGE_LENGTH
+
     const hasQuestion = inputValue.trim().length > 0
     // A fill-in suggestion typed its prefix in and is waiting for the user to complete it.
     const showFillInHint = !!fillInHint
     const isQueueingSubmission = queueingEnabled && threadLoading && hasQuestion
     const showStopButton = threadLoading && !isQueueingSubmission && !cancelLoading
-    // A submission-driven composer sends to its own endpoint rather than to this thread. The
-    // autocomplete activates a command straight against `maxThreadLogic`, never through `submit`,
-    // so it would start a Max conversation the surface has nowhere to render.
-    const slashCommandsEnabled = !submission
 
     // Mirrors maxThreadLogic's `submissionDisabledReason` selector, but using the local input
     // value so the submit guard stays correct while the debounced sync to kea is still pending.
-    const submissionDisabledReason = submission?.loading
-        ? 'Wait for the task to start.'
-        : submission?.disabledReason
-          ? submission.disabledReason
-          : contextDisabledReason
-            ? contextDisabledReason
-            : !inputValue
-              ? 'I need some input first'
-              : isOverLengthLimit
-                ? messageTooLongError(lengthLimit)
-                : queueDisabledReason
+    const submissionDisabledReason = contextDisabledReason
+        ? contextDisabledReason
+        : !inputValue
+          ? 'I need some input first'
+          : isOverLengthLimit
+            ? MESSAGE_TOO_LONG
+            : queueDisabledReason
 
     // Update autocomplete visibility when the input changes
     useEffect(() => {
@@ -314,12 +284,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         if (!isSlashCommand && autocompleteDismissed) {
             setAutocompleteDismissed(false)
         }
-        const shouldShow = isSlashCommand && !autocompleteDismissed && slashCommandsEnabled
+        const shouldShow = isSlashCommand && !autocompleteDismissed
         if (shouldShow && !showAutocomplete) {
             posthog.capture('Max slash command autocomplete shown')
         }
         setShowAutocomplete(shouldShow)
-    }, [inputValue, showAutocomplete, autocompleteDismissed, slashCommandsEnabled])
+    }, [inputValue, showAutocomplete, autocompleteDismissed])
 
     let disabledReason = submissionDisabledReason
     if (threadLoading && !isQueueingSubmission) {
@@ -418,26 +388,21 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             ) : threadLoading ? (
                                                 'Thinking…'
                                             ) : isThreadVisible ? (
-                                                placeholder ||
-                                                (slashCommandsEnabled ? (
+                                                placeholder || (
                                                     <>
                                                         Ask follow-up{' '}
                                                         <span className="text-tertiary opacity-80 contrast-more:opacity-100">
                                                             or / for commands
                                                         </span>
                                                     </>
-                                                ) : (
-                                                    'Ask follow-up'
-                                                ))
-                                            ) : slashCommandsEnabled ? (
+                                                )
+                                            ) : (
                                                 <>
                                                     Ask a question{' '}
                                                     <span className="text-tertiary opacity-80 contrast-more:opacity-100">
                                                         or / for commands
                                                     </span>
                                                 </>
-                                            ) : (
-                                                'Ask a question'
                                             )}
                                         </div>
                                     )}
@@ -502,7 +467,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                 setEditingQueueId(nextMessageId)
                                             }
                                         }}
-                                        disabled={inputDisabled || submission?.loading}
+                                        disabled={inputDisabled}
                                         minRows={1}
                                         maxRows={10}
                                         className={cn(
@@ -531,7 +496,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                 handsFreeFlagEnabled ? 'items-end flex-wrap gap-1' : 'items-start'
                                             )}
                                         >
-                                            {submission?.context ?? <ContextDisplay size={contextDisplaySize} />}
+                                            <ContextDisplay size={contextDisplaySize} />
 
                                             <div
                                                 className={cn(
@@ -545,7 +510,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             </div>
                                         </div>
                                     ) : (
-                                        (submission?.context ?? <ContextDisplay size={contextDisplaySize} />)
+                                        <ContextDisplay size={contextDisplaySize} />
                                     )}
                                     {promptLength !== null && (
                                         <div
@@ -554,7 +519,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                 isOverLengthLimit ? 'text-error' : 'text-secondary'
                                             )}
                                         >
-                                            {promptLength.toLocaleString()} / {lengthLimit.toLocaleString()}
+                                            {promptLength.toLocaleString()} / {MAX_MESSAGE_LENGTH.toLocaleString()}
                                         </div>
                                     )}
                                 </div>
@@ -568,7 +533,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
                     >
-                        {!submission && <HandsFreeButton panelId={maxPanelId} />}
+                        <HandsFreeButton panelId={maxPanelId} />
                         {!handsFreeActive && (
                             <AIConsentPopoverWrapper
                                 placement="bottom-end"
@@ -584,10 +549,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 hidden={!threadLoading && !pendingPrompt}
                             >
                                 <LemonButton
-                                    data-attr={
-                                        submission?.dataAttr ??
-                                        (showStopButton ? 'max-stop-generation' : 'max-send-message')
-                                    }
+                                    data-attr={showStopButton ? 'max-stop-generation' : 'max-send-message'}
                                     type={(isThreadVisible && !hasQuestion) || showStopButton ? 'secondary' : 'primary'}
                                     onClick={() => {
                                         if (threadLoading) {
@@ -625,7 +587,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             </>
                                         )
                                     }
-                                    loading={submission?.loading || (threadLoading && !dataProcessingAccepted)}
+                                    loading={threadLoading && !dataProcessingAccepted}
                                     disabledReason={disabledReason}
                                     className={disabledReason ? 'opacity-[0.5]' : ''}
                                     size="small"
@@ -633,10 +595,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         showStopButton ? (
                                             <IconStopFilled />
                                         ) : (
-                                            (slashCommandsEnabled &&
-                                                MAX_SLASH_COMMANDS.find(
-                                                    (cmd) => cmd.name === inputValue.split(' ', 1)[0]
-                                                )?.icon) || <IconArrowRight />
+                                            MAX_SLASH_COMMANDS.find((cmd) => cmd.name === inputValue.split(' ', 1)[0])
+                                                ?.icon || <IconArrowRight />
                                         )
                                     }
                                 />
