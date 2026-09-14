@@ -30,7 +30,7 @@ export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs 
         if (!isChunkLoadError(error) && !isGenericNetworkTypeError(error)) {
             throw error
         }
-        // Came from a wrapped import(), so mark it: a downstream boundary still recognizes it once retries exhaust.
+        // Mark as a chunk load error so downstream boundaries recognize it if retries fail.
         markAsChunkLoadError(error)
         if (retries <= 0) {
             throw error
