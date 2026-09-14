@@ -73,10 +73,11 @@ export const WithAttachments: Story = {
     await userEvent.click(
       dialog.getByRole("checkbox", { name: "Include recent app logs" }),
     );
+    const imageBlob = await (await fetch(await createStoryScreenshot())).blob();
     await userEvent.upload(
       dialog.getByLabelText("Choose feedback images"),
-      new File(["example image"], "feedback-example.png", {
-        type: "image/png",
+      new File([imageBlob], "feedback-example.jpg", {
+        type: "image/jpeg",
       }),
     );
     await dialog.findByText("1 attached");
