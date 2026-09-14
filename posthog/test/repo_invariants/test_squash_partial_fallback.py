@@ -1,18 +1,3 @@
-"""A database that applied only part of a squash's replaced range must still migrate.
-
-On such a database Django's loader drops the squash and uses the replaced files. It moves every
-child of the squash onto the last replaced migration, and every edge the squash declares is gone.
-Two rules keep that fallback graph valid:
-
-- A squash declares no `run_before` while it still replaces migrations. A `run_before` target is a
-  child of the squash, so it moves onto the last replaced migration. The target is usually applied
-  long before the end of the range, and `check_consistent_history` refuses to migrate. The replaced
-  files carry the same entries, and the loader moves them onto the squash when it substitutes.
-- Every replaced root depends on each same-app migration the squash depends on, such as the stub.
-  The squash is the only same-app child of the stub. Without it the stub becomes a second leaf of
-  the app, and `migrate` stops with "Conflicting migrations detected".
-"""
-
 from django.db.migrations import Migration
 from django.db.migrations.loader import MigrationLoader
 
@@ -30,28 +15,33 @@ def test_replacing_squash_migrations_declare_no_run_before() -> None:
         if migration.replaces and migration.run_before
     )
     assert not offenders, (
-        "These squash migrations declare run_before while they still replace migrations, which breaks "
-        "every partially migrated database. Remove run_before; the replaced files already carry it.\n  "
+        "These squash migrations declare run_before while they still replace migrations. On a partially migrated "
+        "database Django drops the squash and moves the run_before target onto the last replaced migration, so "
+        "check_consistent_history refuses to migrate. Remove run_before; the replaced files already carry it.\n  "
         + "\n  ".join(offenders)
     )
 
 
-def test_replaced_roots_depend_on_the_squash_same_app_dependencies() -> None:
+def test_squash_same_app_dependencies_keep_a_child_outside_the_replaced_range() -> None:
     disk = _disk_migrations()
-    missing: list[str] = []
+    orphaned: list[str] = []
     for (app, name), squash in sorted(disk.items()):
+        if not squash.replaces:
+            continue
         replaced = set(squash.replaces)
-        same_app_dependencies = [dep for dep in squash.dependencies if dep[0] == app]
-        for root in sorted(replaced):
-            if root not in disk or any(dep in replaced for dep in disk[root].dependencies):
+        for dependency in squash.dependencies:
+            if dependency[0] != app or dependency not in disk:
                 continue
-            missing.extend(
-                f"{root[0]}.{root[1]} -> {dep[0]}.{dep[1]} (squash {app}.{name})"
-                for dep in same_app_dependencies
-                if dep not in disk[root].dependencies
-            )
-    assert not missing, (
-        "These replaced root migrations lack a dependency of the squash that replaces them. A partially "
-        "migrated database then has a second leaf in the app. Add the dependency to the root migration.\n  "
-        + "\n  ".join(missing)
+            survivors = [
+                key
+                for key, migration in disk.items()
+                if key[0] == app and key != (app, name) and key not in replaced and dependency in migration.dependencies
+            ]
+            if not survivors:
+                orphaned.append(f"{dependency[0]}.{dependency[1]} (squash {app}.{name})")
+    assert not orphaned, (
+        "These migrations have the squash as their only child in their app. On a partially migrated database "
+        "Django drops the squash, the migration becomes a second leaf of the app, and migrate stops with "
+        "'Conflicting migrations detected'. Make a migration that runs after the squash, such as its "
+        "finalize_fks tail, depend on it too.\n  " + "\n  ".join(orphaned)
     )
