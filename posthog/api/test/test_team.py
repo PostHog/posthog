@@ -2003,6 +2003,33 @@ def team_api_test_factory():
                 )
                 assert "retention_days must be one of" in response.json()["detail"]
 
+        @parameterized.expand(
+            [
+                ("context", "context"),
+                (" app.context ", "app.context"),
+                ("", ""),
+                (" " * 2, ""),
+                ("a" * 200, "a" * 200),
+            ]
+        )
+        def test_logs_settings_json_attribute_key(self, key, expected):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"json_parse_logs_attribute_key": key}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            self.team.refresh_from_db()
+            assert self.team.logs_settings["json_parse_logs_attribute_key"] == expected
+
+        @parameterized.expand([(None,), (True,), (123,), ([],), ({},), ("a" * 201,)])
+        def test_logs_settings_invalid_json_attribute_key(self, key):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"json_parse_logs_attribute_key": key}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "json_parse_logs_attribute_key must be a string" in response.json()["detail"]
+
         def test_logs_settings_retention_requires_matching_feature(self):
             response = self.client.patch(
                 "/api/environments/@current/",
@@ -2060,6 +2087,7 @@ def team_api_test_factory():
                         "logs_settings": {
                             "retention_days": 14,  # Same retention
                             "json_parse_logs": True,
+                            "json_parse_logs_attribute_key": "context",
                         }
                     },
                 )
