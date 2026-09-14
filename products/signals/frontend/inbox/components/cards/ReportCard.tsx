@@ -40,6 +40,7 @@ import {
     sourceProductsTooltipTitle,
 } from '../badges/sourceProductIcons'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
+import { ReportCardImpactMetric } from './ReportCardImpactMetric'
 import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
 
@@ -153,6 +154,10 @@ export function ReportCard({
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
     const redesign = useFeatureFlag('INBOX_REDESIGN')
+    const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
+    // The impact column carries its own flag on top of the redesign: its figures come from live
+    // queries, so it rolls out per team as the metric quality is verified.
+    const showImpactColumn = redesign && metricsEnabled
     // The legacy layout addresses a report through the tab that listed it, so its back control returns there.
     const detailUrl = inboxReportDetailUrl(
         report.id,
@@ -196,7 +201,12 @@ export function ReportCard({
             ? dismissalReasonLabel(report.dismissal_reason)
             : null
 
-    const cardBodyClassName = 'flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline'
+    const cardBodyClassName = clsx(
+        'flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline',
+        // Too narrow to hold the impact column beside the content: let it drop to its own line rather
+        // than squeeze the title into a column of single words.
+        showImpactColumn && 'flex-wrap @lg:flex-nowrap'
+    )
     const cardBody = (
         <>
             {report.priority && (
@@ -205,14 +215,16 @@ export function ReportCard({
                 </div>
             )}
 
-            <div className="flex flex-col gap-1.5 min-w-0 flex-1">
-                {/* Keep the title clear of the PR badge, which is positioned within the content column. */}
+            <div className={clsx('flex flex-col gap-2 min-w-0 flex-1', showImpactColumn && 'self-stretch')}>
+                {/* Keep the title clear of the PR badge. With the impact column shown the badge sits
+                    over that column from `@lg` up, so only the stacked width needs the reserved space. */}
                 <div
                     className={clsx(
                         'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
                         // A CI glyph widens the pill, so the title gives back the space it takes.
                         // A state that draws no glyph keeps the pill at its plain width.
-                        hasPr && (glyphStatus ? 'pr-24' : 'pr-14')
+                        hasPr && (glyphStatus ? 'pr-24' : 'pr-14'),
+                        hasPr && showImpactColumn && '@lg:pr-0'
                     )}
                 >
                     {conventionalTitle && (
@@ -243,7 +255,14 @@ export function ReportCard({
                     </p>
                 ) : null}
 
-                <div className="flex items-center flex-wrap mt-1.5 min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none">
+                <div
+                    className={clsx(
+                        'flex items-center flex-wrap min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none',
+                        // Sit on the bottom edge of the column so the sources line up with the timestamp
+                        // opposite, whichever column is taller.
+                        showImpactColumn ? 'mt-auto pt-1' : 'mt-1.5'
+                    )}
+                >
                     {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
                     <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
                     {!hasPr &&
@@ -272,13 +291,28 @@ export function ReportCard({
                         </Tooltip>
                     )}
                     <SignalReportBillingBadge report={report} />
+                    {!showImpactColumn && (
+                        <TZLabel
+                            time={report.updated_at ?? report.created_at}
+                            className="ml-auto shrink-0 text-xs text-tertiary tabular-nums"
+                            title="Last updated"
+                        />
+                    )}
+                </div>
+            </div>
+
+            {/* Reserved even with no figure to show: the fixed width keeps every row's figure and
+                timestamp on the same two vertical lines down the list. */}
+            {showImpactColumn ? (
+                <div className="flex w-full items-center gap-3 @lg:relative @lg:w-auto @lg:min-h-23 @lg:min-w-39 @lg:flex-none @lg:justify-end">
+                    <ReportCardImpactMetric metrics={report.metrics} />
                     <TZLabel
                         time={report.updated_at ?? report.created_at}
-                        className="ml-auto shrink-0 text-xs text-tertiary tabular-nums"
+                        className="ml-auto shrink-0 whitespace-nowrap text-xs leading-none text-tertiary tabular-nums @lg:absolute @lg:right-0 @lg:bottom-0 @lg:ml-0"
                         title="Last updated"
                     />
                 </div>
-            </div>
+            ) : null}
         </>
     )
 
