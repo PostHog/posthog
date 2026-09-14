@@ -360,12 +360,18 @@ export interface FlagGatedTool {
  *
  * Staff-only tools are left out for the same reason {@link getScopeGatedTools}
  * leaves them out: the hint would advertise a staff surface to a customer.
+ *
+ * The read-only gate is neutralized here, because the flag gate has precedence:
+ * the dispatcher reports a flag-hidden tool before it reports the connection's
+ * mode, and {@link getReadOnlyGatedTools} defers a flag-hidden tool to this list.
+ * Without this, a flag-hidden write tool would be in neither list on a read-only
+ * connection, and the dispatcher would report the name as unknown.
  */
 export function getFlagGatedTools(options?: ToolFilterOptions): FlagGatedTool[] {
     const excluded = new Set(options?.excludeTools ?? [])
     const gated: FlagGatedTool[] = []
 
-    for (const [name, definition] of filterToolEntries(options, false)) {
+    for (const [name, definition] of filterToolEntries({ ...options, readOnly: false }, false)) {
         if (excluded.has(name) || toolPassesFlagGate(definition, options?.featureFlags)) {
             continue
         }

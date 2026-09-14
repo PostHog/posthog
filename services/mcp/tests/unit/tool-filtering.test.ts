@@ -1158,6 +1158,16 @@ describe('getFlagGatedTools', () => {
         expect(entry?.supersededBy).toEqual([])
     })
 
+    // The flag gate has precedence over the read-only gate, and the read-only reporter
+    // defers a flag-hidden tool to this list, so this list has to hold it. Otherwise a
+    // read-only connection finds the tool in neither list and reports it as unknown.
+    it('reports a retired write tool on a read-only connection, which defers it here', () => {
+        const options = { readOnly: true, featureFlags: { 'revamped-py-notebooks': true } }
+
+        expect(getFlagGatedTools(options).map((tool) => tool.name)).toContain('notebooks-create')
+        expect(getReadOnlyGatedTools(['*'], options).map((tool) => tool.name)).not.toContain('notebooks-create')
+    })
+
     // The successor lives on the definition next to the gate that retires the tool.
     // Without it, a call to the retired name reads to an agent as a removed capability.
     it('every retired tool declares a successor or says why it has none', () => {
