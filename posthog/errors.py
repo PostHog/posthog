@@ -482,7 +482,8 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     122: ErrorCodeMeta("INCOMPATIBLE_COLUMNS", user_safe=True),  # column types don't match expected schema
     123: ErrorCodeMeta("UNKNOWN_TYPE_OF_AST_NODE"),
     124: ErrorCodeMeta("INCORRECT_ELEMENT_OF_SET"),
-    125: ErrorCodeMeta("INCORRECT_RESULT_OF_SCALAR_SUBQUERY"),
+    # The CH message names the row count or the expected type, never a stored value.
+    125: ErrorCodeMeta("INCORRECT_RESULT_OF_SCALAR_SUBQUERY", user_safe=True),
     127: ErrorCodeMeta("ILLEGAL_INDEX"),
     128: ErrorCodeMeta("TOO_LARGE_ARRAY_SIZE"),
     129: ErrorCodeMeta("FUNCTION_IS_SPECIAL"),
