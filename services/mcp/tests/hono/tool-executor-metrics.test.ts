@@ -542,17 +542,45 @@ describe('ToolExecutor metrics', () => {
             })
         })
 
-        it('classifies a scope-gated tool as permission, not validation', async () => {
-            // The agent can't fix this by sending different input — the connection has
-            // to be reauthorized, which is what the permission-rate alert watches for.
+        // The agent can't fix either of these by sending different input — the connection
+        // has to be reauthorized or reconnected without read-only mode, which is what the
+        // permission-rate alert watches for.
+        it.each([
+            [
+                'a scope-gated tool',
+                (state: ResolvedState) => {
+                    state.scopeGatedTools = [
+                        {
+                            name: 'gated-tool',
+                            title: 'Gated tool',
+                            description: 'A gated tool',
+                            missingScopes: ['insight:read'],
+                        },
+                    ]
+                },
+                'missing_scope',
+            ],
+            [
+                'a read-only-gated tool',
+                (state: ResolvedState) => {
+                    state.readOnlyGatedTools = [
+                        { name: 'gated-tool', title: 'Gated tool', description: 'A gated tool' },
+                    ]
+                },
+                'read_only_tool',
+            ],
+        ])('classifies %s as permission, not validation', async (_label, gate, reason) => {
             const state = execState()
-            state.scopeGatedTools = [{ name: 'gated-tool', missingScopes: ['insight:read'] }] as any
+            gate(state)
 
             await executor.handleToolCall({ name: 'exec', arguments: { command: 'info gated-tool' } }, state)
 
             expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'permission' }])
+            expect(callsFor(mockToolCallsInc, 'exec')).toEqual([{ tool: 'exec', status: 'error' }])
             expect(trackToolCallExtras('exec')).toMatchObject({
-                $mcp_error_message: 'Exec command rejected: missing_scope',
+                $mcp_error_type: 'permission',
+                $mcp_error_code: reason,
+                $mcp_error_message: `Exec command rejected: ${reason}`,
             })
         })
 
