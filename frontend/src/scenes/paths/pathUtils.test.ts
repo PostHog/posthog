@@ -1,9 +1,11 @@
 import { RGBColor } from 'd3'
 
+import { PATH_NODE_CARD_HEIGHT, PATH_NODE_CARD_OVERLAP_GAP } from './constants'
 import {
     PathNodeData,
     PathTargetLink,
     activateNodes,
+    calculatePathNodeCardTop,
     deactivateNodes,
     getForwardConnectedIndices,
     pageUrl,
@@ -447,38 +449,38 @@ describe('resolveCardOverlaps', () => {
         const { nodes } = buildPathGraph(['/', '/about'])
         // Two nodes in different layers — won't overlap each other
         // Override to put them in the same layer with close y positions
-        nodes[0] = { ...nodes[0], layer: 0, y0: 0, y1: 100, visible: true }
-        nodes[1] = { ...nodes[1], layer: 0, y0: 5, y1: 105, visible: true }
+        nodes[0] = { ...nodes[0], layer: 0, y0: 0, y1: 100 }
+        nodes[1] = { ...nodes[1], layer: 0, y0: 5, y1: 105 }
 
-        const result = resolveCardOverlaps(nodes, 720)
+        const tops = resolveCardOverlaps(nodes, 720)
 
-        expect(result[0].resolvedTop).not.toBeUndefined()
-        expect(result[1].resolvedTop).not.toBeUndefined()
-        expect(result[1].resolvedTop!).toBeGreaterThan(result[0].resolvedTop!)
-        // Gap should be at least CARD_HEIGHT + OVERLAP_GAP
-        expect(result[1].resolvedTop! - result[0].resolvedTop!).toBeGreaterThanOrEqual(42) // 38 + 4
+        expect(tops.get(1)).not.toBeUndefined()
+        expect(tops.get(1)!).toBeGreaterThan(tops.get(0)!)
+        expect(tops.get(1)! - tops.get(0)!).toBeGreaterThanOrEqual(PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_OVERLAP_GAP)
     })
 
     it('does not adjust cards in different layers', () => {
         const { nodes } = buildPathGraph(['/', '/about'])
-        nodes[0] = { ...nodes[0], layer: 0, y0: 0, y1: 100, visible: true }
-        nodes[1] = { ...nodes[1], layer: 1, y0: 5, y1: 105, visible: true }
+        nodes[0] = { ...nodes[0], layer: 0, y0: 0, y1: 100 }
+        nodes[1] = { ...nodes[1], layer: 1, y0: 5, y1: 105 }
 
-        const result = resolveCardOverlaps(nodes, 720)
+        const tops = resolveCardOverlaps(nodes, 720)
 
         // Each card gets its own layer group — no nudging needed
-        expect(result[0].resolvedTop).not.toBeUndefined()
-        expect(result[1].resolvedTop).not.toBeUndefined()
+        expect(tops.get(0)).toBe(calculatePathNodeCardTop(nodes[0], 720))
+        expect(tops.get(1)).toBe(calculatePathNodeCardTop(nodes[1], 720))
     })
 
-    it('leaves hidden nodes without resolvedTop', () => {
-        const { nodes } = buildPathGraph(['/', '/about'])
-        nodes[0] = { ...nodes[0], visible: true }
-        nodes[1] = { ...nodes[1], visible: false }
+    it('uses the closest free gap for a hover-only card', () => {
+        const { nodes } = buildPathGraph(['/', '/about', '/pricing'])
+        nodes[0] = { ...nodes[0], layer: 0, y0: 80, y1: 95 }
+        nodes[1] = { ...nodes[1], layer: 0, y0: 100, y1: 200 }
 
-        const result = resolveCardOverlaps(nodes, 720)
+        const tops = resolveCardOverlaps(nodes, 720)
 
-        expect(result[0].resolvedTop).not.toBeUndefined()
-        expect(result[1].resolvedTop).toBeUndefined()
+        expect(tops.get(1)).toBe(calculatePathNodeCardTop(nodes[1], 720))
+        expect(tops.get(0)).toBe(
+            calculatePathNodeCardTop(nodes[1], 720) - PATH_NODE_CARD_HEIGHT - PATH_NODE_CARD_OVERLAP_GAP
+        )
     })
 })
