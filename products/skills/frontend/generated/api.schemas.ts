@@ -267,6 +267,18 @@ export interface LLMSkillOutlineEntryApi {
     text: string
 }
 
+export interface LLMSkillSpecProblemApi {
+    /** Stable machine-readable code for the problem, e.g. description_too_long or file_path_collides. */
+    code: string
+    /** What is wrong and what to change, written for the skill's author. */
+    message: string
+    /**
+     * The bundled file the problem is about. Null when it is about the skill itself.
+     * @nullable
+     */
+    file_path: string | null
+}
+
 export interface LLMSkillApi {
     readonly id: string
     /**
@@ -310,6 +322,8 @@ export interface LLMSkillApi {
     readonly files: readonly LLMSkillFileManifestApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
+    /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+    readonly spec_problems: readonly LLMSkillSpecProblemApi[]
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -373,6 +387,8 @@ export interface LLMSkillListApi {
     readonly owners: readonly UserBasicApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
+    /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+    readonly spec_problems: readonly LLMSkillSpecProblemApi[]
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -467,6 +483,8 @@ export interface LLMSkillCreateApi {
     files?: LLMSkillFileInputApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
+    /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+    readonly spec_problems: readonly LLMSkillSpecProblemApi[]
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
