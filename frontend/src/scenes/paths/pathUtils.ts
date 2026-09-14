@@ -81,11 +81,24 @@ export const deactivateNodes = (nodes: PathNodeData[]): PathNodeData[] =>
         active: false,
     }))
 
+const findClosestAvailableCardTop = (naturalTop: number, occupiedTops: number[], canvasHeight: number): number => {
+    const minimumDistance = PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_OVERLAP_GAP
+    const maximumTop = Math.max(0, canvasHeight - PATH_NODE_CARD_HEIGHT)
+    const clamp = (top: number): number => Math.min(Math.max(top, 0), maximumTop)
+    const candidateTops = [
+        clamp(naturalTop),
+        ...occupiedTops.flatMap((occupiedTop) => [occupiedTop - minimumDistance, occupiedTop + minimumDistance]),
+    ].filter((top) => top >= 0 && top <= maximumTop)
+
+    return (
+        candidateTops
+            .filter((top) => occupiedTops.every((occupiedTop) => Math.abs(top - occupiedTop) >= minimumDistance))
+            .sort((a, b) => Math.abs(a - naturalTop) - Math.abs(b - naturalTop) || a - b)[0] ?? clamp(naturalTop)
+    )
+}
+
 /**
- * Card top per node index, nudged down so that cards in the same layer do not overlap.
- *
- * Always-visible cards keep their position. Cards that hover reveals fill the remaining space,
- * so that changing the hover state does not move a card from under the pointer.
+ * Card positions per node index. Positions use every node, so hover changes do not move cards.
  */
 export function resolveCardOverlaps(nodes: PathNodeData[], canvasHeight: number): Map<number, number> {
     const byLayer = new Map<number, PathNodeData[]>()
@@ -101,25 +114,19 @@ export function resolveCardOverlaps(nodes: PathNodeData[], canvasHeight: number)
     for (const group of byLayer.values()) {
         group.sort((a, b) => topByIndex.get(a.index)! - topByIndex.get(b.index)!)
         const alwaysVisibleNodes = group.filter(isCardAlwaysVisible)
+        const occupiedTops: number[] = []
         let prevBottom = -Infinity
         for (const node of alwaysVisibleNodes) {
             const naturalTop = topByIndex.get(node.index)!
             const resolvedTop = Math.max(naturalTop, prevBottom + PATH_NODE_CARD_OVERLAP_GAP)
             resolvedTops.set(node.index, resolvedTop)
+            occupiedTops.push(resolvedTop)
             prevBottom = resolvedTop + PATH_NODE_CARD_HEIGHT
         }
 
-        const occupiedTops = alwaysVisibleNodes.map((node) => resolvedTops.get(node.index)!).sort((a, b) => a - b)
+        occupiedTops.sort((a, b) => a - b)
         for (const node of group.filter((node) => !isCardAlwaysVisible(node))) {
-            let resolvedTop = topByIndex.get(node.index)!
-            for (const occupiedTop of occupiedTops) {
-                if (
-                    resolvedTop + PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_OVERLAP_GAP > occupiedTop &&
-                    resolvedTop < occupiedTop + PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_OVERLAP_GAP
-                ) {
-                    resolvedTop = occupiedTop + PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_OVERLAP_GAP
-                }
-            }
+            const resolvedTop = findClosestAvailableCardTop(topByIndex.get(node.index)!, occupiedTops, canvasHeight)
             resolvedTops.set(node.index, resolvedTop)
             occupiedTops.push(resolvedTop)
             occupiedTops.sort((a, b) => a - b)

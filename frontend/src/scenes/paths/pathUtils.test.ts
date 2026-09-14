@@ -471,17 +471,16 @@ describe('resolveCardOverlaps', () => {
         expect(tops.get(1)).toBe(calculatePathNodeCardTop(nodes[1], 720))
     })
 
-    it('keeps always-visible cards fixed and places hover-only cards without overlap', () => {
-        const { nodes } = buildPathGraph(['/', '/about'])
-        // A short node has no card until it is hovered, and sits above the card of a tall one
-        nodes[0] = { ...nodes[0], layer: 0, y0: 20, y1: 120 }
-        nodes[1] = { ...nodes[1], layer: 0, y0: 0, y1: 15 }
+    it('uses the closest free gap for a hover-only card', () => {
+        const { nodes } = buildPathGraph(['/', '/about', '/pricing'])
+        nodes[0] = { ...nodes[0], layer: 0, y0: 80, y1: 95 }
+        nodes[1] = { ...nodes[1], layer: 0, y0: 100, y1: 200 }
 
         const tops = resolveCardOverlaps(nodes, 720)
 
-        expect(tops.get(0)).toBe(calculatePathNodeCardTop(nodes[0], 720))
-        expect(Math.abs(tops.get(0)! - tops.get(1)!)).toBeGreaterThanOrEqual(
-            PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_OVERLAP_GAP
+        expect(tops.get(1)).toBe(calculatePathNodeCardTop(nodes[1], 720))
+        expect(tops.get(0)).toBe(
+            calculatePathNodeCardTop(nodes[1], 720) - PATH_NODE_CARD_HEIGHT - PATH_NODE_CARD_OVERLAP_GAP
         )
     })
 })
