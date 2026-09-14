@@ -197,10 +197,6 @@ def _apply_date_params(query: dict, date_from: Optional[str], date_to: Optional[
 
 
 def _envelope(metric: Metric, payload: dict, team: Team, prepared_query: dict, is_drifted: bool) -> dict:
-    # Only the row paginator reports these two, and it reports them together. A payload with no
-    # `limit` had no row cap applied, so nothing about it says rows were dropped: a trends response
-    # sets `hasMore` when it collapses surplus breakdown values into the "other" bucket, and
-    # narrowing the window or the interval recovers none of those.
     row_limit = payload.get("limit")
     return {
         "status": metric.status,
