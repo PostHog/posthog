@@ -28,7 +28,7 @@ export function TaskAssigneeFilterMenu(): JSX.Element {
                 }
             />
             <DropdownMenuContent align="start" side="bottom" sideOffset={6} className="min-w-fit">
-                <MenuLabel>Show tasks</MenuLabel>
+                <MenuLabel>Show chats</MenuLabel>
                 <DropdownMenuRadioGroup
                     value={assigneeFilter}
                     onValueChange={(value) => setAssigneeFilter(value as TaskAssigneeFilter)}
