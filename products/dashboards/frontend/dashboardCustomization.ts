@@ -73,15 +73,19 @@ export const freePlacementCompactor: Compactor = noCompactor
 
 export const makeRoomInRowCompactor: Compactor = horizontalCompactor
 
+export type DashboardInteractionKind = 'drag' | 'resize'
+
 export interface DashboardGridCompactor extends Compactor {
-    compactInteraction: (cols: number, activeTileId: string, restoredLayout: Layout, resizedLayout: Layout) => Layout
+    compactInteraction: (
+        cols: number,
+        activeTileId: string,
+        kind: DashboardInteractionKind,
+        restoredLayout: Layout,
+        resizedLayout: Layout
+    ) => Layout
 }
 
-export function resolveFreePlacementCollisions(layout: Layout, cols: number, activeTileId?: string | null): Layout {
-    const items = layout.map((item) => ({
-        ...cloneLayoutItem(item),
-        h: Math.min(item.h, MAX_FREE_FORM_TILE_HEIGHT_ROWS),
-    }))
+function resolveCollisions(items: LayoutItem[], cols: number, activeTileId?: string | null): Layout {
     const activeTile = activeTileId ? items.find((item) => item.i === activeTileId) : undefined
     const occupancy: GridOccupancy = new Map()
     for (const item of items) {
@@ -89,7 +93,10 @@ export function resolveFreePlacementCollisions(layout: Layout, cols: number, act
             occupy(occupancy, item, cols)
         }
     }
-    const movableItems = items.filter((item) => !item.static && item.i !== activeTileId)
+    // Top-down order keeps a cascade pushing tiles downward instead of reordering them against each other.
+    const movableItems = items
+        .filter((item) => !item.static && item.i !== activeTileId)
+        .sort((first, second) => first.y - second.y || first.x - second.x)
 
     for (const item of activeTile && !activeTile.static ? [activeTile, ...movableItems] : movableItems) {
         let collisions = getOccupants(occupancy, item, cols)
@@ -103,6 +110,21 @@ export function resolveFreePlacementCollisions(layout: Layout, cols: number, act
     }
 
     return items
+}
+
+export function resolveFreePlacementCollisions(layout: Layout, cols: number, activeTileId?: string | null): Layout {
+    return resolveCollisions(
+        layout.map((item) => ({
+            ...cloneLayoutItem(item),
+            h: Math.min(item.h, MAX_FREE_FORM_TILE_HEIGHT_ROWS),
+        })),
+        cols,
+        activeTileId
+    )
+}
+
+function resolveDragCollisions(layout: Layout, cols: number, activeTileId: string): Layout {
+    return resolveCollisions(layout.map(cloneLayoutItem), cols, activeTileId)
 }
 
 export function getDashboardTileSpacingGap(tileSpacing?: string): number {
@@ -124,12 +146,17 @@ export function getDashboardGridCompactor(layoutCompaction?: DashboardGridCompac
 
     return {
         ...compactor,
-        compactInteraction: (cols, activeTileId, restoredLayout, resizedLayout): Layout => {
+        compactInteraction: (cols, activeTileId, kind, restoredLayout, resizedLayout): Layout => {
             switch (selectedCompaction) {
                 case DashboardGridCompaction.Stable:
                     return resolveFreePlacementCollisions(restoredLayout, cols, activeTileId)
                 case DashboardGridCompaction.Vertical:
-                    return compactor.compact(resizedLayout, cols)
+                    // A drag passes over every tile between its start and its drop point. Compacting the whole
+                    // grid on each frame re-packs those tiles into the gap the drag left, so only the collision
+                    // at the drop point is resolved here. The grid compacts again once the drag ends.
+                    return kind === 'drag'
+                        ? resolveDragCollisions(restoredLayout, cols, activeTileId)
+                        : compactor.compact(resizedLayout, cols)
                 default:
                     return compactor.compact(restoredLayout, cols)
             }
