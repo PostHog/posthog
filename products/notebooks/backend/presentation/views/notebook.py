@@ -1276,7 +1276,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     status = KernelRuntime.Status.STOPPED
             except Exception:
                 status = KernelRuntime.Status.STOPPED
-                # The provider did not answer, so the sandbox may still run until its TTL.
                 sandbox_still_running = True
 
         if runtime and status == KernelRuntime.Status.STOPPED:

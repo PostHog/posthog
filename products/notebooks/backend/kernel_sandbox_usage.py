@@ -70,8 +70,6 @@ def record_sandbox_ended(runtime: KernelRuntime, *, reason: str, sandbox_still_r
     sandbox is never counted twice. Rows without `ttl_expires_at` started before this
     instrumentation existed and have no start event, so they are skipped. Never raises.
     """
-    # The status poll calls this on every poll of a stopped kernel, so skip the database work when
-    # this copy of the row already carries the end.
     if runtime.ended_at is not None:
         return
     try:
@@ -93,7 +91,6 @@ def record_sandbox_ended(runtime: KernelRuntime, *, reason: str, sandbox_still_r
         try:
             report_user_or_team_action(KERNEL_SANDBOX_ENDED_EVENT, properties, user=user, team=team)
         except Exception:
-            # Release the claim, so that the next path that notices this end reports it.
             KernelRuntime.objects.filter(pk=runtime.pk, ended_at=ended_at).update(ended_at=None)
             runtime.ended_at = None
             raise
@@ -130,8 +127,6 @@ def _shape_properties(runtime: KernelRuntime) -> dict[str, Any]:
     memory_gb = runtime.provisioned_memory_gb
     preset = find_matching_preset(cpu_cores=cpu_cores, memory_gb=memory_gb)
     hourly_price = None
-    # The rates price a Modal sandbox. The Docker backend runs kernels on a local machine in
-    # development, so it has no price.
     if runtime.backend == KernelRuntime.Backend.MODAL and cpu_cores is not None and memory_gb is not None:
         hourly_price = get_compute_rates().hourly_price(cpu_cores=cpu_cores, memory_gb=memory_gb)
     return {

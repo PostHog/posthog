@@ -211,7 +211,6 @@ def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
         cpu_cores=default_preset.cpu_cores,
         memory_gb=default_preset.memory_gb,
         ttl_seconds=NOTEBOOK_KERNEL_TTL_SECONDS,
-        # Modal stores these tags on the sandbox, so a sandbox seen in Modal traces back to its team.
         metadata={"team_id": str(notebook.team_id), "product": "notebooks"},
     )
     if notebook.kernel_cpu_cores:
@@ -1122,7 +1121,6 @@ class KernelRuntimeService:
             sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
         except Exception:
             self._mark_runtime_error(runtime, "Sandbox not found")
-            # The lookup can fail while the sandbox still runs, so count it as running until its TTL.
             record_sandbox_ended(runtime, reason=KernelRuntime.Status.ERROR, sandbox_still_running=True)
             return None
 
@@ -1135,7 +1133,6 @@ class KernelRuntimeService:
             self._wait_for_kernel_ready(sandbox, runtime.connection_file or "")
         except Exception:
             self._mark_runtime_error(runtime, "Kernel not ready in sandbox")
-            # The sandbox runs but its kernel does not answer. Nothing destroys it, so it runs until its TTL.
             record_sandbox_ended(runtime, reason=KernelRuntime.Status.ERROR, sandbox_still_running=True)
             return None
 
