@@ -56,14 +56,16 @@ export interface tasksLogicActions {
     } // featureFlagLogic
     loadUserSuccess: (
         user: UserType | null,
-        payload?: {
-            resetOnFailure: boolean | undefined
-        }
+        payload?:
+            | {
+                  resetOnFailure: boolean | undefined
+              }
+            | undefined
     ) => {
-        user: UserType | null
         payload?: {
             resetOnFailure: boolean | undefined
         }
+        user: UserType | null
     } // userLogic
     createTask: ({ data }: { data: TaskUpsertProps }) => {
         data: TaskUpsertProps
@@ -201,7 +203,7 @@ export const tasksLogic = kea<tasksLogicType>([
         setTasksNext: (next: string | null) => ({ next }),
     }),
 
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         tasks: [
             [] as Task[],
             {
@@ -212,6 +214,10 @@ export const tasksLogic = kea<tasksLogicType>([
                 // it is showing, and `{}` there would swap the active filter for the whole visible set.
                 // The default is evaluated per call, so it picks up the filter active at refresh time.
                 loadTasks: async (params: TaskListParams = values.taskListParams, breakpoint) => {
+                    cache.tasksLoadPending = !values.taskListParamsReady
+                    if (cache.tasksLoadPending) {
+                        return values.tasks
+                    }
                     let response: PaginatedResponse<Task>
                     try {
                         response = await api.tasks.list(params)
@@ -408,11 +414,17 @@ export const tasksLogic = kea<tasksLogicType>([
         taskListParamsReady: [
             (s) => [s.assigneeFilter, s.user],
             (assigneeFilter: TaskAssigneeFilter, user: null | import('~/types').UserType): boolean =>
-                assigneeFilter === 'team_scouts' || !!user,
+                assigneeFilter === 'team_scouts' || !!user?.id,
         ],
     }),
 
-    listeners(({ actions, values }) => {
+    listeners(({ actions, values, cache }) => {
+        const loadTasksWhenReady = (): void => {
+            cache.tasksLoadPending = !values.taskListParamsReady
+            if (!cache.tasksLoadPending) {
+                actions.loadTasks(values.taskListParams)
+            }
+        }
         // The app renders once the feature-flag request times out (3s), so this logic can mount
         // before the flags land — and it's an unkeyed singleton, so `afterMount` never runs again.
         // Without this the nav would sit on an empty list, showing "no tasks" rather than loading.
@@ -431,15 +443,9 @@ export const tasksLogic = kea<tasksLogicType>([
             // response that a newer query has already superseded.
             setSearchQuery: async (_, breakpoint) => {
                 await breakpoint(300)
-                if (values.taskListParamsReady) {
-                    actions.loadTasks(values.taskListParams)
-                }
+                loadTasksWhenReady()
             },
-            setAssigneeFilter: () => {
-                if (values.taskListParamsReady) {
-                    actions.loadTasks(values.taskListParams)
-                }
-            },
+            setAssigneeFilter: loadTasksWhenReady,
             loadMoreTasksFailure: ({ error, errorObject }) => {
                 lemonToast.error(`Couldn't load more tasks: ${loadErrorMessage(error, errorObject)}`)
             },
@@ -452,7 +458,13 @@ export const tasksLogic = kea<tasksLogicType>([
                 }
             },
             setFeatureFlags: loadInitialTasks,
-            loadUserSuccess: loadInitialTasks,
+            loadUserSuccess: () => {
+                if (cache.tasksLoadPending) {
+                    loadTasksWhenReady()
+                } else {
+                    loadInitialTasks()
+                }
+            },
         }
     }),
 

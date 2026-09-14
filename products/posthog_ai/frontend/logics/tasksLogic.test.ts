@@ -165,11 +165,52 @@ describe('tasksLogic', () => {
         // Regression coverage: `created_by` is the current user's id, and a filter picked before the
         // user had loaded sent the request without it. The server then answered with every task the
         // caller can read, so an origin filter showed other people's shared tasks.
-        it('holds a filter change until the user has loaded, then requests with the creator pin', async () => {
+        it.each([
+            ['posthog_ai', 'checkout bug'],
+            ['slack', ''],
+            ['desktop', 'checkout bug'],
+        ] as const)(
+            'holds the %s filter and search until the user has loaded after a team request',
+            async (filter, search) => {
+                userLogic.actions.loadUserSuccess(null)
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS], { [FEATURE_FLAGS.TASKS]: true })
+
+                logic.actions.setAssigneeFilter('team_scouts')
+                await expectLogic(logic).toFinishAllListeners()
+                expect(listRequestUrls).toHaveLength(1)
+                listRequestUrls = []
+
+                logic.actions.setAssigneeFilter(filter)
+                if (search) {
+                    logic.actions.setSearchQuery(search)
+                }
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(listRequestUrls).toHaveLength(0)
+
+                userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(listRequestUrls).toHaveLength(1)
+                expect(
+                    listRequestUrls[0].searchParams.get(filter === 'desktop' ? 'client_provenance' : 'origin_product')
+                ).toBe(filter === 'desktop' ? 'posthog_desktop' : filter)
+                expect(listRequestUrls[0].searchParams.get('created_by')).toBe(String(MOCK_DEFAULT_USER.id))
+                expect(listRequestUrls[0].searchParams.get('search')).toBe(search || null)
+            }
+        )
+
+        it('holds the initial load and a direct refresh until the user has loaded', async () => {
+            logic.unmount()
             userLogic.actions.loadUserSuccess(null)
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS], { [FEATURE_FLAGS.TASKS]: true })
+            logic = tasksLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
 
-            logic.actions.setAssigneeFilter('slack')
+            expect(listRequestUrls).toHaveLength(0)
+
+            logic.actions.loadTasks(logic.values.taskListParams)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(listRequestUrls).toHaveLength(0)
@@ -178,7 +219,6 @@ describe('tasksLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(listRequestUrls).toHaveLength(1)
-            expect(listRequestUrls[0].searchParams.get('origin_product')).toBe(OriginProduct.SLACK)
             expect(listRequestUrls[0].searchParams.get('created_by')).toBe(String(MOCK_DEFAULT_USER.id))
         })
 
