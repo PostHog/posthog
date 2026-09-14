@@ -37,6 +37,7 @@ from .relay_sandbox_events import (
     _extract_agent_message_text,
     _extract_tool_call_step,
     _is_session_update,
+    _resolve_stream_mode,
     _signal_safely,
 )
 
@@ -135,6 +136,14 @@ def _agent_proxy_base_url() -> str | None:
         or settings.TASKS_AGENT_PROXY_PUBLIC_URL
         or settings.TASKS_AGENT_PROXY_INGEST_URL
     )
+
+
+async def _with_stream_mode(signal_name: str, arg: Any, input: RelayAgentDesignSignalsInput) -> Any:
+    """Attach the turn's stream surface to ``turn_started``, resolved at turn open so a
+    preference change mid-run applies from the next turn."""
+    if signal_name != "turn_started" or not isinstance(arg, dict):
+        return arg
+    return {**arg, "stream_mode": await _resolve_stream_mode(input.slack_thread_context)}
 
 
 def _event_method(event_data: dict) -> str | None:
@@ -317,6 +326,7 @@ async def _relay_from_agent_proxy(
                                 signals=[name for name, _ in signals],
                             )
                             for signal_name, arg in signals:
+                                arg = await _with_stream_mode(signal_name, arg, input)
                                 await _signal_safely(workflow_handle, signal_name, arg)
                             # Checkpoint only after the event is fully relayed, so a retry resumes past
                             # it with the matching turn state rather than re-opening a delivered turn.
@@ -365,6 +375,7 @@ async def _relay_from_redis(
                 continue
             _, event_data = item
             for signal_name, arg in emitter.process(event_data):
+                arg = await _with_stream_mode(signal_name, arg, input)
                 await _signal_safely(workflow_handle, signal_name, arg)
     except TaskRunStreamError as e:
         # The stream completed (complete/error sentinel) or timed out — nothing left to relay.

@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from products.slack_app.backend.models import UntaggedFollowupMode
+from products.slack_app.backend.models import StreamVerbosity, UntaggedFollowupMode
 
 if TYPE_CHECKING:
     from posthog.models.integration import Integration
@@ -60,7 +60,35 @@ def resolve_untagged_followup_mode(integration: Integration, slack_user_id: str 
     return UntaggedFollowupMode.NEVER
 
 
+def resolve_stream_verbosity(integration: Integration, slack_user_id: str | None) -> StreamVerbosity:
+    """Resolve how much of a run's progress streams into threads this Slack user starts.
+
+    Read from the row of the person whose mention started the run, so their choice
+    governs the whole thread. An absent row, an empty column, or a value we no
+    longer recognise all resolve to `FULL`: live progress stays the default.
+    """
+
+    if not slack_user_id:
+        return StreamVerbosity.FULL
+
+    from products.slack_app.backend.models import SlackSettings
+
+    row = (
+        SlackSettings.objects.filter(
+            slack_workspace_id=integration.integration_id,
+            slack_user_id=slack_user_id,
+        )
+        .values("stream_verbosity")
+        .first()
+    )
+    stored = row["stream_verbosity"] if row else None
+    if stored in StreamVerbosity.values:
+        return StreamVerbosity(stored)
+    return StreamVerbosity.FULL
+
+
 __all__ = [
     "AIPreferences",
+    "resolve_stream_verbosity",
     "resolve_untagged_followup_mode",
 ]

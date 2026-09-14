@@ -37,6 +37,7 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     _sanitize_httpx_error,
     _should_signal_workflow_heartbeat,
     _track_tool_call,
+    _turn_started_payload,
     relay_sandbox_events,
 )
 from products.tasks.backend.temporal.process_task.workflow import (
@@ -1470,6 +1471,39 @@ class TestFlushPendingText:
         parts = ["dropped"]
         await _flush_pending_text(None, parts, [0.0])
         assert parts == []
+
+
+class TestTurnStartedPayload:
+    """The payload's stream_mode is what selects the relay's surface — dropping it
+    silently reverts every turn to the legacy plan block."""
+
+    @parameterized.expand(
+        [
+            ("full_streams_the_timeline", "full", "timeline"),
+            ("final_only_passes_through", "final_only", "final_only"),
+        ]
+    )
+    async def test_mentioning_users_preference_selects_the_surface(self, _name, verbosity, expected_mode) -> None:
+        ctx = {"integration_id": 7, "mentioning_slack_user_id": "U001", "channel": "C1", "thread_ts": "1.0"}
+        with pytest.MonkeyPatch.context() as mp:
+            facade = importlib.import_module("products.slack_app.backend.facade.api")
+            mp.setattr(facade, "slack_stream_verbosity", lambda integration_id, slack_user_id: verbosity)
+            payload = await _turn_started_payload(ctx)
+
+        assert payload == {"slack_thread_context": ctx, "stream_mode": expected_mode}
+
+    async def test_resolution_failure_falls_open_to_the_timeline(self) -> None:
+        ctx = {"integration_id": 7, "mentioning_slack_user_id": "U001", "channel": "C1", "thread_ts": "1.0"}
+
+        def _boom(integration_id, slack_user_id):
+            raise RuntimeError("db unavailable")
+
+        with pytest.MonkeyPatch.context() as mp:
+            facade = importlib.import_module("products.slack_app.backend.facade.api")
+            mp.setattr(facade, "slack_stream_verbosity", _boom)
+            payload = await _turn_started_payload(ctx)
+
+        assert payload["stream_mode"] == "timeline"
 
 
 class TestShouldSignalWorkflowHeartbeat:

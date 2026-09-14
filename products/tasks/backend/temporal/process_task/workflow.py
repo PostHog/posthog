@@ -3216,9 +3216,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return
         relay_workflow_id = f"slack-agent-design-relay-{self.context.run_id}-{workflow.uuid4()}"
         self._current_slack_relay_workflow_id = relay_workflow_id
+        # Absent on payloads from fan-outs deployed before the field existed; the
+        # relay then falls back to its legacy plan surface.
+        stream_mode = payload.get("stream_mode")
         await workflow.start_child_workflow(
             SlackAgentDesignRelayWorkflow.run,
-            SlackAgentDesignRelayInput(slack_thread_context=slack_ctx, run_id=self.context.run_id),
+            SlackAgentDesignRelayInput(
+                slack_thread_context=slack_ctx,
+                run_id=self.context.run_id,
+                stream_mode=stream_mode if isinstance(stream_mode, str) else None,
+            ),
             id=relay_workflow_id,
             task_queue=workflow.info().task_queue,
             # Cancel on parent close so the relay's finally block runs

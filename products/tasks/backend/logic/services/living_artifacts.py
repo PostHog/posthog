@@ -160,6 +160,7 @@ def create_living_artifact(
             current_version=1,
             export_asset_id=export_asset_id,
         )
+    deliver_artifacts_to_open_stream(run, artifact)
     return artifact
 
 
@@ -236,7 +237,8 @@ def edit_living_artifact(
                 "updated_at",
             ]
         )
-        return locked
+    deliver_artifacts_to_open_stream(run, locked)
+    return locked
 
 
 def resolve_artifact_content(
@@ -674,7 +676,7 @@ class SlackCanvasArtifactAdapter(LivingArtifactAdapter):
             if not canvas_id:
                 raise ValueError("Slack canvas delivery did not return a canvas id")
             canvas_url = _slack_canvas_url(response, mapping.slack_workspace_id, canvas_id)
-            _post_canvas_created_message(slack, mapping, name, canvas_id, canvas_url)
+            _post_canvas_created_message(slack, run, mapping, name, canvas_id, canvas_url)
         else:
             canvas_id = str((artifact.location or {}).get("canvas_id") or "")
             if not canvas_id:
@@ -962,14 +964,47 @@ def deliver_pending_slack_file_artifacts(
                 delivered_artifact_ids.add(card.artifact.id)
                 _record_chart(card.artifact, None, "url" if card.image_url else "file_upload")
 
-        result.answer_posted = _post_composed_answer_message(
-            slack,
-            mapping=mapping,
-            image_cards=image_cards,
-            answer_sections=answer_sections or [],
-            mark_delivered=_mark_card_delivered,
-            deadline=deadline,
-        )
+        # With an agent-design stream open (and no answer text to compose), the
+        # cards append into the streamed message so the chart shows up inline
+        # where the agent mentioned it. A failed append falls back to the card's
+        # own thread message rather than leaving it pending.
+        stream_ts = _open_stream_ts(run) if answer_sections is None else None
+        if stream_ts is not None:
+            for card in image_cards:
+                if time.monotonic() >= deadline:
+                    # Recorded as message_not_posted with the other undelivered cards below.
+                    logger.warning("task_artifact.slack_post_budget_exhausted", artifact_id=str(card.artifact.id))
+                    continue
+                blocks = _chart_card_blocks(card)
+                card_posted = _append_blocks_to_stream(slack, mapping=mapping, ts=stream_ts, blocks=blocks)
+                if not card_posted:
+                    try:
+                        card_posted = _post_blocks_with_processing_retry(
+                            slack,
+                            channel=mapping.channel,
+                            thread_ts=mapping.thread_ts,
+                            text=_artifact_fallback_text(card.artifact),
+                            blocks=blocks,
+                            attempts=_IMAGE_BLOCK_FALLBACK_ATTEMPTS,
+                            deadline=deadline,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "task_artifact.slack_file_delivery_failed",
+                            artifact_id=str(card.artifact.id),
+                            exc_info=True,
+                        )
+                if card_posted:
+                    _mark_card_delivered(card)
+        else:
+            result.answer_posted = _post_composed_answer_message(
+                slack,
+                mapping=mapping,
+                image_cards=image_cards,
+                answer_sections=answer_sections or [],
+                mark_delivered=_mark_card_delivered,
+                deadline=deadline,
+            )
         for card in image_cards:
             if card.artifact.id not in delivered_artifact_ids:
                 _record_chart(card.artifact, "message_not_posted")
@@ -1496,6 +1531,52 @@ def _get_slack_mapping(run: TaskRun, *, raise_if_missing: bool = True):
     return mapping
 
 
+def _open_stream_ts(run: TaskRun) -> str | None:
+    """The ts of the run's open agent-design stream, or None when nothing is streaming.
+
+    Read fresh rather than off the instance: the stream opens and closes while the
+    caller's ``run`` row may have been loaded at request start.
+    """
+    from products.tasks.backend.temporal.process_task.activities.slack_agent_design import (  # noqa: PLC0415 — keep temporal off the service import path
+        SLACK_STREAM_TS_STATE_KEY,
+    )
+
+    state = TaskRun.objects.filter(id=run.id).values_list("state", flat=True).first() or {}
+    ts = state.get(SLACK_STREAM_TS_STATE_KEY)
+    return ts if isinstance(ts, str) and ts else None
+
+
+def _append_blocks_to_stream(slack: Any, *, mapping: Any, ts: str, blocks: list[dict[str, Any]]) -> bool:
+    """Append blocks into the open agent-design stream. False on any failure, so the
+    caller can fall back to a separate thread message — the stream may have closed
+    between the ts read and this call."""
+    try:
+        slack.chat_appendStream(
+            channel=mapping.channel,
+            ts=ts,
+            chunks=[{"type": "blocks", "blocks": blocks}],
+        )
+        return True
+    except Exception:
+        logger.warning("task_artifact.stream_append_failed", task_run_id=str(mapping.task_run_id), exc_info=True)
+        return False
+
+
+def deliver_artifacts_to_open_stream(run: TaskRun, artifact: TaskArtifact) -> None:
+    """Mid-turn delivery: with an agent-design stream open, pending slack_file
+    artifacts land inline the moment the agent creates them, interleaved with the
+    streamed narrative. Without one this is a no-op and delivery stays with the
+    run-end relay. Best-effort — a failure leaves the artifact pending."""
+    if artifact.adapter != TaskArtifact.Adapter.SLACK_FILE:
+        return
+    if _open_stream_ts(run) is None:
+        return
+    try:
+        deliver_pending_slack_file_artifacts(run)
+    except Exception:
+        logger.warning("task_artifact.stream_delivery_failed", task_run_id=str(run.id), exc_info=True)
+
+
 def _slack_client_for_mapping(mapping: Any):
     return _slack_integration_for_mapping(mapping).client
 
@@ -1566,19 +1647,30 @@ def _escape_slack_mrkdwn_text(text: str) -> str:
 
 
 def _post_canvas_created_message(
-    slack: Any, mapping: Any, name: str, canvas_id: str | None, canvas_url: str | None
+    slack: Any, run: TaskRun, mapping: Any, name: str, canvas_id: str | None, canvas_url: str | None
 ) -> None:
     if not canvas_id:
         return
     escaped_name = _escape_slack_mrkdwn_text(name).replace("|", " ")
     escaped_canvas_id = _escape_slack_mrkdwn_text(canvas_id)
     canvas_reference = f"<{canvas_url}|{escaped_name}>" if canvas_url else f"*{escaped_name}*"
+    text = f"Created Slack canvas {canvas_reference} (`{escaped_canvas_id}`)."
+    # With an agent-design stream open, the notice rides the streamed message where
+    # the agent mentioned the canvas rather than landing as its own reply.
+    stream_ts = _open_stream_ts(run)
+    if stream_ts is not None and _append_blocks_to_stream(
+        slack,
+        mapping=mapping,
+        ts=stream_ts,
+        blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
+    ):
+        return
     try:
         post_slack_thread_reply(
             slack,
             channel=mapping.channel,
             thread_ts=mapping.thread_ts,
-            text=f"Created Slack canvas {canvas_reference} (`{escaped_canvas_id}`).",
+            text=text,
             unfurl_links=False,
             unfurl_media=False,
         )
