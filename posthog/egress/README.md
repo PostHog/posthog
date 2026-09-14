@@ -4,11 +4,11 @@ General-purpose controls for the calls PostHog makes _out_ to third-party APIs.
 A new outbound integration that needs rate limiting or egress telemetry belongs here as a `<domain>/` package (see [Adding a new egress domain](#adding-a-new-egress-domain)), never hand-rolled around `requests`.
 Three lanes, one per subpackage:
 
-- **`limiter/`** — shared, Redis-backed budgets so every worker process draws from one limit and PostHog stays inside an external API's rate limit, with priority lanes so bulk traffic can't starve critical traffic.
-- **`observability/`** — the metrics analog: request volume plus the API's own rate-limit headers, on one Prometheus metric set.
-- **`transport/`** — the HTTP client that composes the other two: one request that is gated _and_ recorded by construction, so no caller can bypass either.
+- **`limiter/`**: shared, Redis-backed budgets so every worker process draws from one limit and PostHog stays inside an external API's rate limit, with priority lanes so bulk traffic can't starve critical traffic.
+- **`observability/`**: the metrics analog, with request volume plus the API's own rate-limit headers, on one Prometheus metric set.
+- **`transport/`**: the HTTP client that composes the other two. Each request is gated _and_ recorded by construction, so no caller can bypass either.
 
-This is _outbound_ egress — what PostHog sends.
+This is _outbound_ egress: what PostHog sends.
 It is unrelated to `posthog.rate_limit`, which throttles _inbound_ DRF requests from clients.
 
 All three lanes are domain-free.
@@ -51,18 +51,18 @@ from posthog.egress.limiter.policies import Priority
 from posthog.egress.github.limiter import consume_github_installation_sync
 
 if not consume_github_installation_sync(installation_id, priority=Priority.BATCH, source="warehouse"):
-    # Budget exhausted — back off and retry, defer, or drop. The limiter never blocks or sleeps.
+    # Budget exhausted: back off and retry, defer, or drop. The limiter never blocks or sleeps.
     raise SomeRetryableError(...)
 ```
 
 `acquire` (async) and `consume_sync` (sync, for callers outside an event loop) both return `True` if the call fits the shared budget and `False` if it would exceed it.
-They are **non-blocking** — the caller decides what to do on `False`.
+They are **non-blocking**: the caller decides what to do on `False`.
 Each domain wraps the key construction in a thin gate like the GitHub helper above.
 
 ### Pacing (for callers that can wait)
 
 Getting denied is recoverable but wasteful: the caller learns nothing about _when_ the budget frees, so it backs off blind, and the budget it already spent stays spent.
-A caller that can wait — a bulk import walking pages, not a request serving a person — should instead ask how long to wait and not get denied at all:
+A caller that can wait (a bulk import walking pages, not a request serving a person) should instead ask how long to wait and not get denied at all:
 
 ```python
 pace = get_outbound_rate_limiter().pace_seconds(key, priority=Priority.BATCH)
@@ -77,7 +77,7 @@ A caller that keeps several calls in flight also asks `admission_interval_second
 `pace_seconds` reads the window, so it cannot see calls the caller admitted but has not consumed yet; the interval comes from the policy alone and holds through that gap and through a store outage.
 
 Two things it is not.
-It is **advisory** — `acquire`/`consume_sync` remain the only authority on whether a call is admitted, so a bug here cannot over-admit.
+It is **advisory**: `acquire`/`consume_sync` remain the only authority on whether a call is admitted, so a bug here cannot over-admit.
 And it is not a wait-for-reset: these are sliding windows, which free continuously, so waiting for a reset would idle for a whole window to get budget that was arriving all along.
 A store failure answers 0 rather than raising, because pacing sits in front of every gated call and the in-memory fallback's headroom is one process's, not the shared budget's.
 
@@ -107,7 +107,7 @@ A denied `CRITICAL` call proceeds, and the API's own 429 is the backstop.
 
 ### Backend
 
-A sliding-window counter over Redis holds the shared budget across worker processes — O(1) memory per key, self-expiring, no background grooming.
+A sliding-window counter over Redis holds the shared budget across worker processes: O(1) memory per key, self-expiring, no background grooming.
 When Redis is unavailable it degrades to a per-process in-memory counter, shrunk by `in_memory_divider` so N processes don't together allow N× the shared limit.
 That fallback is best-effort: **the consumer's reactive backoff (e.g. honoring a 429) is the real backstop**, and the limiter is a proactive smoother on top.
 All library and Redis specifics live in the backend module, so the facade and consumers stay backend-agnostic and the algorithm stays swappable.
@@ -117,9 +117,9 @@ All library and Redis specifics live in the backend module, so the facade and co
 Each domain constructs one `EgressObservability`, and the domain's transport records every request through it.
 Request volume and the API's rate-limit headers land on one metric set, whichever subsystem made the call.
 
-- **Counter** (for example `github_integration_api_requests_total`) — request volume, always recorded, including errors, rate-limited responses, and transport exceptions that raise before a response. Labeled `<scope>, method, endpoint, status_code, source`.
-- **Gauges** (for example `github_integration_api_rate_limit_remaining`) — last-observed budget headroom parsed from the API's response headers. Labeled `<scope>, resource`, with no `source`, because the budget is shared across sources. The gauges are optional: a domain declares only the ones its API reports, and parses only headers the API documents.
-- **Decisions** (`outbound_rate_limit_decisions_total`) — one sample per limiter admission, labeled `domain, source, priority, granted`.
+- **Counter** (for example `github_integration_api_requests_total`): request volume, always recorded, including errors, rate-limited responses, and transport exceptions that raise before a response. Labeled `<scope>, method, endpoint, status_code, source`.
+- **Gauges** (for example `github_integration_api_rate_limit_remaining`): last-observed budget headroom parsed from the API's response headers. Labeled `<scope>, resource`, with no `source`, because the budget is shared across sources. The gauges are optional: a domain declares only the ones its API reports, and parses only headers the API documents.
+- **Decisions** (`outbound_rate_limit_decisions_total`): one sample per limiter admission, labeled `domain, source, priority, granted`.
 
 Each domain keeps its own metric names, so existing dashboards stay valid.
 The `source` label (e.g. `integration`, `visual_review`, `warehouse`) carries per-subsystem attribution.
@@ -129,9 +129,9 @@ Endpoint labels are normalized to bound cardinality: numeric ids are templated o
 
 `transport/transport.py` holds three bases:
 
-- **`EgressClient`** — gate, request, record, for a sync domain with a budget. A subclass sets `observability`, draws from its budget in `_consume`, and names its `EgressBudgetExhausted` subclass.
-- **`RecordedEgressClient`** — request and record with no gate, for an API that publishes no request limit a rate budget can model. `slack/` and `vapi/` use it.
-- **`AsyncEgressClient`** — the gated algorithm over aiohttp. `harmonic/` uses it.
+- **`EgressClient`**: gate, request, record, for a sync domain with a budget. A subclass sets `observability`, draws from its budget in `_consume`, and names its `EgressBudgetExhausted` subclass.
+- **`RecordedEgressClient`**: request and record with no gate, for an API that publishes no request limit a rate budget can model. `slack/` and `vapi/` use it.
+- **`AsyncEgressClient`**: the gated algorithm over aiohttp. `harmonic/` uses it.
 
 A domain exposes a `<domain>_request` helper over its client, and may add a typed client for the few endpoints its callers use (see `firecrawl/client.py`).
 A domain whose callers go through a vendor SDK hooks the SDK instead (see `slack/client.py`).
@@ -144,7 +144,7 @@ No rule covers the other domains.
 
 ## The one identity rule
 
-Everything keys on the **budget owner in the external API's own id space** — for GitHub the App **installation id**, because that is what GitHub meters.
+Everything keys on the **budget owner in the external API's own id space**: for GitHub the App **installation id**, because that is what GitHub meters.
 It is **never** a PostHog DB row id (`Integration.id`).
 Several PostHog integration rows can point at the same installation (multiple projects, one org), and GitHub gives that installation one shared budget: key a gauge by the row and one real budget splits into N flip-flopping series; key by the installation and you get one true series.
 Per-caller attribution is the `source` label's job, not the identity's.
@@ -165,4 +165,4 @@ The `/routing-outbound-api-calls` agent skill carries the file templates and the
 6. **Add `README.md`** with the sections the other domains use: Identity, Budget, Lanes and callers, Rate-limit headers, Auth. `test/test_domains.py` fails without it.
 7. **Test the real policy** for any claim about which lane sheds first. A test that patches the gate cannot see a missing reserve.
 
-Keep the subpackage free of `posthog.models` imports, and remember the limiter is non-blocking — the caller owns the back-off.
+Keep the subpackage free of `posthog.models` imports, and remember the limiter is non-blocking: the caller owns the back-off.

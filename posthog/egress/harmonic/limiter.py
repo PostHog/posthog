@@ -7,7 +7,8 @@ single shared budget under the constant key ``harmonic:account:default``.
 Harmonic documents a limit of 10 requests per second for most endpoints and answers 429 above it,
 reporting the current limit and remaining allowance in ``X-Ratelimit-Limit-Second`` and
 ``X-Ratelimit-Remaining-Second`` on every response. The default budget of 15 per second sits above
-that on purpose: the BATCH reserve floor lands the bulk lane at 10.5, next to the documented rate.
+that on purpose: the BATCH reserve floors to 4 of 15 units, so the bulk lane is admitted up to 11 calls a
+second, next to the documented rate.
 
 Two very different consumers share this budget, so the priority lanes matter:
 - CRITICAL (interactive): signup enrichment and the ICP re-enrichment sweep run inside a

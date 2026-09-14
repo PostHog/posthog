@@ -13,9 +13,9 @@ The limiter keys are `github:installation:<id>`, `github_search:installation:<id
 
 GitHub meters its REST resources on separate per-installation counters, so this domain registers three limiter domains, and the transport routes each request to its meter by URL:
 
-- `github` — the `core` resource (5,000–15,000/hour), scaled to the installation's real tier. `api_request` persists each installation's last-observed core `X-RateLimit-Limit` (only trusted installation-token responses feed this), and the policy budgets 90% of it for the hour with a proportional per-minute smoothing cap. Unobserved installations fall back to `GITHUB_EGRESS_HOURLY_BUDGET` (13,500) and `GITHUB_EGRESS_PER_MINUTE_BUDGET` (750) until their first recorded response. Both settings are ceilings that tier scaling can only lower.
-- `github_search` — the `search` resource, a static 27/minute under GitHub's real 30/minute.
-- `github_code_search` — the `code_search` resource (`/search/code`), a static 8/minute under GitHub's real 10/minute.
+- `github`: the `core` resource (5,000–15,000/hour), scaled to the installation's real tier. `api_request` persists each installation's last-observed core `X-RateLimit-Limit` (only trusted installation-token responses feed this), and the policy budgets 90% of it for the hour with a proportional per-minute smoothing cap. Unobserved installations fall back to `GITHUB_EGRESS_HOURLY_BUDGET` (13,500) and `GITHUB_EGRESS_PER_MINUTE_BUDGET` (750) until their first recorded response. Both settings are ceilings that tier scaling can only lower.
+- `github_search`: the `search` resource, a static 27/minute under GitHub's real 30/minute.
+- `github_code_search`: the `code_search` resource (`/search/code`), a static 8/minute under GitHub's real 10/minute.
 
 The two search budgets are static because GitHub's search limits do not depend on the plan tier, so there is no tier to observe.
 GraphQL routes to `core`. GitHub meters GraphQL by points, which a request counter cannot model, so charging it to `core` errs conservative.
@@ -28,8 +28,8 @@ A shed sweep stops for the cycle and resumes on the next scheduled run.
 A caller that walks pages, such as the warehouse source, paces with `github_installation_pace_seconds` instead of getting denied.
 
 The `BATCH` floor on the `core` resource is **demand-responsive**, because a reserve is only worth holding against traffic that exists.
-An installation whose only consumer is a bulk one — a warehouse backfill of a repository nothing else touches — would otherwise forfeit 30% of its hourly budget to contention that never arrives, and the hourly budget is what decides whether a large backfill finishes in one run.
-So a non-`BATCH` `core` call writes a short-lived per-installation marker (`note_interactive_demand`), and the policy holds the full 70% floor only while that marker is present; without it `BATCH` falls back to a 10% floor — the same floor `NORMAL` keeps.
+An installation whose only consumer is a bulk one (a warehouse backfill of a repository nothing else touches) would otherwise forfeit 30% of its hourly budget to contention that never arrives, and the hourly budget is what decides whether a large backfill finishes in one run.
+So a non-`BATCH` `core` call writes a short-lived per-installation marker (`note_interactive_demand`), and the policy holds the full 70% floor only while that marker is present; without it `BATCH` falls back to a 10% floor, the same floor `NORMAL` keeps.
 Three details make that safe: the marker is written on the attempt rather than the outcome, so a _denied_ interactive call still counts; the floor matches `NORMAL`'s rather than dropping toward zero, so an unopposed backfill can never saturate the window past the point where the first interactive call would itself be denied, regardless of the marker it just wrote; and an unreachable cache reports demand as present, so a cache outage cannot hand the whole budget to bulk traffic.
 The two search resources keep the flat default ladder, because they are metered on their own counters and core demand says nothing about them.
 
@@ -58,7 +58,7 @@ resp = github_request(
 ```
 
 `raise_if_github_rate_limited` and `GitHubRateLimitError` (GitHub's own 429, the reactive twin of `GitHubEgressBudgetExhausted`) live in `transport.py` for callers that want to raise and retry.
-The model-coupled `GitHubIntegrationBase.api_request` layers the installation-token lifecycle (proactive refresh, 401 refresh-retry, rate-limit raising, per-instance `source` attribution) on top — hold an integration, call that; hold a bare token, call `github_request`.
+The model-coupled `GitHubIntegrationBase.api_request` layers the installation-token lifecycle (proactive refresh, 401 refresh-retry, rate-limit raising, per-instance `source` attribution) on top. Hold an integration, call that. Hold a bare token, call `github_request`.
 The `github-api-calls-go-through-egress` semgrep rule reads the URL argument only, which is why `posthog/plugins/utils.py` still calls `requests.get` directly with a URL it builds into a variable first.
 
 ## Identity-blind callers and the PAT scope decision
@@ -66,18 +66,18 @@ The `github-api-calls-go-through-egress` semgrep rule reads the URL argument onl
 Some callers have no installation in scope.
 The important one is a warehouse source authenticated with a **personal access token (PAT)**: a customer's own token on the customer's own budget, disconnected from any PostHog installation (error tracking's public-repo path is the other).
 These record the counter only, under an empty `installation_id`, and skip both the limiter and the gauges.
-The counter still sums correctly, but identity-blind callers are **not distinguishable from one another** — every PAT lands on the same empty series, and writing headroom to a shared empty gauge would let unrelated tokens clobber each other.
+The counter still sums correctly, but identity-blind callers are **not distinguishable from one another**: every PAT lands on the same empty series, and writing headroom to a shared empty gauge would let unrelated tokens clobber each other.
 
 The scope line:
 
 - PAT request-**volume** telemetry is in scope and shipped (aggregate only).
-- PAT rate-limit **headroom** and PAT **limiting** are deferred — revisit.
+- PAT rate-limit **headroom** and PAT **limiting** are deferred, to revisit.
 
 Both need the same missing piece: a per-token identity (a hash of the token) to key on.
-The headers are already on the response, so it needs no request restructuring — but a token-hash label is higher-cardinality than an installation, so it's a deliberate choice, not a default.
+The headers are already on the response, so it needs no request restructuring, but a token-hash label is higher-cardinality than an installation, so it's a deliberate choice, not a default.
 `GithubEgressIdentity` is the seam where such a key would thread through.
 
 ## Caveats
 
-The cache-hit counter in `github_integration_base` is a separate concern (which rows are reading a warm cache) and legitimately keys by the integration row, not by the installation — it is not egress-budget telemetry.
+The cache-hit counter in `github_integration_base` is a separate concern (which rows are reading a warm cache) and legitimately keys by the integration row, not by the installation. It is not egress-budget telemetry.
 The caches it counts are installation-scoped, so a row can record a hit on an entry another row on the same installation filled.

@@ -100,12 +100,14 @@ class TestGithubObservability(SimpleTestCase):
             4321,
         )
 
-    def test_skips_gauges_when_identity_unknown(self) -> None:
+    @parameterized.expand([("no_scope", None), ("empty_scope", "")])
+    def test_skips_gauges_when_identity_unknown(self, name: str, scope: str | None) -> None:
         # Identity-blind callers (raw-token sources) must not set the per-installation gauge — otherwise
         # many installations alias onto the empty installation_id and the last write wins, misleadingly.
         github_egress.record_requests_response(
             _response(headers={"X-RateLimit-Remaining": "10", "X-RateLimit-Resource": "core"}),
-            source="unit-blind",
+            source=f"unit-blind-{name}",
+            scope=scope,
         )
         self.assertIsNone(REGISTRY.get_sample_value(_REMAINING, {"installation_id": "", "resource": "core"}))
         self.assertEqual(
@@ -116,7 +118,7 @@ class TestGithubObservability(SimpleTestCase):
                     "method": "GET",
                     "endpoint": "/repos/{owner}/{repo}/commits",
                     "status_code": "200",
-                    "source": "unit-blind",
+                    "source": f"unit-blind-{name}",
                 },
             ),
             1,

@@ -135,7 +135,7 @@ class EgressObservability:
         endpoint_label = endpoint if endpoint is not None else self._normalize_endpoint(request_url)
         self._metrics.request_counter.labels(scope or "", method_label, endpoint_label, str(status_code), source).inc()
 
-        if scope is None or self._parser is None:
+        if not scope or self._parser is None:
             return
 
         # Gauges are keyed by (scope, resource) only — the shared budget owner, no source. Every

@@ -9,7 +9,7 @@ Every call draws from one budget under the key `harmonic:account:default`.
 
 A single per-second ceiling read from settings at acquire time: `HARMONIC_EGRESS_PER_SECOND_BUDGET` (default 15).
 Harmonic documents 10 requests per second for most endpoints and answers 429 above it.
-The default sits above that on purpose: the `BATCH` reserve floor lands the bulk lane at 10.5, next to the documented rate.
+The default sits above that on purpose. The `BATCH` reserve floors to 4 of 15 units, so the bulk lane is admitted up to 11 calls a second, next to the documented rate.
 
 ## Lanes and callers
 
