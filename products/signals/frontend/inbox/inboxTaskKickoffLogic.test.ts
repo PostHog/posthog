@@ -1,9 +1,16 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
+import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
 import { makeReport } from './__mocks__/inboxMocks'
+import { INBOX_EVENTS } from './inboxAnalytics'
 import {
     FREE_TRIAL_PR_DISABLED_REASON,
     buildCreatePrReportPrompt,
@@ -108,6 +115,56 @@ describe('inboxTaskKickoffLogic', () => {
             const prompt = buildDiscussReportPrompt(report, url, 'Carry out the recommendation')
             expect(prompt).toContain('Answer this question')
             expect(prompt).not.toContain('carry the action out')
+        })
+    })
+
+    // The report's pane gates the Implement button on the refusal, so a refusal that arrives as a
+    // bare failure leaves the button pressable and the next press buys another toast.
+    describe('a refused Create PR', () => {
+        let logic: ReturnType<typeof inboxTaskKickoffLogic.build>
+
+        beforeEach(() => {
+            localStorage.clear()
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+            logic = inboxTaskKickoffLogic()
+            logic.mount()
+            ;(posthog.capture as jest.Mock).mockClear()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.restoreAllMocks()
+        })
+
+        it('reports which report the cap refused, and why', async () => {
+            jest.spyOn(api.tasks, 'create').mockRejectedValue({
+                status: 429,
+                code: 'signal_report_task_cap',
+                data: { error: 'A pull request run is already in progress for this report.' },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.createPrFromReport(makeReport({ id: 'report-1', status: SignalReportStatus.READY }))
+            })
+                .toFinishAllListeners()
+                .toDispatchActions([
+                    {
+                        type: logic.actionTypes.createPrFailure,
+                        payload: { reportId: 'report-1', limitCode: 'signal_report_task_cap' },
+                    },
+                ])
+
+            const completed = (posthog.capture as jest.Mock).mock.calls.find(
+                ([event]) => event === INBOX_EVENTS.REPORT_ACTION_COMPLETED
+            )
+            expect(completed?.[1]).toMatchObject({
+                outcome: 'limited',
+                limit_code: 'signal_report_task_cap',
+                limit_detail: 'A pull request run is already in progress for this report.',
+            })
         })
     })
 

@@ -589,6 +589,8 @@ export function captureInboxReportActionCompleted(params: {
     blockedReason?: string | null
     /** Only set for `limited`: the server's error code (`signal_report_task_cap` or `throttled`). */
     limitCode?: string | null
+    /** Only set for `limited`: the server's refusal copy, which says which limit refused the press. */
+    limitDetail?: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.REPORT_ACTION_COMPLETED, {
         ...baseReportProperties(params.report),
@@ -596,6 +598,7 @@ export function captureInboxReportActionCompleted(params: {
         outcome: params.outcome,
         ...(params.blockedReason ? { blocked_reason: params.blockedReason } : {}),
         ...(params.limitCode ? { limit_code: params.limitCode } : {}),
+        ...(params.limitDetail ? { limit_detail: params.limitDetail } : {}),
     })
 }
 

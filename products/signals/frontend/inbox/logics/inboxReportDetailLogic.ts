@@ -44,6 +44,7 @@ import type {
     ReportChartApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
+import { SignalActorKindEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
     deriveTaskPurpose,
@@ -62,7 +63,7 @@ import {
     captureInboxReportFeedbackNote,
     InboxReportFeedbackSentiment,
 } from '../inboxAnalytics'
-import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
+import { REPORT_TASK_CAP_CODE, inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import {
     EnrichedReviewer,
     SignalReport,
@@ -109,9 +110,8 @@ export interface ReportTaskEntry {
  * Mirrors `_implementation_slot_claim` in products/signals/backend/task_run_artefacts.py: a run
  * that has not settled holds the slot while it works, a run that shipped a PR holds it for good,
  * and a run that ended with no PR hands it back. Approximates the server with what the client has,
- * which is only `latest_run` rather than every run. Unloaded tasks read as no claim, so a cold load
- * leaves the action enabled and the 429 stays the backstop rather than blocking a legitimate first
- * press.
+ * which is only `latest_run` rather than every run. Unloaded tasks read as no claim here;
+ * `effectiveImplementationSlotClaim` decides what the action does until the list arrives.
  */
 export function implementationSlotClaim(reportTasks: ReportTaskEntry[] | null): ImplementationSlotClaim | null {
     let claim: ImplementationSlotClaim | null = null
@@ -143,6 +143,33 @@ export function implementationRunInFlight(reportTasks: ReportTaskEntry[] | null)
             entry.purpose === 'implementation' &&
             !TERMINAL_RUN_STATUSES.includes(entry.task.latest_run?.status ?? TaskRunStatus.NOT_STARTED)
     )
+}
+
+/**
+ * What the Implement button gates on: the loaded task list first, then the two stand-ins for it.
+ *
+ * A refusal the server just sent is the strongest evidence there is that the slot is taken, so it
+ * holds the gate until a fresh task list lands. Before the list has loaded at all, a report held by
+ * a task stands in for it: that is a report a run is working, and it is the state most refusals are
+ * pressed in, because the run was already running before the pane opened. A user or external-agent
+ * claim is left out of the seed, because the report's own claim controls are the affordance there.
+ */
+export function effectiveImplementationSlotClaim(
+    reportTasks: ReportTaskEntry[] | null,
+    report: SignalReport | null,
+    slotRefused: boolean
+): ImplementationSlotClaim | null {
+    const claim = implementationSlotClaim(reportTasks)
+    if (claim) {
+        return claim
+    }
+    const seeded = reportTasks === null && report?.assignee?.kind === SignalActorKindEnumApi.Task
+    return slotRefused || seeded ? 'in_flight' : null
+}
+
+/** A refusal of this report's press because a run already holds its one implementation slot. */
+function isSlotRefusal(reportId: string, limitCode: string | null, ownReportId: string): boolean {
+    return reportId === ownReportId && limitCode === REPORT_TASK_CAP_CODE
 }
 
 // While the report is still being worked, poll linked tasks every 5s. Mirrors desktop.
@@ -266,6 +293,7 @@ export interface inboxReportDetailLogicValues {
     hasImplementationPr: boolean
     hasPersonalGithub: boolean
     implementationSlotClaim: ImplementationSlotClaim | null
+    implementationSlotRefused: boolean
     inlineThreadCount: number
     inlineThreadsByFile: Record<string, ReviewThread[]>
     isReResearch: boolean
@@ -309,6 +337,13 @@ export interface inboxReportDetailLogicValues {
 export interface inboxReportDetailLogicActions {
     createPrSuccess: () => {
         value: true
+    } // inboxTaskKickoffLogic
+    createPrFailure: (
+        reportId: string,
+        limitCode: string | null
+    ) => {
+        limitCode: string | null
+        reportId: string
     } // inboxTaskKickoffLogic
     closeDraftThread: () => {
         value: true
@@ -567,7 +602,11 @@ export interface inboxReportDetailLogicMeta {
             user: null | import('~/types').UserType
         ) => AvailableReviewerOption[]
         isReResearch: (reportTasks: ReportTaskEntry[] | null) => boolean
-        implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
+        implementationSlotClaim: (
+            reportTasks: ReportTaskEntry[] | null,
+            report: SignalReport | null,
+            implementationSlotRefused: boolean
+        ) => ImplementationSlotClaim | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         selectedTask: (
             reportTasks: ReportTaskEntry[] | null,
@@ -598,7 +637,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Personal GitHub connection state gates the inline comment composer (comments post as the user).
         values: [personalIntegrationsLogic, ['integrations as personalIntegrations']],
         // Starting a PR task writes to the artefact log, which is where the Create PR gate reads from.
-        actions: [inboxTaskKickoffLogic, ['createPrSuccess']],
+        actions: [inboxTaskKickoffLogic, ['createPrSuccess', 'createPrFailure']],
     })),
 
     actions({
@@ -818,13 +857,25 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
     })),
 
-    reducers({
+    reducers(({ props }) => ({
         selectedPullRequestUrl: [null as string | null, { selectPullRequest: (_, { url }) => url }],
         evidenceExpanded: [false, { expandEvidence: () => true, collapseEvidence: () => false }],
         report: [
             null as SignalReport | null,
             {
                 setReport: (_, { report }) => report,
+            },
+        ],
+        // Any completed task load hands the gate back: the reload the refusal starts carries the run
+        // that refused it, and so does a poll tick already in flight, because that run started before
+        // the press.
+        implementationSlotRefused: [
+            false,
+            {
+                createPrFailure: (state, { reportId, limitCode }) =>
+                    isSlotRefusal(reportId, limitCode, props.reportId) ? true : state,
+                createPrSuccess: () => false,
+                loadReportTasksSuccess: () => false,
             },
         ],
         // While a reviewer update is in flight, this overrides the artefact-derived list so the UI
@@ -973,7 +1024,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 setReport: () => null,
             },
         ],
-    }),
+    })),
 
     selectors({
         // Mirrors the optimistic override lifecycle: an update is in flight exactly while the
@@ -1205,9 +1256,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             },
         ],
         implementationSlotClaim: [
-            (s) => [s.reportTasks],
-            (reportTasks: ReportTaskEntry[] | null): ImplementationSlotClaim | null =>
-                implementationSlotClaim(reportTasks),
+            (s) => [s.reportTasks, s.report, s.implementationSlotRefused],
+            (
+                reportTasks: ReportTaskEntry[] | null,
+                report: SignalReport | null,
+                implementationSlotRefused: boolean
+            ): ImplementationSlotClaim | null =>
+                effectiveImplementationSlotClaim(reportTasks, report, implementationSlotRefused),
         ],
         // The default task whose run log is shown: prefer one still in motion, tie-break by most-recent
         // link. Mirrors desktop `AgentRunDetail`'s `pickPrimaryTask`.
@@ -1555,6 +1610,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // never gets one going.
         createPrSuccess: () => {
             actions.loadReportArtefacts()
+        },
+        // The gate was computed from a task list that predates the run the server refused for, so pull
+        // the list forward now instead of leaving the correction to the next 5s tick.
+        createPrFailure: ({ reportId, limitCode }) => {
+            if (isSlotRefusal(reportId, limitCode, props.reportId)) {
+                actions.loadReportArtefacts()
+            }
         },
         selectPullRequest: () => {
             actions.loadPrChecksSuccess(null)
