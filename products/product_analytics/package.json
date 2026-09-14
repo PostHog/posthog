@@ -21,6 +21,7 @@
     "peerDependencies": {
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
+        "@posthog/quill-components": "workspace:*",
         "@types/d3": "*",
         "@types/react": "*",
         "@xyflow/react": "*",
@@ -30,6 +31,8 @@
         "fuse.js": "*",
         "natural-orderby": "*",
         "react": "*",
-        "react-toastify": "*"
+        "react-simple-maps": "*",
+        "react-toastify": "*",
+        "use-resize-observer": "*"
     }
 }
