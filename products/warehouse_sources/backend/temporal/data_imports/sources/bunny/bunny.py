@@ -1,28 +1,48 @@
 import dataclasses
+from collections.abc import Callable, Iterable, Iterator
+from datetime import datetime
 from typing import Any, Optional
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import BUNNY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import (
+    BUNNY_ENDPOINTS,
+    DATE_FROM_PARAM,
+    BunnyEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
+    RESTClient,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     PageNumberPaginator,
+    SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 BUNNY_BASE_URL = "https://api.bunny.net"
+# The Stream API answers on its own host and authenticates per video library rather than per
+# account, so it needs its own client even though it is the same vendor.
+BUNNY_STREAM_BASE_URL = "https://video.bunnycdn.com"
 # The list endpoints accept perPage 5..1000; 1000 minimises round trips for the typically small
 # zone/library tables.
 PER_PAGE = 1000
 # Cheap endpoint used to confirm an account API key is genuine. The AccessKey is account-wide, so
 # one probe validates access to every Core API list endpoint.
 DEFAULT_PROBE_PATH = "/pullzone"
+# The statistics endpoints take an ISO-8601 UTC instant for their `dateFrom` bound.
+DATE_FROM_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+# The per-library Stream keys `/videolibrary` carries, best first: read-only is all the Stream
+# endpoints we call need.
+STREAM_KEY_FIELDS = ("ReadOnlyApiKey", "ApiKey")
 
 
 @dataclasses.dataclass
@@ -50,33 +70,211 @@ class BunnyHasMoreItemsPaginator(PageNumberPaginator):
         self._has_next_page = isinstance(body, dict) and bool(body.get("HasMoreItems", False))
 
 
+def _paginator_for(config: BunnyEndpointConfig) -> BasePaginator:
+    if config.charts is not None:
+        return SinglePagePaginator()
+    if config.stream_api:
+        # The Stream list envelope reports total ITEMS and carries no "more items" flag, so the
+        # walk ends on the first empty page instead.
+        return PageNumberPaginator(base_page=1)
+    # Always request page>=1 so the Core API returns the paginated envelope
+    # ({Items, CurrentPage, TotalItems, HasMoreItems}); page=0 would return a bare array.
+    return BunnyHasMoreItemsPaginator(base_page=1)
+
+
+def _client_config(access_key: str, base_url: str = BUNNY_BASE_URL) -> ClientConfig:
+    return {
+        "base_url": base_url,
+        # The AccessKey travels via the framework auth config so its value is redacted from
+        # logged URLs and captured samples; only the non-secret Accept header is set here.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "api_key", "api_key": access_key, "name": "AccessKey", "location": "header"},
+    }
+
+
+def _rest_client(access_key: str, base_url: str = BUNNY_BASE_URL) -> RESTClient:
+    """The same client the framework builds from ``_client_config``, for the fan-out that can't
+    be expressed declaratively. Read off the config so the two paths can't drift apart."""
+    config = _client_config(access_key, base_url)
+    return RESTClient(
+        base_url=config["base_url"],
+        headers=config["headers"],
+        auth=create_auth(config["auth"]),
+    )
+
+
+def _request_params(config: BunnyEndpointConfig, date_from: Optional[str] = None) -> dict[str, Any]:
+    if config.charts is not None:
+        return {**config.params, DATE_FROM_PARAM: date_from}
+    return {config.page_size_param: PER_PAGE, **config.params}
+
+
+def _date_from(db_incremental_field_last_value: Any) -> Optional[str]:
+    """The ``dateFrom`` bound an incremental run asks from, or None to take the vendor default.
+
+    bunny.net returns the last 30 days when no bound is sent, so a first run seeds 30 days and
+    each later run asks only from the newest point the table already holds. That point's own
+    bucket comes back again and upserts on the primary key, which is what settles an interval
+    that was still in progress when it was first read.
+    """
+    value = parse_datetime_value(db_incremental_field_last_value)
+    if value is None:
+        return None
+    return value.strftime(DATE_FROM_FORMAT)
+
+
+def _stream_access_key(library: dict[str, Any]) -> Optional[str]:
+    """The Stream key for one video library, or None when the row carries neither.
+
+    video.bunnycdn.com authenticates against the library's own key, so the account key that
+    listed the libraries cannot reach it.
+    """
+    for field_name in STREAM_KEY_FIELDS:
+        value = library.get(field_name)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _iter_parent_rows(client: RESTClient, parent: BunnyEndpointConfig) -> Iterator[dict[str, Any]]:
+    for page in client.paginate(
+        parent.path,
+        params=_request_params(parent),
+        data_selector=parent.items_selector,
+        data_selector_required=True,
+        paginator=_paginator_for(parent),
+    ):
+        yield from page
+
+
+def _request_targets(access_key: str, config: BunnyEndpointConfig) -> Iterator[tuple[RESTClient, str, dict[str, Any]]]:
+    """Every (client, path, injected columns) this endpoint has to be called with.
+
+    One target for a top-level endpoint, one per parent row for a fan-out child — which on the
+    Stream API also means a client holding that library's own key. A library with no usable key
+    is skipped rather than failing the whole table.
+    """
+    core_client = _rest_client(access_key)
+    if config.parent is None:
+        yield core_client, config.path, {}
+        return
+
+    for parent_row in _iter_parent_rows(core_client, BUNNY_ENDPOINTS[config.parent.endpoint]):
+        parent_id = parent_row.get(config.parent.id_field)
+        if parent_id is None:
+            continue
+        injected = {config.parent.id_column: parent_id}
+        path = config.path.format(id=parent_id)
+        if not config.stream_api:
+            yield core_client, path, injected
+            continue
+        stream_key = _stream_access_key(parent_row)
+        if stream_key is not None:
+            yield _rest_client(stream_key, BUNNY_STREAM_BASE_URL), path, injected
+
+
+def _chart_rows(
+    body: Any, charts: dict[str, str], timestamp_column: str, injected: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Pivot a statistics body — one ``{timestamp: value}`` map per chart — into one row per
+    timestamp, sorted oldest first.
+
+    Every row carries every chart column so a batch converts to a single Arrow schema even when
+    the charts cover different ranges.
+    """
+    rows: dict[datetime, dict[str, Any]] = {}
+    for chart_name, column in charts.items():
+        points = body.get(chart_name) if isinstance(body, dict) else None
+        if not isinstance(points, dict):
+            continue
+        for raw_timestamp, value in points.items():
+            timestamp = parse_datetime_value(raw_timestamp)
+            if timestamp is None:
+                continue
+            row = rows.setdefault(
+                timestamp,
+                {**injected, timestamp_column: timestamp, **dict.fromkeys(charts.values())},
+            )
+            row[column] = value
+    return [rows[timestamp] for timestamp in sorted(rows)]
+
+
+def _chart_pages(
+    access_key: str, config: BunnyEndpointConfig, timestamp_column: str, date_from: Optional[str]
+) -> Iterator[list[dict[str, Any]]]:
+    charts = config.charts or {}
+    for client, path, injected in _request_targets(access_key, config):
+        for page in client.paginate(path, params=_request_params(config, date_from), paginator=_paginator_for(config)):
+            for body in page:
+                rows = _chart_rows(body, charts, timestamp_column, injected)
+                if rows:
+                    yield rows
+
+
+def _fanout_list_pages(access_key: str, config: BunnyEndpointConfig) -> Iterator[list[dict[str, Any]]]:
+    for client, path, injected in _request_targets(access_key, config):
+        for page in client.paginate(
+            path,
+            params=_request_params(config),
+            data_selector=config.items_selector,
+            data_selector_required=True,
+            paginator=_paginator_for(config),
+        ):
+            if page:
+                yield [{**injected, **row} for row in page]
+
+
+def _source_response(
+    config: BunnyEndpointConfig,
+    items: Callable[[], Iterable[Any]],
+    column_hints: Optional[dict[str, Any]] = None,
+) -> SourceResponse:
+    return SourceResponse(
+        name=config.name,
+        items=items,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        sort_mode=config.sort_mode,
+        column_hints=column_hints,
+    )
+
+
 def bunny_source(
     access_key: str,
     endpoint: str,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[BunnyResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = BUNNY_ENDPOINTS[endpoint]
 
+    # Only the top-level list endpoints checkpoint: their page number is the whole cursor. A
+    # fan-out walk would need the parent's position too, which page-number state cannot carry,
+    # so those tables restart from the first parent instead.
+    if config.charts is not None:
+        if config.timestamp_column is None:
+            raise ValueError(f"Statistics endpoint '{endpoint}' needs a timestamp column")
+        timestamp_column = config.timestamp_column
+        date_from = _date_from(db_incremental_field_last_value)
+        return _source_response(config, lambda: _chart_pages(access_key, config, timestamp_column, date_from))
+
+    if config.parent is not None:
+        return _source_response(config, lambda: _fanout_list_pages(access_key, config))
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": BUNNY_BASE_URL,
-            # The AccessKey travels via the framework auth config so its value is redacted from
-            # logged URLs and captured samples; only the non-secret Accept header is set here.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "api_key", "api_key": access_key, "name": "AccessKey", "location": "header"},
-            # Always request page>=1 so the API returns the paginated envelope
-            # ({Items, CurrentPage, TotalItems, HasMoreItems}); page=0 would return a bare array.
-            "paginator": BunnyHasMoreItemsPaginator(base_page=1),
-        },
+        "client": {**_client_config(access_key), "paginator": _paginator_for(config)},
         "resources": [
             {
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
-                    "params": {"perPage": PER_PAGE},
-                    "data_selector": "Items",
+                    "params": _request_params(config),
+                    "data_selector": config.items_selector,
                     # `Items` is always present in the paginated envelope; missing it means a
                     # malformed response, so fail loudly rather than silently syncing 0 rows.
                     "data_selector_required": True,
@@ -102,22 +300,12 @@ def bunny_source(
         rest_config,
         team_id,
         job_id,
-        None,  # every bunny.net endpoint is full refresh — no incremental cursor
+        None,  # the list endpoints are full refresh — no incremental cursor
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        column_hints=resource.column_hints,
-    )
+    return _source_response(config, lambda: resource, column_hints=resource.column_hints)
 
 
 def check_access(access_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[bool, Optional[int]]:

@@ -1074,14 +1074,14 @@ Note: Buildkite publishes a complete machine-readable docs index at /docs/llms.t
 
 ## Bunny — gaps
 
-Today (4): `dns_zones`, `pull_zones`, `storage_zones`, `video_libraries`
+Today (9): `dns_zones`, `pull_zones`, `statistics`, `storage_zone_egress`, `storage_zone_statistics`, `storage_zones`, `video_libraries`, `video_library_statistics`, `videos`
 
 Diffed against: <https://core-api-public-docs.b-cdn.net/docs/v3/public.json>
 
-- [ ] `GET /statistics` — account-wide bandwidth, requests, and cache hit rate over time — Bunny's headline metric and entirely absent today (high)
-- [ ] `GET /storagezone/{id}/statistics and /statistics/egress` — storage usage and egress per zone; the cost driver for the storage_zones we already sync (high)
-- [ ] `GET /library/{libraryId}/videos (Stream API)` — child table of video_libraries we already sync — the individual videos, with status, size, and view counts (high)
-- [ ] `GET /library/{libraryId}/statistics (Stream API)` — views, watch time, and bandwidth per video library — the core Stream analytics object (high)
+- [x] `GET /statistics` — account-wide bandwidth, requests, and cache hit rate over time — Bunny's headline metric and entirely absent today (high)
+- [x] `GET /storagezone/{id}/statistics and /statistics/egress` — storage usage and egress per zone; the cost driver for the storage_zones we already sync (high)
+- [x] `GET /library/{libraryId}/videos (Stream API)` — child table of video_libraries we already sync — the individual videos, with status, size, and view counts (high)
+- [x] `GET /library/{libraryId}/statistics (Stream API)` — views, watch time, and bandwidth per video library — the core Stream analytics object (high)
 - [ ] `GET /dnszone/{zoneId}/records` — lookup/child table resolving the DNS zones we already sync into individual records (high)
 - [ ] `GET /dnszone/{id}/statistics` — DNS query volume per zone, the only usage metric for the DNS product (medium)
 - [ ] `GET /library/{libraryId}/collections (Stream API)` — lookup resolving the collection IDs carried on videos (medium)
