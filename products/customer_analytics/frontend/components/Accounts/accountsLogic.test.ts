@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -42,7 +42,7 @@ import {
     relationshipAlias,
 } from './accountsColumnConfigLogic'
 import { DEFAULT_ACCOUNT_TAB, accountsExpansionLogic } from './accountsExpansionLogic'
-import { accountsLogic, customPropertySavingKey, savingRoleKey } from './accountsLogic'
+import { accountsLogic, customPropertySavingKey, savingRoleKey, SEARCH_DEBOUNCE_MS } from './accountsLogic'
 import { AccountsEvents } from './constants'
 
 const assignedToFilterOf = (query: AccountsTableQuery | null): number[] | undefined =>
@@ -89,6 +89,34 @@ const TILE_FILTER = {
         values: [5],
     },
 }
+
+const ACCOUNT_ID = '0190da51-0b0e-7000-8000-000000000001'
+
+const ACCOUNT_FILTERS = [
+    {
+        type: PropertyFilterType.Account as const,
+        key: AccountsTableAccountField.IgnoredAt,
+        label: 'Ignored at',
+        operator: PropertyOperator.IsSet,
+        value: null,
+    },
+    {
+        type: PropertyFilterType.AccountCustomProperty as const,
+        key: CSM_DEFINITION_ID,
+        label: 'Health score',
+        operator: PropertyOperator.GreaterThan,
+        value: 5,
+    },
+    {
+        type: PropertyFilterType.AccountRelationship as const,
+        key: CSM_DEFINITION_ID,
+        label: 'CSM',
+        operator: PropertyOperator.Exact,
+        value: [42],
+    },
+]
+
+const CUSTOM_TILES = [{ id: 'tile-1', label: 'Accounts', metric: { type: 'count' as const } }]
 
 const DEFINITIONS: AccountRelationshipDefinitionApi[] = [
     { id: CSM_DEFINITION_ID, name: 'CSM', description: null, is_single_holder: true },
@@ -165,11 +193,18 @@ describe('accountsLogic', () => {
     let logic: ReturnType<typeof accountsLogic.build>
 
     beforeEach(async () => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            current_team: MOCK_DEFAULT_TEAM,
+            current_user: MOCK_DEFAULT_USER,
+        } as any
         initKeaTests()
+        router.actions.push(urls.customerAnalyticsAccounts())
         jest.resetAllMocks()
         // accountsLogic connects to the (localStorage-persisted) shared scene logic;
         // clear it so a "mine only" write in one test can't leak into the next.
         localStorage.clear()
+        sessionStorage.clear()
         mockDefinitionsList.mockResolvedValue({ count: DEFINITIONS.length, results: DEFINITIONS })
         mockCustomPropertiesList.mockResolvedValue({ count: 0, results: [] })
         logic = accountsLogic()
@@ -181,6 +216,8 @@ describe('accountsLogic', () => {
     afterEach(() => {
         logic.unmount()
         localStorage.clear()
+        sessionStorage.clear()
+        jest.useRealTimers()
         resumeKeaLoadersErrors()
     })
 
@@ -303,11 +340,14 @@ describe('accountsLogic', () => {
         expect(logic.values.searchQuery).toBe('acme')
     })
 
-    it('setSearchInput updates the input immediately but defers the committed searchQuery', () => {
+    it('setSearchInput updates the input immediately but defers the committed searchQuery', async () => {
+        jest.useFakeTimers()
         logic.actions.setSearchInput('acme')
         expect(logic.values.searchInput).toBe('acme')
         // Debounced: the query-driving value is not committed synchronously.
         expect(logic.values.searchQuery).toBe('')
+        await jest.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS)
+        expect(logic.values.searchQuery).toBe('acme')
     })
 
     it('withholds the list and metrics queries until relationship definitions settle', async () => {
@@ -500,6 +540,8 @@ describe('accountsLogic', () => {
 
             it('restores "my accounts" from the shared toggle when the URL has no view hash', async () => {
                 customerAnalyticsSceneLogic.actions.setMineOnly(true)
+                router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
+                await expectLogic(logic).toFinishAllListeners()
                 router.actions.push(urls.customerAnalyticsAccounts())
                 await expectLogic(logic).toFinishAllListeners()
 
@@ -536,6 +578,7 @@ describe('accountsLogic', () => {
             // resolves the user (currentUserId null), so the persisted choice can't be applied
             // then. The user resolving later must apply it, without clearing the preference.
             it('applies the persisted "my accounts" choice when the user resolves after restore', async () => {
+                userLogic.actions.loadUserSuccess(null)
                 customerAnalyticsSceneLogic.actions.setMineOnly(true)
                 expect(logic.values.assignedToFilter).toEqual([])
 
@@ -704,15 +747,26 @@ describe('accountsLogic', () => {
             expect(router.values.hashParams.view).toBeUndefined()
         })
 
-        it('restores filters, sort, and tile filter from the view hash param', async () => {
+        it('restores filters, sort, and tile filter when browser back returns to the original view hash', async () => {
             const tileFilter = TILE_FILTER
-            router.actions.push(
-                urls.customerAnalyticsAccounts(),
-                {},
-                {
-                    view: { search: 'beta', assignedTo: [7], sort: { column: 'name', direction: 'desc' }, tileFilter },
-                }
-            )
+            const view = {
+                search: 'beta',
+                assignedTo: [7],
+                sort: { column: 'name', direction: 'desc' as const },
+                tileFilter,
+            }
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view })
+            await expectLogic(logic).toFinishAllListeners()
+            const listLocation = router.values.currentLocation
+            logic.actions.setTiles(CUSTOM_TILES)
+
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
+            await expectLogic(logic).toFinishAllListeners()
+            router.actions.locationChanged({
+                ...listLocation,
+                url: `${listLocation.pathname}${listLocation.search}${listLocation.hash}`,
+                method: 'POP',
+            })
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.searchQuery).toBe('beta')
@@ -720,6 +774,7 @@ describe('accountsLogic', () => {
             expect(logic.values.assignedToFilter).toEqual([7])
             expect(logic.values.sortOrder).toEqual({ column: 'name', direction: 'desc' })
             expect(logic.values.tileFilter).toEqual(tileFilter)
+            expect(logic.values.tiles).toEqual(CUSTOM_TILES)
         })
 
         it('coerces a malformed scalar assignedTo from the view hash into an array', async () => {
@@ -771,6 +826,136 @@ describe('accountsLogic', () => {
 
             const config = accountsColumnConfigLogic.findMounted()
             expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
+        })
+
+        it.each([
+            ['a mounted list', false],
+            ['a remounted list', true],
+            ['a remounted account detail', 'detail'],
+        ])('keeps every unsaved view setting after detail navigation through %s', async (_, remountOnDetail) => {
+            mockCustomPropertiesList.mockResolvedValue({
+                count: 1,
+                results: [buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID })],
+            })
+            logic.actions.loadCustomPropertyDefinitionsSuccess([
+                buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID }),
+            ])
+            accountsColumnConfigLogic.findMounted()!.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, 'csm'])
+            accountsColumnConfigLogic.findMounted()!.actions.setColumnDisplay(CSM_DEFINITION_ID, {
+                mode: 'sparkline',
+                window_days: 30,
+            })
+            logic.actions.setSearchQuery('draft search')
+            logic.actions.setTagsFilter(['enterprise'])
+            logic.actions.setAssignedToFilter([7])
+            logic.actions.updateAccountFilters(ACCOUNT_FILTERS)
+            logic.actions.setSortOrder({ column: 'csm', direction: 'desc' })
+            logic.actions.setTiles(CUSTOM_TILES)
+            logic.actions.setTileFilter(TILE_FILTER)
+            await expectLogic(logic).toFinishAllListeners()
+            const expectedViewState = logic.values.viewState
+
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
+            await expectLogic(logic).toFinishAllListeners()
+            if (remountOnDetail) {
+                logic.unmount()
+                logic = accountsLogic()
+            }
+            if (remountOnDetail === 'detail') {
+                logic.mount()
+                await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
+            }
+            router.actions.push(urls.customerAnalyticsAccounts())
+            if (remountOnDetail === true) {
+                logic.mount()
+            }
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.viewState).toEqual(expectedViewState)
+            expect(logic.values.accountsQuerySource?.filters).toEqual(
+                expect.arrayContaining([
+                    { kind: 'search', query: 'draft search' },
+                    { kind: 'tags', tagNames: ['enterprise'] },
+                    { kind: 'assigned_to', userIds: [7] },
+                    expect.objectContaining({ kind: 'account_field' }),
+                    expect.objectContaining({ kind: 'custom_property' }),
+                    expect.objectContaining({ kind: 'relationship' }),
+                ])
+            )
+
+            logic.actions.setTagsFilter(['renewal'])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.hashParams.view).toEqual(
+                expect.objectContaining({
+                    search: 'draft search',
+                    tags: ['renewal'],
+                    assignedTo: [7],
+                    sort: { column: 'csm', direction: 'desc' },
+                    columns: [ACCOUNTS_NAME_COLUMN, 'csm'],
+                    tileFilter: TILE_FILTER,
+                    customProperties: ACCOUNT_FILTERS,
+                })
+            )
+        })
+
+        it.each([
+            ['an empty shared view', {}, '', 'all'],
+            ['a populated shared view', { search: 'shared', assignmentStatus: 'all' }, 'shared', 'all'],
+        ])(
+            'uses %s instead of the saved draft and keeps it as the next draft',
+            async (_, sharedView, search, status) => {
+                logic.actions.setSearchQuery('draft')
+                logic.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, 'csm'])
+                logic.actions.setAssignedToFilter([7])
+                await expectLogic(logic).toFinishAllListeners()
+                logic.unmount()
+
+                const customerAnalyticsScene = customerAnalyticsSceneLogic()
+                customerAnalyticsScene.mount()
+                customerAnalyticsScene.actions.setMineOnly(true)
+                router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: sharedView })
+                logic = accountsLogic()
+                const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.searchQuery).toBe(search)
+                expect(logic.values.assignmentStatus).toBe(status)
+                expect(logic.values.assignedToFilter).toEqual([])
+                expect(logic.values.selectColumns).toEqual(logic.values.defaultSelectColumns)
+                expect(
+                    capture.mock.calls.some(([event]) =>
+                        [
+                            AccountsEvents.FilterChanged,
+                            AccountsEvents.OverviewTilesEdited,
+                            AccountsEvents.Searched,
+                            AccountsEvents.Sorted,
+                        ].some((interactionEvent) => interactionEvent === event)
+                    )
+                ).toBe(false)
+
+                logic.unmount()
+                router.actions.push(urls.customerAnalyticsAccounts())
+                logic = accountsLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.searchQuery).toBe(search)
+                expect(logic.values.assignmentStatus).toBe(status)
+                expect(logic.values.assignedToFilter).toEqual([])
+                customerAnalyticsScene.unmount()
+            }
+        )
+
+        it('does not let a pending search overwrite a shared view restored from browser navigation', async () => {
+            jest.useFakeTimers()
+            logic.actions.setSearchInput('stale search')
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { search: 'shared search' } })
+            await jest.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.searchQuery).toBe('shared search')
+            expect(logic.values.searchInput).toBe('shared search')
         })
     })
 

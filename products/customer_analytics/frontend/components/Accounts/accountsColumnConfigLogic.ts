@@ -434,6 +434,9 @@ export interface accountsColumnConfigLogicActions {
     resetColumns: () => {
         value: true
     }
+    restoreSelectColumns: (columns: string[]) => {
+        columns: string[]
+    }
     selectColumn: (column: string) => {
         column: string
     }
@@ -553,6 +556,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
     })),
     actions({
         setSelectColumns: (columns: string[]) => ({ columns }),
+        restoreSelectColumns: (columns: string[]) => ({ columns }),
         selectColumn: (column: string) => ({ column }),
         unselectColumn: (column: string) => ({ column }),
         moveColumn: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
@@ -573,6 +577,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             [...ACCOUNTS_DEFAULT_COLUMNS],
             {
                 setSelectColumns: (_, { columns }) => ensureNameColumn(columns),
+                restoreSelectColumns: (_, { columns }) => ensureNameColumn(columns),
                 selectColumn: (state, { column }) => (state.includes(column) ? state : [...state, column]),
                 unselectColumn: (state, { column }) =>
                     column === ACCOUNTS_NAME_COLUMN ? state : state.filter((c) => c !== column),
@@ -595,6 +600,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             {
                 setEditingColumnIndex: (_, { index }) => index,
                 setSelectColumns: () => null,
+                restoreSelectColumns: () => null,
                 unselectColumn: () => null,
                 moveColumn: () => null,
                 resetColumns: () => null,
@@ -826,7 +832,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             }),
         ],
     }),
-    listeners(({ actions, values, selectors }) => ({
+    listeners(({ actions, values, selectors, cache }) => ({
         // Seed the shared propertyDefinitionsModel so OperatorValueSelect resolves each
         // custom property's type (numeric/boolean/datetime/string) to the right operator set.
         loadCustomPropertyDefinitionsSuccess: () => {
@@ -841,6 +847,9 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                 )
             )
         },
+        restoreSelectColumns: () => {
+            cache.hasRestoredColumns = true
+        },
         // Customized columns (user edits, saved view, shared URL) no longer equal the
         // default they diverged from, so only still-default columns get upgraded.
         loadRelationshipDefinitionsSuccess: (_, __, ___, previousState) => {
@@ -854,6 +863,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             )
             const previousDefault = selectors.defaultSelectColumns(previousState)
             if (
+                !cache.hasRestoredColumns &&
                 objectsEqual(values.selectColumns, previousDefault) &&
                 !objectsEqual(values.defaultSelectColumns, values.selectColumns)
             ) {
@@ -861,6 +871,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             }
         },
         resetColumns: () => {
+            cache.hasRestoredColumns = false
             if (!objectsEqual(values.selectColumns, values.defaultSelectColumns)) {
                 actions.setSelectColumns(values.defaultSelectColumns)
             }

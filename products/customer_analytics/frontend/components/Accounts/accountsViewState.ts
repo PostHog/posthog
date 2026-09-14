@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 import {
     type AssignmentStatus,
     isAssignmentStatus,
@@ -48,6 +50,8 @@ export interface AccountsViewState {
     tiles: AccountsOverviewTile[]
     columnDisplay: AccountColumnDisplayState
 }
+
+const ACCOUNTS_VIEW_DRAFT_STORAGE_KEY = 'customerAnalytics.accounts.viewDraft'
 
 type AccountsViewPayload = Pick<ColumnConfigurationApi, 'columns' | 'order_by'> & {
     filters: Partial<AccountsViewFilters>
@@ -114,6 +118,83 @@ export function serializeAccountsView(state: AccountsViewState): AccountsViewPay
         order_by: sortOrderToOrderBy(state.sortOrder),
         filters,
         properties,
+    }
+}
+
+const StoredTile = z.object({
+    id: z.string(),
+    label: z.string(),
+    metric: z.discriminatedUnion('type', [
+        z.object({ type: z.literal('count') }),
+        z.object({
+            type: z.enum(['sum', 'avg', 'min', 'max', 'median']),
+            columnExpression: z.string(),
+            columnLabel: z.string(),
+            scale: z.number().optional(),
+        }),
+        z.object({
+            type: z.literal('count_threshold'),
+            columnExpression: z.string(),
+            columnLabel: z.string(),
+            operator: z.string(),
+            value: z.number(),
+        }),
+    ]),
+    caption: z.string().optional(),
+    format: z.enum(['unit', 'currency', 'percentage']).optional(),
+})
+
+const AccountsViewDraft = z.object({
+    columns: z.array(z.string()),
+    sortOrder: z.object({ column: z.string(), direction: z.enum(['asc', 'desc']) }).nullable(),
+    filters: z.object({
+        search: z.string(),
+        assignmentStatus: z.enum(['all', 'assigned', 'unassigned']),
+        assignedTo: z.array(z.number()),
+        tags: z.array(z.string()),
+        tileFilter: z
+            .object({
+                tileId: z.string(),
+                filter: z.object({
+                    kind: z.literal('custom_property'),
+                    definitionId: z.string(),
+                    operator: z.string(),
+                    values: z.array(z.number()),
+                }),
+            })
+            .nullable(),
+        customProperties: z.array(z.object({}).passthrough()),
+    }),
+    tiles: z.array(StoredTile),
+    columnDisplay: z.record(z.string(), z.object({ mode: z.enum(['sparkline', 'trend']), window_days: z.number() })),
+})
+
+export function accountsViewDraftStorageKey(teamId: number, userId: string): string {
+    // This key scopes drafts to the browser session, project, and person. Changing it would strand existing drafts.
+    return `${ACCOUNTS_VIEW_DRAFT_STORAGE_KEY}.${teamId}.${userId}`
+}
+
+export function readAccountsViewDraft(teamId: number | null, userId: string | null): AccountsViewState | null {
+    if (teamId === null || userId === null || typeof window === 'undefined') {
+        return null
+    }
+    try {
+        const raw = window.sessionStorage.getItem(accountsViewDraftStorageKey(teamId, userId))
+        const draft = AccountsViewDraft.safeParse(raw ? JSON.parse(raw) : null)
+        return draft.success ? (draft.data as AccountsViewState) : null
+    } catch {
+        return null
+    }
+}
+
+export function writeAccountsViewDraft(teamId: number | null, userId: string | null, draft: AccountsViewState): void {
+    if (teamId === null || userId === null || typeof window === 'undefined') {
+        return
+    }
+    try {
+        window.sessionStorage.setItem(accountsViewDraftStorageKey(teamId, userId), JSON.stringify(draft))
+    } catch {
+        // Browsers can deny sessionStorage, so list navigation must still work without drafts.
     }
 }
 
