@@ -454,6 +454,12 @@ function operationIdToPascal(operationId: string): string {
 // Schema composition — determine Orval imports and build expressions
 // ------------------------------------------------------------------
 
+/** `param_overrides.cast` value → the helper exported from `@/tools/cast-helpers`. */
+const CAST_HELPERS = {
+    'string-int': 'castStringToInt',
+    'boolean-string': 'castBooleanToString',
+} as const
+
 interface SchemaComposition {
     orvalImports: string[]
     toolInputsImports: string[]
@@ -715,7 +721,7 @@ function composeToolSchema(
                 optionalParamNames.add(paramName)
             }
 
-            const castHelper = override.cast === 'string-int' ? 'castStringToInt' : null
+            const castHelper = override.cast ? CAST_HELPERS[override.cast] : null
             if (castHelper) {
                 castHelperImports.add(castHelper)
             }
@@ -887,44 +893,54 @@ function buildPathExpr(
 // Response filtering templates
 // ------------------------------------------------------------------
 
+type ResponseFilterHelper = 'pickResponseFields' | 'omitResponseFields' | 'stripNullFields'
+
 function buildResponseFilter(config: ToolConfig): {
     code: string
-    helperImport: 'pickResponseFields' | 'omitResponseFields' | null
+    helperImports: ResponseFilterHelper[]
 } {
+    const helperImports: ResponseFilterHelper[] = []
+    // Builds the expression that shapes one item — the whole result for a detail tool, each
+    // `results` entry for a list tool. Starts as identity, so each configured step wraps it.
+    let shapeItem = (target: string): string => target
+
     if (config.response?.include?.length) {
-        const paths = config.response?.include.map((f) => `'${f}'`).join(', ')
+        const paths = config.response.include.map((f) => `'${f}'`).join(', ')
         // `selectable` lets the agent pass `fields` to narrow the allowlist per call; the Zod
         // `z.enum(...).min(1)` on the schema already constrains `fields` to a non-empty subset of
         // `include`, so an absent `fields` falls back to the full allowlist (an empty array is
         // rejected at validation) and no separate intersection is needed.
-        const pathsExpr = config.response?.selectable
+        const pathsExpr = config.response.selectable
             ? `params.fields?.length ? params.fields : [${paths}]`
             : `[${paths}]`
-        if (config.list) {
-            return {
-                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, ${pathsExpr})) } as typeof result\n`,
-                helperImport: 'pickResponseFields',
-            }
-        }
+        helperImports.push('pickResponseFields')
+        shapeItem = (target) => `pickResponseFields(${target}, ${pathsExpr})`
+    } else if (config.response?.exclude?.length) {
+        const paths = config.response.exclude.map((f) => `'${f}'`).join(', ')
+        helperImports.push('omitResponseFields')
+        shapeItem = (target) => `omitResponseFields(${target}, [${paths}])`
+    }
+
+    if (config.response?.strip_nulls) {
+        const inner = shapeItem
+        helperImports.push('stripNullFields')
+        shapeItem = (target) => `stripNullFields(${inner(target)})`
+    }
+
+    if (helperImports.length === 0) {
+        return { code: '', helperImports: [] }
+    }
+
+    if (config.list) {
         return {
-            code: `        const filtered = pickResponseFields(result, ${pathsExpr}) as typeof result\n`,
-            helperImport: 'pickResponseFields',
+            code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => ${shapeItem('item')}) } as typeof result\n`,
+            helperImports,
         }
     }
-    if (config.response?.exclude?.length) {
-        const paths = config.response?.exclude.map((f) => `'${f}'`).join(', ')
-        if (config.list) {
-            return {
-                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => omitResponseFields(item, [${paths}])) } as typeof result\n`,
-                helperImport: 'omitResponseFields',
-            }
-        }
-        return {
-            code: `        const filtered = omitResponseFields(result, [${paths}]) as typeof result\n`,
-            helperImport: 'omitResponseFields',
-        }
+    return {
+        code: `        const filtered = ${shapeItem('result')} as typeof result\n`,
+        helperImports,
     }
-    return { code: '', helperImport: null }
 }
 
 /**
@@ -1273,7 +1289,7 @@ function generateToolCode(
             needsWithInformationalResponse,
             toolUtilsValueImports: new Set(
                 [
-                    responseFilter.helperImport,
+                    ...responseFilter.helperImports,
                     config.response?.informational_wrapper && 'withInformationalResponse',
                 ].filter((value): value is string => !!value)
             ),
@@ -1308,9 +1324,10 @@ const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${resultTy
         hasAgentNote,
         needsWithInformationalResponse,
         toolUtilsValueImports: new Set(
-            [responseFilter.helperImport, config.response?.informational_wrapper && 'withInformationalResponse'].filter(
-                (value): value is string => !!value
-            )
+            [
+                ...responseFilter.helperImports,
+                config.response?.informational_wrapper && 'withInformationalResponse',
+            ].filter((value): value is string => !!value)
         ),
     }
 }
@@ -1613,9 +1630,10 @@ ${handlerBody}    },
         hasAgentNote,
         needsWithInformationalResponse,
         toolUtilsValueImports: new Set(
-            [responseFilter.helperImport, config.response?.informational_wrapper && 'withInformationalResponse'].filter(
-                (value): value is string => !!value
-            )
+            [
+                ...responseFilter.helperImports,
+                config.response?.informational_wrapper && 'withInformationalResponse',
+            ].filter((value): value is string => !!value)
         ),
     }
 }
@@ -1970,6 +1988,9 @@ function generateDefinitionsJson(
             const featureEntitlement = toolConfig.feature_entitlement ?? category.feature_entitlement
             const featureFlagBehavior = toolConfig.feature_flag_behavior ?? category.feature_flag_behavior
             const featureFlagVariant = toolConfig.feature_flag_variant ?? category.feature_flag_variant
+            // Successors are per-tool: a category gate says what retires a tool, never what replaces it.
+            const supersededBy = toolConfig.superseded_by
+            const redirectHint = toolConfig.redirect_hint
 
             if (toolConfig.confirmed_action) {
                 // Two-tool typed-confirm paradigm: emit `<name>-prepare` and
@@ -1998,6 +2019,8 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
+                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
                 }
                 definitions[`${name}-execute`] = {
@@ -2022,6 +2045,8 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
+                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
                 }
             } else {
@@ -2043,6 +2068,8 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
+                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
                 }
             }
@@ -2072,6 +2099,8 @@ function generateDefinitionsJson(
                 ...(wrapperConfig.feature_flag_variant
                     ? { feature_flag_variant: wrapperConfig.feature_flag_variant }
                     : {}),
+                ...(wrapperConfig.superseded_by?.length ? { superseded_by: wrapperConfig.superseded_by } : {}),
+                ...(wrapperConfig.redirect_hint ? { redirect_hint: wrapperConfig.redirect_hint } : {}),
                 ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
             }
         }
@@ -2247,6 +2276,8 @@ function generateQueryWrapperDefinitionsJson(
             ...(toolConfig.feature_entitlement ? { feature_entitlement: toolConfig.feature_entitlement } : {}),
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
             ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
+            ...(toolConfig.superseded_by?.length ? { superseded_by: toolConfig.superseded_by } : {}),
+            ...(toolConfig.redirect_hint ? { redirect_hint: toolConfig.redirect_hint } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
         }
     }

@@ -595,7 +595,10 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         customSqlValidationLoading: [
             false,
             {
-                setCustomSqlValidationLoading: (_, { loading }) => loading,
+                // An edit is what starts the wait, so the editor can only end it. The editor also
+                // validates the query it was opened with, and that pass must not block saving a
+                // check whose query nobody touched.
+                setCustomSqlValidationLoading: (state, { loading }) => state && loading,
                 openEditor: () => false,
                 setCheckFormValue: (state, { name }) =>
                     name === 'customSql' ? true : name === 'checkType' ? false : state,

@@ -2,40 +2,35 @@ import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types
 
 import { validateMetricName } from './common'
 import type { DataCatalogTab } from './dataCatalogSceneLogic'
-import { DATA_CATALOG_MCP_TOOLS, SETTING_UP_DATA_CATALOG_SKILL } from './generated/agentContext'
 
 const SKILL_DISMISS_GROUP = 'data-catalog-skill'
 const VIEW_DISMISS_GROUP = 'data-catalog-view'
 const METRIC_DISMISS_GROUP = 'data-catalog-metric'
 
+const SETTING_UP_DATA_CATALOG_SKILL = 'setting-up-data-catalog'
+
+// All static strings below are our own build-time constants, which is what makes them safe to attach
+// as trusted `instructions` items. The skill body and tool schemas are not embedded: product skills
+// are installed in the agent's sandbox, and the exec MCP tool already exposes the data-catalog
+// commands, so naming them is enough to skip discovery.
 const SKILL_CONTEXT_ITEMS: AttachedContextItem[] = [
     {
         type: 'instructions',
         hidden: true,
         dismissGroup: SKILL_DISMISS_GROUP,
         value:
-            'The full setting-up-data-catalog skill and complete data-catalog MCP tool catalog are included in this context. ' +
-            'Call the listed tools directly, and use the exec `info <tool>` command only when you need a full input schema. ' +
-            'Discover metrics with metric-list and inspect one with metric-describe.',
-    },
-    {
-        type: 'instructions',
-        hidden: true,
-        dismissGroup: SKILL_DISMISS_GROUP,
-        value: `Skill ${SETTING_UP_DATA_CATALOG_SKILL.name} (embedded): ${SETTING_UP_DATA_CATALOG_SKILL.content}`,
+            `The user has the PostHog data catalog open. Load the ${SETTING_UP_DATA_CATALOG_SKILL} skill before your ` +
+            'first tool call. Act through the data-catalog MCP tools (the exec `data-catalog-*` commands plus ' +
+            'metric-list and metric-describe: discover metrics with metric-list and inspect one with ' +
+            'metric-describe). Do not search for tools; use the exec `info <tool>` command when you need a full ' +
+            'input schema.',
     },
     {
         type: 'skill',
-        key: SETTING_UP_DATA_CATALOG_SKILL.name,
+        key: SETTING_UP_DATA_CATALOG_SKILL,
         label: 'Setting up data catalog skill',
         dismissGroup: SKILL_DISMISS_GROUP,
     },
-    ...DATA_CATALOG_MCP_TOOLS.map((tool) => ({
-        type: 'instructions' as const,
-        hidden: true,
-        dismissGroup: SKILL_DISMISS_GROUP,
-        value: `MCP tool ${tool.name}: ${tool.description}`,
-    })),
 ]
 
 const CATALOG_CONTEXT_ITEM: AttachedContextItem = {

@@ -29,7 +29,7 @@ async fn retried_record_with_original_timestamp_deduplicates() {
     let clickhouse_url = clickhouse_url();
     let table = table();
     let organization_id = Uuid::new_v4();
-    let service = Service::start(500, organization_id).await;
+    let service = Service::start(500, organization_id, None).await;
     let mut client = service.client().await;
 
     let record_id = Uuid::new_v4().to_string();

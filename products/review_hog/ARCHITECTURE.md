@@ -49,7 +49,19 @@ live-qualified** (e2e on its own PR #72074, 2026-07-18 — verdicts, findings, a
 `eval/experiments/2026-07-resolution-e2e/FINAL_REPORT.md`): `ResolvePRWorkflow` (`backend/temporal/resolution.py`) drives one warm writable sandbox
 session per PR (one thread per turn, humans → ReviewHog → other bots), persists per-thread `thread_verdict`
 artefacts on the living report, replies/resolves server-side from verdicts (bot threads only; humans keep the
-final word). A FIXED verdict's echoed commit SHA is verified server-side before delivery (`commit_on_branch`);
+final word). A reply has a fixed shape (`<reply_shape>` in `prompts/thread_resolution/prompt.jinja`): one verdict
+sentence, a `---` divider, then at most 3 short lines (5 for an escalation), in Simplified Technical English via
+the `writing-simplified-technical-english` skill the sandbox image carries. Test and lint output never enters the
+reply text: the driver posts the verdict's `verification` under it as a collapsed "How this was verified" block
+(`_verification_section`) after the commit link, and inserts the blank line GitHub needs before a `---` the model
+wrote directly under its verdict (`_normalize_reply_divider`). A reply past the shape (more than 5 support lines or
+150 visible words) is folded, not cut: the verdict and the first lines stay visible and the rest lands under a
+collapsed "More detail" block, with a warning logged (`_fold_overlong_reply`). The whole posted body is scrubbed of
+credential shapes last (`tools/redaction.py::redact_secrets`: PostHog secret key prefixes, GitHub token shapes, and
+`x-access-token` clone URLs), because the sandbox holds live tokens and the agent may paste command output into
+`verification`; the review stage runs the same scrub over the review body and every inline finding comment in
+`publish_review.py::_post_github_review`. A FIXED verdict's echoed commit SHA is verified
+server-side before delivery (`commit_on_branch`);
 an unproven SHA posts the reply without the commit link and never auto-resolves. A real commit is then checked
 against the hard-floor **path backstop** (`commit_restricted_paths`): one touching `.github/`, CODEOWNERS, or
 dependency manifests delivers a human-review warning instead of the link and never auto-resolves either.
@@ -112,13 +124,6 @@ decline-and-say-why on a disagreement, re-escalate with the new context otherwis
 work-list only fetches **unresolved** threads, so replies on already-resolved (FIXED) threads are invisible —
 the trigger should either unresolve-on-human-reply or the fetch must include threads with comments newer than
 their verdict watermark (see the resolution e2e's F-findings).
-
-**TODO — make resolution replies concise.** The e2e's escalation replies are three-paragraph walls no human
-will read (see the `/resolve` acting-user thread on #72074). The prompt asks for "a self-contained answer the
-author can act on without opening the code" and the model over-delivers; the deep detail already has a home in
-`reasoning` (the work log). Add a hard reply shape to `thread_resolution.py`'s prompt: verdict first in one
-sentence, then at most 2–3 short supporting lines (for an escalation: exactly what a human must decide);
-everything else stays in `reasoning`.
 
 **TODO (later thoughts, cost) — let the resolver lean on the validator's work.** For ReviewHog's own threads the
 report already holds a researched `validation_verdict` per finding (argumentation, category, adjusted priority) —
@@ -462,12 +467,12 @@ path**: the Django side _sets_ the knobs and the `@posthog/agent` package _appli
   entry in `REVIEW_ARMS_BY_TIER` (the executor kwargs exist for every single-turn stage).
 - **The registry (source of truth for what's allowed)** — `products/tasks/backend/temporal/process_task/utils.py`,
   re-exported framework-free from the facade `products/tasks/backend/facade/run_config.py` (import from the facade):
-  `RuntimeAdapter` (`claude|codex`), `LLMProvider`, `ReasoningEffort`, `RUNTIME_PROVIDER_BY_ADAPTER`,
-  `CLAUDE_REASONING_EFFORTS_BY_MODEL`, `CODEX_MODELS` + `CODEX_REASONING_EFFORTS` + the
-  `CODEX_XHIGH/MAX_REASONING_MODELS` tiers (`gpt-5.5` caps at `xhigh`; the `gpt-5.6-*` models allow up to
-  `max`), and the pure checks `get_provider_for_runtime_adapter` /
-  `get_supported_reasoning_efforts` / `get_reasoning_effort_error`. A new model/effort must be added here or the combo
-  is rejected. `test_constants.py` locks the ReviewHog combo to this registry at unit time.
+  `RuntimeAdapter` (`claude|codex`), `LLMProvider`, `ReasoningEffort`, `RUNTIME_PROVIDER_BY_ADAPTER`, and the pure
+  checks `get_provider_for_runtime_adapter` /
+  `get_supported_reasoning_efforts` / `get_reasoning_effort_error`. Which models exist and what efforts each takes
+  comes from `products/tasks/backend/model_catalog.py`, the one definition both the backend and the generated
+  TypeScript projections read. A new model/effort must be added there or the combo is rejected.
+  `test_constants.py` locks the ReviewHog combo to this registry at unit time.
 - **Transport into the sandbox:** `Task._build_task` writes `extra_state[{runtime_adapter, provider, model,
 reasoning_effort}]` → `get_task_processing_context` reads it back → `start_agent_server` →
   `build_agent_runtime_env_prefix` (`logic/services/sandbox.py`) emits
@@ -494,11 +499,10 @@ an agent-side fix reaches reviews only once it is published and the image rebuil
   (the local desktop path); the claude adapter's `resolveInitialModelId` fallback covers Claude but not the codex
   reviewer arm — verify `$ai_model` **and `$ai_effort`** on the review generations whenever a pin changes.
 
-**Recipe — testing e.g. Sonnet.** Set `runtime_adapter = "claude"`, `model` a key in `CLAUDE_REASONING_EFFORTS_BY_MODEL`,
-and an effort that model supports; provider auto-derives to `anthropic`. For a new Codex model: `runtime_adapter =
-"codex"`, `model` in `CODEX_MODELS`, effort in `CODEX_REASONING_EFFORTS` (`xhigh`/`max` only for models in the
-`CODEX_XHIGH/MAX_REASONING_MODELS` tiers). A brand-new model/effort must be added to the registry on **both** sides
-(`utils.py` + `reasoning-effort.ts` / the gateway model list in `@posthog/agent`) or startup validation rejects it on one side.
+**Recipe — testing e.g. Sonnet.** Set `runtime_adapter = "claude"`, `model` to a catalog id, and an effort that model
+supports; provider auto-derives to `anthropic`. The same applies to a Codex model with `runtime_adapter = "codex"`.
+Every id and its efforts live in `model_catalog.py`; run `hogli build:task-model-catalog` after editing it, which
+updates the TypeScript projections the desktop app and the web composer read.
 
 ---
 

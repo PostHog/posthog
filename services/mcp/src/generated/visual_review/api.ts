@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 15 enabled ops
+ * PostHog API - MCP 16 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -33,6 +33,32 @@ export const VisualReviewReposRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Update a repo's settings.
+ */
+export const VisualReviewReposPartialUpdateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const VisualReviewReposPartialUpdateBody = () => zod.object({
+    baseline_file_paths: zod.record(zod.string(), zod.string()).nullish(),
+    enable_pr_comments: zod
+        .boolean()
+        .nullish()
+        .describe('Post a pull request comment when a run finds visual changes to review.'),
+    debt_digest_enabled: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Post the visual review debt digest to the Slack channels of the teams that own the snapshots. Off by default. The digest goes out every Monday morning.'
         ),
 })
 
@@ -213,7 +239,11 @@ export const VisualReviewRunsFinalizeCreateBody = () => zod.object({
  * Recent change history for a snapshot identifier across runs.
  */
 export const VisualReviewRunsSnapshotHistoryListParams = () => zod.object({
-    id: zod.string(),
+    id: zod
+        .string()
+        .describe(
+            'UUID of the visual review run to look the snapshot up from. This is a run id, not the `id` of a snapshot inside that run. The run supplies the repo and run type to search, so the `identifier` query parameter is required alongside it.'
+        ),
     project_id: zod
         .string()
         .describe(
@@ -222,7 +252,11 @@ export const VisualReviewRunsSnapshotHistoryListParams = () => zod.object({
 })
 
 export const VisualReviewRunsSnapshotHistoryListQueryParams = () => zod.object({
-    identifier: zod.string().describe('Snapshot identifier'),
+    identifier: zod
+        .string()
+        .describe(
+            'Identifier of the snapshot to look up, for example a Storybook story id plus theme. Read it from the `identifier` field of a snapshot in the run. It is a name rather than a UUID, and it is required in addition to the run id in the path.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -274,7 +308,11 @@ export const VisualReviewRunsTolerateCreateBody = () => zod.object({
  * List known tolerated hashes for a snapshot identifier.
  */
 export const VisualReviewRunsToleratedHashesListParams = () => zod.object({
-    id: zod.string(),
+    id: zod
+        .string()
+        .describe(
+            'UUID of the visual review run to look the snapshot up from. This is a run id, not the `id` of a snapshot inside that run. The run supplies the repo and run type to search, so the `identifier` query parameter is required alongside it.'
+        ),
     project_id: zod
         .string()
         .describe(
@@ -283,7 +321,11 @@ export const VisualReviewRunsToleratedHashesListParams = () => zod.object({
 })
 
 export const VisualReviewRunsToleratedHashesListQueryParams = () => zod.object({
-    identifier: zod.string().describe('Snapshot identifier'),
+    identifier: zod
+        .string()
+        .describe(
+            'Identifier of the snapshot to look up, for example a Storybook story id plus theme. Read it from the `identifier` field of a snapshot in the run. It is a name rather than a UUID, and it is required in addition to the run id in the path.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })

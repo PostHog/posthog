@@ -203,9 +203,9 @@ Each entry identifies one reviewer by **`github_login`**, **`user_uuid`**, or bo
 - **`github_login`** — a **bare, lowercase GitHub login** (e.g. `octocat`, not `@OctoCat`).
   Internal assignment matches it against each user's linked GitHub login by exact, lowercased comparison, so a mis-cased handle, an `@`-prefix, a display name, a CODEOWNERS **team** slug, or an email won't set `is_suggested_reviewer` for anyone (autostart's PR-selection path is more lenient, but the assignment path is not).
 - **`user_uuid`** — a **PostHog user UUID**.
-  The server resolves it to that org member's linked GitHub login for you (and it wins if you also pass a `github_login`).
-  Use this whenever your evidence already names a PostHog user — an account owner, an entity's `created_by`, a CSM — so you can route to them without ever looking up their handle.
-  A `user_uuid` that isn't an org member of this team **with a linked GitHub identity** is rejected (the whole call fails), so it never silently drops.
+  The server resolves it to that org member. It wins if you also pass a `github_login`.
+  Use this whenever your evidence already names a PostHog user. It works without a linked GitHub account.
+  A `user_uuid` that is not an org member of this team is rejected, so it never silently drops.
 
 So you have two routes to a reviewer.
 If you already hold a PostHog user UUID, prefer passing it as `user_uuid` — it's the most reliable.
@@ -219,7 +219,7 @@ Otherwise resolve a `github_login`, cheapest source first:
    `.github/CODEOWNERS` for the owning path, or the last `git log` author for the file.
    Neither usually hands you a usable login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email — both must be resolved to an **individual** GitHub login before you write the reviewer (a team slug or an email won't match any user).
 4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner.
-   It returns this project's members, each with `user_uuid`, `email`, name, and a resolved `github_login` (pass `search=` to narrow); match the owner and route to their `github_login`, or hand the `user_uuid` straight through and let the server resolve it.
+   It returns this project's members, each with `user_uuid`, email, name, and a resolved `github_login`. Pass `search=` to narrow the result. Match the owner and route with `user_uuid`.
    The org-scoped `org-members-list` / `org-member-get-github-login` tools are **not available in a scout run** — a scoped-team token can't reach the org-nested endpoint, so don't build a scout's reviewer recipe around them.
 
 **If you can't confidently identify a reviewer, leave `suggested_reviewers` empty** — the report still surfaces for a human to grab.
@@ -231,15 +231,21 @@ The fleet's reviewer map should compound over time.
 
 ## `edit_report` — update an existing report
 
-Rewrite `title`/`summary`, append a note, set `suggested_reviewers`, and/or replace `charts` / `suggested_prompts` on a report that already exists.
-Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `suggested_reviewers`, `charts`, `suggested_prompts`.
-An edit that supplies content (`title`, `summary`, `charts`, `suggested_prompts`, `append_note`, or a reviewer `reason`) passes the same safety judge as `emit_report`; an unsafe edit is rejected whole and the report keeps what it had.
+Rewrite `title`/`summary`, append evidence or a note, set `suggested_reviewers`, and/or replace `charts` / `suggested_prompts` on a report that already exists.
+Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `append_evidence`, `suggested_reviewers`, `charts`, `suggested_prompts`.
+An edit that supplies content (`title`, `summary`, `charts`, `suggested_prompts`, `append_note`, `append_evidence`, or a reviewer `reason`) passes the same safety judge as `emit_report`; an unsafe edit is rejected whole and the report keeps what it had.
 
 `edit_report` can target **any** of the team's inbox reports — not just ones a scout authored.
 That makes it the right tool when a later run learns something about a report the pipeline (or another scout) created.
 Rules of good behavior:
 
-- **Prefer `append_note` over rewriting** `title`/`summary` on a report you didn't author.
+- Use **`append_evidence`** for a new observation that a reader can check.
+  It takes the same `{description, source_id}` items as `emit_report`, and each one lands in the report's evidence rail as a bound signal, so the report's `signal_count` and `total_weight` grow with it.
+- Use **`append_note`** for commentary — a reading of the report that adds nothing to check, such as the owning team already knowing, or a deploy having fixed it.
+  Send both in one call when an observation needs a reading alongside it.
+- **A recovery is a note, not evidence.** `signal_count` and `total_weight` only grow, and both feed the inbox ranking, so evidence that an issue is over would rank the report as stronger.
+- **At the cap, the note is the channel that still lands.** Emit plus every append share the report's **50** evidence rows, and the grouping pipeline can raise the count too, so a long-lived report can fill up. An append past the cap is rejected and the report keeps what it had.
+- Prefer these additive fields over rewriting `title`/`summary` on a report you didn't author.
   A note is additive and audit-friendly (it carries your scout as the author); a rewrite silently overwrites a human- or pipeline-authored headline.
 - **Don't fight an in-flight pipeline.** A report the summary/research workflow is mid-run on can have its fields overwritten under you.
   If a report is actively being worked, append a note rather than rewriting.
@@ -255,11 +261,14 @@ Before authoring, list the team's existing reports so you reconcile against one 
 - `inbox-reports-list` — filter by title/summary free-text (`search`), `status`, `source_product`, or your own `task_id`; newest-updated first.
 - `inbox-reports-retrieve` — fetch a single report by id (use the `report_id` you stashed in the scratchpad last run).
 
-## Dedup: the channel is NOT idempotent
+## Dedup: the retry is covered, the near-duplicate is not
 
-`emit_report` is **not idempotent** — a retried call authors a _second_ report.
-There is no server-side dedup key.
-The dedup story is two-sided and the scout owns it:
+`emit_report` carries an emit key, so resending a call that timed out returns the report the first one authored (`idempotent_replay` true) rather than a twin.
+The key is the `idempotency_key` you pass, or the report's own content when you pass none, and it is scoped to your run.
+Pass one when a retry might reword the report, since a reworded report is a different content key.
+
+That barrier covers the transport failure and nothing else.
+A report on a topic an earlier run already filed is a fresh emission with a fresh key, so the cross-run dedup is still two-sided and the scout owns it:
 
 1. **Before authoring**, `inbox-reports-list` for a prior report on the same topic.
    Found one?
@@ -267,8 +276,8 @@ The dedup story is two-sided and the scout owns it:
 2. **After authoring**, write a `report:<domain>:<entity>` scratchpad entry recording the `report_id` so the next run finds it (via `inbox-reports-retrieve`) without a title-search guess.
    (This is the report-channel member of the scratchpad key-prefix vocabulary — see [`dedupe-and-memory.md`](dedupe-and-memory.md).)
 
-**Never retry an `emit_report` / `edit_report` call that may have succeeded** — a transport error after the write commits, retried, double-files.
-If you're unsure whether a call landed, `inbox-reports-list` to check before retrying.
+`edit_report` has no such barrier: **never retry an `edit_report` call that may have succeeded**, since a transport error after the write commits, retried, appends a second note.
+If you're unsure whether an edit landed, `inbox-reports-retrieve` to check before retrying.
 
 ## The pipeline may rewrite what you authored (accepted)
 

@@ -149,7 +149,6 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
 
     return (
         <ProductIntroduction
-            productName="Dashboard"
             thingName="insight"
             titleOverride="Build your dashboard"
             description={dataProcessingAccepted ? BASE_TEXT : 'Add a chart from your library.'}

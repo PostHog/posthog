@@ -2,7 +2,16 @@ import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } fro
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconClock, IconCopy, IconInfo, IconRefresh, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
+import {
+    IconClock,
+    IconCopy,
+    IconInfo,
+    IconRefresh,
+    IconSend,
+    IconTrash,
+    IconUpload,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -48,7 +57,7 @@ import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
-import { createCohortDataNodeLogicKey } from './cohortUtils'
+import { createCohortDataNodeLogicKey, urlForCohortWorkflow } from './cohortUtils'
 import { PersonSelectList } from './PersonSelectList'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 
@@ -242,6 +251,18 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                     <ScenePanelDivider />
 
                     <ScenePanelActionsSection>
+                        <ButtonPrimitive
+                            onClick={() => router.actions.push(urlForCohortWorkflow(cohort))}
+                            disabledReasons={{
+                                'Save the cohort first': isNewCohort,
+                            }}
+                            data-attr={`${RESOURCE_TYPE}-message-with-workflow`}
+                            tooltip="Start a workflow that emails everyone in this cohort"
+                            menuItem
+                        >
+                            <IconSend /> Message this cohort
+                        </ButtonPrimitive>
+
                         <SceneAddToNotebookDropdownMenu
                             dataAttrKey={RESOURCE_TYPE}
                             disabledReasons={{

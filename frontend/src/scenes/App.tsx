@@ -6,7 +6,6 @@ import { Slide, ToastContainer } from 'react-toastify'
 
 import { PostHogProvider } from '@posthog/react'
 
-import { ProductEmptyStateGate } from 'lib/components/ProductEmptyState/ProductEmptyStateGate'
 import { productSetupPreloadLogic } from 'lib/components/ProductEmptyState/productSetupPreloadLogic'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
@@ -16,7 +15,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
 import { OAuthCallback } from 'lib/oauth/OAuthCallback'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
-import { retryImport } from 'lib/utils/retryImport'
+import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -26,9 +25,20 @@ import { AppLoadError } from '~/layout/AppLoadError'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { AuthenticatedShellFallback } from './AuthenticatedShellFallback'
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
 const AuthenticatedShell = React.lazy(() => retryImport(() => import('./AuthenticatedShell')))
+
+// Lazy for the same reason as AuthenticatedShell: the gate renders SceneTitleSection, whose static
+// graph is most of the authenticated navigation. Importing it here put ~3.7 MiB of logged-in UI on
+// the boot path that /login and /signup preload. Its dependencies already ship with the shell, so
+// for logged-in users this chunk is small and is prefetched alongside the shell below.
+const ProductEmptyStateGate = lazyWithRetry(() =>
+    import('lib/components/ProductEmptyState/ProductEmptyStateGate').then((m) => ({
+        default: m.ProductEmptyStateGate,
+    }))
+)
 
 window.process = MOCK_NODE_PROCESS
 
@@ -141,7 +151,10 @@ function AppScene(): JSX.Element | null {
                 ? window.requestIdleCallback.bind(window)
                 : (cb: () => void) => setTimeout(cb, 200)
         idle(() => {
-            void import('./AuthenticatedShell').catch(() => {
+            void Promise.all([
+                import('./AuthenticatedShell'),
+                import('lib/components/ProductEmptyState/ProductEmptyStateGate'),
+            ]).catch(() => {
                 /* prefetch is best-effort; the real Suspense load will surface failures */
             })
         })
@@ -165,9 +178,11 @@ function AppScene(): JSX.Element | null {
         // Scenes that declare an empty state are gated behind the product's
         // setup screen until the product has data (or the user skips).
         const resolvedNode = emptyState ? (
-            <ProductEmptyStateGate emptyState={emptyState} params={activeSceneComponentParams}>
-                {sceneNode}
-            </ProductEmptyStateGate>
+            <Suspense fallback={<SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />}>
+                <ProductEmptyStateGate emptyState={emptyState} params={activeSceneComponentParams}>
+                    {sceneNode}
+                </ProductEmptyStateGate>
+            </Suspense>
         ) : (
             sceneNode
         )
@@ -203,14 +218,7 @@ function AppScene(): JSX.Element | null {
 
     return (
         <ChunkLoadErrorBoundary fallback={(error) => <AppLoadError error={error} />}>
-            <Suspense
-                fallback={
-                    // SpinnerOverlay is already imported here — no new lazy deps vs skeleton.
-                    <div className="relative h-screen">
-                        <SpinnerOverlay sceneLevel />
-                    </div>
-                }
-            >
+            <Suspense fallback={<AuthenticatedShellFallback showSpinner={showingDelayedSpinner} />}>
                 <AuthenticatedShell>{wrappedSceneElement}</AuthenticatedShell>
             </Suspense>
         </ChunkLoadErrorBoundary>

@@ -1,8 +1,8 @@
-import type { PiSessionStats } from "@posthog/agent/pi/types";
+import type { PiUsageStats } from "@posthog/agent/pi/types";
 import type { ContextUsage } from "../sessions/contextUsage";
 
 export function toPiContextUsage(
-  stats: PiSessionStats | undefined,
+  stats: PiUsageStats | undefined,
 ): ContextUsage | null {
   const usage = stats?.contextUsage;
   if (!usage || usage.tokens === null) {

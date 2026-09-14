@@ -22,6 +22,12 @@ PROVIDER_ENV_VARS = [
 ]
 
 MOCK_COST_DATA: dict[str, ModelCost] = {
+    "gpt-6-astra": {
+        "litellm_provider": "openai",
+        "max_input_tokens": 922000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
     "gpt-4o": {
         "litellm_provider": "openai",
         "max_input_tokens": 128000,
@@ -426,6 +432,22 @@ class TestModelMatchesAllowlist:
 
 
 class TestIsModelAvailable:
+    @pytest.mark.parametrize(
+        "product,expected",
+        [
+            ("posthog_code", True),
+            ("background_agents", True),
+            ("slack_app", True),
+            ("posthog_ai", True),
+            ("onboarding", False),
+            ("product_analytics", False),
+            ("review_hog", True),
+            ("stamphog", False),
+        ],
+    )
+    def test_gpt_6_astra_respects_product_allowlists(self, product: str, expected: bool) -> None:
+        assert is_model_available("gpt-6-astra", product) is expected
+
     @pytest.mark.parametrize(
         "model_id,product,expected",
         [

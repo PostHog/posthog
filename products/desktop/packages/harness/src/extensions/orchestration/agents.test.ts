@@ -34,19 +34,19 @@ describe("agents", () => {
     expect(general?.source).toBe("bundled");
   });
 
-  it("Explore is read-only and pinned to Sol", () => {
+  it("Explore is read-only and pinned to Luna", () => {
     const explore = findBundledAgent("Explore");
     expect(explore?.tools).toEqual(["read", "bash", "grep", "find", "ls"]);
-    expect(explore?.model).toBe("gpt-5.6-sol");
+    expect(explore?.model).toBe("gpt-5.6-luna");
   });
 
-  it("Plan is read-only and inherits the parent's model", () => {
+  it("Plan is read-only and pinned to Sol", () => {
     const plan = findBundledAgent("Plan");
     expect(plan?.tools).toEqual(["read", "bash", "grep", "find", "ls"]);
-    expect(plan?.model).toBeUndefined();
+    expect(plan?.model).toBe("gpt-5.6-sol");
   });
 
-  it("General is the only bundled agent with write access, and inherits the parent's model", () => {
+  it("General is the only bundled agent with write access and is pinned to Terra", () => {
     const general = findBundledAgent("General");
     expect(general?.tools).toEqual([
       "read",
@@ -57,7 +57,7 @@ describe("agents", () => {
       "find",
       "ls",
     ]);
-    expect(general?.model).toBeUndefined();
+    expect(general?.model).toBe("gpt-5.6-terra");
     for (const agent of loadBundledAgents()) {
       if (agent.name === "General") continue;
       expect(agent.tools).not.toContain("edit");

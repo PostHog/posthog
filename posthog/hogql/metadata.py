@@ -45,6 +45,7 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
+from posthog.schema_enums import PersonsOnEventsMode
 
 logger = structlog.get_logger(__name__)
 
@@ -80,6 +81,8 @@ def get_hogql_metadata(
             user=user,
             modifiers=query_modifiers,
             connection_id=str(source.id),
+            # Editor-assist only: query execution never reads cached sources.
+            use_cached_sources=True,
         )
 
     heuristic_warnings: list[HogQLNotice] = []
@@ -88,10 +91,14 @@ def get_hogql_metadata(
     try:
         context = HogQLContext(
             team_id=team.pk,
+            # The team object itself, so the lazy database build can key the sources cache.
+            team=team,
             user=user,
             database=database,
             modifiers=query_modifiers,
             enable_select_queries=True,
+            # Editor-assist only: query execution never reads cached sources.
+            use_cached_sources=True,
             # A resolved direct-connection source prints with its engine dialect (below), so the
             # context must be marked direct — otherwise the ClickHouse printer's direct-table guard
             # fires and metadata/autocomplete reports a false "can only be queried through its direct
@@ -118,6 +125,17 @@ def get_hogql_metadata(
                 hogql_ast = parse_select(query.query)
                 finder = find_placeholders(hogql_ast)
                 if finder.has_filters:
+                    if database is None:
+                        # Built here (cached) and shared with the printer via the context, so the
+                        # filters replacement doesn't add an uncached build of its own.
+                        database = Database.create_for(
+                            team=team,
+                            user=user,
+                            modifiers=query_modifiers,
+                            use_cached_sources=True,
+                            trigger="metadata",
+                        )
+                        context.database = database
                     hogql_ast = replace_filters(hogql_ast, query.filters, team, database=database)
                 if query.variables or finder.placeholder_fields or finder.placeholder_expressions:
                     hogql_ast = replace_variables(
@@ -135,6 +153,22 @@ def get_hogql_metadata(
                 direct_dialect: HogQLDialect = (
                     direct_adapter.dialect if direct_adapter and direct_adapter.dialect else "postgres"
                 )
+                if source and direct_dialect == "trino":
+                    from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the Trino backend only for Trino connections
+                        find_unsupported_pure_trino_features,
+                    )
+
+                    # Execution rejects these regardless of Django expansion, so surface the
+                    # same error at edit time.
+                    find_unsupported_pure_trino_features(hogql_ast)
+                    # Direct queries cannot join PostHog person tables, so the team's
+                    # person-on-events mode has no effect; print with the one mode the Trino
+                    # dialect accepts. A direct database exposes no event or person properties,
+                    # so property restrictions cannot apply either.
+                    context.modifiers = context.modifiers.model_copy(
+                        update={"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+                    )
+                    context.restricted_properties = set()
                 printed_sql, prepared_ast = prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,

@@ -1,6 +1,8 @@
 import type { Schemas } from "@posthog/api-client/generated";
 import { describe, expect, it } from "vitest";
+import { summarizeNotificationDestinations } from "./loopDisplay";
 import {
+  defaultLoopContextOutputs,
   emptyLoopFormValues,
   type LoopFormValues,
   loopToFormValues,
@@ -176,6 +178,32 @@ describe("loopHogFlowMapping", () => {
       },
     });
   });
+
+  it.each([
+    ["a named space", "general", "folder-1|general"],
+    ["a space with no name yet", "", "folder-1"],
+  ])(
+    "keeps the loop attached to %s across a write and a read",
+    (_label, name, expectedInput) => {
+      const contextTarget = {
+        folderId: "folder-1",
+        name,
+        outputs: defaultLoopContextOutputs(),
+      };
+      const flow = flowFromWrite(scheduleValues({ contextTarget }));
+
+      expect(taskAction(flow).config).toMatchObject({
+        inputs: { channel: { value: expectedInput } },
+      });
+      expect(
+        hogFlowToLoop(flow, { projectId: PROJECT_ID }).context_target,
+      ).toEqual({
+        folder_id: "folder-1",
+        name,
+        outputs: defaultLoopContextOutputs(),
+      });
+    },
+  );
 
   it("only writes the task inputs the form filled in", () => {
     const { flow } = formValuesToHogFlowWrite(
@@ -480,6 +508,96 @@ describe("loopHogFlowMapping", () => {
       type: "continue",
     });
     expect(isLoopShapedHogFlow(flow)).toBe(false);
+  });
+
+  it("keeps a notify step between the task and the exit when reading and rewriting", () => {
+    const existing = flowFromWrite(scheduleValues());
+    const actions = existing.actions as Array<Record<string, unknown>>;
+    const notify = {
+      id: "notify",
+      name: "Notify",
+      type: "function",
+      config: {
+        template_id: "template-slack",
+        inputs: {
+          channel: { value: "C123" },
+          text: { value: "{variables.task_final_message}" },
+        },
+      },
+    };
+    actions.splice(2, 0, notify);
+    existing.edges = [
+      { from: "trigger", to: "create_task", type: "continue" },
+      { from: "create_task", to: "notify", type: "continue" },
+      { from: "notify", to: "exit", type: "continue" },
+    ];
+    expect(isLoopShapedHogFlow(existing)).toBe(true);
+
+    const { flow } = formValuesToHogFlowWrite(
+      scheduleValues({ instructions: "Updated prompt" }),
+      { enabled: true, existing },
+    );
+    expect(flow.actions.map((action) => action.id)).toEqual([
+      "trigger",
+      "create_task",
+      "notify",
+      "exit",
+    ]);
+    expect(flow.actions[2]).toEqual(notify);
+    expect(flow.edges).toEqual(existing.edges);
+  });
+
+  it.each([
+    [
+      "a Slack step",
+      {
+        type: "function",
+        config: {
+          template_id: "template-slack",
+          inputs: { channel: { value: "C123|#releases" } },
+        },
+      },
+      ["Slack \u00b7 #releases"],
+    ],
+    [
+      "a Slack step with only a channel id",
+      {
+        type: "function",
+        config: {
+          template_id: "template-slack",
+          inputs: { channel: { value: "C123" } },
+        },
+      },
+      ["Slack"],
+    ],
+    [
+      "an email step",
+      { type: "function_email", config: { template_id: "template-email" } },
+      ["Email"],
+    ],
+  ])(
+    "reports %s as the loop's notification destination",
+    (_label, step, expected) => {
+      const existing = flowFromWrite(scheduleValues());
+      const actions = existing.actions as Array<Record<string, unknown>>;
+      actions.splice(2, 0, { id: "notify", name: "Notify", ...step });
+      existing.edges = [
+        { from: "trigger", to: "create_task", type: "continue" },
+        { from: "create_task", to: "notify", type: "continue" },
+        { from: "notify", to: "exit", type: "continue" },
+      ];
+
+      const loop = hogFlowToLoop(existing, { projectId: PROJECT_ID });
+      expect(summarizeNotificationDestinations(loop.notifications)).toEqual(
+        expected,
+      );
+    },
+  );
+
+  it("reports no notification destination for a loop with no notify step", () => {
+    const flow = flowFromWrite(scheduleValues());
+    const loop = hogFlowToLoop(flow, { projectId: PROJECT_ID });
+    expect(summarizeNotificationDestinations(loop.notifications)).toEqual([]);
   });
 
   it("marks a flow with a staged draft as foreign until it is published or discarded", () => {

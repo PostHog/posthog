@@ -4,6 +4,7 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { aiObservabilitySessionEvaluationsLogic } from './aiObservabilitySessionEvaluationsLogic'
 import { EvalTooltipContent, getEvalBadgeProps, getEvalSummaries } from './components/EvalResultBadges'
+import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 
 interface LLMASessionEvaluationsDisplayProps {
     sessionId: string
@@ -11,6 +12,7 @@ interface LLMASessionEvaluationsDisplayProps {
 
 export function LLMASessionEvaluationsDisplay({ sessionId }: LLMASessionEvaluationsDisplayProps): JSX.Element | null {
     const { sessionEvaluations } = useValues(aiObservabilitySessionEvaluationsLogic({ sessionId }))
+    const { detectorEvaluationIds } = useValues(llmEvaluationsLogic)
 
     // A session that resumes after being evaluated can be graded again; collapse to the newest
     // verdict per evaluation so a stale tag never sits beside a fresh one. Same helper the trace
@@ -24,7 +26,9 @@ export function LLMASessionEvaluationsDisplay({ sessionId }: LLMASessionEvaluati
     return (
         <>
             {summaries.map((summary) => {
-                const { type, icon, label } = getEvalBadgeProps(summary.latestRun)
+                const { type, icon, label } = getEvalBadgeProps(summary.latestRun, {
+                    trueIsFailure: detectorEvaluationIds.includes(summary.latestRun.evaluation_id),
+                })
                 return (
                     <Tooltip key={summary.latestRun.evaluation_id} title={<EvalTooltipContent {...summary} />}>
                         <span>

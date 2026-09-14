@@ -1,0 +1,176 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "filters": {
+            "description": "Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search.",
+            "properties": {
+                "aiTriageResult": {
+                    "description": "AI triage outcomes to include. 'in_progress' matches tickets still being triaged.",
+                    "items": {
+                        "description": "* `persisted` - persisted\n* `escalated_with_best` - escalated_with_best\n* `escalated_no_reply` - escalated_no_reply\n* `skipped_unactionable` - skipped_unactionable\n* `blocked_unsafe` - blocked_unsafe\n* `blocked_unsafe_reply` - blocked_unsafe_reply\n* `in_progress` - in_progress",
+                        "enum": [
+                            "persisted",
+                            "escalated_with_best",
+                            "escalated_no_reply",
+                            "skipped_unactionable",
+                            "blocked_unsafe",
+                            "blocked_unsafe_reply",
+                            "in_progress"
+                        ],
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "assignee": {
+                    "description": "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "enum": ["me", "unassigned"],
+                                "type": "string"
+                            },
+                            {
+                                "properties": {
+                                    "id": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            }
+                                        ]
+                                    },
+                                    "type": {
+                                        "enum": ["user", "role"],
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["type", "id"],
+                                "type": "object"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "channel": {
+                    "description": "Channel the ticket originated from. 'all' disables the filter.\n\n* `widget` - widget\n* `email` - email\n* `slack` - slack\n* `teams` - teams\n* `github` - github\n* `all` - all",
+                    "enum": ["widget", "email", "slack", "teams", "github", "all"],
+                    "type": "string"
+                },
+                "dateFrom": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Only include tickets updated on or after this date. Accepts absolute dates (2026-01-01) or relative ones (-7d). 'all' or null disables the bound."
+                },
+                "dateTo": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Only include tickets updated on or before this date. Same format as dateFrom."
+                },
+                "priority": {
+                    "description": "Ticket priorities to include. Empty or omitted means all priorities.",
+                    "items": {
+                        "description": "* `low` - Low\n* `medium` - Medium\n* `high` - High\n* `critical` - Critical",
+                        "enum": ["low", "medium", "high", "critical"],
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "search": {
+                    "description": "Free-text search. A numeric value matches a ticket number exactly; otherwise matches the customer's name or email, the email subject, or message content.",
+                    "maxLength": 200,
+                    "type": "string"
+                },
+                "sla": {
+                    "description": "SLA state: 'breached' is past due, 'at-risk' is due within the next hour, 'on-track' has more than an hour remaining. 'all' disables the filter.\n\n* `breached` - breached\n* `at-risk` - at-risk\n* `on-track` - on-track\n* `all` - all",
+                    "enum": ["breached", "at-risk", "on-track", "all"],
+                    "type": "string"
+                },
+                "sorting": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "columnKey": {
+                                    "description": "Ticket column to sort by (updated_at, sla_due_at, snoozed_until, created_at, ticket_number). Unknown columns fall back to updated_at.",
+                                    "type": "string"
+                                },
+                                "order": {
+                                    "anyOf": [
+                                        {
+                                            "const": 1,
+                                            "type": "number"
+                                        },
+                                        {
+                                            "const": -1,
+                                            "type": "number"
+                                        }
+                                    ],
+                                    "description": "1 for ascending, -1 for descending.\n\n* `1` - 1\n* `-1` - -1"
+                                }
+                            },
+                            "required": ["columnKey", "order"],
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Sort order for the ticket list."
+                },
+                "status": {
+                    "description": "Ticket statuses to include. Empty or omitted means all statuses.",
+                    "items": {
+                        "description": "* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved",
+                        "enum": ["new", "open", "pending", "on_hold", "resolved"],
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "description": "Tag names to match, combined according to tagsMatch.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "tagsExclude": {
+                    "description": "Tickets carrying any of these tags are excluded.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "tagsMatch": {
+                    "description": "'any' returns tickets with at least one of tags (OR); 'all' requires every tag (AND).\n\n* `any` - any\n* `all` - all",
+                    "enum": ["any", "all"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "is_favorited": {
+            "description": "Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.",
+            "type": "boolean"
+        },
+        "name": {
+            "description": "Display name of the view, as it appears in the ticket views list.",
+            "maxLength": 400,
+            "type": "string"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

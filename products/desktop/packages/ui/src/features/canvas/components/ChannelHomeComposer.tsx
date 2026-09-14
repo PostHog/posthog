@@ -6,7 +6,11 @@ import {
   isValidConfigValue,
   syntheticPiModelSelection,
 } from "@posthog/core/task-detail/configOptions";
-import { type AgentRuntime, adapterForModelId } from "@posthog/shared";
+import {
+  type AgentRuntime,
+  adapterForModelId,
+  PI_HARNESS_FLAG,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   subscriptionModelAccess,
@@ -134,7 +138,7 @@ export const ChannelHomeComposer = forwardRef<
   );
   const [selectedPiThinkingLevel, setSelectedPiThinkingLevel] =
     useState<PiThinkingLevel | null>(null);
-  const piHarnessEnabled = useFeatureFlag("pi-harness", import.meta.env.DEV);
+  const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
   const flagsLoaded = useFeatureFlagsLoaded();
   const { data: piModelCatalog = [], isPending: isPiConfigLoading } =
     usePiModelCatalog(runtime === "pi");
@@ -167,6 +171,10 @@ export const ChannelHomeComposer = forwardRef<
     isLoadingIntegrations,
     allowWorktree: false,
   });
+  const cloudGithubUnavailable =
+    workspaceMode === "cloud" &&
+    !isLoadingIntegrations &&
+    !hasGithubIntegration;
   const { cloudTarget, setCloudTarget } = useCloudTargetSelection();
   const cloudIds = workspaceMode === "cloud" ? cloudTargetIds(cloudTarget) : {};
   const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
@@ -459,6 +467,8 @@ export const ChannelHomeComposer = forwardRef<
           overrideModes={["local", "cloud"]}
           cloudTarget={cloudTarget}
           onCloudTargetChange={setCloudTarget}
+          hasGithubIntegration={hasGithubIntegration}
+          isLoadingGithubIntegration={isLoadingIntegrations}
           size="1"
           disabled={isBusy}
         />
@@ -466,7 +476,7 @@ export const ChannelHomeComposer = forwardRef<
           cloud={workspaceMode === "cloud"}
           repositoryCount={taskRepositories.length}
           hasFolder={!!taskFolder}
-          disabled={isBusy}
+          disabled={isBusy || cloudGithubUnavailable}
           onOpen={() => setRepositoryDialogOpen(true)}
         />
       </div>

@@ -15,10 +15,11 @@ use lifecycle::{ComponentOptions, Manager};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
-use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::consumer::{BaseConsumer, Consumer, StreamConsumer};
 use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
+use rdkafka::TopicPartitionList;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -618,9 +619,7 @@ impl Harness {
 
         let group_id = format!("e2e-{}", Uuid::new_v4());
         let context = SentinelContext::detached();
-        let ledger = context
-            .topic_offset_ledger()
-            .expect("a detached context carries a ledger");
+        let ledger = context.topic_offset_ledger();
         let kafka_consumer = make_kafka_consumer_with_context(topic, &group_id, None, context);
 
         let consumer = IngestionConsumer::from_parts(
@@ -694,9 +693,7 @@ impl Harness {
         self.shutdown = handle.shutdown_token();
 
         let context = SentinelContext::detached();
-        self.ledger = context
-            .topic_offset_ledger()
-            .expect("a detached context carries a ledger");
+        self.ledger = context.topic_offset_ledger();
         let kafka_consumer =
             make_kafka_consumer_with_context(&self.topic, &self.group_id, None, context);
         let consumer = IngestionConsumer::from_parts(
@@ -731,6 +728,25 @@ impl Harness {
             return true;
         };
         tokio::time::timeout(timeout, task).await.is_ok()
+    }
+
+    /// The group's committed offset for one partition of the harness topic;
+    /// `None` while nothing is committed.
+    fn committed_offset(&self, partition: i32) -> Option<i64> {
+        let probe: BaseConsumer = ClientConfig::new()
+            .set("bootstrap.servers", KAFKA_BROKERS)
+            .set("group.id", &self.group_id)
+            .create()
+            .expect("committed-offset probe");
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition(&self.topic, partition);
+        let committed = probe
+            .committed_offsets(tpl, Duration::from_secs(2))
+            .expect("fetch committed offsets");
+        match committed.elements()[0].offset() {
+            rdkafka::Offset::Offset(offset) => Some(offset),
+            _ => None,
+        }
     }
 
     async fn wait_for(&self, total: usize, timeout: Duration) {
@@ -1968,6 +1984,58 @@ async fn consumer_crash_before_commit_redelivers_without_loss() {
         },
     )
     .await;
+
+    harness.stop().await;
+}
+
+/// The broker-committed offset is the ledger frontier — one past everything
+/// the workers accepted — and a restart resumes from it with no loss and no
+/// redelivery.
+#[tokio::test]
+async fn the_committed_offset_is_the_ledger_frontier() {
+    let topic = format!("e2e-ledger-commit-{}", Uuid::new_v4());
+    let mut harness = Harness::start(
+        &topic,
+        1,
+        1,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+    let producer = make_producer();
+
+    for seq in 0..10usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(10, Duration::from_secs(15)).await;
+    wait_until(
+        Duration::from_secs(10),
+        "the committed offset to reach the frontier",
+        || harness.committed_offset(0) == Some(10),
+    )
+    .await;
+
+    // A clean frontier is a usable resume point: after a crash, only the new
+    // messages arrive.
+    harness.crash_consumer();
+    harness.restart_consumer(fast_registry_config()).await;
+    for seq in 10..15usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(15, Duration::from_secs(15)).await;
+    wait_until(
+        Duration::from_secs(10),
+        "the committed offset to reach the new frontier",
+        || harness.committed_offset(0) == Some(15),
+    )
+    .await;
+
+    let total: usize = harness.workers.iter().map(|w| w.count()).sum();
+    assert_eq!(
+        total, 15,
+        "a committed frontier behind the accepted work would redeliver here"
+    );
 
     harness.stop().await;
 }

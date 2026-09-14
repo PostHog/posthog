@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -22,7 +23,7 @@ describe('createSetupDetectionLogic', () => {
     })
 
     function buildLogic(
-        detect: jest.Mock<Promise<ProductSetupStatus>, []>,
+        detect: jest.Mock<Promise<ProductSetupStatus | null>, []>,
         pollIntervalMs?: number
     ): ReturnType<ReturnType<typeof createSetupDetectionLogic>['build']> {
         const logic = createSetupDetectionLogic({
@@ -36,15 +37,18 @@ describe('createSetupDetectionLogic', () => {
 
     // The factory's whole job is feeding the scene gate: a status that never
     // arrives strands every adopting product on the scene-level spinner.
-    it.each([['has-data'], ['needs-setup'], ['waiting-for-data'], ['unknown']] as const)(
-        'pushes a detected %s into productSetupStatusLogic',
-        async (status) => {
-            const logic = buildLogic(jest.fn().mockResolvedValue(status))
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe(status)
-        }
-    )
+    it.each([
+        ['has-data', 'has-data'],
+        ['needs-setup', 'needs-setup'],
+        ['waiting-for-data', 'waiting-for-data'],
+        ['unknown', 'unknown'],
+        [null, 'unknown'],
+    ] as const)('pushes an initial detection of %s into productSetupStatusLogic as %s', async (status, expected) => {
+        const logic = buildLogic(jest.fn().mockResolvedValue(status))
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe(expected)
+    })
 
     it('fails open to unknown when detection fails before any answer', async () => {
         const logic = buildLogic(jest.fn().mockRejectedValue(new Error('network down')))
@@ -53,17 +57,25 @@ describe('createSetupDetectionLogic', () => {
         expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('unknown')
     })
 
-    it('never downgrades an existing answer on a poll blip', async () => {
-        const detect = jest
-            .fn<Promise<ProductSetupStatus>, []>()
-            .mockResolvedValueOnce('needs-setup')
-            .mockRejectedValueOnce(new Error('blip'))
+    it.each([
+        ['rejects', 'needs-setup'],
+        ['returns null', 'needs-setup'],
+        ['returns unknown', 'unknown'],
+    ] as const)('handles a poll that %s after an existing answer', async (failure, expected) => {
+        const detect = jest.fn<Promise<ProductSetupStatus | null>, []>().mockResolvedValueOnce('needs-setup')
+        if (failure === 'rejects') {
+            detect.mockRejectedValueOnce(new Error('blip'))
+        } else if (failure === 'returns null') {
+            detect.mockResolvedValueOnce(null)
+        } else {
+            detect.mockResolvedValueOnce('unknown')
+        }
         const logic = buildLogic(detect)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.detectStatus()
         await expectLogic(logic).toFinishAllListeners()
-        expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('needs-setup')
+        expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe(expected)
     })
 
     // `toFinishAllListeners` waits on real timers, so under fake timers flush
@@ -95,6 +107,49 @@ describe('createSetupDetectionLogic', () => {
         jest.advanceTimersByTime(5000)
         await flushMicrotasks()
         expect(detect).toHaveBeenCalledTimes(2)
+    })
+
+    it('stops polling once a request 404s on a deleted or inaccessible project', async () => {
+        jest.useFakeTimers()
+        const detect = jest
+            .fn<Promise<ProductSetupStatus>, []>()
+            .mockResolvedValueOnce('needs-setup')
+            .mockRejectedValue(new ApiError('Project not found.', 404, undefined, { detail: 'Project not found.' }))
+        const logic = buildLogic(detect, 1000)
+        logic.mount()
+        await flushMicrotasks()
+        expect(detect).toHaveBeenCalledTimes(1)
+
+        // The first poll tick 404s, which disposes the poll...
+        jest.advanceTimersByTime(1000)
+        await flushMicrotasks()
+        expect(detect).toHaveBeenCalledTimes(2)
+
+        // ...so no later tick fires another doomed request.
+        jest.advanceTimersByTime(5000)
+        await flushMicrotasks()
+        expect(detect).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps polling on a generic failure that may recover', async () => {
+        jest.useFakeTimers()
+        const detect = jest
+            .fn<Promise<ProductSetupStatus>, []>()
+            .mockResolvedValueOnce('needs-setup')
+            .mockRejectedValue(new Error('transient blip'))
+        const logic = buildLogic(detect, 1000)
+        logic.mount()
+        await flushMicrotasks()
+        expect(detect).toHaveBeenCalledTimes(1)
+
+        jest.advanceTimersByTime(1000)
+        await flushMicrotasks()
+        expect(detect).toHaveBeenCalledTimes(2)
+
+        // A non-404 failure leaves the poll running.
+        jest.advanceTimersByTime(1000)
+        await flushMicrotasks()
+        expect(detect).toHaveBeenCalledTimes(3)
     })
 
     it('re-detects when a recheck action fires', async () => {

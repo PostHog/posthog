@@ -14,6 +14,8 @@ from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from stripe._http_client import HTTPClient
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
@@ -45,7 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
 )
 from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.conftest import run_external_data_job_workflow
 
-from .data import BALANCE_TRANSACTIONS, CUSTOMER_BALANCE_TRANSACTIONS, CUSTOMERS
+from .data import BALANCE_TRANSACTIONS, CUSTOMER_BALANCE_TRANSACTIONS, CUSTOMERS, INVOICES
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -83,6 +85,17 @@ def external_data_schema_full_refresh(external_data_source, team):
         sync_type_config={},
     )
     return schema
+
+
+@pytest.fixture
+def external_data_schema_invoice(external_data_source, team):
+    return ExternalDataSchema.objects.create(
+        name="Invoice",
+        team_id=team.pk,
+        source_id=external_data_source.pk,
+        sync_type="full_refresh",
+        sync_type_config={},
+    )
 
 
 @pytest.fixture
@@ -1119,7 +1132,7 @@ class TestCreateWebhook:
             "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
             return_value=mock_client,
         ):
-            result = create_webhook("rk_test", None, url)
+            result = create_webhook("rk_test", None, url, api_version=STRIPE_API_VERSION_ACACIA)
 
         assert result.success
         assert result.extra_inputs == {"signing_secret": "whsec_abc"}
@@ -1128,6 +1141,9 @@ class TestCreateWebhook:
         assert params["url"] == url
         # Refactor guard: create must still register exactly the full known event set.
         assert params["enabled_events"] == _all_known_webhook_events()
+        # An unpinned endpoint renders events at the account's own default API version, which
+        # silently empties the moved columns for any account on basil or later.
+        assert params["api_version"] == STRIPE_API_VERSION_ACACIA
 
     def test_permission_error_returns_actionable_failure(self):
         from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import create_webhook
@@ -1139,11 +1155,32 @@ class TestCreateWebhook:
             "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
             return_value=mock_client,
         ):
-            result = create_webhook("rk_test", None, "https://x")
+            result = create_webhook("rk_test", None, "https://x", api_version=STRIPE_API_VERSION_ACACIA)
 
         assert result.success is False
         assert result.error is not None
         assert "permission" in result.error.lower()
+
+    def test_source_pins_the_resolved_version_on_the_endpoint(self):
+        endpoint = mock.MagicMock()
+        endpoint.secret = "whsec_abc"
+        mock_client = mock.MagicMock()
+        mock_client.webhook_endpoints.create.return_value = endpoint
+        config = StripeSourceConfig.from_dict(
+            {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}}
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ):
+            result = StripeSource().create_webhook(config, "https://x", team_id=1)
+
+        assert result.success
+        _, kwargs = mock_client.webhook_endpoints.create.call_args
+        # The source's resolved pin has to survive all the way to the Stripe call — dropping it
+        # anywhere in between creates an unpinned endpoint and no error.
+        assert kwargs["params"]["api_version"] == StripeSource.default_version
 
     @parameterized.expand(
         [
@@ -1163,7 +1200,7 @@ class TestCreateWebhook:
             "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
             return_value=mock_client,
         ):
-            result = create_webhook("rk_test", "acct_123", "https://x")
+            result = create_webhook("rk_test", "acct_123", "https://x", api_version=STRIPE_API_VERSION_ACACIA)
 
         assert result.success is False
         assert result.error is not None
@@ -1190,6 +1227,12 @@ PROBED_CUSTOMERS = ["cus_credit_1", "cus_credit_2", "cus_gone", "cus_null_balanc
 FANOUT_GATE = (
     "products.warehouse_sources.backend.temporal.data_imports.workflow_activities."
     "import_data_sync.is_fanout_warehouse_reuse_enabled"
+)
+# The mock account holds a handful of customers, far under the production size floor. These tests
+# cover the conversion itself; the floor is policy, covered by the gate's own unit tests.
+PARENT_SIZE_FLOOR = (
+    "products.warehouse_sources.backend.temporal.data_imports.workflow_activities."
+    "import_data_sync.MIN_WAREHOUSE_PARENT_ROWS"
 )
 
 
@@ -1247,7 +1290,7 @@ async def _sync_parent_then_child(team, source, parent, child, mock_stripe_api, 
     calls_before = len(mock_stripe_api.get_all_api_calls())
 
     expected_rows = sum(len(rows) for rows in CUSTOMER_BALANCE_TRANSACTIONS.values())
-    with mock.patch(FANOUT_GATE, return_value=reuse_enabled):
+    with mock.patch(FANOUT_GATE, return_value=reuse_enabled), mock.patch(PARENT_SIZE_FLOOR, 0):
         response = await run_external_data_job_workflow(
             team=team,
             external_data_source=source,
@@ -1357,3 +1400,25 @@ async def test_a_missing_parent_schema_keeps_the_api_path(team, mock_stripe_api,
 
     assert _listing_calls(mock_stripe_api), "with no parent table there is nothing to read but the API"
     assert sorted(_child_calls(mock_stripe_api)) == PROBED_CUSTOMERS
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_invoice_reads_relocated_fields_from_the_newer_payload_shape(
+    team, mock_stripe_api, external_data_source, external_data_schema_invoice
+):
+    # Rows rendered at a newer Stripe version carry `parent` and `status` instead of the flat
+    # `subscription` and `paid` columns. Those arrive empty, so the curated fields have to read the
+    # new locations or every subscription-billed invoice reads as unlinked and unpaid.
+    await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_invoice,
+        table_name="stripe_invoice",
+        expected_rows_synced=len(INVOICES),
+        expected_total_rows=len(INVOICES),
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT subscription_id, paid FROM stripe_invoice", team)
+
+    assert res.results == [("sub_1SampleSubscriptionAA", True)]

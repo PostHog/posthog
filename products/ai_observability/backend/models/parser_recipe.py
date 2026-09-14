@@ -13,7 +13,7 @@ class ParserRecipe(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMet
     trace view; the frontend owns the merge against its bundled defaults.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=255)
     source = models.TextField()
 

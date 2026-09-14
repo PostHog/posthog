@@ -2,11 +2,13 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.core.cache import cache, caches
 from django.db import DatabaseError
 from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.group_type_mapping import GROUP_TYPES_STALE_CACHE_KEY_PREFIX, GroupTypesUnavailable
 from posthog.models.project import Project
 from posthog.models.tag import Tag
@@ -22,6 +24,7 @@ from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CAC
 from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
+    _build_flag_definitions_hypercache,
     _extract_cohort_ids_from_filters,
     _get_flags_response_for_local_evaluation,
     _get_flags_response_for_local_evaluation_batch,
@@ -183,6 +186,7 @@ class TestLocalEvaluationCache(BaseTest):
         assert len(response.get("flags", [])) == 2
         assert response.get("group_type_mapping", {}) == {"0": "organization"}
         assert len(response.get("cohorts", {})) == 2
+        assert response.get("property_matching_version") == 1
 
     def test_get_flags_cache_hot(self):
         update_flag_caches(self.team)
@@ -971,18 +975,20 @@ class TestLocalEvaluationBatch(BaseTest):
         assert "group_type_mapping" in results[team_without_flags.id]
         assert "cohorts" in results[team_without_flags.id]
 
-    def test_batch_includes_minimal_flag_called_events_gate(self):
-        # Local-eval SDKs never call /flags, so the blob is their only source of the slim
-        # $feature_flag_called gate. Catches the key being dropped from the payload, a gated
-        # team reading False, or an ungated/legacy team (no config row) reading anything but
-        # False — including on the no-flags fallback path.
+    def test_batch_includes_team_rollout_settings(self):
+        # Local-eval SDKs never call /flags, so the blob is their only source of team rollout
+        # settings. This covers configured, default, and no-flags response paths.
         gated_team = self._create_team_with_project("Gated")
         gated_team_no_flags = self._create_team_with_project("Gated no flags")
         ungated_team = self._create_team_with_project("Ungated")
 
-        TeamFeatureFlagsConfig.objects.update_or_create(team=gated_team, defaults={"minimal_flag_called_events": True})
         TeamFeatureFlagsConfig.objects.update_or_create(
-            team=gated_team_no_flags, defaults={"minimal_flag_called_events": True}
+            team=gated_team,
+            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
+        )
+        TeamFeatureFlagsConfig.objects.update_or_create(
+            team=gated_team_no_flags,
+            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
         )
         TeamFeatureFlagsConfig.objects.filter(team=ungated_team).delete()
 
@@ -995,12 +1001,12 @@ class TestLocalEvaluationBatch(BaseTest):
         results = _get_flags_response_for_local_evaluation_batch([gated_team, gated_team_no_flags, ungated_team])
 
         assert results[gated_team.id]["minimal_flag_called_events"] is True
-        # Gated team with no flags hits the no-flags fallback path, not the main response path.
-        # Without this case, a fallback that hardcodes False instead of threading the gate would
-        # pass unnoticed, since the ungated team's expected False is indistinguishable from that.
+        assert results[gated_team.id]["property_matching_version"] == 2
         assert results[gated_team_no_flags.id]["flags"] == []
         assert results[gated_team_no_flags.id]["minimal_flag_called_events"] is True
+        assert results[gated_team_no_flags.id]["property_matching_version"] == 2
         assert results[ungated_team.id]["minimal_flag_called_events"] is False
+        assert results[ungated_team.id]["property_matching_version"] == 1
 
     def test_batch_team_with_no_flags_includes_group_type_mapping(self):
         team = self._create_team_with_project("GTM Team")
@@ -1406,6 +1412,39 @@ class TestFlagDefinitionsCache(BaseTest):
         # Grace-period skip prevents the verifier from flagging caches whose
         # underlying flags were just updated and whose async rebuild is still in flight.
         assert config.get_team_ids_to_skip_fix_fn == get_team_ids_with_recently_updated_flags
+
+    def test_hypercache_mirrors_writes_to_shared_cache_when_dedicated_alias_registered(self):
+        # HyperCache.__init__ reads CACHES[alias]["LOCATION"] for its writer URL;
+        # the in-memory backend ignores the stub value.
+        with override_settings(
+            CACHES={
+                "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+                FLAGS_DEDICATED_CACHE_ALIAS: {
+                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                    "LOCATION": "redis://stub:6379/",
+                },
+            }
+        ):
+            hypercache = _build_flag_definitions_hypercache()
+            assert hypercache.cache_client is caches[FLAGS_DEDICATED_CACHE_ALIAS]
+            assert hypercache.secondary_cache_client is caches["default"]
+
+            hypercache.set_cache_value_redis_only(self.team.id, {"flags": [], "v": 1})
+
+            cache_key = hypercache.get_cache_key(self.team.id)
+            etag_key = hypercache.get_etag_key(self.team.id)
+            dedicated_value = caches[FLAGS_DEDICATED_CACHE_ALIAS].get(cache_key)
+            assert dedicated_value is not None
+            assert caches["default"].get(cache_key) == dedicated_value
+            dedicated_etag = caches[FLAGS_DEDICATED_CACHE_ALIAS].get(etag_key)
+            assert dedicated_etag is not None
+            assert caches["default"].get(etag_key) == dedicated_etag
+
+    def test_hypercache_uses_default_cache_without_mirror_when_alias_absent(self):
+        with override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}):
+            hypercache = _build_flag_definitions_hypercache()
+            assert hypercache.cache_client is cache
+            assert hypercache.secondary_cache_client is None
 
     def test_update_flag_definitions_cache_returns_false_on_failure(self):
         FeatureFlag.objects.create(

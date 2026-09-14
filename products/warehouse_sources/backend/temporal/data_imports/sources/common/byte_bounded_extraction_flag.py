@@ -2,6 +2,7 @@ import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
+from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 BYTE_BOUNDED_EXTRACTION_FLAG = "warehouse-byte-bounded-extraction"
 
@@ -17,7 +18,7 @@ def is_byte_bounded_extraction_enabled(team_id: int, source_type: str) -> bool:
     Fails closed: any error means "off", which keeps the row-count batching.
     """
     try:
-        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+        team = retry_on_db_connection_drop(lambda: Team.objects.only("uuid", "organization_id").get(id=team_id))
     except Team.DoesNotExist:
         return False
     except Exception as e:

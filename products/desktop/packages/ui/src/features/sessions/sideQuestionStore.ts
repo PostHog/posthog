@@ -5,11 +5,24 @@ import { create } from "zustand";
 
 const log = logger.scope("side-question");
 
+/** Which surface owns the entry: the "/btw" card, or the session summary panel. */
+export type SideQuestionKind = "side_question" | "summary";
+
+export interface SideQuestionMeta {
+  kind?: SideQuestionKind;
+  /** What the surface calls this exchange. Without it a card shows the raw prompt. */
+  label?: string;
+}
+
 type SideQuestionEntry = {
   id: string;
   question: string;
   /** The run this question was asked against — a card must not outlive it. */
   taskRunId: string;
+  kind: SideQuestionKind;
+  label?: string;
+  /** When the question went out, so a surface can report how long it waited. */
+  askedAt: number;
 } & (
   | { status: "pending" }
   | { status: "done"; answer: string }
@@ -20,7 +33,12 @@ interface SideQuestionState {
   /** Latest side question per task. Ephemeral: never persisted, never part of session history. */
   byTaskId: Record<string, SideQuestionEntry>;
   /** Returns null when one is already pending — the card holds a single question. */
-  ask: (taskId: string, taskRunId: string, question: string) => string | null;
+  ask: (
+    taskId: string,
+    taskRunId: string,
+    question: string,
+    meta?: SideQuestionMeta,
+  ) => string | null;
   resolve: (
     taskId: string,
     taskRunId: string,
@@ -54,6 +72,9 @@ function settle(
         id: entry.id,
         question: entry.question,
         taskRunId,
+        kind: entry.kind,
+        label: entry.label,
+        askedAt: entry.askedAt,
         ...outcome,
       },
     },
@@ -62,7 +83,7 @@ function settle(
 
 export const useSideQuestionStore = create<SideQuestionState>()((set, get) => ({
   byTaskId: {},
-  ask: (taskId, taskRunId, question) => {
+  ask: (taskId, taskRunId, question, meta) => {
     const pending = get().byTaskId[taskId];
     if (pending?.status === "pending" && pending.taskRunId === taskRunId) {
       return null;
@@ -71,7 +92,15 @@ export const useSideQuestionStore = create<SideQuestionState>()((set, get) => ({
     set((state) => ({
       byTaskId: {
         ...state.byTaskId,
-        [taskId]: { id, question, taskRunId, status: "pending" },
+        [taskId]: {
+          id,
+          question,
+          taskRunId,
+          kind: meta?.kind ?? "side_question",
+          label: meta?.label,
+          askedAt: Date.now(),
+          status: "pending",
+        },
       },
     }));
     return id;
@@ -105,9 +134,10 @@ export function fireSideQuestion(
   taskId: string,
   taskRunId: string,
   question: string,
+  meta?: SideQuestionMeta,
 ): boolean {
   const { ask, resolve, fail } = useSideQuestionStore.getState();
-  const id = ask(taskId, taskRunId, question);
+  const id = ask(taskId, taskRunId, question, meta);
   if (!id) return false;
   sessionService
     .askSideQuestion(taskId, question)

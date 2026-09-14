@@ -4,9 +4,10 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { TrendResult } from '~/types'
+
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 type SeriesColumnItemProps = {
     item: IndexedTrendResult

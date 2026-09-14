@@ -163,6 +163,30 @@ class TestGetRows:
         assert variables["input"] == {"createdAt": {"greaterThanOrEqualTo": "2024-01-02T00:00:00Z"}}
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_incremental_omits_filter_when_search_input_lacks_created_at(self, mock_session):
+        mock_session.return_value.post.return_value = _search_response("disputes", [])
+
+        manager = _make_manager()
+        list(
+            get_rows(
+                "production",
+                "pub",
+                "priv",
+                "disputes",
+                _VERSION,
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+        )
+
+        # `DisputeSearchInput` declares no createdAt field, so filtering on it fails
+        # GraphQL validation and takes the whole sync down.
+        variables = mock_session.return_value.post.call_args.kwargs["json"]["variables"]
+        assert variables["input"] == {}
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_full_scan_has_empty_input(self, mock_session):
         mock_session.return_value.post.return_value = _search_response("transactions", [])
 

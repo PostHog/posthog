@@ -20,11 +20,12 @@ export interface AiFeedbackRunRef {
 
 function buildContext(
   run: AiFeedbackRunRef,
+  traceId: string | null,
   extra: Partial<AiFeedbackContextProperties> = {},
 ): AiFeedbackContextProperties {
   return {
     $ai_session_id: run.taskId,
-    $ai_trace_id: null,
+    $ai_trace_id: traceId,
     ai_product: "posthog_code",
     task_id: run.taskId,
     task_run_id: run.taskRunId,
@@ -41,10 +42,11 @@ function sentimentToRating(
 export function buildTurnRatingMetric(input: {
   run: AiFeedbackRunRef;
   turnId: string;
+  traceId: string | null;
   sentiment: AgentTurnFeedbackSentiment;
 }): AiMetricProperties {
   return {
-    ...buildContext(input.run, { turn_id: input.turnId }),
+    ...buildContext(input.run, input.traceId, { turn_id: input.turnId }),
     $ai_metric_name: "quality",
     $ai_metric_value: sentimentToRating(input.sentiment),
   };
@@ -65,7 +67,8 @@ export interface SlashFeedbackEvents {
 export function buildSlashFeedbackEvents(
   input: SlashFeedbackInput,
 ): SlashFeedbackEvents {
-  const context = buildContext(input.run, {
+  // Slash feedback rates the session, not one turn, so it carries no trace id.
+  const context = buildContext(input.run, null, {
     feedback_type: input.feedbackType,
     event_count: input.eventCount,
   });

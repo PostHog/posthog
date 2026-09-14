@@ -561,7 +561,6 @@ export const EvaluationsCreateParams = () => zod.object({
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
-export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
 export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
@@ -609,7 +608,9 @@ export const EvaluationsCreateBody = () => zod
                     source: zod
                         .string()
                         .min(1)
-                        .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
+                        .describe(
+                            'Hog source code. Must return true or false, or null for N\/A. Output settings determine which boolean counts as a failure.'
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -634,11 +635,19 @@ export const EvaluationsCreateBody = () => zod
             .object({
                 allows_na: zod
                     .boolean()
-                    .default(evaluationsCreateBodyOutputConfigAllowsNaDefault)
+                    .optional()
                     .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                true_is_failure: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                    ),
             })
             .optional()
-            .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+            .describe(
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem."
+            ),
         conditions: zod
             .array(
                 zod
@@ -776,7 +785,6 @@ export const EvaluationsPartialUpdateParams = () => zod.object({
 export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
-export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
@@ -825,7 +833,9 @@ export const EvaluationsPartialUpdateBody = () => zod
                     source: zod
                         .string()
                         .min(1)
-                        .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
+                        .describe(
+                            'Hog source code. Must return true or false, or null for N\/A. Output settings determine which boolean counts as a failure.'
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -851,11 +861,19 @@ export const EvaluationsPartialUpdateBody = () => zod
             .object({
                 allows_na: zod
                     .boolean()
-                    .default(evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault)
+                    .optional()
                     .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                true_is_failure: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                    ),
             })
             .optional()
-            .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+            .describe(
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem."
+            ),
         conditions: zod
             .array(
                 zod
@@ -1012,7 +1030,9 @@ export const EvaluationsTestHogCreateBody = () => zod.object({
     source: zod
         .string()
         .min(1)
-        .describe('Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N\/A.'),
+        .describe(
+            'Hog source code to test. Must return true or false, or null for N\/A. Output settings determine which boolean counts as a failure.'
+        ),
     sample_count: zod
         .number()
         .min(1)
@@ -2066,6 +2086,8 @@ export const LlmPromptsListParams = () => zod.object({
 })
 
 export const llmPromptsListQueryContentDefault = `full`
+export const llmPromptsListQueryLabelMax = 128
+
 export const llmPromptsListQueryOrderByDefault = `-created_at`
 
 export const LlmPromptsListQueryParams = () => zod.object({
@@ -2076,6 +2098,14 @@ export const LlmPromptsListQueryParams = () => zod.object({
             "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
         ),
     created_by_id: zod.number().optional().describe('Filter prompts by the ID of the user who created them.'),
+    label: zod
+        .string()
+        .min(1)
+        .max(llmPromptsListQueryLabelMax)
+        .optional()
+        .describe(
+            "Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod

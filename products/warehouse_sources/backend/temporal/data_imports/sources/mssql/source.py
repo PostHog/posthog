@@ -15,7 +15,9 @@ from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
     SSHTunnelMixin,
+    TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -182,7 +184,9 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         return SourceConfig(
             name=SchemaExternalDataSourceType.MSSQL,
             category=DataWarehouseSourceCategory.DATABASES,
-            keywords=["sql server", "sql", "mssql"],
+            # This connector is also how you connect Azure SQL Database, but nothing in the label
+            # or name carries "Azure", so a search for it fuzzy-matched unrelated sources instead.
+            keywords=["sql server", "sql", "mssql", "azure", "azure sql", "azure sql database"],
             label="Microsoft SQL Server",
             caption="Enter your Microsoft SQL Server/Azure SQL Server credentials to automatically pull your SQL data into the PostHog Data warehouse.",
             iconPath="/static/services/sql-azure.png",
@@ -274,6 +278,10 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
 
         try:
             self.get_schemas(config, team_id, api_version=api_version)
+        except (HostNotAllowedError, TemporaryHostResolutionError) as e:
+            # The host policy refused the host, or its lookup never answered. Both carry their own
+            # user-facing wording and neither is a PostHog defect, so they are not captured.
+            return False, str(e)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in MSSQLErrors.items():

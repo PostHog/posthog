@@ -12,6 +12,7 @@ import structlog
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import cdc_error_info
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.errors import (
     classify_postgres_cdc_error,
@@ -163,9 +164,10 @@ class PostgresCDCAdapter:
     def is_connection_error(self, exc: BaseException) -> bool:
         # psycopg raises OperationalError for every failure to reach the source DB
         # (connect timeout, refused, unreachable host, DNS, dropped, auth); sshtunnel
-        # raises BaseSSHTunnelForwarderError when the tunnel itself can't be established.
-        # Neither points at a bug in our code.
-        return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError)
+        # raises BaseSSHTunnelForwarderError when the tunnel itself can't be established;
+        # the host policy raises HostNotAllowedError before any socket opens.
+        # None points at a bug in our code.
+        return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError | HostNotAllowedError)
 
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         category = classify_postgres_cdc_error(exc)

@@ -26,12 +26,20 @@ from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_
     prepare_ducklake_data_imports_registration_activity,
 )
 from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
+from products.managed_warehouse.backend.temporal.view_translation_workflow import (
+    ManagedWarehouseViewTranslationWorkflow,
+    compile_managed_warehouse_team_views_activity,
+    fail_managed_warehouse_view_translation_activity,
+    finalize_managed_warehouse_view_translation_activity,
+    prepare_managed_warehouse_view_translation_activity,
+)
 
 WORKFLOWS = [
     DucklakeCompactionWorkflow,
     DuckLakeCopyDataImportsWorkflow,
     DuckLakeCopyDataModelingWorkflow,
     DuckLakeRegisterDataImportsWorkflow,
+    ManagedWarehouseViewTranslationWorkflow,
 ]
 ACTIVITIES = [
     cleanup_data_imports_staging_activity,
@@ -46,8 +54,12 @@ ACTIVITIES = [
     prepare_data_imports_ducklake_metadata_activity,
     prepare_data_modeling_ducklake_metadata_activity,
     prepare_ducklake_data_imports_registration_activity,
+    prepare_managed_warehouse_view_translation_activity,
     record_managed_warehouse_source_job_activity,
     run_ducklake_compaction,
+    compile_managed_warehouse_team_views_activity,
+    fail_managed_warehouse_view_translation_activity,
+    finalize_managed_warehouse_view_translation_activity,
     verify_data_imports_ducklake_copy_activity,
     verify_ducklake_copy_activity,
 ]

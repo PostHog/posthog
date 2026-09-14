@@ -12,8 +12,6 @@ const LOCAL_ONLY_CATEGORIES: ReadonlySet<SettingsCategory> = new Set([
 ]);
 
 interface SettingsVisibility {
-  billingEnabled: boolean;
-  spendAnalysisEnabled: boolean;
   localWorkspaces: boolean;
   /**
    * The quick-ask panel exists on this host and build. Off (web, and packaged
@@ -24,8 +22,6 @@ interface SettingsVisibility {
 }
 
 export function getHiddenSettingsCategories({
-  billingEnabled,
-  spendAnalysisEnabled,
   localWorkspaces,
   quickAskAvailable = false,
 }: SettingsVisibility): ReadonlySet<SettingsCategory> {
@@ -33,12 +29,6 @@ export function getHiddenSettingsCategories({
   // direct navigation to one, so a deep link can't reach them either.
   const hiddenCategories = new Set<SettingsCategory>();
 
-  if (!billingEnabled && !spendAnalysisEnabled) {
-    hiddenCategories.add("plan-usage");
-  }
-  if (!spendAnalysisEnabled) {
-    hiddenCategories.add("cost-management");
-  }
   if (!localWorkspaces) {
     for (const category of LOCAL_ONLY_CATEGORIES) {
       hiddenCategories.add(category);

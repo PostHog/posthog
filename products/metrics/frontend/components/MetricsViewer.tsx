@@ -123,6 +123,7 @@ export const MetricsViewer = (): JSX.Element => {
         clearAnomaly,
         saveAsInsight,
         addToDashboard,
+        createAlert,
         closeAddToDashboardModal,
         setDisplayType,
     } = useActions(logic)
@@ -309,6 +310,19 @@ export const MetricsViewer = (): JSX.Element => {
                             }
                         >
                             Save as insight
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            onClick={() => createAlert()}
+                            loading={savedInsightLoading}
+                            tooltip="Get notified when this metric crosses a threshold (uses insight alerts)"
+                            disabledReason={
+                                insightEditorDisabledReason ?? (!hasMetricName ? 'Pick a metric first' : undefined)
+                            }
+                            data-attr="metrics-viewer-create-alert"
+                        >
+                            Create alert
                         </LemonButton>
                         <LemonButton
                             size="small"

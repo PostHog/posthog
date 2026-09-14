@@ -470,7 +470,18 @@ def create_webhook(
         response.raise_for_status()
     except requests.HTTPError as e:
         logger.warning("Failed to register RevenueCat webhook integration", error=str(e))
-        return WebhookCreationResult(success=False, error=_format_http_error(e))
+        return WebhookCreationResult(
+            success=False,
+            error=_format_http_error(
+                e,
+                # The read-only hint the validate path passes doesn't fit here: registering the
+                # integration needs write scope, and the failure screen offers manual setup.
+                forbidden_hint=(
+                    "The v2 secret API key is missing write access. Give it write permission for "
+                    "integrations, or follow the manual setup below."
+                ),
+            ),
+        )
     except requests.RequestException as e:
         logger.warning("Could not reach RevenueCat to register webhook", error=str(e))
         return WebhookCreationResult(success=False, error=f"Could not reach RevenueCat: {e}")

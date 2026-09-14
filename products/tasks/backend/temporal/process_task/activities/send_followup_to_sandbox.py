@@ -1,6 +1,4 @@
 import time
-import threading
-import contextvars
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, NoReturn
@@ -12,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.models.user_integration import ReauthorizationRequired, UserIntegration
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
@@ -30,6 +29,7 @@ from products.tasks.backend.logic.services.connection_token import create_sandbo
 from products.tasks.backend.logic.services.peer_messages import mark_peer_message_outcome, peer_message_id_from_context
 from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates, user_has_current_team_access
 from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
+from products.tasks.backend.logic.services.store_skills import refresh_store_skills_state
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_followup_denied_permission_stop, observe_followup_sandbox_stopped
 from products.tasks.backend.models import AgentPeerMessage, TaskRun
@@ -83,6 +83,7 @@ REFRESH_RETRY_DELAY_SECONDS = 0.5
 SANDBOX_STOPPED_MESSAGE = (
     "This run's sandbox has stopped, so your message wasn't delivered. Start a new run to continue."
 )
+RUN_STOPPING_MESSAGE = "This run is stopping, so your message wasn't delivered. Start a new run to continue."
 PEER_SANDBOX_STOPPED_MESSAGE = "The recipient run's sandbox has stopped"
 DENIED_PERMISSION_STOP_MESSAGE = (
     "Stopped after the denied action. Send a new message to continue with a different approach."
@@ -94,7 +95,9 @@ DENIAL_BRAKE_CONSUMED_REQUEST_ID_KEY = "followup_denial_brake_request_id"
 # attempt, detected via heartbeat timeout) and for delivery-unknown failures.
 # Application failures that write an error sentinel raise non-retryable.
 SEND_FOLLOWUP_MAX_ATTEMPTS = 3
-SEND_FOLLOWUP_HEARTBEAT_INTERVAL_SECONDS = 15
+# `HeartbeaterSync` divides the activity's heartbeat timeout by this factor, so 4 against the
+# 1-minute timeout both callers set gives a 15-second interval.
+SEND_FOLLOWUP_HEARTBEAT_FACTOR = 4
 STEER_DECLINED_OUTCOME = "steer_declined"
 STEER_DECLINE_REASON_UNREPORTED = "unreported"
 STEER_DECLINE_REASON_ACTOR_MISMATCH = "actor_mismatch"
@@ -130,23 +133,8 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> str | None:
     so a worker restart is detected within the heartbeat timeout instead of
     the 35-minute start_to_close.
     """
-    stop_heartbeat = threading.Event()
-    heartbeat_ctx = contextvars.copy_context()
-
-    def _heartbeat_loop() -> None:
-        while not stop_heartbeat.wait(SEND_FOLLOWUP_HEARTBEAT_INTERVAL_SECONDS):
-            try:
-                activity.heartbeat()
-            except Exception:
-                return
-
-    heartbeat_thread = threading.Thread(target=lambda: heartbeat_ctx.run(_heartbeat_loop), daemon=True)
-    heartbeat_thread.start()
-    try:
+    with HeartbeaterSync(factor=SEND_FOLLOWUP_HEARTBEAT_FACTOR, logger=logger):
         return _deliver_followup(input)
-    finally:
-        stop_heartbeat.set()
-        heartbeat_thread.join(timeout=2)
 
 
 def _current_attempt() -> int:
@@ -306,6 +294,18 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
         # background-mode runs hang until the inactivity timeout because
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
+    # Reject the marker written by user-initiated cancel, and the bare CANCELLED status that
+    # loop overlap and lifecycle cancellation set without that marker (loop_runs.py,
+    # loop_lifecycle.py). Either means the run is winding down, so no follow-up should rebind
+    # credentials or reach the sandbox.
+    if (task_run.state or {}).get("cancel_requested_at") or task_run.status == TaskRun.Status.CANCELLED:
+        if peer_message_id is not None:
+            _mark_peer_delivery_outcome(
+                peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "run_stopping", RUN_STOPPING_MESSAGE
+            )
+            raise ApplicationError(f"peer message delivery failed: {RUN_STOPPING_MESSAGE}", non_retryable=True)
+        raise ApplicationError(RUN_STOPPING_MESSAGE, non_retryable=True)
+
     if peer_message_id is not None:
         return _deliver_peer_message(input, task_run, peer_message_id)
 
@@ -370,6 +370,10 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
                 TaskRun.update_state_atomic(task_run.id, updates=updates)
             except Exception:
                 logger.warning("send_followup_actor_stamp_failed", run_id=input.run_id, exc_info=True)
+            # The store skills in run state are the previous actor's; the MCP refresh below makes
+            # the sandbox re-read the run, so the new actor's list must be there first.
+            if actor_user is not None and current.get("slack_actor_user_id") != actor_user.id:
+                refresh_store_skills_state(task_run, actor_user, reason="slack_actor_change")
 
     auth_token = None
     if actor_user and actor_user.id:
@@ -770,6 +774,7 @@ def _refresh_sandbox_mcp(
         project_id=task_run.team_id,
         scopes=scopes,
         interaction_origin=(state or {}).get("interaction_origin"),
+        slack_reply_context=(state or {}).get("slack_reply_context") is True,
         task_id=str(task_run.task_id),
         origin_product=task_run.task.origin_product,
     )
@@ -779,6 +784,7 @@ def _refresh_sandbox_mcp(
         user_id=actor_user.id,
         include_personal=not task_run.task.internal,
         interaction_origin=(state or {}).get("interaction_origin"),
+        slack_reply_context=(state or {}).get("slack_reply_context") is True,
         allowed_installation_ids=loop_mcp_installation_allowlist(state),
         origin_product=task_run.task.origin_product,
         task_agent_key=task_run.task.mcp_builtin_agent_key,

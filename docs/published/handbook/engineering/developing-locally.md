@@ -48,7 +48,9 @@ This approach gives you fast iteration on the code you're developing while keepi
 > It is also technically possible to run PostHog in Docker completely, but syncing code changes is then much slower, and for development you need PostHog dependencies installed on the host anyway (such as formatting or typechecking tools).
 > The other way around – everything on the host, is not practical due to significant complexities involved in instantiating Kafka or ClickHouse from scratch.
 
-The instructions here assume you're running macOS or the current Ubuntu Linux LTS (24.04).
+The instructions here assume you're running macOS on Apple silicon or the current Ubuntu Linux LTS (24.04).
+
+Macs with Intel processors aren't supported. PostHog employees on an Intel Mac can use [Coder workspaces](#option-2-developing-with-coder-workspaces-posthog-employees-only) instead.
 
 For other Linux distros, adjust the steps as needed (e.g. use `dnf` or `pacman` in place of `apt`).
 
@@ -111,6 +113,7 @@ You still get full git history for commands like `git log` and `git diff`. Blobs
 
 `hogli start` keeps a blobless clone healthy, because git does not consolidate the pack files these on-demand fetches create.
 It repacks in the background when they build up. Run `hogli doctor:git` to do it yourself.
+If `git fetch` fails with `Could not read <sha>`, the clone is missing commits. Run `hogli doctor:git --fix` to download them again.
 
 > The `feature-flags` container relies on the presence of the GeoLite cities
 > database in the `/share` directory. If you haven't run `hogli start` this database may not exist.

@@ -200,10 +200,20 @@ export function WebhookSetupForm({
                     {autoCreationBlockedReason || webhookResult?.error || 'Could not create the webhook automatically.'}
                 </LemonBanner>
             )}
+            {!manualOnly && (
+                <div className="flex flex-col items-start gap-2">
+                    <p className="m-0">
+                        Automatic setup can fail for a temporary reason. Try again, or set the webhook up by hand below.
+                    </p>
+                    <LemonButton type="secondary" onClick={onCreateWebhook}>
+                        Try again
+                    </LemonButton>
+                </div>
+            )}
             <p>
                 {manualOnly
                     ? `Copy the URL below and register it as a webhook endpoint in your ${sourceName} app settings.`
-                    : `You'll need to manually configure the webhook in your ${sourceName} account. Copy the URL below and add it as a webhook endpoint in your ${sourceName} settings.`}
+                    : `Copy the URL below and add it as a webhook endpoint in your ${sourceName} settings.`}
             </p>
             {webhookResult?.webhook_url && <WebhookUrlDisplay url={webhookResult.webhook_url} />}
             {sourceConfig?.webhookSetupCaption && (

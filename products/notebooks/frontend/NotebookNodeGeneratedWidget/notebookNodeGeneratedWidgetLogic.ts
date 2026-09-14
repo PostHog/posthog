@@ -1088,11 +1088,22 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     const requestId = nextStatusRequestId()
                     actions.statusRequestStarted()
                     try {
-                        const loadedStatus = await requestWithTimeout((signal) =>
-                            notebooksWidgetStatus(String(props.projectId), props.notebookShortId, props.nodeId, {
-                                signal,
-                            })
-                        )
+                        const requestStatus = async (): Promise<WidgetStatusApi> =>
+                            await requestWithTimeout((signal) =>
+                                notebooksWidgetStatus(String(props.projectId), props.notebookShortId, props.nodeId, {
+                                    signal,
+                                })
+                            )
+                        let loadedStatus: WidgetStatusApi
+                        try {
+                            loadedStatus = await requestStatus()
+                        } catch (error) {
+                            if (!props.isEditable || !isMissingNodeError(error)) {
+                                throw error
+                            }
+                            await props.persistNotebook()
+                            loadedStatus = await requestStatus()
+                        }
                         if (isCurrentStatusRequest(requestId)) {
                             actions.statusReceived(loadedStatus)
                         }

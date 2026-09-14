@@ -24,6 +24,7 @@ from products.feature_flags.backend.flag_limits import (
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
     MAX_FEATURE_FLAGS_OVERRIDE_CEILING,
+    PropertyMatchingVersion,
     TeamFeatureFlagsConfig,
 )
 
@@ -34,13 +35,14 @@ logger = structlog.get_logger(__name__)
 # value today by coincidence, not by requirement.
 MAX_TEAM_IDS_PER_QUERY = 50
 
-MUTABLE_SETTINGS = ("minimal_flag_called_events", "max_feature_flags_override")
+MUTABLE_SETTINGS = ("minimal_flag_called_events", "property_matching_version", "max_feature_flags_override")
 
 
 def _config_row(
     *,
     team_id: int,
     minimal_flag_called_events: bool,
+    property_matching_version: int,
     max_feature_flags_override: int | None,
     feature_flag_count: int,
 ) -> dict[str, Any]:
@@ -48,6 +50,7 @@ def _config_row(
     return {
         "team_id": team_id,
         "minimal_flag_called_events": minimal_flag_called_events,
+        "property_matching_version": property_matching_version,
         "max_feature_flags_override": max_feature_flags_override,
         "effective_max_feature_flags": resolve_max_feature_flags(max_feature_flags_override),
         "feature_flag_count": feature_flag_count,
@@ -69,6 +72,10 @@ class StaffTeamConfigSerializer(serializers.Serializer):
             "Whether this team's SDKs receive the slim $feature_flag_called event shape "
             "(omitting fields only needed for experiments) instead of the full legacy shape."
         )
+    )
+    property_matching_version = serializers.ChoiceField(
+        choices=PropertyMatchingVersion.choices,
+        help_text="Property matching semantics used by /flags, local evaluation, and cohort generation.",
     )
     max_feature_flags_override = serializers.IntegerField(
         allow_null=True,
@@ -106,6 +113,15 @@ class StaffTeamConfigMutationSerializer(serializers.Serializer):
             "$feature_flag_called event shape."
         ),
     )
+    property_matching_version = serializers.ChoiceField(
+        choices=PropertyMatchingVersion.choices,
+        required=False,
+        help_text=(
+            "New property matching version for the team. Version 1 preserves legacy behavior. "
+            "Version 2 uses explicit scalar and array equality. Only set version 2 after confirming "
+            "that the team's local-evaluation SDK versions support it. Omit to leave it unchanged."
+        ),
+    )
     max_feature_flags_override = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -126,13 +142,12 @@ class StaffTeamConfigMutationSerializer(serializers.Serializer):
 
 class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
     """
-    Staff-only, unscoped read/write for TeamFeatureFlagsConfig: the minimal_flag_called_events
-    rollout gate and the per-team feature-flag count override.
+    Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
+    per-team feature-flag count override.
 
-    Single-team writes only, by design. minimal_flag_called_events is flipped one team at a time
-    after staff verify that team's SDK versions support the slim $feature_flag_called event shape,
-    and max_feature_flags_override is a per-customer capacity grant. Neither is a bulk operation,
-    unlike the cache tools' rebuild and clear.
+    Single-team writes only, by design. Rollout settings are changed after staff verify SDK
+    compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
+    bulk operation, unlike the cache tools' rebuild and clear.
 
     set() takes partial updates: omit a setting to leave it unchanged, and send
     max_feature_flags_override as null to clear the override.
@@ -170,8 +185,8 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
             for team_id, parent_team_id in Team.objects.filter(id__in=team_ids).values_list("id", "parent_team_id")
         }
         root_team_ids = set(root_team_id_by_team_id.values())
-        # minimal_flag_called_events stays per-team (the Rust and nodejs readers key on the
-        # literal team), so it is read from each team's own row; the override is read from the root.
+        # Behavior rollouts stay per-team because evaluation readers key on the literal team, so
+        # they come from each team's row. The capacity override comes from the project root.
         config_by_team_id = TeamFeatureFlagsConfig.objects.in_bulk(team_ids)
         override_by_root_team_id = dict(
             TeamFeatureFlagsConfig.objects.filter(team_id__in=root_team_ids).values_list(
@@ -200,6 +215,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
                 _config_row(
                     team_id=team_id,
                     minimal_flag_called_events=config.minimal_flag_called_events,
+                    property_matching_version=config.property_matching_version,
                     max_feature_flags_override=override_by_root_team_id.get(root_team_id),
                     feature_flag_count=flag_count_by_root_team_id.get(root_team_id, 0),
                 )
@@ -221,8 +237,8 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
 
         # The limit is enforced against the project's whole flag set, and get_max_feature_flags_for_team
         # reads the override off the project root, so a row written here would never be read.
-        # minimal_flag_called_events stays per-team (the Rust and nodejs readers key on the literal
-        # team), which is why only the override is refused rather than the whole request.
+        # Behavior rollouts stay per-team because evaluation readers key on the literal team. This
+        # is why only the capacity override is refused rather than the whole request.
         if "max_feature_flags_override" in validated and team.parent_team_id is not None:
             raise serializers.ValidationError(
                 f"Team {team_id} is an environment of project {team.parent_team_id}. Set the flag limit on "
@@ -231,6 +247,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
 
         config = get_or_create_team_extension(team, TeamFeatureFlagsConfig)
         old_minimal_flag_called_events = config.minimal_flag_called_events
+        old_property_matching_version = config.property_matching_version
         old_max_feature_flags_override = config.max_feature_flags_override
 
         # Saving only the fields actually sent keeps two staff editing different settings on the
@@ -240,7 +257,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
             setattr(config, setting, validated[setting])
         config.save(update_fields=update_fields)
 
-        if "minimal_flag_called_events" in validated:
+        if {"minimal_flag_called_events", "property_matching_version"} & validated.keys():
             # posthog.tasks.team_metadata sits under posthog.tasks, whose __init__ is a celery
             # autoimport aggregator that pulls in every task module — keep that off the API
             # router's import path by deferring it to call time. The local tasks module is
@@ -262,6 +279,9 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
         if "minimal_flag_called_events" in validated:
             changed_values["old_value"] = old_minimal_flag_called_events
             changed_values["new_value"] = config.minimal_flag_called_events
+        if "property_matching_version" in validated:
+            changed_values["old_property_matching_version"] = old_property_matching_version
+            changed_values["new_property_matching_version"] = config.property_matching_version
         if "max_feature_flags_override" in validated:
             changed_values["old_max_feature_flags_override"] = old_max_feature_flags_override
             changed_values["new_max_feature_flags_override"] = config.max_feature_flags_override
@@ -276,12 +296,13 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
         )
 
         # The row has to show the root's override, matching list() and the validator. A root team's
-        # own config is already that, and an environment team reaches here only on a
-        # minimal_flag_called_events-only edit, since the override write is refused above.
+        # own config is already that, and an environment team reaches here only for rollout edits,
+        # since the override write is refused above.
         return response.Response(
             _config_row(
                 team_id=team.id,
                 minimal_flag_called_events=config.minimal_flag_called_events,
+                property_matching_version=config.property_matching_version,
                 max_feature_flags_override=(
                     config.max_feature_flags_override
                     if team.parent_team_id is None

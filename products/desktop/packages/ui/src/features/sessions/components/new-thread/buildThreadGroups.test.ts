@@ -69,6 +69,32 @@ describe("buildThreadGroups MCP detection", () => {
     expect(grouping.keepMounted).toEqual([0]);
   });
 
+  it("keeps an MCP tool standalone when only its result supplies metadata", () => {
+    const action = toolCallItem("action", undefined, {
+      title: "show_actions",
+      rawInput: {
+        actions: [
+          { kind: "open_space", label: "Open space", channel_id: "space-1" },
+        ],
+      },
+    });
+    resolveToolCall(action, {
+      toolCallId: "action",
+      status: "completed",
+      _meta: {
+        posthog: {
+          toolName: "mcp__posthog-code-tools__show_actions",
+          mcp: { server: "posthog-code-tools", tool: "show_actions" },
+        },
+      },
+    });
+
+    expect(isGroupableItem(action)).toBe(false);
+    const grouping = buildThreadGroups([action], {});
+    expect(grouping.rows[0].kind).toBe("item");
+    expect(grouping.keepMounted).toEqual([0]);
+  });
+
   it("folds non-MCP tool calls into a collapsed group", () => {
     const plain = toolCallItem("t1", {
       posthog: { toolName: "Bash" },

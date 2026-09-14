@@ -282,6 +282,7 @@ def render_signal_to_text(
     """Render a single signal to a text block for LLM consumption."""
     lines = [f"Signal {index}:" if index is not None else "Signal:"]
     lines.append(f"- Source: {signal.source_product} / {signal.source_type}")
+    lines.append(f"- Source ID: {signal.source_id}")
     lines.append(f"- Weight: {signal.weight}")
     lines.append(f"- Timestamp: {signal.timestamp.isoformat()}")
     lines.append(f"- Description: {signal.content}")

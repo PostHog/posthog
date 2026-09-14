@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -8,15 +10,34 @@ from products.warehouse_sources.backend.types import IncrementalField
 #   "project"       -> one request per project the token can see
 #   "organization"  -> one request per organization the token can see
 #   "invoice"       -> one request per (organization, invoice) pair (two-level fan-out)
-FanOut = Literal["none", "project", "organization", "invoice"]
+#   "two_level"     -> organization -> intermediate list -> child, driven by ``two_level`` below
+FanOut = Literal["none", "project", "organization", "invoice", "two_level"]
 
 
-@dataclass
+@frozen
+class TwoLevelFanOut:
+    """Describes a generic organization -> intermediate-list -> child fan-out.
+
+    Organizations are the top parent. ``intermediate_path`` (carrying ``{organization_id}``) is
+    fetched once per organization; the endpoint's ``path_template`` is then fetched once per
+    intermediate row, binding each placeholder in ``child_params`` from that row.
+    """
+
+    intermediate_name: str
+    intermediate_path: str
+    intermediate_data_key: str
+    # child path placeholder -> field on the intermediate row it resolves from. The resolved value
+    # is also stamped onto each child row so composite primary keys stay unique table-wide.
+    child_params: dict[str, str]
+
+
+@frozen
 class AivenEndpointConfig:
     name: str
     fan_out: FanOut
     # Relative path appended to the API base. Fan-out endpoints carry ``{project}``,
-    # ``{organization_id}`` and/or ``{invoice_number}`` placeholders filled in per parent.
+    # ``{organization_id}``, ``{invoice_number}``, ``{user_group_id}`` and/or ``{billing_group_id}``
+    # placeholders filled in per parent.
     path_template: str
     # Response wrapper key: Aiven list endpoints return ``{"<data_key>": [...]}``.
     data_key: str
@@ -25,6 +46,12 @@ class AivenEndpointConfig:
     # field, which would rewrite partitions on every sync.
     partition_key: Optional[str] = None
     should_sync_default: bool = True
+    # Only for ``fan_out="two_level"``: the intermediate list to fan out through.
+    two_level: Optional[TwoLevelFanOut] = None
+    # False for endpoints whose rows carry identity PII (email, real name, or an opaque nested
+    # profile object) that a name-based sample scrubber can't reliably strip — keeps request/response
+    # bodies out of HTTP sample capture. See ``ClientConfig.capture``.
+    capture: bool = True
 
 
 AIVEN_ENDPOINTS: dict[str, AivenEndpointConfig] = {
@@ -54,6 +81,29 @@ AIVEN_ENDPOINTS: dict[str, AivenEndpointConfig] = {
         # parent `project_name` is part of the key to keep it unique table-wide.
         primary_keys=["project_name", "service_name"],
         partition_key="create_time",
+    ),
+    "project_users": AivenEndpointConfig(
+        name="project_users",
+        fan_out="project",
+        path_template="/project/{project}/users",
+        data_key="users",
+        # A user can belong to more than one project, so the injected `project_name` keeps the
+        # membership row unique across projects.
+        primary_keys=["project_name", "user_id"],
+        partition_key="create_time",
+        # Rows carry `user_email` and `real_name` directly.
+        capture=False,
+    ),
+    "project_events": AivenEndpointConfig(
+        name="project_events",
+        fan_out="project",
+        path_template="/project/{project}/events",
+        data_key="events",
+        # Event ids are unique within a project; the injected `project_name` keeps them unique
+        # table-wide across projects.
+        primary_keys=["project_name", "id"],
+        # `time` is the immutable timestamp the event happened at — a safe partition key.
+        partition_key="time",
     ),
     # Fan out one request per organization.
     "billing_groups": AivenEndpointConfig(
@@ -91,6 +141,41 @@ AIVEN_ENDPOINTS: dict[str, AivenEndpointConfig] = {
         data_key="user_groups",
         primary_keys=["organization_id", "user_group_id"],
         partition_key="create_time",
+    ),
+    # Two-level fan-out: per organization, per user group. Membership rows for the user_groups table.
+    "user_group_members": AivenEndpointConfig(
+        name="user_group_members",
+        fan_out="two_level",
+        path_template="/organization/{organization_id}/user-groups/{user_group_id}/members",
+        data_key="members",
+        # A member row is unique per (organization, group, user); the group and org are injected
+        # from the parents so the key stays unique table-wide.
+        primary_keys=["organization_id", "user_group_id", "user_id"],
+        two_level=TwoLevelFanOut(
+            intermediate_name="user_groups",
+            intermediate_path="/organization/{organization_id}/user-groups",
+            intermediate_data_key="user_groups",
+            child_params={"organization_id": "organization_id", "user_group_id": "user_group_id"},
+        ),
+        # `user_info` is an opaque nested object carrying the member's profile details.
+        capture=False,
+    ),
+    # Two-level fan-out: per organization, per billing group. Maps projects to the billing group
+    # they are billed under, which attributes invoice_lines back to projects.
+    "billing_group_projects": AivenEndpointConfig(
+        name="billing_group_projects",
+        fan_out="two_level",
+        path_template="/billing-group/{billing_group_id}/projects",
+        data_key="projects",
+        # The row is the (billing_group, project) mapping; the injected billing_group_id keeps it
+        # unique table-wide since a project name repeats across billing groups' project lists.
+        primary_keys=["billing_group_id", "project_name"],
+        two_level=TwoLevelFanOut(
+            intermediate_name="billing_groups",
+            intermediate_path="/organization/{organization_id}/billing-groups",
+            intermediate_data_key="billing_groups",
+            child_params={"billing_group_id": "billing_group_id"},
+        ),
     ),
     # Two-level fan-out: per organization, per invoice. Aiven markets these per-line cost rows
     # as the canonical way to export billing into a warehouse/BI tool.

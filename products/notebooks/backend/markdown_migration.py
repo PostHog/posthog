@@ -25,7 +25,6 @@ from products.notebooks.backend.markdown_conversion import (
     notebook_content_has_comment_marks,
 )
 from products.notebooks.backend.models import Notebook
-from products.notebooks.backend.python_analysis import annotate_python_nodes
 
 MAX_NOTEBOOK_MIGRATION_BATCH_SIZE = 500
 
@@ -144,8 +143,7 @@ def _convert_notebook(notebook: Notebook, *, user: User, content: dict[str, Any]
             return False
 
         before_update = Notebook.objects.select_related("created_by", "last_modified_by").get(pk=locked_notebook.pk)
-        annotated_content = annotate_python_nodes(content)
-        locked_notebook.content = annotated_content
+        locked_notebook.content = content
         locked_notebook.text_content = text_content
         locked_notebook.version += 1
         locked_notebook.save(

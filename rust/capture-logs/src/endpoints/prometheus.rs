@@ -192,6 +192,8 @@ pub fn write_request_to_kafka_rows(req: WriteRequest) -> (Vec<KafkaMetricRow>, u
                 instrumentation_scope: String::new(),
                 attributes: sample_attributes,
                 series_fingerprint,
+                has_labels: true,
+                retention_days: None,
             });
         }
     }

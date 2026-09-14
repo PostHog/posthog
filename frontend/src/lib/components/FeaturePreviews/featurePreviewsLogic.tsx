@@ -168,7 +168,11 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
             {
                 loadEarlyAccessFeatures: async () => {
                     return await new Promise((resolve) =>
-                        posthog.getEarlyAccessFeatures((features) => resolve(features), true, ['concept', 'beta'])
+                        posthog.getEarlyAccessFeatures((features) => resolve(features), true, [
+                            'concept',
+                            'alpha',
+                            'beta',
+                        ])
                     )
                 },
             },

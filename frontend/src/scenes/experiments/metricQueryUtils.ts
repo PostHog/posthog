@@ -3,7 +3,7 @@ import { match } from 'ts-pattern'
 import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import type {
@@ -29,7 +29,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricSource, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
-import type { Experiment, FilterType, IntervalType, MultivariateFlagVariant } from '~/types'
+import type { FilterType, IntervalType, MultivariateFlagVariant } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { EXPOSURE_DEFAULT_EVENT, EXPOSURE_FEATURE_FLAG_PROPERTY, featureFlagVariantProperty } from './exposureContract'
@@ -107,23 +107,11 @@ const defaultFunnelsFilter: FunnelsFilter = {
 /**
  * returns the default date range
  */
-export const getDefaultDateRange = (): DateRange => ({
+const getDefaultDateRange = (): DateRange => ({
     date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
     explicitDate: true,
 })
-
-/**
- * returns a date range using an experiment's start and end date, or the default duration if not set.
- */
-export const getExperimentDateRange = (experiment: Experiment): DateRange => {
-    const defaultRange = getDefaultDateRange()
-    return {
-        date_from: experiment.start_date ?? defaultRange.date_from,
-        date_to: experiment.end_date ?? defaultRange.date_to,
-        explicitDate: true,
-    }
-}
 
 /**
  * returns the math properties for the source
@@ -387,7 +375,7 @@ export function filterToMetricSource(
         return {
             kind: NodeKind.ExperimentDataWarehouseNode,
             name: data_warehouse[0].name,
-            table_name: data_warehouse[0].id,
+            table_name: data_warehouse[0].table_name || data_warehouse[0].id,
             timestamp_field: data_warehouse[0].timestamp_field,
             events_join_key: data_warehouse[0].events_join_key,
             data_warehouse_join_key: data_warehouse[0].data_warehouse_join_key,
@@ -414,7 +402,7 @@ export function filterToMetricConfig(
 ): ExperimentMetricTypeProps | undefined {
     return match(metricType)
         .with(ExperimentMetricType.FUNNEL, () => {
-            // Combine events and actions and sort by order
+            // Combine all supported source types and sort by order
             const eventSteps =
                 events?.map(
                     (event) =>
@@ -424,7 +412,7 @@ export function filterToMetricConfig(
                             custom_name: event.custom_name,
                             properties: event.properties,
                             order: event.order,
-                        }) as EventsNode & { order: number }
+                        }) as EventsNode & { order?: number }
                 ) || []
 
             const actionSteps =
@@ -436,10 +424,28 @@ export function filterToMetricConfig(
                             name: action.name,
                             properties: action.properties,
                             order: action.order,
-                        }) as ActionsNode & { order: number }
+                        }) as ActionsNode & { order?: number }
                 ) || []
 
-            const combinedSteps = [...eventSteps, ...actionSteps].sort((a, b) => a.order - b.order)
+            const dataWarehouseSteps =
+                data_warehouse?.map(
+                    (dataWarehouse) =>
+                        ({
+                            kind: NodeKind.ExperimentDataWarehouseNode,
+                            table_name: dataWarehouse.table_name || dataWarehouse.id,
+                            name: dataWarehouse.name,
+                            timestamp_field: dataWarehouse.timestamp_field,
+                            events_join_key: dataWarehouse.events_join_key,
+                            data_warehouse_join_key: dataWarehouse.data_warehouse_join_key,
+                            custom_name: dataWarehouse.custom_name,
+                            properties: dataWarehouse.properties,
+                            order: dataWarehouse.order,
+                        }) as ExperimentDataWarehouseNode & { order?: number }
+                ) || []
+
+            const combinedSteps = [...eventSteps, ...actionSteps, ...dataWarehouseSteps]
+                .map((step, index) => ({ ...step, order: step.order ?? index }))
+                .sort((a, b) => a.order - b.order)
 
             // Remove the temporary order field
             const series = combinedSteps.map(({ order, ...step }) => step as ExperimentFunnelMetricStep)
@@ -557,20 +563,6 @@ export const addExposureToMetric =
                 }
             })
             .otherwise(() => metric)
-
-/**
- * unlike metrics, both Funnels and Trends queries have a series property,
- * so we can add the exposure event to the series.
- */
-export const addExposureToQuery =
-    (exposureEvent: EventsNode | ActionsNode) =>
-    (query: FunnelsQuery | TrendsQuery | undefined): FunnelsQuery | TrendsQuery | undefined =>
-        query
-            ? ({
-                  ...query,
-                  series: [exposureEvent, ...query.series],
-              } as typeof query)
-            : undefined
 
 type InsightVizNodeOptions = {
     showTable: boolean

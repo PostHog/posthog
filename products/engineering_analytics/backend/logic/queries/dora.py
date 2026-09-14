@@ -6,8 +6,9 @@ Four quadrants, honestly named (SPEC §4):
   window, within the environment scope. Computed directly.
 - Lead time: ``merge_to_deploy_seconds`` — a merged PR's wait until the first
   successful deployment that *contains* its merge. Containment is resolved through
-  the deploy's head commit: the deploy's SHA is some merged PR's ``merge_commit_sha``,
-  and every merge at or before that head merge is on board. Success time alone
+  the deploy's head commit: its SHA resolves to a merged PR through ``merge_commit_sha``
+  or the workflow-run builder's ``commit_pr_number`` fallback. Every merge at or before
+  that head merge is on board. Success time alone
   cannot decide this — deploys ship pre-built images, so a deploy routinely
   succeeds *after* a merge it does not contain. The field name says merge-to-deploy,
   not the full commit-to-deploy DORA definition (pre-merge time is measured elsewhere).
@@ -26,7 +27,6 @@ surface, aggregates only (SPEC §6). Deploy counts are repo events and ignore th
 team filter by design.
 """
 
-import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -49,7 +49,10 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
     window_buckets,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
-from products.engineering_analytics.backend.logic.queries._workflow_filters import window_pair_predicates
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    run_started_floor_constant,
+    window_pair_predicates,
+)
 
 # PRs merged this long before the scan window are outside lead-time attribution: the PR snapshot
 # holds every PR ever, so the deployed-PR join needs a floor. On a continuous-deploy repo a merge
@@ -62,9 +65,7 @@ _MERGE_SCAN_LOOKBACK = timedelta(days=30)
 # per-repo and small enough that the wider floor costs nothing measurable.
 _DEPLOY_SCAN_SLACK = timedelta(days=7)
 
-# `prod`, `production`, and their regional/suffixed forms (`prod-us`, `Production-EU`), any case.
-# Anchored so `preview-pr-123` and `reproduction` do not read as production.
-_PRODUCTION_NAME_PATTERN = re.compile(r"^prod(uction)?([-_.].*)?$", re.IGNORECASE)
+_ENVIRONMENT_LOOKBACK = timedelta(days=30)
 
 _ENVIRONMENTS_LIMIT = 100
 _TEAMS_LIMIT = 500
@@ -76,14 +77,17 @@ _TEAMS_LIMIT = 500
 # Assumes one deployment id per attempt (GitHub's normal shape): a deployment carrying both a
 # failure and a later success status on the same id would count toward both outcomes and could
 # pair with itself in the restore self-join.
+# minOrNullIf is required even when a source has non-null timestamps: minIf returns an epoch
+# for a missing outcome, which would win every first-deployment attribution.
 _DEPLOYS_CTE = """
     deploys AS (
         SELECT
             d.id AS id,
             any(d.sha) AS sha,
             any(d.environment) AS environment,
-            minIf(s.created_at, s.state = 'success') AS first_success_at,
-            minIf(s.created_at, s.state IN ('failure', 'error')) AS first_failure_at
+            any(d.created_at) AS created_at,
+            minOrNullIf(s.created_at, s.state = 'success') AS first_success_at,
+            minOrNullIf(s.created_at, s.state IN ('failure', 'error')) AS first_failure_at
         FROM __DEPLOYMENTS_SOURCE__ AS d
         INNER JOIN __STATUSES_SOURCE__ AS s ON s.deployment_id = d.id
         WHERE d.created_at >= {deploy_scan_floor} AND __ENV_PREDICATE__
@@ -157,10 +161,19 @@ _FREQUENCY_SERIES_SELECT = """
 # merged PR, and that PR's merged_at says which merges the deploy contains. The sanctioned
 # merge_commit_sha exception (SPEC §6): gated on merged_at (an open PR carries a throwaway
 # test-merge SHA) and collapsed to one row per deployment (min breaks a shared-SHA tie).
-# Deploys whose SHA is no PR's merge commit (direct pushes) resolve no head and attribute nothing.
+# Missing merge SHAs can resolve through the shared workflow-run attribution, restricted to the
+# same repo's default branch. Direct merge-SHA evidence wins over inferred commit-message evidence,
+# so the candidate PR must carry no merge commit at all: one that names a commit other than the
+# deployed SHA is evidence the suffix is lying, not evidence the deploy carries that PR.
+# The candidate PR must also merge INTO that branch: a cherry-pick keeps the original subject line,
+# so a release-branch PR's (#N) suffix can ride a default-branch commit and hand the deploy an
+# earlier head merge than the one it really contains.
+# The merge is bounded by the deployment REQUEST, not its success: GitHub fixes the deployed SHA
+# when it creates the record, so a PR merging while the deploy runs cannot have produced that
+# commit. Crediting it would over-attribute — every merge at or before it reads as contained.
 # Bot merges stay in as heads on purpose: a bot's merge commit still names what a deploy contains.
 _DEPLOY_HEADS_CTE = """
-    deploy_heads AS (
+    merge_heads AS (
         SELECT
             d.id AS id,
             any(d.first_success_at) AS first_success_at,
@@ -172,6 +185,36 @@ _DEPLOY_HEADS_CTE = """
             AND hp.merged_at IS NOT NULL
             AND hp.merged_at >= {merge_scan_floor}
         GROUP BY d.id
+    ),
+    workflow_heads AS (
+        SELECT
+            d.id AS id,
+            any(d.first_success_at) AS first_success_at,
+            min(hp.merged_at) AS head_merged_at
+        FROM deploys AS d
+        INNER JOIN __RUNS_SOURCE__ AS r ON r.head_sha = d.sha
+        INNER JOIN __PR_SOURCE__ AS hp ON hp.number = r.commit_pr_number
+        WHERE d.first_success_at IS NOT NULL
+            AND d.sha != ''
+            AND d.id NOT IN (SELECT id FROM merge_heads)
+            AND hp.merge_commit_sha = ''
+            AND r.run_started_at >= {merge_scan_floor}
+            AND NOT r.is_merge_queue
+            AND hp.default_branch != ''
+            AND r.head_branch = hp.default_branch
+            AND hp.base_branch = r.head_branch
+            AND r.repo_owner = hp.repo_owner AND r.repo_name = hp.repo_name
+            AND hp.merged_at IS NOT NULL
+            AND hp.merged_at >= {merge_scan_floor}
+            AND hp.merged_at <= r.created_at
+            AND hp.merged_at <= d.created_at
+        GROUP BY d.id
+        HAVING uniqExact(r.commit_pr_number) = 1
+    ),
+    deploy_heads AS (
+        SELECT id, first_success_at, head_merged_at FROM merge_heads
+        UNION ALL
+        SELECT id, first_success_at, head_merged_at FROM workflow_heads
     )
 """
 
@@ -283,12 +326,31 @@ _LEAD_TIME_SERIES_SELECT = f"""
 # options and the default scope: a busy repo deploys previews hundreds of times a week, which
 # would swamp every deploy count. An exact ``environment`` filter can still reach one by name.
 _ENVIRONMENTS_SELECT = f"""
-    SELECT environment, max(is_production_environment) AS is_production, count() AS n
+    SELECT environment, count() AS n
     FROM __DEPLOYMENTS_SOURCE__ AS d
-    WHERE d.created_at >= {{prev_from}} AND NOT d.is_transient_environment __DATE_TO_CREATED__
+    WHERE d.created_at >= {{environment_scan_floor}} AND NOT d.is_transient_environment __DATE_TO_CREATED__
     GROUP BY environment
     ORDER BY n DESC, environment ASC
     LIMIT {_ENVIRONMENTS_LIMIT}
+"""
+
+# Keep default production resolution separate from the capped picker query. Returning one aggregate
+# row also avoids HogQL's implicit row limit when a repository has more than 100 production regions.
+_PRODUCTION_ENVIRONMENTS_SELECT = """
+    SELECT groupUniqArray(environment) AS environments
+    FROM __DEPLOYMENTS_SOURCE__ AS d
+    WHERE d.created_at >= {environment_scan_floor}
+        AND NOT d.is_transient_environment
+        AND (d.is_production_environment OR match(lower(d.environment), '^prod(uction)?([-_.].*)?$'))
+        __DATE_TO_CREATED__
+"""
+
+_ENVIRONMENT_CHOICES_SELECT = """
+    SELECT groupUniqArray(environment) AS environments
+    FROM __DEPLOYMENTS_SOURCE__ AS d
+    WHERE d.created_at >= {environment_scan_floor}
+        AND d.environment IN {requested_environments}
+        __DATE_TO_CREATED__
 """
 
 _TEAMS_SELECT = f"""
@@ -344,41 +406,29 @@ class _DoraScan:
 
 
 def _resolve_environment_scope(
-    environments_filter: list[str] | None, environments: list[tuple[str, bool]]
+    requested_environments: list[str] | None,
+    environments: list[str],
+    production_environments: list[str],
 ) -> _EnvironmentScope:
-    """Pick the deploy population: the caller's exact environment(s) when given; otherwise the
-    single busiest environment GitHub marks production; otherwise the busiest environment whose
-    NAME says production; otherwise the single busiest persistent environment, so a repo that
-    never sets the production flag still gets numbers instead of a false zero.
-    The name tier exists because the ``production_environment`` flag is optional and widely
-    unset, and a dev or staging environment can deploy more often than production, which would
-    put every default DORA figure on that environment.
-    Busiest-single, not every-matching: a multi-region repo deploys each merge to several
-    production and persistent environments (and to dev, package registries, ...), which would
-    multiply every deploy count and hand lead time to whichever region deploys first.
-    'persistent' survives only when the window has no persistent environment at all. Transient
-    environments never join a default scope: they are ephemeral per-PR previews, and on this
-    repo they outnumber real deploys by an order of magnitude."""
-    if environments_filter:
+    if requested_environments is not None:
+        if requested_environments:
+            return _EnvironmentScope(
+                scope=", ".join(requested_environments),
+                predicate="d.environment IN {environments}",
+                values=requested_environments,
+            )
+        return _EnvironmentScope(scope="No matching environments", predicate="0 = 1", values=[])
+
+    if production_environments:
         return _EnvironmentScope(
-            scope=", ".join(environments_filter),
+            scope=", ".join(production_environments),
             predicate="d.environment IN {environments}",
-            values=environments_filter,
+            values=production_environments,
         )
-    # ``environments`` arrives busiest-first, so the first match in each tier is the busiest match.
-    production = next((name for name, is_production in environments if is_production), None)
-    if production is not None:
-        return _single_environment_scope(production)
-    named = next((name for name, _ in environments if _PRODUCTION_NAME_PATTERN.match(name)), None)
-    if named is not None:
-        return _single_environment_scope(named)
     if environments:
-        return _single_environment_scope(environments[0][0])
+        fallback = environments[0]
+        return _EnvironmentScope(scope=fallback, predicate="d.environment IN {environments}", values=[fallback])
     return _EnvironmentScope(scope="persistent", predicate="NOT d.is_transient_environment", values=None)
-
-
-def _single_environment_scope(name: str) -> _EnvironmentScope:
-    return _EnvironmentScope(scope=name, predicate="d.environment IN {environments}", values=[name])
 
 
 def _empty_overview(
@@ -394,6 +444,7 @@ def _empty_overview(
         deploy_data_available=deploy_data_available,
         environment_scope=environment_scope,
         environments=environments,
+        selected_environments=[],
         has_membership_data=has_membership_data,
         github_teams=github_teams,
         deployment_count=0,
@@ -543,9 +594,11 @@ def _query_lead_time(scan: _DoraScan, *, github_team: str | None, members_source
         scan.placeholders["github_team"] = ast.Constant(value=github_team)
         team_filter = _TEAM_FILTER.replace("__MEMBERS_SOURCE__", members_source)
     pr_source = scan.curated.pr_source()
-    attribution_ctes = f"{scan.deploys_cte}, {_DEPLOY_HEADS_CTE}, {_DEPLOYED_PRS_CTE}".replace(
-        "__PR_SOURCE__", pr_source
-    ).replace("__TEAM_FILTER__", team_filter)
+    attribution_ctes = (
+        f"{scan.deploys_cte}, {_DEPLOY_HEADS_CTE}, {_DEPLOYED_PRS_CTE}".replace("__PR_SOURCE__", pr_source)
+        .replace("__RUNS_SOURCE__", scan.curated.run_source(started_floor=True))
+        .replace("__TEAM_FILTER__", team_filter)
+    )
 
     windows = window_pair_predicates("deployed_at", date_to=scan.date_to)
     merged_window = window_pair_predicates("merged_at", date_to=scan.date_to)
@@ -603,7 +656,7 @@ def query_dora_overview(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
-    environments_filter: list[str] | None = None,
+    validated_environments: list[str] | None = None,
     github_team: str | None = None,
     granularity: Granularity | None = None,
 ) -> DoraOverview:
@@ -616,7 +669,7 @@ def query_dora_overview(
     if deploy_sources is None:
         return _empty_overview(
             deploy_data_available=False,
-            environment_scope=", ".join(environments_filter) if environments_filter else "persistent",
+            environment_scope=", ".join(validated_environments) if validated_environments else "persistent",
             environments=[],
             has_membership_data=has_membership_data,
             github_teams=github_teams,
@@ -630,8 +683,10 @@ def query_dora_overview(
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
+        "environment_scan_floor": ast.Constant(value=_environment_scan_floor(date_from, end)),
         "deploy_scan_floor": ast.Constant(value=prev_from - _DEPLOY_SCAN_SLACK),
         "merge_scan_floor": ast.Constant(value=prev_from - _MERGE_SCAN_LOOKBACK),
+        "run_started_floor": run_started_floor_constant(prev_from - _MERGE_SCAN_LOOKBACK),
     }
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
@@ -642,7 +697,21 @@ def query_dora_overview(
         placeholders=placeholders,
         date_to_filter=_date_to_clause(date_to, "d.created_at"),
     )
-    env_scope = _resolve_environment_scope(environments_filter, environments)
+    production_environments = (
+        _query_production_environments(
+            curated,
+            deploy_sources.deployments,
+            placeholders=placeholders,
+            date_to_filter=_date_to_clause(date_to, "d.created_at"),
+        )
+        if validated_environments is None
+        else []
+    )
+    env_scope = _resolve_environment_scope(
+        validated_environments,
+        environments,
+        production_environments,
+    )
     # The busiest-environment fallbacks bind the same placeholder as an explicit filter: either
     # way ``values`` holds exactly the environment names the predicate matches.
     if env_scope.values is not None:
@@ -667,7 +736,8 @@ def query_dora_overview(
     return DoraOverview(
         deploy_data_available=True,
         environment_scope=env_scope.scope,
-        environments=[name for name, _ in environments],
+        environments=environments,
+        selected_environments=env_scope.values or [],
         has_membership_data=has_membership_data,
         github_teams=github_teams,
         deployment_count=outcomes.deployment_count,
@@ -736,13 +806,66 @@ def _query_environments(
     *,
     placeholders: dict[str, ast.Expr],
     date_to_filter: str,
-) -> list[tuple[str, bool]]:
-    """``(environment, is_production)`` pairs deployed to in the scan window, most-deployed first."""
+) -> list[str]:
+    """Persistent environments deployed to in the scan window, most-deployed first."""
     sql = _ENVIRONMENTS_SELECT.replace("__DEPLOYMENTS_SOURCE__", deployments_source).replace(
         "__DATE_TO_CREATED__", date_to_filter
     )
     response = curated.run(sql, query_type="engineering_analytics.dora_environments", placeholders=placeholders)
-    return [(str(name), bool(is_production)) for name, is_production, _ in (response.results or []) if name]
+    return [str(name) for name, _ in (response.results or []) if name]
+
+
+def _environment_scan_floor(date_from: datetime, date_to: datetime) -> datetime:
+    prev_from = date_from - (date_to - date_from)
+    return min(prev_from - _DEPLOY_SCAN_SLACK, date_to - _ENVIRONMENT_LOOKBACK)
+
+
+def _query_production_environments(
+    curated: CuratedGitHubSource,
+    deployments_source: str,
+    *,
+    placeholders: dict[str, ast.Expr],
+    date_to_filter: str,
+) -> list[str]:
+    sql = _PRODUCTION_ENVIRONMENTS_SELECT.replace("__DEPLOYMENTS_SOURCE__", deployments_source).replace(
+        "__DATE_TO_CREATED__", date_to_filter
+    )
+    response = curated.run(
+        sql,
+        query_type="engineering_analytics.dora_production_environments",
+        placeholders=placeholders,
+    )
+    names = response.results[0][0] if response.results else []
+    return sorted(str(name) for name in names or [] if name)
+
+
+def query_dora_environment_choices(
+    *,
+    curated: CuratedGitHubSource,
+    environments: list[str],
+    date_from: datetime,
+    date_to: datetime | None,
+) -> list[str]:
+    deploy_sources = curated.deploy_sources()
+    if deploy_sources is None or not environments:
+        return []
+    end = date_to or datetime.now(tz=date_from.tzinfo)
+    placeholders: dict[str, ast.Expr] = {
+        "environment_scan_floor": ast.Constant(value=_environment_scan_floor(date_from, end)),
+        "requested_environments": ast.Tuple(exprs=[ast.Constant(value=name) for name in environments]),
+    }
+    if date_to is not None:
+        placeholders["date_to"] = ast.Constant(value=date_to)
+    sql = _ENVIRONMENT_CHOICES_SELECT.replace("__DEPLOYMENTS_SOURCE__", deploy_sources.deployments).replace(
+        "__DATE_TO_CREATED__", _date_to_clause(date_to, "d.created_at")
+    )
+    response = curated.run(
+        sql,
+        query_type="engineering_analytics.dora_environment_choices",
+        placeholders=placeholders,
+    )
+    names = response.results[0][0] if response.results else []
+    return sorted(str(name) for name in names or [] if name)
 
 
 def _query_github_teams(curated: CuratedGitHubSource, members_source: str | None) -> list[str]:

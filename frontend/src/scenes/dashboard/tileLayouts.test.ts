@@ -2,7 +2,8 @@ import { Layout, LayoutItem } from 'react-grid-layout'
 
 import { calculateDuplicateLayout, calculateInsertionLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 
-import { DashboardLayoutSize, DashboardTile, QueryBasedInsightModel, TileLayout } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel, TileLayout } from '~/types'
 
 function textTileWithLayout(
     layouts: Record<DashboardLayoutSize, TileLayout>,
@@ -62,6 +63,24 @@ describe('calculating tile layouts', () => {
         ]
 
         expect(calculateLayouts(tiles).sm?.[0]).toMatchObject({ w: 2, h: 1 })
+    })
+
+    it('defaults SQL metric tiles without a stored layout to 3 by 3', () => {
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+            {
+                id: 1,
+                insight: {
+                    query: {
+                        kind: NodeKind.DataVisualizationNode,
+                        source: { kind: NodeKind.HogQLQuery, query: 'SELECT count() FROM events' },
+                        display: ChartDisplayType.Metric,
+                    },
+                },
+                layouts: {},
+            } as unknown as DashboardTile<QueryBasedInsightModel>,
+        ]
+
+        expect(calculateLayouts(tiles).sm?.[0]).toMatchObject({ w: 3, h: 3 })
     })
 
     it('when the tiles have only 2-col layouts, 1 col layout is calculated', () => {

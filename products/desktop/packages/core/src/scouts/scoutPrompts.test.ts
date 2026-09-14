@@ -22,7 +22,7 @@ describe("buildScoutFindingDiscussPrompt", () => {
     expect(prompt).toContain("Severity: high");
     expect(prompt).toContain("Confidence: 82%");
     expect(prompt).toContain(base.description);
-    expect(prompt).toContain("exploring-signals-scouts");
+    expect(prompt).toContain("exploring-scouts");
   });
 
   it.each([
