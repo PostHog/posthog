@@ -33,6 +33,7 @@ from products.tasks.backend.logic.services.permission_broker import (
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_after_final_message
 from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
+from products.tasks.backend.logic.stream.turn_completion import turn_completed_successfully
 from products.tasks.backend.models import (
     Task as TaskModel,
     TaskRun as TaskRunModel,
@@ -538,6 +539,11 @@ async def _relay_loop(
                                         )
                                     else:
                                         await _signal_safely(workflow_handle, "agent_state_changed", arg=False)
+                                        await _signal_safely(
+                                            workflow_handle,
+                                            "agent_turn_completed",
+                                            arg=turn_completed_successfully(event_data),
+                                        )
                                 if sandbox_id and background_logs_enabled:
                                     asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
                                 if not turn_failed and task_run is not None and task_run.mode == "interactive":

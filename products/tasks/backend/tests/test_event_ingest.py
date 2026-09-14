@@ -424,19 +424,30 @@ class TestTaskRunEventIngest(TestCase):
 
     @parameterized.expand(
         [
-            ("acp", {"type": "notification", "notification": {"method": "_posthog/turn_complete"}}),
-            ("pi", {"type": "pi_event", "event": {"type": "turn_completed"}}),
+            (runtime, reason, reason == "end_turn")
+            for runtime in ("acp", "pi")
+            for reason in ("end_turn", "cancelled", None)
         ]
     )
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_turn_complete_ingest_signals_the_workflow_for_a_background_run(self, _name: str, event: dict) -> None:
+    def test_turn_complete_ingest_signals_the_workflow_for_a_background_run(
+        self, runtime: str, reason: str | None, succeeded: bool
+    ) -> None:
         token = self._create_token()
+        event = (
+            {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": reason}}
+            if runtime == "pi"
+            else {
+                "type": "notification",
+                "notification": {"method": "_posthog/turn_complete", "params": {"stopReason": reason}},
+            }
+        )
 
         with patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed:
             status, _ = self._call_ingest(token, [{"seq": 1, "event": event}])
 
         self.assertEqual(status, 200)
-        signal_turn_completed.assert_called_once()
+        signal_turn_completed.assert_called_once_with(succeeded=succeeded)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_pi_turn_completed_with_a_runtime_error_fails_the_run_instead_of_completing_it(self) -> None:

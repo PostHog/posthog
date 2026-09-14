@@ -2544,7 +2544,7 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
-    def signal_agent_turn_completed(self) -> None:
+    def signal_agent_turn_completed(self, *, succeeded: bool = False) -> None:
         import asyncio
 
         from posthog.temporal.common.client import sync_connect
@@ -2554,7 +2554,12 @@ class TaskRun(models.Model):
         try:
             client = sync_connect()
             handle = client.get_workflow_handle(self.workflow_id)
-            asyncio.run(handle.signal(ProcessTaskWorkflow.agent_state_changed, arg=False))
+
+            async def signal_completion() -> None:
+                await handle.signal(ProcessTaskWorkflow.agent_state_changed, arg=False)
+                await handle.signal(ProcessTaskWorkflow.agent_turn_completed, arg=succeeded)
+
+            asyncio.run(signal_completion())
         except Exception as e:
             logger.warning("task_run.turn_completed_signal_failed", task_run_id=str(self.id), error=str(e))
 
