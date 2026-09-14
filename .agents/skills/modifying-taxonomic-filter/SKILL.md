@@ -102,9 +102,12 @@ Shared events both surfaces emit (keep these comparable across arms):
   tab at close)
 - `taxonomic filter item selected` — `surface`, `groupType`,
   `sourceGroupType`, `wasFromRecents`, `wasFromPinnedList`, `wasQuickFilter`,
-  `hadSearchInput`, `position`, `query`, `wasStale`
+  `hadSearchInput`, `position`, `query`, `wasStale`,
+  `returnedFromEmptySearchDestination` (only after the original tab regains focus)
 - `taxonomic filter empty search destination clicked` — `surface`, `groupType`,
   `destination` (does not include the search query)
+- `taxonomic filter empty search destination returned` — `surface`, `groupType`,
+  `destination` (fires once when the source tab regains focus)
 
 Legacy-only: `taxonomic_filter_search_query`
 (`searchQuery`, `groupType`, `inputMode`, `pastedFraction`),

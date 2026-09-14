@@ -1013,6 +1013,17 @@ describe('MenuFilterCombobox', () => {
                 destination: 'Explore',
             })
         )
+
+        window.dispatchEvent(new Event('focus'))
+
+        expect(captureMock).toHaveBeenCalledWith(
+            'taxonomic filter empty search destination returned',
+            expect.objectContaining({
+                surface: 'rebuild-menu',
+                groupType: undefined,
+                destination: 'Explore',
+            })
+        )
     })
 
     it('fires `taxonomic filter empty result` exactly once per scope+query (dedup)', async () => {

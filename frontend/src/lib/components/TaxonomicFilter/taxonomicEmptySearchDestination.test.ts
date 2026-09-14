@@ -1,4 +1,8 @@
-import { taxonomicEmptySearchDestination } from './taxonomicEmptySearchDestination'
+import {
+    consumeEmptySearchDestinationReturn,
+    markEmptySearchDestinationOpened,
+    taxonomicEmptySearchDestination,
+} from './taxonomicEmptySearchDestination'
 import { TaxonomicFilterGroupType } from './types'
 import type { TaxonomicFilterGroup } from './types'
 
@@ -43,5 +47,18 @@ describe('taxonomicEmptySearchDestination', () => {
 
         expect(destination?.url).toContain(path)
         expect(decodeURIComponent(destination?.url ?? '')).toContain(query)
+    })
+
+    it('marks the next selection only after the original tab regains focus', () => {
+        const onReturn = jest.fn()
+        markEmptySearchDestinationOpened(onReturn)
+
+        expect(consumeEmptySearchDestinationReturn()).toBe(false)
+
+        window.dispatchEvent(new Event('focus'))
+
+        expect(onReturn).toHaveBeenCalledTimes(1)
+        expect(consumeEmptySearchDestinationReturn()).toBe(true)
+        expect(consumeEmptySearchDestinationReturn()).toBe(false)
     })
 })

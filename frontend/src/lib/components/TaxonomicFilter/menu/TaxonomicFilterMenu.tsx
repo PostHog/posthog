@@ -49,6 +49,7 @@ import { AnyPropertyFilter, EventDefinition } from '~/types'
 
 import { useTaxonomicFilterContext } from '../headless/context'
 import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
+import { consumeEmptySearchDestinationReturn } from '../taxonomicEmptySearchDestination'
 import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import {
     isQuickFilterItem,
@@ -433,6 +434,7 @@ export function TaxonomicFilterMenu({
                 position: selection?.position,
                 query: searchQuery || undefined,
                 wasStale: eventSelectionWasStale(entry.group.type, entry.item),
+                ...(consumeEmptySearchDestinationReturn() && { returnedFromEmptySearchDestination: true }),
                 // True when the row is the synthetic "URL contains <query>" shortcut
                 // rather than a real picked item — lets us measure its adoption.
                 wasUrlContainsShortcut: (entry.item as { isContainsShortcut?: boolean }).isContainsShortcut === true,

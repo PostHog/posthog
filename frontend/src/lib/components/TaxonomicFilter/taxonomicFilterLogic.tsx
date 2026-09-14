@@ -31,6 +31,7 @@ import {
     recentTaxonomicFiltersLogic,
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { consumeEmptySearchDestinationReturn } from 'lib/components/TaxonomicFilter/taxonomicEmptySearchDestination'
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomicFilterSurface'
 import {
@@ -2566,6 +2567,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     position: meta?.position,
                     query: values.searchQuery || undefined,
                     wasStale,
+                    ...(consumeEmptySearchDestinationReturn() && { returnedFromEmptySearchDestination: true }),
                     ...(wasQuickFilter && {
                         filterName: item.name,
                         propertyKey: item.propertyKey,

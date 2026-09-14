@@ -494,6 +494,17 @@ describe('TaxonomicFilter', () => {
                     destination: 'Explore',
                 })
             )
+
+            window.dispatchEvent(new Event('focus'))
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                'taxonomic filter empty search destination returned',
+                expect.objectContaining({
+                    surface: 'legacy-control',
+                    groupType: TaxonomicFilterGroupType.EventProperties,
+                    destination: 'Explore',
+                })
+            )
         })
 
         it('offers a per-category jump when matches live on another tab and there is no all section', async () => {

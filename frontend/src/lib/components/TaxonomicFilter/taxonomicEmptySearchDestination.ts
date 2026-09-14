@@ -15,6 +15,27 @@ export interface TaxonomicEmptySearchDestination {
     url: string
 }
 
+let returnedFromEmptySearchDestination = false
+
+export function markEmptySearchDestinationOpened(onReturn: () => void): void {
+    returnedFromEmptySearchDestination = false
+
+    window.addEventListener(
+        'focus',
+        () => {
+            returnedFromEmptySearchDestination = true
+            onReturn()
+        },
+        { once: true }
+    )
+}
+
+export function consumeEmptySearchDestinationReturn(): boolean {
+    const returned = returnedFromEmptySearchDestination
+    returnedFromEmptySearchDestination = false
+    return returned
+}
+
 const PERSON_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.EmailAddresses,
     TaxonomicFilterGroupType.PersonMetadata,

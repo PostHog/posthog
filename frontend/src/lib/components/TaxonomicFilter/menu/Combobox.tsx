@@ -45,7 +45,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { useTaxonomicFilterContext } from '../headless/context'
 import { useGroupList } from '../hooks/useGroupList'
-import { taxonomicEmptySearchDestination } from '../taxonomicEmptySearchDestination'
+import { markEmptySearchDestinationOpened, taxonomicEmptySearchDestination } from '../taxonomicEmptySearchDestination'
 import {
     OPEN_AS_SELF_ON_REOPEN,
     TaxonomicDefinitionTypes,
@@ -1122,7 +1122,17 @@ export function MenuFilterCombobox({
                                                         size="sm"
                                                         data-attr="taxonomic-empty-search-destination"
                                                         nativeButton={false}
-                                                        onClick={() =>
+                                                        onClick={() => {
+                                                            markEmptySearchDestinationOpened(() =>
+                                                                posthog.capture(
+                                                                    'taxonomic filter empty search destination returned',
+                                                                    {
+                                                                        surface: TAXONOMIC_FILTER_SURFACE,
+                                                                        groupType: telemetryGroupType,
+                                                                        destination: emptySearchDestination.label,
+                                                                    }
+                                                                )
+                                                            )
                                                             posthog.capture(
                                                                 'taxonomic filter empty search destination clicked',
                                                                 {
@@ -1131,7 +1141,7 @@ export function MenuFilterCombobox({
                                                                     destination: emptySearchDestination.label,
                                                                 }
                                                             )
-                                                        }
+                                                        }}
                                                         render={
                                                             <Link to={emptySearchDestination.url} target="_blank" />
                                                         }

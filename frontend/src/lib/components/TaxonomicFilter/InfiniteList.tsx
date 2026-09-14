@@ -18,7 +18,10 @@ import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
 import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { taxonomicEmptySearchDestination } from 'lib/components/TaxonomicFilter/taxonomicEmptySearchDestination'
+import {
+    markEmptySearchDestinationOpened,
+    taxonomicEmptySearchDestination,
+} from 'lib/components/TaxonomicFilter/taxonomicEmptySearchDestination'
 import { SelectItemMeta, taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomicFilterSurface'
@@ -857,7 +860,16 @@ function InfiniteListEmptyState(): JSX.Element {
                             data-attr="taxonomic-empty-search-destination"
                             to={emptySearchDestination.url}
                             targetBlank
-                            onClick={() =>
+                            onClick={() => {
+                                markEmptySearchDestinationOpened(() =>
+                                    posthog.capture('taxonomic filter empty search destination returned', {
+                                        surface: legacyTaxonomicSurface(
+                                            featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
+                                        ),
+                                        groupType: listGroupType,
+                                        destination: emptySearchDestination.label,
+                                    })
+                                )
                                 posthog.capture('taxonomic filter empty search destination clicked', {
                                     surface: legacyTaxonomicSurface(
                                         featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
@@ -865,7 +877,7 @@ function InfiniteListEmptyState(): JSX.Element {
                                     groupType: listGroupType,
                                     destination: emptySearchDestination.label,
                                 })
-                            }
+                            }}
                         >
                             Search in {emptySearchDestination.label}
                         </LemonButton>
