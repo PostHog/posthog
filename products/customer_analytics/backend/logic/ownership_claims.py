@@ -169,7 +169,7 @@ def _decisions_by_task(rows: list[dict[str, Any]], outcomes: Counter[str]) -> li
 
 def _task_id(row: dict[str, Any]) -> str | None:
     try:
-        return _identifier(row.get("task_id"))
+        return _identifier(row["task_id"])
     except ValueError:
         return None
 
