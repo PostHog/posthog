@@ -14,7 +14,7 @@ class DigestOutcome(StrEnum):
     FAILED = "failed"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class OrgDigestCounts:
     """`skipped_reason` is set when the org was skipped before any email attempt
     (no teams, no targeted members, etc.) — present means the org should be

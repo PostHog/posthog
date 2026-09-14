@@ -43,7 +43,7 @@ class OrgBatchPageResult:
         return len(self.batches)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class OrgDigestNotificationCounts:
     sent: int = 0
     control: int = 0
