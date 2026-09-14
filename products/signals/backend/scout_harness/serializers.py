@@ -2666,13 +2666,13 @@ def _scout_repositories_field(*, read_only: bool = False) -> serializers.ListFie
     )
 
 
-def _validate_scout_repositories(value: list[str], context: dict) -> list[str]:
-    """Normalize pinned repositories and refuse any the scout's runs could not clone.
+# Serializer context key a caller sets after running `assert_scout_repositories_reachable` itself,
+# so validation does not run it a second time. The config PATCH does this before it takes the row
+# lock, because the check can call GitHub.
+REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY = "scout_repositories_reachability_checked"
 
-    Checked against the installation a read-only sandbox token is minted from, which is the
-    credential a scout run clones with. Anything else would accept a pin that only fails once the
-    scout is already running. A team with no reachable GitHub connection can only pin nothing.
-    """
+
+def _normalize_scout_repositories(value: list[str]) -> list[str]:
     repositories: list[str] = []
     for repository in value:
         normalized = repository.strip().lower()
@@ -2682,23 +2682,48 @@ def _validate_scout_repositories(value: list[str], context: dict) -> list[str]:
         if normalized in repositories:
             raise serializers.ValidationError(f"'{normalized}' is listed twice.")
         repositories.append(normalized)
-    if not repositories:
-        return repositories
+    return repositories
 
-    get_team = context.get("get_team")
-    # Some create paths pass a `team` object instead of the routed `get_team` lambda.
-    team = get_team() if callable(get_team) else context.get("team")
-    if not isinstance(team, Team):
-        raise RuntimeError("Scout config repository validation requires team in its context")
-    integration_id = tasks_facade.readonly_github_integration_id(team.id)
+
+def assert_scout_repositories_reachable(team: Team, repositories: list[str]) -> None:
+    """Refuse any pinned repository the scout's runs could not clone.
+
+    Checked against the installation a read-only sandbox token is minted from, which is the
+    credential a scout run clones with. Anything else would accept a pin that only fails once the
+    scout is already running. A team with no reachable GitHub connection can only pin nothing.
+    May refresh the GitHub repository cache over the network, so keep it out of any transaction.
+    """
+    # Scout configs live on the canonical team and a run mints from that team's installation, so a
+    # request that came in on a child environment is checked against the parent.
+    team_id = team.parent_team_id or team.id
+    integration_id = tasks_facade.readonly_github_integration_id(team_id)
     if integration_id is None:
         raise serializers.ValidationError("Connect GitHub to this project before pinning repositories to a scout.")
-    inaccessible = tasks_facade.inaccessible_repositories_via_integration(team.id, integration_id, repositories)
+    inaccessible = tasks_facade.inaccessible_repositories_via_integration(team_id, integration_id, repositories)
     if inaccessible:
         raise serializers.ValidationError(
             f"Not reachable through this project's GitHub connection: {', '.join(inaccessible)}. "
             "Check the spelling, or add the repository to the project's GitHub installation."
         )
+
+
+def validate_scout_repositories(value: list[str], context: dict, *, current: list[str] | None = None) -> list[str]:
+    """Normalize pinned repositories and check they are reachable, unless nothing changed.
+
+    A whole-config resend carries the stored list back unchanged, and a settings save or an MCP
+    update does that on every write, so an unchanged list skips the GitHub-backed check.
+    """
+    repositories = _normalize_scout_repositories(value)
+    if not repositories or context.get(REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY):
+        return repositories
+    if current is not None and repositories == [repository.lower() for repository in current]:
+        return repositories
+    get_team = context.get("get_team")
+    # Some create paths pass a `team` object instead of the routed `get_team` lambda.
+    team = get_team() if callable(get_team) else context.get("team")
+    if not isinstance(team, Team):
+        raise RuntimeError("Scout config repository validation requires team in its context")
+    assert_scout_repositories_reachable(team, repositories)
     return repositories
 
 
@@ -3063,7 +3088,8 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
         return _normalize_mcp_gateway_server_ids(value)
 
     def validate_repositories(self, value: list[str]) -> list[str]:
-        return _validate_scout_repositories(value, self.context)
+        current = self.instance.repositories if isinstance(self.instance, SignalScoutConfig) else None
+        return validate_scout_repositories(value, self.context, current=current)
 
     def validate_write_scopes(self, value: list[str]) -> list[str]:
         return _validate_write_scopes(value)

@@ -73,12 +73,16 @@ function Picker({ integrationId, ...props }: ScoutRepositoriesPickerProps & { in
     // form around it. The row's "No write access" warning would also mislead here, since a scout
     // never pushes to a repository it reads.
     //
+    // Keys are lowercased because a saved pin is, while GitHub reports `full_name` in the owner's
+    // casing. Compared as-is, a selected pin reads as absent and shows up twice.
+    //
     // A pin can predate the current repository cache, so keep it as an option too. Opening the
     // picker must never silently drop a repository the scout is already using.
+    const repositoryOptions = options.map(({ key, label }) => ({ key: key.toLowerCase(), label }))
     const allOptions = [
-        ...options.map(({ key, label }) => ({ key, label })),
+        ...repositoryOptions,
         ...selectedRepositories
-            .filter((repository) => !options.some((option) => option.key === repository))
+            .filter((repository) => !repositoryOptions.some((option) => option.key === repository))
             .map((repository) => ({ key: repository, label: repository })),
     ]
 

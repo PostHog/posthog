@@ -1059,8 +1059,11 @@ class Task(DeletedMetaFields, models.Model):
             if user_github_integration is not None:
                 github_user_integration = user_github_integration.integration
 
-        if repository:
-            if not github_integration and github_user_integration is None and not is_public_sandbox_repo(repository):
+        if not github_integration and github_user_integration is None:
+            # Every entry is cloned, so a private second repository fails the run just as surely
+            # as a private first one.
+            private_repositories = [name for name in resolved_repositories if not is_public_sandbox_repo(name)]
+            if private_repositories:
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
         sandbox_env = None

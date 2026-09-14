@@ -666,11 +666,15 @@ async def _resolve_github_posture(
         team.id
     )
     if repositories and not can_mint:
-        logger.info(
-            "signals_scout: dropping pinned repositories, no mintable GitHub installation",
-            extra={"team_id": team.id, "skill_name": skill.name, "repositories": repositories},
-        )
-        repositories = []
+        # The public allowlist clones without a token, so `--repository posthog/.github` still
+        # works on a team that never connected GitHub.
+        public = [repository for repository in repositories if tasks_facade.is_public_sandbox_repo(repository)]
+        if len(public) != len(repositories):
+            logger.info(
+                "signals_scout: dropping pinned repositories, no mintable GitHub installation",
+                extra={"team_id": team.id, "skill_name": skill.name, "repositories": repositories},
+            )
+        repositories = public
     return _GithubPosture(repositories=repositories, prompt_names_gh=names_gh and can_mint)
 
 

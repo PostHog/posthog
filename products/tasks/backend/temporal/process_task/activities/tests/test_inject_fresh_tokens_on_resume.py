@@ -81,7 +81,7 @@ class TestInjectFreshTokensOnResumeActivity:
             github_integration_id=123,
             repository=test_task.repository,
             distinct_id="distinct",
-            state={"github_read_access": True},
+            state={"github_read_access": True, "repositories": [test_task.repository, "acme/second"]},
         )
 
         with (
@@ -111,7 +111,10 @@ class TestInjectFreshTokensOnResumeActivity:
             )
 
         resolve_full.assert_not_called()
-        assert "x-access-token:ghs_readonly" in sandbox.execute.call_args_list[0].args[0]
+        # Both clones carry the token in their own `origin`, so both remotes are rewritten.
+        rewritten = [c.args[0] for c in sandbox.execute.call_args_list if "x-access-token:ghs_readonly" in c.args[0]]
+        assert len(rewritten) == 2
+        assert any("acme/second" in command for command in rewritten)
         assert (
             GITHUB_ENV_FILE,
             b"GITHUB_TOKEN=ghs_readonly\x00GH_TOKEN=ghs_readonly\x00",

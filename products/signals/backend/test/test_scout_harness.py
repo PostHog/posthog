@@ -1523,9 +1523,18 @@ async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("can_mint_token", [True, False])
+@pytest.mark.parametrize(
+    "can_mint_token,repository_override,expected",
+    [
+        pytest.param(True, None, ("posthog/posthog", "posthog/posthog-js"), id="mintable_pins_clone"),
+        pytest.param(False, None, (), id="unmintable_pins_drop"),
+        # The public allowlist clones without a token, so the management command's
+        # `--repository posthog/.github` still works on a team that never connected GitHub.
+        pytest.param(False, "posthog/.github", ("posthog/.github",), id="public_override_without_mint"),
+    ],
+)
 async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_minted(
-    ateam, aerrors_skill, can_mint_token
+    ateam, aerrors_skill, can_mint_token, repository_override, expected
 ):
     # The pin only buys a checkout if the sandbox has a credential to clone with, and a scout
     # clones with the read-only mint. Without a mintable installation the pin must be dropped and
@@ -1564,13 +1573,15 @@ async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_min
             return_value=can_mint_token,
         ),
     ):
-        run = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+        run = await arun_signals_scout(
+            team_id=ateam.id, skill_name="signals-scout-errors", repository=repository_override
+        )
 
-    expected = ("posthog/posthog", "posthog/posthog-js") if can_mint_token else ()
     assert captured["context"].repositories == expected
     # The token stays read-only either way: a pin buys a checkout, never the ability to push.
     assert captured["context"].github_read_access is True
-    assert ("posthog/posthog" in captured["prompt"]) is can_mint_token
+    assert ("# Your checkout" in captured["prompt"]) is bool(expected)
+    assert all(repository in captured["prompt"] for repository in expected)
 
     assert run.run_id is not None
     run_id = run.run_id

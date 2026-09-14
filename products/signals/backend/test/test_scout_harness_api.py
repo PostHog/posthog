@@ -2640,6 +2640,49 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.repositories == []
 
+    def test_partial_update_resending_stored_repositories_skips_the_github_check(self) -> None:
+        # The settings form and an MCP update resend the whole config on every save. Re-checking
+        # an unchanged pin against GitHub on each of them is a network call for nothing, and it
+        # turns a GitHub outage into a save that fails for a scout whose pins did not change.
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-foo", repositories=["posthog/posthog"]
+        )
+
+        with patch("products.tasks.backend.facade.api.readonly_github_integration_id") as resolve_integration:
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"repositories": ["PostHog/posthog"], "emit": False},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        resolve_integration.assert_not_called()
+        config.refresh_from_db()
+        assert config.repositories == ["posthog/posthog"]
+        assert config.emit is False
+
+    def test_partial_update_checks_repositories_against_the_canonical_team(self) -> None:
+        # Scout configs live on the parent team and a run mints from the parent's installation, so
+        # a PATCH that arrives on a child-environment URL has to check the pin there too, or a
+        # connected project refuses every pin made from one of its environments.
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        Integration.objects.create(team=self.team, kind="github", config={"account": {"type": "org"}})
+
+        with patch(
+            "products.tasks.backend.github_repository_access.GitHubIntegration.list_all_cached_repositories",
+            return_value=[{"full_name": "PostHog/posthog"}],
+        ):
+            response = self.client.patch(
+                f"/api/projects/{env.id}/signals/scout/configs/{config.id}/",
+                data={"repositories": ["posthog/posthog"]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        config.refresh_from_db()
+        assert config.repositories == ["posthog/posthog"]
+
     def test_partial_update_disable_records_a_user_pause(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
 

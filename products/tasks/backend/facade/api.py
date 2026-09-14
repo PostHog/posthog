@@ -93,7 +93,7 @@ from products.tasks.backend.logic.services.network_policy import (
     MAX_SANDBOX_ALLOWED_DOMAINS,
     normalize_requested_domains,
 )
-from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
@@ -190,6 +190,7 @@ __all__ = [
     "bootstrap_task_run",
     "SANDBOX_REPOSITORIES_ROOT",
     "can_mint_readonly_github_token",
+    "is_public_sandbox_repo",
     "readonly_github_integration_id",
     "check_task_run_startable",
     "collect_task_run_state_metrics",

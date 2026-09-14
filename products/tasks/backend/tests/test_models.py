@@ -414,6 +414,24 @@ class TestTask(TestCase):
         mock_execute_workflow.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_private_second_repository_without_integration_raises(self, mock_execute_workflow):
+        # Every entry is cloned, so checking only the first one lets a private second repository
+        # through and the run fails on its clone instead of at creation.
+        user = User.objects.create(email="test@test.com")
+
+        with self.assertRaises(ValueError):
+            Task.create_and_run(
+                team=self.team,
+                title="Test Task",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repositories=["posthog/hedgebox", "acme/private"],
+            )
+
+        mock_execute_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_non_public_repo_without_integration_raises(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
 

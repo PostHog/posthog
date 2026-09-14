@@ -93,6 +93,37 @@ def test_can_mint_readonly_github_token_matches_mint_eligibility(resolved, expec
 
 @parameterized.expand(
     [
+        ("full_credential_run_reuses", False, 5),
+        ("read_only_run_clones_fresh", True, None),
+    ]
+)
+def test_repository_snapshot_reuse_is_refused_for_read_only_runs(
+    _name: str, read_access: bool, expected: int | None
+) -> None:
+    # A repository snapshot keeps its creator's write-capable token in every `.git/config` and is
+    # never fetched again, so restoring one for a read-only run hands the agent a write token and
+    # a stale tree. A Signals scout with pinned repositories is exactly that run.
+    from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
+        _repository_snapshot_integration_id,
+    )
+
+    ctx = TaskProcessingContext(
+        task_id="t",
+        run_id="r",
+        team_id=1,
+        team_uuid="u",
+        organization_id="o",
+        github_integration_id=5,
+        repository="acme/app",
+        distinct_id="d",
+        state={"github_read_access": read_access},
+    )
+
+    assert _repository_snapshot_integration_id(ctx, has_repo=True) == expected
+
+
+@parameterized.expand(
+    [
         ("repo_less", None, False),
         ("repo_backed", "acme/repo", True),
     ]

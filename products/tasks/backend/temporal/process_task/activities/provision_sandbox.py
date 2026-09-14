@@ -348,6 +348,21 @@ def _is_blobless_signals_clone_enabled(ctx: TaskProcessingContext) -> bool:
         return False
 
 
+def _repository_snapshot_integration_id(ctx: TaskProcessingContext, *, has_repo: bool) -> int | None:
+    """The integration to look up a repository-setup snapshot under, or None to clone instead.
+
+    A read-only run never restores one. Those snapshots carry the token their creator cloned with in every
+    `.git/config`, which is the write-capable installation token for a task sandbox, and nothing
+    rewrites a restored remote before the agent starts unless a branch is checked out. They are
+    also arbitrarily old, and a run without a branch never fetches, so a scout would read a tree
+    from whenever the snapshot was taken. A fresh clone with the read-only mint is the only tree
+    that holds both guarantees.
+    """
+    if not has_repo or ctx.custom_image_name or ctx.github_read_access:
+        return None
+    return ctx.github_integration_id
+
+
 def _resolve_sandbox_github_token(
     ctx: TaskProcessingContext,
     *,
@@ -626,13 +641,14 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         snapshot_mount_path: str | None = None
         # Repo-setup snapshots come from default-base sandboxes; restoring one would silently
         # drop the custom base image. Resume snapshots were taken from this task's own sandbox.
-        if has_repo and ctx.github_integration_id is not None and not ctx.custom_image_name:
+        snapshot_integration_id = _repository_snapshot_integration_id(ctx, has_repo=has_repo)
+        if snapshot_integration_id is not None:
             with StepTimer(
                 "snapshot_lookup",
                 origin_product=ctx.origin_product,
                 runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
             ) as snapshot_lookup_timer:
-                snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, ctx.repositories)
+                snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(snapshot_integration_id, ctx.repositories)
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             if snapshot is not None:
@@ -1273,8 +1289,10 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
-        if input.repository:
-            set_git_remote_token(sandbox, input.repository, github_token or None)
+        # Every clone embeds the token in its own `origin`, so a multi-repository run has to rewrite
+        # each of them or the secondary checkouts keep the snapshot's expired token.
+        for repository in ctx.repositories or ([input.repository] if input.repository else []):
+            set_git_remote_token(sandbox, repository, github_token or None)
 
         # Replace both credential domains even when resolution returns no token,
         # so revoked credentials cannot survive in a resumed filesystem snapshot.
