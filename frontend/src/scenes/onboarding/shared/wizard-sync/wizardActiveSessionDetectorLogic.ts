@@ -359,7 +359,11 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                         )) || null
                 )
             )
-            if (seq !== cache.pollSeq) {
+            // The project id is checked as well as the sequence: a project change schedules its
+            // poll behind a delay, so it raises the sequence too late to invalidate a request
+            // already in flight. Without this, the answer for the project the user left decides the
+            // state of the one they are on — a dead scope there would disable the detector here.
+            if (seq !== cache.pollSeq || values.currentProjectId !== projectId) {
                 return
             }
 

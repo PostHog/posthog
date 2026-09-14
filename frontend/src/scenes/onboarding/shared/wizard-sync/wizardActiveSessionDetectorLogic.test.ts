@@ -212,6 +212,33 @@ describe('wizardActiveSessionDetectorLogic', () => {
         })
     })
 
+    // A poll asks for the project id it captured at the start. The poll after a project change is
+    // delayed, so it cannot invalidate a request that is already in flight for the old project —
+    // whose answer would otherwise decide the state of the project the user is now on.
+    it('drops a poll that settles after the project id moved on', async () => {
+        projectLogic.actions.loadCurrentProjectSuccess({ id: 1 } as ProjectType)
+
+        let settleFirstPoll: (session: WizardSessionDTOApi | null) => void = () => {}
+        mockLatestRetrieve.mockImplementation(
+            () =>
+                new Promise<WizardSessionDTOApi | null>((resolve) => {
+                    settleFirstPoll = resolve
+                })
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        }).toDispatchActions(['check'])
+
+        projectLogic.actions.loadCurrentProjectSuccess({ id: 2 } as ProjectType)
+
+        await expectLogic(logic, () => {
+            settleFirstPoll(makeSession({ run_phase: 'running' }))
+        }).toFinishAllListeners()
+
+        expect(logic.values.hasActiveSession).toBe(false)
+    })
+
     // With two programs watched, a failure on the live one plus an empty answer from the other is
     // indistinguishable from "no run" unless the error is taken into account — and acting on it
     // would tear down a run that is still going.
