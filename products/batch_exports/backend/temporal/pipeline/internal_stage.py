@@ -694,11 +694,11 @@ async def _write_batch_export_record_batches_to_internal_stage(
         delta = dt.timedelta(minutes=1)
     interval_start, interval_end = full_range
 
-    if _is_local_dev_or_test() is False and interval_end > dt.datetime.now(dt.UTC):
-        # Some tests create data in the future, so we do not check this.
-        raise DataIntervalEndInFutureError(interval_end)
-
     if not isinstance(query_or_model, RecordBatchModel) or query_or_model.wait_for_data_interval_end:
+        if _is_local_dev_or_test() is False and interval_end > dt.datetime.now(dt.UTC):
+            # Some tests create data in the future, so we do not check this.
+            raise DataIntervalEndInFutureError(interval_end)
+
         with TRACER.start_as_current_span("batch_export.stage.wait_for_delta"):
             await wait_for_delta_past_data_interval_end(interval_end, delta)
 

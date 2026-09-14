@@ -128,9 +128,9 @@ HOGQL_QUERY_HELP_TEXT = (
     "HogQL SELECT query whose results are exported. This model is in closed beta and is enabled "
     "per team; when it is not enabled, the request fails with a permission error that names HogQL "
     "batch exports. Contact PostHog support to request access. The query may reference the "
-    "{data_interval_start} and {data_interval_end} placeholders. If either appears, provide both "
-    "data_interval_start and data_interval_end; missing bounds are rejected, not inferred. "
-    "Supplied bounds must span at most seven days and end no later than now. "
+    "{data_interval_start} and {data_interval_end} placeholders. Provide a value for each "
+    "placeholder the query references; missing referenced bounds are rejected, not inferred. "
+    "When both bounds are supplied, they must span at most seven days. A supplied end must not be in the future. "
     "Without placeholders, the query runs unchanged, even if bounds are supplied. Every column "
     "in the SELECT clause must be a field or have an alias. It is recommended to limit the query "
     "with a WHERE clause, for example bounding timestamp on the events table, both to avoid "
@@ -140,11 +140,14 @@ HOGQL_QUERY_HELP_TEXT = (
 
 
 DATA_INTERVAL_START_HELP_TEXT = (
-    "Start of the export interval. Provide both bounds when either is supplied or the HogQL query "
-    "uses an interval placeholder. The interval must span at most seven days."
+    "Start of the export interval. Required for the events, persons, and sessions models. "
+    "For HogQL, required only when the query references {data_interval_start}. "
+    "When both bounds are supplied, the interval must span at most seven days."
 )
 DATA_INTERVAL_END_HELP_TEXT = (
-    "End of the export interval. Must not precede the start or be in the future. "
+    "End of the export interval. Required for the events, persons, and sessions models. "
+    "For HogQL, required only when the query references {data_interval_end}. "
+    "A supplied end must not be in the future or precede a supplied start. "
     "Bounds replace HogQL placeholders; they do not add filters to the query."
 )
 
@@ -155,22 +158,27 @@ def validate_file_download_interval(
     *,
     hogql_query: str | None = None,
 ) -> None:
-    requires_bounds = True
     if hogql_query is not None:
         try:
-            requires_bounds = bool(find_interval_placeholders(parse_hogql_select_for_batch_export(hogql_query)))
+            placeholders = find_interval_placeholders(parse_hogql_select_for_batch_export(hogql_query))
         except UnsupportedHogQLQueryError as e:
             raise ValidationError({"hogql_query": str(e)}) from e
-
-    if not requires_bounds and data_interval_start is None and data_interval_end is None:
-        return
-    if data_interval_start is None or data_interval_end is None:
+        bounds = {"data_interval_start": data_interval_start, "data_interval_end": data_interval_end}
+        missing = {
+            name: f"'{name}' is required because the query references '{{{name}}}'."
+            for name in sorted(placeholders)
+            if bounds[name] is None
+        }
+        if missing:
+            raise ValidationError(missing)
+    elif data_interval_start is None or data_interval_end is None:
         raise ValidationError("'data_interval_start' and 'data_interval_end' are required. Provide both bounds.")
-    if data_interval_start > data_interval_end:
-        raise ValidationError("'data_interval_end' must occur after 'data_interval_start'")
-    if data_interval_end - data_interval_start > FILE_DOWNLOAD_MAX_RANGE:
-        raise ValidationError("data interval range too big. Choose an interval of at most seven days.")
-    if data_interval_end > dt.datetime.now(dt.UTC):
+    if data_interval_start is not None and data_interval_end is not None:
+        if data_interval_start > data_interval_end:
+            raise ValidationError("'data_interval_end' must occur after 'data_interval_start'")
+        if data_interval_end - data_interval_start > FILE_DOWNLOAD_MAX_RANGE:
+            raise ValidationError("data interval range too big. Choose an interval of at most seven days.")
+    if data_interval_end is not None and data_interval_end > dt.datetime.now(dt.UTC):
         raise ValidationError(f"The provided 'data_interval_end' ({data_interval_end.isoformat()}) is in the future")
 
 
@@ -325,10 +333,13 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         source = None
         if model == "hogql":
             source = BatchExportSource(team_id=team_id, hogql_query=validated_data.pop("hogql_query"))
-
-        if model == "hogql" and "data_interval_start" not in validated_data:
-            # Placeholder-free queries still need concrete run bounds for workflow IDs and staging paths.
-            data_interval_start = data_interval_end = dt.datetime.now(dt.UTC)
+            data_interval_start = validated_data.pop("data_interval_start", None)
+            data_interval_end = validated_data.pop("data_interval_end", None)
+            # Unreferenced bounds keep run bookkeeping zero-width without changing the query's range.
+            if data_interval_start is None:
+                data_interval_start = data_interval_end or dt.datetime.now(dt.UTC)
+            if data_interval_end is None:
+                data_interval_end = data_interval_start
         else:
             data_interval_start = validated_data.pop("data_interval_start")
             data_interval_end = validated_data.pop("data_interval_end")

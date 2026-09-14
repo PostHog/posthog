@@ -53,6 +53,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
 )
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.record_batch_model import HogQLQueryRecordBatchModel
 from products.batch_exports.backend.tests.temporal.utils.mock_clickhouse import MockClickHouseClient
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -201,20 +202,41 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_sessio
     )
 
 
-async def test_write_batch_export_record_batches_to_internal_stage_rejects_future_data_interval_end():
+@pytest.mark.parametrize(
+    "hogql_query,requires_interval_end",
+    [
+        (None, True),
+        ("SELECT {data_interval_end} AS bound", True),
+        ("SELECT {data_interval_start} AS bound", False),
+    ],
+    ids=["fixed-model", "end-placeholder", "start-placeholder-only"],
+)
+async def test_write_batch_export_record_batches_to_internal_stage_checks_only_required_interval_end(
+    hogql_query: str | None, requires_interval_end: bool
+) -> None:
     data_interval_start = dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
     data_interval_end = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+    if not requires_interval_end:
+        data_interval_start = data_interval_end
+    query_or_model = HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query) if hogql_query else "SELECT 1"
 
     with (
         patch(
             "products.batch_exports.backend.temporal.pipeline.internal_stage.wait_for_delta_past_data_interval_end"
         ) as mock_wait,
-        patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_client") as mock_get_client,
+        patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage.get_client",
+            side_effect=ConnectionError("ClickHouse unavailable"),
+        ) as mock_get_client,
         override_settings(DEBUG=False, TEST=False),
     ):
-        with pytest.raises(DataIntervalEndInFutureError, match="The provided 'data_interval_end'.*is in the future"):
+        error = DataIntervalEndInFutureError if requires_interval_end else ConnectionError
+        message = (
+            "The provided 'data_interval_end'.*is in the future" if requires_interval_end else "ClickHouse unavailable"
+        )
+        with pytest.raises(error, match=message):
             await _write_batch_export_record_batches_to_internal_stage(
-                query_or_model="SELECT 1",
+                query_or_model=query_or_model,
                 full_range=(data_interval_start, data_interval_end),
                 query_parameters={},
                 team_id=1,
@@ -225,7 +247,10 @@ async def test_write_batch_export_record_batches_to_internal_stage_rejects_futur
             )
 
     mock_wait.assert_not_called()
-    mock_get_client.assert_not_called()
+    if requires_interval_end:
+        mock_get_client.assert_not_called()
+    else:
+        mock_get_client.assert_called_once()
 
 
 async def _generate_record_batches_from_internal_stage(

@@ -702,15 +702,16 @@ class TestFileDownloadHogQL:
             ),
             pytest.param(
                 {"hogql_query": "SELECT event FROM events WHERE timestamp < {data_interval_end}"},
-                "'data_interval_start' and 'data_interval_end' are required",
+                "'data_interval_end' is required",
                 id="missing-placeholder-bounds",
             ),
             pytest.param(
                 {
-                    "hogql_query": "SELECT event FROM events WHERE timestamp >= {data_interval_start}",
+                    "hogql_query": "SELECT event FROM events WHERE timestamp >= {data_interval_start} "
+                    "AND timestamp < {data_interval_end}",
                     "data_interval_start": "2026-01-01T00:00:00+00:00",
                 },
-                "'data_interval_start' and 'data_interval_end' are required",
+                "'data_interval_end' is required",
                 id="incomplete-placeholder-bounds",
             ),
             pytest.param(
@@ -773,25 +774,31 @@ class TestFileDownloadHogQL:
         assert await sync_to_async(lambda: BatchExportSource.objects.for_team(team.pk).count())() == 0
 
     @pytest.mark.parametrize(
-        "with_placeholders,with_bounds",
-        [(False, False), (False, True), (True, True)],
-        ids=["unbounded", "bounds-without-placeholders", "bounded"],
+        "query_filter,bounds",
+        [
+            ("", {}),
+            (
+                "",
+                {"data_interval_start": "2026-01-01T00:00:00+00:00", "data_interval_end": "2026-01-08T00:00:00+00:00"},
+            ),
+            (
+                " WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}",
+                {"data_interval_start": "2026-01-01T00:00:00+00:00", "data_interval_end": "2026-01-08T00:00:00+00:00"},
+            ),
+            (" WHERE timestamp >= {data_interval_start}", {"data_interval_start": "2025-01-01T00:00:00+00:00"}),
+            (" WHERE timestamp < {data_interval_end}", {"data_interval_end": "2025-01-01T00:00:00+00:00"}),
+            (" WHERE timestamp >= {data_interval_start}", {"data_interval_start": "2026-01-09T00:00:00+00:00"}),
+        ],
+        ids=["unbounded", "bounds-without-placeholders", "bounded", "start-only", "end-only", "future-start-only"],
     )
     @pytest.mark.usefixtures("enable_hogql_flag")
     @pytest.mark.django_db(transaction=True)
     @time_machine.travel("2026-01-08T00:00:00Z", tick=False)
     async def test_create(
-        self, async_client: AsyncClient, team, user, mock_start_file_download_export, with_placeholders, with_bounds
+        self, async_client: AsyncClient, team, user, mock_start_file_download_export, query_filter, bounds
     ):
         await async_client.aforce_login(user)
-        hogql_query = "SELECT event AS event, distinct_id AS distinct_id FROM events"
-        if with_placeholders:
-            hogql_query += " WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
-        bounds = (
-            {"data_interval_start": "2026-01-01T00:00:00+00:00", "data_interval_end": "2026-01-08T00:00:00+00:00"}
-            if with_bounds
-            else {}
-        )
+        hogql_query = "SELECT event AS event, distinct_id AS distinct_id FROM events" + query_filter
 
         before = dt.datetime.now(dt.UTC)
         response = await async_client.post(
@@ -813,9 +820,11 @@ class TestFileDownloadHogQL:
                 "batch_export_on_demand__source", "batch_export_on_demand__destination"
             ).aget(id=response.json()["id"])
 
-        if with_bounds:
-            assert run.data_interval_start == dt.datetime.fromisoformat(bounds["data_interval_start"])
-            assert run.data_interval_end == dt.datetime.fromisoformat(bounds["data_interval_end"])
+        if bounds:
+            for name, value in bounds.items():
+                assert getattr(run, name) == dt.datetime.fromisoformat(value)
+            if len(bounds) == 1:
+                assert run.data_interval_start == run.data_interval_end
         else:
             assert run.data_interval_start == run.data_interval_end
             assert before <= run.data_interval_end <= after
@@ -835,11 +844,13 @@ class TestFileDownloadHogQL:
         assert mock_start_file_download_export.call_args.kwargs["data_interval_start"] == run.data_interval_start
         assert mock_start_file_download_export.call_args.kwargs["data_interval_end"] == run.data_interval_end
 
-    @pytest.mark.parametrize("with_bounds", [False, True], ids=["unbounded", "bounded"])
+    @pytest.mark.parametrize(
+        "bound_mode", [None, "both", "start", "end"], ids=["unbounded", "bounded", "start-only", "end-only"]
+    )
     @pytest.mark.usefixtures("override_file_download_settings", "enable_hogql_flag")
     @pytest.mark.django_db(transaction=True)
     async def test_end_to_end(
-        self, async_client: AsyncClient, temporal_client, team, user, hogql_export_test_events, with_bounds
+        self, async_client: AsyncClient, temporal_client, team, user, hogql_export_test_events, bound_mode
     ):
         await async_client.aforce_login(user)
 
@@ -848,13 +859,18 @@ class TestFileDownloadHogQL:
         FROM events
         """
         bounds = {}
-        if with_bounds:
-            hogql_query += " WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
-            bounds = {
-                "data_interval_start": hogql_export_test_events[1]["timestamp"] + "+00:00",
-                "data_interval_end": hogql_export_test_events[-1]["timestamp"] + "+00:00",
-            }
-        expected_events = hogql_export_test_events[1:-1] if with_bounds else hogql_export_test_events
+        predicates = []
+        expected_events = hogql_export_test_events
+        if bound_mode in ("start", "both"):
+            predicates.append("timestamp >= {data_interval_start}")
+            bounds["data_interval_start"] = hogql_export_test_events[1]["timestamp"] + "+00:00"
+            expected_events = expected_events[1:]
+        if bound_mode in ("end", "both"):
+            predicates.append("timestamp < {data_interval_end}")
+            bounds["data_interval_end"] = hogql_export_test_events[-1]["timestamp"] + "+00:00"
+            expected_events = expected_events[:-1]
+        if predicates:
+            hogql_query += " WHERE " + " AND ".join(predicates)
         count_response = await async_client.post(
             f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
             {"model": "hogql", "hogql_query": hogql_query, **bounds},
@@ -926,62 +942,71 @@ class TestFileDownloadHogQL:
         assert len(exported_rows) == count_response.json()["count"]
 
     @pytest.mark.parametrize(
-        "hogql_query,expected_count,with_bounds",
+        "hogql_query,expected_count,bound_mode",
         [
             pytest.param(
                 "SELECT event AS event, distinct_id AS distinct_id FROM events",
                 10,
-                False,
+                None,
                 id="plain-select-scoped-to-team",
             ),
             pytest.param(
                 "SELECT count() AS event_count FROM events",
                 1,
-                False,
+                None,
                 id="aggregate-counts-result-rows-not-scanned-rows",
             ),
             pytest.param(
                 "SELECT event AS event FROM events UNION ALL SELECT event AS event FROM events",
                 20,
-                False,
+                None,
                 id="union-all",
             ),
             pytest.param(
                 "SELECT event AS event FROM events LIMIT 4",
                 4,
-                False,
+                None,
                 id="user-limit-caps-the-count",
             ),
             pytest.param(
                 "SELECT event AS event, distinct_id AS distinct_id FROM events "
                 "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}",
                 8,
-                True,
+                "both",
                 id="explicit-interval-excludes-outside-rows",
             ),
             pytest.param(
                 "SELECT event FROM events "
                 "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end} LIMIT 4",
                 4,
-                True,
+                "both",
                 id="bounded-query-limit-caps-the-count",
+            ),
+            pytest.param(
+                "SELECT event FROM events WHERE timestamp >= {data_interval_start}",
+                9,
+                "start",
+                id="start-only",
+            ),
+            pytest.param(
+                "SELECT event FROM events WHERE timestamp < {data_interval_end}",
+                9,
+                "end",
+                id="end-only",
             ),
         ],
     )
     @pytest.mark.usefixtures("enable_hogql_flag", "hogql_export_test_events")
     @pytest.mark.django_db(transaction=True)
     async def test_count_rows(
-        self, async_client: AsyncClient, team, user, hogql_query, expected_count, with_bounds, hogql_export_test_events
+        self, async_client: AsyncClient, team, user, hogql_query, expected_count, bound_mode, hogql_export_test_events
     ):
         await async_client.aforce_login(user)
-        bounds = (
-            {
-                "data_interval_start": hogql_export_test_events[1]["timestamp"] + "+00:00",
-                "data_interval_end": hogql_export_test_events[-1]["timestamp"] + "+00:00",
-            }
-            if with_bounds
-            else {}
-        )
+        bounds = {}
+        if bound_mode in ("start", "both"):
+            bounds["data_interval_start"] = hogql_export_test_events[1]["timestamp"] + "+00:00"
+        if bound_mode in ("end", "both"):
+            bounds["data_interval_end"] = hogql_export_test_events[-1]["timestamp"] + "+00:00"
 
         response = await async_client.post(
             f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
@@ -1027,7 +1052,7 @@ class TestFileDownloadHogQL:
             ),
             pytest.param(
                 {"model": "hogql", "hogql_query": "SELECT event FROM events WHERE timestamp < {data_interval_end}"},
-                "'data_interval_start' and 'data_interval_end' are required",
+                "'data_interval_end' is required",
                 id="missing-placeholder-bounds",
             ),
         ],
