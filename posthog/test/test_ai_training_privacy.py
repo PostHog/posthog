@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.ai_training_privacy import AITrainingPrivacyStore, DynamoResponse, item_key, session_key
 from posthog.models.ai_training import (
     AITrainingConsent,
@@ -14,9 +16,24 @@ from posthog.models.ai_training import (
     queue_training_deletion,
     record_training_consent,
 )
+from posthog.tasks.ai_training_privacy import process_ai_training_privacy_requests
 
 
 class TestAITrainingPrivacyStore(SimpleTestCase):
+    @parameterized.expand([("disabled", "", False), ("enabled", "test-table", True)])
+    def test_privacy_task_uses_dedicated_queue_and_only_drains_when_enabled(
+        self, _name: str, table: str, enabled: bool
+    ) -> None:
+        with (
+            self.settings(AI_RESEARCH_REPLAY_PRIVACY_TABLE=table),
+            patch("posthog.tasks.ai_training_privacy.AITrainingPrivacyStore.from_settings") as store,
+        ):
+            signature = process_ai_training_privacy_requests.signature()
+            self.assertEqual(signature.type.queue, "ai_research_privacy")
+            signature.apply().get()
+            self.assertEqual(store.called, enabled)
+            self.assertEqual(store.return_value.drain.called, enabled)
+
     def test_month_deletion_blocks_before_querying_and_shreds_all_index_pages(self) -> None:
         client = MagicMock()
         cursor = item_key("month:2026-09:shard:0", "key:cursor")

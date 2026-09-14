@@ -171,3 +171,10 @@ When both aliases are set, the `AI_RESEARCH_REPLAY_*` value takes precedence, in
 The wrapped HMAC secret keeps the single name `SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY` in both the environment and secret store.
 It has no new alias.
 Renaming configuration must not rotate that key.
+
+### Privacy worker isolation
+
+The privacy task uses the `ai_research_privacy` Celery queue.
+In prod-us, only the dedicated `ai-research-privacy-worker` deployment consumes this queue.
+Its service account has a dedicated IAM role and cloud-database user.
+Shared Django and Temporal workers cannot delete keys from the privacy table.
