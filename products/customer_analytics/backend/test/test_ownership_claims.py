@@ -8,6 +8,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import IntegrityError, OperationalError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -348,14 +349,19 @@ class TestOwnershipClaims(BaseTest):
         claimed = AccountRelationship.objects.for_team(self.team.id).filter(source_ref__in=["task-0", "task-1"])
         assert claimed.count() == 1
 
-    def test_reconciliation_counts_a_raising_decision_and_continues(self):
-        rows = self._view_rows(self._decision(source_ref="boom"), self._decision())
+    def _claim_raising_on_first_task(self, error):
         real_claim = relationships.claim_initial_ae
 
         def claim(*, team, decision):
             if decision.source_ref == "boom":
-                raise RuntimeError("index collision")
+                raise error
             return real_claim(team=team, decision=decision)
+
+        return claim
+
+    def test_reconciliation_counts_a_collision_with_an_overlapping_sweep_and_continues(self):
+        rows = self._view_rows(self._decision(source_ref="boom"), self._decision())
+        claim = self._claim_raising_on_first_task(IntegrityError("unique_accepted_claim_per_task"))
 
         with (
             patch.object(ownership_claims, "execute_hogql_query", return_value=SimpleNamespace(results=rows)),
@@ -367,6 +373,20 @@ class TestOwnershipClaims(BaseTest):
         assert result.outcomes == {"error": 1, "accepted": 1}
         captured.assert_called_once()
         assert self._active_ae() is not None
+
+    def test_a_failing_dependency_ends_the_sweep_instead_of_counting_every_row(self):
+        rows = self._view_rows(self._decision(source_ref="boom"), self._decision())
+        claim = self._claim_raising_on_first_task(OperationalError("connection already closed"))
+
+        with (
+            patch.object(ownership_claims, "execute_hogql_query", return_value=SimpleNamespace(results=rows)),
+            patch.object(ownership_claims.relationships, "claim_initial_ae", side_effect=claim) as claimed,
+            self.assertRaises(OperationalError),
+        ):
+            ownership_claims.reconcile_ownership_claims(self.team)
+
+        assert claimed.call_count == 1
+        assert self._active_ae() is None
 
     def test_rereading_an_accepted_task_under_another_organization_is_blocked(self):
         self._claim()

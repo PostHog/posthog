@@ -30,6 +30,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from django.db import IntegrityError
+
 import structlog
 
 from posthog.hogql import ast
@@ -133,15 +135,17 @@ def _apply_rows(team: Team, rows: list[dict[str, Any]], should_stop: Callable[[]
     for decision in _decisions_by_task(rows, outcomes):
         if should_stop():
             raise SweepStopped()
-        # Each decision is its own transaction, so one that raises (a unique-index collision with an
-        # overlapping sweep, say) is counted and reported without abandoning the rest of the run.
+        # A unique-index collision is one decision an overlapping sweep accepted first, so it is
+        # counted and the run goes on. Every refusal is an outcome, so anything else that raises is
+        # the infrastructure or a bug, never one bad decision: it ends the sweep, and the next tick
+        # reads the view again.
         try:
             result = (
                 relationships.release_initial_ae(team=team, decision=decision)
                 if decision.is_release
                 else relationships.claim_initial_ae(team=team, decision=decision)
             )
-        except Exception as error:
+        except IntegrityError as error:
             capture_exception(error, {"team_id": team.id, "source_ref": decision.source_ref})
             outcomes["error"] += 1
             continue
